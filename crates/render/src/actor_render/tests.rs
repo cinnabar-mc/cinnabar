@@ -85,7 +85,7 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
                     hdr: false,
                     enhanced: false,
                     material: material as u32,
-                    raster: None,
+                    raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 },
                 &mut descriptor,
             )
@@ -113,16 +113,14 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
         (false, true, true),
         (true, true, false),
     ] {
-        let material = render_model::ActorMaterial {
-            state: Some(assets::EntityRenderMaterialState {
-                alpha_test: true,
-                cull,
-                blend,
-                depth_write,
-                ..Default::default()
-            }),
+        let material = crate::actor::test_material::TestMaterial {
+            alpha_test: true,
+            cull,
+            blend,
+            depth_write,
             ..Default::default()
-        };
+        }
+        .material(assets::EntityRenderMaterial::Default);
         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
         ActorPipelineSpecializer
             .specialize(
@@ -131,7 +129,7 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
                     hdr: false,
                     enhanced: false,
                     material: material.gpu_word(),
-                    raster: None,
+                    raster: material.raster(),
                 },
                 &mut descriptor,
             )
@@ -495,7 +493,7 @@ fn initial_actor_allocation_failure_still_prepares_actor_pipelines() {
                 false,
                 false,
                 assets::EntityRenderMaterial::Default as u32,
-                None
+                assets::entity::material::UNAUTHORED_RENDER_STATE
             )
             .is_some(),
         "actor pipelines are requested without actor resources"
@@ -576,7 +574,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
             .specialize(
                 ActorPipelineKey {
                     material: 0,
-                    raster: None,
+                    raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                     msaa,
                     hdr: true,
                     enhanced: false,

@@ -191,6 +191,7 @@ impl super::super::RigSource for MaskedSource<'_> {
                 index: index as u32,
                 data,
                 vertex_count: 3,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 texture: super::super::LayerTexture {
                     texture: self.texture,
                     layer: 0,

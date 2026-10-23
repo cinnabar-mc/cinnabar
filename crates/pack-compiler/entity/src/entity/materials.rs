@@ -227,17 +227,17 @@ impl MaterialStates {
         }
     }
 
-    /// Resolves `target`, interns its complete definition and returns the legacy state the
-    /// current renderer consumes alongside the definition's table index.
+    /// Resolves `target`, interns its complete definition and returns its shading features
+    /// alongside the definition's table index.
     pub(super) fn resolve(
         &self,
         target: &str,
         table: &mut MaterialTable,
-    ) -> Result<Option<(Option<EntityRenderMaterialState>, u32)>, AssetError> {
-        let Some(resolved) = self.resolve_with(material_name(target), &builtin_resolved) else {
+    ) -> Result<Option<(EntityRenderMaterialState, u32)>, AssetError> {
+        let Some(resolved) = self.resolve_with(material_name(target), &builtin) else {
             return Ok(None);
         };
-        Ok(Some((legacy_state(&resolved), table.intern(&resolved)?)))
+        Ok(Some((shading(&resolved), table.intern(&resolved)?)))
     }
 
     fn resolve_with(
@@ -316,37 +316,34 @@ fn material_name(target: &str) -> &str {
     target.strip_suffix(".skinning").unwrap_or(target)
 }
 
-/// Native material bases the client ships outside resource packs, as legacy states.
-fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
+/// Native material bases the client ships outside resource packs, as the states, defines and
+/// colour blend pair each declares. The generated native table wins over the base names below.
+fn builtin(name: &str) -> Option<Resolved> {
+    use EntityMaterialState as State;
+    const OVERLAY: &str = "USE_OVERLAY";
+    const ALPHA_TEST: &str = "ALPHA_TEST";
+    const EMISSIVE: &str = "USE_EMISSIVE";
     if let Some(state) = assets::facts::pack::rules().material_state(name) {
-        return Some(state);
+        return Some(Resolved::from_definition(state.definition()));
     }
-    let mut state = EntityRenderMaterialState::default();
-    match name {
-        "entity" => {}
-        "entity_static" => state.disable_overlay = true,
-        "entity_nocull" => state.cull = false,
-        "entity_alphatest_one_sided" => state.alpha_test = true,
-        "entity_emissive" => state.emissive = true,
-        "entity_emissive_alpha" => {
-            state.emissive = true;
-            state.alpha_test = true;
-            state.cull = false;
-        }
-        "entity_emissive_alpha_one_sided" => {
-            state.emissive = true;
-            state.alpha_test = true;
-        }
-        "entity_alphablend" | "entity_alphablend_nocolor" => {
-            state.blend = true;
-        }
+    let (states, defines): (&[State], &[&str]) = match name {
+        "entity" => (&[], &[OVERLAY]),
+        "entity_static" => (&[], &[]),
+        "entity_nocull" => (&[State::DisableCulling], &[OVERLAY]),
+        "entity_alphatest_one_sided" => (&[], &[ALPHA_TEST, OVERLAY]),
+        "entity_emissive" => (&[], &[EMISSIVE, OVERLAY]),
+        "entity_emissive_alpha" => (&[State::DisableCulling], &[EMISSIVE, ALPHA_TEST, OVERLAY]),
+        "entity_emissive_alpha_one_sided" => (&[], &[EMISSIVE, ALPHA_TEST, OVERLAY]),
+        "entity_alphablend" | "entity_alphablend_nocolor" => (&[State::Blending], &[OVERLAY]),
         _ => return None,
-    }
-    Some(state)
-}
-
-fn builtin_resolved(name: &str) -> Option<Resolved> {
-    builtin(name).map(Resolved::from_legacy)
+    };
+    let mut resolved = Resolved::default();
+    resolved.states.extend(states.iter().copied());
+    resolved
+        .defines
+        .extend(defines.iter().map(|&define| Box::from(define)));
+    resolved.finish();
+    Some(resolved)
 }
 
 /// Bases for dye masks: leather armor masks, plain armor and other native bases do not.
@@ -363,100 +360,32 @@ fn color_mask_base(name: &str) -> Option<Resolved> {
         {
             Some(Resolved::default())
         }
-        _ => builtin_resolved(name),
+        _ => builtin(name),
     }
 }
 
-/// The current renderer's projection of a complete definition. Blend factor pairs it cannot
-/// draw leave the material unauthored, as before complete definitions existed.
-fn legacy_state(resolved: &Resolved) -> Option<EntityRenderMaterialState> {
-    use EntityMaterialBlendFactor as Factor;
-    let blend = resolved.states.contains(&EntityMaterialState::Blending);
-    let (additive, additive_alpha) =
-        match (resolved.definition.blend[0], resolved.definition.blend[1]) {
-            (Factor::One, Factor::One) => (true, false),
-            (Factor::SourceAlpha, Factor::One) => (true, true),
-            (Factor::SourceAlpha, Factor::OneMinusSrcAlpha) => (false, false),
-            _ if !blend => (false, false),
-            _ => return None,
-        };
-    Some(EntityRenderMaterialState {
+/// The shading features the actor shader reads from a definition's defines.
+fn shading(resolved: &Resolved) -> EntityRenderMaterialState {
+    EntityRenderMaterialState {
         // Native JSON actors select the transparent pass before legacy ALPHA_TEST; that pass
         // preserves sampled opacity without a cutout discard.
-        alpha_test: resolved.defines.contains("ALPHA_TEST") && !blend,
-        cull: !resolved
-            .states
-            .contains(&EntityMaterialState::DisableCulling),
-        blend,
-        depth_write: !resolved
-            .states
-            .contains(&EntityMaterialState::DisableDepthWrite),
+        alpha_test: resolved.defines.contains("ALPHA_TEST")
+            && !resolved.states.contains(&EntityMaterialState::Blending),
         emissive: resolved.defines.contains("USE_EMISSIVE"),
         only_emissive: resolved.defines.contains("USE_ONLY_EMISSIVE"),
-        additive: blend && additive,
-        additive_alpha: blend && additive_alpha,
         disable_overlay: !resolved.defines.contains("USE_OVERLAY"),
-        depth_always: resolved.definition.depth_func == EntityMaterialCompare::Always,
-        depth_equal: resolved.definition.depth_func == EntityMaterialCompare::Equal,
-        disable_alpha_write: resolved
-            .states
-            .contains(&EntityMaterialState::DisableAlphaWrite),
-        disable_color_write: resolved
-            .states
-            .contains(&EntityMaterialState::DisableColorWrite),
-    })
+    }
 }
 
 impl Resolved {
-    /// The authored fields a legacy state represents.
-    fn from_legacy(state: EntityRenderMaterialState) -> Self {
-        let mut resolved = Self::default();
-        let mut set = |enabled: bool, value: EntityMaterialState| {
-            if enabled {
-                resolved.states.insert(value);
-            }
-        };
-        set(!state.cull, EntityMaterialState::DisableCulling);
-        set(state.blend, EntityMaterialState::Blending);
-        set(!state.depth_write, EntityMaterialState::DisableDepthWrite);
-        set(
-            state.disable_alpha_write,
-            EntityMaterialState::DisableAlphaWrite,
-        );
-        set(
-            state.disable_color_write,
-            EntityMaterialState::DisableColorWrite,
-        );
-        for (enabled, define) in [
-            (state.alpha_test, "ALPHA_TEST"),
-            (state.emissive, "USE_EMISSIVE"),
-            (state.only_emissive, "USE_ONLY_EMISSIVE"),
-            (!state.disable_overlay, "USE_OVERLAY"),
-        ] {
-            if enabled {
-                resolved.defines.insert(define.into());
-            }
+    /// Working sets for a complete definition without variants or samplers.
+    fn from_definition(definition: EntityMaterialDefinition) -> Self {
+        Self {
+            states: definition.states.iter().copied().collect(),
+            defines: definition.defines.iter().cloned().collect(),
+            definition,
+            ..Self::default()
         }
-        if state.depth_always {
-            resolved.definition.depth_func = EntityMaterialCompare::Always;
-        } else if state.depth_equal {
-            resolved.definition.depth_func = EntityMaterialCompare::Equal;
-        }
-        if state.additive {
-            let source = if state.additive_alpha {
-                EntityMaterialBlendFactor::SourceAlpha
-            } else {
-                EntityMaterialBlendFactor::One
-            };
-            resolved.definition.blend = [
-                source,
-                EntityMaterialBlendFactor::One,
-                source,
-                EntityMaterialBlendFactor::One,
-            ];
-        }
-        resolved.finish();
-        resolved
     }
 
     /// Applies one declaration's fields with this material's version rules.

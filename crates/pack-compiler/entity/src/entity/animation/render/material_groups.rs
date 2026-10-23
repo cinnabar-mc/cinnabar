@@ -33,7 +33,7 @@ pub(super) struct Group {
     selection: Option<Arc<Selection<Raster>>>,
 }
 
-/// The shader kind, legacy state and interned definition one controller material selects.
+/// The shader kind, shading features and interned definition one controller material selects.
 fn raster(
     target: Option<&str>,
     materials: &MaterialStates,
@@ -47,7 +47,7 @@ fn raster(
         material: target.map_or(EntityRenderMaterial::Default, |name| {
             assets::facts::pack::rules().raster(name)
         }),
-        state: resolved.and_then(|(state, _)| state),
+        state: resolved.map(|(state, _)| state),
         definition: resolved.map(|(_, definition)| definition),
     })
 }

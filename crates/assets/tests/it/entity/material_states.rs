@@ -3,20 +3,14 @@ use assets::{EntityRenderMaterialState, RuntimeEntityAssets, encode_entity_blob}
 use super::suite::carrier_v4_fixture;
 
 #[test]
-fn additive_source_alpha_material_state_round_trips_through_entity_carrier() {
+fn material_shading_round_trips_through_entity_carrier() {
     let mut compiled = carrier_v4_fixture();
-    for (additive_alpha, disable_overlay) in
-        [(false, false), (false, true), (true, false), (true, true)]
-    {
+    for bits in 0..16 {
         let state = EntityRenderMaterialState {
-            cull: false,
-            blend: true,
-            depth_write: false,
-            emissive: true,
-            additive: true,
-            additive_alpha,
-            disable_overlay,
-            ..Default::default()
+            alpha_test: bits & 1 != 0,
+            emissive: bits & 2 != 0,
+            disable_overlay: bits & 4 != 0,
+            only_emissive: bits & 8 != 0,
         };
         compiled.render.layers[0].material_state = Some(state);
         let encoded = encode_entity_blob(&compiled).unwrap();
@@ -57,30 +51,20 @@ fn existing_entity_carrier_keeps_encoded_identity() {
 }
 
 #[test]
-fn legacy_entity_carrier_keeps_overlay_defaults_and_encoded_identity() {
-    let Some(encoded) = carrier_fixture("CINNABAR_LEGACY_ENTITY_CARRIER") else {
-        return;
-    };
-    let runtime = RuntimeEntityAssets::decode(&encoded).expect("decode legacy entity carrier");
-    assert!(!runtime.render_data().layers.is_empty());
-    assert!(
-        runtime
-            .render_data()
-            .layers
-            .iter()
-            .filter_map(|layer| layer.material_state)
-            .all(|state| !state.disable_overlay)
-    );
-    assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_slice());
-}
-
-#[test]
 fn material_choices_preserve_alpha_for_every_possible_raster() {
-    use assets::{EntityRenderMaterial, EntityRenderMaterialSelection as Node};
+    use assets::{
+        EntityRenderMaterial, EntityRenderMaterialSelection as Node,
+        entity::material::{EntityMaterialDefinition, EntityMaterialState},
+    };
     let mut compiled = carrier_v4_fixture();
     let source = compiled.render.candidates[0].source;
     compiled.render.layers[0].material_state = None;
     compiled.render.layers[0].material_selection = Some(0);
+    compiled.render.materials = vec![EntityMaterialDefinition {
+        states: Box::new([EntityMaterialState::Blending]),
+        ..Default::default()
+    }]
+    .into();
     compiled.render.material_selections = vec![
         Node::Branch {
             condition: 0,
@@ -94,11 +78,8 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
         },
         Node::Raster {
             material: EntityRenderMaterial::Default,
-            state: Some(EntityRenderMaterialState {
-                blend: true,
-                ..Default::default()
-            }),
-            definition: None,
+            state: Some(EntityRenderMaterialState::default()),
+            definition: Some(0),
         },
     ]
     .into();

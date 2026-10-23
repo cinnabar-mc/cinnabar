@@ -171,17 +171,62 @@ fn variants_clone_their_owner_and_intern_into_the_table() {
 }
 
 #[test]
-fn legacy_projection_keeps_native_base_behavior() {
+fn shading_follows_defines_over_native_bases() {
     let file = modern(json!({"hidden:entity_alphatest": {"-defines": ["USE_OVERLAY"]}}));
     let mut states = MaterialStates::default();
     states.read(&file);
     let mut table = MaterialTable::default();
     let (state, _) = states.resolve("hidden", &mut table).unwrap().unwrap();
-    let state = state.unwrap();
-    assert!(state.alpha_test && state.disable_overlay);
-    let (blend, _) = states
-        .resolve("entity_alphablend", &mut table)
-        .unwrap()
-        .unwrap();
-    assert!(blend.unwrap().blend);
+    assert!(state.alpha_test && state.disable_overlay && !state.emissive);
+}
+
+#[test]
+fn native_bases_keep_their_shading_and_raster() {
+    let alpha = Some((Factor::SourceAlpha, Factor::OneMinusSrcAlpha));
+    for (name, alpha_test, overlay, culls, blending, depth_write) in [
+        ("skeleton", true, true, false, None, true),
+        ("harness", true, true, false, None, true),
+        ("experience_orb", true, true, true, None, true),
+        ("slime_outer", false, true, true, alpha, true),
+        ("breeze_wind", false, false, false, alpha, false),
+        (
+            "charged_creeper",
+            false,
+            false,
+            false,
+            Some((Factor::One, Factor::One)),
+            true,
+        ),
+        ("entity_emissive_alpha", true, true, false, None, true),
+        ("entity_static", false, false, true, None, true),
+    ] {
+        let mut table = MaterialTable::default();
+        let (state, index) = MaterialStates::default()
+            .resolve(name, &mut table)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (state.alpha_test, !state.disable_overlay),
+            (alpha_test, overlay),
+            "{name}"
+        );
+        let definition = &table.definitions[index as usize];
+        assert_eq!(
+            !definition.has_state(State::DisableCulling),
+            culls,
+            "{name}"
+        );
+        assert_eq!(
+            definition
+                .has_state(State::Blending)
+                .then_some((definition.blend[0], definition.blend[1])),
+            blending,
+            "{name}"
+        );
+        assert_eq!(
+            !definition.has_state(State::DisableDepthWrite),
+            depth_write,
+            "{name}"
+        );
+    }
 }

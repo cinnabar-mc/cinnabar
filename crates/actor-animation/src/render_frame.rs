@@ -190,10 +190,11 @@ impl<'a> ActorRenderFrame<'a> {
     pub fn has_always_depth_material(&mut self, runtime_id: u64) -> bool {
         self.may_use_always_depth_material(runtime_id)
             && self.cached_layers(runtime_id).is_some_and(|layers| {
-                layers
-                    .render
-                    .iter()
-                    .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+                layers.render.iter().any(|layer| {
+                    layer
+                        .render_state
+                        .is_some_and(|raster| raster.ignores_stored_depth())
+                })
             })
     }
 

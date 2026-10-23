@@ -1,6 +1,13 @@
 use super::*;
 use assets::*;
 
+/// Whether the layer's selected material definition blends.
+fn blends(layer: &crate::RenderTextureLayer) -> bool {
+    layer
+        .render_state
+        .is_some_and(|state| state.blend.is_some())
+}
+
 /// Builds a static actor whose material selector reads one query, directly or through a script.
 fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<RuntimeEntityAssets> {
     let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
@@ -61,15 +68,20 @@ fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<Ru
         EntityRenderMaterialSelection::Raster {
             material: EntityRenderMaterial::Default,
             state: Some(EntityRenderMaterialState::default()),
-            definition: None,
+            definition: Some(0),
         },
         EntityRenderMaterialSelection::Raster {
             material: EntityRenderMaterial::Default,
-            state: Some(EntityRenderMaterialState {
-                blend: true,
-                ..Default::default()
-            }),
-            definition: None,
+            state: Some(EntityRenderMaterialState::default()),
+            definition: Some(1),
+        },
+    ]
+    .into();
+    compiled.render.materials = vec![
+        assets::entity::material::EntityMaterialDefinition::default(),
+        assets::entity::material::EntityMaterialDefinition {
+            states: Box::new([assets::entity::material::EntityMaterialState::Blending]),
+            ..Default::default()
         },
     ]
     .into();
@@ -92,7 +104,7 @@ fn camera_only_material_selector_changes_between_ticks() {
         ..Default::default()
     });
     let completed = store.get(1).unwrap().render.to_vec();
-    assert!(!completed[0].material_state.unwrap().blend);
+    assert!(!blends(&completed[0]));
     let authored = authored_state(&store);
     for alpha in [0.0, 0.25, 0.75, 1.0] {
         for (distance, blend) in [(5.0, false), (9.0, true), (5.0, false)] {
@@ -108,7 +120,7 @@ fn camera_only_material_selector_changes_between_ticks() {
                 )
                 .unwrap();
             assert_eq!(layers.render.len(), 1);
-            assert_eq!(layers.render[0].material_state.unwrap().blend, blend);
+            assert_eq!(blends(&layers.render[0]), blend);
         }
     }
     assert_eq!(store.get(1).unwrap().render, completed);
@@ -132,11 +144,7 @@ fn frame_time_material_selectors_follow_authored_variable_dependencies() {
             let layers = store
                 .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut budget, false)
                 .unwrap();
-            assert_eq!(
-                layers.render[0].material_state.unwrap().blend,
-                blend,
-                "{query:?}"
-            );
+            assert_eq!(blends(&layers.render[0]), blend, "{query:?}");
         }
         assert_eq!(authored_state(&store), authored);
     }

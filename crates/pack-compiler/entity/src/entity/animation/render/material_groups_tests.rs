@@ -80,7 +80,7 @@ fn material_word(name: &str) -> u32 {
         MaterialStates::default()
             .resolve(name, &mut MaterialTable::default())
             .unwrap()
-            .and_then(|(state, _)| state),
+            .map(|(state, _)| state),
     )
 }
 

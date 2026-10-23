@@ -300,7 +300,7 @@ mod tests {
         let tracker = ActorDrawTracker::default();
         let span = ActorDrawSpan {
             material: 0,
-            raster: crate::actor::material::word_raster(0),
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             page: 0,
             first: 0,
             count: 1,
@@ -323,7 +323,7 @@ mod tests {
         let spans = [
             ActorDrawSpan {
                 material: 0,
-                raster: crate::actor::material::word_raster(0),
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 page: 0,
                 first: 0,
                 count: 1,
@@ -331,7 +331,7 @@ mod tests {
             },
             ActorDrawSpan {
                 material: 0,
-                raster: crate::actor::material::word_raster(0),
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 page: 1,
                 first: 1,
                 count: 1,
@@ -362,7 +362,7 @@ mod tests {
         let spans = (0..count)
             .map(|index| ActorDrawSpan {
                 material: (index % 2) as u32,
-                raster: crate::actor::material::word_raster((index % 2) as u32),
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 page: 0,
                 first: index as u32,
                 count: 1,
@@ -412,7 +412,7 @@ mod tests {
         for bad in [
             ActorDrawSpan {
                 material: expected.material + 1,
-                raster: crate::actor::material::word_raster(expected.material + 1),
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 ..expected
             },
             ActorDrawSpan {
