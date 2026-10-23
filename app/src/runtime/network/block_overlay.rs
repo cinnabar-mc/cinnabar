@@ -240,6 +240,7 @@ pub(super) fn compile_block_overlay_with_textures(
         let _zone = bevy::log::info_span!("pack.blocks.vanilla_overrides").entered();
         builder.override_vanilla_materials(keys);
         builder.override_vanilla_bindings(keys, &legacy);
+        builder.bind_vanilla_blocks(keys, &bindings);
     }
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
