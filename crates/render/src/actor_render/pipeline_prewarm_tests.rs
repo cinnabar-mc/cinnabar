@@ -525,3 +525,31 @@ fn a_frames_authored_raster_is_requested_and_gates_readiness() {
         "readiness waits for the authored pipeline"
     );
 }
+
+#[test]
+fn a_sessions_authored_rasters_are_requested_before_any_actor_draws_them() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let raster = render_api::render_state::RenderState {
+        cull: render_api::render_state::CullMode::Front,
+        ..Default::default()
+    };
+    let material = EntityRenderMaterial::Default as u32;
+    let mut frame = render_scene::ActorRenderFrame::default();
+    frame.authored_rasters = std::sync::Arc::from([(material, raster)]);
+    world.insert_resource(frame);
+    world
+        .run_system_once(super::super::prepare_actor_pipelines)
+        .unwrap();
+    let (&msaa, view) = world
+        .query::<(&Msaa, &ExtractedCamera)>()
+        .single(world)
+        .unwrap();
+    let pipeline = world.resource::<ActorPipeline>();
+    let authored = pipeline
+        .draw_variant(msaa, view.hdr, false, material, raster)
+        .expect("the session's raster is requested with no actor drawing it");
+    assert!(!pipeline.ready_with((msaa, view.hdr, false), |id| id != authored));
+}

@@ -18,7 +18,12 @@ pub(crate) struct ActorPipeline {
     motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
     /// Unique draw and motion pipelines for each view, retained for readiness and shader reloads.
     prewarmed: std::collections::HashMap<(Msaa, bool, bool), Vec<CachedRenderPipelineId>>,
+    /// The session's published authored rasters and the views that already requested them.
+    session_rasters: (AuthoredRasters, Vec<(Msaa, bool, bool)>),
 }
+
+/// Authored raster states by material index, as the session publishes them.
+type AuthoredRasters = std::sync::Arc<[(u32, render_api::render_state::RenderState)]>;
 
 impl FromWorld for ActorPipeline {
     fn from_world(world: &mut World) -> Self {
@@ -44,6 +49,7 @@ impl FromWorld for ActorPipeline {
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
+            session_rasters: (std::sync::Arc::from([]), Vec::new()),
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
             bind_group_layout,
             draw_variants: Default::default(),
@@ -311,6 +317,11 @@ pub(super) fn prepare_actor_pipelines(
     )>,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
+    if let Some(frame) = &frame
+        && !std::sync::Arc::ptr_eq(&pipeline.session_rasters.0, &frame.authored_rasters)
+    {
+        pipeline.session_rasters = (std::sync::Arc::clone(&frame.authored_rasters), Vec::new());
+    }
     let authored = frame
         .filter(bevy::ecs::change_detection::DetectChanges::is_changed)
         .map(|frame| authored_materials(&frame.rig))
@@ -321,6 +332,16 @@ pub(super) fn prepare_actor_pipelines(
         has_view = true;
         for msaa in crate::pipeline_warmup::sample_modes(*msaa) {
             let view = (msaa, camera.hdr, enhanced.is_some());
+            // A session's authored materials compile once per view, when its pack loads.
+            if !pipeline.session_rasters.1.contains(&view) {
+                let session = std::sync::Arc::clone(&pipeline.session_rasters.0);
+                if pipeline
+                    .prewarm_rasters(&cache, view, session.iter().copied())
+                    .is_some()
+                {
+                    pipeline.session_rasters.1.push(view);
+                }
+            }
             ready &= pipeline
                 .prewarm(&cache, msaa, camera.hdr, enhanced.is_some())
                 .is_some()
