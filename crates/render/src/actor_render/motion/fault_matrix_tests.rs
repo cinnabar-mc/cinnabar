@@ -57,13 +57,16 @@ fn draw_motion(
     let pipeline = world.resource::<ActorPipeline>();
     let material = assets::EntityRenderMaterial::Default as u32;
     let ids = [
-        pipeline.draw_variant(msaa, false, false, material).unwrap(),
+        pipeline
+            .draw_variant(msaa, false, false, material, None)
+            .unwrap(),
         pipeline
             .motion_variant(ActorPipelineKey {
                 msaa,
                 hdr: false,
                 enhanced: false,
                 material,
+                raster: None,
             })
             .unwrap(),
     ];

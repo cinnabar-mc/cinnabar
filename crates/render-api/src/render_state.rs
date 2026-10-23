@@ -5,7 +5,7 @@
 //! authored forward convention (nearer is less); the renderer adapts them to its depth buffer.
 
 /// Which faces are discarded before rasterization.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CullMode {
     None,
     Front,
@@ -14,7 +14,7 @@ pub enum CullMode {
 }
 
 /// A depth or stencil comparison against the stored value.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CompareFunction {
     Never,
     Less,
@@ -42,6 +42,20 @@ impl PartialEq for DepthBias {
 
 impl Eq for DepthBias {}
 
+impl PartialOrd for DepthBias {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Orders by the exact bits, consistent with equality.
+impl Ord for DepthBias {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.constant.to_bits(), self.slope_scale.to_bits())
+            .cmp(&(other.constant.to_bits(), other.slope_scale.to_bits()))
+    }
+}
+
 impl std::hash::Hash for DepthBias {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.constant.to_bits().hash(state);
@@ -50,7 +64,7 @@ impl std::hash::Hash for DepthBias {
 }
 
 /// Depth testing and writing.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DepthState {
     /// `None` disables the depth test entirely.
     pub compare: Option<CompareFunction>,
@@ -69,7 +83,7 @@ impl Default for DepthState {
 }
 
 /// What a stencil test outcome does to the stored value.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StencilOperation {
     #[default]
     Keep,
@@ -83,7 +97,7 @@ pub enum StencilOperation {
 }
 
 /// The stencil test and its three outcomes for one facing.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StencilFace {
     pub compare: CompareFunction,
     pub fail: StencilOperation,
@@ -103,7 +117,7 @@ impl Default for StencilFace {
 }
 
 /// Stencil testing; `None` in [`RenderState::stencil`] disables it.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StencilState {
     pub front: StencilFace,
     pub back: StencilFace,
@@ -125,7 +139,7 @@ impl Default for StencilState {
 }
 
 /// A blend factor applied to the source or destination.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BlendFactor {
     Zero,
     One,
@@ -140,7 +154,7 @@ pub enum BlendFactor {
 }
 
 /// How weighted source and destination combine.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BlendOperation {
     #[default]
     Add,
@@ -151,7 +165,7 @@ pub enum BlendOperation {
 }
 
 /// Blending for one set of channels.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BlendComponent {
     pub source: BlendFactor,
     pub destination: BlendFactor,
@@ -159,7 +173,7 @@ pub struct BlendComponent {
 }
 
 /// Independent colour and alpha blending.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BlendState {
     pub color: BlendComponent,
     pub alpha: BlendComponent,
@@ -182,7 +196,7 @@ impl BlendState {
 }
 
 /// Complete fixed-function state of one draw.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RenderState {
     pub cull: CullMode,
     pub depth: DepthState,

@@ -64,12 +64,18 @@ pub(super) fn queue_actors(
             extracted_camera.hdr,
             enhanced.is_some(),
             assets::EntityRenderMaterial::Default as u32,
+            None,
         ) else {
             continue;
         };
 
         let mut view_queued = false;
-        if params.gpu.spans.iter().any(|span| !sorted(span.material)) {
+        if params
+            .gpu
+            .spans
+            .iter()
+            .any(|span| !sorted(span.material, &span.raster))
+        {
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function,
@@ -102,6 +108,7 @@ pub(super) fn queue_actors(
                     extracted_camera.hdr,
                     enhanced.is_some(),
                     span.material,
+                    Some(span.raster),
                 ) else {
                     continue;
                 };
@@ -183,22 +190,24 @@ pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
 >;
 
 /// Draws blending, always-depth spans and their companion color layers after terrain.
-pub(super) fn sorted(material: u32) -> bool {
-    crate::actor::material::state(material).is_some_and(|state| state.blend || state.depth_always)
+/// Whether a draw belongs to the sorted pass: its raster blends or ignores stored depth, or it is
+/// a dissolve colour layer routed after its mask.
+pub(super) fn sorted(material: u32, raster: &render_api::render_state::RenderState) -> bool {
+    crate::actor::material::raster_sorted(raster)
         || material & crate::actor::material::LATE_DISSOLVE_COLOR != 0
 }
 
 impl ActorGpu {
     /// Uses the same material and artwork admission for native and pack draws.
     pub(super) fn pack_supports_span(&self, span: &crate::actor::gpu::ActorDrawSpan) -> bool {
+        let page = (span.page != 0)
+            .then(|| self.artwork.page(usize::from(span.page) - 1))
+            .flatten();
         // A pack vertex shader may move a depth producer away from its native overlay.
         // Keep the complete actor frame native while that dependency exists.
         !self.pack_depth_dependency
-            && (span.page == 0
-                || self
-                    .artwork
-                    .page(usize::from(span.page) - 1)
-                    .is_some_and(|page| page.raw_texture().is_some()))
+            && (span.page == 0 || page.is_some_and(|page| page.raw_texture().is_some()))
+            && crate::shaderpack::actors::raster_supported(span.material, &span.raster)
             && (span.first..span.first + span.count).all(|index| {
                 self.instances
                     .get(index as usize)
@@ -288,15 +297,21 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         for ordinal in 0..span_count {
             let index = span_indices.map_or(ordinal, |indices| indices[ordinal]);
             let span = &gpu.spans[index];
-            if (pack_actors && gpu.pack_supports_span(span)) || sorted(span.material) != SORTED {
+            if (pack_actors && gpu.pack_supports_span(span))
+                || sorted(span.material, &span.raster) != SORTED
+            {
                 continue;
             }
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }
-            let Some(id) =
-                pipeline.draw_variant(*view.2, view.5.hdr, view.4.is_some(), span.material)
-            else {
+            let Some(id) = pipeline.draw_variant(
+                *view.2,
+                view.5.hdr,
+                view.4.is_some(),
+                span.material,
+                Some(span.raster),
+            ) else {
                 continue;
             };
             let Some(variant) = cache.get_render_pipeline(id) else {

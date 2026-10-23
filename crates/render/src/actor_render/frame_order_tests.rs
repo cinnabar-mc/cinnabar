@@ -121,7 +121,7 @@ fn inspect_executed_frame(world: &mut World) {
         .spans
         .iter()
         .copied()
-        .filter(|span| has_opaque && !super::super::phase::sorted(span.material))
+        .filter(|span| has_opaque && !super::super::phase::sorted(span.material, &span.raster))
         .collect::<Vec<_>>();
     if !opaque.is_empty() {
         commands.push(opaque);
@@ -504,10 +504,22 @@ fn an_ordinary_actors_dissolve_color_is_not_promoted_by_another_actors_mask() {
     world.insert_resource(frame);
     world.run_schedule(Render);
     let gpu = world.resource::<ActorGpu>();
-    assert!(super::super::phase::sorted(gpu.instances[0].material));
-    assert!(super::super::phase::sorted(gpu.instances[1].material));
-    assert!(!super::super::phase::sorted(gpu.instances[2].material));
-    assert!(!super::super::phase::sorted(gpu.instances[3].material));
+    assert!(super::super::phase::sorted(
+        gpu.instances[0].material,
+        &crate::actor::material::word_raster(gpu.instances[0].material)
+    ));
+    assert!(super::super::phase::sorted(
+        gpu.instances[1].material,
+        &crate::actor::material::word_raster(gpu.instances[1].material)
+    ));
+    assert!(!super::super::phase::sorted(
+        gpu.instances[2].material,
+        &crate::actor::material::word_raster(gpu.instances[2].material)
+    ));
+    assert!(!super::super::phase::sorted(
+        gpu.instances[3].material,
+        &crate::actor::material::word_raster(gpu.instances[3].material)
+    ));
 }
 
 #[test]

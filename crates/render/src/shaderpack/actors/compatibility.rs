@@ -23,6 +23,15 @@ pub(crate) fn instance_supported(instance: &ActorGpuInstance) -> bool {
         })
 }
 
+/// Pack actor draws reproduce only the raster states legacy actor flags can express; a complete
+/// authored definition with other state stays on the native path.
+pub(crate) fn raster_supported(
+    material: u32,
+    raster: &render_api::render_state::RenderState,
+) -> bool {
+    crate::actor::material::lowered(*raster) == crate::actor::material::word_raster(material)
+}
+
 /// Checks the current frame before native queues can be suppressed.
 pub(crate) fn frame_supported(
     actors: Option<&ActorRenderFrame>,
@@ -36,6 +45,12 @@ pub(crate) fn frame_supported(
             .iter()
             .enumerate()
             .all(|(index, instance)| {
+                if !raster_supported(
+                    instance.material,
+                    &crate::actor::material::instance_raster(&frame.rig.rasters, instance),
+                ) {
+                    return false;
+                }
                 let page = frame.instance_pages.get(index).copied().unwrap_or(0);
                 (page == 0 || frame.artwork.pages.get(usize::from(page) - 1).is_some())
                     && instance_supported(instance)

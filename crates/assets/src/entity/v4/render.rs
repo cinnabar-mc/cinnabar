@@ -86,6 +86,66 @@ impl Default for EntityRenderMaterialState {
 }
 
 impl EntityRenderMaterialState {
+    /// Raster state of an actor layer without authored material state: double-sided, opaque and
+    /// depth-tested.
+    pub const UNAUTHORED: render_api::render_state::RenderState =
+        render_api::render_state::RenderState {
+            cull: render_api::render_state::CullMode::None,
+            depth: render_api::render_state::DepthState {
+                compare: Some(render_api::render_state::CompareFunction::LessEqual),
+                write: true,
+                bias: render_api::render_state::DepthBias {
+                    constant: 0.0,
+                    slope_scale: 0.0,
+                },
+            },
+            stencil: None,
+            blend: None,
+            write_color: true,
+            write_alpha: true,
+            alpha_to_coverage: false,
+        };
+
+    /// The raster state these legacy flags select.
+    #[must_use]
+    pub fn render_state(self) -> render_api::render_state::RenderState {
+        use render_api::render_state::{
+            BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction, CullMode,
+        };
+        let component = BlendComponent {
+            source: if self.additive && !self.additive_alpha {
+                BlendFactor::One
+            } else {
+                BlendFactor::SourceAlpha
+            },
+            destination: if self.additive {
+                BlendFactor::One
+            } else {
+                BlendFactor::OneMinusSourceAlpha
+            },
+            operation: BlendOperation::Add,
+        };
+        let mut state = Self::UNAUTHORED;
+        state.cull = if self.cull {
+            CullMode::Back
+        } else {
+            CullMode::None
+        };
+        state.depth.write = self.depth_write;
+        if self.depth_always {
+            state.depth.compare = Some(CompareFunction::Always);
+        } else if self.depth_equal {
+            state.depth.compare = Some(CompareFunction::Equal);
+        }
+        state.write_color = !self.disable_color_write;
+        state.write_alpha = !self.disable_color_write && !self.disable_alpha_write;
+        state.blend = self.blend.then_some(BlendState {
+            color: component,
+            alpha: component,
+        });
+        state
+    }
+
     pub const KIND_MASK: u32 = 0xff;
     pub const AUTHORED: u32 = 1 << 8;
     pub const ALPHA_TEST: u32 = 1 << 9;

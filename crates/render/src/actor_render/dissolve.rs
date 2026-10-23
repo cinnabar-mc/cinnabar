@@ -24,7 +24,7 @@ impl SortedDraws {
         for (index, span) in spans
             .iter()
             .enumerate()
-            .filter(|(_, span)| super::phase::sorted(span.material))
+            .filter(|(_, span)| super::phase::sorted(span.material, &span.raster))
         {
             if let Some(actor) = pair_owner(span, manifest) {
                 pairs.entry(actor).or_default().push(index);
@@ -33,7 +33,7 @@ impl SortedDraws {
         for (index, span) in spans
             .iter()
             .enumerate()
-            .filter(|(_, span)| super::phase::sorted(span.material))
+            .filter(|(_, span)| super::phase::sorted(span.material, &span.raster))
         {
             let start = self.indices.len();
             if let Some(actor) = pair_owner(span, manifest) {
@@ -78,6 +78,7 @@ fn owner(identity: ActorRenderIdentity) -> ActorRenderIdentity {
 pub(super) fn instances(
     input: &Arc<[ActorGpuInstance]>,
     manifest: &[ActorDrawManifestEntry],
+    rasters: &[render_api::render_state::RenderState],
 ) -> Arc<[ActorGpuInstance]> {
     let late: BTreeSet<_> = input
         .iter()
@@ -85,7 +86,10 @@ pub(super) fn instances(
         .filter(|(instance, _)| {
             instance.material & assets::EntityRenderMaterialState::KIND_MASK
                 == assets::EntityRenderMaterial::DissolveDepth as u32
-                && super::phase::sorted(instance.material)
+                && super::phase::sorted(
+                    instance.material,
+                    &crate::actor::material::instance_raster(rasters, instance),
+                )
         })
         .map(|(_, entry)| owner(entry.identity))
         .collect();

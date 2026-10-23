@@ -31,8 +31,11 @@ Confirmed gaps against the current client:
   unknown.
 - Server texture sets contribute only their colour layer.
 - Entity materials resolve completely, with version rules, `+name` modification, same-file
-  parents and variants, into the carrier's material table. Rendering still uses the legacy
-  projection: three states, three defines, two depth functions and three blend pairs.
+  parents and variants, into the carrier's material table. Actor pipelines draw each layer with
+  its definition's culling, depth function, depth writes, blend factors, colour and alpha writes
+  and alpha to coverage. Stencil state is carried but not rendered because scene depth has no
+  stencil aspect; depth bias is carried but not rendered. Samplers, vertex fields, MSAA support,
+  primitive mode and shader defines other than alpha to coverage are not applied.
 - Multitexture and colour-mask behavior is selected by pinned texture hashes, not by defines.
 
 These questions remain unresolved:
@@ -42,4 +45,5 @@ These questions remain unresolved:
 - the minimum format version for texture variations;
 - the render-target key literal;
 - draw-time variant selection;
+- the client's depth bias scale;
 - the separate `metalness`/`emissive`/`roughness` texture-set form.

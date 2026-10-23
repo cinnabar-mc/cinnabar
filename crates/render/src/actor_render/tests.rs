@@ -24,6 +24,9 @@ use super::{
 #[path = "pipeline_prewarm_tests.rs"]
 mod pipeline_prewarm_tests;
 
+#[path = "pipeline_raster_tests.rs"]
+mod pipeline_raster_tests;
+
 #[path = "pipeline_material_gpu_tests.rs"]
 mod pipeline_material_gpu_tests;
 
@@ -82,6 +85,7 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
                     hdr: false,
                     enhanced: false,
                     material: material as u32,
+                    raster: None,
                 },
                 &mut descriptor,
             )
@@ -127,6 +131,7 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
                     hdr: false,
                     enhanced: false,
                     material: material.gpu_word(),
+                    raster: None,
                 },
                 &mut descriptor,
             )
@@ -489,7 +494,8 @@ fn initial_actor_allocation_failure_still_prepares_actor_pipelines() {
                 Msaa::Off,
                 false,
                 false,
-                assets::EntityRenderMaterial::Default as u32
+                assets::EntityRenderMaterial::Default as u32,
+                None
             )
             .is_some(),
         "actor pipelines are requested without actor resources"
@@ -570,6 +576,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
             .specialize(
                 ActorPipelineKey {
                     material: 0,
+                    raster: None,
                     msaa,
                     hdr: true,
                     enhanced: false,

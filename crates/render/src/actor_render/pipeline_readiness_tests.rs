@@ -15,10 +15,11 @@ fn multisampled_views_prepare_performance_actor_materials_before_switching() {
     for material in prewarm_materials() {
         assert!(
             pipeline
-                .draw_variant(Msaa::Off, false, false, material)
+                .draw_variant(Msaa::Off, false, false, material, None)
                 .is_some()
         );
-        if super::super::motion::eligible(material) {
+        if super::super::motion::eligible(material, &crate::actor::material::word_raster(material))
+        {
             assert!(
                 pipeline
                     .motion_variant(ActorPipelineKey {
@@ -26,6 +27,7 @@ fn multisampled_views_prepare_performance_actor_materials_before_switching() {
                         hdr: false,
                         enhanced: false,
                         material,
+                        raster: None,
                     })
                     .is_some()
             );
@@ -55,17 +57,21 @@ fn readiness_polls_each_raster_contract_once_and_observes_reload() {
         pipeline.prewarm(cache, view.0, view.1, view.2).unwrap();
         let expected: HashSet<_> = prewarm_materials()
             .flat_map(|material| {
-                let color = pipeline.draw_variant(view.0, view.1, view.2, material);
-                let motion = super::super::motion::eligible(material)
-                    .then(|| {
-                        pipeline.motion_variant(ActorPipelineKey {
-                            msaa: view.0,
-                            hdr: view.1,
-                            enhanced: view.2,
-                            material,
-                        })
+                let color = pipeline.draw_variant(view.0, view.1, view.2, material, None);
+                let motion = super::super::motion::eligible(
+                    material,
+                    &crate::actor::material::word_raster(material),
+                )
+                .then(|| {
+                    pipeline.motion_variant(ActorPipelineKey {
+                        msaa: view.0,
+                        hdr: view.1,
+                        enhanced: view.2,
+                        material,
+                        raster: None,
                     })
-                    .flatten();
+                })
+                .flatten();
                 [color, motion].into_iter().flatten()
             })
             .collect();

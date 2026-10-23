@@ -286,6 +286,7 @@ fn additive_actor_material_adds_rgb_even_when_texture_alpha_is_zero() {
                 hdr: false,
                 enhanced: false,
                 material: material.gpu_word(),
+                raster: None,
             },
             &mut descriptor,
         )
@@ -367,6 +368,7 @@ fn alpha_weighted_additive_actor_preserves_destination_and_fades_source() {
                 hdr: false,
                 enhanced: false,
                 material: material.gpu_word(),
+                raster: None,
             },
             &mut descriptor,
         )
@@ -447,6 +449,7 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
                 hdr: false,
                 enhanced: false,
                 material: material.gpu_word(),
+                raster: None,
             },
             &mut descriptor,
         )
@@ -513,6 +516,7 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
                     hdr: false,
                     enhanced: false,
                     material: material.gpu_word(),
+                    raster: None,
                 },
                 &mut descriptor,
             )
@@ -531,7 +535,10 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
             depth_always
         );
         assert_eq!(
-            super::super::phase::sorted(material.gpu_word()),
+            super::super::phase::sorted(
+                material.gpu_word(),
+                &crate::actor::material::word_raster(material.gpu_word())
+            ),
             depth_always
         );
     }
@@ -552,6 +559,7 @@ fn explicit_always_depth_overrides_the_dissolve_color_default() {
                         ..Default::default()
                     },
                 )),
+                raster: None,
             },
             &mut descriptor,
         )
@@ -573,12 +581,13 @@ fn ordinary_dissolve_color_finishes_before_depth_writing_transparency() {
                 hdr: false,
                 enhanced: false,
                 material,
+                raster: None,
             },
             &mut descriptor,
         )
         .unwrap();
     assert!(
-        !super::super::phase::sorted(material),
+        !super::super::phase::sorted(material, &crate::actor::material::word_raster(material)),
         "an ordinary mask and color finish together before transparent terrain"
     );
     assert!(
@@ -619,6 +628,7 @@ fn legacy_leather_preserves_alpha_and_uses_mask_alpha_only_for_dye() {
                         hdr: false,
                         enhanced: false,
                         material: material.gpu_word(),
+                        raster: None,
                     },
                     &mut descriptor,
                 )

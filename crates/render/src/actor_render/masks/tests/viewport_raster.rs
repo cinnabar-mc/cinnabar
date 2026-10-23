@@ -109,6 +109,7 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth, paired: b
                     hdr: false,
                     enhanced: false,
                     material: assets::EntityRenderMaterial::Default as u32,
+                    raster: None,
                 },
                 depth: mode,
             },
@@ -181,6 +182,7 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth, paired: b
     target.ready = true;
     let span = |material| crate::actor::gpu::ActorDrawSpan {
         material,
+        raster: crate::actor::material::word_raster(material),
         page: 0,
         first: 0,
         count: 1,
