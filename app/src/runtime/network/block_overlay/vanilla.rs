@@ -236,7 +236,7 @@ impl Builder<'_> {
     }
 
     /// Builds one state selector with independent, normalized positional alternatives.
-    fn terrain_material(
+    pub(super) fn terrain_material(
         &mut self,
         keys: &MaterialKeys,
         key: &str,

@@ -6,7 +6,9 @@ use protocol_ids::BlockRenderMethod;
 use resource_pack::LayeredPackView;
 use serde_json::Value;
 
-use super::OverlayGaps;
+use assets::material_keys::MaterialKeys;
+
+use super::{Builder, OverlayGaps};
 
 #[derive(Default)]
 pub(super) struct MaterialBindings {
@@ -72,6 +74,116 @@ impl MaterialBindings {
             }
         }
     }
+}
+
+impl Builder<'_> {
+    /// Rebinds the faces of vanilla full cubes that bindings name, in the bound states, to
+    /// copies of their materials drawn with the binding's render method. Tinted and model blocks
+    /// keep their base materials.
+    pub(super) fn bind_vanilla_blocks(&mut self, keys: &MaterialKeys, bindings: &MaterialBindings) {
+        let Some(base) = self.base_assets else {
+            return;
+        };
+        if !bindings
+            .bindings
+            .iter()
+            .any(|binding| binding.block.starts_with("minecraft:"))
+        {
+            return;
+        }
+        let Ok(records) = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        ) else {
+            return;
+        };
+        for source in keys.block_sources() {
+            let Some(record) = records.get(source.visual as usize) else {
+                continue;
+            };
+            let Some(method) = bindings
+                .bindings
+                .iter()
+                .filter(|binding| {
+                    binding.block.as_ref() == record.name.as_ref()
+                        && binding
+                            .instance
+                            .as_deref()
+                            .is_none_or(|pattern| pattern == "*")
+                        && vanilla_states_match(binding, record)
+                })
+                .last()
+                .map(|binding| binding.method)
+            else {
+                continue;
+            };
+            let block = base.resolve(assets::NetworkIdMode::Sequential, source.visual);
+            if !block.is_known()
+                || block.kind() != assets::VisualKind::Cube
+                || block.model_template().is_some()
+                || block.variant() != 0
+                || block.flags().contains(assets::BlockFlags::LEAF_MODEL)
+            {
+                continue;
+            }
+            let mut faces = [None; 6];
+            for face in assets::BlockFace::ALL {
+                let id = block.face(face).material_id();
+                let material = base.material(id);
+                if material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0 {
+                    faces = [None; 6];
+                    break;
+                }
+                let Some(texture) = keys.material_source(id) else {
+                    continue;
+                };
+                let flags = (material.flags
+                    & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT))
+                    | assets::block_render_method_flags(method);
+                faces[face as usize] =
+                    self.terrain_material(keys, &texture.key, texture.variant, flags);
+            }
+            if faces.iter().all(Option::is_none) {
+                continue;
+            }
+            match self
+                .overlay
+                .face_overrides
+                .iter_mut()
+                .find(|(visual, _)| *visual == source.visual)
+            {
+                Some((_, existing)) => {
+                    for (face, material) in faces.into_iter().enumerate() {
+                        if material.is_some() {
+                            existing[face] = material;
+                        }
+                    }
+                }
+                None => self.overlay.face_overrides.push((source.visual, faces)),
+            }
+        }
+    }
+}
+
+/// Whether a vanilla block state has every value the binding names.
+fn vanilla_states_match(binding: &Binding, record: &assets::RegistryRecord) -> bool {
+    binding.states.iter().all(|(name, expected)| {
+        let Some(value) = assets::facts::BlockProperty::from_name(name)
+            .and_then(|property| record.property(property))
+        else {
+            return false;
+        };
+        match (value, expected) {
+            (assets::facts::StateValue::String(value), Value::String(expected)) => {
+                value.as_ref() == expected
+            }
+            (assets::facts::StateValue::Int(value), Value::Number(expected)) => {
+                expected.as_i64() == Some(i64::from(*value))
+            }
+            (assets::facts::StateValue::Bool(value), Value::Bool(expected)) => value == expected,
+            _ => false,
+        }
+    })
 }
 
 /// Whether the state has every value the binding names; unknown state names never match.
