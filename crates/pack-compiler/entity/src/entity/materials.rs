@@ -40,6 +40,8 @@ struct Declaration {
 
 #[derive(Default)]
 pub(super) struct MaterialStates {
+    /// The pack's `cinnabar/material-bindings.json`, when valid.
+    extension: Option<extension::Extension>,
     files: usize,
     definitions: BTreeMap<Box<str>, Declaration>,
     /// `+name` declarations applied in place after the named material resolves.
@@ -141,6 +143,13 @@ impl MaterialStates {
         let mut states = Self::default();
         for path in paths {
             states.read(payloads.read(root, path)?);
+        }
+        if sources
+            .iter()
+            .any(|source| source.path.as_ref() == extension::MATERIAL_BINDINGS_PATH)
+        {
+            states.extension =
+                extension::parse(payloads.read(root, extension::MATERIAL_BINDINGS_PATH)?).ok();
         }
         Ok(states)
     }
@@ -276,6 +285,35 @@ impl MaterialStates {
             .and_then(|resolved| Some((shading(&resolved), table.intern(&resolved)?)));
         table.resolved.insert(name.into(), resolved);
         resolved
+    }
+
+    /// Extension material bindings of `entity`'s `controller`, as (bone pattern, material), in
+    /// document order.
+    pub(super) fn extension_rules<'a>(
+        &'a self,
+        entity: &'a str,
+        controller: &'a str,
+    ) -> impl Iterator<Item = (&'a str, &'a str)> + 'a {
+        self.extension
+            .iter()
+            .flat_map(move |extension| extension.entity_rules(entity, controller))
+    }
+
+    /// Resolves extension material `name` over its base, interns it and returns its shading
+    /// features with the definition's table index.
+    pub(super) fn resolve_extension(
+        &self,
+        name: &str,
+        table: &mut MaterialTable,
+    ) -> Option<(EntityRenderMaterialState, u32)> {
+        let material = self.extension.as_ref()?.materials.get(name)?;
+        let mut resolved = match &material.base {
+            Some(base) => self.resolve_with(material_name(base), &builtin, &mut table.chains)?,
+            None => Resolved::default(),
+        };
+        resolved.version = 1;
+        resolved.apply(&material.fields);
+        Some((shading(&resolved), table.intern(&resolved)?))
     }
 
     /// Walks `name`'s parent chain until a link `memo` already knows, then applies each
@@ -806,3 +844,6 @@ fn stencil_face(fields: &Map<String, Value>, face: &mut EntityMaterialStencilFac
 #[cfg(test)]
 #[path = "materials/tests.rs"]
 mod tests;
+
+#[path = "materials/extension.rs"]
+pub(crate) mod extension;

@@ -108,6 +108,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
   is `implemented` with a named test. The entity material declaration, definition and name
   bounds are unverified implementation limits; past them a material draws without one.
+  is `implemented` with a named test.
+- [ ] Draw [Cinnabar material bindings](docs/reference/cinnabar-materials.md) for blocks and read
+  their textures and parameters; entity bindings render.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no

@@ -26,7 +26,7 @@ mod item;
 mod item_bindings;
 mod legacy_block_geometry;
 mod legacy_icons;
-mod materials;
+pub(crate) mod materials;
 mod molang;
 mod mount;
 mod native_bind_pose;
@@ -200,9 +200,7 @@ fn compile_with_behavior(
             collect_optional_file(root, &path, &mut selected)?;
         }
     }
-    collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
-    collect::collect_atlas_block_rasters(root, &mut selected)?;
-    collect_optional_file(root, "manifest.json", &mut selected)?;
+    collect::collect_root_documents(root, &mut selected)?;
     if let Some(behavior) = behavior {
         let mut definitions = Vec::new();
         collect_family(behavior, "entities", &["json"], &mut definitions)?;
@@ -595,7 +593,9 @@ fn parse_source(
 ) -> Result<(), AssetError> {
     if matches!(
         relative_path,
-        "textures/item_texture.json" | "manifest.json"
+        "textures/item_texture.json"
+            | "manifest.json"
+            | materials::extension::MATERIAL_BINDINGS_PATH
     ) {
         parse_unique_json(absolute_path, bytes)?;
         return Ok(());
