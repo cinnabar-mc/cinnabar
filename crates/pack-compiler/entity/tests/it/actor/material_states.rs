@@ -20,7 +20,7 @@ fn state(material: &str, definitions: Option<&Value>) -> Value {
 
 #[test]
 fn actor_overlay_define_is_inherited_added_removed_and_replaced() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_base": {"defines": [], "states": []},
         "fixture_overlay:fixture_base": {"+defines": ["USE_OVERLAY"]},
         "fixture_inherited:fixture_overlay": {},
@@ -50,7 +50,7 @@ fn charged_material_keeps_texture_rgb_and_adds_it_without_actor_overlay() {
         "depth_write":true,"additive":true,"disable_overlay":true});
     assert_eq!(state("charged_creeper", None), expected);
     assert_eq!(state("charged_creeper.skinning", None), expected);
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_cutout:charged_creeper": {"-states": ["Blending"]},
         "fixture_aura:entity_static": {
             "+defines": ["USE_UV_ANIM", "ALPHA_TEST"],
@@ -62,7 +62,7 @@ fn charged_material_keeps_texture_rgb_and_adds_it_without_actor_overlay() {
     assert_eq!(
         state("fixture_cutout", Some(&definitions)),
         json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true,
-            "additive":true,"disable_overlay":true})
+            "disable_overlay":true})
     );
 }
 
@@ -91,7 +91,7 @@ fn spectator_material_blends_and_respects_authored_raster_overrides() {
         state("player_spectator", None),
         json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})
     );
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "player_spectator:entity": {"+states":["DisableDepthWrite"],"+defines":["ALPHA_TEST"]}
     }});
     assert_eq!(
@@ -173,7 +173,7 @@ fn actor_material_states_keep_slime_outer_blended_culled_and_depth_writing() {
 
 #[test]
 fn sulfur_cube_material_aliases_match_authored_parent_states() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_inner:entity_alphatest": {},
         "fixture_outer:entity": {"+states": ["Blending"]},
         "fixture_override:sulfur_cube_outer": {"-states": ["Blending"]}
@@ -199,7 +199,7 @@ fn wind_material_uses_the_native_double_sided_blended_route_without_depth_writes
     assert_eq!(state("breeze_wind", None), expected);
     // Native material inheritance still includes ALPHA_TEST, but Blending selects
     // the separate transparent Actor pass after the inherited declaration is read.
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "version": "1.0.0",
         "fixture_wind:entity_static": {
             "+defines": ["ALPHA_TEST", "USE_UV_ANIM"],
@@ -478,7 +478,7 @@ fn native_emissive_aliases_preserve_authored_body_and_eye_states() {
 
 #[test]
 fn only_emissive_define_is_inherited_removed_and_replaced() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_eyes:spider_invisible": {},
         "fixture_body:fixture_eyes": {"-defines": ["USE_ONLY_EMISSIVE"]},
         "fixture_replaced:fixture_eyes": {"defines": ["ALPHA_TEST"]},
@@ -536,7 +536,7 @@ fn ordinary_aliases_keep_cutouts_and_one_sided_limbs() {
 
 #[test]
 fn depth_and_channel_write_states_inherit_and_reset_independently() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture:entity": {"depthFunc":"Equal", "+states":["DisableAlphaWrite","DisableColorWrite"]},
         "fixture_child:fixture": {},
         "fixture_removed:fixture": {"depthFunc":"LessEqual", "-states":["DisableAlphaWrite","DisableColorWrite"]},

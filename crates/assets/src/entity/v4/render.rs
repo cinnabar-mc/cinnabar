@@ -211,6 +211,9 @@ pub struct EntityRenderLayer {
     /// Absent in carriers that predate authored raster-state admission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material_state: Option<EntityRenderMaterialState>,
+    /// Index into [`EntityRenderData::materials`]; absent in carriers without resolved materials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material_definition: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hurt_color: Option<[u32; 4]>,
     /// Index into the rig bindings.
@@ -325,6 +328,9 @@ pub struct EntityRenderData {
     pub visibility: Box<[EntityRenderVisibility]>,
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
     pub geometries: Box<[EntityRenderGeometry]>,
+    /// Resolved materials shared by layers and variants.
+    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    pub materials: Box<[super::material::EntityMaterialDefinition]>,
 }
 
 pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
@@ -335,8 +341,21 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         || render.candidates.len() > MAX_ENTITY_RENDER_CANDIDATES
         || render.geometries.len() > MAX_ENTITY_RENDER_CANDIDATES
         || render.visibility.len() > MAX_ENTITY_RENDER_VISIBILITY
+        || render.materials.len() > super::material::MAX_ENTITY_MATERIAL_DEFINITIONS
     {
         return Err(invalid("entity render payload count exceeds bound"));
+    }
+    if !render
+        .materials
+        .iter()
+        .all(|material| material.is_valid(render.materials.len()))
+        || render.layers.iter().any(|layer| {
+            layer
+                .material_definition
+                .is_some_and(|index| index as usize >= render.materials.len())
+        })
+    {
+        return Err(invalid("entity material definition is invalid"));
     }
     let expressions = compiled.molang_expressions.len();
     let expression = |index: u32| (index as usize) < expressions;

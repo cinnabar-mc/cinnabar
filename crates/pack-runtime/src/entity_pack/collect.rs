@@ -145,11 +145,14 @@ pub fn collect_files(
     for (_, _, definitions) in &definitions {
         overrides.extend(definitions.keys().cloned());
     }
-    let materials = material_definitions(view);
-    let material_document = materials.as_deref().and_then(parse_pack_json);
+    let materials = material_files(view);
+    let material_documents = materials
+        .iter()
+        .filter_map(|(_, bytes)| parse_pack_json(bytes))
+        .collect::<Vec<_>>();
     let binding_inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
         vanilla_pack_dir,
-        material_document.as_ref(),
+        &material_documents,
     )
     .ok();
     if let Some(inputs) = &binding_inputs {
@@ -225,9 +228,11 @@ pub fn collect_files(
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
     files.extend(entities);
-    if let Some(materials) = materials {
-        files.push(("materials/_pack.material".into(), materials));
-    }
+    files.extend(
+        materials
+            .into_iter()
+            .map(|(path, bytes)| (path.into(), bytes)),
+    );
     files.extend(attachables);
     files.extend(geometry);
     textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
@@ -297,9 +302,10 @@ fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
 }
 
-/// Material identity is the child name; its parent remains part of the winning declaration.
-fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
-    let mut definitions = BTreeMap::new();
+/// Material files merged per path across the stack, lowest precedence first, as the client
+/// patches same-path copies. Each file keeps its own version wrapper and declaration order.
+fn material_files(view: &LayeredPackView) -> Vec<(String, Vec<u8>)> {
+    let mut files = BTreeMap::<String, Value>::new();
     for layer in view.layers() {
         for path in layer
             .files_under("materials/")
@@ -309,29 +315,63 @@ fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
             let Ok(Some(bytes)) = layer.read_file(path) else {
                 continue;
             };
-            let Some(root) = parse_pack_json(&bytes) else {
+            let Some(document) = parse_pack_json(&bytes) else {
                 continue;
             };
-            let Some(materials) = root.get("materials").and_then(Value::as_object) else {
-                continue;
-            };
-            for (declaration, definition) in materials {
-                if !definition.is_object() {
-                    continue;
-                }
-                let child = declaration.split(':').next()?.trim_start_matches('+');
-                if !child.is_empty() {
-                    definitions.insert(child.to_owned(), (declaration.clone(), definition.clone()));
+            match files.get_mut(path) {
+                Some(merged) => patch_material_json(merged, &document),
+                None => {
+                    files.insert(path.to_owned(), document);
                 }
             }
         }
     }
-    if definitions.is_empty() {
-        return None;
+    files
+        .into_iter()
+        .filter_map(|(path, document)| Some((path, serde_json::to_vec(&document).ok()?)))
+        .collect()
+}
+
+/// Applies a higher copy onto a lower one: objects merge field by field, matching keys by the
+/// declaration name before any `:` and keeping the higher spelling; arrays overwrite by index and
+/// keep the lower copy's extra tail; other values are replaced. Among lower keys sharing a name
+/// the first in key order merges, found through a name index so the merge stays linear.
+fn patch_material_json(base: &mut Value, upper: &Value) {
+    fn stem(key: &str) -> &str {
+        key.split(':').next().unwrap_or(key)
     }
-    let mut materials = definitions.into_values().collect::<Map<_, _>>();
-    materials.insert("version".into(), Value::from("1.0.0"));
-    serde_json::to_vec(&serde_json::json!({"materials": materials})).ok()
+    match (base, upper) {
+        (Value::Object(base), Value::Object(upper)) => {
+            let mut stems = std::collections::HashMap::<String, BTreeSet<String>>::new();
+            for key in base.keys() {
+                stems
+                    .entry(stem(key).to_owned())
+                    .or_default()
+                    .insert(key.clone());
+            }
+            for (key, value) in upper {
+                let keys = stems.entry(stem(key).to_owned()).or_default();
+                let merged = match keys.pop_first() {
+                    Some(existing) => base.remove(&existing).map(|mut merged| {
+                        patch_material_json(&mut merged, value);
+                        merged
+                    }),
+                    None => None,
+                };
+                keys.insert(key.clone());
+                base.insert(key.clone(), merged.unwrap_or_else(|| value.clone()));
+            }
+        }
+        (Value::Array(base), Value::Array(upper)) => {
+            for (index, value) in upper.iter().enumerate() {
+                match base.get_mut(index) {
+                    Some(slot) => *slot = value.clone(),
+                    None => base.push(value.clone()),
+                }
+            }
+        }
+        (base, upper) => *base = upper.clone(),
+    }
 }
 
 /// Splits `items` into parallel batches bounded by workers and one source's byte budget;

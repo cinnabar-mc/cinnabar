@@ -119,6 +119,7 @@ pub(super) fn compile_render(
         rig_geometries,
     } = input;
     let materials = materials::MaterialStates::load(root, payloads, sources)?;
+    let mut material_table = materials::MaterialTable::default();
     let mut definitions = Vec::<(Box<str>, &Value)>::new();
     for source in sources
         .iter()
@@ -280,6 +281,7 @@ pub(super) fn compile_render(
                 description,
                 definition,
                 &materials,
+                &mut material_table,
                 geometries,
                 rig_geometries[rig_first..rig_first + usize::from(rig.geometry_count)]
                     .iter()
@@ -322,6 +324,7 @@ pub(super) fn compile_render(
             let layer = EntityRenderLayer {
                 material: EntityRenderMaterial::Default,
                 material_state: None,
+                material_definition: None,
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
@@ -368,6 +371,7 @@ pub(super) fn compile_render(
         candidates: candidates.into_boxed_slice(),
         visibility: visibility.into_boxed_slice(),
         geometries: layer_geometries.into_boxed_slice(),
+        materials: material_table.into_definitions(),
     })
 }
 
