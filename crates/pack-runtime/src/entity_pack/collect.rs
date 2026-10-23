@@ -233,6 +233,7 @@ pub fn collect_files(
             .into_iter()
             .map(|(path, bytes)| (path.into(), bytes)),
     );
+    files.extend(material_bindings(view));
     files.extend(attachables);
     files.extend(geometry);
     textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
@@ -300,6 +301,17 @@ fn texture_file(
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
 fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
+}
+
+/// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
+/// when invalid; the compiler then ignores it and the reason is logged here.
+fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
+    let path = pack_entity_compiler::MATERIAL_BINDINGS_PATH;
+    let document = parse_pack_json(&view.read(path)?)?;
+    if let Err(reason) = pack_entity_compiler::validate_material_bindings(&document) {
+        tracing::warn!(%reason, "ignoring the pack's {path}");
+    }
+    Some((path.into(), serde_json::to_vec(&document).ok()?))
 }
 
 /// Material files merged per path across the stack, lowest precedence first, as the client

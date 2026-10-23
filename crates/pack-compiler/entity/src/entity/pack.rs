@@ -75,7 +75,8 @@ fn in_families(path: &str) -> bool {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     let json = extension == Some("json");
     let raster = matches!(extension, Some("png" | "tga"));
-    let material = path.starts_with("materials/") && extension == Some("material");
+    let material = (path.starts_with("materials/") && extension == Some("material"))
+        || path == super::materials::extension::MATERIAL_BINDINGS_PATH;
     (json
         && [
             "entity/",

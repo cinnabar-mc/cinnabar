@@ -275,7 +275,7 @@ fn wind_material_uses_the_native_double_sided_blended_route_without_depth_writes
     );
 }
 
-fn per_bone_pack(rules: Value, alternate: bool) -> tempfile::TempDir {
+pub(super) fn per_bone_pack(rules: Value, alternate: bool) -> tempfile::TempDir {
     let fixture = pack(0, "entity_alphatest", false);
     write(
         fixture.path(),
@@ -322,7 +322,7 @@ fn per_bone_pack(rules: Value, alternate: bool) -> tempfile::TempDir {
     fixture
 }
 
-fn visible(
+pub(super) fn visible(
     compiled: &assets::CompiledEntityAssets,
     layer: &assets::EntityRenderLayer,
     name: &str,

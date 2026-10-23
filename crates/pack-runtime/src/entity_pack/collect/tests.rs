@@ -235,14 +235,16 @@ fn changing_mob_geometry_keeps_both_owner_armour_variants() {
 }
 
 fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
+    archive_with(id, "materials/entity.material", material)
+}
+
+/// A resource pack archive holding a manifest and `value` at `path`.
+fn archive_with(id: u128, path: &str, value: serde_json::Value) -> protocol::ResourcePackArchive {
     let id = format!("00000000-0000-0000-0000-{id:012x}");
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (path, value) in [
-        ("manifest.json", manifest),
-        ("materials/entity.material", material),
-    ] {
+    for (path, value) in [("manifest.json", manifest), (path, value)] {
         zip.start_file(path, zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(&serde_json::to_vec(&value).unwrap()).unwrap();
@@ -806,4 +808,21 @@ fn material_merges_match_declarations_by_name_across_large_files() {
         );
     }
     assert_eq!(merged["new"], json!({"upper": "new"}));
+}
+
+#[test]
+fn the_highest_material_bindings_file_shadows_lower_copies_even_when_invalid() {
+    let path = pack_entity_compiler::MATERIAL_BINDINGS_PATH;
+    let lower = archive_with(1, path, json!({"format_version":"1.0.0"}));
+    let upper = archive_with(2, path, json!({"format_version":"9.9.9"}));
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+    ));
+    let files = super::collect_files(&view, None, None);
+    let collected = files
+        .iter()
+        .filter(|(file, _)| file.as_ref() == path)
+        .map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(bytes).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(collected, [json!({"format_version":"9.9.9"})]);
 }
