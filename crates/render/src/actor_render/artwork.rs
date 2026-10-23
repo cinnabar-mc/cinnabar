@@ -670,7 +670,11 @@ mod tests {
             material: "entity".into(),
             pose_mode: assets::ActorPoseMode::CompiledLiteral,
         });
-        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &bindings);
+        let pages = ActorArtworkPages::default().with_pack_artwork(
+            &textures,
+            &bindings,
+            &Default::default(),
+        );
         let low = pages.route(render_model::pack_rig_id(0)).unwrap();
         let high = pages
             .route(render_model::pack_rig_id(textures.len() as u32 - 1))

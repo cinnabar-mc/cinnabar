@@ -436,17 +436,27 @@ impl ActorArtworkPages {
         (self, locations)
     }
     /// Appends session artwork under pack rig IDs, replacing its previous variant table.
+    /// Textures whose pack source is in `multitexture` share three-sampler pages.
     /// Call on startup pages so removed packs release their routes and pixel budget.
     #[must_use]
     pub fn with_pack_artwork(
         mut self,
         textures: &[assets::ActorTexture],
         bindings: &[assets::ActorArtworkBinding],
+        multitexture: &BTreeSet<u32>,
     ) -> Self {
-        let mut groups = BTreeMap::<(u16, u16), Vec<usize>>::new();
+        let sampled = |texture: &assets::ActorTexture| multitexture.contains(&texture.source);
+        let shared_size = multitexture::largest(textures.iter().filter(|texture| sampled(texture)));
+        let mut groups = BTreeMap::<(u16, u16, bool), Vec<usize>>::new();
         for (index, texture) in textures.iter().enumerate() {
+            let multitexture = sampled(texture);
+            let (width, height) = if multitexture {
+                shared_size
+            } else {
+                (texture.width, texture.height)
+            };
             groups
-                .entry((texture.width, texture.height))
+                .entry((width, height, multitexture))
                 .or_default()
                 .push(index);
         }
@@ -458,13 +468,13 @@ impl ActorArtworkPages {
         let mut locations = BTreeMap::new();
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
-        for ((width, height), indices) in groups {
+        for ((width, height, multitexture), indices) in groups {
             push_group(
                 &mut pages,
                 &mut gpu_bytes,
                 &indices,
                 [width, height],
-                false,
+                multitexture,
                 |indices| {
                     hasher.update(width.to_le_bytes());
                     hasher.update(height.to_le_bytes());
@@ -474,17 +484,18 @@ impl ActorArtworkPages {
                         .map(|index| textures[*index].rgba8.len())
                         .sum();
                     hasher.update((bytes as u64).to_le_bytes());
-                    hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
-                    let (key, pixels) = pixel_cache::pack(
-                        indices.iter().map(|index| &textures[*index].rgba8),
-                        &mut hasher,
-                    );
+                    hasher.update([u8::from(multitexture)]);
+                    let layers: Vec<_> = indices
+                        .iter()
+                        .map(|index| multitexture::replicated(&textures[*index], width, height))
+                        .collect();
+                    let (key, pixels) = pixel_cache::pack(layers.iter(), &mut hasher);
                     let page = ActorTexturePage {
                         width,
                         height,
                         layers: indices.len() as u32,
                         rgba8: pixels,
-                        multitexture: false,
+                        multitexture,
                     };
                     (page, key)
                 },
@@ -697,6 +708,7 @@ mod tests {
                 rgba8: Arc::from([7; 16]),
             }],
             &[],
+            &Default::default(),
         );
         let route = ActorArtworkLocation {
             page: 1,
@@ -753,7 +765,8 @@ mod tests {
             pixel_sha256: [0; 32],
             rgba8,
         });
-        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+        let pages =
+            ActorArtworkPages::default().with_pack_artwork(&textures, &[], &Default::default());
         assert_eq!(pages.pages()[0].pixels(), &[1, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(pages.pages()[0].layers(), 2);
         let rasters = [first, second].map(|rgba8| EquipmentRaster {
@@ -810,8 +823,11 @@ mod tests {
             material: "entity".into(),
             pose_mode: assets::ActorPoseMode::CompiledLiteral,
         };
-        let pages = ActorArtworkPages::default()
-            .with_pack_artwork(&[texture(2)], &[binding(5, 0), binding(6, 9)]);
+        let pages = ActorArtworkPages::default().with_pack_artwork(
+            &[texture(2)],
+            &[binding(5, 0), binding(6, 9)],
+            &Default::default(),
+        );
         assert_eq!(pages.pages().len(), 1);
         let location = pages.route(crate::pack_rig_id(5)).unwrap();
         assert!(pages.valid(crate::pack_rig_id(5), location));
@@ -842,8 +858,11 @@ mod tests {
             material: "entity".into(),
             pose_mode: assets::ActorPoseMode::CompiledLiteral,
         };
-        let pages = ActorArtworkPages::default()
-            .with_pack_artwork(&[texture(4, 1), texture(9, 2)], &[binding]);
+        let pages = ActorArtworkPages::default().with_pack_artwork(
+            &[texture(4, 1), texture(9, 2)],
+            &[binding],
+            &Default::default(),
+        );
         let rig = crate::pack_rig_id(0);
         let variant = pages.variant_location(rig, 9).unwrap();
         assert_eq!((variant.page(), variant.layer()), (1, 1));
