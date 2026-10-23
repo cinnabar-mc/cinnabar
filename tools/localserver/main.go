@@ -125,6 +125,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		conf.Resources = append(conf.Resources, pack)
 	}
+	if cfg.materialShowcase {
+		pack, err := materialShowcasePack()
+		if err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return fmt.Errorf("prepare material showcase fixture: %w", err)
+		}
+		conf.Resources = append(conf.Resources, pack)
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = materialShowcaseListener(listen)
+		}
+	}
 	if cfg.totemTexture {
 		pack, err := totemTexturePack()
 		if err != nil {
