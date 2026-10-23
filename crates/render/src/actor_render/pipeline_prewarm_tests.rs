@@ -26,7 +26,13 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
     let cache = world.resource::<PipelineCache>();
     assert!(
         pipeline
-            .draw_variant(msaa, view.hdr, false, EntityRenderMaterial::Default as u32)
+            .draw_variant(
+                msaa,
+                view.hdr,
+                false,
+                EntityRenderMaterial::Default as u32,
+                None
+            )
             .is_some()
     );
     assert!(
@@ -36,6 +42,7 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
                 hdr: view.hdr,
                 enhanced: false,
                 material: EntityRenderMaterial::Default as u32,
+                raster: None,
             })
             .is_some()
     );
@@ -173,7 +180,9 @@ fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
                         };
                         let material = kind.word(Some(state));
                         assert!(
-                            pipeline.draw_variant(msaa, hdr, false, material).is_some(),
+                            pipeline
+                                .draw_variant(msaa, hdr, false, material, None)
+                                .is_some(),
                             "always-depth material must have a draw pipeline: {kind:?}, {bits}"
                         );
                         if kind == EntityRenderMaterial::DissolveColor {
@@ -182,7 +191,9 @@ fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
                                 ..state
                             })) | crate::actor::material::LATE_DISSOLVE_COLOR;
                             assert!(
-                                pipeline.draw_variant(msaa, hdr, false, paired).is_some(),
+                                pipeline
+                                    .draw_variant(msaa, hdr, false, paired, None)
+                                    .is_some(),
                                 "paired color must retain its depth contract: {bits}"
                             );
                         }
@@ -236,12 +247,16 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                                 depth_write,
                                 ..Default::default()
                             }));
-                            if motion::eligible(material) {
+                            if motion::eligible(
+                                material,
+                                &crate::actor::material::word_raster(material),
+                            ) {
                                 let key = ActorPipelineKey {
                                     msaa,
                                     hdr,
                                     enhanced: false,
                                     material,
+                                    raster: None,
                                 };
                                 assert!(
                                     pipeline.motion_variant(key).is_some(),
@@ -249,7 +264,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                                 );
                             }
                             descriptors.insert(
-                                pipeline.draw_variant(msaa, hdr, false, material).expect(
+                                pipeline.draw_variant(msaa, hdr, false, material, None).expect(
                                     "authored raster states are requested before an actor exists",
                                 ),
                             );
@@ -277,7 +292,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                         }));
                         descriptors.insert(
                             pipeline
-                                .draw_variant(msaa, hdr, false, material)
+                                .draw_variant(msaa, hdr, false, material, None)
                                 .expect("each additive kind is prepared before an actor exists"),
                         );
                     }
@@ -328,18 +343,22 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
         let cache = world.resource::<PipelineCache>();
         pipeline.prewarm(cache, msaa, hdr, false).unwrap();
         assert_eq!(
-            pipeline.draw_variant(msaa, hdr, false, normal).unwrap(),
-            pipeline.draw_variant(msaa, hdr, false, dragon).unwrap(),
+            pipeline
+                .draw_variant(msaa, hdr, false, normal, None)
+                .unwrap(),
+            pipeline
+                .draw_variant(msaa, hdr, false, dragon, None)
+                .unwrap(),
             "identical raster contracts share one compiled pipeline",
         );
         assert_eq!(
-            pipeline.draw_variant(msaa, hdr, false, normal),
-            pipeline.draw_variant(msaa, hdr, false, emissive),
+            pipeline.draw_variant(msaa, hdr, false, normal, None),
+            pipeline.draw_variant(msaa, hdr, false, emissive, None),
             "emissive shader flags reuse the raster pipeline"
         );
         assert_eq!(
-            pipeline.draw_variant(msaa, hdr, false, normal),
-            pipeline.draw_variant(msaa, hdr, false, without_overlay),
+            pipeline.draw_variant(msaa, hdr, false, normal, None),
+            pipeline.draw_variant(msaa, hdr, false, without_overlay, None),
             "overlay admission reuses the raster pipeline"
         );
     });
@@ -376,7 +395,7 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                             ..Default::default()
                         }));
                         let id = pipeline
-                            .draw_variant(msaa, false, false, material)
+                            .draw_variant(msaa, false, false, material, None)
                             .expect("coverage variants are ready before actors exist");
                         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
                         ActorPipelineSpecializer
@@ -386,6 +405,7 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                                     hdr: false,
                                     enhanced: false,
                                     material,
+                                    raster: None,
                                 },
                                 &mut descriptor,
                             )
@@ -410,13 +430,17 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                         );
                         let warmed = crate::queue_review_support::queued_descriptor(&mut cache, id);
                         assert_eq!(warmed.multisample.alpha_to_coverage_enabled, enabled);
-                        if motion::eligible(material) {
+                        if motion::eligible(
+                            material,
+                            &crate::actor::material::word_raster(material),
+                        ) {
                             let motion_id = pipeline
                                 .motion_variant(ActorPipelineKey {
                                     msaa,
                                     hdr: false,
                                     enhanced: false,
                                     material,
+                                    raster: None,
                                 })
                                 .expect("motion coverage is prepared before actors exist");
                             let warmed = crate::queue_review_support::queued_descriptor(
@@ -438,4 +462,45 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
             }
         }
     }
+}
+
+#[test]
+fn a_frames_authored_raster_is_requested_and_gates_readiness() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let raster = render_api::render_state::RenderState {
+        cull: render_api::render_state::CullMode::Front,
+        ..Default::default()
+    };
+    let mut frame = render_scene::ActorRenderFrame::default();
+    frame.rig.instances = std::sync::Arc::from([render_model::ActorGpuInstance {
+        material: EntityRenderMaterial::Default as u32,
+        raster: 0,
+        ..Default::default()
+    }]);
+    frame.rig.rasters = std::sync::Arc::from([raster]);
+    world.insert_resource(frame);
+    world
+        .run_system_once(super::super::prepare_actor_pipelines)
+        .unwrap();
+    let (&msaa, view) = world
+        .query::<(&Msaa, &ExtractedCamera)>()
+        .single(world)
+        .unwrap();
+    let pipeline = world.resource::<ActorPipeline>();
+    let authored = pipeline
+        .draw_variant(
+            msaa,
+            view.hdr,
+            false,
+            EntityRenderMaterial::Default as u32,
+            Some(raster),
+        )
+        .expect("the frame's authored raster is requested");
+    assert!(
+        !pipeline.ready_with((msaa, view.hdr, false), |id| id != authored),
+        "readiness waits for the authored pipeline"
+    );
 }

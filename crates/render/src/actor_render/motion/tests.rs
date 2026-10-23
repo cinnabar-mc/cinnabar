@@ -44,6 +44,7 @@ fn empty_actor_views_prewarm_motion_for_later_visible_materials() {
             hdr: false,
             enhanced: false,
             material,
+            raster: None,
         };
         assert!(
             pipeline.motion_variant(key).is_some(),
@@ -134,6 +135,7 @@ fn production_motion_fragment_fits_default_device_interface_limits() {
                     hdr: false,
                     enhanced: false,
                     material,
+                    raster: None,
                 },
                 &mut descriptor,
             )
@@ -243,6 +245,7 @@ fn actor_velocity_preserves_cutout_culling_and_reads_depth_without_changing_it()
                 hdr: false,
                 enhanced: false,
                 material,
+                raster: None,
             },
             &mut descriptor,
         )
@@ -256,12 +259,22 @@ fn actor_velocity_preserves_cutout_culling_and_reads_depth_without_changing_it()
     let depth = descriptor.depth_stencil.unwrap();
     assert_eq!(depth.depth_compare, Some(CompareFunction::Equal));
     assert_eq!(depth.depth_write_enabled, Some(false));
-    assert!(eligible(material));
-    assert!(!eligible(assets::EntityRenderMaterial::Default.word(Some(
-        assets::EntityRenderMaterialState {
+    assert!(eligible(
+        material,
+        &crate::actor::material::word_raster(material)
+    ));
+    assert!(!eligible(
+        assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
             blend: true,
             depth_write: false,
             ..Default::default()
-        }
-    ))));
+        })),
+        &crate::actor::material::word_raster(assets::EntityRenderMaterial::Default.word(Some(
+            assets::EntityRenderMaterialState {
+                blend: true,
+                depth_write: false,
+                ..Default::default()
+            }
+        )))
+    ));
 }

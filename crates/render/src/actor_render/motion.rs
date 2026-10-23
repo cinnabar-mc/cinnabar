@@ -80,11 +80,11 @@ impl Specializer<RenderPipeline> for MotionSpecializer {
 }
 
 /// Only surfaces represented in the final scene depth can overwrite its camera velocity.
-pub(super) fn eligible(material: u32) -> bool {
+pub(super) fn eligible(material: u32, raster: &render_api::render_state::RenderState) -> bool {
     let kind = material & assets::EntityRenderMaterialState::KIND_MASK;
-    !super::phase::sorted(material)
+    !super::phase::sorted(material, raster)
         && kind != assets::EntityRenderMaterial::DissolveDepth as u32
-        && crate::actor::material::state(material).is_none_or(|state| state.depth_write)
+        && raster.depth.write
 }
 
 /// Enabled views own their history and reusable velocity resources; disabling drops them together.
@@ -175,7 +175,11 @@ pub(crate) fn prepare(
         *state = None;
         return;
     }
-    if !gpu.spans.iter().any(|span| eligible(span.material)) {
+    if !gpu
+        .spans
+        .iter()
+        .any(|span| eligible(span.material, &span.raster))
+    {
         *state = None;
         return;
     }
@@ -241,17 +245,18 @@ pub(crate) fn prepare(
         _ => Msaa::Off,
     };
     for span in &gpu.spans {
-        if !eligible(span.material) {
+        if !eligible(span.material, &span.raster) {
             continue;
         }
         state.ready &= pipeline
-            .draw_variant(msaa, hdr, enhanced, span.material)
+            .draw_variant(msaa, hdr, enhanced, span.material, Some(span.raster))
             .is_some_and(|id| cache.get_render_pipeline(id).is_some());
         let key = ActorPipelineKey {
             msaa,
             hdr,
             enhanced,
             material: span.material,
+            raster: Some(span.raster),
         };
         let Some(id) = pipeline.motion_variant(key) else {
             state.ready = false;
