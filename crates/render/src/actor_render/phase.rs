@@ -64,7 +64,7 @@ pub(super) fn queue_actors(
             extracted_camera.hdr,
             enhanced.is_some(),
             assets::EntityRenderMaterial::Default as u32,
-            None,
+            assets::entity::material::UNAUTHORED_RENDER_STATE,
         ) else {
             continue;
         };
@@ -108,7 +108,7 @@ pub(super) fn queue_actors(
                     extracted_camera.hdr,
                     enhanced.is_some(),
                     span.material,
-                    Some(span.raster),
+                    span.raster,
                 ) else {
                     continue;
                 };
@@ -207,7 +207,7 @@ impl ActorGpu {
         // Keep the complete actor frame native while that dependency exists.
         !self.pack_depth_dependency
             && (span.page == 0 || page.is_some_and(|page| page.raw_texture().is_some()))
-            && crate::shaderpack::actors::raster_supported(span.material, &span.raster)
+            && crate::shaderpack::actors::raster_supported(&span.raster)
             && (span.first..span.first + span.count).all(|index| {
                 self.instances
                     .get(index as usize)
@@ -310,7 +310,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
                 view.5.hdr,
                 view.4.is_some(),
                 span.material,
-                Some(span.raster),
+                span.raster,
             ) else {
                 continue;
             };

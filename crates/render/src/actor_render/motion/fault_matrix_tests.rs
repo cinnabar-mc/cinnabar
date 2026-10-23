@@ -58,7 +58,13 @@ fn draw_motion(
     let material = assets::EntityRenderMaterial::Default as u32;
     let ids = [
         pipeline
-            .draw_variant(msaa, false, false, material, None)
+            .draw_variant(
+                msaa,
+                false,
+                false,
+                material,
+                assets::entity::material::UNAUTHORED_RENDER_STATE,
+            )
             .unwrap(),
         pipeline
             .motion_variant(ActorPipelineKey {
@@ -66,7 +72,7 @@ fn draw_motion(
                 hdr: false,
                 enhanced: false,
                 material,
-                raster: None,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             })
             .unwrap(),
     ];

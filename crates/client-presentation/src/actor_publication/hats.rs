@@ -64,18 +64,18 @@ impl<'a> AttachmentFrame<'a> {
     }
 }
 
-/// Bedrock's emissive-alpha state for fullbright catalog items. Other material fields, culling
-/// and overlay suppression follow the body, so player cosmetics stay two-sided as before.
+/// Bedrock's emissive-alpha state for fullbright catalog items: opaque and depth-writing, with
+/// the body's culling and overlay suppression, so player cosmetics stay two-sided as before.
 fn emissive_material(body: ActorMaterial) -> ActorMaterial {
     ActorMaterial {
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
-            cull: body.state.is_some_and(|state| state.cull),
-            blend: false,
-            depth_write: true,
             emissive: true,
             disable_overlay: body.state.is_some_and(|state| state.disable_overlay),
-            ..Default::default()
+        }),
+        render_state: Some(render_api::render_state::RenderState {
+            cull: body.raster().cull,
+            ..assets::entity::material::UNAUTHORED_RENDER_STATE
         }),
         ..body
     }

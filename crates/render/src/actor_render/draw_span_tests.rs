@@ -31,7 +31,7 @@ fn adjacent_distinct_equal_count_opaque_rigs_share_one_draw() {
         spans,
         [ActorDrawSpan {
             material: 0,
-            raster: crate::actor::material::word_raster(0),
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             page: 1,
             first: 0,
             count: instances.len() as u32,
@@ -137,23 +137,35 @@ fn merged_opaque_rigs_encode_one_span_and_receipt_for_every_instance() {
 fn incompatible_or_sorted_instances_split_adjacent_opaque_runs_without_reordering() {
     let opaque = assets::EntityRenderMaterial::Default as u32;
     let other = assets::EntityRenderMaterial::Dragon as u32;
-    let blended =
-        assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-            blend: true,
-            ..Default::default()
-        }));
-    let always =
-        assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-            depth_always: true,
-            ..Default::default()
-        }));
+    let blended = crate::actor::test_material::TestMaterial {
+        blend: true,
+        ..Default::default()
+    };
+    let always = crate::actor::test_material::TestMaterial {
+        depth_always: true,
+        ..Default::default()
+    };
     let late = assets::EntityRenderMaterial::DissolveColor as u32
         | crate::actor::material::LATE_DISSOLVE_COLOR;
     let geometry = [36, 36, 72].map(|vertex_count| ActorRigGeometrySpan {
         first_vertex: 0,
         vertex_count,
     });
-    for sorted in [blended, always, late] {
+    for (sorted, sorted_raster) in [
+        (
+            blended.word(assets::EntityRenderMaterial::Default),
+            blended.raster(),
+        ),
+        (
+            always.word(assets::EntityRenderMaterial::Default),
+            always.raster(),
+        ),
+        (late, assets::entity::material::UNAUTHORED_RENDER_STATE),
+    ] {
+        let rasters = [
+            assets::entity::material::UNAUTHORED_RENDER_STATE,
+            sorted_raster,
+        ];
         let instances = [
             (0, opaque),
             (1, opaque),
@@ -170,6 +182,7 @@ fn incompatible_or_sorted_instances_split_adjacent_opaque_runs_without_reorderin
         .map(|(geometry_id, material)| ActorGpuInstance {
             geometry_id,
             material,
+            raster: u32::from(material == sorted),
             ..Default::default()
         });
         let mut spans = Vec::new();
@@ -178,7 +191,7 @@ fn incompatible_or_sorted_instances_split_adjacent_opaque_runs_without_reorderin
             &[1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2],
             &instances,
             &geometry,
-            &[],
+            &rasters,
             std::iter::repeat(0),
         );
         assert_eq!(

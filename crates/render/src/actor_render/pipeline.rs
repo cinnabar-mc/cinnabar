@@ -81,13 +81,13 @@ impl ActorPipeline {
         let view = (msaa, hdr, enhanced);
         if !self.prewarmed.contains_key(&view) {
             let mut ids = Vec::new();
-            for material in prewarm_materials() {
+            for (material, raster) in prewarm_materials() {
                 let key = ActorPipelineKey {
                     msaa,
                     hdr,
                     enhanced,
                     material,
-                    raster: None,
+                    raster,
                 };
                 let contract = key.contract();
                 let id = match self.draw_variants.entry(contract) {
@@ -119,7 +119,7 @@ impl ActorPipeline {
             hdr,
             enhanced,
             assets::EntityRenderMaterial::Default as u32,
-            None,
+            assets::entity::material::UNAUTHORED_RENDER_STATE,
         )
     }
 
@@ -130,7 +130,7 @@ impl ActorPipeline {
         hdr: bool,
         enhanced: bool,
         material: u32,
-        raster: Option<render_api::render_state::RenderState>,
+        raster: render_api::render_state::RenderState,
     ) -> Option<bevy::render::render_resource::CachedRenderPipelineId> {
         self.draw_variants
             .get(
@@ -161,7 +161,7 @@ impl ActorPipeline {
                 hdr,
                 enhanced,
                 material,
-                raster: Some(raster),
+                raster,
             };
             let contract = key.contract();
             let id = match self.draw_variants.entry(contract) {
@@ -222,81 +222,82 @@ impl ActorPipeline {
 #[path = "pipeline_readiness_tests.rs"]
 mod readiness_tests;
 
-/// Requests every distinct raster contract before the first actor reaches a view.
-fn prewarm_materials() -> impl Iterator<Item = u32> {
+/// Requests every raster contract built-in actor materials draw with before the first actor
+/// reaches a view: both cullings, opaque, alpha and additive blending, both depth writes, the
+/// default, equal or always-passing depth test and every channel-write mask they declare, with
+/// and without alpha testing.
+fn prewarm_materials() -> impl Iterator<Item = (u32, render_api::render_state::RenderState)> {
+    use render_api::render_state::{BlendFactor, BlendState, CompareFunction, CullMode};
     let kinds = [
         assets::EntityRenderMaterial::Default,
         assets::EntityRenderMaterial::DissolveDepth,
         assets::EntityRenderMaterial::DissolveColor,
     ];
-    let ordinary = kinds.into_iter().flat_map(|kind| {
-        [false, true].into_iter().flat_map(move |cull| {
-            [false, true].into_iter().flat_map(move |blend| {
-                [false, true].into_iter().flat_map(move |depth_write| {
-                    [false, true].into_iter().map(move |alpha_test| {
-                        kind.word(Some(assets::EntityRenderMaterialState {
-                            alpha_test,
-                            cull,
-                            blend,
-                            depth_write,
-                            ..Default::default()
-                        }))
+    let blends = [
+        None,
+        Some(BlendState::ALPHA),
+        Some(crate::actor::material::additive(BlendFactor::One)),
+        Some(crate::actor::material::additive(BlendFactor::SourceAlpha)),
+    ];
+    let rasters = [CullMode::None, CullMode::Back]
+        .into_iter()
+        .flat_map(move |cull| {
+            blends.into_iter().flat_map(move |blend| {
+                [false, true].into_iter().flat_map(move |write| {
+                    [
+                        CompareFunction::LessEqual,
+                        CompareFunction::Equal,
+                        CompareFunction::Always,
+                    ]
+                    .into_iter()
+                    .flat_map(move |compare| {
+                        [(true, true), (true, false), (false, false)].map(
+                            move |(write_color, write_alpha)| {
+                                let mut raster = assets::entity::material::UNAUTHORED_RENDER_STATE;
+                                raster.cull = cull;
+                                raster.blend = blend;
+                                raster.depth.write = write;
+                                raster.depth.compare = Some(compare);
+                                raster.write_color = write_color;
+                                raster.write_alpha = write_alpha;
+                                raster
+                            },
+                        )
                     })
                 })
             })
-        })
-    });
-    let additive = kinds.into_iter().flat_map(|kind| {
-        [false, true].into_iter().flat_map(move |cull| {
-            [false, true].into_iter().flat_map(move |depth_write| {
-                [false, true].into_iter().map(move |additive_alpha| {
+        });
+    rasters.flat_map(move |raster| {
+        kinds.into_iter().flat_map(move |kind| {
+            [false, true]
+                .into_iter()
+                .map(move |alpha_test| {
                     kind.word(Some(assets::EntityRenderMaterialState {
-                        cull,
-                        depth_write,
-                        blend: true,
-                        additive: true,
-                        additive_alpha,
+                        alpha_test,
                         ..Default::default()
                     }))
                 })
-            })
+                .flat_map(|material| {
+                    [
+                        material,
+                        material
+                            | render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                            | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG,
+                    ]
+                })
+                .flat_map(|material| {
+                    [
+                        Some(material),
+                        (material & assets::EntityRenderMaterialState::KIND_MASK
+                            == assets::EntityRenderMaterial::DissolveColor as u32)
+                            .then_some(material | crate::actor::material::LATE_DISSOLVE_COLOR),
+                    ]
+                    .into_iter()
+                    .flatten()
+                })
+                .map(move |material| (material, raster))
         })
-    });
-    ordinary
-        .chain(additive)
-        .chain(
-            assets::facts::pack::rules()
-                .material_states()
-                .map(|(name, state)| assets::facts::pack::rules().raster(name).word(Some(state))),
-        )
-        .flat_map(|material| {
-            [
-                material,
-                material
-                    | render_model::LEGACY_COMBAT_MATERIAL_FLAG
-                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG,
-            ]
-        })
-        .flat_map(|material| {
-            [
-                Some(material),
-                Some(material | assets::EntityRenderMaterialState::DEPTH_EQUAL),
-                Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
-                (material & assets::EntityRenderMaterialState::KIND_MASK
-                    == assets::EntityRenderMaterial::DissolveColor as u32)
-                    .then_some(material | crate::actor::material::LATE_DISSOLVE_COLOR),
-            ]
-            .into_iter()
-            .flatten()
-        })
-        .flat_map(|material| {
-            [
-                0,
-                assets::EntityRenderMaterialState::DISABLE_ALPHA_WRITE,
-                assets::EntityRenderMaterialState::DISABLE_COLOR_WRITE,
-            ]
-            .map(|writes| material | writes)
-        })
+    })
 }
 
 pub(super) fn prepare_actor_pipelines(
@@ -332,8 +333,7 @@ pub(super) fn prepare_actor_pipelines(
     readiness.publish(has_view && ready);
 }
 
-/// Distinct (word, raster) pairs a frame draws whose raster differs from its word's projection;
-/// the fixed prewarm set already covers every projected raster.
+/// Distinct (word, raster) pairs a frame draws; pairs already requested cost one lookup.
 fn authored_materials(
     rig: &render_model::ActorRigRenderFrame,
 ) -> Vec<(u32, render_api::render_state::RenderState)> {
@@ -344,12 +344,7 @@ fn authored_materials(
         .collect::<std::collections::BTreeSet<_>>();
     pairs
         .into_iter()
-        .filter_map(|(material, raster)| {
-            let raster = *rig.rasters.get(raster as usize)?;
-            (crate::actor::material::lowered(raster)
-                != crate::actor::material::word_raster(material))
-            .then_some((material, raster))
-        })
+        .filter_map(|(material, raster)| Some((material, *rig.rasters.get(raster as usize)?)))
         .collect()
 }
 
@@ -558,8 +553,8 @@ pub(super) struct ActorPipelineKey {
     pub(super) hdr: bool,
     pub(super) enhanced: bool,
     pub(super) material: u32,
-    /// Complete raster state; `None` uses the legacy projection of `material`.
-    pub(super) raster: Option<render_api::render_state::RenderState>,
+    /// Complete raster state; stencil and depth bias do not distinguish pipelines.
+    pub(super) raster: render_api::render_state::RenderState,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -575,24 +570,13 @@ pub(super) struct ActorPipelineContract {
 impl ActorPipelineKey {
     /// The raster state this key draws with.
     pub(super) fn raster(&self) -> render_api::render_state::RenderState {
-        self.raster.map_or_else(
-            || crate::actor::material::word_raster(self.material),
-            crate::actor::material::lowered,
-        )
+        crate::actor::material::lowered(self.raster)
     }
 
     /// Coalesces shader-only material flags while retaining distinct coverage and depth states.
     pub(super) fn contract(self) -> ActorPipelineContract {
         let raster = self.raster();
-        let state = crate::actor::material::state(self.material).unwrap_or(
-            assets::EntityRenderMaterialState {
-                alpha_test: false,
-                cull: false,
-                blend: false,
-                depth_write: true,
-                ..Default::default()
-            },
-        );
+        let state = crate::actor::material::state(self.material).unwrap_or_default();
         let kind = match self.material & assets::EntityRenderMaterialState::KIND_MASK {
             value if value == assets::EntityRenderMaterial::DissolveDepth as u32 => {
                 assets::EntityRenderMaterial::DissolveDepth

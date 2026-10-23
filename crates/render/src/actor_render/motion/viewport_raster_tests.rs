@@ -96,7 +96,7 @@ fn covered_pixel(device: &RenderDevice, queue: &RenderQueue, range: Range<f32>) 
                 hdr: false,
                 enhanced: false,
                 material: assets::EntityRenderMaterial::Default as u32,
-                raster: None,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             },
             &mut descriptor,
         )
@@ -171,7 +171,7 @@ fn covered_pixel(device: &RenderDevice, queue: &RenderQueue, range: Range<f32>) 
     motion.draws.push((
         crate::actor::gpu::ActorDrawSpan {
             material: 0,
-            raster: crate::actor::material::word_raster(0),
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             page: 0,
             first: 0,
             count: 1,

@@ -69,22 +69,42 @@ impl EntityRenderData {
         })
     }
 
-    /// Every possible raster state, for artwork preservation and conservative capabilities.
+    /// Every possible raster choice with its resolved definition, for artwork preservation and
+    /// conservative capabilities.
     pub fn materials(
         &self,
         layer: &EntityRenderLayer,
-    ) -> impl Iterator<Item = (EntityRenderMaterial, Option<EntityRenderMaterialState>)> {
+    ) -> impl Iterator<
+        Item = (
+            EntityRenderMaterial,
+            Option<EntityRenderMaterialState>,
+            Option<&super::super::material::EntityMaterialDefinition>,
+        ),
+    > {
+        let definition =
+            |index: Option<u32>| index.and_then(|index| self.materials.get(index as usize));
         layer
             .material_selection
             .is_none()
-            .then_some((layer.material, layer.material_state))
+            .then(|| {
+                (
+                    layer.material,
+                    layer.material_state,
+                    definition(layer.material_definition),
+                )
+            })
             .into_iter()
-            .chain(self.material_nodes(layer).filter_map(|node| match node {
-                EntityRenderMaterialSelection::Raster {
-                    material, state, ..
-                } => Some((*material, *state)),
-                _ => None,
-            }))
+            .chain(
+                self.material_nodes(layer)
+                    .filter_map(move |node| match node {
+                        EntityRenderMaterialSelection::Raster {
+                            material,
+                            state,
+                            definition: index,
+                        } => Some((*material, *state, definition(*index))),
+                        _ => None,
+                    }),
+            )
     }
 }
 

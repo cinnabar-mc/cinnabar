@@ -12,7 +12,7 @@ fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
         .filter(|layer| {
             render
                 .materials(layer)
-                .any(|(material, _)| material == EntityRenderMaterial::DissolveDepth)
+                .any(|(material, ..)| material == EntityRenderMaterial::DissolveDepth)
         })
         .flat_map(|layer| layer_sources(render, layer))
         .collect()
@@ -28,11 +28,14 @@ pub fn actor_sources_keeping_alpha(
     // Per source: (every drawing material alpha-tests, some drawing material reads alpha).
     let mut drawn = BTreeMap::<u32, (bool, bool)>::new();
     for layer in &render.layers {
-        for (_, state) in render.materials(layer) {
+        for (_, state, definition) in render.materials(layer) {
+            let blends = definition.is_some_and(|definition| {
+                definition.has_state(crate::entity::material::EntityMaterialState::Blending)
+            });
             for source in layer_sources(render, layer) {
                 let (tests, reads) = drawn.entry(source).or_insert((true, false));
                 *tests &= state.is_some_and(|state| state.alpha_test);
-                *reads |= state.is_some_and(|state| state.blend || state.emissive);
+                *reads |= blends || state.is_some_and(|state| state.emissive);
             }
         }
     }

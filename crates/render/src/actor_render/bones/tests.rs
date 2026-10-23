@@ -404,7 +404,7 @@ fn projected_receipts_keep_old_encoded_offsets_until_completion() {
     let tracker = ActorDrawTracker::default();
     let spans = [ActorDrawSpan {
         material: 0,
-        raster: crate::actor::material::word_raster(0),
+        raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
         page: 0,
         first: 0,
         count: 2,

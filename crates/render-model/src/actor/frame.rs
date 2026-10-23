@@ -111,9 +111,9 @@ pub struct ActorMaterial {
     /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
+    /// Shading features of the authored material; `None` when the layer names none.
     pub state: Option<assets::EntityRenderMaterialState>,
-    /// Complete raster state of a resolved material definition; `None` uses the legacy
-    /// projection of `state`.
+    /// Raster state of the authored material; `None` draws as a layer without one.
     pub render_state: Option<render_api::render_state::RenderState>,
     /// Suppresses overlays without changing whether raster state was authored.
     pub suppress_overlay: bool,
@@ -932,24 +932,30 @@ impl ActorMaterial {
     /// The raster state this material draws with.
     #[must_use]
     pub fn raster(self) -> render_api::render_state::RenderState {
-        self.render_state.unwrap_or_else(|| {
-            self.state.map_or(
-                assets::EntityRenderMaterialState::UNAUTHORED,
-                assets::EntityRenderMaterialState::render_state,
-            )
-        })
+        self.render_state
+            .unwrap_or(assets::entity::material::UNAUTHORED_RENDER_STATE)
     }
 
-    /// Shader kind and shading flags in the shared instance word. The cull and blend bits the
-    /// shader reads follow the raster state, so a complete definition cannot contradict them.
+    /// Shader kind and shading flags in the shared instance word. An authored material's cull
+    /// and blend bits, which the shader reads, follow its raster state.
     pub fn gpu_word(self) -> u32 {
-        let state = self.state.map(|mut state| {
-            let raster = self.raster();
-            state.cull = raster.cull == render_api::render_state::CullMode::Back;
-            state.blend = raster.blend.is_some();
-            state
-        });
-        self.kind.word(state)
+        let raster = self.raster();
+        let flag = |enabled: bool, flag: u32| {
+            if enabled && self.state.is_some() {
+                flag
+            } else {
+                0
+            }
+        };
+        self.kind.word(self.state)
+            | flag(
+                raster.cull == render_api::render_state::CullMode::Back,
+                assets::EntityRenderMaterialState::CULL,
+            )
+            | flag(
+                raster.blend.is_some(),
+                assets::EntityRenderMaterialState::BLEND,
+            )
             | if self.suppress_overlay {
                 assets::EntityRenderMaterialState::DISABLE_OVERLAY
             } else {

@@ -546,7 +546,7 @@ pub(crate) fn prepare(
                     hdr: false,
                     enhanced: false,
                     material: span.material,
-                    raster: Some(span.raster),
+                    raster: span.raster,
                 };
                 let Ok(id) = masks.variants.specialize(
                     &cache,
