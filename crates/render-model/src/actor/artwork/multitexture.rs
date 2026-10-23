@@ -1,4 +1,4 @@
-//! Native three-sampler rasters share one array page. Nearest texel replication preserves
+//! Rasters a `USE_MULTITEXTURE` material samples share one array page. Nearest texel replication preserves
 //! each source's normalized-UV lookup; RGB composition remains in the fragment shader.
 
 use crate::{ActorArtworkLocation, ActorArtworkPages};
@@ -6,14 +6,31 @@ use crate::{ActorArtworkLocation, ActorArtworkPages};
 use super::*;
 
 pub(super) fn page_dimensions(catalog: &RuntimeActorCatalog) -> (u16, u16) {
-    catalog
-        .textures()
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| catalog.texture_uses_multitexture(*index))
-        .fold((0, 0), |(width, height), (_, texture)| {
-            (width.max(texture.width), height.max(texture.height))
-        })
+    largest(
+        catalog
+            .textures()
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| catalog.texture_uses_multitexture(*index))
+            .map(|(_, texture)| texture),
+    )
+}
+
+/// The smallest page that holds every one of `textures` at full resolution.
+pub(super) fn largest<'a>(textures: impl Iterator<Item = &'a assets::ActorTexture>) -> (u16, u16) {
+    textures.fold((0, 0), |(width, height), texture| {
+        (width.max(texture.width), height.max(texture.height))
+    })
+}
+
+/// `texture` resampled to one layer of a `width` by `height` page.
+pub(super) fn replicated(texture: &assets::ActorTexture, width: u16, height: u16) -> Arc<[u8]> {
+    if (texture.width, texture.height) == (width, height) {
+        return Arc::clone(&texture.rgba8);
+    }
+    let mut pixels = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
+    append_nearest(&mut pixels, texture, width, height);
+    pixels.into()
 }
 
 pub(super) fn page_pixels(
@@ -81,7 +98,9 @@ impl ActorArtworkPages {
         };
         page.multitexture
             && layers.iter().all(|&layer| {
-                layer < page.layers && self.entity_locations.contains(&(location.page, layer))
+                layer < page.layers
+                    && (self.entity_locations.contains(&(location.page, layer))
+                        || self.pack_locations.contains(&(location.page, layer)))
             })
     }
 }
@@ -160,5 +179,49 @@ mod tests {
                 .multitexture_location(EntityRigId(0), [5, 6, 7])
                 .is_none()
         );
+    }
+
+    #[test]
+    fn pack_textures_a_multitexture_material_samples_share_one_page() {
+        let texture = |source: u32, side: u16| assets::ActorTexture {
+            source,
+            width: side,
+            height: side,
+            pixel_sha256: [source as u8; 32],
+            rgba8: vec![source as u8; usize::from(side) * usize::from(side) * 4].into(),
+        };
+        let binding = assets::ActorArtworkBinding {
+            rig: 0,
+            geometry_candidate: 0,
+            entity_symbol: 0,
+            geometry: 0,
+            render_controller: 0,
+            texture: 0,
+            material: "llama".into(),
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        };
+        let textures = [
+            texture(10, 4),
+            texture(11, 2),
+            texture(12, 1),
+            texture(13, 2),
+        ];
+        let pages = ActorArtworkPages::default().with_pack_artwork(
+            &textures,
+            &[binding],
+            &BTreeSet::from([10, 11, 12]),
+        );
+        let rig = crate::pack_rig_id(0);
+        let route = pages.multitexture_location(rig, [10, 11, 12]).unwrap();
+        assert!(pages.valid(rig, route));
+        let page = &pages.pages()[usize::from(route.page) - 1];
+        assert!(page.multitexture);
+        assert_eq!((page.width, page.height, page.layers), (4, 4, 3));
+        let other = pages.variant_location(rig, 13).unwrap();
+        assert_ne!(
+            other.page, route.page,
+            "unsampled textures keep their own pages"
+        );
+        assert!(!pages.pages()[usize::from(other.page) - 1].multitexture);
     }
 }
