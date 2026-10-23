@@ -42,6 +42,8 @@ struct Declaration {
 pub(super) struct MaterialStates {
     /// The pack's `cinnabar/material-bindings.json`, when valid.
     extension: Option<extension::Extension>,
+    /// Entity raster sources by extensionless path, for extension texture lookups.
+    textures: BTreeMap<Box<str>, u32>,
     files: usize,
     definitions: BTreeMap<Box<str>, Declaration>,
     /// `+name` declarations applied in place after the named material resolves.
@@ -81,16 +83,40 @@ pub(super) struct MaterialTable {
     unresolved: u32,
     /// Parent-chain links resolved against the built-in bases.
     chains: ChainMemo,
+    /// Interned Cinnabar glow and emissive mask pairs.
+    masks: Vec<assets::EntityMaterialMasks>,
 }
 
 impl MaterialTable {
-    /// The finished table, in index order.
-    pub(super) fn into_definitions(self) -> Box<[EntityMaterialDefinition]> {
-        self.definitions.into_boxed_slice()
+    /// The finished definition and mask tables, in index order.
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        Box<[EntityMaterialDefinition]>,
+        Box<[assets::EntityMaterialMasks]>,
+    ) {
+        (
+            self.definitions.into_boxed_slice(),
+            self.masks.into_boxed_slice(),
+        )
     }
 
-    /// Definitions and variants that did not fit the carrier bound. Their materials draw as
-    /// layers without one, and the rest of the pack still compiles.
+    /// Interns `masks`, reusing an equal existing entry. Masks past the carrier bound stay
+    /// unresolved and are counted; their material draws without them.
+    fn intern_masks(&mut self, masks: assets::EntityMaterialMasks) -> Option<u32> {
+        if let Some(index) = self.masks.iter().position(|existing| *existing == masks) {
+            return Some(index as u32);
+        }
+        if self.masks.len() >= MAX_ENTITY_MATERIAL_DEFINITIONS {
+            self.unresolved += 1;
+            return None;
+        }
+        self.masks.push(masks);
+        Some(self.masks.len() as u32 - 1)
+    }
+
+    /// Definitions, variants and mask pairs that did not fit the carrier bound. Their materials
+    /// draw without them, and the rest of the pack still compiles.
     pub(super) fn unresolved(&self) -> u32 {
         self.unresolved
     }
@@ -144,6 +170,17 @@ impl MaterialStates {
         for path in paths {
             states.read(payloads.read(root, path)?);
         }
+        states.textures = sources
+            .iter()
+            .enumerate()
+            .filter_map(|(index, source)| {
+                let stem = source
+                    .path
+                    .strip_suffix(".png")
+                    .or_else(|| source.path.strip_suffix(".tga"))?;
+                Some((stem.into(), index as u32))
+            })
+            .collect();
         if sources
             .iter()
             .any(|source| source.path.as_ref() == extension::MATERIAL_BINDINGS_PATH)
@@ -306,7 +343,7 @@ impl MaterialStates {
             .block_bindings
             .iter()
             .filter_map(|binding| {
-                let (shading, index) = states.resolve_extension(&binding.material, &mut table)?;
+                let (shading, index, _) = states.resolve_extension(&binding.material, &mut table)?;
                 Some(extension::ResolvedBlockBinding {
                     block: binding.block.clone(),
                     states: binding.states.clone(),
@@ -331,12 +368,12 @@ impl MaterialStates {
     }
 
     /// Resolves extension material `name` over its base, interns it and returns its shading
-    /// features with the definition's table index.
+    /// features with the definition's table index and its interned masks, if any.
     pub(super) fn resolve_extension(
         &self,
         name: &str,
         table: &mut MaterialTable,
-    ) -> Option<(EntityRenderMaterialState, u32)> {
+    ) -> Option<(EntityRenderMaterialState, u32, Option<u32>)> {
         let material = self.extension.as_ref()?.materials.get(name)?;
         let mut resolved = match &material.base {
             Some(base) => self.resolve_with(material_name(base), &builtin, &mut table.chains)?,
@@ -344,7 +381,10 @@ impl MaterialStates {
         };
         resolved.version = 1;
         resolved.apply(&material.fields);
-        Some((shading(&resolved), table.intern(&resolved)?))
+        let masks = material
+            .masks(|path| self.textures.get(path).copied())
+            .and_then(|masks| table.intern_masks(masks));
+        Some((shading(&resolved), table.intern(&resolved)?, masks))
     }
 
     /// Walks `name`'s parent chain until a link `memo` already knows, then applies each

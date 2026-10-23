@@ -121,6 +121,8 @@ pub struct ActorMaterial {
     pub dissolve_multiplier: f32,
     /// RGB illumination multiplier; applies to lit and unlit draws without clamping.
     pub light_color_multiplier: f32,
+    /// Cinnabar material masks on the draw's artwork page.
+    pub masks: super::ActorMaterialMasks,
 }
 
 impl ActorMaterial {
@@ -154,6 +156,7 @@ impl Default for ActorMaterial {
             suppress_overlay: false,
             dissolve_multiplier: 1.0,
             light_color_multiplier: 1.0,
+            masks: super::ActorMaterialMasks::NONE,
         }
     }
 }
@@ -205,12 +208,16 @@ pub struct ActorGpuInstance {
     pub glint: [f32; 6],
     /// Index into [`ActorRigRenderFrame::rasters`].
     pub raster: u32,
+    /// Glow and emissive mask layers on the instance's page; MAX names no mask.
+    pub mask_layers: [u32; 2],
+    pub mask_strength: f32,
 }
 
 impl Default for ActorGpuInstance {
     fn default() -> Self {
         Self {
             light_color_multiplier: 1.0,
+            mask_layers: [u32::MAX; 2],
             ..Self::zeroed()
         }
     }
@@ -741,6 +748,15 @@ impl ActorRigFrameBuilder {
                     1.0
                 },
                 raster,
+                mask_layers: [
+                    submission.material.masks.glow_layer,
+                    submission.material.masks.emissive_layer,
+                ],
+                mask_strength: if submission.material.masks.strength.is_finite() {
+                    submission.material.masks.strength
+                } else {
+                    0.0
+                },
             });
             manifest.push(ActorDrawManifestEntry {
                 identity: submission.input.identity,

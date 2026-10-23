@@ -690,6 +690,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 material: Default::default(),
                 material_state: None,
                 material_definition: None,
+                material_masks: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
@@ -723,6 +724,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             }]),
             geometries: Box::new([]),
             materials: Box::new([]),
+            material_masks: Box::new([]),
         },
     }
     .with_unresolved_item_use()
@@ -1106,6 +1108,7 @@ fn material_selection_graph_is_optional_and_validated() {
         material: entity::EntityRenderMaterial::Default,
         state: None,
         definition: None,
+        masks: None,
     }]
     .into();
     compiled.render.layers[0].material_selection = Some(0);

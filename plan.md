@@ -109,8 +109,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   is `implemented` with a named test. The entity material declaration, definition and name
   bounds are unverified implementation limits; past them a material draws without one.
   is `implemented` with a named test.
-- [ ] Read [Cinnabar material binding](docs/reference/cinnabar-materials.md) textures and
-  parameters, and bind vanilla blocks; entity and custom-block bindings render.
+- [ ] Bind vanilla blocks and draw block masks with
+  [Cinnabar material bindings](docs/reference/cinnabar-materials.md); entity bindings with masks
+  and custom-block bindings render.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no

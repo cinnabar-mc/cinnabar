@@ -328,6 +328,7 @@ pub(super) fn compile_render(
                 material: EntityRenderMaterial::Default,
                 material_state: None,
                 material_definition: None,
+                material_masks: None,
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
@@ -368,6 +369,7 @@ pub(super) fn compile_render(
         }
     }
     let unresolved = materials.unadmitted() + material_table.unresolved();
+    let (definitions, material_masks) = material_table.into_parts();
     let render = EntityRenderData {
         material_selections: material_selections.into_boxed_slice(),
         layers: layers.into_boxed_slice(),
@@ -375,7 +377,8 @@ pub(super) fn compile_render(
         candidates: candidates.into_boxed_slice(),
         visibility: visibility.into_boxed_slice(),
         geometries: layer_geometries.into_boxed_slice(),
-        materials: material_table.into_definitions(),
+        materials: definitions,
+        material_masks,
     };
     Ok((render, unresolved))
 }

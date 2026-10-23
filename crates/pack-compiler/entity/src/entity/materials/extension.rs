@@ -233,6 +233,32 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
     Ok(extension)
 }
 
+/// Texture names whose masks Cinnabar draws, and the parameter that scales them.
+const GLOW_MASK: &str = "glow_mask";
+const EMISSIVE_MASK: &str = "emissive_mask";
+const STRENGTH: &str = "strength";
+
+impl Material {
+    /// The masks this material draws, with `source` mapping a resource path to its entity
+    /// source; `None` without any mask. A mask whose texture is not loaded is omitted.
+    pub(crate) fn masks(
+        &self,
+        source: impl Fn(&str) -> Option<u32>,
+    ) -> Option<assets::EntityMaterialMasks> {
+        let texture = |name| self.textures.get(name).and_then(|path| source(path));
+        let glow = texture(GLOW_MASK);
+        let emissive = texture(EMISSIVE_MASK);
+        (glow.is_some() || emissive.is_some()).then(|| assets::EntityMaterialMasks {
+            glow,
+            emissive,
+            strength: match self.parameters.get(STRENGTH) {
+                Some(Parameter::Scalar(strength)) => *strength,
+                _ => 1.0,
+            },
+        })
+    }
+}
+
 impl Extension {
     /// Bindings for `entity`'s `controller`, in document order, as (bone pattern, material).
     pub(crate) fn entity_rules<'a>(

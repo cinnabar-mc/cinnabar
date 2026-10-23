@@ -88,3 +88,41 @@ fn bindings_for_other_targets_or_invalid_documents_leave_bedrock_materials_uncha
         assert_eq!(bone_materials(Some(document)), unchanged);
     }
 }
+
+#[test]
+fn mask_textures_reach_the_mask_table_and_keep_their_alpha() {
+    let fixture = per_bone_pack(json!([{"*":"Material.default"}]), false);
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([200, 100, 50, 77]))
+        .save(fixture.path().join("textures/entity/example_glow.png"))
+        .unwrap();
+    write(
+        fixture.path(),
+        pack_entity_compiler::MATERIAL_BINDINGS_PATH,
+        &serde_json::to_vec(&glowing_glass(json!({
+            "entity": "minecraft:example", "bone": "magnifying*", "material": "example:glow"
+        })))
+        .unwrap(),
+    );
+    let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    let glass = compiled
+        .render
+        .layers
+        .iter()
+        .find(|layer| visible(&compiled, layer, "magnifyingGlass"))
+        .unwrap();
+    let masks = compiled.render.material_masks[glass.material_masks.unwrap() as usize];
+    let glow = masks.glow.expect("the glow mask resolves to its raster");
+    assert_eq!(
+        compiled.sources[glow as usize].path.as_ref(),
+        "textures/entity/example_glow.png"
+    );
+    assert_eq!((masks.emissive, masks.strength), (None, 2.0));
+    assert!(assets::actor_sources_keeping_alpha(&compiled.render).contains(&glow));
+    let handle = compiled
+        .render
+        .layers
+        .iter()
+        .find(|layer| visible(&compiled, layer, "handle"))
+        .unwrap();
+    assert_eq!(handle.material_masks, None);
+}
