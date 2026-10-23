@@ -57,7 +57,6 @@ fn shared_frame_publishes_server_visuals_before_consumers() {
         height: 1,
         layers: 1,
         rgba8: Arc::from([11, 23, 47, 255]),
-        color_mask: false,
         multitexture: false,
     }]);
     // A texture-only replacement has artwork without new entity definitions.

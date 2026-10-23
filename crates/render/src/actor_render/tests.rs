@@ -242,7 +242,6 @@ fn generic_frame() -> render_scene::ActorRenderFrame {
         width: 16,
         height: 16,
         layers: 1,
-        color_mask: false,
         multitexture: false,
         rgba8: vec![255; 1024].into(),
     }]);

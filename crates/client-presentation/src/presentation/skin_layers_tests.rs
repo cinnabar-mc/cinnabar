@@ -243,7 +243,6 @@ fn page_id_pressure_uses_the_existing_grouped_admission_policy() {
         height: 1,
         layers: 1,
         rgba8: Arc::from([1; 4]),
-        color_mask: false,
         multitexture: false,
     };
     // Leave one generic page ID: both images still fit together in the grouped path.

@@ -25,7 +25,6 @@ pub(super) struct GpuArtworkPage {
     _texture: Texture,
     pub view: TextureView,
     pub bind_group: Option<BindGroup>,
-    pub color_mask: bool,
     pub multitexture: bool,
     raw_views: ArtworkRawViews,
 }
@@ -69,7 +68,6 @@ impl GpuGlint {
             height: source.height,
             layers: 1,
             rgba8: Arc::clone(&source.rgba8),
-            color_mask: false,
             multitexture: false,
         };
         let key = self
@@ -253,10 +251,9 @@ impl GpuArtwork {
                     self.released = true;
                 }
                 if let Some(gpu) = &mut self.pages[index]
-                    && (gpu.color_mask != page.color_mask || gpu.multitexture != page.multitexture)
+                    && gpu.multitexture != page.multitexture
                 {
                     gpu.bind_group = None;
-                    gpu.color_mask = page.color_mask;
                     gpu.multitexture = page.multitexture;
                 }
                 if let Some(pending) = &mut self.pending[index] {
@@ -268,7 +265,6 @@ impl GpuArtwork {
                         }
                         pending.source = source;
                     }
-                    pending.color_mask = page.color_mask;
                     pending.multitexture = page.multitexture;
                 }
             }
@@ -850,13 +846,12 @@ mod tests {
             height,
             layers: 1,
             rgba8: vec![255; 2 * usize::from(height) * 4].into(),
-            color_mask: true,
-            multitexture: false,
+            multitexture: true,
         }]);
         let mut gpu = GpuArtwork::default();
         assert!(gpu.prepare(&pages, &device, &queue));
         assert_eq!(gpu.pages.len(), 1);
-        assert!(gpu.pages[0].as_ref().unwrap().color_mask);
+        assert!(gpu.pages[0].as_ref().unwrap().multitexture);
     }
 
     #[test]
@@ -872,7 +867,6 @@ mod tests {
             height: 16,
             layers: 1,
             rgba8: vec![255; 16 * 16 * 4].into(),
-            color_mask: false,
             multitexture: false,
         }]);
         let mut gpu = GpuArtwork::default();

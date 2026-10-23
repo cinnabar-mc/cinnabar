@@ -132,7 +132,6 @@ mod tests {
                 height: 1,
                 layers: 3,
                 rgba8: Arc::from([0; 12]),
-                color_mask: false,
                 multitexture: true,
             }]),
             ..Default::default()

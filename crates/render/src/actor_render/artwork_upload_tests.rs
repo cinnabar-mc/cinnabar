@@ -11,7 +11,6 @@ fn publication(marker: u8, count: usize) -> ActorArtworkPages {
             height: 5,
             layers: 3,
             rgba8: vec![marker; 3 * 5 * 3 * 4].into(),
-            color_mask: false,
             multitexture: false,
         })
         .collect();
@@ -111,7 +110,6 @@ fn pending_replacement_keeps_previous_texture_and_uses_latest_material_flags() {
     pages.entity_identity = [3; 32];
     let mut page = pages.pages[0].clone();
     page.rgba8 = page.rgba8.to_vec().into();
-    page.color_mask = true;
     page.multitexture = true;
     pages.pages = Arc::from([page]);
     assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
@@ -120,7 +118,7 @@ fn pending_replacement_keeps_previous_texture_and_uses_latest_material_flags() {
     let ready = gpu.page(0).unwrap();
     assert_ne!(ready._texture.id(), previous);
     assert!(ready.source.shares_pixels_with(&pages.pages[0]));
-    assert!(ready.color_mask && ready.multitexture);
+    assert!(ready.multitexture);
 }
 
 #[test]

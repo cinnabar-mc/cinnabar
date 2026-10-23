@@ -191,7 +191,6 @@ pub(crate) struct ActorGpu {
     artwork: GpuArtwork,
     player_material: Buffer,
     neutral_material: Buffer,
-    color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     mask_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
@@ -281,13 +280,6 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
             render_queue,
             "neutral binary-alpha material class",
             bytemuck::cast_slice(&[1u32, 0, 0, 0]),
-            BufferUsages::UNIFORM,
-        )?,
-        color_mask_material: gpu_allocation::buffer_with_data(
-            render_device,
-            render_queue,
-            "native actor color-mask material",
-            bytemuck::cast_slice(&[0u32, 1, 0, 0]),
             BufferUsages::UNIFORM,
         )?,
         multitexture_material: gpu_allocation::buffer_with_data(
@@ -709,8 +701,6 @@ pub(crate) fn prepare_actor_bind_group(
                                 binding: 8,
                                 resource: if page.multitexture {
                                     gpu.multitexture_material.as_entire_binding()
-                                } else if page.color_mask {
-                                    gpu.color_mask_material.as_entire_binding()
                                 } else {
                                     gpu.neutral_material.as_entire_binding()
                                 },

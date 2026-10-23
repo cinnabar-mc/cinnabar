@@ -9,9 +9,6 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(test)]
-#[path = "artwork/color_mask_tests.rs"]
-mod color_mask_tests;
 #[path = "artwork/multitexture.rs"]
 mod multitexture;
 #[path = "artwork/page_budget.rs"]
@@ -105,8 +102,6 @@ pub struct ActorTexturePage {
     pub height: u16,
     pub layers: u32,
     pub rgba8: Arc<[u8]>,
-    /// Native USE_COLOR_MASK rasters cannot share a neutral-opacity material binding.
-    pub color_mask: bool,
     pub multitexture: bool,
 }
 impl ActorTexturePage {
@@ -135,7 +130,6 @@ impl ActorTexturePage {
             height,
             layers: self.layers,
             rgba8: rgba8.into(),
-            color_mask: self.color_mask,
             multitexture: self.multitexture,
         })
     }
@@ -214,7 +208,7 @@ impl ActorArtworkPages {
 
     pub fn new(catalog: &RuntimeActorCatalog) -> Self {
         let dimensions = multitexture::page_dimensions(catalog);
-        let mut groups = BTreeMap::<(u16, u16, bool, bool), Vec<usize>>::new();
+        let mut groups = BTreeMap::<(u16, u16, bool), Vec<usize>>::new();
         for (index, texture) in catalog.textures().iter().enumerate() {
             let multitexture = catalog.texture_uses_multitexture(index);
             let (width, height) = if multitexture {
@@ -223,12 +217,7 @@ impl ActorArtworkPages {
                 (texture.width, texture.height)
             };
             groups
-                .entry((
-                    width,
-                    height,
-                    catalog.texture_uses_color_mask(index),
-                    multitexture,
-                ))
+                .entry((width, height, multitexture))
                 .or_default()
                 .push(index);
         }
@@ -236,7 +225,7 @@ impl ActorArtworkPages {
         let mut locations = BTreeMap::new();
         // The existing player page retains all 128 layers and its full byte budget.
         let mut gpu_bytes = player_page_bytes();
-        for ((width, height, color_mask, multitexture), indices) in groups {
+        for ((width, height, multitexture), indices) in groups {
             push_group(
                 &mut pages,
                 &mut gpu_bytes,
@@ -249,7 +238,6 @@ impl ActorArtworkPages {
                         height,
                         layers: indices.len() as u32,
                         rgba8: multitexture::page_pixels(catalog, indices, width, height).into(),
-                        color_mask,
                         multitexture,
                     };
                     (page, ())
@@ -352,7 +340,6 @@ impl ActorArtworkPages {
             && page.width == retained.page.width
             && page.height == retained.page.height
             && page.layers == retained.page.layers
-            && page.color_mask == retained.page.color_mask
             && page.multitexture == retained.page.multitexture
             && self
                 .equipment
@@ -367,26 +354,21 @@ impl ActorArtworkPages {
         self,
         rasters: &[EquipmentRaster],
     ) -> (Self, Vec<Option<ActorArtworkLocation>>) {
-        self.with_raster_materials(rasters, &[])
+        self.with_rasters(rasters)
     }
 
-    fn with_raster_materials(
+    fn with_rasters(
         mut self,
         rasters: &[EquipmentRaster],
-        color_masks: &[bool],
     ) -> (Self, Vec<Option<ActorArtworkLocation>>) {
-        let mut groups = BTreeMap::<(u16, u16, bool), Vec<usize>>::new();
+        let mut groups = BTreeMap::<(u16, u16), Vec<usize>>::new();
         for (index, raster) in rasters.iter().enumerate() {
             if raster.width != 0
                 && raster.height != 0
                 && raster.rgba8.len() == usize::from(raster.width) * usize::from(raster.height) * 4
             {
                 groups
-                    .entry((
-                        raster.width,
-                        raster.height,
-                        color_masks.get(index).copied().unwrap_or(false),
-                    ))
+                    .entry((raster.width, raster.height))
                     .or_default()
                     .push(index);
             }
@@ -400,7 +382,7 @@ impl ActorArtworkPages {
         let mut equipment = (*self.equipment).clone();
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
-        for ((width, height, color_mask), indices) in groups {
+        for ((width, height), indices) in groups {
             push_group(
                 &mut pages,
                 &mut gpu_bytes,
@@ -416,7 +398,6 @@ impl ActorArtworkPages {
                         .map(|index| rasters[*index].rgba8.len())
                         .sum();
                     hasher.update((bytes as u64).to_le_bytes());
-                    hasher.update([u8::from(color_mask)]);
                     hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
                     let (key, pixels) = pixel_cache::pack(
                         indices.iter().map(|index| &rasters[*index].rgba8),
@@ -427,7 +408,6 @@ impl ActorArtworkPages {
                         height,
                         layers: indices.len() as u32,
                         rgba8: pixels,
-                        color_mask,
                         multitexture: false,
                     };
                     (page, key)
@@ -494,7 +474,6 @@ impl ActorArtworkPages {
                         .map(|index| textures[*index].rgba8.len())
                         .sum();
                     hasher.update((bytes as u64).to_le_bytes());
-                    hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
                     hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
                     let (key, pixels) = pixel_cache::pack(
                         indices.iter().map(|index| &textures[*index].rgba8),
@@ -505,7 +484,6 @@ impl ActorArtworkPages {
                         height,
                         layers: indices.len() as u32,
                         rgba8: pixels,
-                        color_mask: false,
                         multitexture: false,
                     };
                     (page, key)
@@ -568,14 +546,7 @@ impl ActorArtworkPages {
             .filter(|(source, _)| self.source_locations.contains_key(source))
             .collect();
         let rasters: Vec<_> = overrides.iter().map(|(_, raster)| raster.clone()).collect();
-        let color_masks: Vec<_> = overrides
-            .iter()
-            .map(|(source, _)| {
-                let location = self.source_locations[source];
-                self.pages[usize::from(location.page) - 1].color_mask
-            })
-            .collect();
-        let (mut pages, locations) = self.with_raster_materials(&rasters, &color_masks);
+        let (mut pages, locations) = self.with_rasters(&rasters);
         let mut sources = (*pages.source_locations).clone();
         let mut routes = (*pages.routes).clone();
         let mut variants = (*pages.entity_locations).clone();
@@ -739,7 +710,6 @@ mod tests {
                 height: 1,
                 layers: 1,
                 rgba8: vec![3; 4].into(),
-                color_mask: false,
                 multitexture: false,
             }]
             .into(),
@@ -809,15 +779,14 @@ mod tests {
                 .repeat(6)
                 .concat()
                 .into(),
-            color_mask: true,
-            multitexture: false,
+            multitexture: true,
         };
         let fitted = page.fit_within(4);
         assert_eq!((fitted.width, fitted.height), (1, 3));
         assert_eq!(&fitted.rgba8[..4], &[127, 127, 127, 255]);
         assert!(
-            fitted.color_mask,
-            "downscaling retains the material contract"
+            fitted.multitexture,
+            "downscaling retains the sampler grouping"
         );
         assert!(matches!(page.fit_within(6), std::borrow::Cow::Borrowed(_)));
     }

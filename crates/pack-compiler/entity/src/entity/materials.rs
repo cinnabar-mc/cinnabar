@@ -219,9 +219,7 @@ impl MaterialStates {
     pub(super) fn color_mask(&self, target: &str) -> assets::EquipmentColorMask {
         use assets::EquipmentColorMask;
         match self.resolve_with(material_name(target), &color_mask_base) {
-            Some(resolved) if resolved.defines.contains("USE_COLOR_MASK") => {
-                EquipmentColorMask::Dye
-            }
+            Some(resolved) if resolved.defines.contains(COLOR_MASK) => EquipmentColorMask::Dye,
             Some(_) => EquipmentColorMask::NoMask,
             None => EquipmentColorMask::Unresolved,
         }
@@ -316,15 +314,32 @@ fn material_name(target: &str) -> &str {
     target.strip_suffix(".skinning").unwrap_or(target)
 }
 
+const OVERLAY: &str = "USE_OVERLAY";
+const ALPHA_TEST: &str = "ALPHA_TEST";
+const EMISSIVE: &str = "USE_EMISSIVE";
+const COLOR_MASK: &str = "USE_COLOR_MASK";
+const MULTITEXTURE: &str = "USE_MULTITEXTURE";
+
 /// Native material bases the client ships outside resource packs, as the states, defines and
 /// colour blend pair each declares. The generated native table wins over the base names below.
 fn builtin(name: &str) -> Option<Resolved> {
     use EntityMaterialState as State;
-    const OVERLAY: &str = "USE_OVERLAY";
-    const ALPHA_TEST: &str = "ALPHA_TEST";
-    const EMISSIVE: &str = "USE_EMISSIVE";
-    if let Some(state) = assets::facts::pack::rules().material_state(name) {
-        return Some(Resolved::from_definition(state.definition()));
+    use assets::facts::pack::MaterialKind;
+    let rules = assets::facts::pack::rules();
+    if let Some(state) = rules.material_state(name) {
+        let mut resolved = Resolved::from_definition(state.definition());
+        // Native dyed and three-sampler bases declare their texture-combining define.
+        match rules.material(name) {
+            Some(MaterialKind::ColorMask) => {
+                resolved.defines.insert(COLOR_MASK.into());
+            }
+            Some(MaterialKind::Multitexture) => {
+                resolved.defines.insert(MULTITEXTURE.into());
+            }
+            _ => {}
+        }
+        resolved.finish();
+        return Some(resolved);
     }
     let (states, defines): (&[State], &[&str]) = match name {
         "entity" => (&[], &[OVERLAY]),
@@ -351,7 +366,7 @@ fn color_mask_base(name: &str) -> Option<Resolved> {
     match name {
         "armor_leather" | "armor_leather_enchanted" => {
             let mut resolved = Resolved::default();
-            resolved.defines.insert("USE_COLOR_MASK".into());
+            resolved.defines.insert(COLOR_MASK.into());
             Some(resolved)
         }
         "armor" | "armor_enchanted" => Some(Resolved::default()),
@@ -369,11 +384,13 @@ fn shading(resolved: &Resolved) -> EntityRenderMaterialState {
     EntityRenderMaterialState {
         // Native JSON actors select the transparent pass before legacy ALPHA_TEST; that pass
         // preserves sampled opacity without a cutout discard.
-        alpha_test: resolved.defines.contains("ALPHA_TEST")
+        alpha_test: resolved.defines.contains(ALPHA_TEST)
             && !resolved.states.contains(&EntityMaterialState::Blending),
-        emissive: resolved.defines.contains("USE_EMISSIVE"),
+        emissive: resolved.defines.contains(EMISSIVE),
         only_emissive: resolved.defines.contains("USE_ONLY_EMISSIVE"),
-        disable_overlay: !resolved.defines.contains("USE_OVERLAY"),
+        disable_overlay: !resolved.defines.contains(OVERLAY),
+        color_mask: resolved.defines.contains(COLOR_MASK),
+        multitexture: resolved.defines.contains(MULTITEXTURE),
     }
 }
 
