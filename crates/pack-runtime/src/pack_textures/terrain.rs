@@ -118,11 +118,12 @@ fn parse_variant(value: &Value) -> Option<Vec<Choice>> {
             .iter()
             .map(|value| {
                 let mut choice = parse_choice(value)?;
-                let weight = if value.is_string() {
-                    1.0
-                } else {
-                    value.get("weight").and_then(Value::as_f64).unwrap_or(0.0) as f32
-                };
+                let weight = value
+                    .get("weight")
+                    .and_then(Value::as_f64)
+                    .map_or(assets::material_keys::DEFAULT_TERRAIN_WEIGHT, |weight| {
+                        weight as f32
+                    });
                 choice.weight = weight;
                 Some(choice)
             })
@@ -210,6 +211,19 @@ mod tests {
             [0.25, 0.75]
         );
         assert_eq!(entry.variant(9)[0].path, "textures/dry");
+    }
+
+    #[test]
+    fn a_variation_without_a_weight_counts_as_weight_one() {
+        let entry = parse_entry(&serde_json::json!({"textures":{"variations":[
+            {"path":"textures/plain"}, {"path":"textures/heavy","weight":3}
+        ]}}))
+        .unwrap();
+        let weights: Vec<_> = entry.variants[0]
+            .iter()
+            .map(|choice| choice.weight)
+            .collect();
+        assert_eq!(weights, [0.25, 0.75]);
     }
 
     #[test]
