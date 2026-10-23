@@ -26,6 +26,7 @@ fn compile_block_overlay(
     )
 }
 
+mod alpha_masked_tint;
 mod block_items;
 mod budget;
 mod builtins;

@@ -5,7 +5,7 @@ import render::chunk_bindings::{
     model_sampler, animations, animation_frames,
     clock, model_templates, model_templates_length, geometry_streams, atmosphere,
 };
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale, material_ao_shade};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale, material_ao_shade, material_uses_overlay_mask};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import render::world_projection::{section_camera_offset, camera_offset_clip};
@@ -499,7 +499,10 @@ fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, worl
     }
     let tint_kind = flags & 0x30u;
     if (tint_kind == 0u) { return vec4(sampled.rgb, sampled.a); }
-    return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);
+    let tinted = sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb;
+    // Alpha-masked tint: alpha weights the tint and the face stays opaque, as on cube faces.
+    if (material_uses_overlay_mask(flags)) { return vec4(mix(sampled.rgb, tinted, sampled.a), 1.0); }
+    return vec4(tinted, sampled.a);
 }
 
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
@@ -707,9 +710,12 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 fn ordinary_world_model_gamma_colour(@if(!ENHANCED)
 in: VertexOutput, @if(!ENHANCED)
 sampled_gamma: vec4<f32>) -> vec4<f32> {
-    let lit_gamma = ((sampled_gamma.rgb * in.tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
+    // Alpha-masked tint: alpha weights the tint and the face stays opaque, as on cube faces.
+    let overlay = material_uses_overlay_mask(in.material_flags);
+    let tint_gamma = select(in.tint_gamma, mix(vec3(1.0), in.tint_gamma, sampled_gamma.a), overlay);
+    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
-    return vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a);
+    return vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), select(sampled_gamma.a, 1.0, overlay));
 }
 
 @if(!ENHANCED)
