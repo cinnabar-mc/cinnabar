@@ -103,6 +103,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 
 ### Terrain, materials and biome acceptance
 
+- [ ] Close server-pack block and entity material parity. The behavior baseline, native
+  evidence and confirmed gaps are tracked in the
+  [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
+  is `implemented` with a named test.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
