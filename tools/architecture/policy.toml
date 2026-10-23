@@ -190,7 +190,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
-allowed_dependencies = ["pack-json", "assets"]
+allowed_dependencies = ["pack-json", "assets", "protocol-ids"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
