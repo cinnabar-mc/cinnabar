@@ -127,6 +127,19 @@ pub const MATERIAL_LEAF_AO_EXPONENT_SCALE: u32 = 100;
 pub const MATERIAL_LEAF_METADATA_MASK: u32 =
     MATERIAL_FLAG_ISOTROPIC | MATERIAL_LEAF_AO_EXPONENT_MASK;
 
+/// Coverage flags one block render method selects: blend, cutout, or neither for opaque layers.
+/// Two-sidedness depends on the caller's geometry; see [`protocol_ids::BlockRenderMethod::two_sided`].
+#[must_use]
+pub const fn block_render_method_flags(method: protocol_ids::BlockRenderMethod) -> u32 {
+    if method.blends() {
+        MATERIAL_FLAG_ALPHA_BLEND
+    } else if method.alpha_tests() {
+        MATERIAL_FLAG_ALPHA_CUTOUT
+    } else {
+        0
+    }
+}
+
 /// Decodes admitted pack-authored hundredths, without changing the native default.
 #[must_use]
 pub fn material_leaf_ao_exponent(flags: u32) -> f32 {

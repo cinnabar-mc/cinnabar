@@ -24,10 +24,10 @@ test requires every inventory token to appear in a matrix row's surface, wire or
 
 Confirmed gaps against the current client:
 
-- Unknown block `render_method` values become cutout; the target uses opaque.
-- Block material instances are capped at 64; the target reads every entry.
+- Blended full-cube blocks render as cutout.
 - `packed_bools` bits 1 to 4 (isotropic, texture variations, alpha-masked tint and an internal
-  vertex flag) are discarded.
+  vertex flag) are decoded and retained but not rendered.
+- Fractional block AO exponents are approximated.
 - Server texture sets contribute only their colour layer.
 - Entity materials keep three states, three defines, two depth functions and three blend pairs.
   Variants, stencil, samplers, vertex fields, depth bias, MSAA and primitive mode are dropped.
