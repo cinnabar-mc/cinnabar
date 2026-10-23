@@ -141,7 +141,7 @@ impl Builder<'_> {
                     & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT))
                     | assets::block_render_method_flags(method);
                 faces[face as usize] =
-                    self.terrain_material(keys, &texture.key, texture.variant, flags);
+                    self.terrain_material(Some(keys), &texture.key, texture.variant, flags);
             }
             if faces.iter().all(Option::is_none) {
                 continue;

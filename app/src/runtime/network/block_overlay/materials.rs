@@ -41,6 +41,18 @@ impl Builder<'_> {
             flags |= MATERIAL_FLAG_ISOTROPIC;
         }
         let texture = chosen.texture.to_string();
+        // Enabled variations select a weighted positional texture per block, as vanilla terrain.
+        if chosen.texture_variations()
+            && self
+                .catalog
+                .choices(&texture, 0)
+                .is_some_and(|choices| choices.len() > 1)
+        {
+            return match self.terrain_material(self.base_keys, &texture, 0, flags) {
+                Some(material) => (material, alpha_flags, two_sided),
+                None => (DIAGNOSTIC_MATERIAL, 0, two_sided),
+            };
+        }
         if let Some(&material) = self.materials.get(&(texture.clone(), flags)) {
             return (material, alpha_flags, two_sided);
         }

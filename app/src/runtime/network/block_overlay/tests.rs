@@ -43,6 +43,7 @@ mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
+mod texture_variations;
 mod vanilla_terrain;
 
 mod vanilla_fallback;
