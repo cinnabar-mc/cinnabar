@@ -28,7 +28,12 @@ impl Builder<'_> {
         let two_sided = chosen.render_method.two_sided();
         let mut flags = assets::block_render_method_flags(chosen.render_method);
         let alpha_flags = flags;
-        flags |= uv_flags | tint_flags(chosen.tint_method.as_deref());
+        let tint = tint_flags(chosen.tint_method.as_deref());
+        flags |= uv_flags | tint;
+        // Alpha-masked tint weights the tint by texture alpha on an opaque face.
+        if chosen.alpha_masked_tint() && tint != 0 {
+            flags |= assets::MATERIAL_FLAG_OVERLAY_MASK;
+        }
         match ao_exponent_flags(chosen.ambient_occlusion) {
             Some(ao) => flags |= ao,
             // Exponents outside the compact hundredths field keep the default exponent.
