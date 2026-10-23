@@ -488,10 +488,12 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
             state: None,
+            definition: None,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
+            definition: None,
         },
     ]
     .into();
@@ -593,10 +595,12 @@ fn material_decisions_preserve_one_controller_execution_with_script_effects() {
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
             state: None,
+            definition: None,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
+            definition: None,
         },
     ]
     .into();

@@ -30,8 +30,9 @@ Confirmed gaps against the current client:
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
 - Server texture sets contribute only their colour layer.
-- Entity materials keep three states, three defines, two depth functions and three blend pairs.
-  Variants, stencil, samplers, vertex fields, depth bias, MSAA and primitive mode are dropped.
+- Entity materials resolve completely, with version rules, `+name` modification, same-file
+  parents and variants, into the carrier's material table. Rendering still uses the legacy
+  projection: three states, three defines, two depth functions and three blend pairs.
 - Multitexture and colour-mask behavior is selected by pinned texture hashes, not by defines.
 
 These questions remain unresolved:

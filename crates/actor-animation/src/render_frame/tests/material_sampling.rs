@@ -61,6 +61,7 @@ fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<Ru
         EntityRenderMaterialSelection::Raster {
             material: EntityRenderMaterial::Default,
             state: Some(EntityRenderMaterialState::default()),
+            definition: None,
         },
         EntityRenderMaterialSelection::Raster {
             material: EntityRenderMaterial::Default,
@@ -68,6 +69,7 @@ fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<Ru
                 blend: true,
                 ..Default::default()
             }),
+            definition: None,
         },
     ]
     .into();
