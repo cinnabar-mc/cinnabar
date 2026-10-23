@@ -33,11 +33,13 @@ Confirmed gaps against the current client:
   unknown.
 - Server texture sets contribute only their colour layer.
 - Entity materials resolve completely, with version rules, `+name` modification, same-file
-  parents and variants, into the carrier's material table. Actor pipelines draw each layer with
-  its definition's culling, depth function, depth writes, blend factors, colour and alpha writes
-  and alpha to coverage. Stencil state is carried but not rendered because scene depth has no
-  stencil aspect; depth bias is carried but not rendered. Samplers, vertex fields, MSAA support,
-  primitive mode and shader defines other than alpha to coverage are not applied.
+  parents and variants, into the carrier's material table. Actor draws use a material's
+  `skinning` variant, as Bedrock does, with its culling, depth function, depth writes, blend
+  factors, colour and alpha writes and alpha to coverage. Stencil state is carried but not
+  rendered because scene depth has no stencil aspect. Depth bias, MSAA support and sampler states
+  are carried but not applied: no actor-path consumer of the first two was found, and the backend
+  meaning of the sampler bits is unknown. Primitive mode does not affect actors on
+  Bedrock either; their topology comes from the mesh.
 - Entity material declarations, interned definitions and names have implementation bounds
   (16,384 declarations, 16,384 definitions, 256-byte names) that are not verified against the
   native client, which shows none. A material past them stays unresolved, is counted in the
@@ -56,6 +58,6 @@ These questions remain unresolved:
 - the visual meaning of packed bit 4;
 - the minimum format version for texture variations;
 - the render-target key literal;
-- draw-time variant selection;
-- the client's depth bias scale;
+- how a material's depth bias reaches an actor draw, and its scale;
+- the backend addressing and filtering a material's sampler states select;
 - the separate `metalness`/`emissive`/`roughness` texture-set form.

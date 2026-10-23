@@ -337,7 +337,10 @@ impl MaterialStates {
         }
         let resolved = self
             .resolve_with(name, &builtin, &mut table.chains)
-            .and_then(|resolved| Some((shading(&resolved), table.intern(&resolved)?)));
+            .and_then(|resolved| {
+                let drawn = resolved.actor_variant();
+                Some((shading(drawn), table.intern(drawn)?))
+            });
         table.resolved.insert(name.into(), resolved);
         resolved
     }
@@ -402,7 +405,8 @@ impl MaterialStates {
         let masks = material
             .masks(|path| self.textures.get(path).copied())
             .and_then(|masks| table.intern_masks(masks));
-        Some((shading(&resolved), table.intern(&resolved)?, masks))
+        let drawn = resolved.actor_variant();
+        Some((shading(drawn), table.intern(drawn)?, masks))
     }
 
     /// Walks `name`'s parent chain until a link `memo` already knows, then applies each
@@ -548,6 +552,9 @@ fn file_entries(value: &Value) -> Option<(&Map<String, Value>, u8)> {
     Some((root, 0))
 }
 
+/// The variant an actor draw selects.
+const SKINNING_VARIANT: &str = "skinning";
+
 /// Skinning variants use their base material's declaration.
 fn material_name(target: &str) -> &str {
     target.strip_suffix(".skinning").unwrap_or(target)
@@ -661,6 +668,16 @@ impl Resolved {
             vertex_fields: self.vertex_fields.as_deref().map(Box::from),
             ..self.definition.clone()
         }
+    }
+
+    /// What an actor draw uses: Bedrock looks up `<name>.skinning` for every client-entity
+    /// material and falls back to the material itself. Actor meshes carry no vertex colour, so
+    /// the `skinning_color` variant is not selected.
+    fn actor_variant(&self) -> &Self {
+        self.variants
+            .iter()
+            .find(|(name, _)| name.as_ref() == SKINNING_VARIANT)
+            .map_or(self, |(_, variant)| variant)
     }
 
     /// Applies one declaration's fields with this material's version rules.
