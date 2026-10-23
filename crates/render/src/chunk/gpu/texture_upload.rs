@@ -172,7 +172,7 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS];
     #[cfg(feature = "enhanced")]
     let enhanced = assets.enhanced().filter(|authored| {
-        let supported = authored.fits_device_limits(&device_limits);
+        let supported = render_scene::enhanced_maps_fit_device_limits(authored, &device_limits);
         if !supported {
             bevy::log::warn!("unsupported authored Enhanced maps; using carrier materials");
         }
@@ -644,7 +644,7 @@ fn upload_texture_page_format(
 mod tests {
     use super::*;
     #[cfg(feature = "enhanced")]
-    use render_scene::{EnhancedTextureAssets, plan_texture_mip_uploads};
+    use {assets::texture::EnhancedTextureAssets, render_scene::plan_texture_mip_uploads};
 
     /// Ordinary carrier uploads fit the five-page sRGB and native-leaf views, two samplers,
     /// and the biome table at binding 26.
