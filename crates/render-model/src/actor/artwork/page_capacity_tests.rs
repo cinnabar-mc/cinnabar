@@ -10,7 +10,11 @@ fn equipment_appends_and_page_updates_keep_actor_pixels_reusable() {
         pixel_sha256: Sha256::digest([79; 16]).into(),
         rgba8: Arc::from([79; 16]),
     };
-    let first = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    let first = ActorArtworkPages::default().with_pack_artwork(
+        std::slice::from_ref(&texture),
+        &[],
+        &Default::default(),
+    );
     let raster = EquipmentRaster {
         width: 1,
         height: 1,
@@ -24,7 +28,8 @@ fn equipment_appends_and_page_updates_keep_actor_pixels_reusable() {
     };
     let (first, locations) = first.with_equipment_raster_page_updates(&[(1, replacement)]);
     assert!(locations[0].is_some());
-    let second = ActorArtworkPages::default().with_pack_artwork(&[texture], &[]);
+    let second =
+        ActorArtworkPages::default().with_pack_artwork(&[texture], &[], &Default::default());
     assert!(Arc::ptr_eq(
         &first.pages()[0].rgba8,
         &second.pages()[0].rgba8
@@ -40,10 +45,18 @@ fn retiring_the_newest_collection_keeps_older_live_pixels_reusable() {
         pixel_sha256: Sha256::digest([89; 16]).into(),
         rgba8: Arc::from([89; 16]),
     };
-    let first = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
-    let newer = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    let first = ActorArtworkPages::default().with_pack_artwork(
+        std::slice::from_ref(&texture),
+        &[],
+        &Default::default(),
+    );
+    let newer = ActorArtworkPages::default().with_pack_artwork(
+        std::slice::from_ref(&texture),
+        &[],
+        &Default::default(),
+    );
     drop(newer);
-    let last = ActorArtworkPages::default().with_pack_artwork(&[texture], &[]);
+    let last = ActorArtworkPages::default().with_pack_artwork(&[texture], &[], &Default::default());
     assert!(Arc::ptr_eq(&first.pages()[0].rgba8, &last.pages()[0].rgba8));
 }
 
@@ -56,12 +69,16 @@ fn recompiled_actor_pages_share_pixels_and_release_them_after_the_last_owner() {
         pixel_sha256: Sha256::digest([73; 16]).into(),
         rgba8: Arc::from([73; 16]),
     };
-    let first = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    let first = ActorArtworkPages::default().with_pack_artwork(
+        std::slice::from_ref(&texture),
+        &[],
+        &Default::default(),
+    );
     let base = ActorArtworkPages {
         identity: [19; 32],
         ..Default::default()
     };
-    let second = base.with_pack_artwork(&[texture], &[]);
+    let second = base.with_pack_artwork(&[texture], &[], &Default::default());
     let pixels = Arc::downgrade(&first.pages()[0].rgba8);
     assert!(Arc::ptr_eq(
         &first.pages()[0].rgba8,
@@ -85,7 +102,7 @@ fn a_pack_texture_change_or_layer_reorder_keeps_its_own_pixels() {
         pixel_sha256: Sha256::digest([value; 4]).into(),
         rgba8: Arc::from([value; 4]),
     });
-    let first = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+    let first = ActorArtworkPages::default().with_pack_artwork(&textures, &[], &Default::default());
     let rasters = textures
         .iter()
         .map(|texture| EquipmentRaster {
@@ -101,7 +118,8 @@ fn a_pack_texture_change_or_layer_reorder_keeps_its_own_pixels() {
     ));
     let mut reversed = textures;
     reversed.reverse();
-    let changed = ActorArtworkPages::default().with_pack_artwork(&reversed, &[]);
+    let changed =
+        ActorArtworkPages::default().with_pack_artwork(&reversed, &[], &Default::default());
     assert_eq!(
         first.pages()[0].pixels(),
         &[83, 83, 83, 83, 149, 149, 149, 149]
@@ -146,7 +164,8 @@ fn pack_artwork_retains_more_than_byte_sized_distinct_texture_pages() {
             pose_mode: assets::ActorPoseMode::CompiledLiteral,
         })
         .collect::<Vec<_>>();
-    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &bindings);
+    let pages =
+        ActorArtworkPages::default().with_pack_artwork(&textures, &bindings, &Default::default());
     assert_eq!(pages.rejected_bindings(), 0);
     assert_eq!(pages.pages().len(), textures.len());
     for (index, texture) in textures.iter().enumerate() {
@@ -172,7 +191,11 @@ fn a_single_layer_pack_page_shares_its_source_allocation() {
         pixel_sha256: Sha256::digest(&pixels).into(),
         rgba8: pixels,
     };
-    let pages = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    let pages = ActorArtworkPages::default().with_pack_artwork(
+        std::slice::from_ref(&texture),
+        &[],
+        &Default::default(),
+    );
     assert_eq!(pages.pages().len(), 1);
     let page = &pages.pages()[0];
     assert!(Arc::ptr_eq(&page.rgba8, &texture.rgba8));
@@ -208,7 +231,7 @@ fn pack_art_of_many_sizes_gets_a_page_per_size() {
             rgba8: vec![9; usize::from(side) * 4].into(),
         })
         .collect();
-    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[], &Default::default());
     assert_eq!(pages.pages().len(), 40);
 }
 
@@ -260,7 +283,7 @@ fn large_same_size_textures_split_into_pages_within_the_byte_cap() {
             }
         })
         .collect();
-    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[], &Default::default());
     assert_eq!(pages.pages().len(), 3);
     assert!(
         pages

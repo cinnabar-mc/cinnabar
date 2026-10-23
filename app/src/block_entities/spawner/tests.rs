@@ -93,7 +93,11 @@ fn fixture_with_identifier(
         }]),
         equipment: None,
     });
-    let artwork = ActorArtworkPages::default().with_pack_artwork(&pack.textures, &pack.bindings);
+    let artwork = ActorArtworkPages::default().with_pack_artwork(
+        &pack.textures,
+        &pack.bindings,
+        &Default::default(),
+    );
     let pool = Pool {
         source,
         session: (stream.authority().actor_session_id(), 1),
