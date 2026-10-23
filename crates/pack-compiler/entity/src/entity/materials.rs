@@ -287,6 +287,37 @@ impl MaterialStates {
         resolved
     }
 
+    /// Resolves a pack's block bindings: `.material` documents in path order supply bases, and
+    /// bindings whose material does not resolve are dropped.
+    pub(crate) fn block_bindings(
+        material_documents: &[Value],
+        document: &Value,
+    ) -> Vec<extension::ResolvedBlockBinding> {
+        let mut states = Self::default();
+        for value in material_documents {
+            states.read(value);
+        }
+        states.extension = extension::parse(document).ok();
+        let mut table = MaterialTable::default();
+        let Some(extension) = &states.extension else {
+            return Vec::new();
+        };
+        extension
+            .block_bindings
+            .iter()
+            .filter_map(|binding| {
+                let (shading, index) = states.resolve_extension(&binding.material, &mut table)?;
+                Some(extension::ResolvedBlockBinding {
+                    block: binding.block.clone(),
+                    states: binding.states.clone(),
+                    material_instance: binding.material_instance.clone(),
+                    definition: table.definitions[index as usize].clone(),
+                    shading,
+                })
+            })
+            .collect()
+    }
+
     /// Extension material bindings of `entity`'s `controller`, as (bone pattern, material), in
     /// document order.
     pub(super) fn extension_rules<'a>(

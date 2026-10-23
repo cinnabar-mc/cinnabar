@@ -306,12 +306,28 @@ fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
 /// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
 /// when invalid; the compiler then ignores it and the reason is logged here.
 fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
-    let path = pack_entity_compiler::MATERIAL_BINDINGS_PATH;
-    let document = parse_pack_json(&view.read(path)?)?;
+    let document = material_bindings_document(view)?;
     if let Err(reason) = pack_entity_compiler::validate_material_bindings(&document) {
-        tracing::warn!(%reason, "ignoring the pack's {path}");
+        tracing::warn!(%reason, "ignoring the pack's material bindings");
     }
-    Some((path.into(), serde_json::to_vec(&document).ok()?))
+    Some((
+        pack_entity_compiler::MATERIAL_BINDINGS_PATH.into(),
+        serde_json::to_vec(&document).ok()?,
+    ))
+}
+
+/// The stack's winning `cinnabar/material-bindings.json` document.
+pub fn material_bindings_document(view: &LayeredPackView) -> Option<Value> {
+    parse_pack_json(&view.read(pack_entity_compiler::MATERIAL_BINDINGS_PATH)?)
+}
+
+/// The stack's `.material` documents, merged per path and in path order, as entity
+/// compilation reads them.
+pub fn material_documents(view: &LayeredPackView) -> Vec<Value> {
+    material_files(view)
+        .into_iter()
+        .filter_map(|(_, bytes)| parse_pack_json(&bytes))
+        .collect()
 }
 
 /// Material files merged per path across the stack, lowest precedence first, as the client

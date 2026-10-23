@@ -64,8 +64,28 @@ pub(crate) struct EntityBinding {
     pub(crate) material: Box<str>,
 }
 
-/// Attaches a material to material instances of blocks in matching states. Parsed and validated;
-/// rendering is not implemented yet.
+/// A block binding with its material resolved, ready for the block renderer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedBlockBinding {
+    /// Exact block identifier.
+    pub block: Box<str>,
+    /// State values the block must have; other states are unconstrained.
+    pub states: Map<String, Value>,
+    /// Material-instance name pattern; `None` matches every instance.
+    pub material_instance: Option<Box<str>>,
+    /// The resolved Bedrock material; [`EntityMaterialDefinition::render_state`] lowers it.
+    ///
+    /// [`EntityMaterialDefinition::render_state`]: assets::entity::material::EntityMaterialDefinition::render_state
+    pub definition: assets::entity::material::EntityMaterialDefinition,
+    pub shading: assets::EntityRenderMaterialState,
+}
+
+/// Resolves a pack's block bindings against its `.material` documents (in path order).
+pub fn block_bindings(material_documents: &[Value], document: &Value) -> Vec<ResolvedBlockBinding> {
+    super::MaterialStates::block_bindings(material_documents, document)
+}
+
+/// Attaches a material to material instances of blocks in matching states.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BlockBinding {
     pub(crate) block: Box<str>,
