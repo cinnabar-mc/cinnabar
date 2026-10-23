@@ -4,6 +4,7 @@
 
 use assets::material_keys::MaterialKeys;
 
+mod bindings;
 mod condition;
 mod items;
 pub(super) use items::compile_block_item_overlay;
@@ -170,6 +171,7 @@ pub(super) fn compile_block_overlay_with_textures(
             ..OverlayGaps::default()
         },
     };
+    let bindings = bindings::MaterialBindings::new(view, &mut builder.gaps);
     builder.sources.push((Source::Diagnostic, 0));
     builder.overlay.materials.push(Material {
         texture: TextureRef::new(builder.overlay.base_texture_pages, 0).expect("layer zero"),
@@ -199,6 +201,7 @@ pub(super) fn compile_block_overlay_with_textures(
                 let physics = block.physics_for_state(index as u32);
                 visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
+                bindings.apply(block, Some(&state.values), &mut visual.components);
                 builder.push_state(
                     &visual,
                     &geometries,
@@ -218,6 +221,7 @@ pub(super) fn compile_block_overlay_with_textures(
             let physics = block.physics_for_state(state);
             visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
+            bindings.apply(block, values.as_deref(), &mut visual.components);
             builder.push_state(
                 &visual,
                 &geometries,

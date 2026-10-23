@@ -140,6 +140,37 @@ pub const fn block_render_method_flags(method: protocol_ids::BlockRenderMethod) 
     }
 }
 
+/// The block render method closest to drawing `raster` with or without an alpha test, and
+/// whether it draws it exactly. Block passes draw opaque, cutout or alpha-blended faces, one- or
+/// two-sided, with the default depth test and every channel written; blended faces are always
+/// two-sided.
+#[must_use]
+pub fn block_render_method_for(
+    raster: &render_api::render_state::RenderState,
+    alpha_test: bool,
+) -> (protocol_ids::BlockRenderMethod, bool) {
+    use protocol_ids::BlockRenderMethod as Method;
+    use render_api::render_state::{BlendState, CompareFunction, CullMode};
+    let two_sided = raster.cull == CullMode::None;
+    let method = match (raster.blend.is_some(), alpha_test, two_sided) {
+        (true, _, _) => Method::Blend,
+        (false, true, true) => Method::AlphaTest,
+        (false, true, false) => Method::AlphaTestSingleSided,
+        (false, false, true) => Method::DoubleSided,
+        (false, false, false) => Method::Opaque,
+    };
+    let exact = method.two_sided() == two_sided
+        && raster.cull != CullMode::Front
+        && raster.blend.is_none_or(|blend| blend == BlendState::ALPHA)
+        && raster.depth.compare == Some(CompareFunction::LessEqual)
+        && (raster.depth.write || method.blends())
+        && raster.stencil.is_none()
+        && raster.write_color
+        && raster.write_alpha
+        && !raster.alpha_to_coverage;
+    (method, exact)
+}
+
 /// Decodes admitted pack-authored hundredths, without changing the native default.
 #[must_use]
 pub fn material_leaf_ao_exponent(flags: u32) -> f32 {
@@ -318,4 +349,86 @@ pub struct CompiledAssets {
     /// Exact source identities bound into the blob header. Encode rejects
     /// incomplete identity, so serialized output always names its inputs.
     pub provenance: BlobProvenance,
+}
+
+#[cfg(test)]
+mod block_render_method_tests {
+    use protocol_ids::BlockRenderMethod as Method;
+    use render_api::render_state::{
+        BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction, CullMode,
+        RenderState,
+    };
+
+    use super::block_render_method_for;
+
+    #[test]
+    fn rasters_lower_to_the_closest_block_render_method() {
+        let raster = |cull, blend| RenderState {
+            cull,
+            blend,
+            ..Default::default()
+        };
+        for (state, alpha_test, expected) in [
+            (raster(CullMode::Back, None), false, (Method::Opaque, true)),
+            (
+                raster(CullMode::None, None),
+                false,
+                (Method::DoubleSided, true),
+            ),
+            (
+                raster(CullMode::None, None),
+                true,
+                (Method::AlphaTest, true),
+            ),
+            (
+                raster(CullMode::Back, None),
+                true,
+                (Method::AlphaTestSingleSided, true),
+            ),
+            (
+                raster(CullMode::None, Some(BlendState::ALPHA)),
+                false,
+                (Method::Blend, true),
+            ),
+            // Blended faces are always two-sided, and additive blending has no block pass.
+            (
+                raster(CullMode::Back, Some(BlendState::ALPHA)),
+                false,
+                (Method::Blend, false),
+            ),
+            (
+                raster(CullMode::Front, None),
+                false,
+                (Method::Opaque, false),
+            ),
+        ] {
+            assert_eq!(
+                block_render_method_for(&state, alpha_test),
+                expected,
+                "{state:?}"
+            );
+        }
+        let additive = BlendComponent {
+            source: BlendFactor::One,
+            destination: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+        let glow = raster(
+            CullMode::None,
+            Some(BlendState {
+                color: additive,
+                alpha: additive,
+            }),
+        );
+        assert_eq!(
+            block_render_method_for(&glow, false),
+            (Method::Blend, false)
+        );
+        let mut through = raster(CullMode::Back, None);
+        through.depth.compare = Some(CompareFunction::Always);
+        assert_eq!(
+            block_render_method_for(&through, false),
+            (Method::Opaque, false)
+        );
+    }
 }

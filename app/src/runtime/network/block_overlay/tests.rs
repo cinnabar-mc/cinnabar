@@ -36,6 +36,7 @@ mod flipbooks;
 mod hd_textures;
 mod legacy;
 mod lighting;
+mod material_bindings;
 mod mining;
 mod multi_page;
 mod partial_faces;
