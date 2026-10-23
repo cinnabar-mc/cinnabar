@@ -36,11 +36,12 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
 - Bindings apply in document order and the last match wins. `entity` matches an entity or
   attachable identifier exactly; `render_controller` and `bone` are `*` patterns, and omitting one
   matches everything. A binding without `bone` replaces the controller's whole material.
-- `block` bindings take an exact custom block identifier, an exact-value subset of its `states`
-  and a `material_instance` pattern. They replace the matching instances' render method with the
+- `block` bindings take an exact block identifier, an exact-value subset of its `states` and a
+  `material_instance` pattern. Vanilla blocks bind only as untinted full cubes, with no
+  `material_instance` or `*`. They replace the matching instances' render method with the
   closest one the material lowers to: alpha blending, alpha test, opaque, one- or two-sided. Block
   passes have no other blend factors, depth functions or write masks; a binding that needs them
   draws approximately and counts as an approximated material in the session's block report.
 
-Status: entity and custom-block bindings render, and entity bindings draw their masks. Other
-textures and parameters, block masks and vanilla blocks are validated but not drawn.
+Status: entity and block bindings render, and entity bindings draw their masks. Other textures
+and parameters, and block masks, are validated but not drawn.
