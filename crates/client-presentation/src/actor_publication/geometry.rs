@@ -52,6 +52,9 @@ pub(super) fn apply_session_pack(
         apply_session_geometry(scene, resources, geometry_ready, profiler);
     }
     scene.configure_artwork(pages.clone());
+    scene.configure_authored_rasters(
+        pack.map_or_else(|| Arc::from([]), |pack| authored_rasters(&pack.assets)),
+    );
     let effective = (pack.is_some()
         || session_icons.is_some()
         || resources.held_block_entities.is_some()
@@ -145,5 +148,71 @@ impl HandRigBuilder {
             .map_err(|error| {
                 anyhow::anyhow!("prepare validated first-person hand rig geometry: {error:?}")
             })
+    }
+}
+
+/// The (instance word, raster state) pairs a pack's resolved entity materials draw with, in
+/// both combat profiles, for the renderer to compile when the pack loads.
+fn authored_rasters(
+    assets: &assets::RuntimeEntityAssets,
+) -> Arc<[(u32, render_api::render_state::RenderState)]> {
+    let render = assets.render_data();
+    render
+        .layers
+        .iter()
+        .filter_map(|layer| {
+            let raster = render
+                .materials
+                .get(layer.material_definition? as usize)?
+                .render_state();
+            Some((layer, raster))
+        })
+        .flat_map(|(layer, raster)| {
+            [
+                render_api::CombatVisuals::Modern,
+                render_api::CombatVisuals::Legacy112,
+            ]
+            .map(|profile| {
+                let material = render_model::ActorMaterial {
+                    kind: layer.material,
+                    state: layer.material_state,
+                    render_state: Some(raster),
+                    glint: render_model::ActorGlint {
+                        profile,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                (material.gpu_word(), raster)
+            })
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+#[cfg(test)]
+mod authored_raster_tests {
+    #[test]
+    fn every_resolved_layer_material_is_published_for_both_combat_profiles() {
+        let Some(assets) =
+            actor_animation::test_support::installed_entity_assets("authored rasters")
+        else {
+            return;
+        };
+        let rasters = super::authored_rasters(&assets);
+        let render = assets.render_data();
+        for layer in render.layers.iter() {
+            let Some(index) = layer.material_definition else {
+                continue;
+            };
+            let raster = render.materials[index as usize].render_state();
+            let words = rasters
+                .iter()
+                .filter(|(_, published)| *published == raster)
+                .count();
+            assert!(words >= 2, "{layer:?}");
+        }
+        assert!(!rasters.is_empty());
     }
 }
