@@ -134,7 +134,7 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["env-compat", "block-transform", "protocol-ids"]
+allowed_dependencies = ["env-compat", "block-transform", "protocol-ids", "render-api"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu", "diagnostics", "pack-runtime", "render", "render-model"]
 forbidden_transitive_dependencies = ["protocol", "tokio", "bevy", "bevy_*", "wgpu"]
 test_support_features = ["test-support"]

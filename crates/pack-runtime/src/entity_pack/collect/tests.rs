@@ -530,7 +530,7 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
     std::fs::write(
         root.path().join("materials/fixture.material"),
         json!({"materials": {
-            "coat:coat_parent": {}, "coat_parent:armor_leather": {}
+            "version": "1.0.0", "coat:coat_parent": {}, "coat_parent:armor_leather": {}
         }})
         .to_string(),
     )
@@ -554,11 +554,12 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
         ("unrelated:entity", json!({"defines": []}), true),
     ] {
         let mut materials = serde_json::Map::new();
+        materials.insert("version".into(), json!("1.0.0"));
         materials.insert(declaration.into(), fields);
         let authored = json!({"materials": materials});
         let inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
             Some(root.path()),
-            Some(&authored),
+            std::slice::from_ref(&authored),
         )
         .unwrap();
         assert_eq!(
@@ -775,4 +776,34 @@ fn geometry_collection_bounds_parallel_parse_input() {
                 "parsed {peak} geometry input bytes in one parallel batch"
             );
         });
+}
+
+#[test]
+fn material_merges_match_declarations_by_name_across_large_files() {
+    const COUNT: usize = 20_000;
+    let lower = (0..COUNT)
+        .map(|index| {
+            (
+                format!("m{index}:base"),
+                json!({"lower": index, "kept": true}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let upper = (0..COUNT)
+        .map(|index| (format!("m{index}:other"), json!({"upper": index})))
+        .chain([("new".to_owned(), json!({"upper": "new"}))])
+        .collect::<serde_json::Map<_, _>>();
+    let mut merged = serde_json::Value::Object(lower);
+    super::patch_material_json(&mut merged, &serde_json::Value::Object(upper));
+    let merged = merged.as_object().unwrap();
+    assert_eq!(merged.len(), COUNT + 1);
+    for index in [0, COUNT / 2, COUNT - 1] {
+        assert!(!merged.contains_key(&format!("m{index}:base")));
+        assert_eq!(
+            merged[&format!("m{index}:other")],
+            json!({"lower": index, "kept": true, "upper": index}),
+            "the higher spelling keeps the lower fields it does not replace"
+        );
+    }
+    assert_eq!(merged["new"], json!({"upper": "new"}));
 }

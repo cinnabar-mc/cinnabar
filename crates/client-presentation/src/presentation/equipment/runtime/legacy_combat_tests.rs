@@ -156,7 +156,7 @@ fn controller_pack(suppressed: bool) -> Vec<(Box<str>, Vec<u8>)> {
         controller["overlay_color"] = serde_json::json!({"r":0.2,"g":0.3,"b":0.8,"a":0.7});
     }
     files.push(("render_controllers/fixture.json".into(),serde_json::to_vec(&serde_json::json!({"format_version":"1.8.0","render_controllers":{"controller.render.fixture":controller}})).unwrap()));
-    files.push(("materials/fixture.material".into(),serde_json::to_vec(&serde_json::json!({"materials":{"fixture_hidden:entity_alphatest":{"-defines":["USE_OVERLAY"]}}})).unwrap()));
+    files.push(("materials/fixture.material".into(),serde_json::to_vec(&serde_json::json!({"materials":{"version":"1.0.0","fixture_hidden:entity_alphatest":{"-defines":["USE_OVERLAY"]}}})).unwrap()));
     files
 }
 

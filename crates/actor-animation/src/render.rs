@@ -564,7 +564,9 @@ fn selected_material(
     loop {
         budget.charge_work()?;
         selected = match nodes.get(selected as usize).ok_or(EvalError::Invalid)? {
-            Node::Raster { material, state } => return Ok((*material, *state)),
+            Node::Raster {
+                material, state, ..
+            } => return Ok((*material, *state)),
             Node::Branch { condition, yes, no } => {
                 if evaluator
                     .run(*condition as usize, variables, 0.0, budget)?

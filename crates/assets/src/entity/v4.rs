@@ -41,6 +41,8 @@ pub(super) use preflight::payload_counts;
 #[path = "v4/encode.rs"]
 mod encode;
 pub(super) use encode::{encode_compiled, encode_runtime};
+#[path = "v4/material.rs"]
+pub mod material;
 #[path = "v4/render.rs"]
 mod render;
 use render::validate_render_payload;
