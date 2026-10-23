@@ -3,15 +3,8 @@ use super::*;
 /// Failed faces keep the diagnostic material while their cube still renders.
 #[test]
 fn cube_keeps_rendering_with_a_failed_face() {
-    let instances =
-        [("*", "lucky"), ("up", "absent")].map(|(name, texture)| CustomMaterialInstance {
-            name: name.into(),
-            texture: texture.into(),
-            render_method: None,
-            tint_method: None,
-            ambient_occlusion: None,
-            face_dimming: None,
-        });
+    let instances = [("*", "lucky"), ("up", "absent")]
+        .map(|(name, texture)| CustomMaterialInstance::with_authored_defaults(name, texture));
     let chair = block(
         "test:chair",
         1,
@@ -82,7 +75,7 @@ fn model_keeps_quads_and_sidedness_with_failed_materials() {
             (Some("blend_to_opaque"), true),
         ] {
             let mut instances = materials(texture).unwrap();
-            instances[0].render_method = method.map(Into::into);
+            instances[0].render_method = protocol_ids::BlockRenderMethod::from_network(method);
             let statue = block(
                 "test:statue",
                 1,

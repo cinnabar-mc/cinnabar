@@ -3,6 +3,7 @@
 use std::{collections::BTreeSet, fs, path::Path};
 
 use assets::{AssetError, ModelFamily, RegistryRecord};
+use protocol_ids::BlockRenderMethod;
 use serde_json::Value;
 
 use super::{
@@ -149,13 +150,15 @@ fn material(block: &Value) -> Option<(&str, CrossMaterial)> {
     }) {
         return None;
     }
-    let single_sided = match instance.get("render_method")?.as_str()? {
-        "alpha_test_single_sided" => true,
-        "alpha_test" => false,
-        _ => return None,
-    };
-    let mut flags = assets::MATERIAL_FLAG_ALPHA_CUTOUT;
-    if !single_sided {
+    let method = BlockRenderMethod::from_name(instance.get("render_method")?.as_str()?)?;
+    if !matches!(
+        method,
+        BlockRenderMethod::AlphaTest | BlockRenderMethod::AlphaTestSingleSided
+    ) {
+        return None;
+    }
+    let mut flags = assets::block_render_method_flags(method);
+    if method.two_sided() {
         flags |= assets::MATERIAL_FLAG_TWO_SIDED;
     }
     if let Some(ao) = instance.get("ambient_occlusion") {
@@ -175,7 +178,7 @@ fn material(block: &Value) -> Option<(&str, CrossMaterial)> {
         texture,
         CrossMaterial {
             flags,
-            single_sided,
+            single_sided: !method.two_sided(),
         },
     ))
 }

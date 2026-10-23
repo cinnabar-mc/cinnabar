@@ -435,7 +435,7 @@ impl Builder<'_> {
                 && transform.translation == [0.0; 3]
         }) && components.materials.as_deref().is_some_and(|materials| {
             materials.iter().all(|material| {
-                matches!(material.render_method.as_deref(), None | Some("opaque"))
+                material.render_method == protocol_ids::BlockRenderMethod::Opaque
                     && matches!(material.tint_method.as_deref(), None | Some("none"))
             })
         });
@@ -571,21 +571,8 @@ impl Builder<'_> {
         let Some(chosen) = chosen else {
             return (DIAGNOSTIC_MATERIAL, 0, false);
         };
-        let two_sided = matches!(
-            chosen.render_method.as_deref(),
-            Some(
-                "alpha_test"
-                    | "alpha_test_to_opaque"
-                    | "double_sided"
-                    | "blend"
-                    | "blend_to_opaque"
-            )
-        );
-        let mut flags = match chosen.render_method.as_deref() {
-            None | Some("opaque" | "double_sided") => 0,
-            Some("blend") | Some("blend_to_opaque") => MATERIAL_FLAG_ALPHA_BLEND,
-            Some(_) => MATERIAL_FLAG_ALPHA_CUTOUT,
-        };
+        let two_sided = chosen.render_method.two_sided();
+        let mut flags = assets::block_render_method_flags(chosen.render_method);
         if full_block && flags == MATERIAL_FLAG_ALPHA_BLEND {
             // Blended full cubes need a transparent-cube template; cutout is the
             // closest supported look.
@@ -594,12 +581,12 @@ impl Builder<'_> {
         }
         let alpha_flags = flags;
         flags |= uv_flags | tint_flags(chosen.tint_method.as_deref());
-        if chosen.ambient_occlusion == Some(0.0) {
+        if chosen.ambient_occlusion == 0.0 {
             flags |= MATERIAL_FLAG_DISABLE_AO;
-        } else if chosen.ambient_occlusion.is_some_and(|value| value != 1.0) {
+        } else if chosen.ambient_occlusion != 1.0 {
             self.gaps.approximated_materials += 1;
         }
-        if chosen.face_dimming == Some(false) {
+        if !chosen.face_dimming() {
             flags |= MATERIAL_FLAG_DISABLE_FACE_DIMMING;
         }
         let texture = chosen.texture.to_string();
