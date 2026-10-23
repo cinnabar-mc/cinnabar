@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{EntityAssetSource, EntityRenderData, EntityRenderLayer, EntityRenderMaterial};
-
-use super::native_actor_texture_preserves_fractional_alpha;
+use crate::{EntityRenderData, EntityRenderLayer, EntityRenderMaterial};
 
 /// Dissolve depth masks retain fractional alpha because their threshold changes each frame.
 fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
@@ -18,13 +16,10 @@ fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
         .collect()
 }
 
-/// Sources whose fractional alpha reaches the shader: dissolve masks, witnessed colour-mask and
-/// three-sampler rasters, art any drawing material blends or lights by alpha, and art every
-/// drawing material alpha-tests. Every other raster's alpha rounds at 0.5.
-pub fn actor_sources_keeping_alpha(
-    render: &EntityRenderData,
-    sources: &[EntityAssetSource],
-) -> BTreeSet<u32> {
+/// Sources whose fractional alpha reaches the shader: dissolve masks, art any drawing material
+/// blends, lights, colour-masks or multitextures by alpha, and art every drawing material
+/// alpha-tests. Every other raster's alpha rounds at 0.5.
+pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
     // Per source: (every drawing material alpha-tests, some drawing material reads alpha).
     let mut drawn = BTreeMap::<u32, (bool, bool)>::new();
     for layer in &render.layers {
@@ -32,10 +27,13 @@ pub fn actor_sources_keeping_alpha(
             let blends = definition.is_some_and(|definition| {
                 definition.has_state(crate::entity::material::EntityMaterialState::Blending)
             });
+            let reads = blends
+                || state
+                    .is_some_and(|state| state.emissive || state.color_mask || state.multitexture);
             for source in layer_sources(render, layer) {
-                let (tests, reads) = drawn.entry(source).or_insert((true, false));
+                let (tests, read) = drawn.entry(source).or_insert((true, false));
                 *tests &= state.is_some_and(|state| state.alpha_test);
-                *reads |= blends || state.is_some_and(|state| state.emissive);
+                *read |= reads;
             }
         }
     }
@@ -46,14 +44,18 @@ pub fn actor_sources_keeping_alpha(
             .filter(|(_, (tests, reads))| *tests || *reads)
             .map(|(source, _)| source),
     );
-    keep.extend(
-        sources
-            .iter()
-            .enumerate()
-            .filter(|(_, source)| native_actor_texture_preserves_fractional_alpha(source))
-            .map(|(index, _)| index as u32),
-    );
     keep
+}
+
+/// Sources a `USE_MULTITEXTURE` material samples; they share one array page so the draw can
+/// read all three.
+pub fn actor_multitexture_sources(render: &EntityRenderData) -> BTreeSet<u32> {
+    render
+        .layers
+        .iter()
+        .filter(|layer| layer.material_state.is_some_and(|state| state.multitexture))
+        .flat_map(|layer| layer_sources(render, layer))
+        .collect()
 }
 
 fn layer_sources<'a>(

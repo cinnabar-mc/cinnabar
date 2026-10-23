@@ -137,7 +137,6 @@ pub(crate) fn publication(generation: u64, markers: &[u8], layers: u32) -> Actor
             height: 4,
             layers,
             rgba8: [marker, 64, 128, 255].repeat(16 * layers as usize).into(),
-            color_mask: false,
             multitexture: false,
         })
         .collect::<Vec<_>>()

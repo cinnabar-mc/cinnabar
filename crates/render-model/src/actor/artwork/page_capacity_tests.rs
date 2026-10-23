@@ -234,7 +234,6 @@ fn a_page_past_the_byte_budget_is_downscaled_not_dropped() {
         height: 16,
         layers: 1,
         rgba8: vec![9; 16 * 16 * 4].into(),
-        color_mask: false,
         multitexture: false,
     };
     let mut pages = Vec::new();
@@ -280,7 +279,6 @@ fn group_page(side: u16, layers: usize) -> ActorTexturePage {
         height: side,
         layers: layers as u32,
         rgba8: vec![9; usize::from(side) * usize::from(side) * 4 * layers].into(),
-        color_mask: false,
         multitexture: false,
     }
 }

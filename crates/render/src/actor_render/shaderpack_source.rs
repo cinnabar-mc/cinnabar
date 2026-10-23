@@ -76,7 +76,11 @@ impl RigSource for ShaderpackActors<'_> {
                         texture,
                         layer,
                         compose: page.map_or(LayerCompose::Plain, |page| {
-                            LayerCompose::for_page(page.color_mask, page.multitexture, data)
+                            LayerCompose::for_page(
+                                data.material & assets::EntityRenderMaterialState::COLOR_MASK != 0,
+                                page.multitexture,
+                                data,
+                            )
                         }),
                     },
                     runtime_id: gpu
@@ -186,8 +190,9 @@ mod replacement_tests {
         );
 
         frame.rig.frame_generation += 1;
-        Arc::make_mut(&mut frame.rig.instances)[1].material =
-            assets::EntityRenderMaterial::Default as u32;
+        let eye = &mut Arc::make_mut(&mut frame.rig.instances)[1];
+        eye.material = assets::EntityRenderMaterial::Default as u32;
+        eye.raster = 0;
         draw_frame(&mut app, &frame);
         let world = app.sub_app(RenderApp).world();
         let gpu = world.resource::<ActorGpu>();

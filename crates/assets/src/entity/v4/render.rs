@@ -41,6 +41,12 @@ pub struct EntityRenderMaterialState {
     /// Suppresses actor overlays and their effect on vertex lighting.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub disable_overlay: bool,
+    /// `USE_COLOR_MASK`: texture alpha weights the dye multiplier instead of coverage.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub color_mask: bool,
+    /// `USE_MULTITEXTURE`: the draw samples its controller's first three textures together.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub multitexture: bool,
 }
 
 impl EntityRenderMaterialState {
@@ -54,8 +60,11 @@ impl EntityRenderMaterialState {
     pub const EMISSIVE: u32 = 1 << 12;
     pub const ONLY_EMISSIVE: u32 = 1 << 13;
     pub const DISABLE_OVERLAY: u32 = 1 << 14;
+    /// `USE_COLOR_MASK`: texture alpha weights the dye multiplier.
+    pub const COLOR_MASK: u32 = 1 << 15;
 
-    /// Reads the shading features of an instance word; `None` when no material was authored.
+    /// Reads the word's shading flags; `None` when no material was authored. Multitexturing
+    /// travels in the instance's texture layers instead.
     #[must_use]
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -63,6 +72,8 @@ impl EntityRenderMaterialState {
             emissive: word & Self::EMISSIVE != 0,
             only_emissive: word & Self::ONLY_EMISSIVE != 0,
             disable_overlay: word & Self::DISABLE_OVERLAY != 0,
+            color_mask: word & Self::COLOR_MASK != 0,
+            ..Self::default()
         })
     }
 }
@@ -86,6 +97,7 @@ impl EntityRenderMaterial {
                 state.disable_overlay,
                 EntityRenderMaterialState::DISABLE_OVERLAY,
             )
+            | flag(state.color_mask, EntityRenderMaterialState::COLOR_MASK)
     }
 }
 

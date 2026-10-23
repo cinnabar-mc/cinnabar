@@ -43,7 +43,7 @@ fn sulfur_cube_native_shell_pixels_survive_actor_compilation() {
             .find(|texture| entities.sources[texture.source as usize].path.as_ref() == path)
             .unwrap_or_else(|| panic!("missing sulfur cube shell {path}"));
         assert!(
-            assets::actor_sources_keeping_alpha(runtime_entities.render_data(), &entities.sources)
+            assets::actor_sources_keeping_alpha(runtime_entities.render_data())
                 .contains(&texture.source)
         );
         let raster = image::open(root.join(&path))

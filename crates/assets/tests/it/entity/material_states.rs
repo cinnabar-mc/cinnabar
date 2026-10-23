@@ -5,12 +5,14 @@ use super::suite::carrier_v4_fixture;
 #[test]
 fn material_shading_round_trips_through_entity_carrier() {
     let mut compiled = carrier_v4_fixture();
-    for bits in 0..16 {
+    for bits in 0..64 {
         let state = EntityRenderMaterialState {
             alpha_test: bits & 1 != 0,
             emissive: bits & 2 != 0,
             disable_overlay: bits & 4 != 0,
             only_emissive: bits & 8 != 0,
+            color_mask: bits & 16 != 0,
+            multitexture: bits & 32 != 0,
         };
         compiled.render.layers[0].material_state = Some(state);
         let encoded = encode_entity_blob(&compiled).unwrap();
@@ -83,9 +85,7 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
         },
     ]
     .into();
-    assert!(
-        assets::actor_sources_keeping_alpha(&compiled.render, &compiled.sources).contains(&source)
-    );
+    assert!(assets::actor_sources_keeping_alpha(&compiled.render).contains(&source));
     let encoded = encode_entity_blob(&compiled).unwrap();
     let runtime = RuntimeEntityAssets::decode(&encoded).unwrap();
     assert_eq!(
