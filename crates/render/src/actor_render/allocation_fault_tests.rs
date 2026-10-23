@@ -168,6 +168,7 @@ fn execute_draws(world: &mut World) {
             false,
             false,
             assets::EntityRenderMaterial::Default as u32,
+            None,
         )
         .unwrap();
     world

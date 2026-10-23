@@ -112,6 +112,9 @@ pub struct ActorMaterial {
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
     pub state: Option<assets::EntityRenderMaterialState>,
+    /// Complete raster state of a resolved material definition; `None` uses the legacy
+    /// projection of `state`.
+    pub render_state: Option<render_api::render_state::RenderState>,
     /// Suppresses overlays without changing whether raster state was authored.
     pub suppress_overlay: bool,
     /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
@@ -147,6 +150,7 @@ impl Default for ActorMaterial {
             glint: Default::default(),
             kind: Default::default(),
             state: None,
+            render_state: None,
             suppress_overlay: false,
             dissolve_multiplier: 1.0,
             light_color_multiplier: 1.0,
@@ -199,6 +203,8 @@ pub struct ActorGpuInstance {
     pub dissolve_multiplier: f32,
     pub light_color_multiplier: f32,
     pub glint: [f32; 6],
+    /// Index into [`ActorRigRenderFrame::rasters`].
+    pub raster: u32,
 }
 
 impl Default for ActorGpuInstance {
@@ -270,6 +276,8 @@ pub struct ActorRigRenderFrame {
     pub geometry_vertices: ActorRigVertexSegments,
     pub geometry_spans: Arc<[ActorRigGeometrySpan]>,
     pub manifest: Arc<[ActorDrawManifestEntry]>,
+    /// Distinct raster states this frame draws, indexed by [`ActorGpuInstance::raster`].
+    pub rasters: Arc<[render_api::render_state::RenderState]>,
     pub maximum_vertex_count: u32,
     pub rejects: ActorRigRejects,
 }
@@ -285,6 +293,7 @@ impl Default for ActorRigRenderFrame {
             geometry_vertices: ActorRigVertexSegments::default(),
             geometry_spans: Arc::from([]),
             manifest: Arc::from([]),
+            rasters: Arc::from([]),
             maximum_vertex_count: 0,
             rejects: ActorRigRejects::default(),
         }
@@ -315,6 +324,7 @@ struct BuildScratch {
     previous_bones: Vec<[[f32; 4]; 3]>,
     current_bones: Vec<[[f32; 4]; 3]>,
     manifest: Vec<ActorDrawManifestEntry>,
+    rasters: Vec<render_api::render_state::RenderState>,
 }
 
 /// Where one admitted submission draws: by layer, texture page and geometry, then in identity
@@ -595,11 +605,13 @@ impl ActorRigFrameBuilder {
         let mut previous_bones = std::mem::take(&mut scratch.previous_bones);
         let mut current_bones = std::mem::take(&mut scratch.current_bones);
         let mut manifest = std::mem::take(&mut scratch.manifest);
+        let mut rasters = std::mem::take(&mut scratch.rasters);
         let mut instance_locations = std::mem::take(&mut scratch.instance_locations);
         instances.clear();
         previous_bones.clear();
         current_bones.clear();
         manifest.clear();
+        rasters.clear();
         let mut maximum_vertex_count = 0;
         let mut rejects = ActorRigRejects::default();
 
@@ -692,6 +704,15 @@ impl ActorRigFrameBuilder {
                 continue;
             };
             let instance_index = instances.len() as u32;
+            let raster = submission.material.raster();
+            // A frame draws few distinct states, so a linear search beats hashing.
+            let raster = match rasters.iter().position(|existing| *existing == raster) {
+                Some(index) => index as u32,
+                None => {
+                    rasters.push(raster);
+                    rasters.len() as u32 - 1
+                }
+            };
             instances.push(ActorGpuInstance {
                 world_from_actor: submission.world_from_actor,
                 previous_bone_base,
@@ -719,6 +740,7 @@ impl ActorRigFrameBuilder {
                 } else {
                     1.0
                 },
+                raster,
             });
             manifest.push(ActorDrawManifestEntry {
                 identity: submission.input.identity,
@@ -748,6 +770,7 @@ impl ActorRigFrameBuilder {
             geometry_vertices: self.catalog.vertices.clone(),
             geometry_spans: Arc::clone(&self.catalog.published_spans),
             manifest: Arc::from(manifest.as_slice()),
+            rasters: Arc::from(rasters.as_slice()),
             maximum_vertex_count,
             rejects,
         };
@@ -761,6 +784,7 @@ impl ActorRigFrameBuilder {
             previous_bones,
             current_bones,
             manifest,
+            rasters,
         };
         frame
     }
@@ -905,9 +929,27 @@ mod material_tests;
 mod culling_tests;
 
 impl ActorMaterial {
-    /// Shader kind and independently admitted raster states in the shared instance word.
+    /// The raster state this material draws with.
+    #[must_use]
+    pub fn raster(self) -> render_api::render_state::RenderState {
+        self.render_state.unwrap_or_else(|| {
+            self.state.map_or(
+                assets::EntityRenderMaterialState::UNAUTHORED,
+                assets::EntityRenderMaterialState::render_state,
+            )
+        })
+    }
+
+    /// Shader kind and shading flags in the shared instance word. The cull and blend bits the
+    /// shader reads follow the raster state, so a complete definition cannot contradict them.
     pub fn gpu_word(self) -> u32 {
-        self.kind.word(self.state)
+        let state = self.state.map(|mut state| {
+            let raster = self.raster();
+            state.cull = raster.cull == render_api::render_state::CullMode::Back;
+            state.blend = raster.blend.is_some();
+            state
+        });
+        self.kind.word(state)
             | if self.suppress_overlay {
                 assets::EntityRenderMaterialState::DISABLE_OVERLAY
             } else {

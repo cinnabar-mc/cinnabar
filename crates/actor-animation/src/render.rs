@@ -12,6 +12,8 @@ use assets::entity_render_pattern_matches as pattern_matches;
 pub struct RenderTextureLayer {
     pub material: assets::EntityRenderMaterial,
     pub material_state: Option<assets::EntityRenderMaterialState>,
+    /// Raster state of the layer's resolved material definition, when it has one.
+    pub render_state: Option<render_api::render_state::RenderState>,
     /// Entity-catalog source index of the raster.
     pub source: u32,
     /// Position among its controller layer's textures; a material samples later slots in the
@@ -396,7 +398,8 @@ fn evaluate_layer_into(
     {
         return Ok(unresolved_artwork);
     }
-    let (material, material_state) = selected_material(evaluator, variables, layer, budget)?;
+    let (material, material_state, material_definition) =
+        selected_material(evaluator, variables, layer, budget)?;
     let choices = render
         .geometries
         .get(
@@ -521,10 +524,14 @@ fn evaluate_layer_into(
     } else {
         selected_sources.len()
     };
+    let render_state = material_definition
+        .and_then(|index| render.materials.get(index as usize))
+        .map(assets::entity::material::EntityMaterialDefinition::render_state);
     for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
         output.push(RenderTextureLayer {
             material,
             material_state,
+            render_state,
             source,
             texture_slot: texture_slot as u16,
             multitexture: grouped,
@@ -553,20 +560,27 @@ fn selected_material(
     (
         assets::EntityRenderMaterial,
         Option<assets::EntityRenderMaterialState>,
+        Option<u32>,
     ),
     EvalError,
 > {
     use assets::EntityRenderMaterialSelection as Node;
     let Some(mut selected) = layer.material_selection else {
-        return Ok((layer.material, layer.material_state));
+        return Ok((
+            layer.material,
+            layer.material_state,
+            layer.material_definition,
+        ));
     };
     let nodes = &evaluator.assets.render_data().material_selections;
     loop {
         budget.charge_work()?;
         selected = match nodes.get(selected as usize).ok_or(EvalError::Invalid)? {
             Node::Raster {
-                material, state, ..
-            } => return Ok((*material, *state)),
+                material,
+                state,
+                definition,
+            } => return Ok((*material, *state, *definition)),
             Node::Branch { condition, yes, no } => {
                 if evaluator
                     .run(*condition as usize, variables, 0.0, budget)?

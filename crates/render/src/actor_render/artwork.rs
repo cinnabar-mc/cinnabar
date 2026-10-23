@@ -508,6 +508,7 @@ pub(super) fn draw_spans(
     pages: &[ActorArtworkPageId],
     instances: &[render_model::ActorGpuInstance],
     geometry: &[render_model::ActorRigGeometrySpan],
+    rasters: &[render_api::render_state::RenderState],
     layers: impl IntoIterator<Item = u8>,
 ) {
     spans.clear();
@@ -518,17 +519,20 @@ pub(super) fn draw_spans(
         let vertex_count = geometry
             .get(instance.geometry_id as usize)
             .map_or(0, |span| span.vertex_count);
+        let raster = crate::actor::material::instance_raster(rasters, instance);
         if let Some(span) = spans.last_mut().filter(|span| {
             span.page == page
-                && !super::phase::sorted(instance.material)
+                && !super::phase::sorted(instance.material, &raster)
                 && span.vertex_count == vertex_count
                 && span.material == instance.material
+                && span.raster == raster
                 && last_layer == Some(layer)
         }) {
             span.count += 1;
         } else {
             spans.push(ActorDrawSpan {
                 material: instance.material,
+                raster,
                 page,
                 first: index as u32,
                 count: 1,
@@ -600,6 +604,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            &[],
             std::iter::repeat(0),
         );
         assert_eq!(
@@ -632,6 +637,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            &[],
             std::iter::repeat(0),
         );
         assert_eq!(
@@ -740,6 +746,7 @@ mod tests {
             &instance_pages,
             &frame.instances,
             &frame.geometry_spans,
+            &[],
             frame.manifest.iter().map(|entry| entry.identity.layer),
         );
         assert_eq!(spans.len(), 2);
@@ -766,6 +773,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            &[],
             std::iter::repeat(0),
         );
         assert_eq!(spans.len(), 2);
@@ -806,10 +814,12 @@ mod tests {
                 instance(0),
             ],
             &geometry,
+            &[],
             std::iter::repeat(0),
         );
         let span = |page, first, count, vertex_count| ActorDrawSpan {
             material: 0,
+            raster: crate::actor::material::word_raster(0),
             page,
             first,
             count,

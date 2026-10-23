@@ -24,12 +24,14 @@ fn adjacent_distinct_equal_count_opaque_rigs_share_one_draw() {
         &[1; 8],
         &instances,
         &geometry,
+        &[],
         std::iter::repeat(0),
     );
     assert_eq!(
         spans,
         [ActorDrawSpan {
             material: 0,
+            raster: crate::actor::material::word_raster(0),
             page: 1,
             first: 0,
             count: instances.len() as u32,
@@ -59,6 +61,7 @@ fn matching_opaque_rigs_keep_layer_boundaries() {
             first_vertex: 0,
             vertex_count: 36,
         }],
+        &[],
         [0, 0, 1, 1],
     );
     assert_eq!(
@@ -175,6 +178,7 @@ fn incompatible_or_sorted_instances_split_adjacent_opaque_runs_without_reorderin
             &[1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2],
             &instances,
             &geometry,
+            &[],
             std::iter::repeat(0),
         );
         assert_eq!(
@@ -254,6 +258,7 @@ fn merged_distinct_rigs_match_separate_draw_pixels() {
         &[1; 2],
         &instances,
         &geometry,
+        &[],
         std::iter::repeat(0),
     );
     assert_eq!(spans.len(), 1);

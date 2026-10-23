@@ -187,6 +187,7 @@ fn resolve_layer(
             glint: submission.material.glint,
             kind: layer.material,
             state: layer.material_state,
+            render_state: layer.render_state,
             suppress_overlay: false,
             dissolve_multiplier: layer.overlay[3],
             light_color_multiplier: layer.light_color_multiplier,
@@ -402,6 +403,7 @@ mod tests {
         let original_rig = batch.submissions[0].input.rig;
         let original_skin = batch.skin_layers[0].clone();
         let layer = RenderTextureLayer {
+            render_state: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: Some(assets::EntityRenderMaterialState {
                 blend: true,
@@ -446,6 +448,7 @@ mod tests {
     #[test]
     fn runtime_skin_overlay_uses_the_first_admitted_layer_and_keeps_later_layers_independent() {
         let layer = RenderTextureLayer {
+            render_state: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             source: 0,

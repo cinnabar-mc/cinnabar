@@ -452,7 +452,7 @@ fn prepare_actor_resources(
         }
         let prepared = structurally_valid
             .then(|| {
-                let instances = dissolve::instances(&rig.instances, &rig.manifest);
+                let instances = dissolve::instances(&rig.instances, &rig.manifest, &rig.rasters);
                 gpu.bones.prepare(rig, instances)
             })
             .flatten();
@@ -514,6 +514,7 @@ fn prepare_actor_resources(
                 &frame.instance_pages,
                 &prepared.instances,
                 &rig.geometry_spans,
+                &rig.rasters,
                 prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
             gpu.mask_spans.clear();
@@ -536,8 +537,10 @@ fn prepare_actor_resources(
             }
             {
                 gpu.pack_depth_dependency = prepared.instances.iter().any(|instance| {
-                    crate::actor::material::state(instance.material)
-                        .is_some_and(|state| state.depth_equal && !state.depth_always)
+                    crate::actor::material::instance_raster(&frame.rig.rasters, instance)
+                        .depth
+                        .compare
+                        == Some(render_api::render_state::CompareFunction::Equal)
                 });
             }
             gpu.manifest = prepared.manifest;

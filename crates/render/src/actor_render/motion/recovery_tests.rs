@@ -28,6 +28,9 @@ impl Fixture {
         frame.rig = crate::motion_blur::actor_history::tests::frame(Vec3::ZERO, [0.0, 1.0, 1.0]);
         gpu.spans.push(crate::actor::gpu::ActorDrawSpan {
             material: assets::EntityRenderMaterial::Default as u32,
+            raster: crate::actor::material::word_raster(
+                assets::EntityRenderMaterial::Default as u32,
+            ),
             page: 0,
             first: 0,
             count: 1,

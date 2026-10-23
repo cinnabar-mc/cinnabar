@@ -104,6 +104,7 @@ fn mask_dissolve_prepass_writes_only_private_depth() {
                             hdr: false,
                             enhanced: false,
                             material: assets::EntityRenderMaterial::DissolveDepth as u32,
+                            raster: None,
                         },
                         depth,
                     },
@@ -220,6 +221,7 @@ fn mask_pipeline_cannot_inherit_an_actors_depth_bypass_or_write_world_depth() {
                     hdr: false,
                     enhanced: false,
                     material,
+                    raster: None,
                 },
                 depth,
             };
