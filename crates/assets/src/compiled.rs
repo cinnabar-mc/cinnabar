@@ -118,7 +118,7 @@ pub const MATERIAL_FLAG_DISABLE_FACE_DIMMING: u32 = 1 << 26;
 pub const MATERIAL_FLAG_CAULDRON_WATER: u32 = 1 << 27;
 /// Packed vertex colour used by ordinary cauldron water, including its translucency.
 pub const CAULDRON_WATER_COLOUR: [u8; 4] = [52, 81, 89, 191];
-/// Compact world-leaf AO exponent. Zero selects the native omitted default (1).
+/// Compact authored AO exponent in hundredths. Zero selects the native omitted default (1).
 pub const MATERIAL_LEAF_AO_EXPONENT_SHIFT: u32 = 17;
 pub const MATERIAL_LEAF_AO_EXPONENT_MAX: u32 = u8::MAX as u32;
 pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
@@ -183,8 +183,6 @@ pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
                 == 0)
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
-        && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0
-            || flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0)
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         && (flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR == 0 || flags & MATERIAL_FLAG_ALPHA_BLEND == 0)
         && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)

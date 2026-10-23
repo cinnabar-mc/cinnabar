@@ -5,7 +5,7 @@ import render::chunk_bindings::{
     model_sampler, animations, animation_frames,
     clock, model_templates, model_templates_length, geometry_streams, atmosphere,
 };
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale, material_ao_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import render::world_projection::{section_camera_offset, camera_offset_clip};
@@ -424,7 +424,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
     let dimming = material_face_shade(model_shade_normal(out.normal, light_sample), (light_sample & 2048u) != 0u, material.flags);
-    let terrain_shade = select(ao * dimming, pad_shade, is_lily_pad);
+    let terrain_shade = select(material_ao_shade(ao * dimming, material.flags), pad_shade, is_lily_pad);
     out.lighting = light_colour(light_sample) * terrain_shade;
     @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
