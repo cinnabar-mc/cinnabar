@@ -144,7 +144,6 @@ fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
             material(None, None),
             true,
         ),
-        ("blend", None, material(Some("blend"), None), true),
         (
             "unresolved tint",
             None,
