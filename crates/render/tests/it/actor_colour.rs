@@ -459,7 +459,6 @@ fn legacy_fragment_keeps_leather_dye_red_lighting_and_untinted_glint_after_fog()
                     | assets::EntityRenderMaterial::Default.word(Some(
                         assets::EntityRenderMaterialState {
                             alpha_test: true,
-                            cull: false,
                             ..Default::default()
                         },
                     )),

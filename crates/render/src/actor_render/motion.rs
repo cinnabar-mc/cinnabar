@@ -249,14 +249,14 @@ pub(crate) fn prepare(
             continue;
         }
         state.ready &= pipeline
-            .draw_variant(msaa, hdr, enhanced, span.material, Some(span.raster))
+            .draw_variant(msaa, hdr, enhanced, span.material, span.raster)
             .is_some_and(|id| cache.get_render_pipeline(id).is_some());
         let key = ActorPipelineKey {
             msaa,
             hdr,
             enhanced,
             material: span.material,
-            raster: Some(span.raster),
+            raster: span.raster,
         };
         let Some(id) = pipeline.motion_variant(key) else {
             state.ready = false;

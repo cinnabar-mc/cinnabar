@@ -9,6 +9,25 @@ use render_api::render_state::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Raster state of an actor layer that names no material: double-sided, opaque and
+/// depth-tested.
+pub const UNAUTHORED_RENDER_STATE: RenderState = RenderState {
+    cull: CullMode::None,
+    depth: DepthState {
+        compare: Some(CompareFunction::LessEqual),
+        write: true,
+        bias: DepthBias {
+            constant: 0.0,
+            slope_scale: 0.0,
+        },
+    },
+    stencil: None,
+    blend: None,
+    write_color: true,
+    write_alpha: true,
+    alpha_to_coverage: false,
+};
+
 /// Most definitions one carrier admits, including variants.
 pub const MAX_ENTITY_MATERIAL_DEFINITIONS: usize = 16_384;
 /// Longest admitted define, variant or shader identifier.

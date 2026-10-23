@@ -403,12 +403,12 @@ mod tests {
         let original_rig = batch.submissions[0].input.rig;
         let original_skin = batch.skin_layers[0].clone();
         let layer = RenderTextureLayer {
-            render_state: None,
-            material: assets::EntityRenderMaterial::Default,
-            material_state: Some(assets::EntityRenderMaterialState {
-                blend: true,
+            render_state: Some(render_api::render_state::RenderState {
+                blend: Some(render_api::render_state::BlendState::ALPHA),
                 ..Default::default()
             }),
+            material: assets::EntityRenderMaterial::Default,
+            material_state: Some(assets::EntityRenderMaterialState::default()),
             source: 0,
             texture_slot: 0,
             multitexture: None,
@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(body.texture_layer, 0);
         assert!(batch.artwork.is_empty());
         assert_eq!(body.tint, pack_layer_tint(layers[0].color));
-        assert!(body.material.state.unwrap().blend);
+        assert!(body.material.raster().blend.is_some());
         assert_eq!(body.input.current_bones[0].translation_scale[3], 1.0);
         assert!(
             body.input.current_bones[1..]

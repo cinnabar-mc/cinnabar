@@ -222,6 +222,14 @@ impl Default for RenderState {
     }
 }
 
+impl RenderState {
+    /// Whether draws pass regardless of stored depth: the test is disabled or always passes.
+    #[must_use]
+    pub fn ignores_stored_depth(&self) -> bool {
+        matches!(self.depth.compare, None | Some(CompareFunction::Always))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

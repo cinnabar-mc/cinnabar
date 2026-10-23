@@ -30,9 +30,10 @@ fn sulfur_cube_native_shell_pixels_survive_actor_compilation() {
     );
     assert!(runtime_entities.render_data().layers.iter().any(|layer| {
         layer.rig as usize == rig
-            && layer.material_state.is_some_and(|state| {
-                state.blend && state.cull && state.depth_write && !state.alpha_test
-            })
+            && super::material_states::summary(runtime_entities.render_data(), layer)
+                == serde_json::json!({
+                    "alpha_test": false, "cull": true, "blend": true, "depth_write": true
+                })
     }));
     for variant in ["outer", "outer_small"] {
         let path = format!("textures/entity/sulfur_cube/sulfur_cube_{variant}.png");

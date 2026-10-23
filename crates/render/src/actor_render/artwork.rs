@@ -586,13 +586,12 @@ mod tests {
 
     #[test]
     fn always_depth_instances_keep_separate_sort_positions() {
-        let material =
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                depth_always: true,
-                ..Default::default()
-            }));
+        let always = crate::actor::test_material::TestMaterial {
+            depth_always: true,
+            ..Default::default()
+        };
         let instances = [render_model::ActorGpuInstance {
-            material,
+            material: always.word(assets::EntityRenderMaterial::Default),
             ..Default::default()
         }; 2];
         let mut spans = Vec::new();
@@ -604,7 +603,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
-            &[],
+            &[always.raster()],
             std::iter::repeat(0),
         );
         assert_eq!(
@@ -618,14 +617,14 @@ mod tests {
 
     #[test]
     fn blended_instances_keep_separate_sortable_spans_while_opaque_instances_batch() {
-        let material = |blend| {
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                blend,
-                ..Default::default()
-            }))
+        let material = |blend| crate::actor::test_material::TestMaterial {
+            blend,
+            ..Default::default()
         };
+        let rasters = [false, true].map(|blend| material(blend).raster());
         let instances = [false, false, true, true].map(|blend| render_model::ActorGpuInstance {
-            material: material(blend),
+            material: material(blend).word(assets::EntityRenderMaterial::Default),
+            raster: u32::from(blend),
             ..Default::default()
         });
         let mut spans = Vec::new();
@@ -637,7 +636,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
-            &[],
+            &rasters,
             std::iter::repeat(0),
         );
         assert_eq!(
@@ -819,7 +818,7 @@ mod tests {
         );
         let span = |page, first, count, vertex_count| ActorDrawSpan {
             material: 0,
-            raster: crate::actor::material::word_raster(0),
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             page,
             first,
             count,

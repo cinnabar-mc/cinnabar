@@ -21,7 +21,7 @@ fn specialize(msaa: Msaa, raster: api::RenderState) -> RenderPipelineDescriptor 
                 hdr: false,
                 enhanced: false,
                 material: assets::EntityRenderMaterial::Default as u32,
-                raster: Some(raster),
+                raster,
             },
             &mut descriptor,
         )
@@ -30,9 +30,9 @@ fn specialize(msaa: Msaa, raster: api::RenderState) -> RenderPipelineDescriptor 
 }
 
 #[test]
-fn every_legacy_word_specializes_like_its_projected_raster() {
+fn every_built_in_flag_combination_specializes_its_raster() {
     for bits in 0..512u32 {
-        let state = assets::EntityRenderMaterialState {
+        let state = crate::actor::test_material::TestMaterial {
             alpha_test: bits & 1 != 0,
             cull: bits & 2 != 0,
             blend: bits & 4 != 0,
@@ -42,21 +42,58 @@ fn every_legacy_word_specializes_like_its_projected_raster() {
             additive_alpha: bits & 64 != 0,
             disable_overlay: bits & 128 != 0,
             depth_always: bits & 256 != 0,
+            ..Default::default()
         };
-        let material = assets::EntityRenderMaterial::Default.word(Some(state));
+        let material = state.word(assets::EntityRenderMaterial::Default);
         for msaa in [Msaa::Off, Msaa::Sample4] {
-            let legacy = ActorPipelineKey {
+            let key = ActorPipelineKey {
                 msaa,
                 hdr: false,
                 enhanced: false,
                 material,
-                raster: None,
+                raster: state.raster(),
             };
-            let authored = ActorPipelineKey {
-                raster: Some(state.render_state()),
-                ..legacy
-            };
-            assert!(legacy.contract() == authored.contract(), "{state:?}");
+            let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+            ActorPipelineSpecializer
+                .specialize(key, &mut descriptor)
+                .unwrap();
+            assert_eq!(
+                descriptor.primitive.cull_mode,
+                state.cull.then_some(Face::Back),
+                "{state:?}"
+            );
+            let depth = descriptor.depth_stencil.as_ref().unwrap();
+            assert_eq!(
+                depth.depth_write_enabled,
+                Some(state.depth_write),
+                "{state:?}"
+            );
+            assert_eq!(
+                depth.depth_compare,
+                Some(if state.depth_always {
+                    CompareFunction::Always
+                } else {
+                    CompareFunction::GreaterEqual
+                }),
+                "{state:?}"
+            );
+            let blend = descriptor.fragment.as_ref().unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .blend;
+            assert_eq!(blend.is_some(), state.blend, "{state:?}");
+            if let Some(blend) = blend {
+                let (source, destination) = match (state.additive, state.additive_alpha) {
+                    (false, _) => (BlendFactor::SrcAlpha, BlendFactor::OneMinusSrcAlpha),
+                    (true, false) => (BlendFactor::One, BlendFactor::One),
+                    (true, true) => (BlendFactor::SrcAlpha, BlendFactor::One),
+                };
+                assert_eq!(
+                    (blend.color.src_factor, blend.color.dst_factor),
+                    (source, destination),
+                    "{state:?}"
+                );
+            }
         }
     }
 }
@@ -189,7 +226,7 @@ fn states_differing_only_in_unlowered_stencil_or_bias_share_a_contract() {
         hdr: false,
         enhanced: false,
         material: assets::EntityRenderMaterial::Default as u32,
-        raster: Some(raster),
+        raster,
     };
     let plain = api::RenderState::default();
     let authored = api::RenderState {
