@@ -227,6 +227,7 @@ pub fn collect_files(
     }
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
+    textures.extend(material_binding_textures(view));
     files.extend(entities);
     files.extend(
         materials
@@ -314,6 +315,22 @@ fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
         pack_entity_compiler::MATERIAL_BINDINGS_PATH.into(),
         serde_json::to_vec(&document).ok()?,
     ))
+}
+
+/// Texture paths the stack's material bindings name, so their rasters reach the entity catalog.
+fn material_binding_textures(view: &LayeredPackView) -> Vec<String> {
+    let Some(document) = material_bindings_document(view) else {
+        return Vec::new();
+    };
+    document
+        .get("materials")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|materials| materials.values())
+        .filter_map(|material| material.get("textures")?.as_object())
+        .flat_map(|textures| textures.values())
+        .filter_map(|path| path.as_str().map(str::to_owned))
+        .collect()
 }
 
 /// The stack's winning `cinnabar/material-bindings.json` document.

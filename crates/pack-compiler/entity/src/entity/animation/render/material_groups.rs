@@ -25,6 +25,8 @@ struct Raster {
     state: Option<EntityRenderMaterialState>,
     /// Index of the complete definition in the carrier's material table.
     definition: Option<u32>,
+    /// Index of a Cinnabar material's masks in the carrier's mask table.
+    masks: Option<u32>,
 }
 
 pub(super) struct Group {
@@ -42,6 +44,7 @@ fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut Material
         }),
         state: resolved.map(|(state, _)| state),
         definition: resolved.map(|(_, definition)| definition),
+        masks: None,
     }
 }
 
@@ -58,7 +61,14 @@ pub(super) fn resolve(
     selected: impl IntoIterator<Item = u32>,
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
-    if let Some(selection) = uniform_selection(description, controller, materials, table)? {
+    // A whole-model selector draws one layer; extension bindings partition bones instead.
+    let extended = materials
+        .extension_rules(entity, controller_name)
+        .next()
+        .is_some();
+    if !extended
+        && let Some(selection) = uniform_selection(description, controller, materials, table)?
+    {
         return Ok(vec![Group {
             raster: Raster::default(),
             hidden: Vec::new(),
@@ -81,11 +91,12 @@ pub(super) fn resolve(
         .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
         .collect::<Vec<_>>();
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
-        if let Some((state, definition)) = materials.resolve_extension(material, table) {
+        if let Some((state, definition, masks)) = materials.resolve_extension(material, table) {
             let raster = Raster {
                 material: EntityRenderMaterial::Default,
                 state: Some(state),
                 definition: Some(definition),
+                masks,
             };
             rules.push((pattern.to_owned(), raster));
         }
@@ -142,7 +153,11 @@ pub(super) fn resolve(
     let mut seen = BTreeSet::new();
     for raster in rules.iter().map(|(_, raster)| *raster).chain([fallback]) {
         if assignments.iter().any(|(_, assigned)| *assigned == raster)
-            && seen.insert((raster.material.word(raster.state), raster.definition))
+            && seen.insert((
+                raster.material.word(raster.state),
+                raster.definition,
+                raster.masks,
+            ))
         {
             order.push(raster);
         }
@@ -290,6 +305,7 @@ pub(super) fn append(
             material: group.raster.material,
             material_state: group.raster.state,
             material_definition: group.raster.definition,
+            material_masks: group.raster.masks,
             material_selection: group
                 .selection
                 .and_then(|selection| retain_selection(selection, selections, molang)),
@@ -342,6 +358,7 @@ pub(super) fn append(
         layer.material = group.raster.material;
         layer.material_state = group.raster.state;
         layer.material_definition = group.raster.definition;
+        layer.material_masks = group.raster.masks;
         layer.material_selection = group
             .selection
             .and_then(|selection| retain_selection(selection, selections, molang));
@@ -383,17 +400,20 @@ fn compile_selection(
         material: EntityRenderMaterial::Default,
         state: None,
         definition: None,
+        masks: None,
     });
     let node = match selection.as_ref() {
         Selection::Empty => Node::Raster {
             material: EntityRenderMaterial::Default,
             state: None,
             definition: None,
+            masks: None,
         },
         Selection::Leaf(raster) => Node::Raster {
             material: raster.material,
             state: raster.state,
             definition: raster.definition,
+            masks: raster.masks,
         },
         Selection::Branch(condition, yes, no) => Node::Branch {
             condition: molang.compile(condition)?,

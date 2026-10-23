@@ -242,6 +242,8 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             dissolve_multiplier: input.material.dissolve_multiplier,
             light_color_multiplier: input.material.light_color_multiplier,
             raster: intern_raster(&mut rasters, input.material.raster()),
+            mask_layers: [u32::MAX; 2],
+            mask_strength: 0.0,
         });
         manifest.push(ActorDrawManifestEntry {
             identity: input.input.identity,

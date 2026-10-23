@@ -16,9 +16,9 @@ fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
         .collect()
 }
 
-/// Sources whose fractional alpha reaches the shader: dissolve masks, art any drawing material
-/// blends, lights, colour-masks or multitextures by alpha, and art every drawing material
-/// alpha-tests. Every other raster's alpha rounds at 0.5.
+/// Sources whose fractional alpha reaches the shader: dissolve masks, Cinnabar material masks,
+/// art any drawing material blends, lights, colour-masks or multitextures by alpha, and art every
+/// drawing material alpha-tests. Every other raster's alpha rounds at 0.5.
 pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
     // Per source: (every drawing material alpha-tests, some drawing material reads alpha).
     let mut drawn = BTreeMap::<u32, (bool, bool)>::new();
@@ -44,7 +44,16 @@ pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
             .filter(|(_, (tests, reads))| *tests || *reads)
             .map(|(source, _)| source),
     );
+    keep.extend(actor_material_mask_sources(render));
     keep
+}
+
+/// Mask textures Cinnabar materials sample; their alpha weights the mask.
+pub fn actor_material_mask_sources(render: &EntityRenderData) -> impl Iterator<Item = u32> + '_ {
+    render
+        .material_masks
+        .iter()
+        .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
 }
 
 /// Sources any possible `USE_MULTITEXTURE` material of a layer samples, including Molang
