@@ -229,4 +229,20 @@ fn native_bases_keep_their_shading_and_raster() {
             "{name}"
         );
     }
+    for (name, color_mask, multitexture) in [
+        ("sheep", true, false),
+        ("wolf", true, false),
+        ("llama", false, true),
+        ("entity_alphatest", false, false),
+    ] {
+        let (state, _) = MaterialStates::default()
+            .resolve(name, &mut MaterialTable::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (state.color_mask, state.multitexture),
+            (color_mask, multitexture),
+            "{name}"
+        );
+    }
 }

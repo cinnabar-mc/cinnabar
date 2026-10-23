@@ -271,7 +271,6 @@ pub(super) fn evaluate_render_cached(
     let assets = evaluator.assets;
     let mut output = Vec::new();
     let mut unresolved_artwork = false;
-    let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
     let symbol = assets
         .rig_bindings()
         .get(rig.binding)
@@ -283,16 +282,8 @@ pub(super) fn evaluate_render_cached(
         });
     for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
         if let Some(cache) = cache.as_deref_mut() {
-            let evaluated = cache.sample(
-                index,
-                evaluator,
-                variables,
-                rig,
-                layer,
-                actor_color,
-                multitexture,
-                budget,
-            )?;
+            let evaluated =
+                cache.sample(index, evaluator, variables, rig, layer, actor_color, budget)?;
             unresolved_artwork |= evaluated.unresolved_artwork;
             output.extend(evaluated.layers);
         } else {
@@ -301,7 +292,7 @@ pub(super) fn evaluate_render_cached(
                 variables,
                 rig,
                 layer,
-                (actor_color, multitexture),
+                actor_color,
                 &mut output,
                 budget,
             )?;
@@ -358,7 +349,6 @@ fn evaluate_layer(
     rig: RenderRig<'_>,
     layer: &assets::EntityRenderLayer,
     actor_color: [f32; 4],
-    multitexture: bool,
     budget: &mut EvalBudget<'_>,
 ) -> Result<LayerOutput, EvalError> {
     let mut output = Vec::new();
@@ -367,7 +357,7 @@ fn evaluate_layer(
         variables,
         rig,
         layer,
-        (actor_color, multitexture),
+        actor_color,
         &mut output,
         budget,
     )?;
@@ -383,11 +373,13 @@ fn evaluate_layer_into(
     variables: &mut MolangVariables,
     rig: RenderRig<'_>,
     layer: &assets::EntityRenderLayer,
-    (actor_color, multitexture): ([f32; 4], bool),
+    actor_color: [f32; 4],
     output: &mut Vec<RenderTextureLayer>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<bool, EvalError> {
     let assets = evaluator.assets;
+    // A `USE_MULTITEXTURE` material samples the controller's first three textures in one draw.
+    let multitexture = layer.material_state.is_some_and(|state| state.multitexture);
     let render = assets.render_data();
     let mut unresolved_artwork = false;
     budget.charge_work()?;

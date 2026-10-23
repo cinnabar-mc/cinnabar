@@ -184,17 +184,26 @@ mod tests {
 
     #[test]
     fn color_mask_and_multitexture_artwork_draws_with_the_pack() {
-        let mut frame = ActorRenderFrame::default();
+        let mut frame = ActorRenderFrame {
+            instance_pages: std::sync::Arc::from([1]),
+            ..Default::default()
+        };
         frame.rig.instances = std::sync::Arc::from([ActorGpuInstance::default()]);
-        frame.instance_pages = std::sync::Arc::from([1]);
         assert!(!frame_supported(Some(&frame), None, None));
         for (color_mask, multitexture) in [(true, false), (false, true)] {
+            frame.rig.instances = std::sync::Arc::from([ActorGpuInstance {
+                material: if color_mask {
+                    EntityRenderMaterialState::COLOR_MASK
+                } else {
+                    0
+                },
+                ..Default::default()
+            }]);
             let page = render_model::ActorTexturePage {
                 width: 1,
                 height: 1,
                 layers: 1,
                 rgba8: std::sync::Arc::from([255; 4]),
-                color_mask,
                 multitexture,
             };
             let mut artwork = render_model::ActorArtworkPages::default();

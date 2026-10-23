@@ -11,7 +11,6 @@ fn page(colors: &[[u8; 4]]) -> render_model::ActorTexturePage {
             .iter()
             .flat_map(|color| color.repeat(8 * 8))
             .collect(),
-        color_mask: false,
         multitexture: false,
     }
 }

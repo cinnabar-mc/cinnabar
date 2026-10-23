@@ -8,6 +8,8 @@ const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRen
     emissive: false,
     only_emissive: false,
     disable_overlay: false,
+    color_mask: false,
+    multitexture: false,
 };
 
 impl EquipmentRuntime {

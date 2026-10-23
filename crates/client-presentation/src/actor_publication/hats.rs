@@ -72,6 +72,7 @@ fn emissive_material(body: ActorMaterial) -> ActorMaterial {
             alpha_test: true,
             emissive: true,
             disable_overlay: body.state.is_some_and(|state| state.disable_overlay),
+            ..Default::default()
         }),
         render_state: Some(render_api::render_state::RenderState {
             cull: body.raster().cull,

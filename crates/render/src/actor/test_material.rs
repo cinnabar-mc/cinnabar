@@ -53,6 +53,7 @@ impl TestMaterial {
             emissive: self.emissive,
             only_emissive: self.only_emissive,
             disable_overlay: self.disable_overlay,
+            ..Default::default()
         }
     }
 

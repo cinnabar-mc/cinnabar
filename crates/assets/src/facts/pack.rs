@@ -215,6 +215,10 @@ pub enum MaterialKind {
     Provisional,
     Actor,
     UnmaskedArmor,
+    /// `USE_COLOR_MASK`: texture alpha weights the dye multiplier.
+    ColorMask,
+    /// `USE_MULTITEXTURE`: three textures draw together.
+    Multitexture,
     Dragon,
     DissolveDepth,
     DissolveColor,

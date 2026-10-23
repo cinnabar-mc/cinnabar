@@ -36,7 +36,12 @@ Confirmed gaps against the current client:
   and alpha to coverage. Stencil state is carried but not rendered because scene depth has no
   stencil aspect; depth bias is carried but not rendered. Samplers, vertex fields, MSAA support,
   primitive mode and shader defines other than alpha to coverage are not applied.
-- Multitexture and colour-mask behavior is selected by pinned texture hashes, not by defines.
+- Colour masking and three-sampler draws follow `USE_COLOR_MASK` and `USE_MULTITEXTURE`. The
+  vanilla pack does not define the native `sheep`, `wolf` and `llama` materials, so the client's
+  built-in bases declare them; packs cannot derive from `entity_change_color` or
+  `entity_multitexture`, which the vanilla pack never names. Server-pack textures for a `USE_MULTITEXTURE` material are not
+  grouped into one page, so those draws use their first texture alone. `GLINT`,
+  `MULTIPLICATIVE_TINT` and `MASKED_MULTITEXTURE` texture requirements are not checked.
 
 These questions remain unresolved:
 
