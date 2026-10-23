@@ -109,6 +109,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   is `implemented` with a named test. The entity material declaration, definition and name
   bounds are unverified implementation limits; past them a material draws without one.
   is `implemented` with a named test.
+- [ ] Programmable world materials for server Experiences (a `render_world_material` permission
+  binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
+  guests have no drawing interface yet, and production Experience execution stays fail-closed
+  until the restricted-helper launch gate.
 - [ ] Draw block masks and vanilla model blocks with
   [Cinnabar material bindings](docs/reference/cinnabar-materials.md); entity bindings with masks,
   custom blocks and vanilla full cubes render.

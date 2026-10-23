@@ -32,7 +32,7 @@ impl Builder<'_> {
                     continue;
                 }
                 let flags = base.map_or(0, |material| material.flags);
-                if let Some(replacement) = self.terrain_material(keys, key, variant, flags) {
+                if let Some(replacement) = self.terrain_material(Some(keys), key, variant, flags) {
                     let replacement = self.overlay.materials[replacement as usize];
                     claimed.insert(id);
                     self.overlay.material_overrides.push(MaterialOverride {
@@ -186,7 +186,7 @@ impl Builder<'_> {
                     .material_source(material)
                     .map_or(0, |source| source.variant);
                 if let Some((key, flags)) = world_bindings[index] {
-                    faces[index] = self.terrain_material(keys, key, variant, flags);
+                    faces[index] = self.terrain_material(Some(keys), key, variant, flags);
                 }
             }
             if faces.iter().any(Option::is_some) {
@@ -200,7 +200,7 @@ impl Builder<'_> {
                     .material_source(material)
                     .map_or(0, |source| source.variant);
                 let flags = base.material(material).flags & !assets::MATERIAL_FLAG_ROTATE_UV;
-                self.terrain_material(keys, carried_keys[index]?, variant, flags)
+                self.terrain_material(Some(keys), carried_keys[index]?, variant, flags)
             });
             if carried.iter().all(Option::is_some) {
                 self.vanilla_carried.push(CarriedBlock {
@@ -235,10 +235,11 @@ impl Builder<'_> {
         changed
     }
 
-    /// Builds one state selector with independent, normalized positional alternatives.
+    /// Builds one state selector with independent, normalized positional alternatives. `keys`
+    /// lets carrier rasters donate missing art; pack-only keys pass `None`.
     pub(super) fn terrain_material(
         &mut self,
-        keys: &MaterialKeys,
+        keys: Option<&MaterialKeys>,
         key: &str,
         variant: u32,
         flags: u32,
@@ -258,7 +259,7 @@ impl Builder<'_> {
             .iter()
             .enumerate()
             .map(|(index, choice)| {
-                let slot = self.carrier_slot(
+                let slot = self.request_slot(
                     TextureRoute::Catalog {
                         key: key.to_owned(),
                         variant,
