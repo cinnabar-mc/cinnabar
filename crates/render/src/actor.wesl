@@ -175,7 +175,9 @@ fn actor_vertex(
     out.material = instance_words[instance_base + 27u];
     if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
     let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
-    out.skin_info.z = select(0xffffffffu, instance_index, has_glint);
+    // Cinnabar material masks name layers of the draw's page; MAX names none.
+    let has_masks = instance_words[instance_base + 37u] != 0xffffffffu || instance_words[instance_base + 38u] != 0xffffffffu;
+    out.skin_info.z = select(0xffffffffu, instance_index, has_glint || has_masks);
     out.material_parameters.x = instance_words[instance_base + 28u];
     let light_color_multiplier = word_f32(instance_base + 29u);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
@@ -377,11 +379,27 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // shading preserves its interpolation and the explicit zero/unlit override.
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.material_parameters.y != 0u);
-    let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
-    var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
+    // Cinnabar masks: glow adds after lighting; emissive draws masked texels unlit.
+    var glow = vec3(0.0);
+    var unlit = 0.0;
+    if (input.skin_info.z != 0xffffffffu) {
+        let base = input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS;
+        let strength = word_f32(base + 39u);
+        let glow_layer = instance_words[base + 37u];
+        let emissive_layer = instance_words[base + 38u];
+        if (glow_layer != 0xffffffffu) {
+            let mask = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(glow_layer), uv_dx, uv_dy));
+            glow = mask.rgb * mask.a * strength;
+        }
+        if (emissive_layer != 0xffffffffu) {
+            unlit = clamp(textureSampleGrad(skins, skin_sampler, uv, i32(emissive_layer), uv_dx, uv_dy).a * strength, 0.0, 1.0);
+        }
+    }
+    let lighting = mix(select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive), vec3(1.0), unlit);
+    var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting + glow;
     var legacy_foil = vec3(0.0);
     var legacy_alpha = color.a;
-    if (input.skin_info.z != 0xffffffffu) {
+    if (input.skin_info.z != 0xffffffffu && (material == ACTOR_MATERIAL_GLINT || word_f32(input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS + 35u) != 0.0)) {
         let base = input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS;
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
         let strength = word_f32(base + 32u);

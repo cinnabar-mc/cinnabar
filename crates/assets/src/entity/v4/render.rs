@@ -116,6 +116,9 @@ pub struct EntityRenderLayer {
     /// Index into [`EntityRenderData::materials`]; absent when the layer names no material.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material_definition: Option<u32>,
+    /// Index into [`EntityRenderData::material_masks`] for a Cinnabar material with masks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material_masks: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hurt_color: Option<[u32; 4]>,
     /// Index into the rig bindings.
@@ -233,7 +236,33 @@ pub struct EntityRenderData {
     /// Resolved materials shared by layers and variants.
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
     pub materials: Box<[super::material::EntityMaterialDefinition]>,
+    /// Mask textures of Cinnabar materials, shared by the layers that draw them.
+    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    pub material_masks: Box<[EntityMaterialMasks]>,
 }
+
+/// Mask textures a Cinnabar material samples on its base texture's coordinates. Each source
+/// index names an entity source; `strength` scales both masks. Equality compares exact bits.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityMaterialMasks {
+    /// Added after lighting: `mask.rgb * mask.a * strength`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glow: Option<u32>,
+    /// Draws masked texels unlit, weighted by `mask.a * strength`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emissive: Option<u32>,
+    pub strength: f32,
+}
+
+impl PartialEq for EntityMaterialMasks {
+    fn eq(&self, other: &Self) -> bool {
+        (self.glow, self.emissive, self.strength.to_bits())
+            == (other.glow, other.emissive, other.strength.to_bits())
+    }
+}
+
+impl Eq for EntityMaterialMasks {}
 
 pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
     let render = &compiled.render;
@@ -258,6 +287,22 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         })
     {
         return Err(invalid("entity material definition is invalid"));
+    }
+    if render.material_masks.len() > super::material::MAX_ENTITY_MATERIAL_DEFINITIONS
+        || render.material_masks.iter().any(|masks| {
+            !masks.strength.is_finite()
+                || [masks.glow, masks.emissive]
+                    .into_iter()
+                    .flatten()
+                    .any(|source| source as usize >= compiled.sources.len())
+        })
+        || render.layers.iter().any(|layer| {
+            layer
+                .material_masks
+                .is_some_and(|index| index as usize >= render.material_masks.len())
+        })
+    {
+        return Err(invalid("entity material masks are invalid"));
     }
     let expressions = compiled.molang_expressions.len();
     let expression = |index: u32| (index as usize) < expressions;

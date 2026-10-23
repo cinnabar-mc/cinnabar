@@ -7,7 +7,8 @@ use crate::{AssetError, RuntimeEntityAssets};
 mod alpha;
 mod eligibility;
 pub use alpha::{
-    ActorMultitextureSources, actor_multitexture_sources, actor_sources_keeping_alpha,
+    ActorMultitextureSources, actor_material_mask_sources, actor_multitexture_sources,
+    actor_sources_keeping_alpha,
 };
 pub use eligibility::{
     neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,

@@ -14,6 +14,8 @@ pub struct RenderTextureLayer {
     pub material_state: Option<assets::EntityRenderMaterialState>,
     /// Raster state of the layer's resolved material definition, when it has one.
     pub render_state: Option<render_api::render_state::RenderState>,
+    /// Mask textures of the layer's Cinnabar material, when it has any.
+    pub masks: Option<assets::EntityMaterialMasks>,
     /// Entity-catalog source index of the raster.
     pub source: u32,
     /// Position among its controller layer's textures; a material samples later slots in the
@@ -388,8 +390,12 @@ fn evaluate_layer_into(
     {
         return Ok(unresolved_artwork);
     }
-    let (material, material_state, material_definition) =
-        selected_material(evaluator, variables, layer, budget)?;
+    let SelectedMaterial {
+        material,
+        state: material_state,
+        definition: material_definition,
+        masks: material_masks,
+    } = selected_material(evaluator, variables, layer, budget)?;
     // A selected `USE_MULTITEXTURE` material samples the controller's first three textures in
     // one draw.
     let multitexture = material_state.is_some_and(|state| state.multitexture);
@@ -520,11 +526,15 @@ fn evaluate_layer_into(
     let render_state = material_definition
         .and_then(|index| render.materials.get(index as usize))
         .map(assets::entity::material::EntityMaterialDefinition::render_state);
+    let masks = material_masks
+        .and_then(|index| render.material_masks.get(index as usize))
+        .copied();
     for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
         output.push(RenderTextureLayer {
             material,
             material_state,
             render_state,
+            masks,
             source,
             texture_slot: texture_slot as u16,
             multitexture: grouped,
@@ -543,27 +553,32 @@ fn evaluate_layer_into(
     Ok(unresolved_artwork)
 }
 
+/// The raster one controller layer draws with this frame.
+#[derive(Clone, Copy)]
+struct SelectedMaterial {
+    material: assets::EntityRenderMaterial,
+    state: Option<assets::EntityRenderMaterialState>,
+    /// Index into the carrier's material table.
+    definition: Option<u32>,
+    /// Index into the carrier's Cinnabar mask table.
+    masks: Option<u32>,
+}
+
 /// Evaluates one whole-model material decision before executing the controller body once.
 fn selected_material(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     layer: &assets::EntityRenderLayer,
     budget: &mut EvalBudget<'_>,
-) -> Result<
-    (
-        assets::EntityRenderMaterial,
-        Option<assets::EntityRenderMaterialState>,
-        Option<u32>,
-    ),
-    EvalError,
-> {
+) -> Result<SelectedMaterial, EvalError> {
     use assets::EntityRenderMaterialSelection as Node;
     let Some(mut selected) = layer.material_selection else {
-        return Ok((
-            layer.material,
-            layer.material_state,
-            layer.material_definition,
-        ));
+        return Ok(SelectedMaterial {
+            material: layer.material,
+            state: layer.material_state,
+            definition: layer.material_definition,
+            masks: layer.material_masks,
+        });
     };
     let nodes = &evaluator.assets.render_data().material_selections;
     loop {
@@ -573,7 +588,15 @@ fn selected_material(
                 material,
                 state,
                 definition,
-            } => return Ok((*material, *state, *definition)),
+                masks,
+            } => {
+                return Ok(SelectedMaterial {
+                    material: *material,
+                    state: *state,
+                    definition: *definition,
+                    masks: *masks,
+                });
+            }
             Node::Branch { condition, yes, no } => {
                 if evaluator
                     .run(*condition as usize, variables, 0.0, budget)?

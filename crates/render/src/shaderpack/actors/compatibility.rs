@@ -9,7 +9,8 @@ use render_scene::{ActorRenderFrame, HandRigScene};
 /// Keeps materials on their native path when the pack cannot represent their texture or depth state.
 pub(crate) fn instance_supported(instance: &ActorGpuInstance) -> bool {
     let kind = instance.material & EntityRenderMaterialState::KIND_MASK;
-    instance.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
+    instance.mask_layers == [u32::MAX; 2]
+        && instance.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
         && kind != EntityRenderMaterial::DissolveDepth as u32
         && kind != EntityRenderMaterial::DissolveColor as u32
         && !crate::actor::material::state(instance.material).is_some_and(|state| state.emissive)
