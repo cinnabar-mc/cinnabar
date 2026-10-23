@@ -24,8 +24,8 @@ test requires every inventory token to appear in a matrix row's surface, wire or
 
 Confirmed gaps against the current client:
 
-- Texture variations, alpha-masked tint and packed bit 4 are decoded and retained but not
-  rendered. The alpha-masked tint shader formula and the bit 4 constant are unknown.
+- Custom block texture variations draw like vanilla terrain variations. Alpha-masked tint and
+  packed bit 4 are decoded and retained but not rendered. The alpha-masked tint shader formula and the bit 4 constant are unknown.
 - AO exponents above 2.55 or finer than hundredths keep the default exponent.
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
