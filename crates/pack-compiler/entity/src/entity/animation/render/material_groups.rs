@@ -45,7 +45,11 @@ fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut Material
     }
 }
 
+/// Partitions a controller's bones by material: its authored rules first, then Cinnabar
+/// extension bindings for (`entity`, `controller_name`), the last match winning per bone.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn resolve(
+    (entity, controller_name): (&str, &str),
     description: &Map<String, Value>,
     controller: &Map<String, Value>,
     materials: &MaterialStates,
@@ -62,7 +66,7 @@ pub(super) fn resolve(
         }]);
     }
     let aliases = super::lowercase_map(description.get("materials"));
-    let rules: Vec<_> = controller
+    let mut rules: Vec<_> = controller
         .get("materials")
         .and_then(Value::as_array)
         .into_iter()
@@ -76,6 +80,16 @@ pub(super) fn resolve(
         })
         .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
         .collect::<Vec<_>>();
+    for (pattern, material) in materials.extension_rules(entity, controller_name) {
+        if let Some((state, definition)) = materials.resolve_extension(material, table) {
+            let raster = Raster {
+                material: EntityRenderMaterial::Default,
+                state: Some(state),
+                definition: Some(definition),
+            };
+            rules.push((pattern.to_owned(), raster));
+        }
+    }
     let fallback = rules
         .iter()
         .rev()

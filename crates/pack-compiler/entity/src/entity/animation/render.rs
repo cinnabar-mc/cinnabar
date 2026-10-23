@@ -280,6 +280,7 @@ pub(super) fn compile_render(
             );
             let rig_first = rig.first_geometry as usize;
             let groups = material_groups::resolve(
+                (&entity.identifier, name),
                 description,
                 definition,
                 &materials,
