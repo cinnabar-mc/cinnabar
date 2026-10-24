@@ -561,6 +561,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
             &blocks,
             false,
             super::overlay_texture_layer_limit(),
+            true,
             || {
                 compiles += 1;
                 None
@@ -574,6 +575,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
         &blocks,
         true,
         super::overlay_texture_layer_limit(),
+        true,
         || {
             compiles += 1;
             None
@@ -586,6 +588,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
         &blocks,
         true,
         super::overlay_texture_layer_limit() + 1,
+        true,
         || {
             compiles += 1;
             None
@@ -632,6 +635,7 @@ fn reapplied_stack_reuses_blocks_identical_to_a_fresh_compile() {
             &blocks,
             false,
             limit,
+            true,
             || {
                 compiles += 1;
                 super::compile_block_overlay(&view, &blocks, false, Some(&keys), limit, None)
@@ -910,6 +914,7 @@ fn the_overlay_cache_does_not_keep_compiled_blocks_alive() {
         &blocks,
         false,
         limit,
+        true,
         || {
             super::compile_block_overlay(&view, &blocks, false, Some(&keys), limit, None)
                 .map(Arc::new)

@@ -154,6 +154,28 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
   is `implemented` with a named test. The entity material declaration, definition and name
   bounds are unverified implementation limits; past them a material draws without one.
+  is `implemented` with a named test.
+  is `implemented` with a named test. The Graphics Mode video option (Fancy by default) selects
+  server packs' entity material list, `materials/fancy.json` or `materials/sad.json`; a change
+  applies from the next pack application, not to the packs already loaded.
+- [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+  block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
+  bindings take none: the schema rejects one, and the client binds unconditionally and counts the
+  ignored condition in its aggregate entity material diagnostics.
+- [ ] Stencil state stays partial: entity materials carry the complete stencil fields, but scene
+  depth (Bevy's `CORE_3D_DEPTH_FORMAT`) has no stencil aspect, so stencil tests and writes are not
+  rendered. The stencil rows close only with a stencil-capable scene depth target.
+- [x] Material robustness covers malformed or removed packs, back-to-back generations and
+  adapters that cannot represent a material. Device loss is an app-wide gap tracked under
+  acceptance and release qualification, not a material one.
+- [x] Offline material previews are not planned. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline; the developer-control snapshot's `materials` section explains
+  a live session's choices, and the actor fragment's readback tests in
+  `crates/render/tests/it/actor_colour.rs` pin define-driven draws.
+- [ ] Programmable world materials for server Experiences (a `render_world_material` permission
+  binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
+  guests have no drawing interface yet, and production Experience execution stays fail-closed
+  until the restricted-helper launch gate.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps);

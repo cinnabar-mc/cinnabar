@@ -33,8 +33,10 @@ Confirmed gaps against the current client:
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
 - Server texture sets contribute only their colour layer.
-- Entity material files load through the entity material list, `materials/fancy.json` (the
-  client draws with fancy graphics): every pack's copy is read, each entry's defines seed the
+- Entity material files load through the entity material list, `materials/fancy.json` with the
+  Graphics Mode option on Fancy (the default) and `materials/sad.json` on Simple, as Bedrock's
+  switchable group does; a change applies from the next pack application. Every pack's copy is
+  read, each entry's defines seed the
   root of the file it names and `tag` is ignored. The vanilla lists are not shipped to the
   client, so `materials/*.material` files no list names still load after the listed ones;
   Bedrock loads only listed files. The order in which Bedrock processes the packs' list copies is

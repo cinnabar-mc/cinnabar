@@ -9,9 +9,21 @@ use std::collections::BTreeSet;
 
 use serde_json::{Map, Value};
 
-/// The entity material list the client loads. Cinnabar always draws with fancy graphics, so it
-/// reads the fancy list.
+/// The entity material list Fancy Graphics loads, and the path compilation reads the list the
+/// client resolved for its graphics mode from.
 pub const ENTITY_MATERIAL_LIST_PATH: &str = "materials/fancy.json";
+/// The entity material list Simple graphics loads.
+pub const SIMPLE_ENTITY_MATERIAL_LIST_PATH: &str = "materials/sad.json";
+
+/// The pack path of the entity material list the client loads with Fancy Graphics on or off.
+#[must_use]
+pub const fn entity_material_list_source(fancy_graphics: bool) -> &'static str {
+    if fancy_graphics {
+        ENTITY_MATERIAL_LIST_PATH
+    } else {
+        SIMPLE_ENTITY_MATERIAL_LIST_PATH
+    }
+}
 
 /// Longest entry `path` Bedrock copies into its fixed path buffer. A longer path leaves the
 /// entry's path empty, so it names no file.

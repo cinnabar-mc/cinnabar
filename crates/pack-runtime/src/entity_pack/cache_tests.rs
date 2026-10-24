@@ -10,6 +10,7 @@ fn inputs(vanilla: Option<assets::VanillaEntityRefs>) -> super::EntityInputs {
         vanilla: vanilla.map(std::sync::Arc::new),
         vanilla_pack_dir: None,
         equipment: None,
+        fancy_graphics: true,
     }
 }
 
@@ -36,7 +37,7 @@ fn entity_cache_keys_on_vanilla_refs() {
             &view,
             None,
             &|| false,
-            |_, _, _, _, _, _| {
+            |_, _, _, _, _, _, _| {
                 compiles.set(compiles.get() + 1);
                 Some((None, None))
             },
@@ -60,7 +61,7 @@ fn join_and_global_reload_entities_do_not_evict_each_other() {
             &view,
             None,
             &|| false,
-            |_, _, _, _, _, _| {
+            |_, _, _, _, _, _, _| {
                 compiles.set(compiles.get() + 1);
                 Some((None, None))
             },
@@ -76,7 +77,7 @@ fn entity_cache_recompiles_when_the_installed_vanilla_layer_changes() {
     for directory in ["first", "first", "second"] {
         let mut input = inputs(None);
         input.vanilla_pack_dir = Some(directory.into());
-        cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _, _| {
+        cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _, _, _| {
             compiles.set(compiles.get() + 1);
             Some((None, None))
         });
@@ -87,10 +88,16 @@ fn entity_cache_recompiles_when_the_installed_vanilla_layer_changes() {
 #[test]
 fn entity_cache_compiles_without_holding_its_lock() {
     let (view, cache) = (empty_view(), super::EntityCache::default());
-    cache.get_or_compile(inputs(None), &view, None, &|| false, |_, _, _, _, _, _| {
-        assert!(cache.last.try_lock().is_ok());
-        Some((None, None))
-    });
+    cache.get_or_compile(
+        inputs(None),
+        &view,
+        None,
+        &|| false,
+        |_, _, _, _, _, _, _| {
+            assert!(cache.last.try_lock().is_ok());
+            Some((None, None))
+        },
+    );
 }
 
 #[test]
@@ -145,9 +152,11 @@ fn the_cache_reuses_owned_entities_without_keeping_them_alive() {
                 &view,
                 None,
                 &|| false,
-                |view, refs, dir, equipment, encode, cancelled| {
+                |view, refs, dir, equipment, fancy, encode, cancelled| {
                     compiles.set(compiles.get() + 1);
-                    super::super::compile_encoded(view, refs, dir, equipment, encode, cancelled)
+                    super::super::compile_encoded(
+                        view, refs, dir, equipment, fancy, encode, cancelled,
+                    )
                 },
             )
             .unwrap()
@@ -192,13 +201,14 @@ fn a_disk_hit_skips_compilation_and_a_corrupt_entry_recompiles() {
             &view,
             Some(&disk),
             &|| false,
-            |view, vanilla, vanilla_pack_dir, equipment, encode, cancelled| {
+            |view, vanilla, vanilla_pack_dir, equipment, fancy, encode, cancelled| {
                 compiles.set(compiles.get() + 1);
                 super::super::compile_encoded(
                     view,
                     vanilla,
                     vanilla_pack_dir,
                     equipment,
+                    fancy,
                     encode,
                     cancelled,
                 )
@@ -276,7 +286,7 @@ fn a_fresh_compile_returns_before_its_disk_entry_is_written() {
         &resource_pack::LayeredPackView::tracked(stack),
         Some(&disk),
         &|| false,
-        |_, _, _, _, _, _| panic!("the deferred write stored the compile"),
+        |_, _, _, _, _, _, _| panic!("the deferred write stored the compile"),
     );
     assert_eq!(
         relaunched
@@ -344,13 +354,14 @@ fn a_cancelled_compile_stops_between_steps_and_keeps_nothing() {
         &resource_pack::LayeredPackView::tracked(stack),
         Some(&disk),
         &|| false,
-        |view, vanilla, vanilla_pack_dir, equipment, encode, cancelled| {
+        |view, vanilla, vanilla_pack_dir, equipment, fancy, encode, cancelled| {
             compiles.set(compiles.get() + 1);
             super::super::compile_encoded(
                 view,
                 vanilla,
                 vanilla_pack_dir,
                 equipment,
+                fancy,
                 encode,
                 cancelled,
             )
@@ -387,7 +398,7 @@ fn changing_startup_artwork_paths_recompiles_the_same_stack() {
     for equipment in [None, None, Some(first), Some(same_paths), Some(second)] {
         let mut input = inputs(None);
         input.equipment = equipment;
-        cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _, _| {
+        cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _, _, _| {
             compiles.set(compiles.get() + 1);
             Some((None, None))
         });
@@ -425,13 +436,14 @@ fn different_loaded_texture_paths_under_one_pin_do_not_share_disk_entries() {
                 &resource_pack::LayeredPackView::tracked(stack.clone()),
                 Some(&disk),
                 &|| false,
-                |view, vanilla, vanilla_pack_dir, equipment, encode, cancelled| {
+                |view, vanilla, vanilla_pack_dir, equipment, fancy, encode, cancelled| {
                     compiles.set(compiles.get() + 1);
                     super::super::compile_encoded(
                         view,
                         vanilla,
                         vanilla_pack_dir,
                         equipment,
+                        fancy,
                         encode,
                         cancelled,
                     )
@@ -458,7 +470,7 @@ fn compressed_entity_entry_roundtrip_preserves_every_encoded_byte() {
     let disk = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 20);
     let view = resource_pack::LayeredPackView::tracked(entity_stack());
     let (pack, blob) =
-        super::super::compile_encoded(&view, None, None, None, true, &|| false).unwrap();
+        super::super::compile_encoded(&view, None, None, None, true, true, &|| false).unwrap();
     let pack = pack.unwrap();
     let files = view.dependencies().unwrap().snapshot();
     super::store_entry(&disk, &[8; 32], &files, Some(&pack), blob.as_deref());
@@ -511,6 +523,7 @@ fn disk_entries_stream_large_artwork_without_staging_copies() {
         None,
         None,
         true,
+        true,
         &|| false,
     )
     .unwrap();
@@ -529,7 +542,7 @@ fn disk_entries_stream_large_artwork_without_staging_copies() {
             &resource_pack::LayeredPackView::tracked(stack.clone()),
             Some(&disk),
             &|| false,
-            |_, _, _, _, _, _| Some((Some(Arc::clone(&large)), blob.clone())),
+            |_, _, _, _, _, _, _| Some((Some(Arc::clone(&large)), blob.clone())),
         )
     });
     assert!(stored.flatten().is_some());
@@ -544,7 +557,7 @@ fn disk_entries_stream_large_artwork_without_staging_copies() {
             &resource_pack::LayeredPackView::tracked(stack.clone()),
             Some(&disk),
             &|| false,
-            |_, _, _, _, _, _| panic!("the stored entry is read back"),
+            |_, _, _, _, _, _, _| panic!("the stored entry is read back"),
         )
     });
     let loaded = loaded.flatten().expect("the stored pack");
