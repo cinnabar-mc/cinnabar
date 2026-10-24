@@ -51,32 +51,33 @@ impl WorldStream {
         if worker_budget == 0 || self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
             return 0;
         }
-        let (resident, known_air) = (&self.resident, &self.known_air);
-        let terrain = self.authority.terrain();
-        let classifier = self.classifier;
-        let detail = &self.full_detail;
-        let needs_geometry =
-            |key| requires_geometry(detail, resident, known_air, terrain, classifier, key);
         let mut woken = Vec::new();
-        let probe_near = self
-            .mesh_jobs
-            .ingress(view, self.poll_deadline, |key, _, pending| {
-                let lane = if needs_geometry(key) {
-                    RESIDENT_MESH_LANE
-                } else {
-                    MESH_REMOVAL_LANE
-                };
-                if lane == RESIDENT_MESH_LANE && scheduler::mesh_is_near(view, key) {
-                    woken.push(key);
-                }
-                (lane, pending.urgent)
-            });
+        let probe_near = {
+            let (resident, known_air) = (&self.resident, &self.known_air);
+            let terrain = self.authority.terrain();
+            let classifier = self.classifier;
+            let detail = &self.full_detail;
+            self.mesh_jobs
+                .ingress(view, self.poll_deadline, |key, _, pending| {
+                    let needs_geometry =
+                        requires_geometry(detail, resident, known_air, terrain, classifier, key);
+                    let lane = if needs_geometry {
+                        RESIDENT_MESH_LANE
+                    } else {
+                        MESH_REMOVAL_LANE
+                    };
+                    if lane == RESIDENT_MESH_LANE && scheduler::mesh_is_near(view, key) {
+                        woken.push(key);
+                    }
+                    (lane, pending.urgent)
+                })
+        };
         woken.append(&mut self.mesh_jobs.refresh.take_woken());
         let mut already_probed = self.promote_mesh_dependency_wakeups(view);
 
         let probe = |key| {
             let pending = self.mesh_jobs.pending.get(&key).copied()?;
-            (needs_geometry(key)
+            (self.mesh_requires_geometry(key)
                 && !self.mesh_jobs.in_flight.contains_key(&key)
                 && self.revisions.is_current(key, pending.revision))
             .then_some((
