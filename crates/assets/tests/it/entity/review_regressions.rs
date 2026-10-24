@@ -189,6 +189,8 @@ fn carrier_v4_validates_controller_clips_for_every_selectable_geometry_candidate
 #[test]
 fn selectable_geometry_conditions_must_be_boolean_not_raw_numeric_indices() {
     let mut compiled = carrier_v4_fixture();
+    // An array index; folded 0 and 1 are boolean constants and stay admitted.
+    compiled.molang_ops[0] = MolangOp::Push(entity::EntityGeometryScalar::new(2.0).unwrap());
     compiled.rig_bindings[0].geometry_count = 2;
     compiled.rig_geometries = vec![
         compiled.rig_geometries[0],
