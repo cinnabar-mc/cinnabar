@@ -60,7 +60,7 @@ pub(super) fn drive_mod(
         mut terrain,
         mut actor_style,
     } = observation;
-    let (network, mut camera, cues, item_use) = outputs;
+    let (network, mut camera, cues, item_use, mut hotbar_selection) = outputs;
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
     }
@@ -241,6 +241,22 @@ pub(super) fn drive_mod(
             warn!("Cinnabar extension callback failed: {error}");
         },
     );
+    if captured && !absorbed {
+        if let Some(input) = gameplay.input.as_deref_mut() {
+            for button in &merged.gameplay_button_pulses {
+                let action = match button {
+                    mod_host::GameplayButton::Attack => semantic_input::Action::Attack,
+                    mod_host::GameplayButton::Use => semantic_input::Action::Use,
+                    mod_host::GameplayButton::Jump => semantic_input::Action::Jump,
+                };
+                input.request_mod_tap(action);
+            }
+        }
+        if let (Some(slot), Some(selection)) = (merged.hotbar_slot, hotbar_selection.as_deref_mut())
+        {
+            selection.0 = Some(slot);
+        }
+    }
     for index in 0..extension.hosts.host_count() {
         for message in extension.hosts.host_mut(index).take_local_messages() {
             ui.push_local_chat_line(

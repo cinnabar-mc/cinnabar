@@ -85,7 +85,7 @@ fn flush_pending_hotbar_selection(
 mod tests {
     use bevy::input::mouse::AccumulatedMouseScroll;
     use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-    use client_state::SemanticInputSnapshot;
+    use client_state::{ModHotbarSelection, SemanticInputSnapshot};
     use client_ui::ui_runtime::UiRuntime;
     use std::sync::Arc;
 
@@ -99,6 +99,72 @@ mod tests {
 
     use super::*;
     use client_interaction::hotbar::queue_hotbar_selection;
+
+    fn current_gameplay_input() -> SemanticInputSnapshot {
+        SemanticInputSnapshot(semantic_input::finalized::FinalizedInput::from_finalized(
+            semantic_input::ActionSnapshot {
+                ordered: None,
+                frame_sequence: semantic_input::identity::InputSequence::new(1),
+                authority_generation: semantic_input::identity::InputAuthorityGeneration::INITIAL,
+                movement: [0.0; 2],
+                raw_movement: [0.0; 2],
+                analogue_movement: [0.0; 2],
+                movement_buttons: Default::default(),
+                look_delta: [0.0; 2],
+                input_mode: semantic_input::InputMode::KeyboardMouse,
+                phases: [semantic_input::ActionPhase::default(); semantic_input::Action::COUNT],
+                release_reasons: [None; semantic_input::Action::COUNT],
+                authority_released: false,
+            },
+        ))
+    }
+
+    #[test]
+    fn mod_hotbar_selection_uses_local_queue_and_respects_screen_authority() {
+        use bevy::{ecs::system::RunSystemOnce, prelude::*};
+
+        let mut app = App::new();
+        app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(current_gameplay_input())
+        .insert_resource(AccumulatedMouseScroll::default())
+        .insert_resource(client_state::ScreenFocus::default())
+        .insert_resource(ModHotbarSelection(Some(6)));
+        app.world_mut()
+            .run_system_once(queue_hotbar_selection)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<client_state::PlayerRuntime>()
+                .inventory
+                .pending_hotbar_selection(),
+            Some(6)
+        );
+
+        let mut app = App::new();
+        app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(current_gameplay_input())
+        .insert_resource(AccumulatedMouseScroll::default())
+        .insert_resource(client_state::ScreenFocus {
+            absorbs_input: true,
+            ..Default::default()
+        })
+        .insert_resource(ModHotbarSelection(Some(6)));
+        app.world_mut()
+            .run_system_once(queue_hotbar_selection)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<client_state::PlayerRuntime>()
+                .inventory
+                .pending_hotbar_selection(),
+            None
+        );
+        assert_eq!(app.world().resource::<ModHotbarSelection>().0, None);
+    }
 
     #[test]
     fn ordered_selection_rechecks_terminal_control_after_a_closed_send() {

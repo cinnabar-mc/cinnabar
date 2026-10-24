@@ -421,6 +421,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 
 fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<native_input::NativeInput>();
+    app.init_resource::<client_state::ModHotbarSelection>();
     app.init_resource::<packet_render::Drawing>();
     app.init_resource::<render_scene::mod_scene::ActorCoverageRequests>();
     app.add_systems(
@@ -460,6 +461,7 @@ fn configure_systems(app: &mut App, watching: bool) {
         drive_mod
             .in_set(client_state::ModCameraInputSet)
             .after(ClientFrameSet::SemanticFinalize)
+            .after(client_interaction::hotbar::queue_hotbar_selection)
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );
@@ -520,6 +522,7 @@ type ModOutputs<'w> = (
     Option<ResMut<'w, client_presentation::camera::CameraSettingsAuthority>>,
     Option<ResMut<'w, ModCueFeed>>,
     Option<ResMut<'w, crate::item_use::ModItemUsePolicy>>,
+    Option<ResMut<'w, client_state::ModHotbarSelection>>,
 );
 
 /// Granted commands travel the session-fenced UI packet lane as vanilla command requests.

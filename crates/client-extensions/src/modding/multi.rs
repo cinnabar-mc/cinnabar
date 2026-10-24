@@ -422,6 +422,7 @@ pub fn run_frame(
         union.players |= grants.players;
         union.camera |= grants.camera;
         union.item_use |= grants.item_use;
+        union.gameplay_input |= grants.gameplay_input;
         union.movement |= grants.movement;
         union.interaction |= grants.interaction;
         union.entities |= grants.entities;
@@ -512,6 +513,7 @@ fn needs_gameplay(grants: &ModGrants) -> bool {
         || grants.players
         || grants.camera
         || grants.item_use
+        || grants.gameplay_input
         || grants.movement
         || grants.interaction
         || grants.entities
@@ -532,6 +534,8 @@ pub struct Merged {
     pub click_limits: [Option<u32>; 2],
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    pub gameplay_button_pulses: Vec<mod_host::GameplayButton>,
+    pub hotbar_slot: Option<u8>,
     pub jump_pulse: bool,
     pub jump_cancel: bool,
     pub commands: Vec<String>,
@@ -546,6 +550,15 @@ impl Merged {
         let interaction = host.take_interaction();
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
+        let remaining =
+            mod_api::MAX_GAMEPLAY_INPUT_PULSES.saturating_sub(self.gameplay_button_pulses.len());
+        self.gameplay_button_pulses.extend(
+            interaction
+                .gameplay_button_pulses
+                .into_iter()
+                .take(remaining),
+        );
+        self.hotbar_slot = self.hotbar_slot.or(interaction.hotbar_slot);
         let delta = host.take_camera_delta();
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());

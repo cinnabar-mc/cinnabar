@@ -8,6 +8,7 @@ const PLAYER_STATE_ENV: &str = "CINNABAR_MOD_PLAYER_STATE";
 const ITEM_USE_ENV: &str = "CINNABAR_MOD_ITEM_USE";
 const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
 const CONTROLS_ENV: &str = "CINNABAR_MOD_CONTROLS";
+const GAMEPLAY_INPUT_ENV: &str = "CINNABAR_MOD_GAMEPLAY_INPUT";
 const HUD_ENV: &str = "CINNABAR_MOD_HUD";
 const MOVEMENT_ENV: &str = "CINNABAR_MOD_MOVEMENT";
 const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
@@ -59,6 +60,7 @@ pub fn environment_grants() -> ModGrants {
         item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
         camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
+        gameplay_input: std::env::var(GAMEPLAY_INPUT_ENV).is_ok_and(|value| value == "1"),
         hud: std::env::var(HUD_ENV).is_ok_and(|value| value == "1"),
         movement: std::env::var(MOVEMENT_ENV).is_ok_and(|value| value == "1"),
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),

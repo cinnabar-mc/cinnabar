@@ -34,7 +34,7 @@ pub use settings::{SettingsSnapshot, settings_companion};
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
-    CameraRig as GameplayCameraRig, Mob as GameplayMob,
+    Button as GameplayButton, CameraRig as GameplayCameraRig, Mob as GameplayMob,
     MovementSnapshot as GameplayMovementSnapshot, MovementToggles, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
@@ -64,10 +64,12 @@ pub use terrain::{
 };
 
 /// Successfully committed local interaction requests, consumed once per frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct InteractionOutput {
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    pub gameplay_button_pulses: Vec<GameplayButton>,
+    pub hotbar_slot: Option<u8>,
 }
 
 /// A vanilla inventory request a player mod committed, consumed once; the client makes it as

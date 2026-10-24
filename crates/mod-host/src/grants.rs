@@ -91,6 +91,9 @@ grants! {
     /// Allows local key edges, reserved bindings and the retained settings panel.
     #[permission("Controls", true)]
     pub controls: bool,
+    /// Allows one-frame semantic gameplay button taps and local hotbar selection.
+    #[permission("Gameplay input", true)]
+    pub gameplay_input: bool,
     /// Allows bounded host-rendered HUD cards and a local custom crosshair.
     #[permission("HUD", false)]
     pub hud: bool,

@@ -20,6 +20,7 @@ pub struct ClientInteractionPlugin;
 impl Plugin for ClientInteractionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<block_use::BlockUseRuntime>()
+            .init_resource::<client_state::ModHotbarSelection>()
             .init_resource::<item_use::ItemUseRuntime>()
             .init_resource::<survival_mining::SurvivalMiningRuntime>()
             .init_resource::<melee::MeleeRuntime>()

@@ -82,6 +82,51 @@ impl FinalizedInput {
         true
     }
 
+    /// Adds one semantic gameplay tap as ordered press/release edges.
+    ///
+    /// The supported actions are deliberately restricted to ordinary gameplay buttons. The
+    /// synthetic tap never changes physical input, modifiers, or desktop key state.
+    pub fn request_mod_tap(&mut self, action: Action) -> bool {
+        if !matches!(action, Action::Attack | Action::Use | Action::Jump) {
+            return false;
+        }
+        let Some(snapshot) = self.0.as_mut() else {
+            return false;
+        };
+        if snapshot.authority_released {
+            return false;
+        }
+
+        let mut pressed = snapshot.phases.map(|phase| phase.held);
+        pressed[action as usize] = true;
+        let held = snapshot.phases.map(|phase| phase.held);
+        let was_held = held[action as usize];
+        let ordered = snapshot.ordered.get_or_insert_with(|| {
+            let mut ordered = crate::OrderedActions::default();
+            ordered.set_initial_buttons(crate::ActionButtons::new(held));
+            ordered
+        });
+        ordered.push(crate::ActionEvent {
+            action,
+            pressed: true,
+            buttons: crate::ActionButtons::new(pressed),
+        });
+
+        let phase = &mut snapshot.phases[action as usize];
+        phase.pressed = true;
+        if !was_held {
+            let mut released = held;
+            released[action as usize] = false;
+            ordered.push(crate::ActionEvent {
+                action,
+                pressed: false,
+                buttons: crate::ActionButtons::new(released),
+            });
+            phase.released = true;
+        }
+        true
+    }
+
     /// Removes excess attack/use presses from both ordered and projected input.
     pub fn limit_clicks(
         &mut self,
@@ -222,6 +267,38 @@ mod tests {
         assert_eq!(input.snapshot(), Some(&expected));
         assert!(!input.request_mod_attack_press());
         assert_eq!(input.snapshot(), Some(&expected));
+    }
+
+    #[test]
+    fn gameplay_tap_adds_one_ordered_press_and_release_without_retaining_a_hold() {
+        let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+
+        assert!(input.request_mod_tap(Action::Use));
+        let snapshot = input.snapshot().unwrap();
+        assert!(snapshot.phases[Action::Use as usize].pressed);
+        assert!(snapshot.phases[Action::Use as usize].released);
+        assert!(!snapshot.phases[Action::Use as usize].held);
+        let events = snapshot.ordered.as_ref().unwrap().events();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].action, Action::Use);
+        assert!(events[0].pressed && events[0].buttons.held(Action::Use));
+        assert_eq!(events[1].action, Action::Use);
+        assert!(!events[1].pressed && !events[1].buttons.held(Action::Use));
+    }
+
+    #[test]
+    fn gameplay_tap_preserves_a_physically_held_action_and_rejects_other_actions() {
+        let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        input.0.as_mut().unwrap().phases[Action::Attack as usize].held = true;
+
+        assert!(input.request_mod_tap(Action::Attack));
+        assert!(!input.request_mod_tap(Action::Menu));
+        let snapshot = input.snapshot().unwrap();
+        assert!(snapshot.phases[Action::Attack as usize].held);
+        assert!(!snapshot.phases[Action::Attack as usize].released);
+        let events = snapshot.ordered.as_ref().unwrap().events();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].pressed && events[0].buttons.held(Action::Attack));
     }
     #[test]
     fn mod_walking_uses_one_button_edge_and_releases_to_physical_input() {

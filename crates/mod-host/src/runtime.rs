@@ -89,6 +89,7 @@ struct State {
     jump_cancel: bool,
     jump_pulse: bool,
     movement_writes: u32,
+    gameplay_input_writes: u32,
     gameplay_reads: u32,
     camera_writes: u32,
     pending_camera: Option<CameraDelta>,
@@ -163,6 +164,7 @@ impl State {
             jump_cancel: false,
             jump_pulse: false,
             movement_writes: 0,
+            gameplay_input_writes: 0,
             gameplay_reads: 0,
             camera_writes: 0,
             pending_camera: None,
@@ -389,6 +391,7 @@ impl Instance {
         state.jump_cancel = false;
         state.jump_pulse = false;
         state.movement_writes = 0;
+        state.gameplay_input_writes = 0;
         state.pending_camera = None;
         state.camera_delta = None;
         state.pending_packet_delay = None;
@@ -528,6 +531,7 @@ impl Instance {
         state.gameplay_reads = 0;
         state.camera_writes = 0;
         state.movement_writes = 0;
+        state.gameplay_input_writes = 0;
         state.packet_delay_writes = 0;
         state.controls.reset_budget();
         state.calls = 0;

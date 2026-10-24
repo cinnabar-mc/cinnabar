@@ -283,6 +283,7 @@ impl GameplayContext<'_> {
                 || grants.players
                 || grants.camera
                 || grants.item_use
+                || grants.gameplay_input
                 || grants.movement
                 || grants.interaction
                 || grants.entities

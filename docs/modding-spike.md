@@ -372,8 +372,9 @@ or dependencies on gameplay state to the component host.
 
 ## Personal controls and interaction
 
-Three additional per-component grants are opt-in: `CINNABAR_MOD_CONTROLS=1`,
-`CINNABAR_MOD_INTERACTION=1` and `CINNABAR_MOD_SETTINGS=1`.
+Additional per-component grants are opt-in: `CINNABAR_MOD_CONTROLS=1`,
+`CINNABAR_MOD_GAMEPLAY_INPUT=1`, `CINNABAR_MOD_INTERACTION=1` and
+`CINNABAR_MOD_SETTINGS=1`.
 They are developer extension capabilities and do not change the vanilla client.
 
 `panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons,
@@ -1441,6 +1442,19 @@ and the draft. The host has no preference-file authority through this API;
 components may persist accepted placements with the existing settings grant.
 
 ## Local movement input
+
+The separate sensitive `gameplay_input` grant (`CINNABAR_MOD_GAMEPLAY_INPUT=1`,
+or `"gameplay_input": true` in a component registration) exposes
+`gameplay.pulse-button` and `gameplay.select-hotbar-slot`. A pulse is one ordered
+semantic tap of Attack, Use or Jump; it is not an arbitrary desktop key or mouse
+event and cannot leave a button held. At most eight taps may be requested by one
+component in one callback. Requests commit only after a successful callback while
+focused gameplay owns input, and are discarded when focus is lost or a panel owns
+input. Hotbar selections accept slots 0 through 8 and use the ordinary local
+inventory-selection path. A mod's slot request is deferred to the next hotbar
+selection frame; user hotbar input takes precedence. If several mods request a
+slot in one frame, the earliest loaded mod wins; repeated requests from one mod
+use its last requested slot.
 
 The separate `movement` grant (`CINNABAR_MOD_MOVEMENT=1`, or `"movement": true`
 in a component registration) exposes `gameplay.read-movement` and `pulse-jump`.

@@ -25,7 +25,11 @@ pub fn queue_hotbar_selection(
     input: Res<SemanticInputSnapshot>,
     scroll: Res<AccumulatedMouseScroll>,
     focus: Res<ScreenFocus>,
+    mut mod_selection: Option<ResMut<client_state::ModHotbarSelection>>,
 ) {
+    let mod_target = mod_selection
+        .as_deref_mut()
+        .and_then(|selection| selection.0.take());
     if input
         .snapshot()
         .is_some_and(|snapshot| snapshot.ordered.is_some())
@@ -68,6 +72,16 @@ pub fn queue_hotbar_selection(
         );
         let slots = i32::from(HOTBAR_SLOT_COUNT);
         requested = Some((((current + cycle) % slots + slots) % slots) as u8);
+    }
+
+    if requested.is_none()
+        && cycle == 0
+        && !focus.absorbs_input
+        && input
+            .snapshot()
+            .is_some_and(|snapshot| !snapshot.authority_released)
+    {
+        requested = mod_target;
     }
 
     if let Some(target) = requested {

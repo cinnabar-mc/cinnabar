@@ -36,6 +36,10 @@ pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
 
 /// Maximum accepted attack/use press cap per second.
 pub const MAX_CLICK_RATE: u32 = 100;
+/// Maximum gameplay button taps one component can request in one callback.
+pub const MAX_GAMEPLAY_INPUT_PULSES: usize = 8;
+/// Number of selectable local hotbar slots.
+pub const HOTBAR_SLOT_COUNT: u8 = 9;
 
 /// Exclusive bound for guest time overrides: ticks in one Bedrock day.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;

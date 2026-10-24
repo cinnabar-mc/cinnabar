@@ -1,5 +1,5 @@
 use super::*;
-use crate::ModGrants;
+use crate::{InteractionOutput, ModGrants};
 use cinnabar::extension::{events::Host as _, gameplay::Host as _};
 
 /// Input modes require a grant and focus, commit atomically, and expire each frame.
@@ -28,6 +28,72 @@ fn movement_toggles_are_granted_focused_and_frame_scoped() {
     state.controls.frame.focused = false;
     assert!(state.set_movement_toggles(Some(policy)).unwrap().is_err());
     state.set_movement_toggles(None).unwrap().unwrap();
+}
+
+#[test]
+fn gameplay_input_is_granted_focused_bounded_and_transactional() {
+    let mut denied = state(ModGrants::default());
+    denied.controls.frame.focused = true;
+    denied.controls.frame.gameplay = true;
+    assert!(
+        denied
+            .pulse_button(cinnabar::extension::gameplay::Button::Use)
+            .unwrap()
+            .is_err()
+    );
+    assert!(denied.select_hotbar_slot(0).unwrap().is_err());
+
+    let mut state = state(ModGrants {
+        gameplay_input: true,
+        ..Default::default()
+    });
+    assert!(
+        state
+            .pulse_button(cinnabar::extension::gameplay::Button::Use)
+            .unwrap()
+            .is_err()
+    );
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    assert!(state.select_hotbar_slot(9).unwrap().is_err());
+    state.controls.frame.panel_open = true;
+    assert!(
+        state
+            .pulse_button(cinnabar::extension::gameplay::Button::Use)
+            .unwrap()
+            .is_err()
+    );
+    state.controls.frame.panel_open = false;
+    state.select_hotbar_slot(8).unwrap().unwrap();
+    for button in [
+        cinnabar::extension::gameplay::Button::Use,
+        cinnabar::extension::gameplay::Button::Jump,
+        cinnabar::extension::gameplay::Button::Use,
+    ] {
+        state.pulse_button(button).unwrap().unwrap();
+    }
+    assert_eq!(
+        state.controls.pending_interaction.gameplay_button_pulses,
+        [
+            cinnabar::extension::gameplay::Button::Use,
+            cinnabar::extension::gameplay::Button::Jump,
+            cinnabar::extension::gameplay::Button::Use,
+        ]
+    );
+    assert_eq!(state.controls.pending_interaction.hotbar_slot, Some(8));
+    assert_eq!(state.controls.interaction, InteractionOutput::default());
+    state.controls.commit();
+    assert_eq!(
+        state.controls.interaction.gameplay_button_pulses,
+        [
+            cinnabar::extension::gameplay::Button::Use,
+            cinnabar::extension::gameplay::Button::Jump,
+            cinnabar::extension::gameplay::Button::Use,
+        ]
+    );
+    assert_eq!(state.controls.interaction.hotbar_slot, Some(8));
+    state.controls.begin_frame();
+    assert_eq!(state.controls.interaction, InteractionOutput::default());
 }
 
 fn vector(x: f32, y: f32, z: f32) -> GameplayVector3 {

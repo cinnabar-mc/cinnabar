@@ -5,11 +5,11 @@ use crate::{
 };
 use anyhow::{Result, bail, ensure};
 use mod_api::{
-    MAX_CAMERA_DELTA_RADIANS, MAX_COMMAND_BYTES, MAX_COMMANDS_PER_FRAME, MAX_COMMANDS_PER_SECOND,
-    MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_GAMEPLAY_MOBS,
-    MAX_GAMEPLAY_PLAYERS, MAX_INCOMING_CUES, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
-    MAX_RIG_BACK_BLOCKS, MAX_RIG_FOV_DELTA_DEGREES, MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS,
-    MAX_RIG_VERTICAL_BLOCKS,
+    HOTBAR_SLOT_COUNT, MAX_CAMERA_DELTA_RADIANS, MAX_COMMAND_BYTES, MAX_COMMANDS_PER_FRAME,
+    MAX_COMMANDS_PER_SECOND, MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME,
+    MAX_GAMEPLAY_INPUT_PULSES, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS, MAX_INCOMING_CUES,
+    MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES, MAX_RIG_BACK_BLOCKS, MAX_RIG_FOV_DELTA_DEGREES,
+    MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS, MAX_RIG_VERTICAL_BLOCKS,
 };
 
 /// Mob input, the retained rig, and per-frame command and cue output.
@@ -208,6 +208,62 @@ pub(super) fn validate_movement(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    fn pulse_button(
+        &mut self,
+        button: cinnabar::extension::gameplay::Button,
+    ) -> Result<Result<(), String>> {
+        self.gameplay_input_writes += 1;
+        if self.gameplay_input_writes > MAX_IMPORT_WRITES {
+            bail!("gameplay input import budget exhausted");
+        }
+        if !self.grants.gameplay_input {
+            return Ok(Err("gameplay input capability denied".into()));
+        }
+        if !(self.controls.frame.focused
+            && self.controls.frame.gameplay
+            && !self.controls.frame.panel_open
+            && self.snapshot.is_some())
+        {
+            return Ok(Err("gameplay input requires focused gameplay".into()));
+        }
+        if self
+            .controls
+            .pending_interaction
+            .gameplay_button_pulses
+            .len()
+            >= MAX_GAMEPLAY_INPUT_PULSES
+        {
+            return Ok(Err("gameplay input pulse limit exceeded".into()));
+        }
+        self.controls
+            .pending_interaction
+            .gameplay_button_pulses
+            .push(button);
+        Ok(Ok(()))
+    }
+
+    fn select_hotbar_slot(&mut self, slot: u8) -> Result<Result<(), String>> {
+        self.gameplay_input_writes += 1;
+        if self.gameplay_input_writes > MAX_IMPORT_WRITES {
+            bail!("gameplay input import budget exhausted");
+        }
+        if !self.grants.gameplay_input {
+            return Ok(Err("gameplay input capability denied".into()));
+        }
+        if !(self.controls.frame.focused
+            && self.controls.frame.gameplay
+            && !self.controls.frame.panel_open
+            && self.snapshot.is_some())
+        {
+            return Ok(Err("gameplay input requires focused gameplay".into()));
+        }
+        if slot >= HOTBAR_SLOT_COUNT {
+            return Ok(Err("hotbar slot must be between 0 and 8".into()));
+        }
+        self.controls.pending_interaction.hotbar_slot = Some(slot);
+        Ok(Ok(()))
+    }
+
     fn set_movement_toggles(
         &mut self,
         policy: Option<cinnabar::extension::gameplay::MovementToggles>,

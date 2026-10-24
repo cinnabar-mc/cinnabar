@@ -458,7 +458,8 @@ fn interaction_requires_current_held_input_and_never_survives_frame() {
         state.controls.interaction,
         InteractionOutput {
             attack_reach: Some(5.0),
-            attack_pulse: true
+            attack_pulse: true,
+            ..Default::default()
         }
     );
     state.controls.begin_frame();

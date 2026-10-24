@@ -250,6 +250,8 @@ interface environment {
 
 /// Explicit local gameplay capabilities; no raw packet access.
 interface gameplay {
+    /// One-frame semantic gameplay button tap; never a retained hold or desktop key injection.
+    enum button { attack, %use, jump }
     record vector3 { x: f32, y: f32, z: f32 }
     /// Remote player feet in world coordinates, without names or network access.
     record player { runtime-id: u64, position: vector3 }
@@ -293,6 +295,13 @@ interface gameplay {
     set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
     /// One attack-press edge, only while the physical attack control is held.
     pulse-attack: func() -> result<_, string>;
+    /// Requests one tap on a gameplay button while focused gameplay owns input.
+    /// Requires gameplay-input authority; accepted taps use the ordinary ordered input pipeline.
+    pulse-button: func(button: button) -> result<_, string>;
+    /// Selects one local hotbar slot from 0 through 8 through ordinary inventory selection.
+    /// Requires gameplay-input authority and a current focused gameplay frame. The latest
+    /// request from one mod wins; across mods, the earliest loaded mod wins.
+    select-hotbar-slot: func(slot: u8) -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.
