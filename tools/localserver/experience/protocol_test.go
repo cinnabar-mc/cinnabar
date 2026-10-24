@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"maps"
+	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -133,8 +135,11 @@ func fixtureValue(t *testing.T, name string) any {
 	return nil
 }
 
-// normalized re-encodes data compactly with sorted keys, keeping numbers as written.
-func normalized(t *testing.T, data []byte) string {
+// fixtureNumber distinguishes exact numeric values from JSON strings.
+type fixtureNumber string
+
+// normalized decodes semantic JSON without losing integer precision or comparing numeric spelling.
+func normalized(t *testing.T, data []byte) any {
 	t.Helper()
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
@@ -142,11 +147,45 @@ func normalized(t *testing.T, data []byte) string {
 	if err := decoder.Decode(&v); err != nil {
 		t.Fatalf("normalizing %s: %v", data, err)
 	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("normalizing %s: %v", data, err)
+	return normalizedValue(t, v)
+}
+
+// normalizedValue retains JSON types while giving equivalent numbers the same exact value.
+func normalizedValue(t *testing.T, value any) any {
+	t.Helper()
+	switch v := value.(type) {
+	case json.Number:
+		number, ok := new(big.Rat).SetString(v.String())
+		if !ok {
+			t.Fatalf("invalid JSON number %q", v)
+		}
+		return fixtureNumber(number.RatString())
+	case []any:
+		for i, item := range v {
+			v[i] = normalizedValue(t, item)
+		}
+	case map[string]any:
+		for key, item := range v {
+			v[key] = normalizedValue(t, item)
+		}
 	}
-	return string(out)
+	return value
+}
+
+func TestFixtureNumbersCompareExactly(t *testing.T) {
+	for _, test := range []struct {
+		left, right string
+		equal       bool
+	}{
+		{`[0,9007199254740993,2.5]`, `[0.0,9007199254740993.0,25e-1]`, true},
+		{`[9007199254740992]`, `[9007199254740993]`, false},
+		{`[0]`, `["0"]`, false},
+	} {
+		got := reflect.DeepEqual(normalized(t, []byte(test.left)), normalized(t, []byte(test.right)))
+		if got != test.equal {
+			t.Fatalf("comparing %s and %s: equal = %v, want %v", test.left, test.right, got, test.equal)
+		}
+	}
 }
 
 // Every fixture decodes into its Go mirror and re-encodes to the same JSON.
@@ -166,8 +205,8 @@ func TestFixturesRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("encoding: %v", err)
 			}
-			if got, want := normalized(t, encoded), normalized(t, data); got != want {
-				t.Fatalf("re-encoded as\n%s\nwant\n%s", got, want)
+			if got, want := normalized(t, encoded), normalized(t, data); !reflect.DeepEqual(got, want) {
+				t.Fatalf("re-encoded as\n%s\nwant\n%s", encoded, data)
 			}
 			if enums, ok := v.(*fixtureEnums); ok {
 				checkEnums(t, enums)
