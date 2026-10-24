@@ -30,6 +30,8 @@ pub mod session_data;
 pub mod trust;
 #[cfg(feature = "host")]
 pub mod wire;
+#[cfg(feature = "host")]
+pub mod world_material;
 
 #[cfg(all(test, feature = "host"))]
 mod tests;

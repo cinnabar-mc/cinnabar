@@ -40,7 +40,7 @@
       "module": "policy",
       "name": "API_VERSION",
       "type": "u16",
-      "value": "1",
+      "value": "2",
       "go": "APIVersion"
     },
     {
@@ -650,6 +650,13 @@
           "name": "templates",
           "go": "Templates",
           "type": "BTreeSet<String>",
+          "optional": true,
+          "skip": true
+        },
+        {
+          "name": "namespace",
+          "go": "Namespace",
+          "type": "Option<String>",
           "optional": true,
           "skip": true
         },
@@ -1270,6 +1277,12 @@
           "go": "PermissionRenderMaterial",
           "json": "render_material",
           "implemented": true
+        },
+        {
+          "rust": "RenderWorldMaterial",
+          "go": "PermissionRenderWorldMaterial",
+          "json": "render_world_material",
+          "implemented": false
         },
         {
           "rust": "RenderPost",

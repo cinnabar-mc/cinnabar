@@ -68,6 +68,7 @@ fn capabilities() -> server_experience::runtime::Capabilities {
         channels: Default::default(),
         actions: Default::default(),
         max_message_bytes: server_experience::policy::MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     }
 }
 
