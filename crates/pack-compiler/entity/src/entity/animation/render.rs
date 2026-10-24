@@ -140,6 +140,7 @@ pub(super) fn compile_render(
     let mut layer_geometries = Vec::new();
     let mut material_selections = Vec::new();
     let mut skipped_draws = 0;
+    let mut controllers_drawn = Vec::new();
     let mut geometry_parents = None;
     let geometry_indices = unique_geometry_indices(geometries)?;
     for (rig_index, rig) in rigs.iter().enumerate() {
@@ -282,6 +283,7 @@ pub(super) fn compile_render(
                 &mut layer_geometries,
             );
             let rig_first = rig.first_geometry as usize;
+            controllers_drawn.push((entity.identifier.as_ref(), name));
             let groups = material_groups::resolve(
                 (&entity.identifier, name),
                 description,
@@ -375,7 +377,7 @@ pub(super) fn compile_render(
     let unresolved = materials.unadmitted() + material_table.unresolved();
     let diagnostics = EntityMaterialDiagnostics {
         skipped_draws,
-        ..materials.diagnostics()
+        ..materials.diagnostics(&controllers_drawn)
     };
     let (materials, material_masks) = material_table.into_parts();
     Ok((

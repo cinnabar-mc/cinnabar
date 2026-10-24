@@ -59,6 +59,11 @@ The [JSON Schema](cinnabar-material-bindings-1.0.0.schema.json) (Draft 2020-12) 
 an undeclared material and parameter numbers that are not finite 32-bit floats, and it counts name
 and pattern limits in UTF-8 bytes; the schema cannot express these.
 
+Each server pack generation counts, once, an ignored invalid document, entity bindings no entity
+and render controller match, entity mask textures that name no raster, block bindings no block state
+matches and block mask keys no terrain texture resolves. The entity counts appear in the developer
+actor snapshot; all of them are logged with the pack's other material counts.
+
 The [sample pack](cinnabar-material-sample/README.md) binds a glow mask to an entity bone and to a
 custom block state; it ships no images.
 

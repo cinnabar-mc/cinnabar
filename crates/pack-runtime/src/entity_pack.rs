@@ -150,6 +150,7 @@ fn compile_encoded(
     }
     let mut materials = compiled.material_diagnostics;
     materials.list.add(collected.list);
+    materials.invalid_extension_documents += collected.invalid_extension_documents;
     if !materials.is_empty() {
         tracing::info!(
             unknown_states = materials.unknown_states,
@@ -162,6 +163,9 @@ fn compile_encoded(
             skipped_draws = materials.skipped_draws,
             unlisted_files = materials.unlisted_files,
             list = ?materials.list,
+            invalid_extension_documents = materials.invalid_extension_documents,
+            unmatched_extension_bindings = materials.unmatched_extension_bindings,
+            unresolved_extension_textures = materials.unresolved_extension_textures,
             "server pack entity materials draw in part"
         );
     }

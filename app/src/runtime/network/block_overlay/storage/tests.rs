@@ -58,6 +58,7 @@ fn builder<'a>(
         vanilla_carried: Vec::new(),
         materials: Default::default(),
         state_masks: Default::default(),
+        unresolved_masks: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     }

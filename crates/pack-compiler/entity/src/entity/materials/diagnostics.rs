@@ -95,8 +95,9 @@ fn strings<'a>(fields: &'a Map<String, Value>, key: &str) -> impl Iterator<Item 
 
 impl MaterialStates {
     /// Counts this compilation's material behaviour, resolving every declared material once
-    /// as an actor draws it.
-    pub(crate) fn diagnostics(&self) -> EntityMaterialDiagnostics {
+    /// as an actor draws it. `controllers` are the (entity, render controller) pairs the
+    /// compilation drew, which extension entity bindings must match.
+    pub(crate) fn diagnostics(&self, controllers: &[(&str, &str)]) -> EntityMaterialDiagnostics {
         let notes = &self.notes;
         let mut diagnostics = EntityMaterialDiagnostics {
             unknown_states: notes.unknown_states.len() as u32,
@@ -106,6 +107,35 @@ impl MaterialStates {
             list: notes.list,
             ..EntityMaterialDiagnostics::default()
         };
+        if let Some(extension) = &self.extension {
+            diagnostics.unmatched_extension_bindings = extension
+                .entity_bindings
+                .iter()
+                .filter(|binding| {
+                    !controllers.iter().any(|(entity, controller)| {
+                        binding.entity.as_ref() == *entity
+                            && binding.render_controller.as_deref().is_none_or(|pattern| {
+                                assets::entity_render_pattern_matches(pattern, controller)
+                            })
+                    })
+                })
+                .count() as u32;
+            let bound = extension
+                .entity_bindings
+                .iter()
+                .map(|binding| binding.material.as_ref())
+                .collect::<BTreeSet<_>>();
+            diagnostics.unresolved_extension_textures = bound
+                .into_iter()
+                .filter_map(|name| extension.materials.get(name))
+                .map(|material| {
+                    material
+                        .mask_textures()
+                        .filter(|path| !self.textures.contains_key(*path))
+                        .count() as u32
+                })
+                .sum();
+        }
         let mut memo = super::ChainMemo::default();
         for name in self.definitions.keys() {
             let Some(resolved) = self.resolve_with(name, &super::builtin, &mut memo) else {
@@ -180,7 +210,7 @@ mod tests {
         ];
         let states =
             MaterialStates::from_documents(documents.iter().map(|(path, value)| (*path, value)));
-        let diagnostics = states.diagnostics();
+        let diagnostics = states.diagnostics(&[]);
         assert_eq!(
             diagnostics,
             EntityMaterialDiagnostics {
@@ -198,8 +228,40 @@ mod tests {
                     empty_paths: 1,
                     ..MaterialListReport::default()
                 },
+                ..EntityMaterialDiagnostics::default()
             }
         );
-        assert_eq!(states.diagnostics(), diagnostics, "resolution adds nothing");
+        assert_eq!(
+            states.diagnostics(&[]),
+            diagnostics,
+            "resolution adds nothing"
+        );
+    }
+
+    #[test]
+    fn extension_bindings_matching_nothing_and_missing_masks_are_counted() {
+        let mut states = MaterialStates::default();
+        states.extension = super::super::extension::parse(&json!({
+            "format_version": "1.0.0",
+            "materials": {
+                "example:glow": {"textures": {"glow_mask": "textures/example/missing"}},
+                "example:block": {"textures": {"glow_mask": "block_terrain_key"}}
+            },
+            "bindings": [
+                {"entity": "example:moth", "render_controller": "controller.render.moth",
+                 "material": "example:glow"},
+                {"entity": "example:absent", "material": "example:glow"},
+                {"entity": "example:moth", "render_controller": "controller.render.other",
+                 "material": "example:glow"},
+                {"block": "example:lamp", "material": "example:block"}
+            ]
+        }))
+        .ok();
+        let diagnostics = states.diagnostics(&[("example:moth", "controller.render.moth")]);
+        assert_eq!(diagnostics.unmatched_extension_bindings, 2);
+        assert_eq!(
+            diagnostics.unresolved_extension_textures, 1,
+            "block masks name terrain keys, not entity rasters"
+        );
     }
 }
