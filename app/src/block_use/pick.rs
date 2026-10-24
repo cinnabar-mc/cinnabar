@@ -94,6 +94,10 @@ pub(crate) fn retain_block_use_pick(
         direction,
         reach,
     );
+    // Only terrain through the actor's block-occlusion margin can change its classification.
+    let query_reach = actor.map_or(reach, |hit| {
+        f64::from(hit.distance as f32 + assets::facts::entity::DEFAULT_ACTOR_PICK_RADIUS).min(reach)
+    });
     let mut capture = |liquids| {
         pick_context.liquids = liquids;
         let world = PaletteWorld::new(
@@ -103,12 +107,12 @@ pub(crate) fn retain_block_use_pick(
             pick_context,
         );
         let hit = world
-            .block_interaction_ray_current(vector(origin), vector(direction), reach)
+            .block_interaction_ray_current(vector(origin), vector(direction), query_reach)
             .ok()?;
         if let Crosshair::Actor(actor) = classify_block_hit(actor, origin, hit.as_ref(), reach) {
             return Some(
                 PickResult::Actor {
-                    runtime_id: actor.runtime_id,
+                    identity: stream.authority().actor_lifetime(actor.runtime_id)?,
                     point: actor.point,
                 }
                 .trimmed(state.position, reach),
@@ -167,8 +171,8 @@ pub(super) fn refresh(
         endpoint = vector(pick.hits.endpoint);
     }
     let mut actor_alive = false;
-    if let PickResult::Actor { runtime_id, .. } = original
-        && let Some(actor) = authority.actor(runtime_id)
+    if let PickResult::Actor { identity, .. } = original
+        && let Some(actor) = live_actor(authority, identity)
     {
         actor_alive = true;
         if let Some(point) = actor.bounding_box().and_then(|(min, max)| {
@@ -184,4 +188,14 @@ pub(super) fn refresh(
         reach,
         actor_alive,
     )))
+}
+
+/// Resolves the same actor lifetime that supplied a saved hit, rejecting reused runtime IDs.
+pub(super) fn live_actor(
+    authority: &client_world::WorldAuthority,
+    identity: actor_animation::ActorLifetimeId,
+) -> Option<&client_world::ActorSnapshot> {
+    (authority.actor_lifetime(identity.runtime_id) == Some(identity))
+        .then(|| authority.actor(identity.runtime_id))
+        .flatten()
 }

@@ -85,15 +85,11 @@ pub(super) fn observe_use_target(
                 PickResult::Block(block) => Some(block),
                 _ => None,
             };
-            let endpoint = hit.point().map_or_else(
-                || vector(Vec3::from_array(pick.hits.endpoint)),
-                |point| {
-                    sim::Vec3::new(
-                        f64::from(point[0]),
-                        f64::from(point[1]),
-                        f64::from(point[2]),
-                    )
-                },
+            let endpoint = hit.point().unwrap_or(pick.hits.endpoint);
+            let endpoint = sim::Vec3::new(
+                f64::from(endpoint[0]),
+                f64::from(endpoint[1]),
+                f64::from(endpoint[2]),
             );
             let target = runtime.intention.target(
                 block

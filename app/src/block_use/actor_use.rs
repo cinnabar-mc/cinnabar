@@ -47,9 +47,11 @@ pub(super) fn prepare(
         creative_reach(input_mode)
     };
     let refreshed = pick.hits.ordinary?;
-    let PickResult::Actor { runtime_id, point } = refreshed else {
+    let PickResult::Actor { identity, point } = refreshed else {
         return None;
     };
+    let actor = super::pick::live_actor(stream.authority(), identity)?;
+    let runtime_id = identity.runtime_id;
     let cap = player
         .facts
         .game_mode_capabilities()
@@ -69,7 +71,6 @@ pub(super) fn prepare(
     {
         return None;
     }
-    stream.authority().actor(runtime_id)?;
     let packet = protocol::use_actor_packet(protocol::ActorUseRequest {
         actor_runtime_id: runtime_id,
         action: protocol::ActorUseAction::Interact,
@@ -79,18 +80,13 @@ pub(super) fn prepare(
         hit_position: point,
     })
     .ok()?;
-    let local_use = stream
-        .authority()
-        .actor(runtime_id)
-        .map_or(LocalUse::Interact, |actor| {
-            LocalUse::for_actor(
-                &actor.kind,
-                context.ui.gameplay_hud().has_interact_text(),
-                stream
-                    .authority()
-                    .offered_throwable_use(runtime_id, &selection.item),
-            )
-        });
+    let local_use = LocalUse::for_actor(
+        &actor.kind,
+        context.ui.gameplay_hud().has_interact_text(),
+        stream
+            .authority()
+            .offered_throwable_use(runtime_id, &selection.item),
+    );
     Some(ActorUse {
         packet,
         local_use,

@@ -14,7 +14,10 @@ pub struct BlockPick {
 pub enum PickResult {
     Miss,
     Block(BlockPick),
-    Actor { runtime_id: u64, point: [f32; 3] },
+    Actor {
+        identity: actor_animation::ActorLifetimeId,
+        point: [f32; 3],
+    },
 }
 
 impl PickResult {
@@ -90,7 +93,12 @@ mod tests {
             PickResult::Miss
         );
         let actor = PickResult::Actor {
-            runtime_id: 7,
+            identity: actor_animation::ActorLifetimeId {
+                session_id: 1,
+                dimension: 0,
+                runtime_id: 7,
+                spawn_revision: 1,
+            },
             point: [0.5, 1.0, 0.5],
         };
         assert_eq!(actor.refreshed(None, [0.5; 3], 5.7, true), actor);
