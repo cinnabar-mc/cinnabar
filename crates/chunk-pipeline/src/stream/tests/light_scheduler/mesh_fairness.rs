@@ -277,18 +277,24 @@ fn far_settled_retry_precedes_continuous_fresh_ingress() {
 /// Output-memory pressure must not starve a smaller ready mesh or duplicate retry heap records.
 #[test]
 fn memory_blocked_retry_keeps_ready_progress_and_bounded_storage() {
-    assert_memory_blocked_retry_progress(1);
+    assert_memory_blocked_retry_progress(1, false);
 }
 
 /// More blocked retries than the cooldown must still leave ordinary work an admission turn.
 #[test]
 fn many_memory_blocked_retries_preserve_ready_progress_across_rotations() {
     let blocked = usize::try_from(scheduler::MAX_RECHECK_BACKOFF_POLLS).unwrap() + 1;
-    assert_memory_blocked_retry_progress(blocked);
+    assert_memory_blocked_retry_progress(blocked, false);
+}
+
+/// Unchanged light completions must not repeatedly promote a mesh that cannot fit its output.
+#[test]
+fn light_completion_preserves_memory_backoff() {
+    assert_memory_blocked_retry_progress(1, true);
 }
 
 /// Keeps smaller ready meshes publishing while a FIFO of larger models cannot reserve output.
-fn assert_memory_blocked_retry_progress(blocked: usize) {
+fn assert_memory_blocked_retry_progress(blocked: usize, wake: bool) {
     let base = light_test_assets();
     let model_id = u32::try_from(base.visual_count()).unwrap();
     let side = assets::MODEL_POSITION_SCALE;
@@ -401,6 +407,17 @@ fn assert_memory_blocked_retry_progress(blocked: usize) {
         if !stream.mesh_jobs.pending.contains_key(&backlog) {
             stream.mark_dirty_exact(backlog, Instant::now());
         }
+        if wake {
+            let completion = synthetic_light_completion(
+                &mut stream,
+                visible,
+                DirectSkyMask::Uniform(false),
+                false,
+                false,
+                [false; 6],
+            );
+            stream.accept_light_completion(completion);
+        }
         stream.poll_deadline = Some(Instant::now());
         if stream.dispatch_mesh_jobs(view.position, 1) != 0 {
             let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -482,4 +499,26 @@ fn partial_light_halo_does_not_delay_ready_geometry() {
         let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(completion.key, backlog);
     }
+}
+
+/// A completed face may invalidate another halo member before deferred geometry can become ready.
+#[test]
+fn light_completion_fanout_preserves_ready_geometry() {
+    let (mut stream, view, visible, backlog) = deferred_mesh_stream();
+    stream.mesh_jobs.retries.clear();
+    let source = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    let neighbour = SubChunkKey::new(1, source.x, source.y - 1, source.z);
+    install_current_light(&mut stream, source, 15, 0, false);
+    install_current_light(&mut stream, neighbour, 0, 0, false);
+    assert!(stream.mesh_light_halo(visible).is_some());
+    let direct = stream.lighting.direct_sky[&source].clone();
+    let changed_faces = LIGHT_NEIGHBOUR_OFFSETS.map(|offset| offset == [0, -1, 0]);
+    stream.finish_accepted_light_completion(source, 0, &direct, changed_faces, false);
+    assert!(stream.lighting.jobs.pending.contains_key(&neighbour));
+    assert!(stream.mesh_light_halo(visible).is_none());
+    assert!(stream.mesh_light_halo(backlog).is_some());
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, backlog);
 }

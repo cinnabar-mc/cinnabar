@@ -671,22 +671,6 @@ impl WorldStream {
         urgent: bool,
         monotonic_faces: [bool; 6],
     ) {
-        // Unchanged light invalidates no mesh, yet still completes the halo deferred meshes wait on.
-        let now = Instant::now();
-        for dependent in key.mesh_neighbourhood_dependents() {
-            if self.mesh_jobs.pending.contains_key(&dependent) {
-                if self
-                    .mesh_jobs
-                    .deferred_candidate(RESIDENT_MESH_LANE, dependent)
-                    .is_some()
-                    && self.mesh_light_halo_is_ready(dependent)
-                    && !self.mesh_neighbour_is_due(dependent, now)
-                {
-                    self.mesh_jobs.wake_deferred(RESIDENT_MESH_LANE, dependent);
-                }
-                self.mesh_jobs.refresh.wake_near(dependent);
-            }
-        }
         let mut invalidated = self.lighting.waiters.remove(&key).unwrap_or_default();
         let completed_uniform_direct_sky = self
             .lighting
@@ -755,6 +739,20 @@ impl WorldStream {
                 && let Some(revision) = self.mark_light_dirty_exact_with_priority(neighbour, urgent)
             {
                 self.lighting.priority_wakeups.insert(neighbour, revision);
+            }
+        }
+        // Evaluate readiness after this completion has invalidated every affected neighbour.
+        let now = Instant::now();
+        for dependent in key.mesh_neighbourhood_dependents() {
+            if self.mesh_jobs.pending.contains_key(&dependent) {
+                if let Some(candidate) = self
+                    .mesh_jobs
+                    .deferred_candidate(RESIDENT_MESH_LANE, dependent)
+                    && self.mesh_retry_is_ready(dependent, candidate.revision, now)
+                {
+                    self.mesh_jobs.wake_deferred(RESIDENT_MESH_LANE, dependent);
+                }
+                self.mesh_jobs.refresh.wake_near(dependent);
             }
         }
     }

@@ -64,23 +64,7 @@ impl WorldStream {
             }
             examined = true;
             // Output credit is part of readiness; dispatch reserves it again in rank order.
-            let ready = self.revisions.is_current(retry.key, retry.revision)
-                && !self.mesh_jobs.in_flight.contains_key(&retry.key)
-                && !self.mesh_neighbour_is_due(retry.key, now)
-                && self.mesh_light_halo(retry.key).is_some()
-                && self
-                    .authority
-                    .terrain()
-                    .sub_chunk(retry.key)
-                    .is_some_and(|source| {
-                        self.mesh_memory
-                            .try_admit(
-                                &source,
-                                self.authority.runtime_assets(),
-                                self.authority.network_id_mode(),
-                            )
-                            .is_some()
-                    });
+            let ready = self.mesh_retry_is_ready(retry.key, retry.revision, now);
             if ready {
                 candidates.push((candidate, pending, MeshCandidateOrigin::Retry));
                 self.mesh_jobs.retries.requeue(retry);
@@ -89,5 +73,31 @@ impl WorldStream {
             }
         }
         candidates
+    }
+
+    /// Offers deferred geometry only when its inputs and output reservation are available.
+    pub(in crate::stream) fn mesh_retry_is_ready(
+        &mut self,
+        key: SubChunkKey,
+        revision: u64,
+        now: Instant,
+    ) -> bool {
+        self.revisions.is_current(key, revision)
+            && !self.mesh_jobs.in_flight.contains_key(&key)
+            && !self.mesh_neighbour_is_due(key, now)
+            && self.mesh_light_halo_is_ready(key)
+            && self
+                .authority
+                .terrain()
+                .sub_chunk(key)
+                .is_some_and(|source| {
+                    self.mesh_memory
+                        .try_admit(
+                            &source,
+                            self.authority.runtime_assets(),
+                            self.authority.network_id_mode(),
+                        )
+                        .is_some()
+                })
     }
 }
