@@ -168,3 +168,30 @@ fn a_block_binding_condition_selects_states_like_a_permutation_condition() {
         "a condition that cannot evaluate does not apply"
     );
 }
+
+#[test]
+fn bindings_matching_nothing_and_unresolved_masks_are_counted_once() {
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {
+            "example:lamp": {"textures": {"glow_mask": "missing_key"}},
+            "example:glass": {"material": {"states": ["Blending"]}}
+        },
+        "bindings": [
+            {"block": "test:generator", "material": "example:lamp"},
+            {"block": "test:generator", "material_instance": "*", "material": "example:lamp"},
+            {"block": "test:other", "material": "example:glass"}
+        ]
+    });
+    let blocks = CustomBlocks {
+        blocks: vec![generator()].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&bound_view(document), &blocks, false, None).unwrap();
+    assert_eq!(compiled.gaps.unmatched_material_bindings, 1);
+    assert_eq!(
+        compiled.gaps.unresolved_binding_masks, 1,
+        "one key, however many faces name it"
+    );
+}

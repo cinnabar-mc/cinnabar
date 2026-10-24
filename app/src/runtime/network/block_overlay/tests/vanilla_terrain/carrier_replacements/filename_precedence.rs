@@ -63,6 +63,7 @@ fn builder<'a>(
         slots: Default::default(),
         materials: Default::default(),
         state_masks: Default::default(),
+        unresolved_masks: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     }

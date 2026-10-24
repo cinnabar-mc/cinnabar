@@ -128,8 +128,11 @@ pub fn collect_files(
     collect_files_reporting(view, vanilla, vanilla_pack_dir).0
 }
 
-/// `(pack-relative path, bytes)` files entity compilation reads.
-pub type CollectedFiles = Vec<(Box<str>, Vec<u8>)>;
+/// One `(pack-relative path, bytes)` file entity compilation reads.
+pub type CollectedFile = (Box<str>, Vec<u8>);
+
+/// The files entity compilation reads.
+pub type CollectedFiles = Vec<CollectedFile>;
 
 /// [`collect_files`] with the counts collection notices: the entity material lists' entries
 /// it read in part or not at all.
@@ -249,7 +252,9 @@ pub fn collect_files_reporting(
             .into_iter()
             .map(|(path, bytes)| (path.into(), bytes)),
     );
-    files.extend(material_bindings(view));
+    let (bindings, invalid) = material_bindings(view);
+    report.invalid_extension_documents = u32::from(invalid);
+    files.extend(bindings);
     files.extend(attachables);
     files.extend(geometry);
     textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
@@ -321,15 +326,28 @@ fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
 
 /// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
 /// when invalid; the compiler then ignores it and the reason is logged here.
-fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
-    let document = material_bindings_document(view)?;
-    if let Err(reason) = pack_entity_compiler::validate_material_bindings(&document) {
-        tracing::warn!(%reason, "ignoring the pack's material bindings");
-    }
-    Some((
-        pack_entity_compiler::MATERIAL_BINDINGS_PATH.into(),
-        serde_json::to_vec(&document).ok()?,
-    ))
+/// Also says whether the winning copy is invalid: not JSON, or rejected by the extension's
+/// validation, in which case the client ignores it whole.
+fn material_bindings(view: &LayeredPackView) -> (Option<CollectedFile>, bool) {
+    let path = pack_entity_compiler::MATERIAL_BINDINGS_PATH;
+    let Some(bytes) = view.read(path) else {
+        return (None, false);
+    };
+    let Some(document) = parse_pack_json(&bytes) else {
+        tracing::warn!("ignoring the pack's material bindings: not JSON");
+        return (None, true);
+    };
+    let invalid = match pack_entity_compiler::validate_material_bindings(&document) {
+        Ok(()) => false,
+        Err(reason) => {
+            tracing::warn!(%reason, "ignoring the pack's material bindings");
+            true
+        }
+    };
+    let file = serde_json::to_vec(&document)
+        .ok()
+        .map(|bytes| (path.into(), bytes));
+    (file, invalid)
 }
 
 /// Texture paths the stack's material bindings name, so their rasters reach the entity catalog.
