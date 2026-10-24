@@ -17,23 +17,6 @@ impl Default for ClientBlobCacheOwner {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn session_advertisement_and_resolver_share_the_captured_cache_mode() {
-        let owner = ClientBlobCacheOwner::default();
-        let ordinary = owner.for_session(true);
-        let packets = owner.for_session(false);
-        assert!(ordinary.enables_upstream_client_cache());
-        assert!(ordinary.cache().is_some());
-        assert!(!packets.enables_upstream_client_cache());
-        assert!(packets.cache().is_none());
-        assert!(owner.enables_upstream_client_cache());
-    }
-}
-
 impl ClientBlobCacheOwner {
     /// Starts background disk storage and warming without delaying client startup.
     #[cfg(not(target_arch = "wasm32"))]
@@ -58,5 +41,22 @@ impl ClientBlobCacheOwner {
     /// This must match the optional cache passed to the downstream login.
     pub fn enables_upstream_client_cache(&self) -> bool {
         self.0.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_advertisement_and_resolver_share_the_captured_cache_mode() {
+        let owner = ClientBlobCacheOwner::default();
+        let ordinary = owner.for_session(true);
+        let packets = owner.for_session(false);
+        assert!(ordinary.enables_upstream_client_cache());
+        assert!(ordinary.cache().is_some());
+        assert!(!packets.enables_upstream_client_cache());
+        assert!(packets.cache().is_none());
+        assert!(owner.enables_upstream_client_cache());
     }
 }
