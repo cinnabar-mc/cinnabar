@@ -9,7 +9,7 @@ use render_scene::{
 };
 
 /// World views shared by opaque and transparent chunk queues.
-type ChunkViewQuery = (
+pub(in crate::chunk) type ChunkViewQuery = (
     Entity,
     Read<MainEntity>,
     Read<ExtractedView>,

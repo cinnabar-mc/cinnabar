@@ -38,7 +38,7 @@ pub(crate) struct ActorPipeline {
     /// base pipeline until they compile.
     world_variants: Variants<RenderPipeline, super::world_materials::WorldActorSpecializer>,
     world_ids: std::collections::HashMap<
-        (ActorPipelineContract, super::world_materials::WorldVariant),
+        (ActorPipelineContract, crate::world_material::WorldVariant),
         CachedRenderPipelineId,
     >,
 }
@@ -372,7 +372,7 @@ pub(super) fn prepare_actor_pipelines(
     )>,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
     adapter: Option<Res<bevy::render::renderer::RenderAdapter>>,
-    world: Option<Res<super::world_materials::WorldMaterialGpu>>,
+    world: Option<Res<crate::world_material::WorldMaterialGpu>>,
 ) {
     if let Some(adapter) = adapter
         && !pipeline.targets.has_features()

@@ -18,10 +18,10 @@ fn accepts_host_inputs_declared_textures_and_parameters() {
     assert!(library.contains("@group(3) @binding(0) var<uniform> world_material_frame"));
     assert!(library.contains("@group(3) @binding(2) var world_material_texture_1"));
     assert!(library.contains("@group(3) @binding(3) var world_material_sampler"));
-    let frame = frame_uniform(0.5, &[0.25, 2.0, f32::NAN]);
+    let frame = frame_uniform(0.5, 3, &[0.25, 2.0, f32::NAN]);
     assert_eq!(
-        (frame[0], frame[4], frame[5], frame[6]),
-        (0.5, 0.25, 2.0, 0.0)
+        (frame[0], frame[1], frame[4], frame[5], frame[6]),
+        (0.5, 3.0, 0.25, 2.0, 0.0)
     );
 }
 

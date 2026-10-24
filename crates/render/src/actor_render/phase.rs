@@ -241,7 +241,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         SRes<ActorPipeline>,
         SRes<PipelineCache>,
         crate::shaderpack::native_actors::NativeActorCoverage<'static>,
-        Option<SRes<super::world_materials::WorldMaterialGpu>>,
+        Option<SRes<crate::world_material::WorldMaterialGpu>>,
     );
     type ViewQuery = (
         Entity,
