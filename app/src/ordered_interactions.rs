@@ -1,5 +1,8 @@
 //! Dispatches each ordered input edge once in its own frame.
 
+use bevy::ecs::system::{
+    CachedSystemId, RegisteredSystem, RegisteredSystemError, SystemId, SystemInput,
+};
 use bevy::prelude::*;
 use client_interaction::{
     block_use::BlockUseRuntime, item_use::ItemUseRuntime, melee::MeleeRuntime,
@@ -108,6 +111,36 @@ fn maintenance_carrier_pending(world: &World) -> bool {
             .is_some()
 }
 
+/// The primary-window query each dispatch reads focus through, kept by its producer system so
+/// it is not rebuilt every frame.
+pub(crate) type PrimaryWindows = QueryState<&'static Window, With<bevy::window::PrimaryWindow>>;
+
+/// Runs `system` exactly as [`World::run_system_cached_with`] does, but reuses an existing
+/// cached registration without moving its id resource out of the world and back.
+pub(crate) fn run_cached<I, O, M, S>(
+    world: &mut World,
+    system: S,
+    input: I::Inner<'_>,
+) -> Result<O, RegisteredSystemError<I, O>>
+where
+    I: SystemInput + 'static,
+    O: 'static,
+    S: IntoSystem<I, O, M> + 'static,
+{
+    let registered = world
+        .get_resource::<CachedSystemId<S>>()
+        .map(|id| id.entity)
+        .filter(|&entity| {
+            world
+                .get_entity(entity)
+                .is_ok_and(|entity| entity.contains::<RegisteredSystem<I, O>>())
+        });
+    match registered {
+        Some(entity) => world.run_system_with(SystemId::from_entity(entity), input),
+        None => world.run_system_cached_with(system, input),
+    }
+}
+
 /// Reads held state at the consumed cursor, suppressing incomplete physical samples.
 pub(crate) fn held(
     runtime: Option<&InteractionRuntime>,
@@ -142,9 +175,7 @@ fn capture(world: &mut World, input: &ActionSnapshot, phase: DispatchPhase) -> C
         .resource::<crate::melee::MeleeTarget>()
         .has_published_inputs(position)
     {
-        world
-            .run_system_cached(crate::melee::prepare_melee)
-            .expect("ordered pick preparation");
+        run_cached(world, crate::melee::prepare_melee, ()).expect("ordered pick preparation");
     }
     let aim = world
         .get_resource::<client_presentation::aim_assist::AimAssistFrame>()
@@ -153,8 +184,7 @@ fn capture(world: &mut World, input: &ActionSnapshot, phase: DispatchPhase) -> C
             client_interaction::camera::aim_assist::action_rotation(aim, camera)
         });
     CapturedContext {
-        attack: world
-            .run_system_cached_with(crate::melee::ordered::capture, phase)
+        attack: run_cached(world, crate::melee::ordered::capture, phase)
             .expect("ordered actor geometry"),
         mode: input.input_mode,
         identity: (input.authority_generation, input.frame_sequence),
@@ -165,7 +195,7 @@ fn capture(world: &mut World, input: &ActionSnapshot, phase: DispatchPhase) -> C
 }
 
 /// Consumes each frame's edges once; unavailable actions never become later-frame input.
-pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
+pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut PrimaryWindows) {
     let snapshot = world
         .resource::<SemanticInputSnapshot>()
         .snapshot()
@@ -197,10 +227,7 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     if new_frame {
         runtime.ingested = 0;
     }
-    let focused = world
-        .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
-        .single(world)
-        .is_ok_and(|window| window.focused)
+    let focused = windows.single(world).is_ok_and(|window| window.focused)
         && !world.resource::<client_state::ScreenFocus>().menu_visible
         && !world.resource::<client_state::ScreenFocus>().ui_focused
         && !world.resource::<client_state::ScreenFocus>().absorbs_input;
@@ -247,15 +274,14 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     } else {
         runtime.frames.observe_neutral(ordered.neutral());
     }
-    world
-        .run_system_cached(crate::item_use::ordered::flush_release)
+    run_cached(world, crate::item_use::ordered::flush_release, ())
         .expect("ordered release carrier");
-    let stop_ready = world
-        .run_system_cached_with(
-            crate::block_use::ordered::fence,
-            !active || snapshot.authority_released || runtime.frames.quarantined(),
-        )
-        .expect("accepted block stop carrier");
+    let stop_ready = run_cached(
+        world,
+        crate::block_use::ordered::fence,
+        !active || snapshot.authority_released || runtime.frames.quarantined(),
+    )
+    .expect("accepted block stop carrier");
     if active
         && !snapshot.authority_released
         && !runtime.frames.quarantined()
@@ -278,8 +304,7 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
                 break;
             }
             if announces_selection(edge)
-                && !world
-                    .run_system_cached(crate::hotbar::ordered::flush_existing)
+                && !run_cached(world, crate::hotbar::ordered::flush_existing, ())
                     .expect("older selection carrier")
             {
                 break;
@@ -307,8 +332,7 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     let selection_ready = ![Action::Attack, Action::Use]
         .into_iter()
         .any(|action| snapshot.phases[action as usize].held)
-        || world
-            .run_system_cached(crate::hotbar::ordered::flush_existing)
+        || run_cached(world, crate::hotbar::ordered::flush_existing, ())
             .expect("older selection carrier");
     runtime.barrier_pending = !stop_ready || !selection_ready || maintenance_carrier_pending(world);
     world.insert_resource(runtime);
@@ -325,34 +349,30 @@ fn announces_selection(edge: ActionEvent) -> bool {
 fn dispatch(world: &mut World, input: InteractionInput) {
     let edge = input.edge;
     if edge.action != Action::Use
-        && !world
-            .run_system_cached_with(
-                crate::block_use::ordered::fence,
-                edge.action == Action::Attack && edge.pressed,
-            )
-            .expect("older block stop carrier")
+        && !run_cached(
+            world,
+            crate::block_use::ordered::fence,
+            edge.action == Action::Attack && edge.pressed,
+        )
+        .expect("older block stop carrier")
     {
         return;
     }
     match edge.action {
         Action::Attack if edge.pressed => {
-            world
-                .run_system_cached_with(crate::melee::ordered::press, input)
+            run_cached(world, crate::melee::ordered::press, input)
                 .expect("ordered attack admission");
         }
         Action::Use => {
-            if world
-                .run_system_cached_with(crate::block_use::ordered::press, input.clone())
+            if run_cached(world, crate::block_use::ordered::press, input.clone())
                 .expect("ordered block admission")
             {
-                world
-                    .run_system_cached_with(crate::item_use::ordered::press, input)
+                run_cached(world, crate::item_use::ordered::press, input)
                     .expect("ordered item admission");
             }
         }
         Action::PickItem if edge.pressed => {
-            world
-                .run_system_cached_with(crate::pick_block::ordered_pick, input)
+            run_cached(world, crate::pick_block::ordered_pick, input)
                 .expect("ordered pick admission");
         }
         action
@@ -363,8 +383,7 @@ fn dispatch(world: &mut World, input: InteractionInput) {
                     .between_ticks_sample()
                     .is_some() =>
         {
-            world
-                .run_system_cached_with(crate::hotbar::ordered::select, action)
+            run_cached(world, crate::hotbar::ordered::select, action)
                 .expect("ordered selection admission");
         }
         _ => {}

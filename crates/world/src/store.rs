@@ -1,6 +1,9 @@
 use std::{
     collections::BTreeSet,
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 // Every terrain lookup hashes a column key; seeded foldhash avoids SipHash's cost.
@@ -92,6 +95,14 @@ impl PreparedSubChunkMutation {
     }
 }
 
+/// Source of every [`ChunkStore::content_revision`], shared by all stores so no two contents
+/// observed in this process share a value.
+static CONTENT_REVISIONS: AtomicU64 = AtomicU64::new(1);
+
+fn next_content_revision() -> u64 {
+    CONTENT_REVISIONS.fetch_add(1, Ordering::Relaxed)
+}
+
 /// Sparse client-side chunk store.
 #[derive(Debug)]
 pub struct ChunkStore {
@@ -101,6 +112,7 @@ pub struct ChunkStore {
     collision_revisions: HashMap<ChunkKey, ChunkCollisionRevision>,
     collision_revision_allocator: Arc<CollisionRevisionAllocator>,
     collision_snapshot: Mutex<Weak<Self>>,
+    content_revision: u64,
 }
 
 impl Default for ChunkStore {
@@ -112,6 +124,7 @@ impl Default for ChunkStore {
             collision_revisions: HashMap::new(),
             collision_revision_allocator: process_collision_revisions(),
             collision_snapshot: Mutex::default(),
+            content_revision: next_content_revision(),
         }
     }
 }
@@ -120,6 +133,19 @@ impl ChunkStore {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Identifies the stored blocks, biomes, block entities and residency: every change to any
+    /// of them, in this or any other store, yields a value never returned before, so a reader
+    /// may reuse anything derived from the store while this value is unchanged.
+    #[must_use]
+    pub const fn content_revision(&self) -> u64 {
+        self.content_revision
+    }
+
+    /// Retires the current [`Self::content_revision`] before a visible change.
+    fn note_content_change(&mut self) {
+        self.content_revision = next_content_revision();
     }
 
     /// Returns a chunk column, if block data has been received for it.
@@ -174,6 +200,7 @@ impl ChunkStore {
             return Ok(false);
         }
         let revision = self.collision_revision_allocator.allocate()?;
+        self.note_content_change();
         self.loaded_chunks.insert(key);
         self.authoritative_sub_chunks.remove(&key);
         self.set_collision_revision(key, revision);
@@ -192,6 +219,7 @@ impl ChunkStore {
             return Ok(false);
         }
         let revision = self.collision_revision_allocator.allocate()?;
+        self.note_content_change();
         self.authoritative_sub_chunks
             .entry(key.chunk())
             .or_default()
@@ -275,6 +303,7 @@ impl ChunkStore {
         }
         let revision = self.reserve_loaded_change(key)?;
         self.invalidate_collision_snapshot();
+        self.note_content_change();
         Arc::make_mut(&mut self.chunks.entry(key.chunk()).or_default().sub_chunks)
             .insert(key.y, Arc::new(decoded));
         self.apply_reserved_revision(key.chunk(), revision);
@@ -340,6 +369,7 @@ impl ChunkStore {
             replacing.map_or(&crate::ShapeActor::None, |nbt| nbt.shape_actor())
                 != nbt.shape_actor(),
         )?;
+        self.note_content_change();
         let chunk = self.chunks.entry(key.chunk()).or_default();
         Arc::make_mut(&mut chunk.block_entities).insert(key, Arc::new(nbt));
         chunk.block_entity_bytes = replacement_bytes;
@@ -370,6 +400,7 @@ impl ChunkStore {
         if replacement.is_empty() && !self.chunks.contains_key(&key) {
             return Ok(());
         }
+        self.note_content_change();
         let chunk = self.chunks.entry(key).or_default();
         chunk.block_entity_bytes = replacement
             .values()
@@ -530,6 +561,7 @@ impl ChunkStore {
         }
         if !changed.is_empty() {
             self.invalidate_collision_snapshot();
+            self.note_content_change();
         }
         for (chunk, revision) in revisions {
             self.set_collision_revision(chunk, revision);
@@ -550,11 +582,13 @@ impl ChunkStore {
         if !keys.is_empty() {
             self.invalidate_collision_snapshot();
         }
+        let mut detached = false;
         for &key in keys {
-            self.authoritative_sub_chunks.remove(&key);
-            self.loaded_chunks.remove(&key);
+            detached |= self.authoritative_sub_chunks.remove(&key).is_some();
+            detached |= self.loaded_chunks.remove(&key);
             self.collision_revisions.remove(&key);
             if let Some(chunk) = self.chunks.remove(&key) {
+                detached = true;
                 removed.extend(
                     chunk
                         .sub_chunks
@@ -563,6 +597,9 @@ impl ChunkStore {
                 );
                 retired.push(chunk);
             }
+        }
+        if detached {
+            self.note_content_change();
         }
         (removed, retired)
     }
@@ -588,6 +625,7 @@ impl ChunkStore {
         self.invalidate_collision_snapshot();
         let chunk_key = key.chunk();
         let chunk = self.chunks.get_mut(&chunk_key)?;
+        self.content_revision = next_content_revision();
         let removed = Arc::make_mut(&mut chunk.sub_chunks)
             .remove(&key.y)
             .is_some();
@@ -657,6 +695,7 @@ impl ChunkStore {
         if replacement.is_empty() && !has_previous {
             return;
         }
+        self.note_content_change();
         let chunk = self.chunks.entry(key.chunk()).or_default();
         let entities = Arc::make_mut(&mut chunk.block_entities);
         entities.retain(|entity, _| entity.sub_chunk() != key);
@@ -708,6 +747,7 @@ impl ChunkStore {
         let Some(chunk) = self.chunks.get_mut(&key.chunk()) else {
             return;
         };
+        self.content_revision = next_content_revision();
         let mut removed_bytes = 0_usize;
         Arc::make_mut(&mut chunk.block_entities).retain(|entity, nbt| {
             let retain = entity.sub_chunk() != key;
@@ -755,6 +795,7 @@ impl ChunkStore {
             .into_iter()
             .map(|y| SubChunkKey::from_chunk(key, y))
             .collect();
+        self.note_content_change();
         self.chunks.entry(key).or_default().biomes = Some(replacement);
         expand_biome_mesh_dependents(changed)
     }
@@ -864,6 +905,7 @@ impl ChunkStore {
             .into_iter()
             .collect();
 
+        self.content_revision = next_content_revision();
         if sub_chunks.is_empty() && biomes.is_none() && block_entities.is_empty() {
             self.chunks.remove(&key);
         } else {
@@ -904,4 +946,6 @@ impl ChunkStore {
 #[cfg(test)]
 #[path = "store_revision_tests.rs"]
 mod collision_revision_allocator_tests;
+#[cfg(test)]
+mod content_revision_tests;
 mod shape_revisions;

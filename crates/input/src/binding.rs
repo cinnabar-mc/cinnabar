@@ -87,6 +87,27 @@ pub enum BindingError {
 }
 
 impl ControlSettings {
+    /// For each binding, the bindings in its context on the same control that need more
+    /// modifiers, in binding order; the router consults only these for chord precedence.
+    pub(crate) fn more_specific_chords(&self) -> Box<[Box<[usize]>]> {
+        self.bindings
+            .iter()
+            .map(|binding| {
+                self.bindings
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| {
+                        candidate.context == binding.context
+                            && candidate.chord.control == binding.chord.control
+                            && candidate.chord.modifiers.specificity()
+                                > binding.chord.modifiers.specificity()
+                    })
+                    .map(|(index, _)| index)
+                    .collect()
+            })
+            .collect()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         bindings: Vec<ActionBinding>,

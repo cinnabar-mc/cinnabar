@@ -36,6 +36,8 @@ pub enum RouterError {
 #[derive(Debug)]
 pub struct SemanticInputRouter {
     settings: ControlSettings,
+    /// [`ControlSettings::more_specific_chords`] of `settings`, rebuilt when they are replaced.
+    more_specific: Box<[Box<[usize]>]>,
     context: InputContext,
     authority_generation: InputAuthorityGeneration,
     pending_authority: Option<InputAuthorityGeneration>,
@@ -58,8 +60,10 @@ pub struct SemanticInputRouter {
 
 impl Default for SemanticInputRouter {
     fn default() -> Self {
+        let settings = ControlSettings::default();
         Self {
-            settings: ControlSettings::default(),
+            more_specific: settings.more_specific_chords(),
+            settings,
             context: InputContext::Gameplay,
             authority_generation: InputAuthorityGeneration::INITIAL,
             pending_authority: None,
@@ -89,6 +93,7 @@ impl SemanticInputRouter {
     ) -> Result<Self, BindingError> {
         settings.validate(&touch_layout)?;
         Ok(Self {
+            more_specific: settings.more_specific_chords(),
             settings,
             touch_layout,
             ..Self::default()
@@ -166,6 +171,7 @@ impl SemanticInputRouter {
 
     pub fn replace_bindings(&mut self, settings: ControlSettings) -> Result<(), BindingError> {
         settings.validate(&self.touch_layout)?;
+        self.more_specific = settings.more_specific_chords();
         self.settings = settings;
         self.queue_held_releases(ReleaseReason::BindingChanged);
         Ok(())
@@ -508,13 +514,13 @@ impl SemanticInputRouter {
         let mut pressed = [false; Action::COUNT];
         let mut released = [false; Action::COUNT];
         let mut movement_buttons = MovementButtons::default();
-        for binding in self.settings.bindings() {
+        for (index, binding) in self.settings.bindings().iter().enumerate() {
             if binding.context != self.context
                 || !control_matches_mode(binding.chord.control, input_mode)
             {
                 continue;
             }
-            if self.has_more_specific_chord(binding.chord, frame) {
+            if self.has_more_specific_chord(index, frame) {
                 continue;
             }
             let strength =
@@ -615,18 +621,18 @@ impl SemanticInputRouter {
         }
     }
 
-    fn has_more_specific_chord(&self, chord: InputChord, frame: &DeviceFrame) -> bool {
+    /// Whether a binding in the same context on the same control, needing more of the held
+    /// modifiers, takes precedence over binding `index`.
+    fn has_more_specific_chord(&self, index: usize, frame: &DeviceFrame) -> bool {
         let Some(keyboard) = frame.keyboard_mouse.as_ref() else {
             return false;
         };
-        self.settings.bindings().iter().any(|candidate| {
-            candidate.context == self.context
-                && candidate.chord.control == chord.control
-                && candidate.chord.modifiers.specificity() > chord.modifiers.specificity()
-                && candidate
-                    .chord
-                    .modifiers
-                    .is_satisfied_by(keyboard.modifiers)
+        let bindings = self.settings.bindings();
+        self.more_specific[index].iter().any(|&candidate| {
+            bindings[candidate]
+                .chord
+                .modifiers
+                .is_satisfied_by(keyboard.modifiers)
         })
     }
 
