@@ -33,9 +33,9 @@ impl State {
                 .bind_session(session.connection, session.dimension);
             self.render.masks.bind(session);
         }
-        self.time_override = None;
-        self.weather_override = None;
-        self.fullbright = false;
+        self.environment.time_override = None;
+        self.environment.weather_override = None;
+        self.environment.fullbright = false;
     }
 
     /// Installs trusted native actor references before calling any guest import.
@@ -73,36 +73,30 @@ impl State {
     /// Begins a presentation transaction without altering the last committed snapshot.
     pub(crate) fn begin_presentation(&mut self) {
         self.render.begin_frame();
-        self.environment_writes = 0;
-        self.pending_weather = None;
-        self.pending_time = None;
-        self.pending_fullbright = None;
+        self.environment.begin_callback();
+        self.environment.pending_weather = None;
+        self.environment.pending_time = None;
+        self.environment.pending_fullbright = None;
     }
 
     /// Publishes geometry and environment together after a successful bundle callback.
     pub(crate) fn commit_presentation(&mut self) {
         self.render.commit();
-        if let Some(value) = self.pending_weather.take() {
-            self.weather_override = value;
-        }
-        if let Some(value) = self.pending_time.take() {
-            self.time_override = value;
-        }
-        if let Some(value) = self.pending_fullbright.take() {
-            self.fullbright = value;
-        }
+        self.environment.commit();
     }
 
     /// Includes environment changes in the shared committed presentation identity.
     pub(crate) fn presentation_key(&self) -> (u64, Option<u32>, Option<[f32; 2]>) {
         (
             self.render.generation(),
-            self.time_override,
-            self.weather_override.map(|weather| match weather {
-                cinnabar::extension::environment::Weather::Clear => [0., 0.],
-                cinnabar::extension::environment::Weather::Rain => [1., 0.],
-                cinnabar::extension::environment::Weather::Thunder => [1., 1.],
-            }),
+            self.environment.time_override,
+            self.environment
+                .weather_override
+                .map(|weather| match weather {
+                    cinnabar::extension::environment::Weather::Clear => [0., 0.],
+                    cinnabar::extension::environment::Weather::Rain => [1., 0.],
+                    cinnabar::extension::environment::Weather::Thunder => [1., 1.],
+                }),
         )
     }
 
@@ -127,7 +121,7 @@ impl State {
                 })
                 .collect(),
             masks: output.masks.to_vec(),
-            time: self.time_override,
+            time: self.environment.time_override,
             weather: self.presentation_key().2,
             scene: Default::default(),
         }

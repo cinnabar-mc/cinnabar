@@ -83,7 +83,7 @@ Implement [`ClientPart`](../crates/experience-sdk/src/client.rs).
 | Callback | Meaning |
 | --- | --- |
 | `init` | Initialize once after generated registry confirmation |
-| `dispatch` | Validated to-client record |
+| `#[on_message]` | Decoded to-client message; generated dispatch validates the declared channel |
 | `frame` | Optional presentation callback; coalesced while busy |
 | `epoch` | World epoch changed; state remains live |
 | `action`, `secondary_action` | Declared primary/secondary modal action, with collection row |

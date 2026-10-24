@@ -9,6 +9,7 @@ mod declared {
 
 struct Space;
 
+#[experience_sdk::entry::client]
 impl ClientPart for Space {
     fn init() {
         rebuild();
@@ -137,5 +138,3 @@ struct Vertex {
     position: [f32; 3],
     uv: [f32; 2],
 }
-
-experience_sdk::export_client_part!(Space);
