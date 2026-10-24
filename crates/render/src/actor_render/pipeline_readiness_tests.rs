@@ -415,3 +415,61 @@ fn one_changed_material_requests_exactly_its_own_pipeline() {
     let again = publish(world, vec![kept, blended(BlendFactor::DestinationColor)]);
     assert_eq!(again, changed, "republishing it requests nothing");
 }
+
+#[test]
+fn back_to_back_packs_leave_only_the_latest_session_gating_readiness() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_api::render_state::{BlendComponent, BlendFactor, BlendOperation, BlendState};
+
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let session = |world: &mut World, source| {
+        let component = BlendComponent {
+            source,
+            destination: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+        let mut raster = assets::entity::material::UNAUTHORED_RENDER_STATE;
+        raster.blend = Some(BlendState {
+            color: component,
+            alpha: component,
+        });
+        world.insert_resource(render_scene::ActorRenderFrame {
+            authored_rasters: std::sync::Arc::from([(
+                assets::EntityRenderMaterialState::AUTHORED,
+                raster,
+            )]),
+            ..Default::default()
+        });
+        world.run_system_once(prepare_actor_pipelines).unwrap();
+        world
+            .resource::<ActorPipeline>()
+            .session_prewarmed
+            .values()
+            .flatten()
+            .copied()
+            .collect::<HashSet<_>>()
+    };
+    let generations = [
+        BlendFactor::DestinationColor,
+        BlendFactor::OneMinusDestinationColor,
+        BlendFactor::DestinationAlpha,
+        BlendFactor::OneMinusDestinationAlpha,
+    ]
+    .map(|source| session(world, source));
+    let latest = generations.last().unwrap();
+    for earlier in &generations[..generations.len() - 1] {
+        assert!(
+            earlier.is_disjoint(latest),
+            "an earlier pack still gates readiness"
+        );
+    }
+    let pipeline = world.resource::<ActorPipeline>();
+    assert_eq!(
+        pipeline.session_prewarmed.values().flatten().count(),
+        latest.len(),
+        "nothing accumulates across generations"
+    );
+}
