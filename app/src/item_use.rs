@@ -123,12 +123,13 @@ pub(crate) fn adopt_server_item_use(
     runtime.observe_gameplay_focus(button.gameplay_focused);
     runtime.observe_ordered_use_buttons(
         button.held,
-        crate::ordered_interactions::later_button_states(
+        crate::ordered_interactions::later_button_events(
             context.ordered.as_deref(),
             &context.input,
             Action::Use,
         )
-        .filter(|_| button.admitted),
+        .filter(|_| button.admitted)
+        .map(|event| event.buttons.held(Action::Use)),
     );
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     if !runtime.has_server_using_item() {
@@ -138,12 +139,12 @@ pub(crate) fn adopt_server_item_use(
     // can occupy the idle use. Ordered suffixes and unordered frame presses wait here.
     let press_waits = context.input.snapshot().is_some_and(|input| {
         if input.ordered.is_some() {
-            crate::ordered_interactions::later_button_states(
+            crate::ordered_interactions::later_button_events(
                 context.ordered.as_deref(),
                 &context.input,
                 Action::Use,
             )
-            .any(|held| held)
+            .any(|event| event.pressed)
         } else {
             context.input.phase(Action::Use).pressed
         }

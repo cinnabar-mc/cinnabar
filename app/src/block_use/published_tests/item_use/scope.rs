@@ -440,3 +440,94 @@ fn an_absorbing_screen_releases_a_server_started_use() {
         1
     );
 }
+
+/// Releasing one Use binding keeps the action held and must not defer a server stop.
+#[test]
+fn a_remaining_use_binding_does_not_hide_a_server_clear() {
+    let (mut world, mut captured) = bow_world(false);
+    let defaults = semantic_input::ControlSettings::default();
+    let mut bindings = defaults.bindings().to_vec();
+    bindings.push(semantic_input::ActionBinding {
+        action: Action::Use,
+        context: semantic_input::InputContext::Gameplay,
+        chord: semantic_input::InputChord {
+            control: semantic_input::PhysicalControl::MouseButton(5),
+            modifiers: Default::default(),
+        },
+    });
+    world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .replace_bindings(
+            semantic_input::ControlSettings::new(
+                bindings,
+                defaults.mouse_sensitivity,
+                defaults.gamepad_look_sensitivity,
+                defaults.touch_look_sensitivity,
+                defaults.invert_mouse_y,
+                defaults.invert_gamepad_y,
+                defaults.gamepad_move_deadzone,
+                defaults.gamepad_look_deadzone,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    // Finish the binding-change barrier, then establish both held controls.
+    route_use_events(&mut world, Default::default(), Vec::new());
+    route_use_events(&mut world, Default::default(), vec![2, 5]);
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(true),
+                ..Default::default()
+            },
+        );
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    assert!(world.resource::<ItemUseRuntime>().is_using());
+    captured.drain();
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(false),
+                ..Default::default()
+            },
+        );
+    let mut events = semantic_input::DesktopEvents::default();
+    for (button, pressed) in [(3, true), (3, false), (2, false)] {
+        events.push(semantic_input::DesktopEvent::Button {
+            control: semantic_input::PhysicalControl::MouseButton(button),
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    route_use_events(&mut world, events, vec![5]);
+    let input = world
+        .resource::<SemanticInputSnapshot>()
+        .snapshot()
+        .unwrap();
+    let release = input.ordered.as_ref().unwrap().events().last().unwrap();
+    assert_eq!(release.action, Action::Use);
+    assert!(!release.pressed && release.buttons.held(Action::Use));
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    assert!(
+        !world.resource::<ItemUseRuntime>().is_using(),
+        "a held alternate binding must not invent a release ahead of the server clear"
+    );
+    assert_eq!(world.resource::<ItemUseRuntime>().movement_modifier(), None);
+    assert!(!world.resource::<LocalPhysicsController>().live_using_item());
+    crate::ordered_interactions::drain(
+        &mut world,
+        crate::ordered_interactions::DispatchPhase::AfterMovement,
+    );
+    assert!(captured.drain().iter().all(|packet| {
+        protocol::test_support::transactions::observe_transaction(packet).is_none()
+    }));
+}

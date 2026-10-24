@@ -134,12 +134,12 @@ pub(crate) fn held(
             )
 }
 
-/// Reads unconsumed button transitions in their original order, unless the batch is quarantined.
-pub(crate) fn later_button_states<'a>(
+/// Reads unconsumed action events in their original order, unless the batch is quarantined.
+pub(crate) fn later_button_events<'a>(
     runtime: Option<&InteractionRuntime>,
     input: &'a SemanticInputSnapshot,
     action: Action,
-) -> impl Iterator<Item = bool> + 'a {
+) -> impl Iterator<Item = &'a ActionEvent> + 'a {
     let consumed = runtime.map_or(0, |runtime| runtime.ingested);
     let blocked = is_blocked(runtime);
     input
@@ -148,7 +148,6 @@ pub(crate) fn later_button_states<'a>(
         .into_iter()
         .flat_map(move |ordered| ordered.events().iter().skip(consumed))
         .filter(move |event| !blocked && event.action == action)
-        .map(|event| event.pressed)
 }
 
 /// Cancels unadmitted gestures without deleting gameplay-owned accepted carriers.
