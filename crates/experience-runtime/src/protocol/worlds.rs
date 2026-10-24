@@ -103,6 +103,9 @@ pub struct StateRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldContext {
+    /// The callback retains historical state without live world authority.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub opening_closed: bool,
     /// The actor rides a vehicle outside this mod's entity snapshot.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub actor_riding_elsewhere: bool,

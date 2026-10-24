@@ -8,6 +8,7 @@ use crate::protocol::{
 fn callback() -> CallbackRes {
     let mut res = Fixture::new().res();
     res.context = Some(WorldContext {
+        opening_closed: false,
         actor_riding_elsewhere: false,
         entities: Vec::new(),
         current: WorldHandle {

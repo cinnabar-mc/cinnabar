@@ -168,6 +168,9 @@ impl CallbackRes {
         let Some(context) = &mut self.context else {
             return Ok(Err(WorldError::Unavailable));
         };
+        if context.opening_closed {
+            return Ok(Err(WorldError::Unavailable));
+        }
         let Some(def) = self.own.entities.iter().find(|d| d.id == kind.value) else {
             return Ok(Err(WorldError::NotOwned));
         };

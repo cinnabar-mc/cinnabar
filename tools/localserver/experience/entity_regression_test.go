@@ -5,10 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/df-mc/dragonfly/server/entity/networkoffset"
-	"github.com/df-mc/dragonfly/server/player"
-	"github.com/df-mc/dragonfly/server/session"
-	"github.com/df-mc/dragonfly/server/world/chunk"
 	"log/slog"
 	"math"
 	"os"
@@ -19,7 +15,11 @@ import (
 	"time"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
+	"github.com/df-mc/dragonfly/server/entity/networkoffset"
+	"github.com/df-mc/dragonfly/server/player"
+	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/df-mc/dragonfly/server/world/chunk"
 	"github.com/go-gl/mathgl/mgl64"
 )
 
@@ -62,6 +62,21 @@ func TestEntityDespawnRetainsSurvivingSnapshots(t *testing.T) {
 			t.Fatalf("removal callback cannot update a surviving entity: %v", err)
 		}
 	})
+}
+
+func TestHistoricalEntityRemovalFixtureRetainsStateOnlyAuthority(t *testing.T) {
+	data, err := os.ReadFile("testdata/protocol/request_callback_entity_historical_removal.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request CallbackRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		t.Fatal(err)
+	}
+	context := request.Info.Context
+	if context == nil || !context.OpeningClosed || len(context.Entities) != 0 || request.Actor != nil {
+		t.Fatal("historical fixture retained live authority")
+	}
 }
 
 func TestMovingEntitySurvivesChunkCleanupBeforeTick(t *testing.T) {

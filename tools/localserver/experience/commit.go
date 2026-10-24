@@ -46,6 +46,10 @@ func (messageTeller) tell(p world.Entity, text string) {
 // Once the result has applied, its client messages go out to the actor's client part.
 // Cancellation returns an error only when the transaction did not run.
 func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) error {
+	// Historical removals retain the same private-state authority as final leaves.
+	if context := snap.req.Info.Context; context != nil && context.OpeningClosed {
+		return h.commitLeave(d.id, ev, snap, ops)
+	}
 	if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
 		err := h.commitLeave(d.id, ev, snap, ops)
 		if err != nil {

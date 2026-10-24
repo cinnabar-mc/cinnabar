@@ -241,6 +241,33 @@ func TestEntityWorldUnloadClosesHandlesAndLeases(t *testing.T) {
 	if err != nil || snap.req.Actor != nil || snap.req.Info.Context.Current != worldHandle {
 		t.Fatalf("removal observation lost its opening fence: %v", err)
 	}
+	data := "01"
+	ops := []Op{{StoreWrite: &StoreWriteOp{Key: StoreKey{Scope: StoreInstance, Schema: 1}, Data: &data}}}
+	if err := f.h.commit(t.Context(), f.d, *despawn, snap, ops); err != nil {
+		t.Fatalf("historical removal lost its private write: %v", err)
+	}
+	address := stateAddress{Scope: StoreInstance, Owner: string(worldHandle.ID)}
+	record := f.h.store.readStates("probe", []stateAddress{address})[0]
+	if record.Data == nil || *record.Data != data {
+		t.Fatal("historical removal discarded its private write")
+	}
+	if err := f.h.commit(t.Context(), f.d, *despawn, snap, ops); !errors.Is(err, errStale) {
+		t.Fatalf("historical removal replay ignored its state revision: %v", err)
+	}
+	snap, err = f.h.snapshot(t.Context(), f.d, despawn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := "02"
+	ops[0].StoreWrite.Data = &changed
+	ops = append(ops, Op{StoreWrite: &StoreWriteOp{Key: StoreKey{Scope: StorePlayer, Schema: 1}, Data: &changed}})
+	if err := f.h.commit(t.Context(), f.d, *despawn, snap, ops); !errors.Is(err, errInvalid) {
+		t.Fatalf("historical removal gained player state authority: %v", err)
+	}
+	record = f.h.store.readStates("probe", []stateAddress{address})[0]
+	if record.Revision != 1 || record.Data == nil || *record.Data != data {
+		t.Fatal("invalid historical batch partially changed private state")
+	}
 }
 
 func TestEntityRegistrationBuildsResourcesAndPreservesFrameworkFactories(t *testing.T) {

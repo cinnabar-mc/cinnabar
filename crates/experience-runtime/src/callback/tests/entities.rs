@@ -7,6 +7,7 @@ use crate::protocol as p;
 fn callback() -> CallbackRes {
     let mut res = Fixture::new().res();
     res.context = Some(p::WorldContext {
+        opening_closed: false,
         actor_riding_elsewhere: false,
         current: p::WorldHandle {
             id: "probe:planet".into(),
@@ -207,6 +208,48 @@ fn foreign_vehicle_refuses_boarding_before_staging() {
     .unwrap();
     assert!(matches!(
         res.mount_entity(handle, 0).unwrap(),
+        Err(WorldError::Unavailable)
+    ));
+    assert_eq!(res.ops.len(), 1);
+    assert!(res.ops.iter().all(|op| matches!(op, Op::StoreWrite { .. })));
+}
+
+#[test]
+fn historical_removal_retains_only_private_state_authority() {
+    let mut res = callback();
+    let context = res.context.as_mut().unwrap();
+    context.opening_closed = true;
+    context.instances.push(context.current.clone());
+    let world = context.current.clone().into();
+    res.store_write(
+        wit::StoreKey {
+            scope: wit::StoreScope::Mod,
+            schema: 1,
+        },
+        Some(vec![1]),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(matches!(
+        res.spawn_entity(
+            wit::EntityTypeId {
+                value: "probe:ship".into()
+            },
+            wit::Position {
+                x: 0.0,
+                y: 70.0,
+                z: 0.0
+            },
+            wit::EntityRotation {
+                yaw: 0.0,
+                pitch: 0.0
+            },
+        )
+        .unwrap(),
+        Err(WorldError::Unavailable)
+    ));
+    assert!(matches!(
+        res.unload_world(world).unwrap(),
         Err(WorldError::Unavailable)
     ));
     assert_eq!(res.ops.len(), 1);

@@ -100,6 +100,8 @@ type StateRecord struct {
 
 // WorldContext contains only the installing mod's instances and authorized private records.
 type WorldContext struct {
+	// OpeningClosed restricts a historical callback to its authorized private stores.
+	OpeningClosed        bool             `json:"opening_closed,omitempty"`
 	ActorRidingElsewhere bool             `json:"actor_riding_elsewhere,omitempty"`
 	Entities             []EntitySnapshot `json:"entities,omitempty"`
 	Current              WorldHandle      `json:"current"`

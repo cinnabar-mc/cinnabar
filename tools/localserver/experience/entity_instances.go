@@ -298,7 +298,7 @@ func (h *Host) EntityInteraction(p *player.Player, target world.Entity, attacked
 
 // entityDespawnSnapshot retains the removal observation after its world closes, with no live actor authority.
 func (h *Host) entityDespawnSnapshot(d *dispatcher, ev event) snapshot {
-	context := &WorldContext{Current: ev.instance.handle, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(ev.instance.handle.ID, nil))}
+	context := &WorldContext{OpeningClosed: true, Current: ev.instance.handle, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(ev.instance.handle.ID, nil))}
 	info := newInfo(h.worldID, ev.instance.id, ev.tick, d.seq)
 	info.Context = context
 	return snapshot{req: CallbackRequest{Info: info, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}

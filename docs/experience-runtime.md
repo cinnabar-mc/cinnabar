@@ -215,6 +215,8 @@ release them and their chunk leases, and terrain saves exclude them. Player trav
 leaves actors in their original world and dismounts departing riders.
 Removal callbacks retain live entity snapshots while their world opening exists.
 After unload, they retain only the historical opening and private stores.
+Their private writes still check scope and revisions; entity spawns and world
+operations are unavailable in that historical callback.
 
 Seat offsets are relative to the actor. At most one seat steers; input supplies
 movement intent, look angles, jump and sneak rather than client vehicle coordinates.
