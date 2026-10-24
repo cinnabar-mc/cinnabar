@@ -34,11 +34,13 @@ use bevy::{
     transform::StaticTransformOptimizations,
 };
 
+mod serial_visibility;
 #[cfg(test)]
 mod tests;
 
 /// Replaces Bevy's `PostProcessPlugin` with the two effects client cameras use, MSAA writeback
-/// and bloom, and removes the stock systems whose inputs the client never creates.
+/// and bloom, removes the stock systems whose inputs the client never creates, and runs Bevy's
+/// per-entity view-visibility bookkeeping serially.
 ///
 /// Add it in place of `PostProcessPlugin`, after `CorePipelinePlugin`, `CameraPlugin`,
 /// `MeshPlugin` and `TransformPlugin` have built.
@@ -50,6 +52,7 @@ impl Plugin for StockSystemsPlugin {
         app.insert_resource(StaticTransformOptimizations::Disabled)
             .add_plugins(crate::ClientPostProcessPlugin)
             .add_systems(PostStartup, remove_unused_main_systems);
+        serial_visibility::install(app);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             // RenderStartup reruns after device recovery; the removed systems stay removed.
             render_app.add_systems(RenderStartup, remove_unused_render_systems.run_if(run_once));
