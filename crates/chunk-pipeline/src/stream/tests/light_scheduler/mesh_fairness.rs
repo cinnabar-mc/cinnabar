@@ -80,6 +80,24 @@ fn retired_mesh_releases_coalesced_dependency_notification() {
     stream.accept_mesh_completion(completion);
 }
 
+/// A lower-ranked dependency change must not spend preparation ahead of ready geometry.
+#[test]
+fn ready_geometry_precedes_lower_rank_dependency_preparation() {
+    let (mut stream, _, visible, backlog) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    stream.mark_light_dirty_exact(visible).unwrap();
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    let camera = [(backlog.x * 16 + 8) as f32, 8.0, 8.0];
+    assert_eq!(stream.dispatch_mesh_jobs(camera, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, backlog);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 0);
+    stream.accept_mesh_completion(completion);
+}
+
 /// Queues a visible far mesh ahead of lower-priority work in a dimension-one test stream.
 fn seed_deferred_meshes(
     mut stream: WorldStream,

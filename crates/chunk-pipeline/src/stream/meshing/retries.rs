@@ -43,6 +43,13 @@ impl WorldStream {
                 self.mesh_jobs.retries.requeue(retry);
                 continue;
             }
+            if self.mesh_jobs.dependency_wakeups[RESIDENT_MESH_LANE]
+                .get(&retry.key)
+                .is_some()
+            {
+                self.mesh_jobs.retries.requeue(retry);
+                continue;
+            }
             if !self.mesh_jobs.retries.is_due(&retry) {
                 self.mesh_jobs.retries.requeue(retry);
                 continue;
