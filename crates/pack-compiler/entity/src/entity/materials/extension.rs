@@ -336,6 +336,10 @@ fn is_finite(value: &Parameter) -> bool {
 }
 
 #[cfg(test)]
+#[path = "extension_schema_tests.rs"]
+mod schema_tests;
+
+#[cfg(test)]
 mod tests {
     use serde_json::json;
 

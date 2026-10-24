@@ -6842,6 +6842,7 @@ dependencies = [
  "pack-compiler",
  "pack-json",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

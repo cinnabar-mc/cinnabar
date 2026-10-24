@@ -51,5 +51,10 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
   binding that needs them draws approximately and counts as an approximated material in the
   session's block report.
 
+The [JSON Schema](cinnabar-material-bindings-1.0.0.schema.json) (Draft 2020-12) describes format
+1.0.0. A test keeps it in step with the client's parser. The client also rejects a binding that names
+an undeclared material and parameter numbers that are not finite 32-bit floats, and it counts name
+and pattern limits in UTF-8 bytes; the schema cannot express these.
+
 Status: entity and block bindings render with their masks. Other textures and parameters are
 validated but not drawn.
