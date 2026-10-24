@@ -33,7 +33,8 @@ fn replayed_drawing_epoch_replaces_space_resources() {
     .unwrap();
     for epoch in [1, 1, 2, 2] {
         host.dispatch(&Event::Epoch, epoch, &drawing_context(epoch))
-            .unwrap();
+            .unwrap()
+            .into_transaction();
         let output = host.store.data().presentation.presentation_output();
         assert_eq!(output.drawing.instances.len(), 2);
         assert_eq!(output.drawing.geometry.len(), 2);
