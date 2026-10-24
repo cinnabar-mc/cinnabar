@@ -52,6 +52,7 @@ fn resolve(
                         vanilla: None,
                         equipment: Some(catalog.clone()),
                         vanilla_pack_dir: None,
+                        fancy_graphics: true,
                     },
                     view,
                     None,
@@ -173,11 +174,12 @@ fn a_fresh_compile_shares_equal_actor_and_equipment_pixels_without_changing_enco
                 vanilla: None,
                 equipment: None,
                 vanilla_pack_dir: None,
+                fancy_graphics: true,
             },
             &view,
             None,
             &|| false,
-            |_, _, _, _, _, _| Some((Some(Arc::clone(&original)), None)),
+            |_, _, _, _, _, _, _| Some((Some(Arc::clone(&original)), None)),
         )
         .unwrap()
         .unwrap();

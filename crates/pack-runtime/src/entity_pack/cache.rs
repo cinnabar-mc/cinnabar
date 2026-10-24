@@ -13,6 +13,8 @@ pub(super) struct EntityInputs {
     pub(super) vanilla: Option<Arc<assets::VanillaEntityRefs>>,
     pub(super) vanilla_pack_dir: Option<PathBuf>,
     pub(super) equipment: Option<Arc<assets::RuntimeEquipmentCatalog>>,
+    /// Whether the compile reads Fancy Graphics' entity material list.
+    pub(super) fancy_graphics: bool,
 }
 
 impl PartialEq for EntityInputs {
@@ -23,8 +25,10 @@ impl PartialEq for EntityInputs {
             vanilla,
             vanilla_pack_dir,
             equipment,
+            fancy_graphics,
         } = self;
         stack == &other.stack
+            && fancy_graphics == &other.fancy_graphics
             && vanilla == &other.vanilla
             && vanilla_pack_dir == &other.vanilla_pack_dir
             && equipment
@@ -133,6 +137,7 @@ impl EntityCache {
             Option<&std::path::Path>,
             Option<&assets::RuntimeEquipmentCatalog>,
             bool,
+            bool,
             &dyn Fn() -> bool,
         ) -> Option<Compiled>,
     ) -> Option<Option<Arc<SessionEntityPack>>> {
@@ -169,6 +174,7 @@ impl EntityCache {
                 inputs.vanilla.as_deref(),
                 inputs.vanilla_pack_dir.as_deref(),
                 inputs.equipment.as_deref(),
+                inputs.fancy_graphics,
                 disk.is_some(),
                 cancelled,
             )?;
@@ -233,6 +239,7 @@ fn disk_key(inputs: &EntityInputs) -> [u8; 32] {
     }
     part(&mut key, &vanilla_digest(inputs.vanilla.as_ref()));
     part(&mut key, &[u8::from(inputs.equipment.is_some())]);
+    part(&mut key, &[u8::from(inputs.fancy_graphics)]);
     part(
         &mut key,
         &inputs

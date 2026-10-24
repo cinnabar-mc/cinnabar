@@ -316,6 +316,8 @@ fn compile_application(
         );
     }
     let max_layers = overlay_texture_layer_limit();
+    // Read once, so every block and icon compile and its cache key agree.
+    let fancy_graphics = pack_runtime::graphics::fancy_graphics();
     let view = LayeredPackView::new(Arc::clone(&stack));
     let fingerprint = stack.fingerprint();
     let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
@@ -366,6 +368,7 @@ fn compile_application(
                         custom_blocks,
                         hashed_block_ids,
                         max_layers,
+                        fancy_graphics,
                         || {
                             super::block_overlay::compile_block_overlay_with_textures(
                                 view,
@@ -375,6 +378,7 @@ fn compile_application(
                                 max_layers,
                                 base_world_assets(),
                                 Some(&textures),
+                                fancy_graphics,
                             )
                             .map(Arc::new)
                         },
@@ -393,7 +397,7 @@ fn compile_application(
                 changes.icons || changes.blocks,
                 previous.and_then(|old| old.item_icons.clone()),
                 icon_keys,
-                disk_cache::icon_key(&stack, &inputs, max_layers),
+                disk_cache::icon_key(&stack, &inputs, max_layers, fancy_graphics),
                 |view| {
                     let item_overlay = super::block_overlay::compile_block_item_overlay(
                         view,
@@ -402,6 +406,7 @@ fn compile_application(
                         max_layers,
                         base_world_assets(),
                         Some(&textures),
+                        fancy_graphics,
                     );
                     let grass = super::item_icons::carried_grass_tint(
                         view,
@@ -745,6 +750,8 @@ struct CachedOverlay {
     readers: Vec<[u8; 32]>,
     hashed: bool,
     max_layers: u32,
+    /// The graphics mode material bindings resolved their bases through.
+    fancy_graphics: bool,
     blocks: protocol::CustomBlocks,
     /// Weak, so an overlay outlives its session only while a kept stack owns it; `None` when the
     /// stack compiled no blocks.
@@ -776,6 +783,7 @@ fn cached_block_overlay(
     blocks: &protocol::CustomBlocks,
     hashed: bool,
     max_layers: u32,
+    fancy_graphics: bool,
     compile: impl FnOnce() -> Option<Arc<CompiledBlockOverlay>>,
 ) -> Option<Arc<CompiledBlockOverlay>> {
     let readers: Vec<_> = view
@@ -791,6 +799,7 @@ fn cached_block_overlay(
     if let Some(index) = cache.iter().position(|cached| {
         cached.hashed == hashed
             && cached.max_layers == max_layers
+            && cached.fancy_graphics == fancy_graphics
             && cached.stack == *fingerprint
             && cached.readers == readers
             && cached.blocks == *blocks
@@ -807,7 +816,7 @@ fn cached_block_overlay(
     }
     let overlay = disk_cache::compile(
         view,
-        disk_cache::block_key(view.stack(), blocks, hashed, max_layers),
+        disk_cache::block_key(view.stack(), blocks, hashed, max_layers, fancy_graphics),
         compile,
     );
     cache.push_front(CachedOverlay {
@@ -818,6 +827,7 @@ fn cached_block_overlay(
         readers,
         hashed,
         max_layers,
+        fancy_graphics,
         blocks: blocks.clone(),
         overlay: overlay.as_ref().map(Arc::downgrade),
     });

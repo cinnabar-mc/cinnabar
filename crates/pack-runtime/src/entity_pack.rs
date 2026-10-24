@@ -77,6 +77,7 @@ pub fn compile_session_entities(
         vanilla: vanilla_refs(),
         vanilla_pack_dir: vanilla_pack_dir(),
         equipment: BASE_EQUIPMENT.get().cloned(),
+        fancy_graphics: crate::graphics::fancy_graphics(),
     };
     ENTITY_CACHE.get_or_compile(
         inputs,
@@ -95,9 +96,17 @@ pub fn compile(
     vanilla_pack_dir: Option<&std::path::Path>,
     equipment: Option<&RuntimeEquipmentCatalog>,
 ) -> Option<Arc<SessionEntityPack>> {
-    compile_encoded(view, vanilla, vanilla_pack_dir, equipment, false, &|| false)
-        .expect("an uncancellable compile completes")
-        .0
+    compile_encoded(
+        view,
+        vanilla,
+        vanilla_pack_dir,
+        equipment,
+        crate::graphics::fancy_graphics(),
+        false,
+        &|| false,
+    )
+    .expect("an uncancellable compile completes")
+    .0
 }
 
 /// `encode` also returns the entity blob, which only a disk-cached compile needs. Checks
@@ -107,10 +116,12 @@ fn compile_encoded(
     vanilla: Option<&assets::VanillaEntityRefs>,
     vanilla_pack_dir: Option<&std::path::Path>,
     base_equipment: Option<&RuntimeEquipmentCatalog>,
+    fancy_graphics: bool,
     encode: bool,
     cancelled: &dyn Fn() -> bool,
 ) -> Option<Compiled> {
-    let (mut files, collected) = collect::collect_files_reporting(view, vanilla, vanilla_pack_dir);
+    let (mut files, collected) =
+        collect::collect_files_for_graphics(view, vanilla, vanilla_pack_dir, fancy_graphics);
     let artwork_sources = equipment_artwork::collect(view, base_equipment, &mut files);
     let equipment_priorities = artwork_sources
         .iter()

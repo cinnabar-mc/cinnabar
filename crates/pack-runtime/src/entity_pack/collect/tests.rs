@@ -997,3 +997,40 @@ fn entity_textures_resolve_through_a_same_pack_texture_set_to_its_colour() {
         assert_eq!(decoded.get_pixel(0, 0).0, expected);
     }
 }
+
+#[test]
+fn simple_graphics_loads_the_sad_material_list_and_fancy_the_fancy_one() {
+    let pack = archive_files(
+        1,
+        vec![
+            (
+                pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH,
+                json!([{"path": "materials/fancy.material", "+defines": ["FANCY"]}]),
+            ),
+            (
+                pack_entity_compiler::SIMPLE_ENTITY_MATERIAL_LIST_PATH,
+                json!([{"path": "materials/simple.material"}]),
+            ),
+            ("materials/fancy.material", json!({"fancy": {}})),
+            ("materials/simple.material", json!({"simple": {}})),
+        ],
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![pack]),
+    ));
+    let list = |fancy| {
+        let (files, _) = super::collect_files_for_graphics(&view, None, None, fancy);
+        files
+            .into_iter()
+            .find(|(path, _)| path.as_ref() == pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH)
+            .map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(&bytes).unwrap())
+    };
+    assert_eq!(
+        list(true),
+        Some(json!([{"path": "materials/fancy.material", "defines": ["FANCY"]}]))
+    );
+    assert_eq!(
+        list(false),
+        Some(json!([{"path": "materials/simple.material", "defines": []}]))
+    );
+}
