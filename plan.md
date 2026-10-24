@@ -138,9 +138,12 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   host-owned depth, blend and pass, charged to the signed memory and GPU limits, and revocation
   restores Bedrock in one publication. Cube and model blocks are both tagged, and translucent
   classes merge face by face into their section's ordinary translucent order (water and
-  translucent models) with ordinary terrain's face metric. Incomplete: Enhanced and shader-pack
-  terrain draw bound blocks as Bedrock, and only offline raster acceptance exists; no in-game
-  capture of a bound entity or block.
+  translucent models) with ordinary terrain's face metric. Shader-pack terrain samples a bound
+  block from an atlas sprite the guest renders each frame (albedo plus LabPBR emission), which
+  the pack lights as any block. Incomplete: the sprite is one per material, rendered with a
+  flat face, fixed view and white base, so position-, view- and neighbour-dependent effects and
+  Bedrock tint are flattened; Enhanced terrain draws bound blocks as Bedrock; and only offline
+  raster acceptance exists, with no in-game capture of a bound entity or block.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no

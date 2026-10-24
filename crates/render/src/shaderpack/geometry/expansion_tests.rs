@@ -175,6 +175,8 @@ struct Fixture<'a> {
     stream_bases: [u32; 4],
     /// The vertex layout the kernel writes.
     layout: TerrainLayout,
+    /// Published world material sprites: remap slot and rectangle.
+    world_sprites: &'a [(u32, [u32; 4])],
 }
 
 /// Expands the fixture section's cube quads with the production kernel and layouts, in the
@@ -197,6 +199,7 @@ pub(super) fn expand_fixture_in(name: &str, layout: TerrainLayout) -> Option<Exp
             streams,
             stream_bases: [0; 4],
             layout,
+            world_sprites: &[],
         },
     )
 }
@@ -275,11 +278,14 @@ fn expand_section(name: &str, fixture: Fixture<'_>) -> Option<Expanded> {
     attributes[GRASS as usize * 2 + 1] = GRASS_EMISSION;
     let mut job_words = attributes.clone();
     job_words.extend(plan.jobs[kind as usize].iter().flatten());
-    let mut remap = vec![[0_u32; 2]; atlas::static_sprite_slot(1, 2) as usize + 1];
+    let mut remap = vec![[0_u32; 2]; atlas::animation_sprite_slot(0) as usize];
     remap[0] = ATLAS_SIZE;
     let rect = |[x, y, w, h]: [u32; 4]| [x | (y << 16), w | (h << 16)];
     remap[atlas::static_sprite_slot(0, 3) as usize] = rect(GRASS_RECT);
     remap[atlas::static_sprite_slot(1, 2) as usize] = rect(LEAF_RECT);
+    for &(slot, sprite) in fixture.world_sprites {
+        remap[slot as usize] = rect(sprite);
+    }
     let remap_words: Vec<u32> = remap.into_iter().flatten().collect();
     let mut params = [0_u32; (EXPAND_PARAMS_BYTES / 4) as usize];
     params[..3].copy_from_slice(&ANCHOR.map(|axis| axis as u32));
@@ -634,6 +640,7 @@ fn liquid_faces_carry_the_fluid_render_type() {
             streams,
             stream_bases: [0, 0, 0, 2],
             layout: TerrainLayout::WIDE,
+            world_sprites: &[],
         },
     ) else {
         return;
@@ -657,5 +664,38 @@ fn liquid_faces_carry_the_fluid_render_type() {
             vertex.position.y
         );
         assert_eq!(vertex.normal, [0, 127, 0, 0]);
+    }
+}
+
+/// A face tagged with world material slot 0 samples that material's sprite once its remap
+/// entry is published, and its Bedrock sprite before.
+#[test]
+fn world_material_faces_sample_the_published_material_sprite() {
+    let world_rect = [128, 64, 16, 16];
+    let quads = [PackedQuad::new([6, 2, 1], Face::NegativeX, 1, 1, GRASS).with_world_material(1)];
+    let streams = words_of(SIDE_LIGHT).to_vec();
+    for (published, rect) in [(false, GRASS_RECT), (true, world_rect)] {
+        let sprites = [(atlas::world_material_sprite_slot(0), world_rect)];
+        let Some(expanded) = expand_section(
+            "shader-pack world material expansion",
+            Fixture {
+                kind: JobKind::Cube,
+                cube_quads: &quads,
+                liquid_quads: &[],
+                streams: streams.clone(),
+                stream_bases: [0; 4],
+                layout: TerrainLayout::WIDE,
+                world_sprites: if published { &sprites } else { &[] },
+            },
+        ) else {
+            return;
+        };
+        let vertex = decode(&expanded.words, 0);
+        assert_close(
+            &vertex.uv,
+            &atlas_uv(rect, [0.0, 1.0]),
+            1e-4,
+            &format!("published {published}"),
+        );
     }
 }

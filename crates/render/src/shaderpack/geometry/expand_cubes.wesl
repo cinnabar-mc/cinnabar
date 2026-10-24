@@ -79,5 +79,6 @@ fn cube_face(job: vec4<u32>) -> JobFace {
     source.material_id = cube.selected_material_id;
     source.material = material;
     source.two_sided = (material.flags & TWO_SIDED) != 0u;
+    source.world = cube.world;
     return JobFace(corners, source, true);
 }
