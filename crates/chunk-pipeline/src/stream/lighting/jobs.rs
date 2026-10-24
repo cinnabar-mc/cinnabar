@@ -656,7 +656,7 @@ impl WorldStream {
                     .mesh_jobs
                     .deferred_candidate(RESIDENT_MESH_LANE, dependent)
                     .is_some()
-                    && self.mesh_light_halo(dependent).is_some()
+                    && self.mesh_light_halo_is_ready(dependent)
                     && !self.mesh_neighbour_is_due(dependent, now)
                 {
                     self.mesh_jobs.wake_deferred(RESIDENT_MESH_LANE, dependent);

@@ -416,6 +416,12 @@ impl WorldStream {
         self.resident.contains(&key)
             && (self.known_air.contains(&key) || self.authority.terrain().contains_sub_chunk(key))
     }
+    /// Checks known halo inputs without retaining the light snapshots used by a mesh worker.
+    pub(in crate::stream) fn mesh_light_halo_is_ready(&self, center: SubChunkKey) -> bool {
+        center
+            .mesh_neighbourhood_dependents()
+            .all(|key| !matches!(self.light_source_state(key), LightSourceState::Stale))
+    }
     pub(in crate::stream) fn mesh_light_halo(&self, center: SubChunkKey) -> Option<MeshLightHalo> {
         let mut slots = std::array::from_fn(|_| None);
         for dx in -1_i8..=1 {
