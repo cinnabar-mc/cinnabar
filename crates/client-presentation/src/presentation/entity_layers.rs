@@ -155,9 +155,9 @@ fn pack_layer_tint(color: [f32; 4]) -> u32 {
     }
 }
 
-/// The glint of a `GLINT` layer, scrolling with the actor's completed ticks; other layers keep
-/// the placed body's own foil. The draw adds the client's actor glint; Bedrock's glint
-/// constants are unknown.
+/// The glint of a `GLINT` layer at the actor's completed tick; publication then interpolates
+/// it and applies the glint settings. Other layers keep the placed body's own foil. The draw
+/// adds the client's actor glint; Bedrock's glint constants are unknown.
 fn layer_glint(
     submission: &ActorRigSubmission,
     layer: &RenderTextureLayer,
