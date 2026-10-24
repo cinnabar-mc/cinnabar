@@ -113,6 +113,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
   binding conditions are deferred: they would need per-frame evaluation of each bound bone's
   condition beside the render controller's visibility rules, which adds per-frame cost.
+- [ ] Offline material previews are deferred. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline, so it cannot show how a define-driven entity material or a
+  bound custom block draws. Until an offline GPU scene tool exists, the actor fragment's readback
+  tests in `crates/render/tests/it/actor_colour.rs` pin those draws, and the developer-control
+  snapshot's `materials` section explains a live session's choices.
 - [ ] Programmable world materials for server Experiences (a `render_world_material` permission
   binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
   guests have no drawing interface yet, and production Experience execution stays fail-closed
