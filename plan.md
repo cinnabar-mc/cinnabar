@@ -74,6 +74,12 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.
+Login device claims report the native core's OS and detected hardware model, keeping a stable
+install ID and migrating old fabricated profiles. Browser sessions use the browser-reported
+OS through the framed control handshake, omit unavailable hardware models and keep their
+device ID through account changes, including when HTTP transport headers are absent. Xbox sign-in still uses the Android OAuth
+registration; native Windows device authentication and other platform registrations remain
+incomplete. Live acceptance of native device claims across platforms remains open.
 
 ## Phase 2 — World rendering
 
@@ -244,7 +250,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   same publication limits and poll deadline. Staged worker completions receive a bounded
   share first, so fresh removals cannot starve staged empty or geometry results.
   Late blob replies for retired transactions no longer discard valid, still-needed
-  blobs in the same response. Sustained high-speed hardware qualification remains open.
+  blobs in the same response. Verified requested bodies arriving after ordinary-lane
+  retirement can warm the cache for recovery. Sustained high-speed hardware qualification
+  remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
@@ -304,9 +312,14 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
-Keep raw, analogue and processed input semantics distinct. Mounted controls need
-attributable vehicle mapping, constants, state and actual prediction before claiming
-client-predicted vehicle behavior. Riding alone does not establish that capability.
+Keep raw, analogue and processed input semantics distinct. A boat steered from its
+controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
+constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
+rotation turns the rider's view with its vehicle and holds it within the seat's range.
+Incomplete: vanilla rewinds a vehicle correction and replays the recorded inputs, while
+Cinnabar restarts prediction from the corrected state and snaps the rider like a teleport.
+Server motion of a predicted boat replaces its predicted motion; vanilla's handling is
+unverified. Horse prediction and boat-to-boat collision remain open.
 
 The block climber rewrites its contact flags after each movement tick; the descent
 action reads the retained contact before movement. Prediction sync reports those values
@@ -340,6 +353,17 @@ Received local spawns, removals and dimension resets publish complete replacemen
 authority through the same ordered controls. Synthetic creation keeps that lifetime
 and its already accepted updates and effects. Replacement retires cached flags, pose
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
+actor and controller writes independently of the replaced actor state.
+Passenger order follows vanilla's `Actor::addPassenger` and `ActorLinkSystem::_tick`: links
+apply in arrival order, a player boarding behind a non-player takes the front seat, and a
+rider whose actor is missing never holds back later riders. A rider spawning in its link's
+tick keeps its place; one spawning later boards behind. The controller is the player in the
+controlling seat of a boat or a saddled, tamed horse. Deviation: vanilla drops a link whose
+actor is missing at its tick and relies on spawn-embedded links; Cinnabar keeps it until
+either actor is removed, so a server that never re-links still seats the rider.
+Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
+block-climber flags, custom collision definitions, transition-tick packet ordering
+and broader live-server qualification remain incomplete.
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
 Server-driven item-use gameplay starts, block-climber flags, custom collision
@@ -374,6 +398,13 @@ Remote player presentation interpolates received positions along straight segmen
 which can cross a block corner between clear endpoints. Teleports discard that
 segment immediately. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
+
+The anchor probe after teleports and replayed corrections reads the mover's contextual
+collision, so scaffolding and powder snow the player's own move passes through never push
+the anchor. Its instantaneous, bounded push-out from real solids remains a provisional
+recovery policy: vanilla runs no separate push-out after a teleport, and its closest-space
+push instead nudges horizontal velocity toward free space by at most 0.1 block per tick
+for actors with the push-towards-closest-space flag, which is not modelled.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
@@ -482,6 +513,17 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
+  Framed cube items retain their authored carried faces and three-dimensional geometry.
+  Framed, dropped and held items try session block sheets, session icons, startup carried
+  geometry and startup sprites in order, continuing when construction, extrusion or device
+  atlas and mesh admission fails. Selection and upload share the same physical budgets.
+  Framed and dropped items compare complete cube-preferred and sprite-only preparations
+  using borrowed source costs before constructing artwork. Only selected models copy pixels
+  and retain their result. They choose the plan that draws more items, keeping cubes on a tie,
+  and count and log omissions. Capacity rejections reuse their decision until the budget
+  changes; invalid meshes stay rejected until their artwork generation changes.
+  Cache-pressure captures, frame pose comparisons and matched shaped and special-model
+  comparisons remain incomplete.
   Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand;
   dropped eyeblossoms and pitcher plants remain incomplete.
   Shulker previews apply each face brightness once.
@@ -508,6 +550,12 @@ and rendered qualification remain incomplete.
   Heavy-core inventory previews use their carried scale and screen offset.
   Shelf inventory previews use their carried scale and position.
   Azalea previews keep separate stems and open-bottom canopies.
+- [ ] Inherit every base-game image that server `item_texture.json` entries name without
+  shipping it. Session icons fall back to the world carrier's terrain layer only when that
+  layer is an exact copy of the source image: an untinted image of exactly one 16x16 tile.
+  Larger and animated block images, carried-only textures such as `textures/blocks/barrier`
+  and the `*_carried` leaves, and UI images still draw no icon; they need base images kept
+  at source resolution by path.
 - [ ] Draw an inventory icon for structure voids, the remaining pinned registry item
   without one. Copper golem statue previews use the standing pack geometry, oxidation
   artwork and eye layer; item pose metadata remains incomplete. Variant indices of
@@ -1033,6 +1081,35 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+  Client parts now share personal-mod retained drawing, procedural materials, immediate
+  primitives and local environment imports, with signed asset reads and an optional frame
+  callback. Camera anchors admit celestial-scale scenes without terrain residency.
+  Drawing authority and current actor identities bind together before initialization or any
+  callback; unbound and stale contexts are refused. Session teardown, epoch actor
+  context, actor-only snapshots, staggered initialization,
+  fair frame callbacks and expanded triangle limits have regression coverage. Bundle
+  admission and helper failures revoke only their producer; paused dispatch continues
+  completion polling, and temporary culling preserves retained mask selections. Actor
+  references stay live during callbacks and partial snapshot transfers. Native actor
+  liveness admits references and mask selections independently of culling or prior
+  publication; only confirmed despawns or world rebinds revoke them. Completion
+  discards and counts stale actor references and their dependent draws without
+  stopping the bundle. Declared bundle files are packaged once across screen,
+  texture and drawing asset lists. Guest
+  drawing imports share the receiver's per-bundle draw ceiling. Legacy scene objects,
+  retained placements and immediate primitives share one immutable presentation
+  snapshot and combined draw and triangle limits. Scene-only changes stream through
+  that same atomic publication boundary. Immediate
+  primitives share one admitted list whose allocation ranges survive layer merging.
+  One frame publisher rebuilds anchor availability from all current contributors,
+  including server-only configurations. One allocation ledger per bundle
+  covers drawing, every view's resident instance capacity, masks and media textures;
+  retired storage releases charges without new guest snapshots. Immediate and retained
+  buffers defer growth until old storage retires when both allocations cannot fit together.
+  Atmosphere and shader packs share time-override precedence:
+  capture pin, personal mod, client part, then authoritative server time. Headless planet /
+  star-cube rendering and F9 teardown are captured; hardware performance qualification
+  remains incomplete.
   Source-driven mod projects generate typed Rust/Go messages, direction-checked sends
   and handlers on both halves, registry confirmation,
   compile-checked asset constants and paired `.cmod` packages through `devtool mod new/build`.

@@ -4013,6 +4013,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-space-client"
+version = "0.1.28"
+dependencies = [
+ "experience-sdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "experience-terminal-client"
 version = "0.1.28"
 dependencies = [
@@ -5962,6 +5971,7 @@ dependencies = [
  "test-alloc",
  "test-time",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "tracing",
  "ui",
  "wasi-preview1-component-adapter-provider",
@@ -5982,6 +5992,7 @@ dependencies = [
  "bytemuck",
  "mod-api",
  "naga",
+ "serde",
  "test-alloc",
 ]
 

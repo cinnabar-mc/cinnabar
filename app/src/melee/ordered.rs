@@ -40,8 +40,14 @@ pub(crate) fn press(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+    item_use: Res<client_interaction::item_use::ItemUseRuntime>,
     mut attack_cues: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalAttackCue>,
 ) {
+    // An earlier use edge in this batch may have started eating or drawing.
+    if item_use.vetoes_attack(&player, context.client_world.stream.as_ref()) {
+        gameplay::movement::note_click_drop("attack", gameplay::melee::USING_ITEM);
+        return;
+    }
     let Some(selection) = hand_interaction_selection(&player) else {
         return;
     };

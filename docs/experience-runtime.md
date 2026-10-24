@@ -263,7 +263,7 @@ before closing the server or worlds.
 | Server WIT | 0.9; frozen 0.1–0.6 and 0.8 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
 | Adapter IPC | 9, `PROTOCOL_VERSION` in [protocol.rs](../crates/experience-runtime/src/protocol.rs); exact match required |
 | Manifest data schema | `DATA_SCHEMA` in [artifact.rs](../crates/experience-sdk/src/artifact.rs) |
-| Client WIT/wire | [Client compatibility](server-experiences.md#versions-and-wire) |
+| Client WIT/wire | [Client compatibility](server-experiences.md#versions-and-wire); [shared drawing](server-experiences.md#drawing-and-signed-assets) |
 
 Server 0.1 has no client messages; 0.2 adds scalar messages; 0.3 adds nested records
 and epochs; 0.4 adds focus; 0.5 adds block states/visuals, items, inventories and

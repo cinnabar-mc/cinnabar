@@ -46,13 +46,16 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `modal_ui` | Signed JSON-UI modal templates, values and collections |
 | `input` | Declared focused-modal actions, text and modifier changes |
 | `messaging` | Signed typed channels; client sends only `to_server` |
-| `scene` | Declarative scene objects; the app currently draws media-textured quads |
+| `scene` | Declarative objects sharing the bundle's drawing snapshot and budgets |
 | `media` | Playback of indexed signed descriptors |
 | `items` | Read-only session item catalog |
+| `world_draw` | Shared retained drawing, immediate primitives and local visual time/weather overrides |
+| `entity_observe`, `entity_highlight` | Current native actor references and masks |
+| `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
 
-The current client WIT does not import personal-mod world drawing, terrain,
-packet interception or local settings. Do not copy personal grants into a client
-part and expect those APIs to link.
+Client parts share the personal-mod drawing, render, environment and signed-asset
+imports. Terrain, packet interception and local settings remain personal-mod APIs.
+Client-part grants still come from the signed offer and consent.
 
 | Limit | Authority |
 | --- | --- |
@@ -68,7 +71,8 @@ Per-session budgets prevent multiplying allowances by adding bundles. Initializa
 also consumes the aggregate budget; Ready waits for all initializers.
 
 A failed callback restarts its guest and counts a strike. Repeated failures stop
-that part; other parts continue. Fatal helper/session failures end the extension.
+that part; other parts continue. Unusable helper output stops its producer; malformed
+session framing ends the extension.
 No WASI, arbitrary network, filesystem, account tokens or raw packets are imported.
 
 ## Callbacks and registry confirmation
@@ -79,6 +83,7 @@ Implement [`ClientPart`](../crates/experience-sdk/src/client.rs).
 | --- | --- |
 | `init` | Initialize once after generated registry confirmation |
 | `#[on_message]` | Decoded to-client message; generated dispatch validates the declared channel |
+| `frame` | Optional presentation callback; coalesced while busy |
 | `epoch` | World epoch changed; state remains live |
 | `action`, `secondary_action` | Declared primary/secondary modal action, with collection row |
 | `modal_resized` | First drawn size or GUI-size change |
@@ -92,6 +97,26 @@ mismatch stops the part and clears queued callbacks. While waiting, the host
 retains latest state plus ordered messages/actions. Queue overflow stops that part.
 After confirmation, latest epoch/modifiers/size/text/scroll state precedes queued
 events. Old-epoch events are discarded.
+
+## Drawing and signed assets
+
+Use the [shared drawing contract](../crates/mod-api/README.md) for retained meshes,
+materials, camera anchors, primitives and actor masks. References bind to the native
+connection, dimension and actor incarnation. World changes clear old presentation;
+stale references and dependent draws are dropped and counted without stopping the
+part. Frames rotate across ready producers within the shared callback allowance.
+
+Legacy objects and drawing publish in one immutable snapshot. Their draw and
+triangle limits combine. Each bundle's GPU ledger covers retained and immediate
+geometry, per-view instances, masks and media. Resident storage stays charged until
+its last GPU use; buffer growth waits for old storage to retire when needed.
+
+Low-level `[client].assets` declares signed drawing files beside `experience.toml`.
+Generated declarations expose `Asset` constants; `assets.read_range` streams larger
+files across callbacks. A file listed as a template, texture and asset is packaged
+once. Source-driven projects retain their generated `shared::assets` declarations.
+The [space client](../examples/experiences/space-client) shows a camera-anchored
+planet with signed textures and a bounded procedural material.
 
 ## Modal screens
 
@@ -151,8 +176,8 @@ Paired `mod run` prepares keys, installation and cache automatically.
 | --- | --- |
 | Handshake API | `API_VERSION` in [policy.rs](../crates/server-experience/src/policy.rs) |
 | Envelope versions | `WIRE_VERSION` through `MAX_WIRE_VERSION` in policy; v2 negotiates fragmentation and ceilings |
-| Client WIT | [capabilities.wit](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit), currently 1.4; older 1.x components still link |
-| Exported world | [server-bundle](../crates/experience-sdk/wit/client/client.wit) |
+| Client WIT | [capabilities.wit](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit), currently 1.5; older 1.x components still link |
+| Exported world | [server-bundle](../crates/mod-api/wit/client.wit) |
 | Canonical fields/domains/limits | [extension.json](../crates/server-experience/schema/extension.json) |
 
 Transport uses Bedrock `ScriptMessage` with `message_id = "cinnabar:extensions/v1"`.

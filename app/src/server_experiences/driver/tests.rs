@@ -17,6 +17,26 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+#[test]
+fn server_only_block_availability_expires_without_a_personal_publisher() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::mod_scene::retained::DrawingFrame;
+    let mut app = join_app(State::Disabled);
+    app.world_mut()
+        .resource_mut::<DrawingFrame>()
+        .loaded_blocks
+        .insert([0; 3]);
+    app.world_mut()
+        .run_system_once(crate::modding::anchors::publish_frame)
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<DrawingFrame>()
+            .loaded_blocks
+            .is_empty()
+    );
+}
+
 /// Finds a real production system node in Bevy's unbuilt schedule graph.
 fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeId {
     let parent = NodeId::Set(
@@ -352,7 +372,11 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         super::super::live::Live::start(
             grant,
             Vec::new(),
-            old_epoch,
+            &mod_host::presentation::Context {
+                connection: 1,
+                epoch: old_epoch,
+                ..Default::default()
+            },
             0,
             PathBuf::new().as_path(),
             PathBuf::new().as_path(),
@@ -564,4 +588,41 @@ fn a_modal_hotbar_key_over_an_inventory_slot_sends_its_swap() {
     assert!(ledger.displayed_stack(9).is_none());
     assert_eq!(ledger.displayed_stack(2).unwrap().count, 32);
     assert!(ledger.pending_batch().unwrap().is_some());
+}
+
+#[test]
+fn changing_a_signed_bundle_set_drops_the_previous_runtime() {
+    let mut app = join_app(State::Disabled);
+    let mut grant = Grant {
+        offer: offer(),
+        session: "session".into(),
+        connection: "connection".into(),
+        subclient: 0,
+        wire: server_experience::negotiation::Wire::v1(),
+        expires_unix: u64::MAX,
+    };
+    let mut service = app.world_mut().resource_mut::<ExperienceService>();
+    assert!(!service.select_deployment(&grant));
+    service.attempted = true;
+    service.live = Some(
+        super::super::live::Live::start(
+            grant.clone(),
+            Vec::new(),
+            &mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
+            0,
+            PathBuf::new().as_path(),
+            PathBuf::new().as_path(),
+        )
+        .unwrap(),
+    );
+    assert!(!service.select_deployment(&grant));
+    assert!(service.live.is_some());
+    grant.offer.digest = "another-signed-bundle-set".into();
+    assert!(service.select_deployment(&grant));
+    assert!(service.live.is_none());
+    assert!(!service.attempted);
 }

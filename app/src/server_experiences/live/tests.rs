@@ -1,10 +1,12 @@
 use super::*;
 use protocol::ExperienceMessage;
 
+mod drawing;
 mod negotiation;
 mod recovery;
 mod scheduling;
 mod shift;
+mod worker;
 mod world;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
@@ -15,111 +17,17 @@ use server_experience::{
     wire::{Channel, Direction, Field, Fragment, Scalar},
 };
 use std::collections::BTreeSet;
+use worker::FakeWorker;
 
 /// The one template every fixture bundle indexes.
 const SCREEN: &str = "ui/screen.json";
 
-struct FakeWorker {
-    response: Option<Transaction>,
-    /// A failure reply that the next poll delivers before any response.
-    failure: Option<CallFailure>,
-    /// Makes each dispatch fail its callback instead of completing it.
-    fail: bool,
-    /// The confirmation channel blocking callbacks, and the channel used after a restart.
-    confirmation: Option<String>,
-    registry: Option<String>,
-    dispatched: Vec<Event>,
-    /// The modal size each dispatch carried.
-    sizes: Vec<Option<GuiSize>>,
-    /// The revision of the session items each dispatch carried.
-    items: Vec<Option<u64>>,
-    owner: Principal,
-}
-
-impl Worker for FakeWorker {
-    /// Leaves initialization pending until the test supplies its completion.
-    fn spawn(_: &Path, _: Vec<u8>, owner: Principal, _: Capabilities, _: u64) -> Result<Self> {
-        Ok(Self {
-            response: None,
-            failure: None,
-            fail: false,
-            confirmation: None,
-            registry: None,
-            dispatched: Vec::new(),
-            sizes: Vec::new(),
-            items: Vec::new(),
-            owner,
-        })
-    }
-    /// Delivers only explicitly completed transactions and failures.
-    fn poll(&mut self) -> Option<Result<Reply>> {
-        if let Some(failure) = self.failure.take() {
-            return Some(Ok(match self.response.take() {
-                Some(transaction) => Reply::Recovered {
-                    failure,
-                    transaction,
-                    confirmation: self.confirmation.clone(),
-                },
-                None => Reply::Failed(failure),
-            }));
-        }
-        self.response.take().map(|transaction| {
-            Ok(match &self.confirmation {
-                Some(confirmation) => Reply::NotReady {
-                    transaction,
-                    confirmation: confirmation.clone(),
-                },
-                None => Reply::Committed {
-                    transaction,
-                    fuel: 1,
-                },
-            })
-        })
-    }
-    /// Records delivered events and completes them on the next poll, in the dispatch's epoch,
-    /// or fails them when the test asks.
-    fn dispatch(&mut self, request: Dispatch) -> Result<()> {
-        self.sizes.push(request.gui);
-        self.items
-            .push(request.items.as_ref().map(|items| items.revision));
-        if let Some(confirmation) = &self.confirmation {
-            if matches!(&request.event, Event::Message { channel, .. } if channel == confirmation) {
-                self.confirmation = None;
-            } else {
-                self.response = Some(Transaction {
-                    owner: self.owner.clone(),
-                    epoch: request.epoch,
-                    commands: Vec::new(),
-                });
-                return Ok(());
-            }
-        }
-        if self.fail {
-            self.confirmation.clone_from(&self.registry);
-            self.failure = Some(CallFailure {
-                bundle: self.owner.bundle.clone(),
-                callback: "dispatch".into(),
-                kind: FailureKind::Panic,
-                reason: "wasm trap: wasm `unreachable` instruction executed".into(),
-                fuel: Some(1),
-            });
-            self.dispatched.push(request.event);
-            if self.confirmation.is_some() {
-                self.response = Some(Transaction {
-                    owner: self.owner.clone(),
-                    epoch: request.epoch,
-                    commands: Vec::new(),
-                });
-            }
-            return Ok(());
-        }
-        self.dispatched.push(request.event);
-        self.response = Some(Transaction {
-            owner: self.owner.clone(),
-            epoch: request.epoch,
-            commands: Vec::new(),
-        });
-        Ok(())
+/// Supplies a bound native context for deterministic helper scheduling.
+fn context(epoch: u64) -> mod_host::presentation::Context {
+    mod_host::presentation::Context {
+        connection: 1,
+        epoch,
+        ..Default::default()
     }
 }
 
@@ -195,6 +103,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                 owner.bundle.clone(),
                 Instance {
                     helper: None,
+                    assets: Default::default(),
+                    presentation: Default::default(),
                     component: Some(vec![0]),
                     capabilities: Capabilities {
                         scope: scope.clone(),
@@ -207,6 +117,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     owner,
                     contributions: Contributions::default(),
                     busy: true,
+                    initialized: false,
                     pending: None,
                     waiting_for: None,
                     files: Arc::default(),
@@ -218,6 +129,9 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     callback: "init",
                     items_sent: None,
                     shift: Some(false),
+                    drawing_context: Default::default(),
+                    pending_drawing_context: Default::default(),
+                    drawing_references: Vec::new(),
                 },
             )
         })
@@ -245,9 +159,16 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         native_epoch: 1,
         requested_epoch: None,
         gui: None,
+        drawing_fence: None,
+        drawing: Default::default(),
+        drawing_generation: mod_render::next_owner(),
+        drawing_sources: Vec::new(),
+        drawing_merge: Default::default(),
+        frame_cursor: None,
         session: None,
     };
-    live.initialize().unwrap();
+    live.bind_drawing(&context(1), |_| false).unwrap();
+    live.initialize(0);
     live
 }
 
@@ -282,7 +203,7 @@ fn modal_presses_reach_only_declared_actions_of_the_open_screen() {
             template: Some(SCREEN.into()),
         }],
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     let modal = live.modal().unwrap();
     assert_eq!(
         (modal.bundle, modal.modal.template.as_deref()),
@@ -290,7 +211,7 @@ fn modal_presses_reach_only_declared_actions_of_the_open_screen() {
     );
     assert!(!live.press("bundle0.other", Some(2)));
     assert!(live.press("bundle0.pick", Some(2)));
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert_eq!(
         helper.dispatched,
@@ -334,7 +255,7 @@ fn session_items_reach_only_granted_guests_once_per_revision() {
             }],
         });
     }
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     let mut now = 0;
     let mut press = |live: &mut Live<FakeWorker>, id: &str| {
         let bundle = id.split('.').next().unwrap().to_owned();
@@ -342,9 +263,9 @@ fn session_items_reach_only_granted_guests_once_per_revision() {
         live.instances.get_mut(&bundle).unwrap().opened = live.modal_order;
         assert!(live.press(id, None));
         now += CALLBACK_INTERVAL_MS;
-        live.poll(1, now).unwrap();
+        live.poll(1, now, true, |_| true).unwrap();
         now += CALLBACK_INTERVAL_MS;
-        live.poll(1, now).unwrap();
+        live.poll(1, now, true, |_| true).unwrap();
     };
     press(&mut live, "bundle0.pick");
     press(&mut live, "bundle0.pick");
@@ -383,11 +304,11 @@ fn receive(live: &mut Live<FakeWorker>, id: &str, sequence: u64) {
 fn staggered_initialization_retains_sends_and_publishes_ready_first() {
     let mut live = fixture(2);
     complete(&mut live, "bundle0");
-    assert!(live.poll(1, 0).unwrap().is_empty());
+    assert!(live.poll(1, 0, true, |_| true).unwrap().is_empty());
     assert!(!live.ready);
     assert_eq!(live.pending_sends.len(), 1);
     complete(&mut live, "bundle1");
-    let packets = live.poll(1, 1).unwrap();
+    let packets = live.poll(1, 1, true, |_| true).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Ready { .. }
@@ -405,22 +326,22 @@ fn staggered_initialization_retains_sends_and_publishes_ready_first() {
     assert_eq!(live.pending_send_bytes, 0);
 }
 
-/// Outbound guest messages consume shared rate credit and resume when the caller advances time.
+/// Rate rejection stops its producer while the session retains its shared wire budget.
 #[test]
 fn outbound_sends_enforce_the_shared_rate_limit() {
     let mut live = fixture(1);
     for sequence in 1..=MAX_MESSAGES_PER_SECOND {
         complete(&mut live, "bundle0");
-        let packets = live.poll(1, 0).unwrap();
+        let packets = live.poll(1, 0, true, |_| true).unwrap();
         let send: Envelope = serde_json::from_slice(packets.last().unwrap()).unwrap();
         assert_eq!(send.sequence, sequence);
     }
 
     complete(&mut live, "bundle0");
-    assert!(live.poll(1, 0).unwrap().is_empty());
+    assert!(live.poll_ready(1, 0).unwrap().is_empty());
     assert_eq!(live.pending_sends.len(), 1);
 
-    let packets = live.poll(1, 1000).unwrap();
+    let packets = live.poll_ready(1, 1000).unwrap();
     assert_eq!(packets.len(), 1);
     let send: Envelope = serde_json::from_slice(&packets[0]).unwrap();
     assert_eq!(send.payload, vec![Scalar::Bool(true)]);
@@ -438,19 +359,29 @@ fn four_components_initialize_across_slices_before_readiness() {
     );
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    assert!(live.poll(1, 0).unwrap().is_empty());
+    assert!(live.poll(1, 0, true, |_| true).unwrap().is_empty());
     assert!(!live.ready);
-    assert!(live.poll(1, CALLBACK_INTERVAL_MS).unwrap().is_empty());
+    assert!(
+        live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true)
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         live.instances
             .values()
             .all(|instance| instance.helper.is_some())
     );
     complete(&mut live, "bundle2");
-    assert!(live.poll(1, CALLBACK_INTERVAL_MS + 1).unwrap().is_empty());
+    assert!(
+        live.poll(1, CALLBACK_INTERVAL_MS + 1, true, |_| true)
+            .unwrap()
+            .is_empty()
+    );
     complete(&mut live, "bundle3");
     assert_eq!(
-        live.poll(1, CALLBACK_INTERVAL_MS + 2).unwrap().len(),
+        live.poll(1, CALLBACK_INTERVAL_MS + 2, true, |_| true)
+            .unwrap()
+            .len(),
         MAX_BUNDLES + 1
     );
     assert!(live.ready);
@@ -461,16 +392,18 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
     let mut live = fixture(3);
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     complete(&mut live, "bundle2");
-    live.poll(1, CALLBACK_INTERVAL_MS + 1).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS + 1, true, |_| true)
+        .unwrap();
     for (index, id) in ["bundle0", "bundle0", "bundle1", "bundle2"]
         .into_iter()
         .enumerate()
     {
         receive(&mut live, id, index as u64 + 1);
     }
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     assert!(live.instances["bundle0"].busy);
     assert_eq!(
         live.instances["bundle1"]
@@ -482,7 +415,7 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
         1
     );
     assert_eq!(live.instances["bundle0"].queue.entries.len(), 2);
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS + 1).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS + 1).unwrap();
     assert_eq!(live.instances["bundle0"].queue.entries.len(), 1);
     assert!(
         live.instances["bundle2"]
@@ -493,7 +426,8 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
             .is_empty()
     );
     for tick in 3..=6 {
-        live.poll(1, tick * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll(1, tick * CALLBACK_INTERVAL_MS, true, |_| true)
+            .unwrap();
     }
     let delivered = live
         .instances
@@ -522,7 +456,7 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
 fn a_v1_dimension_change_rejects_completed_old_epoch_output_before_publication() {
     let mut live = fixture(1);
     complete(&mut live, "bundle0");
-    assert!(live.poll(2, CALLBACK_INTERVAL_MS).is_err());
+    assert!(live.poll(2, CALLBACK_INTERVAL_MS, true, |_| true).is_err());
     assert_eq!(live.sequence, 1);
     assert!(!live.ready);
     assert!(live.pending_sends.is_empty());
@@ -639,7 +573,7 @@ fn sent(live: &mut Live<FakeWorker>, id: &str, record: Vec<Scalar>, epoch: u64) 
 fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     let mut live = fixture_v2(1);
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     assert!(live.ready);
     let message = |live: &Live<FakeWorker>, sequence, world_epoch| {
         serde_json::to_vec(&Envelope {
@@ -660,11 +594,11 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     // A callback dispatched in epoch 1 is still running when the world moves to epoch 2.
     live.receive(&ExperienceMessage::new(message(&live, 1, 1)), 1, 1)
         .unwrap();
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
     live.receive(&ExperienceMessage::new(message(&live, 2, 1)), 2, 1)
         .unwrap();
-    let packets = live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    let packets = live.poll_ready(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
     let Control::Epoch {
         session,
         world_epoch,
@@ -688,8 +622,8 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
         2,
     )
     .unwrap();
-    live.poll(2, 3 * CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(2, 4 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(2, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(2, 4 * CALLBACK_INTERVAL_MS).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert!(matches!(
         &helper.dispatched[2],
@@ -697,7 +631,9 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     ));
     // A later send carries the new epoch.
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 2);
-    let packets = live.poll(2, 5 * CALLBACK_INTERVAL_MS).unwrap();
+    let packets = live
+        .poll(2, 5 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     let next: Envelope = serde_json::from_slice(&packets[0]).unwrap();
     assert_eq!((next.sequence, next.world_epoch), (3, 2));
 }
@@ -706,7 +642,7 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
 fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
     let mut live = fixture_v2(1);
     sent(&mut live, "bundle0", large_list(), 1);
-    let packets = live.poll(1, 0).unwrap();
+    let packets = live.poll(1, 0, true, |_| true).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Ready { .. }
@@ -743,7 +679,7 @@ fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
         live.receive(&ExperienceMessage::new(bytes), 1, live.epoch)
             .unwrap();
     }
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert_eq!(
         helper.dispatched,
@@ -758,7 +694,7 @@ fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
 fn failing() -> Live<FakeWorker> {
     let mut live = fixture(1);
     complete(&mut live, "bundle0");
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     assert!(live.ready);
     live.instances
         .get_mut("bundle0")
@@ -773,8 +709,8 @@ fn failing() -> Live<FakeWorker> {
 /// Delivers one message to `bundle0` at `now_ms` and polls until its reply is handled.
 fn fail_once(live: &mut Live<FakeWorker>, sequence: u64, now_ms: u64) {
     receive(live, "bundle0", sequence);
-    live.poll(1, now_ms).unwrap();
-    live.poll(1, now_ms).unwrap();
+    live.poll(1, now_ms, true, |_| true).unwrap();
+    live.poll(1, now_ms, true, |_| true).unwrap();
 }
 
 /// A failed callback is one dropped transaction: the helper is free for the next event, the
@@ -816,7 +752,8 @@ fn repeated_failures_stop_the_client_part_and_say_so() {
     );
     // Its later messages are dropped, and polling goes on.
     receive(&mut live, "bundle0", MAX_GUEST_STRIKES as u64 + 1);
-    live.poll(1, 10 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, 10 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
 }
 
 /// Failures farther apart than the window never add up to the limit.
@@ -851,7 +788,7 @@ fn a_failed_start_stops_the_part() {
         reason: "import not found".into(),
         fuel: None,
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     assert!(live.ready);
     assert!(live.instances["bundle0"].helper.is_none());
     assert_eq!(
@@ -877,7 +814,7 @@ fn opened() -> Live<FakeWorker> {
             template: Some(SCREEN.into()),
         }],
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     live
 }
 
@@ -905,14 +842,14 @@ fn modal_size_changes_reach_the_open_bundle_once_each() {
             .collect::<Vec<_>>(),
         [Event::Resized { size: size(400.0) }]
     );
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert_eq!(helper.dispatched, [Event::Resized { size: size(400.0) }]);
     assert_eq!(helper.sizes, [Some(size(400.0))]);
     // Closed, there is no size and nothing to report.
     live.close_modal();
     live.set_modal_size(None);
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert!(live.instances["bundle0"].queue.entries.is_empty());
     assert_eq!(
         live.instances["bundle0"]
@@ -1017,6 +954,33 @@ fn media_quad(x: f32) -> server_experience::runtime::SceneObject {
     }
 }
 
+/// Publishes one verified media quad through the same snapshot boundary as drawing.
+fn publish_media_quad(live: &mut Live<FakeWorker>, id: &str, x: f32) {
+    grant_media(live, id);
+    let instance = live.instances.get_mut(id).unwrap();
+    let output = mod_host::presentation::Output {
+        scene: BTreeMap::from([(1, media_quad(x))]),
+        ..Default::default()
+    };
+    let bytes = serde_json::to_vec(&output).unwrap();
+    instance
+        .presentation
+        .receive(
+            mod_host::presentation::Chunk {
+                revision: 1,
+                offset: 0,
+                total: bytes.len() as u32,
+                bytes,
+            },
+            &instance.capabilities,
+            &instance.drawing_context,
+            MAX_GUEST_MEMORY,
+            instance.capabilities.scope.gpu_bytes,
+            |_| true,
+        )
+        .unwrap();
+}
+
 #[test]
 fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
     let mut live = fixture(1);
@@ -1031,12 +995,17 @@ fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
             position_ms: 0,
         }],
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     // No verified descriptor was registered, so the player is refused and reported stopped.
     live.service_media(0, 0, true);
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
-    let [Event::Message { channel, record }] = helper.dispatched.as_slice() else {
+    let messages: Vec<_> = helper
+        .dispatched
+        .iter()
+        .filter(|event| matches!(event, Event::Message { .. }))
+        .collect();
+    let [Event::Message { channel, record }] = messages.as_slice() else {
         panic!("one media event, not {:?}", helper.dispatched);
     };
     assert_eq!(channel, super::super::media::EVENT_CHANNEL);
@@ -1051,10 +1020,7 @@ fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
 fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_screen() {
     let mut live = fixture(2);
     for id in ["bundle0", "bundle1"] {
-        let contributions = &mut live.instances.get_mut(id).unwrap().contributions;
-        contributions
-            .scene
-            .insert(1, media_quad(if id == "bundle0" { 5.0 } else { 9.0 }));
+        publish_media_quad(&mut live, id, if id == "bundle0" { 5.0 } else { 9.0 });
     }
     assert!(
         live.changed_screens().unwrap().is_empty(),
@@ -1078,12 +1044,7 @@ fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_scre
 #[test]
 fn an_unchanged_media_scene_is_presented_without_rebuilding() {
     let mut live = fixture(1);
-    live.instances
-        .get_mut("bundle0")
-        .unwrap()
-        .contributions
-        .scene
-        .insert(1, media_quad(5.0));
+    publish_media_quad(&mut live, "bundle0", 5.0);
     let frame = render_scene::MediaFrame {
         serial: 3,
         width: 2,
@@ -1096,4 +1057,21 @@ fn an_unchanged_media_scene_is_presented_without_rebuilding() {
     let unchanged = live.changed_screens().is_none();
     assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert!(unchanged);
+}
+
+impl Live<FakeWorker> {
+    /// Binds the current logical world before polling fixtures that exercise native lifecycle.
+    fn poll_ready(&mut self, native_epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
+        self.set_epoch(native_epoch)?;
+        let mut drawing = self
+            .instances
+            .values()
+            .next()
+            .unwrap()
+            .drawing_context
+            .clone();
+        drawing.epoch = self.epoch;
+        self.bind_drawing(&drawing, |_| true)?;
+        self.poll(native_epoch, now_ms, true, |_| true)
+    }
 }

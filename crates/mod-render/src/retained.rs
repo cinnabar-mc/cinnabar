@@ -9,10 +9,11 @@ pub mod mesh;
 pub use entities::EntityKey;
 #[cfg(test)]
 mod tests;
+pub mod transfer;
 mod validation;
 
 /// Linear vertex inputs for shared unlit drawing materials.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Vertex {
     pub position: [f32; 3],
     pub color: [f32; 4],
@@ -21,7 +22,7 @@ pub struct Vertex {
 }
 
 /// Immutable topology; polyline distances are computed by the host on admission.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum GeometrySpec {
     Triangles {
         vertices: Vec<Vertex>,
@@ -45,12 +46,23 @@ pub struct Geometry {
     radius: f32,
     bytes: usize,
     expanded_vertices: usize,
+    mesh_vertices: usize,
 }
 
 impl Geometry {
     /// Returns the local position bounds computed during admission.
     pub fn bounds(&self) -> [[f32; 3]; 2] {
         self.bounds
+    }
+
+    /// Bounds expanded triangles, including immutable line joins and caps.
+    pub fn triangles(&self) -> usize {
+        self.expanded_vertices / 3
+    }
+
+    /// Returns the exact expanded GPU vertex count cached during topology admission.
+    pub fn mesh_vertices(&self) -> usize {
+        self.mesh_vertices
     }
 
     /// Reports whether line expansion and width handling apply to this geometry.
@@ -60,14 +72,14 @@ impl Geometry {
 }
 
 /// An actor reference includes both the drawing owner and the actor's spawn generation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EntityAnchor {
     pub entity: Handle,
     pub body_rotation: bool,
 }
 
 /// Placement never grants observations of the anchored world or block.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Anchor {
     World { dimension: i32, origin: [f64; 3] },
     Block { dimension: i32, position: [i32; 3] },
@@ -76,7 +88,7 @@ pub enum Anchor {
 }
 
 /// Local translation, normalized XYZW rotation and scale, applied after the anchor.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Transform {
     pub translation: [f32; 3],
     pub rotation: [f32; 4],
@@ -93,32 +105,54 @@ impl Default for Transform {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Depth {
     #[default]
     Test,
     Always,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Blend {
     #[default]
     Premultiplied,
     Additive,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WidthMode {
     #[default]
     World,
     Pixels,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Join {
     #[default]
     Bevel,
     Miter,
     Round,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Cap {
     #[default]
     Butt,
@@ -126,7 +160,7 @@ pub enum Cap {
 }
 
 /// Instances select the shared unlit material or an owner-scoped procedural fragment.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Instance {
     pub geometry: Handle,
     pub material: Option<Handle>,
@@ -186,6 +220,7 @@ pub struct Store {
     retired_materials: Vec<Arc<crate::material::Material>>,
     material_compiles: u32,
     entity_candidates: Vec<EntityKey>,
+    instance_limit: usize,
 }
 
 impl Default for Store {
@@ -202,11 +237,37 @@ impl Default for Store {
             retired_materials: Vec::new(),
             material_compiles: 0,
             entity_candidates: Vec::new(),
+            instance_limit: mod_api::MAX_DRAW_INSTANCES,
         }
     }
 }
 
 impl Store {
+    /// Narrows instance admission to the caller's remaining presentation allowance.
+    pub fn limit_instances(&mut self, limit: usize) {
+        self.instance_limit = limit.min(mod_api::MAX_DRAW_INSTANCES);
+    }
+
+    /// Counts this callback's placements, excluding groups that expire on its next mutation.
+    pub fn instance_count(&self) -> usize {
+        self.staged.as_ref().map_or_else(
+            || {
+                self.committed
+                    .instances
+                    .keys()
+                    .filter(|id| {
+                        !self
+                            .committed
+                            .groups
+                            .values()
+                            .any(|handles| handles.contains(id))
+                    })
+                    .count()
+            },
+            |staged| staged.instances.len(),
+        )
+    }
+
     /// Binds snapshots to the trusted connection before the guest initializes resources.
     pub fn bind_session(&mut self, connection: u64, dimension: i32) {
         self.revoke();
@@ -267,6 +328,19 @@ impl Store {
         self.retired_materials.clear();
         self.material_compiles = 0;
         self.entity_candidates.clear();
+    }
+
+    /// Charges copied asset bytes against this callback's shared mutation allowance.
+    pub fn charge_bytes(&mut self, bytes: usize) -> Result<(), DrawError> {
+        let total = self
+            .mutation_bytes
+            .checked_add(bytes)
+            .ok_or(error(ErrorCode::BudgetExceeded, "mutation bytes"))?;
+        if total > mod_api::MAX_DRAW_MUTATION_BYTES {
+            return Err(error(ErrorCode::BudgetExceeded, "mutation bytes"));
+        }
+        self.mutation_bytes = total;
+        Ok(())
     }
 
     /// Validates and retains an immutable mesh, charging live and retiring resources.
@@ -339,7 +413,7 @@ impl Store {
         if name.is_empty() || name.len() > mod_api::MAX_DRAW_GROUP_NAME_BYTES {
             return Err(error(ErrorCode::Invalid, "group name"));
         }
-        if instances.len() > mod_api::MAX_DRAW_INSTANCES {
+        if instances.len() > self.instance_limit {
             return Err(error(ErrorCode::BudgetExceeded, "instances"));
         }
         let handles = (0..instances.len())
@@ -455,6 +529,9 @@ impl Store {
         }
         let mut candidate = self.base();
         change(&mut candidate)?;
+        if candidate.instances.len() > self.instance_limit {
+            return Err(error(ErrorCode::BudgetExceeded, "instances"));
+        }
         validation::budget(&candidate, &self.retired)?;
         self.material_budget(&candidate)?;
         self.mutation_bytes = total;

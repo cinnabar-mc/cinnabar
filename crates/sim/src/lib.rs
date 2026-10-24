@@ -27,8 +27,8 @@ pub use simulator::{
     MAX_SAFE_LIQUID_VELOCITY, MovementEffects, MovementEnvironment, MovementInput, MovementMode,
     NORMAL_GRAVITY, PlayerState, ProcessedControls, RiptideLaunch, SNEAKING_HEIGHT_CHANGE_VERSION,
     SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, SneakProfile, TickResult, VerticalPhysics,
-    boat_paddle_power, descends_through_block, pose_fits, sample_actor_liquid_submersion,
-    sample_liquid_submersion, sample_water_head, tick_boat,
+    boat_paddle_power, descends_through_block, mover_collision_boxes_with_provenance, pose_fits,
+    sample_actor_liquid_submersion, sample_liquid_submersion, sample_water_head, tick_boat,
 };
 
 pub use world::{

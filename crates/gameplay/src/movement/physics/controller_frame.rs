@@ -143,7 +143,7 @@ impl ControllerFrame {
             jump_down: self.jump_down,
             spinning: state.spin_attack_ticks.is_some(),
         };
-        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
+        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, state, *input);
         state.position = observed.feet;
         let choice = modes.select(self.intent, observed, world);
         let choice = match choice {

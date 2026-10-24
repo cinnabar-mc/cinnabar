@@ -1,6 +1,8 @@
 use super::*;
 use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
 
+#[path = "reservation_tests.rs"]
+mod reservation_tests;
 mod viewport_raster;
 use bevy::prelude::UVec4;
 
@@ -459,6 +461,7 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
         &device,
         &PipelineCache::new(device.clone(), true),
         &original,
+        None,
     )
     .unwrap();
     assert!(mask.matches(&original));
@@ -468,6 +471,7 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
         &device,
         &PipelineCache::new(device.clone(), true),
         &test_depth(&device, 127, 4),
+        None,
     )
     .unwrap();
     assert!(multisampled.matches(&test_depth(&device, 127, 4)));

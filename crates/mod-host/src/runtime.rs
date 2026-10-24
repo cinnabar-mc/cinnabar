@@ -1,5 +1,6 @@
 mod input_host;
 mod output_lifecycle;
+mod presentation;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
     GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
@@ -64,7 +65,7 @@ pub(crate) struct Declared {
     pub(crate) keys: BTreeSet<String>,
 }
 
-struct State {
+pub(crate) struct State {
     exclusive: crate::exclusive::Exclusive,
     terrain: crate::terrain::TerrainState,
     limits: StoreLimits,
@@ -73,7 +74,7 @@ struct State {
     hud: hud::HudState,
     pending: Option<String>,
     writes: u32,
-    grants: ModGrants,
+    pub(crate) grants: ModGrants,
     environment: output_lifecycle::Environment,
     motion: output_lifecycle::Movement,
     snapshot: Option<GameplaySnapshot>,
@@ -91,8 +92,10 @@ struct State {
     camera_policy: camera::CameraPolicy,
     item_use_policy: item_use::ItemUsePolicy,
     player_state: player_state::PlayerState,
-    render: render::RenderState,
+    pub(crate) render: render::RenderState,
     drawing_policy: Option<mod_api::drawing::DrawingSession>,
+    presentation_epoch: Option<u64>,
+    pub(crate) asset_files: std::collections::BTreeMap<String, Vec<u8>>,
     declared: Declared,
     layout: Option<HostLayout>,
     session: Arc<SessionData>,
@@ -117,7 +120,7 @@ impl State {
             || self.camera_policy.committed_hurt_style.is_some()
     }
 
-    fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
+    pub(crate) fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
                 .memory_size(MEMORY_BYTES)
@@ -154,6 +157,8 @@ impl State {
             player_state: player_state::PlayerState::default(),
             render: render::RenderState::new(),
             drawing_policy: None,
+            presentation_epoch: None,
+            asset_files: Default::default(),
             declared,
             layout: None,
             session: Arc::default(),
