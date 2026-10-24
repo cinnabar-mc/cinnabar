@@ -109,10 +109,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   is `implemented` with a named test. The entity material declaration, definition and name
   bounds are unverified implementation limits; past them a material draws without one.
   is `implemented` with a named test.
-- [ ] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+- [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
   block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
-  binding conditions are deferred: they would need per-frame evaluation of each bound bone's
-  condition beside the render controller's visibility rules, which adds per-frame cost.
+  bindings take none: the schema rejects one, and the client binds unconditionally and counts the
+  ignored condition in its aggregate entity material diagnostics.
 - [ ] Material robustness under device loss is untested: the renderer has no device-loss path or
   test seam, so recovery of material pipelines, bind groups and Enhanced maps after a lost device
   is a gap. Malformed or removed packs, back-to-back generations and adapters that cannot represent

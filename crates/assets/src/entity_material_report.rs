@@ -62,6 +62,10 @@ pub struct EntityMaterialDiagnostics {
     pub unmatched_extension_bindings: u32,
     /// Mask textures of entity-bound extension materials that name no loaded raster.
     pub unresolved_extension_textures: u32,
+    /// Entity bindings naming a `condition`, which entity bindings do not take; each binds
+    /// unconditionally.
+    #[serde(default)]
+    pub ignored_extension_conditions: u32,
 }
 
 impl EntityMaterialDiagnostics {

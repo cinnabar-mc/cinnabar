@@ -27,6 +27,9 @@ pub(crate) struct Extension {
     pub(crate) materials: BTreeMap<Box<str>, Material>,
     pub(crate) entity_bindings: Vec<EntityBinding>,
     pub(crate) block_bindings: Vec<BlockBinding>,
+    /// Entity bindings that named a `condition`, which entity bindings do not take; the
+    /// binding applies unconditionally.
+    pub(crate) ignored_entity_conditions: u32,
 }
 
 /// One extension material.
@@ -220,19 +223,13 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
         {
             return Err("binding pattern is empty or too long".into());
         }
-        if binding
-            .condition
-            .as_deref()
-            .is_some_and(|condition| crate::BlockMolang::parse(condition).is_none())
-        {
-            return Err("binding condition is not a block-state Molang expression".into());
-        }
         match (binding.entity, binding.block) {
             (Some(entity), None)
-                if binding.states.is_none()
-                    && binding.material_instance.is_none()
-                    && binding.condition.is_none() =>
+                if binding.states.is_none() && binding.material_instance.is_none() =>
             {
+                // Entity bindings take no condition; one that names one still binds, and the
+                // condition is counted and ignored.
+                extension.ignored_entity_conditions += u32::from(binding.condition.is_some());
                 extension.entity_bindings.push(EntityBinding {
                     entity: entity.into(),
                     render_controller: binding.render_controller.map(Into::into),
@@ -243,6 +240,13 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
             (None, Some(block))
                 if binding.render_controller.is_none() && binding.bone.is_none() =>
             {
+                if binding
+                    .condition
+                    .as_deref()
+                    .is_some_and(|condition| crate::BlockMolang::parse(condition).is_none())
+                {
+                    return Err("binding condition is not a block-state Molang expression".into());
+                }
                 let states = binding.states.unwrap_or_default();
                 if states.values().any(|value| {
                     !matches!(value, Value::Bool(_) | Value::Number(_) | Value::String(_))
