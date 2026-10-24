@@ -424,7 +424,8 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
         let world_surface = world_material_resolve(WorldMaterialInput(
             uv, input.world_position, color, vec4(native_lighting, 1.0),
             vec4(world_fog_gamma, world_fog_amount(input.world_position, view.world_position)),
-            overlay, world_material_phase()));
+            overlay, world_material_phase(), normalize(input.world_normal),
+            normalize(view.world_position - input.world_position)));
         @if(WORLD_MATERIAL_CUTOUT)
         if (world_surface.coverage < 0.5) { discard; }
         color = vec4(world_surface.color, world_surface.coverage);

@@ -759,7 +759,8 @@ sampled_bedrock: vec4<f32>) -> vec4<f32> {
             in.uv, in.world_position, vec4(sampled_bedrock.rgb * in.tint_gamma, sampled_bedrock.a),
             vec4(world_light, in.native_ao_face),
             vec4(world_fog_gamma, distance_fog_amount(in.world_position)),
-            vec4(0.0), world_material_phase()));
+            vec4(0.0), world_material_phase(), normalize(in.normal),
+            normalize(view.world_position - in.world_position)));
         @if(WORLD_MATERIAL_CUTOUT)
         if (world_surface.coverage < 0.5) { discard; }
         sampled_gamma = vec4(world_surface.color, world_surface.coverage);

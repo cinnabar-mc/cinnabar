@@ -70,3 +70,16 @@ fn texture_reads_are_bounded_per_pixel() {
     );
     assert!(compose(&source, 1).unwrap_err().contains("textures"));
 }
+
+#[test]
+fn a_rim_glow_reads_the_surface_normal_and_view_direction() {
+    compose(
+        "fn shade(input: WorldMaterialInput) -> Surface {
+            let facing = clamp(dot(input.normal, input.view), 0.0, 1.0);
+            let rim = pow(1.0 - facing, 3.0);
+            return Surface(input.base.rgb, input.base.a, vec3<f32>(0.2, 0.8, 1.0) * rim);
+        }",
+        0,
+    )
+    .unwrap();
+}

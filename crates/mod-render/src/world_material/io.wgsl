@@ -13,6 +13,10 @@ struct WorldMaterialInput {
     overlay: vec4<f32>,
     // The session's animation phase in [0, 1).
     phase: f32,
+    // The unit world-space normal of the surface, facing out of its front.
+    normal: vec3<f32>,
+    // The unit world-space direction from the surface towards the camera.
+    view: vec3<f32>,
 }
 struct Surface { color: vec3<f32>, coverage: f32, emission: vec3<f32> }
 // The Bedrock surface unchanged, which the host lights as an ordinary material.
