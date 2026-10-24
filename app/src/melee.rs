@@ -86,7 +86,7 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
-    mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
+    item_use: Res<client_interaction::item_use::ItemUseRuntime>,
 ) {
     let ordered = context
         .input
@@ -149,15 +149,10 @@ pub(crate) fn prepare_melee(
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
-    // A same-frame slot change ends the old item's use before Attack is judged, as the later
-    // item-use producer and the ordered hotbar path would.
-    if let Some(slot) = player_runtime.selected_hotbar_slot() {
-        item_use.retire_reselected_use(slot);
-    }
     if let Err(reason) = press_admission(
         focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),
-        item_use.is_using(),
+        item_use.vetoes_attack(&player_runtime, context.client_world.stream.as_ref()),
     ) {
         drop(reason);
         runtime.cancel();
@@ -288,7 +283,7 @@ fn maintain_attacks(
     // An item in use ignores a held Attack as it ignores a press, so no held mining starts or
     // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
-        && !item_use.is_using()
+        && !item_use.vetoes_attack(&player, context.client_world.stream.as_ref())
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,

@@ -24,7 +24,7 @@ mod item;
 mod item_carrier;
 pub use block_aux::block_item_has_aux_states;
 pub use item::{
-    ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, CANDLE_ITEM_IDENTIFIERS,
+    ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, BRUSH_IDENTIFIER, CANDLE_ITEM_IDENTIFIERS,
     CARRIED_ATTACHMENT_ITEM_IDENTIFIERS, ContainerRoles, EMPTY_BUCKET_IDENTIFIER,
     FILLED_MAP_IDENTIFIER, FISHING_ROD_IDENTIFIER, FLOWER_BED_ITEM_IDENTIFIERS, HARNESS_TAG,
     ItemFact, ItemFactRecord, ItemFactsPayload, ItemRepairMaterial, ItemTag, ItemTagDefinition,

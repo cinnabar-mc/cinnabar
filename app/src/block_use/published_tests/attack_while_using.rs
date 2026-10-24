@@ -108,11 +108,11 @@ fn eating_ignores_held_attack_mining() {
     }
 }
 
-/// A slot change in the same frame ends the eat before Attack is judged, so the press stays
-/// queued for the newly selected item (it waits for the selection to be announced) instead
-/// of being dropped as an attack during item use.
+/// A slot change in the same frame ends the attack veto before Attack is judged, so the press
+/// stays queued for the newly selected item (it waits for the selection to be announced)
+/// instead of being dropped as an attack during item use.
 #[test]
-fn a_same_frame_slot_change_ends_the_eat_before_the_attack() {
+fn a_same_frame_slot_change_ends_the_attack_veto() {
     let (mut world, _captured) = attack_fixture(7.5);
     start_eating(&mut world);
     let selected = world
@@ -128,14 +128,92 @@ fn a_same_frame_slot_change_ends_the_eat_before_the_attack() {
         .inventory
         .queue_local_hotbar_selection((selected + 1) % 9, mode);
     attack(&mut world);
-    assert!(
-        !world
-            .resource::<client_interaction::item_use::ItemUseRuntime>()
-            .is_using(),
-        "the slot change left the old item in use"
-    );
+    let vetoed = world
+        .resource::<client_interaction::item_use::ItemUseRuntime>()
+        .vetoes_attack(
+            world.resource::<client_state::PlayerRuntime>(),
+            world
+                .resource::<crate::runtime::world::ClientWorld>()
+                .stream
+                .as_ref(),
+        );
+    assert!(!vetoed, "the slot change kept the old item's attack veto");
     assert!(
         world.resource::<MeleeRuntime>().press_pending(),
         "the attack after the slot change was dropped"
+    );
+}
+
+/// Applies a server selected-slot update through the inventory FIFO.
+fn server_selects(world: &mut World, slot: u8) {
+    let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+    let session = player.inventory.session_id();
+    player
+        .inventory
+        .enqueue_inventory_event(
+            session,
+            1_000_000,
+            InventoryEvent::SelectedSlot(protocol::SelectedSlotEvent {
+                container: ContainerIdentity::window(0),
+                slot,
+                select_slot: true,
+            }),
+        )
+        .unwrap();
+    player.inventory.drain_pending_inventory();
+}
+
+/// A server selection that moves away from the food ends the attack veto at once, so an
+/// ordered attack the block-use producer drains before melee preparation still lands, although
+/// nothing has retired the eat yet.
+#[test]
+fn an_ordered_attack_after_a_server_slot_change_is_not_vetoed() {
+    let (mut world, mut captured) = attack_fixture(7.5);
+    start_eating(&mut world);
+    let selected = world
+        .resource::<client_state::PlayerRuntime>()
+        .selected_hotbar_slot()
+        .unwrap();
+    server_selects(&mut world, (selected + 1) % 9);
+    assert!(
+        world
+            .resource::<client_interaction::item_use::ItemUseRuntime>()
+            .is_using()
+    );
+    captured.drain();
+    let mut events = semantic_input::DesktopEvents::default();
+    for pressed in [true, false] {
+        events.push(semantic_input::DesktopEvent::Button {
+            control: semantic_input::PhysicalControl::MouseButton(1),
+            pressed,
+            modifiers: semantic_input::ModifierChord::default(),
+        });
+    }
+    let snapshot = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            desktop_events: Some(events),
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_buttons: vec![2],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
+    // Only the ordered producer runs; melee preparation would come later in the frame.
+    world.run_system_cached(produce_block_use).unwrap();
+    let attacks = captured
+        .drain()
+        .iter()
+        .filter_map(observe_transaction)
+        .filter_map(|tx| tx.actor_use().cloned())
+        .filter(|tx| tx.action == Some(protocol::ActorUseAction::Attack))
+        .count();
+    assert_eq!(
+        attacks, 1,
+        "the ordered attack after the server slot change was dropped"
     );
 }

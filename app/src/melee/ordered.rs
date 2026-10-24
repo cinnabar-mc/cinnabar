@@ -43,7 +43,7 @@ pub(crate) fn press(
     item_use: Res<client_interaction::item_use::ItemUseRuntime>,
 ) {
     // An earlier use edge in this batch may have started eating or drawing.
-    if item_use.is_using() {
+    if item_use.vetoes_attack(&player, context.client_world.stream.as_ref()) {
         gameplay::movement::note_click_drop("attack", gameplay::melee::USING_ITEM);
         return;
     }
