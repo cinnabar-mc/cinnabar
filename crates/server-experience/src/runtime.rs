@@ -171,7 +171,8 @@ impl Capabilities {
                 | Permission::EntityObserve
                 | Permission::RenderThroughWalls
                 | Permission::RenderMaterial
-                | Permission::RenderWorldMaterial => false,
+                | Permission::RenderWorldMaterial
+                | Permission::RenderWorldMaterialOverride => false,
             })
     }
 

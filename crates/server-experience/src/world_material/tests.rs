@@ -126,6 +126,59 @@ fn bindings_stay_in_the_signed_namespace() {
 }
 
 #[test]
+fn the_override_permission_binds_any_identifier_but_keeps_the_through_wall_rule() {
+    let overriding = BTreeSet::from([
+        Permission::RenderWorldMaterial,
+        Permission::RenderWorldMaterialOverride,
+    ]);
+    let assets = BTreeSet::new();
+    let authority = authority(&overriding, &assets);
+    let binding = |target| WorldBinding {
+        target,
+        material: 1,
+    };
+    for target in [
+        WorldTarget::Entity("minecraft:pig".into()),
+        WorldTarget::Block("minecraft:stone".into()),
+        WorldTarget::Entity("other:moth".into()),
+    ] {
+        authority.validate_binding(&binding(target)).unwrap();
+    }
+    for malformed in ["pig", "Minecraft:pig", ""] {
+        assert!(
+            authority
+                .validate_binding(&binding(WorldTarget::Entity(malformed.into())))
+                .is_err(),
+            "{malformed:?}"
+        );
+    }
+    assert!(
+        authority
+            .validate_material(&spec(WorldDepth::Always, &[]))
+            .is_err(),
+        "depth: always still needs render_through_walls"
+    );
+    // The override alone grants nothing.
+    let alone = BTreeSet::from([Permission::RenderWorldMaterialOverride]);
+    assert!(
+        self::authority(&alone, &assets)
+            .validate_binding(&binding(WorldTarget::Entity("minecraft:pig".into())))
+            .is_err()
+    );
+}
+
+#[test]
+fn the_developer_client_denies_the_override_unless_opted_in() {
+    use crate::manifest::developer_permissions_with;
+    assert!(!developer_permissions_with(false).contains(&Permission::RenderWorldMaterialOverride));
+    assert!(developer_permissions_with(true).contains(&Permission::RenderWorldMaterialOverride));
+    assert!(
+        !crate::manifest::implemented_permissions()
+            .contains(&Permission::RenderWorldMaterialOverride)
+    );
+}
+
+#[test]
 fn bindings_need_a_held_material_which_cannot_be_removed_while_bound() {
     let mut world = WorldMaterials::default();
     let binding = WorldBinding {

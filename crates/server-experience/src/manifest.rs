@@ -81,6 +81,7 @@ pub enum Permission {
     RenderMaterial,
     RenderWorldMaterial,
     RenderPost,
+    RenderWorldMaterialOverride,
 }
 
 /// Restricts identifiers to the shared portable namespace.
@@ -238,6 +239,13 @@ impl Manifest {
                 || !self.permissions.contains(&Permission::RenderWorldMaterial),
             "render_world_material needs a namespace"
         );
+        ensure!(
+            self.permissions.contains(&Permission::RenderWorldMaterial)
+                || !self
+                    .permissions
+                    .contains(&Permission::RenderWorldMaterialOverride),
+            "render_world_material_override needs render_world_material"
+        );
         Ok(())
     }
 }
@@ -264,9 +272,21 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(|c| c.is_control() || c == '§')
 }
 
+/// Lets the developer client advertise `render_world_material_override` when set to `1`; it is
+/// denied otherwise.
+pub const WORLD_MATERIAL_OVERRIDE_ENV: &str = "CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE";
+
 /// What the developer client advertises: the above plus media playback onto scene quads,
-/// reading the session's items and programmable world materials.
+/// reading the session's items and programmable world materials, and restyling identifiers
+/// outside a bundle's namespace only when [`WORLD_MATERIAL_OVERRIDE_ENV`] opts in.
 pub fn developer_permissions() -> BTreeSet<Permission> {
+    developer_permissions_with(
+        std::env::var_os(WORLD_MATERIAL_OVERRIDE_ENV).is_some_and(|value| value == "1"),
+    )
+}
+
+/// [`developer_permissions`], with the world material override opted in or not.
+pub fn developer_permissions_with(world_material_override: bool) -> BTreeSet<Permission> {
     let mut permissions = implemented_permissions();
     permissions.extend([
         Permission::Scene,
@@ -274,11 +294,14 @@ pub fn developer_permissions() -> BTreeSet<Permission> {
         Permission::Items,
         Permission::RenderWorldMaterial,
     ]);
+    if world_material_override {
+        permissions.insert(Permission::RenderWorldMaterialOverride);
+    }
     permissions
 }
 
-/// Namespaces no bundle may claim: binding vanilla identifiers needs a separate cross-namespace
-/// permission, which does not exist yet.
+/// Namespaces no bundle may claim as its own; binding their identifiers needs
+/// `render_world_material_override`.
 pub const RESERVED_NAMESPACES: [&str; 1] = ["minecraft"];
 
 /// Longest signed `namespace`, in bytes.

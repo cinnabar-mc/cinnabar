@@ -53,8 +53,9 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `entity_observe`, `entity_highlight` | Current native actor references and masks |
 | `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
 | `render_world_material` | Guest `shade` materials bound to the bundle's own entities and blocks (`world-material`, server-experience 1.6.0); developer client only |
+| `render_world_material_override` | With `render_world_material`, bind any entity or block identifier, vanilla included (API 3); the developer client offers it only with `CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE=1` |
 
-A bundle asking for `render_world_material` signs a manifest `namespace` (API 2): the
+A bundle asking for `render_world_material` signs a manifest `namespace` (API 2 and later): the
 identifier namespace whose entities and blocks its world materials may bind. It holds
 lowercase ASCII letters, digits, `_`, `-` and `.`, at most 64 bytes, and is never
 `minecraft`. API 1 bundles are refused.
@@ -168,8 +169,8 @@ validation or native compilation is skipped, reported once in the log and the ex
 indicator, and its targets keep their Bedrock materials. Stopping a client part, F9 or a
 disconnect removes every material and binding in one publication without a reconnect.
 
-Not yet: Enhanced and shader-pack terrain draw bound blocks as Bedrock. Overriding identifiers outside the signed
-namespace, vanilla included, needs a separate permission.
+Not yet: Enhanced and shader-pack terrain draw bound blocks as Bedrock. Identifiers outside the
+signed namespace, vanilla included, take `render_world_material_override`.
 
 ## Modal screens
 

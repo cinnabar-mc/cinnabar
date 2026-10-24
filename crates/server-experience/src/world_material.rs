@@ -123,14 +123,27 @@ impl WorldAuthority<'_> {
         Ok(())
     }
 
-    /// A binding may name only an identifier in the bundle's signed namespace.
+    /// A binding may name only an identifier in the bundle's signed namespace, unless the
+    /// bundle holds `render_world_material_override`, which lets it name any identifier,
+    /// vanilla included.
     pub fn validate_binding(&self, binding: &WorldBinding) -> Result<()> {
         self.granted()?;
+        let identifier = binding.target.identifier();
+        if self
+            .permissions
+            .contains(&Permission::RenderWorldMaterialOverride)
+        {
+            ensure!(
+                crate::manifest::identifier(identifier) && identifier.contains(':'),
+                "invalid binding identifier"
+            );
+            return Ok(());
+        }
         let namespace = self
             .namespace
             .ok_or_else(|| anyhow::anyhow!("no signed namespace"))?;
         ensure!(
-            in_namespace(binding.target.identifier(), namespace),
+            in_namespace(identifier, namespace),
             "binding outside the bundle's namespace"
         );
         Ok(())
