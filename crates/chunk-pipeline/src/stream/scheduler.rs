@@ -221,6 +221,8 @@ pub(super) struct KeyedJobs<P, J, const L: usize> {
     pub(super) refresh: SchedulerRefresh<L>,
     /// Ordinary retries keep their order and cooldown across camera refreshes.
     pub(super) retries: rechecks::RecheckQueue,
+    /// Dependency changes await one readiness check per key without moving its lane owner.
+    pub(super) dependency_wakeups: [CandidateQueue; L],
     pub(super) in_flight: HashMap<SubChunkKey, J>,
 }
 
@@ -233,6 +235,7 @@ impl<P, J, const L: usize> Default for KeyedJobs<P, J, L> {
             lanes: std::array::from_fn(|_| Lane::default()),
             refresh: SchedulerRefresh::default(),
             retries: rechecks::RecheckQueue::default(),
+            dependency_wakeups: std::array::from_fn(|_| CandidateQueue::default()),
             in_flight: HashMap::new(),
         }
     }
@@ -304,6 +307,23 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         self.lanes[lane].ready.push(candidate);
     }
 
+    /// Coalesces dependency changes while preserving deferred ownership and retry history.
+    pub(super) fn notify_deferred(&mut self, lane: usize, key: SubChunkKey) {
+        let Some(mut candidate) = self.deferred_candidate(lane, key) else {
+            return;
+        };
+        if self.dependency_wakeups[lane]
+            .get(&key)
+            .is_some_and(|queued| queued.revision == candidate.revision)
+        {
+            return;
+        }
+        if let Some(view) = self.refresh.view {
+            candidate.refresh_rank(view);
+        }
+        self.dependency_wakeups[lane].push(candidate);
+    }
+
     /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.
     pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
         if self
@@ -346,6 +366,9 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
 
     /// Retires a key from both lane generations without scanning unrelated candidates.
     fn retire_lane_ownership(&mut self, key: &SubChunkKey) {
+        for wakeups in &mut self.dependency_wakeups {
+            wakeups.remove(key);
+        }
         for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
             lane.ready.remove(key);
             lane.deferred.remove(key);
@@ -359,6 +382,9 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         self.scan.clear();
         self.startup_scan.clear();
         self.retries.clear();
+        for wakeups in &mut self.dependency_wakeups {
+            wakeups.clear();
+        }
         for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
             lane.ready.clear();
             lane.deferred.clear();

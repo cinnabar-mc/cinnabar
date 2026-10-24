@@ -1,5 +1,10 @@
 use super::super::*;
 
+#[cfg(test)]
+thread_local! {
+    pub(in crate::stream) static MESH_READINESS_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl WorldStream {
     /// Offers bounded FIFO retries not already probed, without adding heap records.
     pub(in crate::stream) fn mesh_retry_candidates(
@@ -82,6 +87,8 @@ impl WorldStream {
         revision: u64,
         now: Instant,
     ) -> bool {
+        #[cfg(test)]
+        MESH_READINESS_CHECKS.with(|checks| checks.set(checks.get() + 1));
         self.revisions.is_current(key, revision)
             && !self.mesh_jobs.in_flight.contains_key(&key)
             && !self.mesh_neighbour_is_due(key, now)

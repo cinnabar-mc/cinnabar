@@ -5,6 +5,81 @@ fn deferred_mesh_stream() -> (WorldStream, SchedulerView, SubChunkKey, SubChunkK
     seed_deferred_meshes(lit_stream(1))
 }
 
+/// Repeated light notifications share one readiness check until geometry can be scheduled.
+#[test]
+fn completed_light_notifications_coalesce_readiness() {
+    let (mut stream, view, visible, _) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    let blocked = SubChunkKey::new(1, visible.x - 1, -1, -1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    install_current_light(&mut stream, blocked, 0, 0, false);
+    stream.mark_light_dirty_exact(blocked).unwrap();
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    for _ in 0..32 {
+        stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    }
+    let checks = meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get);
+    assert!(
+        checks <= 1,
+        "repeated unresolved notifications performed {checks} readiness checks"
+    );
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&visible));
+
+    install_current_light(&mut stream, blocked, 0, 0, false);
+    let direct = stream.lighting.direct_sky[&blocked].clone();
+    stream.finish_accepted_light_completion(blocked, 0, &direct, [false; 6], false);
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, visible);
+    stream.accept_mesh_completion(completion);
+}
+
+/// Worker saturation retains dependency notifications without doing geometry preparation.
+#[test]
+fn completed_light_notifications_wait_for_geometry_capacity() {
+    let (mut stream, view, visible, _) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    stream
+        .admitted_mesh_jobs
+        .store(meshing::admission::mesh_worker_cap(), Ordering::Release);
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 0);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 0);
+    stream.admitted_mesh_jobs.store(0, Ordering::Release);
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, visible);
+    stream.accept_mesh_completion(completion);
+}
+
+/// A retired revision cannot leave a dependency notification ahead of current ready work.
+#[test]
+fn retired_mesh_releases_coalesced_dependency_notification() {
+    let (mut stream, view, visible, backlog) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    for _ in 0..32 {
+        stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    }
+    assert_eq!(
+        stream.mesh_jobs.dependency_wakeups[RESIDENT_MESH_LANE].len(),
+        1
+    );
+    stream.mesh_jobs.remove_pending(&visible);
+    assert!(stream.mesh_jobs.dependency_wakeups[RESIDENT_MESH_LANE].is_empty());
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, backlog);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 0);
+    stream.accept_mesh_completion(completion);
+}
+
 /// Queues a visible far mesh ahead of lower-priority work in a dimension-one test stream.
 fn seed_deferred_meshes(
     mut stream: WorldStream,

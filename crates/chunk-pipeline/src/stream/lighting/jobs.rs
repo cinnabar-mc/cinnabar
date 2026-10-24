@@ -741,17 +741,11 @@ impl WorldStream {
                 self.lighting.priority_wakeups.insert(neighbour, revision);
             }
         }
-        // Evaluate readiness after this completion has invalidated every affected neighbour.
-        let now = Instant::now();
+        // Geometry dispatch checks each notified key after all accepted light invalidations.
         for dependent in key.mesh_neighbourhood_dependents() {
             if self.mesh_jobs.pending.contains_key(&dependent) {
-                if let Some(candidate) = self
-                    .mesh_jobs
-                    .deferred_candidate(RESIDENT_MESH_LANE, dependent)
-                    && self.mesh_retry_is_ready(dependent, candidate.revision, now)
-                {
-                    self.mesh_jobs.wake_deferred(RESIDENT_MESH_LANE, dependent);
-                }
+                self.mesh_jobs
+                    .notify_deferred(RESIDENT_MESH_LANE, dependent);
                 self.mesh_jobs.refresh.wake_near(dependent);
             }
         }

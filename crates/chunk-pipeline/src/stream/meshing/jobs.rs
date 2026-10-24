@@ -72,6 +72,7 @@ impl WorldStream {
                 (lane, pending.urgent)
             });
         woken.append(&mut self.mesh_jobs.refresh.take_woken());
+        let mut already_probed = self.promote_mesh_dependency_wakeups(view);
 
         let probe = |key| {
             let pending = self.mesh_jobs.pending.get(&key).copied()?;
@@ -103,10 +104,11 @@ impl WorldStream {
             }
         }
         if view.startup_center.is_none() {
-            let already_probed = resident_candidates
-                .iter()
-                .map(|(candidate, _, _)| candidate.key)
-                .collect();
+            already_probed.extend(
+                resident_candidates
+                    .iter()
+                    .map(|(candidate, _, _)| candidate.key),
+            );
             resident_candidates.extend(self.mesh_retry_candidates(view, &already_probed));
         }
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
