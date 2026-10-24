@@ -24,6 +24,8 @@ static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
 
 mod persistence;
 pub use persistence::{BlobCacheStore, WeakClientBlobCache};
+mod requested_hashes;
+use requested_hashes::RequestedBlobHashes;
 
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
@@ -476,6 +478,7 @@ impl RecoveryReady {
 #[derive(Debug)]
 pub struct BlobCacheResolver {
     cache: ClientBlobCache,
+    requested_hashes: RequestedBlobHashes,
     pending: HashMap<u64, PendingTransaction>,
     pending_order: BTreeSet<u64>,
     pending_by_hash: HashMap<u64, HashSet<u64>>,
