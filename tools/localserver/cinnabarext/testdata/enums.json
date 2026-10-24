@@ -12,6 +12,7 @@
     "entity_highlight",
     "render_through_walls",
     "render_material",
+    "render_world_material",
     "render_post"
   ],
   "implemented_permissions": [

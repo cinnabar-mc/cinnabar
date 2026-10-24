@@ -42,6 +42,7 @@ fn state() -> State {
             channels: Vec::new(),
             actions: BTreeSet::new(),
             max_message_bytes: MAX_MESSAGE_BYTES as u32,
+            namespace: None,
         },
         action: None,
         gui: None,
@@ -50,6 +51,8 @@ fn state() -> State {
         calls: 0,
         initializing: false,
         negotiation: None,
+        world: WorldMaterials::default(),
+        world_staged: WorldMaterials::default(),
     };
     state.begin_output().unwrap();
     state
@@ -199,6 +202,7 @@ pub(super) fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
         channels: Vec::new(),
         actions: BTreeSet::from(["demo.pick".to_owned()]),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     }
 }
 
@@ -1158,6 +1162,67 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
         .unwrap()
         .into_transaction();
     assert!(host.drawing_references().is_empty());
+}
+
+#[test]
+fn world_declarations_are_refused_against_retained_state_and_kept_across_commits() {
+    use server_experience::world_material::{
+        WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget,
+    };
+    let mut state = state();
+    state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
+    state.capabilities.namespace = Some("example".into());
+    let material = WorldMaterialSpec {
+        source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
+        textures: Vec::new(),
+        params: Vec::new(),
+        depth: WorldDepth::Test,
+        blend: WorldBlend::Opaque,
+    };
+    let bind = |material| Command::WorldBinding {
+        id: 0,
+        binding: Some(WorldBinding {
+            target: WorldTarget::Entity("example:moth".into()),
+            material,
+        }),
+    };
+    assert!(
+        state.stage(bind(1)).unwrap().is_err(),
+        "no such material yet"
+    );
+    state
+        .stage(Command::WorldMaterial {
+            id: 1,
+            material: Some(material),
+        })
+        .unwrap()
+        .unwrap();
+    state.stage(bind(1)).unwrap().unwrap();
+    // Committing keeps the declarations for later callbacks.
+    state.world = state.world_staged.clone();
+    state.begin_output().unwrap();
+    assert!(
+        state
+            .stage(Command::WorldMaterial {
+                id: 1,
+                material: None,
+            })
+            .unwrap()
+            .is_err(),
+        "a bound material cannot be removed"
+    );
+    let outside = Command::WorldBinding {
+        id: 2,
+        binding: Some(WorldBinding {
+            target: WorldTarget::Block("minecraft:stone".into()),
+            material: 1,
+        }),
+    };
+    assert!(state.stage(outside).unwrap().is_err());
+    assert!(
+        state.commands.is_empty(),
+        "refused declarations stage nothing"
+    );
 }
 
 mod binding;

@@ -52,6 +52,12 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `world_draw` | Shared retained drawing, immediate primitives and local visual time/weather overrides |
 | `entity_observe`, `entity_highlight` | Current native actor references and masks |
 | `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
+| `render_world_material` | Guest `shade` materials bound to the bundle's own entities and blocks (`world-material`, server-experience 1.6.0); developer client only |
+
+A bundle asking for `render_world_material` signs a manifest `namespace` (API 2): the
+identifier namespace whose entities and blocks its world materials may bind. It holds
+lowercase ASCII letters, digits, `_`, `-` and `.`, at most 64 bytes, and is never
+`minecraft`. API 1 bundles are refused.
 
 Client parts share the personal-mod drawing, render, environment and signed-asset
 imports. Terrain, packet interception and local settings remain personal-mod APIs.

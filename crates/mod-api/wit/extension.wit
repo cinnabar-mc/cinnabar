@@ -660,7 +660,7 @@ interface render {
 /// mutation errs when the `screen` permission is denied.
 /// Grants: `screen` for mutations; layout, held-modifiers and elapsed-seconds need no grant.
 interface screen {
-    use cinnabar:server-experience/ui@1.5.0.{value, gui-size};
+    use cinnabar:server-experience/ui@1.6.0.{value, gui-size};
 
     /// A rectangle in GUI units, from the top left of the screen root.
     record rect {
