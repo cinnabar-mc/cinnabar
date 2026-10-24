@@ -136,7 +136,7 @@ async fn shared_control_fixtures_cover_both_channel_prefixes_and_events() {
         .iter()
         .filter(|value| value.get("user_agent").is_some())
     {
-        let hello: crate::control::Hello = serde_json::from_value(fixture.clone()).unwrap();
+        let hello: bridge::relay_control::Hello = serde_json::from_value(fixture.clone()).unwrap();
         assert_eq!(serde_json::to_value(hello).unwrap(), *fixture);
     }
     let welcome = fixtures

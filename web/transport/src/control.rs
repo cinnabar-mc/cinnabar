@@ -1,52 +1,44 @@
 //! Typed relay messages shared by transport selection and page presentation.
 use crate::{Channel, CloseReason};
-use bridge::{Account, ConnectProgress, contract::*};
-use serde::{Deserialize, Serialize};
+use bridge::contract::*;
 
-/// One channel prefix, with credentials carried only inside its bounded frame.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub(crate) struct Hello {
-    pub version: u32,
-    pub channel: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub channels: Vec<String>,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub resume: String,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub generation: u64,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub join: u64,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub user_agent: String,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub apple_mobile: bool,
+use bridge::relay_control::{Event, Hello};
+
+/// Builds the browser's declaration using its already-selected reliable channel.
+pub(crate) fn hello(channel: Channel, resume: &str, generation: u64) -> Hello {
+    Hello {
+        version: RELAY_VERSION,
+        channel: channel.name().into(),
+        channels: if matches!(channel, Channel::Control) {
+            [RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY]
+                .map(str::to_owned)
+                .into()
+        } else {
+            Vec::new()
+        },
+        resume: resume.into(),
+        user_agent: browser_user_agent(),
+        apple_mobile: browser_apple_mobile(),
+        generation,
+        join: match channel {
+            Channel::Control => 0,
+            Channel::Play { join } => join,
+        },
+    }
 }
-impl Hello {
-    /// Builds the channel declaration from the authoritative bridge contract.
-    pub(crate) fn new(channel: Channel, resume: &str, generation: u64) -> Self {
-        Self {
-            version: RELAY_VERSION,
-            channel: channel.name().into(),
-            channels: if matches!(channel, Channel::Control) {
-                [RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY]
-                    .map(str::to_owned)
-                    .into()
-            } else {
-                Vec::new()
-            },
-            resume: resume.into(),
-            generation,
-            join: match channel {
-                Channel::Control => 0,
-                Channel::Play { join } => join,
-            },
-            user_agent: browser_user_agent(),
-            apple_mobile: browser_apple_mobile(),
-        }
+/// Reports browser identity inside the reliable handshake rather than relying on HTTP headers.
+fn browser_user_agent() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::browser::user_agent()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        String::new()
     }
 }
 
-/// Keeps desktop-mode iPadOS distinguishable from macOS in the framed handshake.
+/// Keeps desktop-mode iPadOS distinguishable from macOS.
 fn browser_apple_mobile() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
@@ -56,68 +48,6 @@ fn browser_apple_mobile() -> bool {
     {
         false
     }
-}
-
-/// Omits absent browser capability hints from the handshake.
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
-/// Reports browser identity in the framed handshake, including on transports without HTTP headers.
-#[cfg(target_arch = "wasm32")]
-fn browser_user_agent() -> String {
-    crate::browser::user_agent()
-}
-
-/// Leaves browser metadata absent for native transport tests and non-browser callers.
-#[cfg(not(target_arch = "wasm32"))]
-fn browser_user_agent() -> String {
-    String::new()
-}
-
-/// A rotated capability and its control generation, observed after a bounded frame arrives.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub(crate) struct Capability {
-    pub version: u32,
-    pub resume: String,
-    pub generation: u64,
-    pub expires_seconds: u64,
-}
-
-/// A bounded request with no replay queue or transport-specific interpretation.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "op")]
-pub(crate) enum Request {
-    #[serde(rename = "sign_in")]
-    SignIn,
-    #[serde(rename = "sign_out")]
-    SignOut,
-    #[serde(rename = "pong")]
-    Pong { resume: String },
-}
-
-/// Known events require their typed payload; optional future event kinds are ignored.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
-pub(crate) enum Event {
-    #[serde(rename = "welcome")]
-    Welcome {
-        #[serde(flatten)]
-        capability: Capability,
-    },
-    #[serde(rename = "ping")]
-    Ping {
-        #[serde(flatten)]
-        capability: Capability,
-    },
-    #[serde(rename = "account")]
-    Account { account: Account },
-    #[serde(rename = "connect")]
-    Connect { connect: ConnectProgress },
-    #[serde(rename = "error")]
-    Error { error: RefusalCode },
-    #[serde(other)]
-    Unknown,
 }
 
 /// Parses one bounded frame, retaining optional-field forward compatibility.
@@ -141,14 +71,10 @@ pub fn connection_refusal_message(code: RefusalCode) -> &'static str {
     }
 }
 
-/// Omits unused numeric fields from a channel Hello.
-fn is_zero(value: &u64) -> bool {
-    *value == 0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bridge::relay_control::Request;
     use serde_json::Value;
 
     #[test]

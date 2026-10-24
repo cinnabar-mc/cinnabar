@@ -1,5 +1,5 @@
 //! Captures post-send observations and finalizes poses after local interaction admission.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
 mod shared_players;
 #[cfg(test)]
 use bevy::prelude::IntoScheduleConfigs;
@@ -61,7 +61,7 @@ pub(crate) struct ActorObservations<'w> {
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
     account: Option<Res<'w, client_shell::menu::launcher_account::LauncherAccount>>,
 }
 
@@ -85,7 +85,9 @@ pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,
     mut java_blocking: Local<bool>,
-    #[cfg(not(target_arch = "wasm32"))] mut shared_state: Local<shared_players::State>,
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))] mut shared_state: Local<
+        shared_players::State,
+    >,
     mut fluids: Local<client_presentation::actor_sampling::ActorFluidSampler>,
 ) {
     let ActorObservations {
@@ -108,7 +110,7 @@ pub(crate) fn advance_actor_frame(
         movement,
         time,
         profiler,
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
         account,
     } = observations;
     let _timer = profiler
@@ -156,7 +158,7 @@ pub(crate) fn advance_actor_frame(
         physics.render_eye_position(),
         physics.render_feet_position(),
     );
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
     let shared = shared_players::exchange(
         stream,
         ui.as_deref().map(|ui| &ui.0),
@@ -193,13 +195,13 @@ pub(crate) fn advance_actor_frame(
                 );
                 renders_game
             },
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
             remote_emotes: shared.emotes,
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
             remote_hats: shared.hats,
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(not(feature = "native-networking"), target_arch = "wasm32"))]
             remote_emotes: Vec::new(),
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(not(feature = "native-networking"), target_arch = "wasm32"))]
             remote_hats: Vec::new(),
             custom_emote: ui
                 .as_deref()

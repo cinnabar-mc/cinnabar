@@ -76,7 +76,11 @@ async fn requested_blob_survives_repeated_ordinary_update_interleave() {
     );
     let cache = ClientBlobCache::default();
     let transport = SessionTransport::new(reader, frames, &startup);
-    let mut session = PlaySession::new(transport, Some(cache.clone()), 1, false);
+    let mut session = PlaySession::new(
+        transport,
+        Some(cache.clone()),
+        crate::login::startup::ready_fixture(1),
+    );
 
     assert!(matches!(
         next_ingress(&mut session),
