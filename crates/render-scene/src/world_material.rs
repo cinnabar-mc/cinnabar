@@ -84,9 +84,51 @@ impl WorldMaterialScene {
     }
 }
 
+/// Most world material compile failures one session keeps for its diagnostics.
+pub const MAX_WORLD_MATERIAL_FAILURES: usize = 64;
+
+/// Keys of world materials whose native pipelines failed to compile, shared by the render
+/// world that observes the failure and the main world that reports it.
+#[derive(Resource, Clone, Default)]
+pub struct WorldMaterialFailures(Arc<std::sync::Mutex<std::collections::BTreeSet<u64>>>);
+
+impl WorldMaterialFailures {
+    /// Records the failure of material `key`; returns whether it was new. At most
+    /// [`MAX_WORLD_MATERIAL_FAILURES`] keys are kept.
+    pub fn record(&self, key: u64) -> bool {
+        let mut failures = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        failures.len() < MAX_WORLD_MATERIAL_FAILURES && failures.insert(key)
+    }
+
+    /// Whether material `key` failed to compile.
+    pub fn failed(&self, key: u64) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(&key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compile_failures_are_recorded_once_and_bounded() {
+        let failures = WorldMaterialFailures::default();
+        assert!(failures.record(3));
+        assert!(!failures.record(3));
+        assert!(failures.failed(3) && !failures.failed(4));
+        for key in 10..10 + MAX_WORLD_MATERIAL_FAILURES as u64 {
+            failures.record(key);
+        }
+        assert!(!failures.record(u64::MAX), "the set stays bounded");
+        // Clones share one record across the main and render worlds.
+        assert!(failures.clone().failed(3));
+    }
 
     #[test]
     fn host_rasters_own_depth_blend_and_pass_per_class() {

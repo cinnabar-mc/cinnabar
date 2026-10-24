@@ -132,7 +132,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   manifest's `namespace` (API 2) limits bindings to that namespace; overriding other namespaces,
   vanilla included, needs a separate permission and consent that do not exist. The consent
   line's wording is provisional. The `world-material` import (`server-experience@1.4.0`)
-  declares materials and bindings.
+  declares materials and bindings; bound entities and cube blocks draw with them under
+  host-owned depth, blend and pass, charged to the signed memory and GPU limits, and revocation
+  restores Bedrock in one publication. Incomplete: model-geometry blocks are not tagged, blended
+  block classes draw unsorted, Enhanced and shader-pack terrain draw bound blocks as Bedrock,
+  and no rendered acceptance capture of a bound entity or block exists.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no

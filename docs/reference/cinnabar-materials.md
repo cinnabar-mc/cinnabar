@@ -98,8 +98,9 @@ validated but not drawn.
 Mod drawing materials (`create-material`, which needs both the `world_draw` and `render_material`
 grants; see `crates/mod-api/drawing-materials.md`) shade only the mod's own retained drawings.
 They do not draw entity or block surfaces, and a resource pack's material bindings never grant
-them. Programmable world materials for server Experiences would take a separate
-`render_world_material` permission. They stay blocked until Experience guests have a drawing
-interface (see `plan.md`). Moving a retained-drawing effect to a world surface today means
-expressing it as a binding in this file, with its states, defines, masks and parameters.
+them. Programmable world materials for server Experiences take the separate, developer-only
+`render_world_material` permission and bind only the bundle's own namespace (see
+`docs/server-experiences.md`). For a resource pack, moving a retained-drawing effect to a world
+surface means expressing it as a binding in this file, with its states, defines, masks and
+parameters.
 
