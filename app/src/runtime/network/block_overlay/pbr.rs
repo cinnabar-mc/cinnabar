@@ -19,6 +19,13 @@ use super::Builder;
 pub(super) const DECODE_SERVER_SURFACES: bool =
     render_model::ENHANCED_RENDERING_ENABLED || cfg!(test);
 
+#[cfg(test)]
+thread_local! {
+    /// Caps the surface budget for the current test thread, to exercise exhaustion.
+    pub(super) static SURFACE_BUDGET_LIMIT: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// Static overlay textures whose colour came from a pack texture set, by texture reference.
 #[derive(Default)]
 pub(super) struct PbrCandidates(BTreeMap<u32, (String, Option<[u8; 3]>)>);
@@ -41,10 +48,8 @@ impl Builder<'_> {
         let candidates = std::mem::take(&mut self.pbr.0);
         let mut pages = PbrPages::default();
         let mut references = BTreeMap::new();
-        let mut remaining = self
-            .texture_policy
-            .storage_bytes()
-            .saturating_sub(self.upload_bytes);
+        let budget = self.surface_budget();
+        let mut remaining = budget;
         for (texture, (path, tint)) in candidates {
             let Some(set) = pack_runtime::pack_textures::PackTextureSet::find(view, &path) else {
                 continue;
@@ -76,11 +81,7 @@ impl Builder<'_> {
         let Some([color, normal, material]) = pages.finish(|_| 1) else {
             return;
         };
-        self.upload_bytes += self
-            .texture_policy
-            .storage_bytes()
-            .saturating_sub(self.upload_bytes)
-            - remaining;
+        self.upload_bytes += budget - remaining;
         self.overlay.enhanced = EnhancedTextureAssets::new(
             color,
             normal,
@@ -88,6 +89,19 @@ impl Builder<'_> {
             EnhancedTextureAssets::carrier_references(references),
         )
         .map(std::sync::Arc::new);
+    }
+
+    /// Terrain bytes the surface layers may still use: what the colour pages left.
+    fn surface_budget(&self) -> usize {
+        let budget = self
+            .texture_policy
+            .storage_bytes()
+            .saturating_sub(self.upload_bytes);
+        #[cfg(test)]
+        if let Some(limit) = SURFACE_BUDGET_LIMIT.get() {
+            return budget.min(limit);
+        }
+        budget
     }
 
     /// Whether any overlay material drawing `texture` cuts out or masks a tint overlay.
