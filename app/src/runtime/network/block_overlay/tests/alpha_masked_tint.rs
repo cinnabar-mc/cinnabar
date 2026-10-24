@@ -37,3 +37,37 @@ fn alpha_masked_tint_weights_a_tint_by_texture_alpha() {
     // Without a tint there is nothing to mask.
     assert!(!material_flags(None, 1 | 8).iter().any(masked));
 }
+
+#[test]
+fn every_tint_method_selects_its_biome_tint_and_unknown_methods_draw_untinted() {
+    let tint = |method: Option<&str>| {
+        let flags = material_flags(method, 1);
+        assert!(!flags.is_empty());
+        flags[0] & (assets::MATERIAL_FLAG_TINT_MASK | assets::MATERIAL_FLAG_FOLIAGE_CLASS_MASK)
+    };
+    let foliage = assets::MATERIAL_FLAG_FOLIAGE_TINT;
+    for (method, expected) in [
+        (None, 0),
+        (Some("none"), 0),
+        (Some("default_foliage"), foliage),
+        (
+            Some("birch_foliage"),
+            foliage | assets::MATERIAL_FLAG_BIRCH_FOLIAGE,
+        ),
+        (
+            Some("evergreen_foliage"),
+            foliage | assets::MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+        ),
+        (
+            Some("dry_foliage"),
+            foliage | assets::MATERIAL_FLAG_DRY_FOLIAGE,
+        ),
+        (Some("grass"), assets::MATERIAL_FLAG_GRASS_TINT),
+        (Some("water"), assets::MATERIAL_FLAG_WATER_TINT),
+        // Bedrock looks names up exactly; anything else is none.
+        (Some("Grass"), 0),
+        (Some("swamp_foliage"), 0),
+    ] {
+        assert_eq!(tint(method), expected, "{method:?}");
+    }
+}
