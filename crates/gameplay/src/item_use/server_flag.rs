@@ -9,6 +9,17 @@
 
 use super::*;
 
+/// A server write waits for its tick, then for any earlier input that could replace it.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ServerUseState {
+    #[default]
+    Idle,
+    Start,
+    Stop,
+    /// The movement tick reached this stop, but an earlier release still has priority.
+    StopAfterInput,
+}
+
 impl ItemUseRuntime {
     /// Notes the use button outside tick-gated maintenance: holding it lets
     /// button-up release a use the server started.
@@ -19,20 +30,42 @@ impl ItemUseRuntime {
         }
     }
 
-    /// Observes queued button states in order until an owned use is released.
-    /// Later presses cannot hide that release while its action awaits admission.
+    /// Projects queued buttons without committing their ownership or release.
+    /// A projected release protects a server stop only until these edges finish.
     pub fn observe_ordered_use_buttons(
         &mut self,
         held: bool,
         later: impl IntoIterator<Item = bool>,
     ) {
         self.observe_use_button(held);
+        let mut owned = self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.button_owned);
+        self.deferred_button_release = owned && !held;
         for held in later {
-            if self.is_releasing(self.button_held) {
+            if self.deferred_button_release {
                 break;
             }
-            self.observe_use_button(held);
+            owned |= held && self.active.is_some();
+            self.deferred_button_release = owned && !held;
         }
+    }
+
+    /// Finishes or expires the queued edges; an unfulfilled projection cannot erase a stop.
+    /// A release already awaiting transaction admission remains owned until it succeeds.
+    pub fn finish_ordered_use_buttons(&mut self) {
+        self.deferred_button_release = false;
+        if self.server_using == ServerUseState::StopAfterInput && !self.release_pending {
+            self.apply_server_use_stop();
+        }
+    }
+
+    /// Applies a ticked server stop without inventing a local flag write or transaction.
+    fn apply_server_use_stop(&mut self) {
+        self.server_using = ServerUseState::Idle;
+        self.active = None;
+        self.riptide_release = None;
     }
 
     /// Takes the item-use flag the latest local start (`true`) or end
@@ -41,9 +74,9 @@ impl ItemUseRuntime {
         self.local_using.take()
     }
 
-    /// Whether a server `UsingItem` value still awaits a movement tick.
+    /// Whether a server write still awaits its movement tick or earlier input.
     pub const fn has_server_using_item(&self) -> bool {
-        self.server_using.is_some()
+        !matches!(self.server_using, ServerUseState::Idle)
     }
 
     /// Reconciles a pending server `UsingItem` value with the item in use at
@@ -52,26 +85,30 @@ impl ItemUseRuntime {
     /// unverified, keeps waiting on an empty hand, and gives an item without a
     /// held use a zero-duration use.
     pub fn resolve_server_using_item(&mut self, frame: &UseFrame) -> bool {
-        let Some(using) = self.server_using else {
+        if self.server_using == ServerUseState::Idle {
             return false;
-        };
-        if !using {
-            self.server_using = None;
+        }
+        if matches!(
+            self.server_using,
+            ServerUseState::Stop | ServerUseState::StopAfterInput
+        ) {
             // A release observed already, or in this frame's input, ends the use
             // with its transaction, as vanilla's input precedes its tick.
-            let releasing = self.release_pending
+            let releasing = self.deferred_button_release
+                || self.release_pending
                 || self
                     .active
                     .as_ref()
                     .is_some_and(|active| active.button_owned && !self.button_held);
-            if !releasing {
-                self.active = None;
-                self.riptide_release = None;
+            if releasing {
+                self.server_using = ServerUseState::StopAfterInput;
+            } else {
+                self.apply_server_use_stop();
             }
             return false;
         }
         if self.active.is_some() {
-            self.server_using = None;
+            self.server_using = ServerUseState::Idle;
             return false;
         }
         // Vanilla's start ignores an empty stack, so the flag stays set and
@@ -80,7 +117,7 @@ impl ItemUseRuntime {
         let Some(selection) = self.displayed_selection(frame) else {
             return false;
         };
-        self.server_using = None;
+        self.server_using = ServerUseState::Idle;
         let air_use = self.crossbows.air_use(frame);
         // Keep the item's use duration even when its air action is instant.
         // Items without a use duration complete on the next normal tick.
@@ -114,7 +151,8 @@ impl ItemUseRuntime {
     pub fn observe_world(&mut self, session: SessionGeneration, dimension: i32) {
         let world = Some((session, dimension));
         if self.world.is_some() && self.world != world {
-            self.server_using = None;
+            self.server_using = ServerUseState::Idle;
+            self.deferred_button_release = false;
         }
         self.world = world;
     }

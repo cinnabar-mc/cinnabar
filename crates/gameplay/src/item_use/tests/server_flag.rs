@@ -628,3 +628,78 @@ fn ordered_button_states_preserve_ownership_and_release_order() {
         }
     }
 }
+
+/// Looking ahead cannot acknowledge a server stop before the queued release resolves.
+#[test]
+fn a_deferred_release_retains_the_server_stop_until_input_resolves() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(Some(true));
+    assert!(runtime.resolve_server_using_item(&frame(10, false)));
+    runtime.adopt_server_using_item(Some(false));
+    runtime.observe_ordered_use_buttons(false, [true, false, true]);
+    runtime.resolve_server_using_item(&frame(11, true));
+    assert!(runtime.is_using());
+    assert!(
+        runtime.has_server_using_item(),
+        "a projected release has not superseded the server stop"
+    );
+}
+
+/// Expiry applies a ticked stop without giving the expired press ownership of the use.
+#[test]
+fn expired_button_edges_apply_the_server_stop_without_a_release() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(Some(true));
+    runtime.resolve_server_using_item(&frame(10, false));
+    runtime.adopt_server_using_item(Some(false));
+    runtime.observe_ordered_use_buttons(false, [true, false, true]);
+    runtime.resolve_server_using_item(&frame(11, true));
+    runtime.finish_ordered_use_buttons();
+    assert!(!runtime.is_using());
+    assert!(!runtime.has_server_using_item());
+    assert!(!runtime.has_pending_release());
+    assert!(runtime.step(&frame(12, true)).packets.is_empty());
+    assert!(!runtime.is_using());
+}
+
+/// A refused real release survives expiry and precedes an admitted fresh press.
+#[test]
+fn an_admitted_repress_supersedes_a_stop_after_its_refused_release() {
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    runtime.adopt_server_using_item(Some(true));
+    runtime.resolve_server_using_item(&frame(10, false));
+    runtime.adopt_server_using_item(Some(false));
+    runtime.observe_ordered_use_buttons(false, [true, false, true]);
+    runtime.resolve_server_using_item(&frame(11, true));
+    runtime.observe_use_button(true);
+    runtime.step(&frame(11, true));
+    runtime.observe_use_button(false);
+    step_and_send(&mut runtime, &mut swings, &frame(12, false), 42, 6, |_| {
+        Err(BatchSendError::Full)
+    });
+    runtime.finish_ordered_use_buttons();
+    assert!(runtime.is_using());
+    assert!(runtime.has_pending_release());
+    assert!(runtime.has_server_using_item());
+    runtime.observe_press(true);
+    let mut sent = Vec::new();
+    assert!(step_and_send(
+        &mut runtime,
+        &mut swings,
+        &frame(20, true),
+        42,
+        6,
+        |packets| {
+            sent = packets;
+            Ok(())
+        }
+    ));
+    assert_eq!(
+        sent.iter().map(use_kind).collect::<Vec<_>>(),
+        ["release", "use"]
+    );
+    assert_eq!(runtime.active_timing().unwrap().0, 20);
+    assert!(!runtime.has_pending_release());
+    assert!(!runtime.has_server_using_item());
+}

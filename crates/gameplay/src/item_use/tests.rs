@@ -19,6 +19,7 @@ mod respawn;
 mod riptide;
 mod rockets;
 mod server_flag;
+mod server_flag_model;
 
 fn crossbow_duration() -> u32 {
     match classify("minecraft:crossbow", false, 0, None).unwrap() {

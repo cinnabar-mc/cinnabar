@@ -309,6 +309,67 @@ fn deferred_use_edges_keep_server_clears_in_input_order() {
     }
 }
 
+/// Expiring a press/release/re-press behind a full outbox still applies the server stop.
+#[test]
+fn a_server_clear_survives_expired_use_edges_and_backpressure() {
+    let (mut world, _) = server_using_bow(false);
+    let (network, mut captured) =
+        NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(1);
+    network
+        .send_inventory_packets(vec![protocol::swing_arm_packet(
+            42,
+            protocol::SwingSource::UseItem,
+        )])
+        .unwrap();
+    world.insert_resource(network);
+    {
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        let mode = player.facts.player_game_mode();
+        player.inventory.queue_local_hotbar_selection(1, mode);
+        player.inventory.queue_local_hotbar_selection(0, mode);
+    }
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(false),
+                ..Default::default()
+            },
+        );
+    let mut events = semantic_input::DesktopEvents::default();
+    for pressed in [true, false, true] {
+        events.push(semantic_input::DesktopEvent::Button {
+            control: semantic_input::PhysicalControl::MouseButton(2),
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    route_use_events(&mut world, events, vec![2]);
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    assert!(world.resource::<ItemUseRuntime>().is_using());
+    crate::ordered_interactions::drain(
+        &mut world,
+        crate::ordered_interactions::DispatchPhase::AfterMovement,
+    );
+    captured.drain();
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
+    assert!(
+        !world.resource::<ItemUseRuntime>().is_using(),
+        "expired input must not discard the server stop"
+    );
+    assert_eq!(world.resource::<ItemUseRuntime>().movement_modifier(), None);
+    assert!(!world.resource::<LocalPhysicsController>().live_using_item());
+    assert!(captured.drain().iter().all(|packet| {
+        protocol::test_support::transactions::observe_transaction(packet).is_none()
+    }));
+}
+
 /// A later server stop retires local writes from the old use before its following start.
 #[test]
 fn a_server_control_retires_older_local_item_use_writes() {

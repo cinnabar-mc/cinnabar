@@ -15,6 +15,7 @@ pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
 use client_world::ResolvedUseCooldown as Cooldown;
+use server_flag::ServerUseState;
 
 /// Vanilla re-arms the next build action this long after an air use.
 const USE_REARM_MILLIS: u64 = 200;
@@ -160,8 +161,10 @@ pub struct ItemUseRuntime {
     riptide_launch: Option<RiptideLaunch>,
     /// Selection, eligibility and facing captured together at the first release edge.
     riptide_release: Option<RiptideRelease>,
-    /// Server `UsingItem` value awaiting a movement tick to reconcile with.
-    server_using: Option<bool>,
+    /// Server item-use authority, including stops awaiting earlier input.
+    server_using: ServerUseState,
+    /// A queued, unresolved button sequence could release the current use.
+    deferred_button_release: bool,
     /// Session and dimension last observed, which a pending server value
     /// belongs to.
     world: Option<(SessionGeneration, i32)>,
@@ -184,9 +187,13 @@ impl ItemUseRuntime {
 
     /// Reports a server flag accepted by physics and retains it for the next movement tick.
     pub fn adopt_server_using_item(&mut self, value: Option<bool>) {
-        if value.is_some() {
-            self.reported_using_item = value;
-            self.server_using = value;
+        if let Some(using) = value {
+            self.reported_using_item = Some(using);
+            self.server_using = if using {
+                ServerUseState::Start
+            } else {
+                ServerUseState::Stop
+            };
         }
     }
 
@@ -242,7 +249,8 @@ impl ItemUseRuntime {
         self.stop_active_use();
         self.riptide_release = None;
         self.release_pending = false;
-        self.server_using = None;
+        self.server_using = ServerUseState::Idle;
+        self.deferred_button_release = false;
         self.local_using = Some(false);
     }
 
@@ -369,7 +377,8 @@ impl ItemUseRuntime {
         self.release_pending = false;
         self.riptide_launch = None;
         self.riptide_release = None;
-        self.server_using = None;
+        self.server_using = ServerUseState::Idle;
+        self.deferred_button_release = false;
         self.local_using = None;
         self.button_held = false;
         self.rocket_boost = false;
@@ -462,7 +471,8 @@ impl ItemUseRuntime {
         }
         if ended || outcome.started {
             // A local start or end writes the item-use flag after any server write.
-            self.server_using = None;
+            self.server_using = ServerUseState::Idle;
+            self.deferred_button_release = false;
             self.local_using = Some(self.active.is_some());
         }
         outcome

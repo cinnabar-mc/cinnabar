@@ -199,6 +199,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
         .cloned();
     let Some(snapshot) = snapshot.filter(|input| input.ordered.is_some()) else {
         world
+            .resource_mut::<ItemUseRuntime>()
+            .finish_ordered_use_buttons();
+        world
             .run_system_cached(crate::item_use::ordered::synchronize_scope)
             .expect("item-use scope synchronization");
         world
@@ -228,6 +231,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     };
     let new_frame = runtime.frames.observe_frame(scope, snapshot.frame_sequence);
     if new_frame {
+        world
+            .resource_mut::<ItemUseRuntime>()
+            .finish_ordered_use_buttons();
         world
             .run_system_cached(crate::item_use::ordered::synchronize_scope)
             .expect("item-use scope synchronization");
@@ -341,6 +347,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     {
         // A blocked suffix expires only at its final opportunity, without replay next frame.
         runtime.ingested = ordered.events().len();
+        world
+            .resource_mut::<ItemUseRuntime>()
+            .finish_ordered_use_buttons();
     }
     // Held hand actions keep capturing the selected stack, so they still announce it now.
     let selection_ready = ![Action::Attack, Action::Use]
