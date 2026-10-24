@@ -721,6 +721,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             visibility: Box::new([entity::EntityRenderVisibility {
                 pattern: "root".into(),
                 condition: 0,
+                hide_only: false,
             }]),
             geometries: Box::new([]),
             materials: Box::new([]),
