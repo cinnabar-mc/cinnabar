@@ -95,6 +95,37 @@ impl PaletteWorld<'_> {
         let origin = origin.rounded();
         let max_distance = f64::from(max_distance as f32);
         let direction = validate_ray(origin, direction, max_distance)?;
+        self.trace_block_segment(origin, direction, max_distance, expected_identity)
+    }
+
+    /// Reclips a stored hit to its exact endpoint without normalizing and rebuilding that segment.
+    pub fn block_interaction_segment_current(
+        &self,
+        origin: Vec3,
+        endpoint: Vec3,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
+        let origin = origin.rounded();
+        let endpoint = endpoint.rounded();
+        validate_ray_origin(origin)?;
+        validate_ray_origin(endpoint)?;
+        let delta = endpoint - origin;
+        if delta == Vec3::ZERO {
+            return Ok(None);
+        }
+        if delta.length_squared() > MAX_COLLISION_QUERY_EXTENT * MAX_COLLISION_QUERY_EXTENT {
+            return Err(WorldQueryError::InvalidRayDistance);
+        }
+        self.trace_block_segment(origin, delta, 1.0, None)
+    }
+
+    /// Traverses and clips one already validated float segment, retaining all query evidence.
+    fn trace_block_segment(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f64,
+        expected_identity: Option<&WorldCollisionIdentity>,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
         let halo = self.registry.selection_ray_halo();
         let inspection_limit =
             inspection_limit(FloatRay::new(origin, direction, max_distance), halo)?;
@@ -329,7 +360,8 @@ impl PaletteWorld<'_> {
     }
 }
 
-fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3, WorldQueryError> {
+/// Rejects nonfinite or unrepresentable coordinates before tracing any segment.
+fn validate_ray_origin(origin: Vec3) -> Result<(), WorldQueryError> {
     let coordinate_min = f64::from(i32::MIN) + 2.0;
     let coordinate_max = f64::from(i32::MAX) - 2.0;
     if !origin.is_finite()
@@ -339,6 +371,11 @@ fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3
     {
         return Err(WorldQueryError::InvalidRayOrigin);
     }
+    Ok(())
+}
+
+fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3, WorldQueryError> {
+    validate_ray_origin(origin)?;
     if !direction.is_finite() {
         return Err(WorldQueryError::InvalidRayDirection);
     }
@@ -349,13 +386,7 @@ fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3
     let normalized =
         precision::normalized(direction).ok_or(WorldQueryError::InvalidRayDirection)?;
     let endpoint = origin + normalized * max_distance;
-    if !endpoint.is_finite()
-        || [endpoint.x, endpoint.y, endpoint.z]
-            .into_iter()
-            .any(|value| value < coordinate_min || value > coordinate_max)
-    {
-        return Err(WorldQueryError::InvalidRayOrigin);
-    }
+    validate_ray_origin(endpoint)?;
     Ok(normalized)
 }
 

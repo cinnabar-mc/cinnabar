@@ -40,12 +40,8 @@ fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {
         });
     }
     let origin = frame_origin(&world, Vec3::from_array(start), rotation);
-    let authority = world
-        .resource::<MovementTicker>()
-        .position_authority_identity();
-    world
-        .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&origin, authority);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    retain_pick(&mut world, &origin);
     world.insert_resource(origin);
     (world, captured)
 }
@@ -126,12 +122,7 @@ fn a_picked_actor_prevents_indirect_support_use_and_outline() {
         Vec3::new(4.5, 2.620_01, 6.1),
         Quat::from_rotation_x(-0.9601),
     );
-    let authority = world
-        .resource::<MovementTicker>()
-        .position_authority_identity();
-    world
-        .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&origin, authority);
+    retain_pick(&mut world, &origin);
     world.insert_resource(origin);
     world.init_resource::<client_state::RuntimeSettings>();
     assert!(published_outline(&mut world).is_none());

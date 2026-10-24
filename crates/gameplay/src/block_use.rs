@@ -264,7 +264,6 @@ pub struct BlockUseRuntime {
     last_use: Option<Duration>,
     /// The last success was a block interaction.
     slow_repeat: bool,
-    last_attempt_tick: Option<u64>,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
     /// The latest press was resolved as a block interaction.
@@ -411,11 +410,11 @@ impl BlockUseRuntime {
         self.position_authority = Some(authority);
     }
 
-    /// The trigger due now, with the repeat's due time; at most one attempt per tick.
+    /// The trigger due now; each buffered pick may use an elapsed repeat deadline.
     pub fn due(
         &self,
         held: bool,
-        tick: u64,
+        _tick: u64,
         clock: RepeatClock,
     ) -> Option<(ItemUseTrigger, Duration)> {
         if self.waiting_for_authority {
@@ -424,7 +423,7 @@ impl BlockUseRuntime {
         if self.latched_press {
             return Some((ItemUseTrigger::PlayerInput, clock.now));
         }
-        if !held || self.last_attempt_tick == Some(tick) {
+        if !held {
             return None;
         }
         let interval = repeat_interval_millis(
@@ -460,7 +459,7 @@ impl BlockUseRuntime {
     }
 
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
-    /// retries (and resends its transaction) on the next tick.
+    /// remains eligible for the next buffered pick.
     pub fn record(
         &mut self,
         trigger: ItemUseTrigger,
@@ -471,7 +470,6 @@ impl BlockUseRuntime {
     ) {
         self.rejected_tick = None;
         self.latched_press = false;
-        self.last_attempt_tick = Some(tick);
         if trigger == ItemUseTrigger::PlayerInput {
             self.press_interacted = local_use == LocalUse::Interact;
             if self.press_interacted {
@@ -689,3 +687,6 @@ mod packets;
 pub use packets::HeldPlacementInventory;
 
 mod stopping;
+
+mod pick;
+pub use pick::{BlockPick, PickResult};

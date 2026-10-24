@@ -27,6 +27,7 @@ struct BuildPlan {
     swing_effects: MiningEffects,
     block_network_id: u32,
     change: Option<protocol::PredictedSlotChange>,
+    cooldown: Option<client_world::ResolvedUseCooldown>,
 }
 
 impl BuildInput {
@@ -79,6 +80,12 @@ fn prepare(
         protocol::ItemBlockList::CanPlaceOn,
         observed.target.runtime_id,
     ));
+    item_use.synchronize(context.ui.session_id());
+    let cooldown = stream
+        .authority()
+        .item_use_profile(observed.selection.item.network_id())
+        .cooldown;
+    let ready = cooldown.is_none_or(|cooldown| item_use.cooldown_ready(cooldown, state.tick));
     let prepared = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),
@@ -95,7 +102,10 @@ fn prepare(
             &surroundings,
             &caps,
         );
-        let placement = (caps.can_build && local_use != LocalUse::Interact)
+        if !ready && local_use != LocalUse::Interact {
+            local_use = LocalUse::Nothing;
+        }
+        let placement = (ready && caps.can_build && local_use != LocalUse::Interact)
             .then(|| {
                 predicted_placement(
                     &context.collisions,
@@ -181,6 +191,7 @@ fn prepare(
             swing_effects,
             block_network_id,
             change,
+            cooldown,
         },
     })
 }
@@ -283,6 +294,15 @@ pub(crate) fn advance(
         before_swing.defer_unadmitted_attempt(swings);
         *swings = before_swing;
         return false;
+    }
+    if plan.local_use == LocalUse::Place
+        && plan
+            .change
+            .as_ref()
+            .is_none_or(|change| !change.to.is_empty())
+        && let Some(cooldown) = plan.cooldown
+    {
+        item_use.start_cooldown(cooldown, state.tick);
     }
     if let Some(change) = &plan.change {
         player_runtime

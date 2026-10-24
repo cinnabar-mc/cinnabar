@@ -500,10 +500,11 @@ camera-direction generation and runtime witnesses remain incomplete.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
-Held placement still drops intermediate frame rays and suppresses another attempt in
-that tick after a failed placement. Ordered stored-pick evaluation, due retries within
-the batch, original-hit refresh and buffer consumption, and the extra support-centre
-range check after line targeting remain open. Existing repeat delays stay unchanged.
+Held placement now retains complete frame picks in arrival order, consumes each batch once,
+and permits due retries within that batch. Stored-hit refresh preserves the original bounded
+intercept and eligible fallback, and line targeting does not add a support-centre range
+filter. Placement uses the shared item category cooldown owner. Native repeat delays remain
+unchanged; fresh conformance and headless acceptance verification are pending.
 
 | Field | Evidence |
 |---|---|

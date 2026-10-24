@@ -109,8 +109,8 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
         clock(2_000, 5.0),
     );
     assert_eq!(runtime.last_use, Some(Duration::from_millis(1_820)));
-    // One attempt per tick; a failure keeps the schedule and retries next tick.
-    assert_eq!(runtime.due(true, 5, clock(5_000, 5.0)), None);
+    // A later buffered pick may use an elapsed deadline in the same tick.
+    assert!(runtime.due(true, 5, clock(5_000, 5.0)).is_some());
     let (trigger, due) = runtime.due(true, 6, clock(5_000, 5.0)).unwrap();
     runtime.record(trigger, due, 6, LocalUse::Nothing, clock(5_000, 5.0));
     assert!(runtime.due(true, 7, clock(5_001, 5.0)).is_some());

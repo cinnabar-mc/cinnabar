@@ -17,35 +17,43 @@ pub(super) fn spawn(world: &mut World, z: f32) {
 
 /// Commits a selectable actor of the requested kind into the fixture's stream.
 fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
-    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
-    let stream = client.stream.as_mut().unwrap();
-    let sequence = stream.committed_sequence() + 1;
-    stream
-        .submit(
-            sequence,
-            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
-                dimension: 0,
-                unique_id: 99,
-                runtime_id: 99,
-                kind,
-                position: [4.5, 1.5, z],
-                velocity: [0.0; 3],
-                pitch: 0.0,
-                yaw: 0.0,
-                head_yaw: 0.0,
-                body_yaw: 0.0,
-                held_item: protocol::NetworkItemStack::empty(),
-                metadata: [].into(),
-                attributes: [].into(),
-                properties: [].into(),
-                links: [].into(),
-            })),
-        )
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(
+                    protocol::ActorSpawnEvent {
+                        dimension: 0,
+                        unique_id: 99,
+                        runtime_id: 99,
+                        kind,
+                        position: [4.5, 1.5, z],
+                        velocity: [0.0; 3],
+                        pitch: 0.0,
+                        yaw: 0.0,
+                        head_yaw: 0.0,
+                        body_yaw: 0.0,
+                        held_item: protocol::NetworkItemStack::empty(),
+                        metadata: [].into(),
+                        attributes: [].into(),
+                        properties: [].into(),
+                        links: [].into(),
+                    },
+                )),
+            )
+            .unwrap();
+        test_time::eventually("fixture actor spawn", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
-    test_time::eventually("fixture actor spawn", || {
-        stream.poll([4.5, 2.620_01, 8.5], 0);
-        stream.committed_sequence() >= sequence
-    });
 }
 
 #[test]

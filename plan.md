@@ -779,11 +779,12 @@ native packet order remains incomplete.
 
 ### Held block placement
 
-Held placement is incomplete: it keeps only the latest frame ray and prevents a second
-attempt in the same tick after a failed placement. Ordered frame-pick evaluation and
-same-tick retries while the existing deadline remains due still need implementation.
-Locked-line targeting also applies an extra support-centre range check after selecting
-the support; retained hit refresh and buffer-consumption behavior need full qualification.
+Held placement retains complete ordinary/liquid frame picks in arrival order and consumes
+that buffer once before simulation. Repeats refresh bounded stored intercepts, preserve
+eligible original-hit fallback, and may retry later observations while the unchanged
+native deadline remains due. Locked-line support does not receive a second centre-distance
+filter. Placement shares item category cooldowns with air use and starts them only after
+transport admission. Fresh conformance and headless acceptance verification remain pending.
 Direction/face/intercept retention, repeat timing and reset behavior across slot/item
 changes, unavailable selection and deferred presses still need confirmation. Empty hands
 and non-block items repeat a block's own interaction; bucket repeats and item-specific

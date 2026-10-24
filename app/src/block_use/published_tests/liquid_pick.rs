@@ -76,15 +76,21 @@ fn liquid_fixture(
             network_id: stone,
         });
     }
-    let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
-    let stream = client_world.stream.as_mut().unwrap();
-    stream
-        .submit(3, protocol::WorldEvent::BlockUpdates(updates))
+    {
+        let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client_world.stream.as_mut().unwrap();
+        stream
+            .submit(3, protocol::WorldEvent::BlockUpdates(updates))
+            .unwrap();
+        test_time::eventually("liquid fixture commit", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= 3
+        });
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
-    test_time::eventually("liquid fixture commit", || {
-        stream.poll([4.5, 2.620_01, 8.5], 0);
-        stream.committed_sequence() >= 3
-    });
     (world, captured)
 }
 

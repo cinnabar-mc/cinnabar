@@ -8,7 +8,8 @@ remain subject to each item's placement rules.
 | Vanilla rules | Behaviour |
 | --- | --- |
 | First press | Attempt the fresh clicked block and face immediately. Start a new hold with no previous success or line. |
-| Evaluation order | A press resolves when its input arrives, before the frame's ticks; held repeats evaluate the stored frame picks in order before that tick's movement. Velocity, resolved motion, sneaking, the reported player position and the player's box come from the previous tick's end state, and a placed block is in the world that tick's movement collides with. Each stored pick is refreshed against the current world; a hit farther than reach from the pre-tick eye (measured to a block's centre) counts as a miss. |
+| Evaluation order | A press uses the current frame pick immediately. Held repeats evaluate every accumulated frame pick in order before movement, then consume that buffer once. Catch-up movement ticks do not manufacture more picks. Velocity, resolved motion, sneaking, player position and the collision box come from the previous tick's end state; movement sees admitted placement predictions immediately. |
+| Stored-hit refresh | Reclip a stored block hit only as far as its original intercept. A miss uses the full saved ray. Trim the refreshed result against the pre-tick eye using float block-centre or actor-point distance; if it misses, preserve the original block result or a still-live original actor result. Ordinary and liquid-aware observations remain separate. |
 | Repeats | Refresh the stored frame picks before simulation. An attempt is due only when elapsed time is strictly greater than the repeat delay; this is not a fixed tick count. |
 | Slow delay | 300 ms while sneaking, interacting with a block, or placing before a line has been established. At 20 Hz and an exactly aligned timestamp, the first due opportunity is tick 7. |
 | Ordinary delay | 200 ms while still. While moving, truncate `min(900 / speed, 180)` milliseconds, where speed is the length of the actual post-tick movement delta multiplied by 20. Every noncreative mode has a 100 ms minimum. |
@@ -21,19 +22,17 @@ remain subject to each item's placement rules.
 | Indirect selection | The outline or highlight uses the downward-hit support block and its selection shape. Ordinary overlay eligibility, spectator restrictions and the outline setting still apply. Mining does not use this indirect hit. A first press can use it; unlined held repeats reject it. A locked line tests the segment to the downward intercept. |
 | Sneaking | Retain the fresh picked support, apply the movement-selected face, use the slow delay, and do not establish or advance a placement line. Normal sneaking movement prevents walking beyond a supporting edge. |
 | Jumping and towering | There is no grounded-only placement check. Indirect support also works while sneaking or slightly airborne if the downward ray finds support within two blocks. Jumping can clear the player's collision box for a block underneath; upward movement can select the upward face and establish a vertical line. Ray, collision, replacement and item rules still apply. |
-| Reach | Mouse: 5.7 blocks; gamepad: 5.6. Touch: 6.7 in survival and 12 in creative. The pick segment continues to limit a locked line. |
+| Reach | Mouse: 5.7 blocks; gamepad: 5.6. Touch: 6.7 in survival and 12 in creative. The pick segment continues to limit a locked line; there is no second centre-distance filter on the selected support. |
 | Click position | A fresh hit keeps its world intercept relative to the selected support, even when the support changes. An indirect support hit keeps its downward-ray intercept, including its top-surface height, despite the horizontal placement face. A miss continuation uses zero. Orientation-sensitive blocks keep the first successful world intercept throughout the hold; relative offsets may therefore lie outside the unit cube. |
 | Target type changes | A block, actor or ray miss does not reset the hold. An unusable or occluded pick suspends attempts while preserving the successful destination and line. A block interaction disables placement intention until a qualifying placement resumes it. |
 | Movement corrections | A same-session correction pauses attempts until fresh movement evidence is available, preserving the successful destination, line and repeat schedule. |
 | Selected stack during continuation | Each repeat reads the current selected stack and applies its placement rules. The continuation itself does not reset retained history by comparing stack identity. A refused repeat does not advance the success clock. |
 | Hold reset | Release, attack and blocked gameplay input such as a menu stop the hold. Stop reports the last successful destination; a new press starts fresh. Blocked gameplay also cancels deferred presses. |
 
-Cinnabar currently keeps only the latest frame ray and admits at most one held attempt
-per tick, including failed attempts. Evaluating every stored frame pick in order and
-retrying failed placements within that batch remain incomplete. The selected support
-also receives an extra centre-distance check after line targeting. Original hit refresh
-and buffer-consumption behavior still need full qualification. These gaps can discard
-placement opportunities without changing the repeat delay.
+Cinnabar retains complete frame observations in arrival order and consumes them at the
+simulation boundary. Each observation checks the unchanged repeat deadline, so a failed
+attempt leaves the next observation eligible. The same item category clocks apply to
+placement and air use; a refused send cannot start a placement cooldown.
 
 Cinnabar provisionally preserves the successful destination, locked direction/face,
 first intercept and repeat schedule across slot or item changes. Unconfirmed selection
