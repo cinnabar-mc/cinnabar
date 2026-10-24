@@ -56,6 +56,9 @@ pub struct BlockOverlay {
     pub material_overrides: Vec<MaterialOverride>,
     /// Base visual faces rebound to overlay-local materials; absent faces retain their base.
     pub face_overrides: Vec<(u32, [Option<u32>; 6])>,
+    /// Base model visuals redrawn with overlay-local copies of their complete template span;
+    /// kind, variant and faces are unchanged.
+    pub template_overrides: Vec<(u32, u32)>,
     /// Optional pack-defined tint maps and biome appearance rules.
     pub biomes: Option<crate::CompiledBiomeAssets>,
     /// The per-array layer limit the shards were built against, so a carrier
@@ -84,6 +87,7 @@ impl Default for BlockOverlay {
             hashes: Vec::new(),
             material_overrides: Vec::new(),
             face_overrides: Vec::new(),
+            template_overrides: Vec::new(),
             biomes: None,
             max_page_layers: MAX_TEXTURE_LAYERS as u32,
         }
@@ -444,10 +448,9 @@ impl RuntimeAssets {
         for (index, template) in overlay.model_templates.iter().enumerate() {
             if template.flags == crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT
                 && (template.quad_count == 0
-                    || overlay
-                        .model_templates
-                        .get(index + 1)
-                        .is_none_or(|next| next.flags != 0))
+                    || overlay.model_templates.get(index + 1).is_none_or(|next| {
+                        !crate::model::potted_world_template_flags_are_valid(next.flags)
+                    }))
             {
                 return Err(invalid(
                     "overlay pot-content template has no standalone world model",
@@ -455,11 +458,7 @@ impl RuntimeAssets {
             }
             if template.quad_start as usize != covered
                 || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
-                || !matches!(
-                    template.flags,
-                    0 | crate::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
-                        | crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT
-                )
+                || !crate::model::model_template_flags_are_valid(template.flags)
             {
                 return Err(invalid("overlay template spans are noncanonical"));
             }
@@ -472,6 +471,9 @@ impl RuntimeAssets {
         if covered != overlay.model_quads.len() {
             return Err(invalid("overlay templates do not cover quads"));
         }
+        // Copied vanilla topology groups keep the canonical shape the base carrier validates.
+        crate::blob::compiled_stair_bases(&overlay.model_templates)?;
+        crate::blob::compiled_connected_bases(&overlay.model_templates)?;
         let mut previous_carried = None;
         for &(index, faces) in &overlay.carried_cube_faces {
             let visual = overlay
@@ -512,15 +514,28 @@ impl RuntimeAssets {
             &materials,
             material_base..material_base + overlay.materials.len() as u32,
         )?;
+        super::template_overrides::apply(
+            &overlay.template_overrides,
+            &mut visuals,
+            &self.model_templates,
+            &overlay.model_templates,
+            template_base,
+        )?;
         let retextured_visuals =
             super::face_overrides::retextured_visuals(self, &visuals, &materials);
         for visual in &overlay.visuals {
+            // Server visuals draw plain or compound templates; vanilla topology copies and
+            // pot contents are reachable only through base visuals.
             if overlay
                 .model_templates
                 .get(visual.model_template as usize)
-                .is_some_and(|template| template.flags == crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT)
+                .is_some_and(|template| {
+                    template.flags & !crate::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0
+                })
             {
-                return Err(invalid("overlay visual references pot-content geometry"));
+                return Err(invalid(
+                    "overlay visual references vanilla or pot-content geometry",
+                ));
             }
             if visual.model_template != NO_MODEL_TEMPLATE
                 && compound_tails.get(visual.model_template as usize).copied() == Some(true)

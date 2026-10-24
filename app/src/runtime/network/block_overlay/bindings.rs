@@ -1,5 +1,6 @@
-//! Cinnabar material bindings for custom blocks: each matching binding replaces the render method
-//! of the block's matching material instances with the closest one its material lowers to.
+//! Cinnabar material bindings for custom and vanilla blocks: each matching binding replaces the
+//! render method of the block's matching material instances with the closest one its material
+//! lowers to.
 
 use protocol::{CustomBlock, CustomStateValue, CustomVisualComponents};
 use protocol_ids::BlockRenderMethod;
@@ -8,7 +9,9 @@ use serde_json::Value;
 
 use assets::material_keys::MaterialKeys;
 
-use super::{Builder, OverlayGaps};
+use std::collections::HashMap;
+
+use super::{Builder, DIAGNOSTIC_MATERIAL, OverlayGaps};
 
 #[derive(Default)]
 pub(super) struct MaterialBindings {
@@ -116,10 +119,19 @@ impl MaterialBindings {
     }
 }
 
+/// The render method and raw mask words one vanilla binding draws with.
+#[derive(Clone, Copy)]
+struct VanillaBinding {
+    method: BlockRenderMethod,
+    masks: [u32; 2],
+    strength: u32,
+}
+
 impl Builder<'_> {
-    /// Rebinds the faces of vanilla full cubes that bindings name, in the bound states, to
-    /// copies of their materials drawn with the binding's render method. Tinted and model blocks
-    /// keep their base materials.
+    /// Rebinds vanilla blocks that bindings name, in the bound states, to copies of their
+    /// materials drawn with the binding's render method and masks: full cubes through their
+    /// faces, model blocks through a copy of their template span. Tinted cubes keep their base
+    /// materials.
     pub(super) fn bind_vanilla_blocks(&mut self, keys: &MaterialKeys, bindings: &MaterialBindings) {
         let Some(base) = self.base_assets else {
             return;
@@ -137,21 +149,24 @@ impl Builder<'_> {
         ) else {
             return;
         };
+        // States sharing a template span and binding share one copy.
+        let mut copies = HashMap::new();
         for source in keys.block_sources() {
             let Some(record) = records.get(source.visual as usize) else {
                 continue;
             };
-            let Some(binding) = bindings.bindings.iter().rfind(|binding| {
-                binding.block.as_ref() == record.name.as_ref()
-                    && binding
-                        .instance
-                        .as_deref()
-                        .is_none_or(|pattern| pattern == "*")
-                    && vanilla_states_match(binding, record)
-            }) else {
+            let Some((index, binding)) =
+                bindings.bindings.iter().enumerate().rfind(|(_, binding)| {
+                    binding.block.as_ref() == record.name.as_ref()
+                        && binding
+                            .instance
+                            .as_deref()
+                            .is_none_or(|pattern| pattern == "*")
+                        && vanilla_states_match(binding, record)
+                })
+            else {
                 continue;
             };
-            let method = binding.method;
             let masks = [
                 binding.masks.glow.as_deref(),
                 binding.masks.emissive.as_deref(),
@@ -161,11 +176,30 @@ impl Builder<'_> {
                     .and_then(|slot| assets::TextureRef::new(slot.page, slot.layer).ok())
                     .map_or(assets::NO_MASK, assets::TextureRef::raw)
             });
-            let strength = binding.masks.strength.to_bits();
+            let bound = VanillaBinding {
+                method: binding.method,
+                masks,
+                strength: binding.masks.strength.to_bits(),
+            };
             let block = base.resolve(assets::NetworkIdMode::Sequential, source.visual);
-            if !block.is_known()
-                || block.kind() != assets::VisualKind::Cube
-                || block.model_template().is_some()
+            if !block.is_known() {
+                continue;
+            }
+            if let Some(template) = block.model_template() {
+                let head = match copies.get(&(template, index)) {
+                    Some(&head) => head,
+                    None => {
+                        let head = self.copy_vanilla_model(keys, base, template, bound);
+                        copies.insert((template, index), head);
+                        head
+                    }
+                };
+                if let Some(head) = head {
+                    self.overlay.template_overrides.push((source.visual, head));
+                }
+                continue;
+            }
+            if block.kind() != assets::VisualKind::Cube
                 || block.variant() != 0
                 || block.flags().contains(assets::BlockFlags::LEAF_MODEL)
             {
@@ -174,20 +208,11 @@ impl Builder<'_> {
             let mut faces = [None; 6];
             for face in assets::BlockFace::ALL {
                 let id = block.face(face).material_id();
-                let material = base.material(id);
-                if material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0 {
+                if base.material(id).flags & assets::MATERIAL_FLAG_TINT_MASK != 0 {
                     faces = [None; 6];
                     break;
                 }
-                let Some(texture) = keys.material_source(id) else {
-                    continue;
-                };
-                let flags = (material.flags
-                    & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT))
-                    | assets::block_render_method_flags(method);
-                faces[face as usize] = self
-                    .terrain_material(Some(keys), &texture.key, texture.variant, flags)
-                    .map(|id| self.masked_material(id, masks, strength));
+                faces[face as usize] = self.bound_material(keys, base, id, bound);
             }
             if faces.iter().all(Option::is_none) {
                 continue;
@@ -208,6 +233,89 @@ impl Builder<'_> {
                 None => self.overlay.face_overrides.push((source.visual, faces)),
             }
         }
+    }
+
+    /// An overlay copy of base material `id`'s terrain art drawn with `bound`'s render method
+    /// and masks, keeping its other flags; `None` when it has no terrain source or is not
+    /// admitted.
+    fn bound_material(
+        &mut self,
+        keys: &MaterialKeys,
+        base: &assets::RuntimeAssets,
+        id: u32,
+        bound: VanillaBinding,
+    ) -> Option<u32> {
+        let texture = keys.material_source(id)?;
+        let flags = (base.material(id).flags
+            & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT))
+            | assets::block_render_method_flags(bound.method);
+        self.terrain_material(Some(keys), &texture.key, texture.variant, flags)
+            .map(|id| self.masked_material(id, bound.masks, bound.strength))
+    }
+
+    /// Copies the complete template span a vanilla model visual draws from `template`, with the
+    /// pot contents before it, into the overlay with bound materials, and returns the copied
+    /// head. Quads take the binding's sidedness, as custom-block material instances do. `None`,
+    /// copying nothing, when the span is not fixed, or a quad material has no terrain source,
+    /// carries carrier-baked tint or is not admitted.
+    fn copy_vanilla_model(
+        &mut self,
+        keys: &MaterialKeys,
+        base: &assets::RuntimeAssets,
+        template: u32,
+        bound: VanillaBinding,
+    ) -> Option<u32> {
+        let templates = base.model_templates();
+        let span = assets::model_template_span(templates, template)?;
+        let first = template
+            .checked_sub(1)
+            .filter(|&previous| {
+                templates[previous as usize].flags == assets::MODEL_TEMPLATE_FLAG_POTTED_PLANT
+            })
+            .unwrap_or(template);
+        let copied = &templates[first as usize..(template + span) as usize];
+        let quads = |part: &assets::ModelTemplate| {
+            &base.model_quads()[part.quad_start as usize..][..part.quad_count as usize]
+        };
+        if !copied.iter().flat_map(quads).all(|quad| {
+            quad.material == DIAGNOSTIC_MATERIAL
+                || keys
+                    .material_source(quad.material)
+                    .is_some_and(|source| source.baked_tint.is_none())
+        }) {
+            return None;
+        }
+        let mut materials = HashMap::from([(DIAGNOSTIC_MATERIAL, DIAGNOSTIC_MATERIAL)]);
+        for quad in copied.iter().flat_map(quads) {
+            if let std::collections::hash_map::Entry::Vacant(entry) = materials.entry(quad.material)
+            {
+                entry.insert(self.bound_material(keys, base, quad.material, bound)?);
+            }
+        }
+        let sided = if bound.method.two_sided() {
+            assets::MODEL_QUAD_FLAG_TWO_SIDED
+        } else {
+            0
+        };
+        let head = self.overlay.model_templates.len() as u32 + (template - first);
+        for (offset, part) in copied.iter().enumerate() {
+            let copy = self.overlay.model_templates.len() as u32;
+            if let Some(component) = base.model_random_offset(first + offset as u32) {
+                self.overlay.model_random_offsets.push((copy, component));
+            }
+            self.overlay.model_templates.push(assets::ModelTemplate {
+                quad_start: self.overlay.model_quads.len() as u32,
+                ..*part
+            });
+            self.overlay
+                .model_quads
+                .extend(quads(part).iter().map(|quad| assets::ModelQuad {
+                    material: materials[&quad.material],
+                    flags: (quad.flags & !assets::MODEL_QUAD_FLAG_TWO_SIDED) | sided,
+                    ..*quad
+                }));
+        }
+        Some(head)
     }
 }
 

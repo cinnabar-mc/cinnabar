@@ -127,3 +127,123 @@ fn vanilla_block_bindings_give_their_faces_glow_masks() {
         assert_eq!(f32::from_bits(material.mask_strength), 0.5);
     }
 }
+
+/// A one-document stack binding the fixture's first registry block to `material`.
+fn model_binding(material: Value) -> LayeredPackView {
+    let record = first_record();
+    bound_stack(&json!({
+        "format_version": "1.0.0",
+        "materials": {"example:bound": material},
+        "bindings": [{"block": record.name.as_ref(), "material": "example:bound"}]
+    }))
+}
+
+/// The quads of every template part `template` selects, in order.
+fn template_quads(runtime: &RuntimeAssets, template: u32) -> Vec<assets::ModelQuad> {
+    assets::model_template_parts(runtime.model_templates(), template)
+        .unwrap()
+        .iter()
+        .flat_map(|part| {
+            runtime.model_quads()[part.quad_start as usize..][..part.quad_count as usize].to_vec()
+        })
+        .collect()
+}
+
+#[test]
+fn a_vanilla_model_binding_redraws_only_that_blocks_quads_with_its_method() {
+    let base = super::exclusions::model(VisualKind::Model, &[(0, 2)], 1);
+    let glass = json!({"material": {"states": ["Blending", "DisableCulling"]}});
+    let compiled = compile(&model_binding(glass), &base, &keys());
+    let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
+    let bound = runtime.resolve(NetworkIdMode::Sequential, 0);
+    let other = runtime.resolve(NetworkIdMode::Sequential, 1);
+    assert_ne!(
+        bound.model_template(),
+        base.resolve(NetworkIdMode::Sequential, 0).model_template()
+    );
+    assert_eq!(
+        other,
+        base.resolve(NetworkIdMode::Sequential, 1),
+        "other blocks keep their model"
+    );
+    let quads = template_quads(&runtime, bound.model_template().unwrap());
+    assert_eq!(quads.len(), 2);
+    for quad in quads {
+        assert_ne!(
+            runtime.material(quad.material).flags & assets::MATERIAL_FLAG_ALPHA_BLEND,
+            0
+        );
+        assert_ne!(quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED, 0);
+    }
+    let base_quads = template_quads(&runtime, other.model_template().unwrap());
+    assert!(base_quads.iter().all(|quad| quad.material == 1));
+}
+
+#[test]
+fn a_vanilla_model_binding_masks_its_pot_contents_and_world_model() {
+    let base = super::exclusions::model(
+        VisualKind::Cross,
+        &[(assets::MODEL_TEMPLATE_FLAG_POTTED_PLANT, 1), (0, 1)],
+        1,
+    );
+    let lamp = json!({
+        "textures": {"glow_mask": "state"},
+        "parameters": {"strength": {"scalar": 0.5}}
+    });
+    let compiled = compile(&model_binding(lamp), &base, &keys());
+    let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
+    let pot = runtime
+        .potted_model_template(NetworkIdMode::Sequential, 0)
+        .expect("the copy keeps its pot contents");
+    let world = runtime
+        .resolve(NetworkIdMode::Sequential, 0)
+        .model_template()
+        .unwrap();
+    assert_eq!(pot + 1, world);
+    for quad in template_quads(&runtime, pot)
+        .into_iter()
+        .chain(template_quads(&runtime, world))
+    {
+        let material = runtime.material(quad.material);
+        assert_ne!(material.glow_mask, assets::NO_MASK);
+        assert_eq!(f32::from_bits(material.mask_strength), 0.5);
+        assert_eq!(
+            quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED,
+            0,
+            "opaque is one-sided"
+        );
+    }
+}
+
+#[test]
+fn a_vanilla_stair_binding_copies_its_whole_topology_group() {
+    let stair = (assets::MODEL_TEMPLATE_FLAG_STAIR, 1);
+    let base = super::exclusions::model_at(VisualKind::Model, &[stair; 5], 1, 0);
+    let glass = json!({"material": {"states": ["Blending"]}});
+    let compiled = compile(&model_binding(glass), &base, &keys());
+    let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
+    let head = runtime
+        .resolve(NetworkIdMode::Sequential, 0)
+        .model_template()
+        .unwrap();
+    for shape in head..head + assets::STAIR_TEMPLATE_COUNT {
+        let template = runtime.model_templates()[shape as usize];
+        assert_eq!(template.flags, assets::MODEL_TEMPLATE_FLAG_STAIR);
+        for quad in template_quads(&runtime, shape) {
+            assert_ne!(
+                runtime.material(quad.material).flags & assets::MATERIAL_FLAG_ALPHA_BLEND,
+                0
+            );
+        }
+    }
+}
+
+#[test]
+fn a_template_override_that_does_not_copy_its_span_is_rejected() {
+    let base = super::exclusions::model(VisualKind::Model, &[(0, 2)], 1);
+    let glass = json!({"material": {"states": ["Blending"]}});
+    let mut overlay = compile(&model_binding(glass), &base, &keys()).overlay;
+    let (_, head) = overlay.template_overrides[0];
+    overlay.model_templates[head as usize].flags = assets::MODEL_TEMPLATE_FLAG_TORCH;
+    assert!(base.with_block_overlay(2, &overlay).is_err());
+}
