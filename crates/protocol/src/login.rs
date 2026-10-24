@@ -16,6 +16,7 @@ use crate::{
 
 mod base_game_version;
 mod blob_prefetch;
+mod blob_recovery;
 mod boundary;
 mod cache_status;
 #[cfg(test)]
@@ -67,6 +68,7 @@ pub struct PlaySession<R = bridge::FramedReader> {
     unused_packets: u64,
     transfer_skips: u64,
     blob_cache: Option<BlobCacheResolver>,
+    blob_recovery: Option<blob_recovery::BlobRecovery>,
     packet_id_trace: PacketIdTraceState,
     pending_blob_cache_events: VecDeque<WorldEvent>,
     cache_status: cache_status::SharedCacheStatus,
@@ -136,6 +138,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             unused_packets: 0,
             transfer_skips: 0,
             blob_cache: cache.map(BlobCacheResolver::new),
+            blob_recovery: None,
             packet_id_trace: PacketIdTraceState::default(),
             pending_blob_cache_events: VecDeque::new(),
             cache_status: Default::default(),
@@ -415,6 +418,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
 
     /// Drops only session-scoped transactions; verified cache entries remain shared.
     pub fn reset_blob_cache_pending(&mut self) {
+        self.blob_recovery = None;
         if let Some(resolver) = self.blob_cache.as_mut() {
             resolver.reset_pending();
         }
@@ -436,6 +440,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         current_dimension: i32,
     ) -> Result<WorldIngress, ProtocolError> {
         loop {
+            self.recover_stalled_blobs()?;
             if let Some(recovery) = self
                 .blob_cache
                 .as_mut()
@@ -516,21 +521,36 @@ impl<R: bridge::FrameRead> PlaySession<R> {
 
             if self.pending_blob_prefetch.is_some() {
                 let status = self.cache_status.clone();
-                blob_prefetch::prefetch_while_reading(
-                    std::future::poll_fn(|cx| {
-                        status.lock().expect("cache status lock").poll_capacity(cx)
-                    }),
-                    |cx| {
-                        self.transport
-                            .poll_read_ahead_one(crate::session_transport::MAX_READ_AHEAD_BYTES, cx)
-                    },
+                if blob_recovery::BlobRecovery::until(
+                    &mut self.blob_recovery,
+                    blob_prefetch::prefetch_while_reading(
+                        std::future::poll_fn(|cx| {
+                            status.lock().expect("cache status lock").poll_capacity(cx)
+                        }),
+                        |cx| {
+                            self.transport.poll_read_ahead_one(
+                                crate::session_transport::MAX_READ_AHEAD_BYTES,
+                                cx,
+                            )
+                        },
+                    ),
                 )
-                .await;
+                .await
+                .is_none()
+                {
+                    continue;
+                }
                 self.finish_blob_prefetch().await?;
                 continue;
             }
 
-            let raw = match self.transport.recv().await {
+            let Some(inbound) =
+                blob_recovery::BlobRecovery::until(&mut self.blob_recovery, self.transport.recv())
+                    .await
+            else {
+                continue;
+            };
+            let raw = match inbound {
                 Ok(Inbound::Packet(raw)) => raw,
                 Ok(Inbound::Terminal(terminal)) => {
                     if self.absorb_terminal(terminal)? {
@@ -590,6 +610,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         .as_mut()
                         .expect("enabled path owns a resolver");
                     if resolver.reset_pending_for_fast_transfer_candidate()? {
+                        self.blob_recovery = None;
                         self.cache_status.lock().expect("cache status lock").reset();
                     }
                     resolver.accept_level_chunk_bytes(event, payload, packet_bytes)?;
@@ -601,6 +622,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         .expect("enabled path owns a resolver"),
                     &packet,
                 )? {
+                    self.blob_recovery = None;
                     self.cache_status.lock().expect("cache status lock").reset();
                 }
                 if let packets::Packet::ClientCacheMissResponse(response) = *packet.data {

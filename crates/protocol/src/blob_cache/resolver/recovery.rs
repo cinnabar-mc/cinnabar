@@ -184,6 +184,23 @@ pub(super) fn cached_sub_chunk_admission(
 }
 
 impl BlobCacheResolver {
+    /// Returns the oldest and newest unresolved transaction identities without scanning them.
+    pub(crate) fn pending_recovery_range(&self) -> Option<(u64, u64)> {
+        Some((*self.pending_order.first()?, *self.pending_order.last()?))
+    }
+
+    /// Retries one expired group through normal admission rollback. Newer pending work,
+    /// reconstructed output and requested-body history remain usable in this session.
+    pub(crate) fn recover_pending_through(&mut self, through: u64) -> Result<(), BlobCacheError> {
+        while let Some(&sequence) = self.pending_order.first() {
+            if sequence > through {
+                break;
+            }
+            self.abandon_pending_transaction(sequence)?;
+        }
+        self.refresh_pending_accounting()
+    }
+
     /// Abandons retained cached work while preserving exact scheduler rollback events.
     pub fn recover_pending(&mut self) -> Result<(), BlobCacheError> {
         self.requested_hashes = Default::default();
