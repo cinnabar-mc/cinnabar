@@ -61,11 +61,17 @@ pub(super) fn append_nodes(controls: &mut Vec<serde_json::Value>, buttons: &[Tou
                 "offset": offset,
                 "size": button.size,
                 "$control": format!("cinnabar.touch.{SLOT_PREFIX}{slot}"),
-                "$text": button.label,
+                // Labels bind as data, so layout expressions never reinterpret their text.
+                "$label_binding": label_binding(slot),
                 "$held_binding": format!("#touch_{SLOT_PREFIX}{slot}_pressed"),
             }
         }));
     }
+}
+
+/// Global binding carrying a presented slot's literal label.
+pub(super) fn label_binding(slot: usize) -> String {
+    format!("#touch_{SLOT_PREFIX}{slot}_label")
 }
 
 impl TouchControls {
@@ -77,6 +83,14 @@ impl TouchControls {
         let buttons = buttons.take(MAX_PRESENTED_TOUCH_BUTTONS);
         if self.mod_buttons.iter().eq(buttons.clone()) {
             return;
+        }
+        let ids_changed = !self
+            .mod_buttons
+            .iter()
+            .map(|button| &button.id)
+            .eq(buttons.clone().map(|button| &button.id));
+        if ids_changed {
+            self.mod_button_epoch = self.mod_button_epoch.wrapping_add(1);
         }
         self.mod_buttons = buttons.cloned().collect();
         self.catalog = None;
@@ -124,8 +138,18 @@ impl UiPresentationRuntime {
         }];
     }
 
+    /// Changes whenever a slot's button identity changes. A finger held on a mod button across
+    /// a change is cancelled, so its lift cannot complete a tap on a different button.
+    pub fn mod_touch_epoch(&self) -> u64 {
+        self.screens.touch.mod_button_epoch
+    }
+
     /// Button ids tapped since the last call, oldest first.
     pub fn take_mod_touch_taps(&mut self) -> Vec<String> {
         std::mem::take(&mut self.screens.touch.mod_taps)
     }
 }
+
+#[cfg(test)]
+#[path = "mod_buttons_tests.rs"]
+mod tests;

@@ -73,6 +73,8 @@ pub(in super::super) struct TouchControls {
     deferred_mod_buttons: Option<Vec<ui::mod_touch::TouchButton>>,
     /// Completed mod button taps, as button ids, until the app delivers them.
     mod_taps: Vec<String>,
+    /// Advances whenever a slot's button identity changes.
+    mod_button_epoch: u64,
 }
 
 impl TouchControls {
@@ -221,7 +223,11 @@ impl UiPresentationRuntime {
                 .any(|contact| contact.hit_id == Some(id));
             data.set_global(format!("#touch_{name}_pressed"), Scalar::Bool(held));
         }
-        for slot in 0..state.mod_buttons.len() {
+        for (slot, button) in state.mod_buttons.iter().enumerate() {
+            data.set_global(
+                mod_buttons::label_binding(slot),
+                Scalar::Text(button.label.clone()),
+            );
             let id = touch::mod_button(slot);
             let held = id.is_some() && state.contacts.iter().any(|c| c.hit_id == id);
             data.set_global(format!("#touch_mod_{slot}_pressed"), Scalar::Bool(held));

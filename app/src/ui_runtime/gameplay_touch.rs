@@ -43,6 +43,19 @@ fn completes_on_release(hit_id: u16) -> bool {
     utility_choice(hit_id) || touch::mod_button_slot(hit_id).is_some()
 }
 
+/// Cancels fingers held on mod buttons, so a lift after the buttons change cannot complete a
+/// tap on a different button.
+fn cancel_mod_button_contacts(state: &mut TouchControlState) {
+    for contact in state.sample() {
+        if contact
+            .hit_id
+            .is_some_and(|id| touch::mod_button_slot(id).is_some())
+        {
+            state.release(contact.contact_id);
+        }
+    }
+}
+
 /// Applies touch events in arrival order, so an id Android reuses after a lift starts a fresh
 /// contact. A press on a screen-opening control stops and returns that control.
 fn apply_touch_events(
@@ -123,6 +136,7 @@ pub(crate) fn drive_gameplay_touch_targets(
     presentation: Option<ResMut<UiPresentationResource>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut state: Local<TouchControlState>,
+    mut mod_button_epoch: Local<u64>,
     world: Option<Res<crate::runtime::world::ClientWorld>>,
 ) {
     targets.release_all();
@@ -148,6 +162,10 @@ pub(crate) fn drive_gameplay_touch_targets(
         presentation.close_touch_utilities();
         return;
     };
+    if *mod_button_epoch != presentation.mod_touch_epoch() {
+        *mod_button_epoch = presentation.mod_touch_epoch();
+        cancel_mod_button_contacts(&mut state);
+    }
     let size = [window.width().max(1.0), window.height().max(1.0)];
     let events = events.iter().map(|event| {
         let position = [
@@ -503,5 +521,41 @@ mod tests {
             apply_touch_events(&mut state, [(3, TouchPhase::Ended, [0.75, 0.75])], controls)
                 .unwrap();
         assert!(outside.mod_taps.is_empty() && outside.lifted.is_empty());
+    }
+
+    /// A finger held on a mod button is cancelled when the buttons change, while other fingers
+    /// keep their controls.
+    #[test]
+    fn changed_mod_buttons_cancel_their_held_fingers() {
+        let button = touch::mod_button(0).unwrap();
+        let controls = |position: [f32; 2]| {
+            let (hit_id, min, max) = if position[0] < 0.5 {
+                (touch::JOYSTICK, [0.0, 0.0], [0.5, 1.0])
+            } else {
+                (button, [0.5, 0.0], [1.0, 1.0])
+            };
+            Some(TouchControlRegion {
+                hit_id,
+                bounds: TouchBounds { min, max },
+            })
+        };
+        let inside = [0.75, 0.5];
+        let mut state = TouchControlState::default();
+        apply_touch_events(
+            &mut state,
+            [
+                (1, TouchPhase::Started, [0.25, 0.5]),
+                (2, TouchPhase::Started, inside),
+            ],
+            controls,
+        )
+        .unwrap();
+        cancel_mod_button_contacts(&mut state);
+        let held = state.sample();
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].hit_id, Some(touch::JOYSTICK));
+        let lifted =
+            apply_touch_events(&mut state, [(2, TouchPhase::Ended, inside)], controls).unwrap();
+        assert!(lifted.mod_taps.is_empty());
     }
 }

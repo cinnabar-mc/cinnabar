@@ -660,7 +660,7 @@
   },
   "mod_button_label": {
     "type": "label",
-    "text": "$text",
+    "text": "#text",
     "localize": false,
     "color": "$content_color",
     "shadow": false,
@@ -671,6 +671,12 @@
       "100% - 8px",
       "default"
     ],
-    "layer": 2
+    "layer": 2,
+    "bindings": [
+      {
+        "binding_name": "$label_binding",
+        "binding_name_override": "#text"
+      }
+    ]
   }
 }
