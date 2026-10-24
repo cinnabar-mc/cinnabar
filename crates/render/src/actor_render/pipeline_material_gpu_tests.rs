@@ -736,3 +736,47 @@ fn authored_depth_equal_and_channel_writes_reach_the_pipeline() {
         );
     }
 }
+
+#[test]
+fn a_world_material_replaces_the_bedrock_colour_before_host_lighting() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
+        "a_world_material_replaces_the_bedrock_colour_before_host_lighting",
+    ) else {
+        return;
+    };
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let material = render_model::ActorMaterial::default();
+    let red = mod_render::world_material::compose(
+        "fn shade(input: WorldMaterialInput) -> Surface { return Surface(vec3<f32>(param(input, 0u), 0.0, 0.0), 1.0, vec3<f32>(0.0)); }",
+        0,
+    )
+    .unwrap();
+    let frame = mod_render::world_material::frame_uniform(0.0, &[1.0]);
+    let defs = ["WORLD_MATERIAL", "WORLD_MATERIAL_OPAQUE"];
+    let world =
+        actor_raster::raster_world_material(&gpu, &plane, material, &red.library(2), &frame, &defs);
+    let pixel = center(&world);
+    assert!(
+        pixel[0] > 200 && pixel[1] < 30 && pixel[2] < 30,
+        "{pixel:?}"
+    );
+    // The plain surface draws the Bedrock colour unchanged.
+    let plain = mod_render::world_material::compose(
+        "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }",
+        0,
+    )
+    .unwrap();
+    let bedrock = actor_raster::raster_world_material(
+        &gpu,
+        &plane,
+        material,
+        &plain.library(2),
+        &frame,
+        &defs,
+    );
+    let pixel = center(&bedrock);
+    assert!(
+        pixel[0] > 100 && (i32::from(pixel[0]) - i32::from(pixel[1])).abs() < 4,
+        "{pixel:?}"
+    );
+}

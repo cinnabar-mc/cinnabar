@@ -34,6 +34,13 @@ pub(crate) struct ActorPipeline {
         u32,
         render_api::render_state::RenderState,
     )>,
+    /// Programmable world material pipelines, which never gate readiness: their draws use the
+    /// base pipeline until they compile.
+    world_variants: Variants<RenderPipeline, super::world_materials::WorldActorSpecializer>,
+    world_ids: std::collections::HashMap<
+        (ActorPipelineContract, super::world_materials::WorldVariant),
+        CachedRenderPipelineId,
+    >,
 }
 
 /// Authored raster states by material index, as the session publishes them.
@@ -60,6 +67,11 @@ impl FromWorld for ActorPipeline {
             motion_supported: limit
                 >= crate::device_settings::vertex_storage_buffers(&actor_bind_group_layout())
                     + crate::device_settings::vertex_storage_buffers(&super::motion::layout()),
+            world_variants: Variants::new(
+                super::world_materials::WorldActorSpecializer,
+                descriptor.clone(),
+            ),
+            world_ids: Default::default(),
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
@@ -133,6 +145,35 @@ impl ActorPipeline {
             assets::EntityRenderMaterial::Default as u32,
             assets::entity::material::UNAUTHORED_RENDER_STATE,
         )
+    }
+
+    /// The world material pipeline of `key`, requesting it once; `None` when it cannot be
+    /// specialized, in which case its draws keep the base pipeline.
+    pub(super) fn request_world(
+        &mut self,
+        cache: &PipelineCache,
+        key: super::world_materials::WorldActorKey,
+    ) -> Option<CachedRenderPipelineId> {
+        let slot = (key.base.contract(), key.world);
+        if let Some(id) = self.world_ids.get(&slot) {
+            return Some(*id);
+        }
+        if !self.targets.representable(&slot.0) {
+            return None;
+        }
+        let id = self.world_variants.specialize(cache, key).ok()?;
+        self.world_ids.insert(slot, id);
+        Some(id)
+    }
+
+    /// A world material pipeline already requested for `key`.
+    pub(super) fn world_variant(
+        &self,
+        key: super::world_materials::WorldActorKey,
+    ) -> Option<CachedRenderPipelineId> {
+        self.world_ids
+            .get(&(key.base.contract(), key.world))
+            .copied()
     }
 
     /// Looks up a draw contract already requested by prewarming or the frame's raster table.
@@ -331,6 +372,7 @@ pub(super) fn prepare_actor_pipelines(
     )>,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
     adapter: Option<Res<bevy::render::renderer::RenderAdapter>>,
+    world: Option<Res<super::world_materials::WorldMaterialGpu>>,
 ) {
     if let Some(adapter) = adapter
         && !pipeline.targets.has_features()
@@ -374,6 +416,31 @@ pub(super) fn prepare_actor_pipelines(
                     .as_ref()
                     .is_none_or(|frame| pipeline.prewarm_frame(&cache, view, &frame.rig).is_some())
                 && pipeline.ready(&cache, msaa, camera.hdr, enhanced.is_some());
+            // World material pipelines compile beside the base ones without gating loading.
+            if let (Some(world), Some(frame)) = (world.as_deref(), changed.as_ref()) {
+                for instance in frame.rig.instances.iter() {
+                    let Some(&raster) = frame.rig.rasters.get(instance.raster as usize) else {
+                        continue;
+                    };
+                    let material = instance.material;
+                    let Some(variant) = render_model::actor::frame::actor_world_material(material)
+                        .and_then(|slot| world.variant(slot))
+                    else {
+                        continue;
+                    };
+                    let base = ActorPipelineKey {
+                        msaa,
+                        hdr: camera.hdr,
+                        enhanced: enhanced.is_some(),
+                        material,
+                        raster,
+                    };
+                    let _ = pipeline.request_world(
+                        &cache,
+                        super::world_materials::WorldActorKey::new(base, variant),
+                    );
+                }
+            }
         }
     }
     readiness.publish(has_view && ready);

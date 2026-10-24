@@ -207,6 +207,8 @@ impl ActorGpu {
         // Keep the complete actor frame native while that dependency exists.
         !self.pack_depth_dependency
             && (span.page == 0 || page.is_some_and(|page| page.raw_texture().is_some()))
+            // Shader packs do not run guest world materials; those spans stay native.
+            && render_model::actor::frame::actor_world_material(span.material).is_none()
             && crate::shaderpack::actors::raster_supported(&span.raster)
             && (span.first..span.first + span.count).all(|index| {
                 self.instances
@@ -239,6 +241,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         SRes<ActorPipeline>,
         SRes<PipelineCache>,
         crate::shaderpack::native_actors::NativeActorCoverage<'static>,
+        Option<SRes<super::world_materials::WorldMaterialGpu>>,
     );
     type ViewQuery = (
         Entity,
@@ -257,7 +260,8 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let (gpu, tracker, witness, pipeline, cache, coverage) = params;
+        let (gpu, tracker, witness, pipeline, cache, coverage, world) = params;
+        let world = world.map(|world| world.into_inner());
         let gpu = gpu.into_inner();
         if gpu.instance_count == 0 {
             return RenderCommandResult::Skip;
@@ -305,19 +309,46 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }
-            let Some(id) = pipeline.draw_variant(
-                *view.2,
-                view.5.hdr,
-                view.4.is_some(),
-                span.material,
-                span.raster,
-            ) else {
-                continue;
+            // A world material draws with its own pipeline once that compiled and its
+            // resources exist, and with the base pipeline until then.
+            let key = ActorPipelineKey {
+                msaa: *view.2,
+                hdr: view.5.hdr,
+                enhanced: view.4.is_some(),
+                material: span.material,
+                raster: span.raster,
             };
-            let Some(variant) = cache.get_render_pipeline(id) else {
-                continue;
-            };
-            pass.set_render_pipeline(variant);
+            let guest = render_model::actor::frame::actor_world_material(span.material)
+                .and_then(|slot| world?.slot(slot))
+                .and_then(|(variant, group)| {
+                    let key = super::world_materials::WorldActorKey::new(key, variant);
+                    Some((
+                        cache.get_render_pipeline(pipeline.world_variant(key)?)?,
+                        group,
+                    ))
+                });
+            if let Some((variant, group)) = guest {
+                pass.set_render_pipeline(variant);
+                pass.set_bind_group(
+                    super::world_materials::WORLD_MATERIAL_GROUP as usize,
+                    group,
+                    &[],
+                );
+            } else {
+                let Some(id) = pipeline.draw_variant(
+                    key.msaa,
+                    key.hdr,
+                    key.enhanced,
+                    key.material,
+                    key.raster,
+                ) else {
+                    continue;
+                };
+                let Some(variant) = cache.get_render_pipeline(id) else {
+                    continue;
+                };
+                pass.set_render_pipeline(variant);
+            }
             if bound_page != Some(span.page) {
                 let bind_group = if span.page == 0 {
                     gpu.bind_group.as_ref()

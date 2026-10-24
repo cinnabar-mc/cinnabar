@@ -26,28 +26,28 @@ pub(super) fn tag(
         else {
             continue;
         };
-        submission.material.world = world(submission.input.identity.layer, &actor.kind, scene);
+        if let Some((tag, raster)) = world(submission.input.identity.layer, &actor.kind, scene) {
+            submission.material.world = tag;
+            // The host owns depth, blend and pass: the class's raster replaces the Bedrock one.
+            submission.material.render_state = Some(raster);
+        }
     }
 }
 
-/// The tag a draw of `layer` of an actor of `kind` takes: one more than its bound slot for an
-/// entity's body and render-controller layers, zero otherwise.
+/// The tag and host raster a draw of `layer` of an actor of `kind` takes: an entity's body and
+/// render-controller layers when its identifier is bound, nothing otherwise.
 fn world(
     layer: u8,
     kind: &protocol::ActorKind,
     scene: &render_scene::world_material::WorldMaterialScene,
-) -> u8 {
+) -> Option<(u8, render_api::render_state::RenderState)> {
     if layer != render_model::ACTOR_LAYER_BODY && layer < ACTOR_LAYER_TEXTURE_BASE {
-        return 0;
+        return None;
     }
     let protocol::ActorKind::Entity { identifier } = kind else {
-        return 0;
+        return None;
     };
-    scene
-        .set
-        .entity(identifier.as_ref())
-        .and_then(|(slot, _)| u8::try_from(slot + 1).ok())
-        .unwrap_or(0)
+    scene.entity(identifier.as_ref())
 }
 
 #[cfg(test)]

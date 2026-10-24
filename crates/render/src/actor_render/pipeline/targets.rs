@@ -44,7 +44,7 @@ impl TargetValidation {
 
     /// Whether the targets can draw `contract`: its colour format blends when it blends and
     /// supports its sample count, and alpha to coverage has samples to cover.
-    fn representable(&self, contract: &ActorPipelineContract) -> bool {
+    pub(in crate::actor_render) fn representable(&self, contract: &ActorPipelineContract) -> bool {
         let samples = contract.msaa.samples();
         if contract.alpha_to_coverage && samples < 2 {
             return false;
