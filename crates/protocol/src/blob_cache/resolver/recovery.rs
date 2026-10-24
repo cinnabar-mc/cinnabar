@@ -184,17 +184,26 @@ pub(super) fn cached_sub_chunk_admission(
 }
 
 impl BlobCacheResolver {
-    /// Returns the oldest and newest unresolved transaction identities without scanning them.
+    /// Returns the oldest and newest replayable reply identities without scanning full columns.
     pub(crate) fn pending_recovery_range(&self) -> Option<(u64, u64)> {
-        Some((*self.pending_order.first()?, *self.pending_order.last()?))
+        Some((
+            *self.retryable_pending.first()?,
+            *self.retryable_pending.last()?,
+        ))
     }
 
     /// Retries one expired group through normal admission rollback. Newer pending work,
-    /// reconstructed output and requested-body history remain usable in this session.
+    /// reconstructed output, full columns and requested-body history remain usable. A fresh
+    /// cached packet may request these hashes again even when another transaction still waits.
     pub(crate) fn recover_pending_through(&mut self, through: u64) -> Result<(), BlobCacheError> {
-        while let Some(&sequence) = self.pending_order.first() {
+        while let Some(&sequence) = self.retryable_pending.first() {
             if sequence > through {
                 break;
+            }
+            for hash in &self.pending[&sequence].unique_hashes {
+                if let Some(pending) = self.pending_by_hash.get_mut(hash) {
+                    pending.status_outstanding = false;
+                }
             }
             self.abandon_pending_transaction(sequence)?;
         }
@@ -230,6 +239,7 @@ impl BlobCacheResolver {
         }
         self.pending = HashMap::new();
         self.pending_order = BTreeSet::new();
+        self.retryable_pending = BTreeSet::new();
         self.pending_by_hash = HashMap::new();
         self.resolved_pending = BTreeSet::new();
         self.ready = BTreeMap::new();
@@ -251,6 +261,7 @@ impl BlobCacheResolver {
         }
         self.pending = HashMap::new();
         self.pending_order = BTreeSet::new();
+        self.retryable_pending = BTreeSet::new();
         self.pending_by_hash = HashMap::new();
         self.resolved_pending = BTreeSet::new();
         self.ready = BTreeMap::new();
@@ -279,7 +290,11 @@ impl BlobCacheResolver {
         self.stats.skipped_miss_responses = self.stats.skipped_miss_responses.saturating_add(1);
         let sequences = hashes
             .iter()
-            .filter_map(|hash| self.pending_by_hash.get(hash))
+            .filter_map(|hash| {
+                self.pending_by_hash
+                    .get(hash)
+                    .map(|pending| &pending.transactions)
+            })
             .flatten()
             .copied()
             .collect::<BTreeSet<_>>();

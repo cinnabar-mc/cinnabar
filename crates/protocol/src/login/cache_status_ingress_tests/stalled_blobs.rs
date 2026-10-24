@@ -259,6 +259,69 @@ fn stalled_cached_reply_preserves_newer_shared_hash_waiters() {
     );
 }
 
+/// Fresh terrain replies must fetch a timed-out shared body even while a newer reply waits.
+#[test]
+fn stalled_cached_reply_retry_fetches_hash_still_needed_by_newer_waiters() {
+    let body = b"shared retry body";
+    let hash = crate::client_blob_hash(body);
+    let (mut session, send, mut expires) = session(&[cached_reply(4, hash)], 2);
+    assert!(poll_ingress(&mut session).is_ready());
+    assert!(poll_ingress(&mut session).is_pending());
+    send_packets(&send, &[cached_reply(5, hash)]);
+    assert!(poll_ingress(&mut session).is_ready());
+    expires.remove(0).send(()).unwrap();
+    assert_recovery(&mut session, 4);
+    send_packets(&send, &[cached_reply(4, hash)]);
+    assert!(poll_ingress(&mut session).is_ready());
+    let status = session
+        .cache_status
+        .lock()
+        .unwrap()
+        .select(Default::default())
+        .unwrap();
+    assert_eq!(status.missing_ids, [wire::U64LE(hash), wire::U64LE(hash)]);
+    send_packets(&send, &[body_response(body)]);
+    for x in [5, 4] {
+        assert!(matches!(
+            poll_ingress(&mut session),
+            Poll::Ready(WorldIngress::Event(WorldEvent::SubChunks(batch)))
+                if batch.entries[0].position == [x, -3, 9]
+                    && batch.entries[0].result == crate::SubChunkResult::Success { payload: body.to_vec() }
+        ));
+    }
+}
+
+/// A full-column dependency retains its payload while fresh SubChunk recovery fetches their shared body.
+#[test]
+fn stalled_cached_reply_shared_full_column_does_not_suppress_retry_fetch() {
+    let body = b"shared full-column body";
+    let hash = crate::client_blob_hash(body);
+    let level = Packet::new(super::super::tests::cached_level_chunk(vec![hash]));
+    let (mut session, send, mut expires) = session(&[level, cached_reply(4, hash)], 2);
+    assert!(poll_ingress(&mut session).is_ready());
+    assert!(poll_ingress(&mut session).is_pending());
+    expires.remove(0).send(()).unwrap();
+    assert_recovery(&mut session, 4);
+    send_packets(&send, &[cached_reply(4, hash)]);
+    assert!(poll_ingress(&mut session).is_ready());
+    let status = session
+        .cache_status
+        .lock()
+        .unwrap()
+        .select(Default::default())
+        .unwrap();
+    assert_eq!(status.missing_ids, [wire::U64LE(hash), wire::U64LE(hash)]);
+    send_packets(&send, &[body_response(body)]);
+    assert!(
+        matches!(poll_ingress(&mut session), Poll::Ready(WorldIngress::LevelChunk(_, payload)) if payload.as_ref() == body)
+    );
+    assert!(matches!(
+        poll_ingress(&mut session),
+        Poll::Ready(WorldIngress::Event(WorldEvent::SubChunks(batch)))
+            if batch.entries[0].position == [4, -3, 9]
+    ));
+}
+
 /// Later reconstructed terrain in the same column remains ordered behind exact rollback.
 #[test]
 fn stalled_cached_reply_recovery_precedes_ready_same_column_terrain() {
@@ -367,19 +430,122 @@ fn stalled_cached_reply_recovers_ahead_of_unrelated_ready_input() {
     ));
 }
 
-/// Full cached columns also retain recovery ownership when their bodies never arrive.
+/// Slow full columns retain all cached blocks, biomes and inline tails through another reply's deadline.
 #[test]
-fn stalled_cached_level_chunk_recovers_without_an_admission_event() {
-    let hash = crate::client_blob_hash(b"missing column");
-    let level = Packet::new(super::super::tests::cached_level_chunk(vec![hash]));
-    let (mut session, _send, mut expires) = session(&[level], 1);
-    assert!(poll_ingress(&mut session).is_pending());
+fn stalled_cached_level_chunk_preserves_complete_payload_after_deadline() {
+    for inline in [false, true] {
+        // One uniform network block storage, one uniform biome storage and no border blocks.
+        let blocks = &[9, 1, 0, 1, 14];
+        let biomes = &[1, 84];
+        let tail = &[0];
+        let hashes: Vec<_> = if inline {
+            vec![blocks.as_slice(), biomes.as_slice()]
+        } else {
+            vec![biomes.as_slice()]
+        }
+        .into_iter()
+        .map(crate::client_blob_hash)
+        .collect();
+        let mut level = super::super::tests::cached_level_chunk(hashes);
+        if !inline {
+            level.client_request_sub_chunk_limit = Some(wire::ZigZag32(-1));
+        }
+        level.serialized_chunk_data = Bytes::copy_from_slice(tail);
+        let (mut session, send, mut expires) = session(
+            &[
+                Packet::new(level),
+                cached_reply(4, crate::client_blob_hash(b"other missing body")),
+            ],
+            2,
+        );
+        assert!(matches!(
+            poll_ingress(&mut session),
+            Poll::Ready(WorldIngress::Event(WorldEvent::SubChunkReplyAdmission(_)))
+        ));
+        assert!(poll_ingress(&mut session).is_pending());
+        expires.remove(0).send(()).unwrap();
+        assert!(matches!(
+            poll_ingress(&mut session),
+            Poll::Ready(WorldIngress::Event(WorldEvent::ChunkResync(_)))
+        ));
+        let mut responses = Vec::new();
+        if inline {
+            responses.push(body_response(blocks));
+        }
+        responses.push(body_response(biomes));
+        responses.push(Packet::new(SetTime {
+            time: wire::ZigZag32(42),
+        }));
+        send_packets(&send, &responses);
+        let Poll::Ready(WorldIngress::LevelChunk(event, payload)) = poll_ingress(&mut session)
+        else {
+            panic!("late full-column bodies must still install the original complete column");
+        };
+        let expected = if inline {
+            [blocks.as_slice(), biomes.as_slice(), tail.as_slice()].concat()
+        } else {
+            [biomes.as_slice(), tail.as_slice()].concat()
+        };
+        assert_eq!(payload.as_ref(), expected);
+        assert_eq!((event.x, event.z), (0, 0));
+        assert_eq!(
+            event.mode,
+            if inline {
+                crate::LevelChunkMode::Inline { count: 1 }
+            } else {
+                crate::LevelChunkMode::LimitlessRequests
+            }
+        );
+        assert_eq!(session.blob_cache_stats().reconstructed_level_chunks, 1);
+        assert_eq!(session.blob_cache_stats().cache_pinned_bytes, 0);
+        assert!(session.blob_cache_stats().pending_bytes <= crate::MAX_CLIENT_BLOB_PENDING_BYTES);
+        assert!(matches!(
+            poll_ingress(&mut session),
+            Poll::Ready(WorldIngress::Event(WorldEvent::SetTime(_)))
+        ));
+    }
+}
+
+/// Later same-column terrain waits for the original full-column payload across another timeout.
+#[test]
+fn stalled_cached_level_chunk_keeps_later_same_column_terrain_ordered() {
+    let biomes = &[1, 84];
+    let biome_hash = crate::client_blob_hash(biomes);
+    let mut level = super::super::tests::cached_level_chunk(vec![biome_hash]);
+    level.chunk_position.x = wire::ZigZag32(4);
+    level.chunk_position.z = wire::ZigZag32(9);
+    level.client_request_sub_chunk_limit = Some(wire::ZigZag32(-1));
+    level.serialized_chunk_data = Bytes::from_static(&[0]);
+    let (mut session, send, mut expires) = session(
+        &[
+            Packet::new(level),
+            cached_reply(5, crate::client_blob_hash(b"missing body")),
+        ],
+        1,
+    );
+    let resident = session
+        .blob_cache
+        .as_ref()
+        .unwrap()
+        .cache()
+        .insert(b"later terrain")
+        .unwrap();
+    assert!(poll_ingress(&mut session).is_ready());
+    send_packets(&send, &[cached_reply(4, resident)]);
+    assert!(poll_ingress(&mut session).is_ready());
     expires.remove(0).send(()).unwrap();
+    assert_recovery(&mut session, 5);
+    assert!(poll_ingress(&mut session).is_pending());
+    send_packets(&send, &[body_response(biomes)]);
     assert!(matches!(
         poll_ingress(&mut session),
-        Poll::Ready(WorldIngress::Event(WorldEvent::ChunkResync(event)))
-            if (event.x, event.z) == (0, 0)
-                && event.requested_sub_chunk_ys.is_none()
+        Poll::Ready(WorldIngress::LevelChunk(event, payload))
+            if (event.x, event.z) == (4, 9) && payload.as_ref() == [1, 84, 0]
+    ));
+    assert!(matches!(
+        poll_ingress(&mut session),
+        Poll::Ready(WorldIngress::Event(WorldEvent::SubChunks(batch)))
+            if batch.entries[0].position == [4, -3, 9]
     ));
 }
 

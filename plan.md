@@ -251,10 +251,13 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   share first, so fresh removals cannot starve staged empty or geometry results.
   Late blob replies for retired transactions no longer discard valid, still-needed
   blobs in the same response. Verified requested bodies arriving after ordinary-lane
-  retirement can warm the cache for recovery. Unresolved cached terrain now has a
+  retirement can warm the cache for recovery. Unresolved cached SubChunk replies have a
   session recovery timer that retries exact missing heights and preserves valid late bodies.
-  This interval is an internal liveness policy. Sustained high-speed hardware qualification
-  remains open.
+  Full cached columns retain their original biome and inline data while waiting for bodies;
+  SubChunk recovery cannot replace that complete payload. Fresh recovery replies can request
+  expired shared misses again. This interval is an internal liveness policy. Recovery of a
+  permanently missing full-column body and sustained high-speed hardware qualification
+  remain open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.

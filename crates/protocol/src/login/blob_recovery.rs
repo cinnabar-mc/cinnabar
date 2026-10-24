@@ -7,11 +7,11 @@ use futures::FutureExt;
 
 use super::PlaySession;
 
-/// Cinnabar's recovery interval for unresolved cache bodies. Expiry retries terrain rather
+/// Cinnabar's recovery interval for unresolved cached SubChunk replies. Expiry retries terrain rather
 /// than rejecting late bodies; this is an internal liveness policy.
 const BLOB_RECOVERY_INTERVAL: Duration = Duration::from_secs(5);
 
-/// One host timer covers the pending transactions present when it starts. Newer transactions
+/// One host timer covers the replayable replies present when it starts. Newer transactions
 /// receive their own interval after this group resolves or recovers.
 pub(super) struct BlobRecovery {
     through: u64,
@@ -56,7 +56,7 @@ impl BlobRecovery {
 }
 
 impl<R: bridge::FrameRead> PlaySession<R> {
-    /// Services unresolved cache work even during continuous input or ready output. A single
+    /// Services replayable cached replies even during continuous input or ready output. A single
     /// sequence boundary reuses the resolver's pending order instead of another deadline queue.
     pub(super) fn recover_stalled_blobs(&mut self) -> Result<(), crate::BlobCacheError> {
         let resolver = self.blob_cache.as_mut().expect("enabled cache");
