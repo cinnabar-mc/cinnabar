@@ -1,3 +1,4 @@
+use client_shell::physical_input::set_cursor_capture;
 use launcher::menu::settings_options::BindingId;
 mod chat;
 mod chat_coordinates;
@@ -26,7 +27,7 @@ use bevy::{
         With,
     },
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
+    window::{CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
 use client_shell::menu::settings_options::control_bindings::{
@@ -122,7 +123,10 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input()
+        || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
+    {
         runtime.screen_state_mut().container_close_armed = false;
         runtime.screen_state_mut().container_scroll_drag = None;
         return;
@@ -372,8 +376,7 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if !input_available {
@@ -382,12 +385,12 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if runtime.sign_editor().is_open()
         || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation
@@ -407,8 +410,7 @@ pub(crate) fn drive_chat_keyboard_input(
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     let keyboard_events: Vec<_> = keyboard_messages.read().cloned().collect();

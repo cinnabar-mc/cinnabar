@@ -2,10 +2,11 @@
 //! Experience's `.cxb`, generated from `wit/client/client.wit`.
 //!
 //! Implement [`ClientPart`] on a type and export it with
-//! [`export_client_part!`](crate::export_client_part). Records travel as [`Value`]s:
-//! [`ClientPart::dispatch`] receives what the server half sends, and [`send`] sends a record on a
-//! declared channel. The host's imports are [`ui`], [`input`], [`messaging`], [`scene`],
-//! [`media`] and [`items`]; each refuses what the bundle's grants do not allow.
+//! [`export_client_part!`](crate::export_client_part). Paired projects use `#[entry::client]`
+//! and one `#[on_message]` method per reply. [`send`] accepts only to-server messages.
+//! Dispatch silently drops unknown channels and records that fail to decode.
+//! The host's imports are [`ui`], [`input`], [`scene`], [`media`] and [`items`]; each
+//! refuses what the bundle's grants do not allow.
 
 /// Bindings generated from `wit/client/client.wit`.
 pub mod bindings {
@@ -17,27 +18,34 @@ pub mod bindings {
     });
 }
 
-pub use bindings::cinnabar::server_experience::{input, media, messaging, scene, ui};
+pub use bindings::cinnabar::server_experience::{input, media, scene, ui};
 pub use bindings::cinnabar::session::items;
 
-use crate::{Channel, Value};
+use crate::Value;
+use bindings::cinnabar::server_experience::messaging;
+
+/// ABI adapters for generated entry points and low-level protocol fixtures.
+#[doc(hidden)]
+pub mod __private;
 
 /// One client part, mirroring the exports of the `server-bundle` world.
 ///
 /// Only [`ClientPart::init`] is required; the callbacks default to doing nothing.
 pub trait ClientPart {
+    /// The generated registry to confirm before any authored callback runs. Existing client
+    /// parts without source-generated messages keep their current initialization behavior.
+    fn registry() -> Option<&'static crate::message::Registry> {
+        None
+    }
+
     /// Runs once, when the client part starts.
     fn init();
-
-    /// Handles `dispatch`: the server half sent `record` on the to-client channel `channel`. The
-    /// host has validated it against the channel's declaration.
-    fn dispatch(_channel: String, _record: Vec<Value>) {}
 
     /// Handles `action`: the declared action `id` fired from a modal screen control while the
     /// modal has focus; `collection_index` is the control's row in its nearest collection.
     fn action(_id: String, _collection_index: Option<u32>) {}
 
-    /// Handles `epoch`: the world epoch changed, such as on a dimension change, and the client
+    /// Handles `epoch`: the world epoch changed, after a server world notice or dimension change, and the client
     /// part and its state live on. The server half resends what it needs to.
     fn epoch() {}
 
@@ -67,10 +75,52 @@ pub trait ClientPart {
     fn shift_changed(_held: bool) {}
 }
 
-/// Sends `record` on the to-server `channel`. The host checks it against the channel's
-/// declaration and the session's message limit, and refuses it with the reason.
-pub fn send(channel: &Channel, record: &[Value]) -> Result<(), String> {
-    messaging::send(channel.id, channel.schema, &record_json(record))
+thread_local! {
+    static REGISTRY_STATE: std::cell::Cell<crate::message::RegistryState> = const {
+        std::cell::Cell::new(crate::message::RegistryState::Waiting)
+    };
+}
+
+/// Initializes legacy parts immediately; generated projects defer callbacks until confirmation.
+#[doc(hidden)]
+pub fn initialize<T: ClientPart>() {
+    initialize_with::<T>(|registry| {
+        messaging::negotiate(
+            registry.channel.id,
+            registry.request.id,
+            registry.request.schema,
+            registry.fingerprint,
+        );
+        Ok(())
+    });
+}
+
+/// Requests host-owned negotiation before authored initialization.
+#[doc(hidden)]
+pub fn initialize_with<T: ClientPart>(
+    negotiate: impl FnOnce(&crate::message::Registry) -> Result<(), String>,
+) {
+    REGISTRY_STATE.set(crate::message::RegistryState::Waiting);
+    if let Some(registry) = T::registry() {
+        negotiate(registry).expect("registry request must be admitted before client code starts");
+    } else {
+        T::init();
+    }
+}
+
+/// Whether authored callbacks may run for this component instance.
+#[doc(hidden)]
+pub fn active<T: ClientPart>() -> bool {
+    T::registry().is_none() || REGISTRY_STATE.get() == crate::message::RegistryState::Active
+}
+
+/// Sends a to-server message after validating every declared field bound.
+pub fn send<M: crate::message::ToServer>(message: &M) -> Result<(), String> {
+    messaging::send(
+        M::CHANNEL.id,
+        M::CHANNEL.schema,
+        &record_json(&message.encode()?),
+    )
 }
 
 /// `record` in the wire's JSON form, as `messaging.send` takes it.
@@ -91,15 +141,11 @@ macro_rules! export_client_part {
     ($ty:ident) => {
         impl $crate::client::bindings::Guest for $ty {
             fn init() {
-                <$ty as $crate::client::ClientPart>::init()
+                $crate::client::initialize::<$ty>()
             }
 
             fn dispatch(channel: ::std::string::String, record_json: ::std::vec::Vec<u8>) {
-                // The host dispatches only records it validated, so nothing else arrives.
-                if let ::core::option::Option::Some(record) = $crate::client::record(&record_json)
-                {
-                    <$ty as $crate::client::ClientPart>::dispatch(channel, record)
-                }
+                $crate::client::__private::receive::<$ty>(channel, record_json);
             }
 
             fn action(id: ::std::string::String, collection_index: ::core::option::Option<u32>) {
@@ -140,8 +186,84 @@ macro_rules! export_client_part {
 
 #[cfg(test)]
 mod tests {
-    use super::{record, record_json};
-    use crate::Value;
+    use super::{ClientPart, active, initialize, initialize_with, record, record_json};
+    use crate::{Channel, Direction, Field, Value, message::Registry};
+
+    thread_local! { static INITIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+    use super::__private;
+
+    struct Legacy;
+    impl ClientPart for Legacy {
+        /// Counts initialization without invoking any host imports.
+        fn init() {
+            INITIALIZATIONS.set(INITIALIZATIONS.get() + 1);
+        }
+    }
+
+    struct Guarded;
+    impl ClientPart for Guarded {
+        /// Requires the generated confirmation before any authored callback runs.
+        fn registry() -> Option<&'static Registry> {
+            Some(&REGISTRY)
+        }
+        /// Counts initialization without invoking any host imports.
+        fn init() {
+            INITIALIZATIONS.set(INITIALIZATIONS.get() + 1);
+        }
+    }
+
+    impl __private::Dispatch for Guarded {
+        /// No application messages are declared by this initialization fixture.
+        fn dispatch(_: String, _: Vec<Value>) -> Result<(), String> {
+            Err("unknown message".into())
+        }
+    }
+
+    static REGISTRY: Registry = Registry {
+        channel: Channel {
+            id: "test.registry",
+            schema: 1,
+            direction: Direction::ToClient,
+            fields: &[Field::Text { max_bytes: 64 }],
+        },
+        request: Channel {
+            id: "test.registry_request",
+            schema: 1,
+            direction: Direction::ToServer,
+            fields: &[Field::Text { max_bytes: 64 }],
+        },
+        fingerprint: "expected",
+    };
+
+    #[test]
+    fn legacy_client_parts_keep_immediate_initialization() {
+        INITIALIZATIONS.set(0);
+        initialize::<Legacy>();
+        assert!(active::<Legacy>());
+        assert_eq!(INITIALIZATIONS.get(), 1);
+    }
+
+    #[test]
+    fn generated_parts_wait_for_exactly_one_confirmation() {
+        INITIALIZATIONS.set(0);
+        initialize_with::<Guarded>(|registry| {
+            assert_eq!(registry.channel, REGISTRY.channel);
+            assert_eq!(registry.request, REGISTRY.request);
+            assert_eq!(registry.fingerprint, REGISTRY.fingerprint);
+            Ok(())
+        });
+        assert!(!active::<Guarded>());
+        assert_eq!(INITIALIZATIONS.get(), 0);
+        for _ in 0..2 {
+            __private::receive::<Guarded>(
+                "test.registry".into(),
+                record_json(&[Value::Text("expected".into())]),
+            );
+        }
+        assert!(active::<Guarded>());
+        assert_eq!(INITIALIZATIONS.get(), 1);
+    }
 
     /// Every kind of value in the wire's JSON form, as the host dispatches and parses records.
     const RECORD: &str = concat!(

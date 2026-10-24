@@ -24,6 +24,8 @@ static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
 
 mod persistence;
 pub use persistence::{BlobCacheStore, WeakClientBlobCache};
+mod requested_hashes;
+use requested_hashes::RequestedBlobHashes;
 
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
@@ -132,6 +134,7 @@ pub struct BlobCacheStats {
     pub cached_packet_reconstruction_pressure: u64,
     pub cached_packet_staged_pressure: u64,
     pub cached_packet_ready_pressure: u64,
+    /// Responses with unneeded blobs; useful entries in mixed responses may still be admitted.
     pub miss_response_unsolicited: u64,
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,
@@ -475,6 +478,7 @@ impl RecoveryReady {
 #[derive(Debug)]
 pub struct BlobCacheResolver {
     cache: ClientBlobCache,
+    requested_hashes: RequestedBlobHashes,
     pending: HashMap<u64, PendingTransaction>,
     pending_order: BTreeSet<u64>,
     pending_by_hash: HashMap<u64, HashSet<u64>>,

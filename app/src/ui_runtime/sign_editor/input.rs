@@ -6,9 +6,10 @@ use bevy::{
     prelude::{
         ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
     },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorOptions, PrimaryWindow},
 };
 use client_runtime::network::NetworkHandle;
+use client_shell::physical_input::set_cursor_capture;
 
 use crate::ui_runtime::interaction::input_capture::restore_gameplay_input_after_chat;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
@@ -51,7 +52,9 @@ pub(crate) fn drive_sign_editor(
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    if runtime.credits().owns_input() {
+    // A data-driven form owns the keys: an editor opened under it waits, and a sign edit
+    // requested meanwhile opens once the form closes.
+    if runtime.credits().owns_input() || runtime.data_driven_ui().owns_input() {
         keyboard.clear();
         *owned_last_frame = false;
         return;
@@ -100,8 +103,7 @@ pub(crate) fn drive_sign_editor(
         return;
     }
     *owned_last_frame = true;
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    set_cursor_capture(&mut cursor, false);
     let mut measure = measure;
     let mut finish = runtime.sign_editor_mut().take_finish_request();
     let mut explicit_finish = false;
@@ -184,3 +186,6 @@ pub(crate) fn drive_sign_editor(
         *owned_last_frame = false;
     }
 }
+
+#[cfg(test)]
+mod tests;

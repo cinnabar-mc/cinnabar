@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_item_quads, cube_face,
+    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads, cube_face,
     face_brightness, material_tile,
 };
 use assets::{
@@ -23,6 +23,14 @@ struct Face<'a> {
     size: [usize; 2],
     blend: bool,
     face_dimming: bool,
+}
+
+/// A source-textured quad with independently controlled face dimming.
+pub(super) struct TexturedQuad<'a> {
+    pub corners: [[f32; 3]; 4],
+    pub uvs: [[f32; 2]; 4],
+    pub texture: &'a IconSprite,
+    pub face_dimming: bool,
 }
 
 /// Carrier texels remain borrowed; processed texels share one immutable allocation.
@@ -78,19 +86,22 @@ pub(super) struct Model<'a> {
 impl<'a> Model<'a> {
     /// Builds a model from source rectangles and its own inventory projection.
     pub(super) fn textured(
-        quads: impl IntoIterator<Item = ([[f32; 3]; 4], [[f32; 2]; 4], &'a IconSprite)>,
+        quads: impl IntoIterator<Item = TexturedQuad<'a>>,
         projection: fn([f32; 3]) -> [f32; 3],
         light: f32,
     ) -> Self {
         let faces = quads
             .into_iter()
-            .map(|(corners, uvs, sprite)| Face {
-                corners,
-                uvs,
-                tile: Pixels::Borrowed(&sprite.rgba8),
-                size: [usize::from(sprite.width), usize::from(sprite.height)],
+            .map(|quad| Face {
+                corners: quad.corners,
+                uvs: quad.uvs,
+                tile: Pixels::Borrowed(&quad.texture.rgba8),
+                size: [
+                    usize::from(quad.texture.width),
+                    usize::from(quad.texture.height),
+                ],
                 blend: false,
-                face_dimming: true,
+                face_dimming: quad.face_dimming,
             })
             .collect();
         Self {
@@ -177,7 +188,7 @@ impl<'a> Model<'a> {
                 }
             }
         }
-        let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
+        let faces = block_gui_quads(kind, materials, template, parts.templates, parts.quads)
             .map_err(reject)?
             .into_iter()
             .filter(|quad| quad.visible_in_gui())
@@ -555,7 +566,12 @@ mod review_tests {
             )
             .unwrap()
             .raster();
-            let visible = icon.rgba8.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0);
+            let visible = icon
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0);
             assert_eq!(visible, two_sided, "one-sided rear faces stay transparent");
         }
     }
