@@ -59,6 +59,8 @@ pub struct Manifest {
     pub actions: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub templates: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     pub files: Vec<ContentFile>,
 }
 
@@ -77,6 +79,7 @@ pub enum Permission {
     EntityHighlight,
     RenderThroughWalls,
     RenderMaterial,
+    RenderWorldMaterial,
     RenderPost,
 }
 
@@ -222,6 +225,21 @@ impl Manifest {
         ensure!(textures <= MAX_TEXTURES, "too many textures");
         Ok(())
     }
+
+    /// A signed `namespace` must be well formed and unreserved, and a bundle asking for
+    /// `render_world_material` must sign one, since its bindings may name nothing else.
+    pub fn validate_namespace(&self) -> Result<()> {
+        ensure!(
+            self.namespace.as_deref().is_none_or(world_namespace),
+            "invalid namespace"
+        );
+        ensure!(
+            self.namespace.is_some()
+                || !self.permissions.contains(&Permission::RenderWorldMaterial),
+            "render_world_material needs a namespace"
+        );
+        Ok(())
+    }
 }
 
 /// Where a bundle keeps the images its screens may draw.
@@ -246,10 +264,42 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(|c| c.is_control() || c == '§')
 }
 
-/// What the developer client advertises: the above plus media playback onto scene quads and
-/// reading the session's items.
+/// What the developer client advertises: the above plus media playback onto scene quads,
+/// reading the session's items and programmable world materials.
 pub fn developer_permissions() -> BTreeSet<Permission> {
     let mut permissions = implemented_permissions();
-    permissions.extend([Permission::Scene, Permission::Media, Permission::Items]);
+    permissions.extend([
+        Permission::Scene,
+        Permission::Media,
+        Permission::Items,
+        Permission::RenderWorldMaterial,
+    ]);
     permissions
+}
+
+/// Namespaces no bundle may claim: binding vanilla identifiers needs a separate cross-namespace
+/// permission, which does not exist yet.
+pub const RESERVED_NAMESPACES: [&str; 1] = ["minecraft"];
+
+/// Longest signed `namespace`, in bytes.
+pub const MAX_NAMESPACE_BYTES: usize = 64;
+
+/// Whether `namespace` is one a manifest may sign: lowercase ASCII letters, digits, `_`, `-`
+/// and `.`, with no `:`, at most [`MAX_NAMESPACE_BYTES`], and not reserved.
+pub fn world_namespace(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.len() <= MAX_NAMESPACE_BYTES
+        && namespace
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-.".contains(&b))
+        && !RESERVED_NAMESPACES.contains(&namespace)
+}
+
+/// Whether `identifier` (`namespace:name`) lies in `namespace`; the name must be non-empty.
+pub fn in_namespace(identifier: &str, namespace: &str) -> bool {
+    identifier
+        .strip_prefix(namespace)
+        .and_then(|rest| rest.strip_prefix(':'))
+        .is_some_and(|name| !name.is_empty() && !name.contains(':'))
+        && crate::manifest::identifier(identifier)
 }

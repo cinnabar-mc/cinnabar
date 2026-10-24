@@ -679,6 +679,7 @@ fn capabilities(grant: &Grant, manifest: &Manifest, assets: BTreeSet<String>) ->
         channels: manifest.channels.clone(),
         actions: manifest.actions.clone(),
         max_message_bytes: grant.wire.limits.max_message_bytes,
+        namespace: manifest.namespace.clone(),
     }
 }
 
