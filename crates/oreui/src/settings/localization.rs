@@ -85,6 +85,10 @@ pub(super) fn french_text(key: &str) -> Option<&'static str> {
         "options.cinnabar.shaderOptions.buttonLabel" => "Options du shader…",
 
         "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Visuel F5 immersif",
+        "options.showOtherPlayerCosmetics" => "Afficher les cosmétiques des autres joueurs",
+        "options.showOtherPlayerCosmetics.description" => {
+            "Affiche les cosmétiques équipés, compagnons et effets des autres joueurs. Vos propres cosmétiques restent visibles."
+        }
         "options.f5SelfVisuals.description" => {
             "Affiche le joueur complet en vue F5 (armure, cosmétiques, cape et pseudo tels que les autres joueurs vous voient)."
         }
@@ -370,6 +374,10 @@ pub(super) fn fallback(key: &str) -> &str {
         "color.dark_blue" => "Dark Blue",
         "color.black" => "Black",
         "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Third-Person Self Visuals",
+        "options.showOtherPlayerCosmetics" => "Show Other Players' Cosmetics",
+        "options.showOtherPlayerCosmetics.description" => {
+            "Show other players' equipped cosmetics, companions, and effects. Your own cosmetics stay visible."
+        }
         "options.f5SelfVisuals.description" => {
             "Display nametag, score, badges, and status overhead on your own player in third-person view."
         }
