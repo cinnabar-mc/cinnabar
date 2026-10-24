@@ -12,7 +12,7 @@ pub struct ActorPackCompilation {
     pub bindings: Vec<ActorArtworkBinding>,
     pub skipped: EntityPackSkips,
     /// Counted entity material behaviour the client skips, ignores or approximates.
-    pub material_diagnostics: crate::EntityMaterialDiagnostics,
+    pub material_diagnostics: assets::EntityMaterialDiagnostics,
     /// Rigs left without artwork, with the reason each was rejected.
     pub fallbacks: Vec<ActorFallback>,
     /// Attachable bindings of the pack's held and worn items, and their decoded rasters.

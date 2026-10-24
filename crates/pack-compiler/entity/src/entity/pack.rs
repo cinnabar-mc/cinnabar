@@ -66,7 +66,7 @@ pub struct EntityPackCompilation {
     pub equipment_bindings: Box<[EquipmentBinding]>,
     pub skipped: EntityPackSkips,
     /// Counted entity material behaviour the client skips, ignores or approximates.
-    pub material_diagnostics: super::EntityMaterialDiagnostics,
+    pub material_diagnostics: assets::EntityMaterialDiagnostics,
     /// Retained source bytes by pack-relative path, for consumers that read rasters.
     pub payloads: BTreeMap<Box<str>, Box<[u8]>>,
 }

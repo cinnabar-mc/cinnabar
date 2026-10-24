@@ -55,7 +55,7 @@ pub(super) struct AnimationPayload {
     /// Materials left unresolved past their bounds; they draw as layers without one.
     pub unresolved_materials: u32,
     /// Entity material counts the pack compile reports once.
-    pub material_diagnostics: super::materials::diagnostics::EntityMaterialDiagnostics,
+    pub material_diagnostics: assets::EntityMaterialDiagnostics,
     pub outcomes: Box<[CompileReferenceOutcome<u32>]>,
 }
 

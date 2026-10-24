@@ -895,3 +895,20 @@ fn every_packs_material_list_resolves_into_one_list_naming_its_files() {
     );
     assert!(!files.contains_key("materials/custom.json"));
 }
+
+#[test]
+fn collection_reports_material_list_entries_it_read_in_part() {
+    let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
+    let pack = archive_files(
+        1,
+        vec![(
+            list,
+            json!([{"path": "materials/a.material", "tag": "old"}, {"path": ""}]),
+        )],
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![pack]),
+    ));
+    let (_, report) = super::collect_files_reporting(&view, None, None);
+    assert_eq!((report.list.ignored_tags, report.list.empty_paths), (1, 1));
+}
