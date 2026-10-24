@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use material_fx::artifact;
+use material_fx::{artifact, command};
 
 const USAGE: &str = "usage: material-fx --out <dir> [--user-data <client user data dir>]";
 
@@ -34,13 +34,7 @@ fn main() -> Result<()> {
         let (digest, objects) = cinnabar_cxb::seed_cache(&built.cxb, user_data)?;
         println!("seeded {digest} into {}", objects.display());
     }
-    println!(
-        "bedrock-local-server -material-fx -experiences {} -experience-runtime <experience-runtime> \
-         -extension-key {} -extension-audience 127.0.0.1:19132 -extension-cxb {}",
-        built.experiences.display(),
-        built.server_seed.display(),
-        built.cxb_dir.display(),
-    );
+    println!("{}", command::server_command(&root, &out, &built));
     Ok(())
 }
 
