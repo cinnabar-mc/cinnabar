@@ -65,37 +65,44 @@ impl StateMasks {
 }
 
 impl MaterialBindings {
-    /// Loads the stack's block bindings; one block passes cannot draw exactly counts as an
+    /// Loads the stack's block bindings, resolving their bases through the material list of
+    /// graphics mode `fancy_graphics`; one block passes cannot draw exactly counts as an
     /// approximated material.
-    pub(super) fn new(view: &LayeredPackView, gaps: &mut OverlayGaps) -> Self {
+    pub(super) fn new(
+        view: &LayeredPackView,
+        fancy_graphics: bool,
+        gaps: &mut OverlayGaps,
+    ) -> Self {
         use pack_runtime::entity_pack::collect::{material_bindings_document, material_documents};
         let Some(document) = material_bindings_document(view) else {
             return Self::default();
         };
-        let bindings =
-            pack_entity_compiler::block_material_bindings(&material_documents(view), &document)
-                .into_iter()
-                .map(|binding| {
-                    let (method, exact) = assets::block_render_method_for(
-                        &binding.definition.render_state(),
-                        binding.shading.alpha_test,
-                    );
-                    if !exact {
-                        gaps.approximated_materials += 1;
-                    }
-                    Binding {
-                        block: binding.block,
-                        states: binding.states,
-                        instance: binding.material_instance,
-                        condition: binding
-                            .condition
-                            .as_deref()
-                            .and_then(pack_entity_compiler::BlockMolang::parse),
-                        method,
-                        masks: binding.masks,
-                    }
-                })
-                .collect::<Vec<_>>();
+        let bindings = pack_entity_compiler::block_material_bindings(
+            &material_documents(view, fancy_graphics),
+            &document,
+        )
+        .into_iter()
+        .map(|binding| {
+            let (method, exact) = assets::block_render_method_for(
+                &binding.definition.render_state(),
+                binding.shading.alpha_test,
+            );
+            if !exact {
+                gaps.approximated_materials += 1;
+            }
+            Binding {
+                block: binding.block,
+                states: binding.states,
+                instance: binding.material_instance,
+                condition: binding
+                    .condition
+                    .as_deref()
+                    .and_then(pack_entity_compiler::BlockMolang::parse),
+                method,
+                masks: binding.masks,
+            }
+        })
+        .collect::<Vec<_>>();
         let matched = bindings.iter().map(|_| Default::default()).collect();
         Self { bindings, matched }
     }
