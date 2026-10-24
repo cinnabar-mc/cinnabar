@@ -1,6 +1,5 @@
 use super::*;
 use render_model::{ActorGpuInstance, ActorRigGeometrySpan};
-use std::collections::hash_map::Entry;
 
 pub(super) struct ActorPipelineSpecializer;
 
@@ -16,6 +15,9 @@ pub(crate) struct ActorPipeline {
     >,
     motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
     motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
+    /// Contracts the render targets cannot represent and pipelines that failed to compile,
+    /// both drawn with the view's unauthored pipeline instead.
+    pub(super) targets: targets::TargetValidation,
     /// Unique built-in draw and motion pipelines for each view, retained for readiness and
     /// shader reloads.
     prewarmed: std::collections::HashMap<(Msaa, bool, bool), Vec<CachedRenderPipelineId>>,
@@ -62,6 +64,7 @@ impl FromWorld for ActorPipeline {
             motion_ids: Default::default(),
             prewarmed: Default::default(),
             session_prewarmed: Default::default(),
+            targets: Default::default(),
             session_rasters: (std::sync::Arc::from([]), Vec::new()),
             frame_requests: Default::default(),
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
@@ -109,23 +112,12 @@ impl ActorPipeline {
                     material,
                     raster,
                 };
-                let contract = key.contract();
-                let id = match self.draw_variants.entry(contract) {
-                    Entry::Occupied(entry) => *entry.get(),
-                    Entry::Vacant(entry) => {
-                        *entry.insert(self.variants.specialize(cache, key).ok()?)
-                    }
-                };
+                let id = self.request_draw(cache, key)?;
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
                 if self.motion_supported && super::motion::eligible(material, &key.raster()) {
-                    let id = match self.motion_ids.entry(contract) {
-                        Entry::Occupied(entry) => *entry.get(),
-                        Entry::Vacant(entry) => {
-                            *entry.insert(self.motion_variants.specialize(cache, key).ok()?)
-                        }
-                    };
+                    let id = self.request_motion(cache, key)?;
                     if !ids.contains(&id) {
                         ids.push(id);
                     }
@@ -184,22 +176,13 @@ impl ActorPipeline {
                 material,
                 raster,
             };
-            let contract = key.contract();
-            let id = match self.draw_variants.entry(contract) {
-                Entry::Occupied(entry) => *entry.get(),
-                Entry::Vacant(entry) => *entry.insert(self.variants.specialize(cache, key).ok()?),
-            };
+            let id = self.request_draw(cache, key)?;
             let ids = self.session_prewarmed.entry(view).or_default();
             if !ids.contains(&id) {
                 ids.push(id);
             }
             if self.motion_supported && super::motion::eligible(material, &raster) {
-                let id = match self.motion_ids.entry(contract) {
-                    Entry::Occupied(entry) => *entry.get(),
-                    Entry::Vacant(entry) => {
-                        *entry.insert(self.motion_variants.specialize(cache, key).ok()?)
-                    }
-                };
+                let id = self.request_motion(cache, key)?;
                 let ids = self.session_prewarmed.entry(view).or_default();
                 if !ids.contains(&id) {
                     ids.push(id);
@@ -286,6 +269,9 @@ impl ActorPipeline {
 #[path = "pipeline_readiness_tests.rs"]
 mod readiness_tests;
 
+#[path = "pipeline/targets.rs"]
+pub(crate) mod targets;
+
 /// The (instance word, raster) pairs the generated native material table, and a layer that
 /// names no material, draw with under every presentation variant: both combat profiles, glint,
 /// dye masks, overlay suppression and the 1.12 worn material. Raster states a server pack
@@ -344,7 +330,19 @@ pub(super) fn prepare_actor_pipelines(
         Option<&render_scene::EnhancedRendering>,
     )>,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
+    adapter: Option<Res<bevy::render::renderer::RenderAdapter>>,
 ) {
+    if let Some(adapter) = adapter
+        && !pipeline.targets.has_features()
+    {
+        let adapter = adapter.clone();
+        pipeline
+            .targets
+            .set_features(std::sync::Arc::new(move |format| {
+                adapter.get_texture_format_features(format)
+            }));
+    }
+    pipeline.settle_failures(&cache, |id| targets::compile_outcome(&cache, id));
     if let Some(frame) = &frame {
         pipeline.adopt_session_rasters(&frame.authored_rasters);
     }
