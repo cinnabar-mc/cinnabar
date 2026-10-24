@@ -4,6 +4,13 @@
 use super::WorldMaterial;
 use std::{collections::BTreeMap, sync::Arc};
 
+/// Slots a block binding can name: block quads carry one more than the slot in six bits.
+/// The renderer checks this against meshing's tag width.
+pub const MAX_BLOCK_SLOTS: usize = 63;
+/// Slots an entity binding can name: actor material words carry one more than the slot in
+/// eight bits. The renderer checks this against the actor material word.
+pub const MAX_ENTITY_SLOTS: usize = 255;
+
 /// The depth test a published material draws with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Depth {

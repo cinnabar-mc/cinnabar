@@ -1172,6 +1172,7 @@ fn world_declarations_are_refused_against_retained_state_and_kept_across_commits
     let mut state = state();
     state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
     state.capabilities.namespace = Some("example".into());
+    state.capabilities.scope.memory_bytes = server_experience::policy::MAX_GUEST_MEMORY;
     let material = WorldMaterialSpec {
         source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
         textures: Vec::new(),
@@ -1233,6 +1234,7 @@ fn hostile_world_shaders_are_refused_when_declared_and_compiles_are_bounded() {
     let mut state = state();
     state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
     state.capabilities.namespace = Some("example".into());
+    state.capabilities.scope.memory_bytes = server_experience::policy::MAX_GUEST_MEMORY;
     let spec = |source: &str, depth| MaterialSpec {
         source: source.into(),
         textures: Vec::new(),
@@ -1291,6 +1293,7 @@ fn redeclaring_only_parameters_spends_no_compile() {
     let mut state = state();
     state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
     state.capabilities.namespace = Some("example".into());
+    state.capabilities.scope.memory_bytes = server_experience::policy::MAX_GUEST_MEMORY;
     let spec = |params: Vec<f32>| MaterialSpec {
         source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
         textures: Vec::new(),

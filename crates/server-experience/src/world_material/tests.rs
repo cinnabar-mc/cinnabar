@@ -148,12 +148,24 @@ fn bindings_need_a_held_material_which_cannot_be_removed_while_bound() {
 }
 
 #[test]
-fn per_bundle_bounds_reject_extra_materials() {
+fn only_the_memory_limit_bounds_how_many_declarations_a_bundle_holds() {
     let mut world = WorldMaterials::default();
-    for id in 0..=MAX_WORLD_MATERIALS as u32 {
+    // Far more materials and bindings than the former fixed caps of eight and sixty-four.
+    for id in 0..200 {
         world
             .set_material(id, Some(&spec(WorldDepth::Test, &[])))
             .unwrap();
+        world
+            .set_binding(
+                id,
+                Some(&WorldBinding {
+                    target: WorldTarget::Entity(format!("example:moth_{id}")),
+                    material: id,
+                }),
+            )
+            .unwrap();
     }
-    assert!(world.check().is_err());
+    let charge = world.charge();
+    world.check(charge).unwrap();
+    assert!(world.check(charge - 1).is_err());
 }

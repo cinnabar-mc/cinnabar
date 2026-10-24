@@ -137,7 +137,7 @@ impl State {
             let mut staged = self.world_staged.clone();
             if let Err(error) = staged
                 .set_material(*id, material.as_ref())
-                .and_then(|()| staged.check())
+                .and_then(|()| staged.check(self.capabilities.scope.memory_bytes))
             {
                 return Ok(Err(error.to_string()));
             }
@@ -146,7 +146,7 @@ impl State {
             let mut staged = self.world_staged.clone();
             if let Err(error) = staged
                 .set_binding(*id, binding.as_ref())
-                .and_then(|()| staged.check())
+                .and_then(|()| staged.check(self.capabilities.scope.memory_bytes))
             {
                 return Ok(Err(error.to_string()));
             }

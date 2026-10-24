@@ -377,7 +377,7 @@ impl Contributions {
                 Command::Send { .. } | Command::Media { .. } => {}
             }
         }
-        candidate.world.check()?;
+        candidate.world.check(capabilities.scope.memory_bytes)?;
         ensure!(
             candidate.widgets.len() <= MAX_WIDGETS,
             "widget budget exceeded"
