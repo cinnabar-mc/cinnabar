@@ -268,10 +268,23 @@ pub(super) fn drive_mod(
     let scope = world_observation
         .as_ref()
         .map(|world| (world.session, world.dimension));
-    if *click_scope != scope || !captured || absorbed {
+    // Controller and touch gestures reach gameplay without cursor capture, so they are
+    // filtered under the same source gates.
+    let source_admitted = gameplay
+        .input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| {
+            crate::semantic_controls::physical::admits_input_mode(
+                input.input_mode,
+                focused,
+                captured,
+            )
+        });
+    if *click_scope != scope || !source_admitted || absorbed {
         action_filter.reset();
     }
-    let enabled = captured && !absorbed && scope.is_some();
+    let enabled = source_admitted && !absorbed && scope.is_some();
     let pulse_requested = extension
         .hosts
         .iter_mut()

@@ -613,3 +613,37 @@ fn owner_change_keeps_a_suppressed_phase_only_hold_blocked() {
         );
     }
 }
+
+/// A controller hold that ends as desktop input is selected still reaches the filter as a
+/// release, so accepting it ends the logical hold.
+#[test]
+fn aggregate_release_on_a_device_change_reaches_the_filter() {
+    let mut state = ActionFilterState::default();
+    let pressed = ActionPhase {
+        pressed: true,
+        held: true,
+        ..Default::default()
+    };
+    let mut controller = frame(pressed, Default::default());
+    state.filter(&mut controller, Some(1), 0, false, |f| {
+        Some(ActionVerdict::passthrough(f))
+    });
+    let mut desktop = ordered([false; 2], &[(Action::Jump, true)]);
+    desktop.phases[Action::Attack as usize].released = true;
+    state.filter(&mut desktop, Some(1), 1, false, |f| {
+        assert_eq!(
+            f.transitions,
+            [ActionTransition {
+                action: FilterAction::Attack,
+                kind: TransitionKind::Release,
+                held_after: false,
+            }]
+        );
+        decide(&[true], [false; 2])
+    });
+    assert!(!desktop.phases[Action::Attack as usize].held);
+    assert!(desktop.phases[Action::Attack as usize].released);
+    let events = desktop.ordered.unwrap().events;
+    assert_eq!(events.len(), 2);
+    assert!(events[0].action == Action::Attack && !events[0].pressed);
+}

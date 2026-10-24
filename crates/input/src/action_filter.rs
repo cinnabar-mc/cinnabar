@@ -148,10 +148,29 @@ impl ActionFilterState {
         self.generation = Some(input.authority_generation);
         self.interrupted = false;
         self.physical_lost = false;
-        let mut events = input
-            .ordered
-            .as_ref()
-            .map_or_else(|| aggregate_events(input, initial), |o| o.events.clone());
+        let mut events = input.ordered.as_ref().map_or_else(
+            || aggregate_events(input, initial),
+            |o| {
+                // A release resolved only in the aggregate phase, as when another device's
+                // hold ends on a device change, precedes the ordered events.
+                let mut events: Vec<_> = FilterAction::ALL
+                    .into_iter()
+                    .map(FilterAction::action)
+                    .filter(|&action| {
+                        input.phases[action as usize].released
+                            && !initial.held(action)
+                            && !o.events.iter().any(|e| e.action == action && !e.pressed)
+                    })
+                    .map(|action| ActionEvent {
+                        action,
+                        pressed: false,
+                        buttons: initial,
+                    })
+                    .collect();
+                events.extend(o.events.iter().cloned());
+                events
+            },
+        );
         if invalid {
             events.retain(|e| FilterAction::from_action(e.action).is_none());
         }
