@@ -338,3 +338,36 @@ fn the_schema_and_the_parser_accept_the_same_documents() {
         "bindings": [{"entity": "example:moth", "material": "example:missing"}]});
     assert!(validate(&unknown).is_err() && valid(&schema, &schema, &unknown));
 }
+
+#[test]
+fn the_documented_sample_pack_loads_through_the_parser_and_the_schema() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../docs/reference/cinnabar-material-sample");
+    let read = |path: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(root.join(path)).expect("sample file")).unwrap()
+    };
+    let document = read(MATERIAL_BINDINGS_PATH);
+    let schema = schema();
+    assert!(valid(&schema, &schema, &document));
+    let extension = parse(&document).expect("the sample is a valid document");
+    assert_eq!(
+        extension
+            .entity_rules("minecraft:pig", "controller.render.pig")
+            .collect::<Vec<_>>(),
+        [("head", "sample:glow")]
+    );
+    let blocks = block_bindings(&[], &document);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].block.as_ref(), "sample:lamp");
+    assert_eq!(blocks[0].states["sample:lit"], json!(true));
+    let glow = blocks[0]
+        .masks
+        .glow
+        .as_deref()
+        .expect("the lamp draws a glow mask");
+    let terrain = read("textures/terrain_texture.json");
+    assert!(
+        terrain["texture_data"].get(glow).is_some(),
+        "the glow mask names a terrain texture key the sample declares"
+    );
+}
