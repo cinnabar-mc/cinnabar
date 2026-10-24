@@ -195,6 +195,7 @@ fn a_correction_outside_retained_history_keeps_prediction_and_still_resets_the_f
             subject: protocol::MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 3,
+            vehicle_angular_velocity: None,
         },
         resolved: ResolvedServerPosition {
             position,
@@ -287,10 +288,9 @@ impl CollisionWorld for Unloaded {
     }
 }
 
-/// A delayed boost whose replay fails keeps its whole span for live ticks.
+/// A delayed boost whose replay fails stays in the boost timeline for later replays.
 #[test]
-fn a_failed_boost_replay_keeps_the_unapplied_span_live() {
-    use crate::movement::MovementEffectSource;
+fn a_failed_boost_replay_keeps_the_boost_for_later_replays() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
     for _ in 0..4 {
         let frame = physics.advance(
@@ -323,11 +323,16 @@ fn a_failed_boost_replay_keeps_the_unapplied_span_live() {
         |_| {},
     );
     assert_eq!(disposition, ControlDisposition::Handled);
-    for _ in 0..2 {
-        assert!(effects.snapshot().glide_boost);
-        effects.commit_successful_tick();
-    }
-    assert!(!effects.snapshot().glide_boost);
+    let glide = crate::movement::MovementBoost::Glide;
+    let boosted: Vec<u64> = (100..110)
+        .filter(|tick| physics.boosted(glide, *tick))
+        .collect();
+    assert_eq!(boosted, [103, 104]);
+    assert_eq!(
+        physics.record_server_boost(glide, 102, crate::movement::BoostSpan::Ticks(2)),
+        Some(102),
+        "the unreplayed ticks still differ from the timeline"
+    );
 }
 
 /// Open air that counts collision queries, so tests can tell how often history replays.
@@ -371,6 +376,7 @@ fn a_combined_delayed_speed_update_replays_once() {
                 sequence: 9,
                 dimension: 0,
                 movement: Some(attribute(0.2, 0.2, None)),
+                movement_received: true,
                 underwater,
                 lava: None,
                 air_drag_modifier: None,
@@ -459,5 +465,82 @@ fn speed_effect_updates_refresh_current_while_sprint_is_held() {
             "amplifier {amplifier}: {:?}, expected {expected}",
             speed.current()
         );
+    }
+}
+
+/// A vehicle correction that snaps the rider resets presentation and reports the snap like
+/// any correction; one already applied changes nothing.
+#[test]
+fn an_applied_vehicle_correction_resets_presentation() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    let mut observations = Vec::new();
+    physics.steer_completed(
+        crate::movement::vehicle::SteeredVehicle {
+            runtime_id: 7,
+            unique_id: -7,
+            body: sim::BoatBody {
+                width: 1.4,
+                height: 0.455,
+                height_offset: 0.375,
+            },
+            position: [0.5, 2.0, 0.5],
+            yaw: 0.0,
+            velocity: [0.0; 3],
+            seat: [0.0, -0.2, 0.0],
+            revision: client_world::VehicleRevision { pose: 0, motion: 0 },
+        },
+        100,
+    );
+    let control = CommittedControlEvent::VehicleMovementCorrection {
+        sequence: 1,
+        correction: protocol::PlayerMovementCorrectionEvent {
+            position: [4.5, 2.0, 0.5],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            subject: protocol::MovementCorrectionSubject::Vehicle,
+            on_ground: false,
+            tick: 101,
+            vehicle_angular_velocity: None,
+        },
+        vehicle_runtime_id: 7,
+        vehicle_revision: client_world::VehicleRevision { pose: 0, motion: 0 },
+    };
+    let mut apply = || {
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(control, &NoQueries, |observed| observations.push(observed))
+    };
+    assert_eq!(
+        apply(),
+        ControlDisposition::Spatial(SpatialReset::Correction)
+    );
+    assert_eq!(apply(), ControlDisposition::Handled);
+    // The applied snap reaches movement evidence once, from the rider's place to its seat.
+    let [
+        ControlObservation::Correction {
+            outcome: PhysicsCorrectionOutcome::Snapped { .. },
+            previous,
+            position,
+        },
+    ] = observations.as_slice()
+    else {
+        panic!("{observations:?}");
+    };
+    assert_eq!(*previous, [0.5, 2.620_01, 0.5]);
+    let seat = [
+        4.5,
+        2.0 - 0.375 - 0.2 + protocol::PLAYER_NETWORK_OFFSET,
+        0.5,
+    ];
+    for (axis, expected) in position.iter().zip(seat) {
+        assert!((axis - expected).abs() < 1.0e-5, "{position:?}");
     }
 }

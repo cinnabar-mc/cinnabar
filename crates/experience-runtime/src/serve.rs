@@ -66,6 +66,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
         &loaded.blocks,
         &loaded.items,
         loaded.focus,
+        loaded.worlds.clone(),
     )? {
         return Ok(EXIT_LOAD_FAILED);
     }
@@ -111,14 +112,17 @@ fn answer_loaded(
     blocks: &[BlockDef],
     items: &[ItemDef],
     focus: bool,
+    worlds: Option<crate::protocol::WorldRegistration>,
 ) -> io::Result<bool> {
     let response = Response::Loaded {
+        simulation: manifest.api == crate::host::Api::V0_9.api(),
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),
         version: manifest.version.clone(),
         blocks: blocks.to_vec(),
         items: items.to_vec(),
         focus,
+        worlds,
     };
     let failed = || Response::LoadFailed {
         reason: OVERSIZED_LOADED.to_owned(),
@@ -190,6 +194,9 @@ fn write_or(
 /// The `type` of `call` in the protocol.
 fn call_kind(call: &Call) -> &'static str {
     match call {
+        Call::Tick { .. } => "tick",
+        Call::Timer { .. } => "timer",
+        Call::Player { .. } => "player",
         Call::Place { .. } => "place",
         Call::Break { .. } => "break",
         Call::Interact { .. } => "interact",
@@ -205,21 +212,27 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{OVERSIZED_LOADED, OVERSIZED_RESULT, answer, answer_loaded};
-    use crate::limits::MAX_FRAME_BYTES;
+    use crate::limits::{MAX_BLOCKS, MAX_FRAME_BYTES, MAX_ITEMS};
     use crate::manifest::Manifest;
-    use crate::protocol::{BlockDef, FailKind, Mining, Op, Outcome, Response, read_frame};
+    use crate::protocol::{
+        BlockDef, BlockState, BoneVisibility, FailKind, ItemDef, Material, Mining, Op, Outcome,
+        RenderMethod, Response, StateDef, StateTest, StateValue, StateValues, Visual, read_frame,
+    };
 
-    /// A `loaded` answer too large for a frame fails the load instead, and nothing of it is
-    /// written.
-    #[test]
-    fn oversized_loaded_fails_the_load() {
-        let manifest = Manifest {
+    fn manifest() -> Manifest {
+        Manifest {
             id: "probe".to_owned(),
             version: "0.1.0".to_owned(),
             api: "0.1".to_owned(),
             data_schema: 1,
             files: BTreeMap::new(),
-        };
+        }
+    }
+
+    /// A `loaded` answer too large for a frame fails the load instead, and nothing of it is
+    /// written.
+    #[test]
+    fn oversized_loaded_fails_the_load() {
         let block = BlockDef {
             id: "probe:counter".to_owned(),
             display_name: "x".repeat(MAX_FRAME_BYTES),
@@ -232,13 +245,100 @@ mod tests {
             network: false,
         };
         let mut output = Vec::new();
-        assert!(!answer_loaded(&mut output, &manifest, &[block], &[], false).unwrap());
+        assert!(!answer_loaded(&mut output, &manifest(), &[block], &[], false, None).unwrap());
         let mut frames = output.as_slice();
         let failed = Response::LoadFailed {
             reason: OVERSIZED_LOADED.to_owned(),
         };
         assert_eq!(read_frame(&mut frames).unwrap(), Some(failed));
         assert_eq!(read_frame::<Response>(&mut frames).unwrap(), None);
+    }
+
+    /// The `loaded` answer carries every definition at once: `MAX_BLOCKS` blocks shaped like
+    /// AE2's covered cable, which took 38 KB of AE2's 569 KB answer (six four-way face states, two
+    /// materials, sixteen bones shown under 384 state tests, every path absolute below a 200-byte
+    /// install directory), and `MAX_ITEMS` items still fit one frame.
+    #[test]
+    fn loaded_answer_of_ae2_sized_blocks_at_the_bounds_fits_a_frame() {
+        let root = format!("/{}", "d".repeat(199));
+        let faces = ["down", "up", "north", "south", "west", "east"];
+        let state = |face: &str| format!("probe:{face}");
+        let test = |face: &str, kind: &str| StateTest {
+            state: BlockState {
+                name: state(face),
+                value: StateValue::Choice(kind.to_owned()),
+            },
+            equal: kind != "none",
+        };
+        let bones: Vec<BoneVisibility> = (0..16)
+            .map(|bone| BoneVisibility {
+                bone: format!("cap_{bone}"),
+                visible: faces
+                    .iter()
+                    .map(|face| {
+                        let other = faces[bone % faces.len()];
+                        vec![
+                            test(face, "machine"),
+                            test(face, "covered"),
+                            test(other, "none"),
+                            test(other, "glass"),
+                        ]
+                    })
+                    .collect(),
+            })
+            .collect();
+        let blocks: Vec<BlockDef> = (0..MAX_BLOCKS)
+            .map(|i| BlockDef {
+                id: format!("probe:cable_{i}"),
+                display_name: "Covered Cable".to_owned(),
+                textures: Vec::new(),
+                mining: Mining::Unbreakable {},
+                states: faces
+                    .iter()
+                    .map(|face| StateDef {
+                        name: state(face),
+                        values: StateValues::Choices(
+                            ["none", "glass", "covered", "machine"]
+                                .map(str::to_owned)
+                                .to_vec(),
+                        ),
+                    })
+                    .collect(),
+                placement: Vec::new(),
+                visual: Some(Visual {
+                    geometry: Some(format!("{root}/assets/models/cable_{i}.geo.json")),
+                    materials: ["base", "core"]
+                        .map(|instance| Material {
+                            instance: instance.to_owned(),
+                            path: format!("{root}/assets/textures/cable/{instance}_{i}.png"),
+                            render_method: RenderMethod::AlphaTest,
+                            flipbook: None,
+                        })
+                        .to_vec(),
+                    bones: bones.clone(),
+                    collision: None,
+                    selection: None,
+                    rotation: None,
+                }),
+                permutations: Vec::new(),
+                network: true,
+            })
+            .collect();
+        let items: Vec<ItemDef> = (0..MAX_ITEMS)
+            .map(|i| ItemDef {
+                id: format!("probe:cell_{i}"),
+                display_name: "Storage Cell".to_owned(),
+                icon: format!("{root}/assets/textures/item/cell_{i}.png"),
+                max_stack: 64,
+            })
+            .collect();
+        let mut output = Vec::new();
+        assert!(answer_loaded(&mut output, &manifest(), &blocks, &items, false, None).unwrap());
+        let mut frames = output.as_slice();
+        let Some(Response::Loaded { blocks: read, .. }) = read_frame(&mut frames).unwrap() else {
+            panic!("no loaded answer");
+        };
+        assert_eq!(read, blocks);
     }
 
     /// A result too large for a frame is answered as a `limit` failure instead, and nothing of

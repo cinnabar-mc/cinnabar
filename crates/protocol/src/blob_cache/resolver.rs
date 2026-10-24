@@ -50,6 +50,7 @@ impl BlobCacheResolver {
     pub fn new(cache: ClientBlobCache) -> Self {
         Self {
             cache,
+            requested_hashes: Default::default(),
             pending: HashMap::with_capacity(MAX_CLIENT_BLOB_PENDING_TRANSACTIONS),
             pending_order: BTreeSet::new(),
             pending_by_hash: HashMap::with_capacity(MAX_CLIENT_BLOB_PENDING_TRANSACTIONS),
@@ -58,6 +59,7 @@ impl BlobCacheResolver {
             immediate_ready: BTreeMap::new(),
             recovery_ready: BTreeMap::new(),
             fast_transfer_reset_armed: false,
+            ordinary_lane_stalled: false,
             next_ready_sequence: 0,
             stats: BlobCacheStats::default(),
             pending_hash_set_capacity: 0,
@@ -125,6 +127,7 @@ impl BlobCacheResolver {
         if !std::mem::take(&mut self.fast_transfer_reset_armed) {
             return Ok(false);
         }
+        self.requested_hashes = Default::default();
         let removed = !self.pending.is_empty() || !self.ready.is_empty();
         if removed {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
@@ -545,6 +548,7 @@ impl BlobCacheResolver {
                 .immediate_ready
                 .remove(&sequence)
                 .expect("immediate sequence was present");
+            self.ordinary_lane_stalled = false;
             self.refresh_pending_accounting()
                 .expect("retained immediate accounting cannot overflow after a pop");
             self.pop_trace_origin(Some(sequence));
@@ -863,6 +867,7 @@ impl BlobCacheResolver {
     ) -> BlobCacheStatus {
         let mut status = BlobCacheStatus::classify(&self.cache, packet, recovery, pin);
         status.omit_outstanding(&self.pending_by_hash);
+        self.requested_hashes.record(status.missing());
         self.stats.hashes_classified = self
             .stats
             .hashes_classified

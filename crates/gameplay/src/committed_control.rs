@@ -79,7 +79,8 @@ impl CommittedGameplayState<'_> {
         }
         if matches!(
             control,
-            CommittedControlEvent::PlayerListChanged { .. }
+            CommittedControlEvent::LocalDeath { .. }
+                | CommittedControlEvent::PlayerListChanged { .. }
                 | CommittedControlEvent::DimensionChangeAck { .. }
                 | CommittedControlEvent::ClientInputLocks { .. }
         ) {
@@ -95,6 +96,7 @@ impl CommittedGameplayState<'_> {
             sequence,
             dimension,
             movement,
+            movement_received,
             underwater,
             lava,
             air_drag_modifier,
@@ -103,6 +105,10 @@ impl CommittedGameplayState<'_> {
         {
             // Every attribute edit shares the packet's stamp, so one replay covers them.
             let mut rewind = None;
+            if movement_received && movement.is_none() {
+                self.speed
+                    .invalidate_reported(self.session_generation, sequence, dimension);
+            }
             if let Some(attribute) = movement
                 && self
                     .speed
@@ -137,11 +143,28 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
-        if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
-            if self.movement.physics_is_authorized()
-                && let Some(rewind) = self.physics.apply_server_movement_flags(tick, flags)
-            {
-                replay_timeline_edit(self.movement, self.physics, rewind, world);
+        if let CommittedControlEvent::LocalMovementFlags {
+            tick,
+            flags,
+            dimensions,
+            replacement,
+            ..
+        } = control
+        {
+            if replacement {
+                self.speed
+                    .begin_session(self.session_generation, self.dimension);
+                self.physics
+                    .replace_actor_authority(flags, dimensions.expect("replacement dimensions"));
+                return ControlDisposition::Handled;
+            }
+            if self.movement.physics_is_authorized() {
+                if let Some(rewind) = self.physics.apply_server_movement_flags(tick, flags) {
+                    replay_timeline_edit(self.movement, self.physics, rewind, world);
+                }
+                if let Some(dimensions) = dimensions {
+                    self.physics.note_server_dimensions(dimensions);
+                }
             }
             return ControlDisposition::Handled;
         }
@@ -155,32 +178,77 @@ impl CommittedGameplayState<'_> {
         ) {
             return ControlDisposition::Environment;
         }
-        if let CommittedControlEvent::LocalMovementBoost { sequence, event } = control {
-            // Vanilla predicts a boost from the tick the server stamped, so it
-            // enters retained inputs and replays from there.
+        if let CommittedControlEvent::LocalMovementBoost { event, .. } = control {
+            // Vanilla applies a boost from the tick the server stamped, so
+            // retained ticks after it replay with the boost.
             if let Some(boost) = movement::MovementBoost::from_kind(event.kind) {
                 let span = movement::BoostSpan::from_wire(event.duration_ticks);
-                let mut remaining = Some(span);
-                if self.movement.physics_is_authorized() {
-                    let retime = self.physics.retime_movement_boost(boost, event.tick, span);
-                    remaining = retime.remaining;
-                    // A failed replay boosted no past tick: undo the history edit
-                    // so only the live span carries the boost.
-                    if let Some(rewind) = retime.rewind
-                        && !replay_timeline_edit(self.movement, self.physics, rewind, world)
-                    {
-                        self.physics.revert_movement_boost(retime);
-                        remaining = Some(span);
-                    }
+                if let Some(rewind) = self.physics.record_server_boost(boost, event.tick, span)
+                    && self.movement.physics_is_authorized()
+                {
+                    replay_timeline_edit(self.movement, self.physics, rewind, world);
                 }
-                self.effects.set_movement_boost(
-                    self.session_generation,
-                    sequence,
-                    boost,
-                    remaining,
-                );
             }
             return ControlDisposition::Handled;
+        }
+        if let CommittedControlEvent::VehicleMovementCorrection {
+            correction,
+            vehicle_runtime_id,
+            vehicle_revision,
+            ..
+        } = control
+        {
+            // Prediction restarts from the corrected boat and the rider snaps to its seat at
+            // the local tick, discarding stale inputs as a teleport does. A snap resets the
+            // local frame and camera history like any other correction.
+            if !self.movement.physics_is_authorized() {
+                return ControlDisposition::Handled;
+            }
+            let previous = self.physics.network_position();
+            let Some(seat) = self
+                .physics
+                .correct_vehicle(&movement::vehicle::VehicleCorrection {
+                    runtime_id: vehicle_runtime_id,
+                    revision: vehicle_revision,
+                    tick: correction.tick,
+                    position: correction.position,
+                    velocity: correction.delta,
+                    rotation: [correction.pitch, correction.yaw],
+                    angular_velocity: correction.vehicle_angular_velocity,
+                    on_ground: correction.on_ground,
+                })
+            else {
+                return ControlDisposition::Handled;
+            };
+            let position = [seat[0], seat[1] + protocol::PLAYER_NETWORK_OFFSET, seat[2]];
+            return match movement::reconcile_physics_anchor(
+                self.movement,
+                self.physics,
+                movement::PhysicsAnchor {
+                    network_position: position,
+                    tick: correction.tick,
+                    on_ground: false,
+                    velocity: Some([0.0; 3]),
+                },
+                movement::PhysicsCorrectionMode::Snap,
+                world,
+            ) {
+                Ok(outcome) => {
+                    observe(ControlObservation::Correction {
+                        outcome,
+                        previous: previous.unwrap_or(position),
+                        position,
+                    });
+                    ControlDisposition::Spatial(SpatialReset::Correction)
+                }
+                Err(fault) => {
+                    warn!(
+                        ?fault,
+                        "local physics authority failed while applying a vehicle correction"
+                    );
+                    ControlDisposition::Handled
+                }
+            };
         }
         if let CommittedControlEvent::LocalActorMotion { event, .. } = control {
             // A server-driven impulse (knockback, explosion) must enter the
@@ -330,6 +398,8 @@ impl CommittedGameplayState<'_> {
                 // drop any armed assertion instead of leaking it across the
                 // boundary.
                 self.movement.clear_pending_teleport_ack();
+                // Server flag writes for the old world never reach the destination.
+                self.physics.discard_server_flag_writes();
                 self.speed
                     .replace_dimension(self.session_generation, self.dimension);
                 observe(ControlObservation::Dimension);
@@ -415,7 +485,9 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::LocalMovementFlags { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
+            | CommittedControlEvent::VehicleMovementCorrection { .. }
             | CommittedControlEvent::LocalMovementBoost { .. }
+            | CommittedControlEvent::LocalDeath { .. }
             | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
                 unreachable!(

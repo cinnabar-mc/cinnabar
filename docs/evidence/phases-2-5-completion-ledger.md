@@ -136,8 +136,14 @@ this storage change advances no rendered, live-join or broader parity completion
 Startup carrier selection, bounded decoding, validation and fallbacks now belong to
 `assets::carriers::startup`. App adapters retain renderer and pack publication, Bevy resources,
 load timing and fatal startup handling. Carrier regressions move with their owner;
-app composition coverage remains in `app`. This move adds no compilation, execution
-or live evidence, and all behavior and performance gates retain their status.
+app composition coverage remains in `app`. Launch diagnostics now retain the first
+GPU-completed menu presentation and bounded main/render startup samples. Menu launches
+prepare world carriers, collision bindings and static GUI item sources after menu
+completion, with joins gated on the complete bundle. Terrain compute construction runs
+on workers. Pipeline warmup ordering, launch benchmarking and delayed feedback have
+deterministic coverage; reference-hardware startup budgets and persistent shader-cache
+reuse remain unqualified.
+All behavior and performance gates retain their status.
 
 End-rod terrain coverage now includes the six facing states, separate shaft/base sprite
 mapping and an original-art GPU fixture. This bounded geometry correction leaves the
@@ -463,13 +469,14 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 Custom block mining retains component defaults, disabled values, ordered item
 overrides and resolved state permutations in both runtime identity spaces.
-Discarded mining data stays unresolved through state merging. Item-tag filters
+Every admitted state resolves a mining value: malformed item entries never match,
+and conditions the client reads as zero keep the base value. Item-tag filters
 compile during session preparation and reuse those programs without allocating.
-Mining uncertainty does not prevent prediction with known physical bounds.
-Mining state storage and admission are independent of the physical state budget.
+Mining state storage is independent of the physical state budget.
 Regression tests cover component decoding, progress rates and completion packets.
-Complex item-tag scripts and live custom-block acceptance remain incomplete;
-this does not advance the interaction completion gate.
+Complex Molang conditions and item-tag scripts read as zero, and live acceptance
+against a vanilla server remains incomplete; this does not advance the
+interaction completion gate.
 
 Ordered desktop interactions now attempt each edge only in its input frame.
 Refused presses retain no proposal or movement reservation. Gameplay owners retain
@@ -665,7 +672,7 @@ as Auto. Android requires Vulkan. A saved Video choice that fails, or that crash
 startup under the same setting, retries Auto without that API for the current launch and opens a
 menu notice naming both APIs and the reason, while WGPU_BACKEND stays strict. The startup log
 states the requested API, the API in use and why. Each API is enumerated under its own sentinel before eligible adapters are
-ranked by power preference, device type and vendor backend order, with unclassified hardware
+ranked by power preference, device type and platform backend order (Windows: DX12, then Vulkan, for every GPU vendor), with unclassified hardware
 ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
 client version change or selecting Auto, including choosing it again; an explicit selection keeps
@@ -695,7 +702,13 @@ group. Extent checks use conservative box and sphere bounds without revisiting v
 Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
 renderer is connected; actor root attachment uses the renderer publication and exact spawn
 references. Bone attachment, native output captures and hardware budgets remain incomplete
-and do not close any completion requirement.
+and do not close any completion requirement. Client parts reuse these imports and their
+host, with signed asset access, optional frames and session-scoped resource ownership.
+Epoch callbacks keep their native actor context, including actor-only retained snapshots.
+One bundle allocation ledger covers drawing, per-view instance capacity, masks and media;
+charges follow resident storage through its last GPU use. Celestial camera anchoring retains the geometry and byte budgets. Headless planet / star-cube
+rendering and F9 teardown cover the developer path; hardware qualification remains open in
+`plan.md`.
 
 Bounded procedural materials and SDK presets use a session animation phase.
 Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover

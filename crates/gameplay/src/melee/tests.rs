@@ -165,9 +165,11 @@ fn maximal_effect_amplifiers_saturate() {
     assert_eq!(swing_duration(effects(None, Some(i32::MAX))), i32::MAX);
 }
 
-fn press(input_mode: PlayerInputMode) -> PressContext {
+/// Supplies an admitted empty-hand attack with a stable tick and player position.
+pub(super) fn press(input_mode: PlayerInputMode) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
+        refused_destroy: None,
         tick: 101,
         player_position: [0.5, 2.620_01, 0.5],
         input_mode,
@@ -311,10 +313,29 @@ fn only_a_screen_or_spectator_stops_the_attack_button() {
         Some(Adventure),
         Some(Unknown),
     ] {
-        assert_eq!(press_admission(true, mode), Ok(()), "{mode:?}");
+        assert_eq!(press_admission(true, mode, false), Ok(()), "{mode:?}");
     }
-    assert_eq!(press_admission(true, Some(Spectator)), Err("spectator"));
-    assert_eq!(press_admission(false, Some(Survival)), Err("screen_open"));
+    assert_eq!(
+        press_admission(true, Some(Spectator), false),
+        Err("spectator")
+    );
+    assert_eq!(
+        press_admission(false, Some(Survival), false),
+        Err("screen_open")
+    );
+}
+
+/// Eating, drinking or drawing a bow ignores the attack button in every game mode.
+#[test]
+fn an_item_in_use_ignores_the_attack_button() {
+    use protocol::PlayerGameMode::{Adventure, Creative, Survival};
+    for mode in [None, Some(Survival), Some(Creative), Some(Adventure)] {
+        assert_eq!(
+            press_admission(true, mode, true),
+            Err(super::USING_ITEM),
+            "{mode:?}"
+        );
+    }
 }
 
 /// A press into the air swings and reports MissedSwing on its tick.

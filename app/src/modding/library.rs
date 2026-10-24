@@ -35,6 +35,7 @@ const FILTER: Filter = Filter {
     name: "Mods",
     extensions: &[COMPONENT_EXTENSION],
     unavailable_hint: "",
+    max_bytes: Some(mod_host::packet_mod::MAX_PACKET_MOD_BYTES as u64),
 };
 
 #[derive(Resource)]
@@ -56,6 +57,7 @@ pub(super) fn configure(
     registration: PathBuf,
     removal: removal::Client,
 ) {
+    let update_staging = mods.join(".updates");
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
     let spawned = std::thread::Builder::new()
@@ -78,6 +80,7 @@ pub(super) fn configure(
         commands,
         published,
         updates: launcher_host::mod_updates::Checker::start(
+            update_staging,
             mod_host::packet_mod::MAX_PACKET_MOD_BYTES,
         )
         .map_err(|error| {
@@ -192,7 +195,7 @@ fn run(
     registration: &Path,
     incoming: &Receiver<Command>,
     outgoing: &Sender<Library>,
-    mut pick: impl FnMut() -> Result<Option<PathBuf>, String>,
+    mut pick: impl FnMut() -> Result<Option<picker::PickedFile>, String>,
     mut retire: impl FnMut(&Receipt) -> Result<removal::Permit, String>,
 ) {
     let mut requests = 0;
@@ -294,7 +297,7 @@ fn perform(
     mods: &Path,
     registration: &Path,
     requests: &mut u64,
-    pick: &mut impl FnMut() -> Result<Option<PathBuf>, String>,
+    pick: &mut impl FnMut() -> Result<Option<picker::PickedFile>, String>,
     retire: &mut impl FnMut(&Receipt) -> Result<removal::Permit, String>,
 ) -> Result<String, String> {
     let mut entries = installed(mods);
@@ -314,9 +317,15 @@ fn perform(
     };
     match action {
         Action::Import => match pick() {
-            Ok(Some(source)) => import(mods, &source).map(|name| format!("Imported {name}.")),
+            Ok(Some(source)) => {
+                import(mods, source.as_ref()).map(|name| format!("Imported {name}."))
+            }
             Ok(None) => Ok(String::new()),
-            Err(error) => Err(format!("{error}The mods folder is {}.", mods.display())),
+            Err(error) => Err(format!(
+                "{} The mods folder is {}.",
+                error.trim_end(),
+                mods.display()
+            )),
         },
         Action::Enable(id) => {
             select(registration, &path(id)?, true, request()).map(|()| String::new())
@@ -404,9 +413,12 @@ fn publish_component(mods: &Path, name: &str, bytes: &[u8]) -> Result<(), String
     let staging = mods.join(format!(".{name}.{}.importing", std::process::id()));
     let mut file = fs::File::create_new(&staging)
         .map_err(|error| format!("Could not stage {name}: {error}"))?;
-    let result = file
-        .write_all(bytes)
-        .and_then(|()| fs::hard_link(&staging, mods.join(name)));
+    let result = file.write_all(bytes).and_then(|()| {
+        // Android forbids app hard links; tempfile uses a no-overwrite rename there.
+        tempfile::TempPath::try_from_path(&staging)?
+            .persist_noclobber(mods.join(name))
+            .map_err(|error| error.error)
+    });
     drop(file);
     let _ = fs::remove_file(&staging);
     result.map_err(|error| {

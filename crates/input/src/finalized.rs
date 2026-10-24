@@ -82,6 +82,39 @@ impl FinalizedInput {
         true
     }
 
+    /// Applies one generic action filter after semantic authority has been resolved.
+    pub fn filter_actions(
+        &mut self,
+        state: &mut crate::action_filter::ActionFilterState,
+        owner: Option<u64>,
+        time_us: u64,
+        repeat: bool,
+        decide: impl FnMut(
+            &crate::action_filter::ActionFilterFrame,
+        ) -> Option<crate::action_filter::ActionVerdict>,
+    ) -> bool {
+        if let Some(snapshot) = self.0.as_mut() {
+            state.filter(snapshot, owner, time_us, repeat, decide)
+        } else {
+            state.reset();
+            false
+        }
+    }
+
+    /// Removes excess attack/use presses from both ordered and projected input.
+    pub fn limit_clicks(
+        &mut self,
+        limiter: &mut crate::ClickLimiter,
+        rates: [Option<u32>; 2],
+        seconds: f64,
+    ) {
+        if let Some(snapshot) = self.0.as_mut() {
+            limiter.apply(snapshot, rates, seconds);
+        } else {
+            limiter.reset();
+        }
+    }
+
     /// Publishes the router result for this frame.
     pub fn replace(&mut self, snapshot: ActionSnapshot) {
         self.0 = Some(snapshot);

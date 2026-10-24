@@ -2,9 +2,9 @@
 
 Release installers ship the client, the Go core, the dragonfly local-world server and its
 `cinnabar-cxb` verifier beside it, the Cinnangles Sans font and a prep kit, never Mojang-derived
-carriers. A packaged launch whose carriers are
-missing or stale runs `crates/first-run`: a setup window (a `--first-run-setup` child process, or
-native dialogs if no window opens) asks consent, downloads the pinned `bedrock-samples` pack
+carriers. A packaged launch whose carriers are missing or stale runs
+`crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
+window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
 carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). `prepared.json`
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current
@@ -83,6 +83,13 @@ entry, Start menu and desktop shortcuts use the original `packaging/icons/cinnab
 The update manifest points to the MSI. No Mojang artwork is embedded. Local packaging requires
 ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
 `wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
+
+Windows payloads also install Microsoft's `dxcompiler.dll` beside `cinnabar.exe`; DX12 compiles
+shaders with it instead of the much slower FXC. `packaging/windows/fetch-dxc.ps1` downloads the
+release that `packaging/windows/dxc.json` pins, caches it under `.local/downloads`, and installs the
+library only when both the archive and the library match their pinned SHA-256; `make play` runs it
+for development builds. The client uses only that copy and falls back to FXC, logging why, when it
+is missing or fails to load. `WGPU_DX12_COMPILER=fxc` also selects FXC.
 
 The game, core, crash monitor and update helper do not request administrator rights or reject
 an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,

@@ -64,6 +64,14 @@ domain!(PackBlock {
     CobblestoneWall,
     Air,
     Stone,
+    HeavyCore,
+    Crafter,
+    DriedGhast,
+    SculkSensor,
+    CalibratedSculkSensor,
+    SculkShrieker,
+    BigDripleaf,
+    SmallDripleaf,
     StrawBed
 });
 domain!(TextureSelector {
@@ -78,24 +86,39 @@ domain!(TextureSelector {
     Torchflower
 });
 
-/// Identifies the built-in furnace pair and whether its front uses lit artwork.
-pub fn furnace_lit(identifier: &str) -> Option<bool> {
-    match identifier {
-        "minecraft:furnace" => Some(false),
-        "minecraft:lit_furnace" => Some(true),
-        _ => None,
+/// How a built-in block's world faces pick its authored face slots.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FaceSlots {
+    /// The front on the cardinal face reads south, or east when lit; other sides read north.
+    Furnace { lit: bool },
+    /// The front on the cardinal face reads south, other sides north and both caps up.
+    Pumpkin,
+}
+
+/// Selects cardinal face-slot rules, deriving furnace membership from the registry policy.
+pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
+    match super::block_render_fact(identifier).kind {
+        super::BlockRenderKind::Furnace => Some(FaceSlots::Furnace { lit: false }),
+        super::BlockRenderKind::LitFurnace => Some(FaceSlots::Furnace { lit: true }),
+        _ => match identifier {
+            "minecraft:pumpkin" | "minecraft:carved_pumpkin" | "minecraft:lit_pumpkin" => {
+                Some(FaceSlots::Pumpkin)
+            }
+            _ => None,
+        },
     }
 }
+
+/// Material used by the missing harness attachables supplied by the compiler.
+pub const HARNESS_MATERIAL: &str = "harness";
 
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum MaterialKind {
+    /// A referenced material without an admitted declaration.
+    Provisional,
+    Actor,
     UnmaskedArmor,
-    AlphaTestNoCull,
-    AlphaTest,
-    AlphaBlend,
-    Wind,
-    Charged,
     Dragon,
     DissolveDepth,
     DissolveColor,
@@ -144,7 +167,26 @@ pub struct PackRules {
     superseded_eggs: BTreeMap<String, String>,
     pub minerals: Vec<MineralRule>,
     item_visuals: BTreeMap<String, ItemVisualKind>,
+    default_item_tints: BTreeMap<String, [u8; 3]>,
     empty_hand: PackBlock,
+    /// Render controllers vanilla entities reference but the pinned samples omit, each mapped
+    /// to the pack controller it is completed from.
+    omitted_render_controllers: BTreeMap<String, String>,
+}
+
+/// The pinned vanilla pack's names by domain (`material`, `actor`, `terrain_texture`, ...).
+fn vocabulary() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
+    static VOCABULARY: OnceLock<BTreeMap<&str, BTreeSet<&str>>> = OnceLock::new();
+    VOCABULARY.get_or_init(|| {
+        let mut vocabulary = BTreeMap::<&str, BTreeSet<&str>>::new();
+        for row in include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+            let (domain, name) = row
+                .split_once('\t')
+                .expect("pack vocabulary rows are tabbed");
+            vocabulary.entry(domain).or_default().insert(name);
+        }
+        vocabulary
+    })
 }
 
 /// Loads the compiler's embedded pack contracts once for asset admission.
@@ -180,6 +222,10 @@ impl PackBlock {
     }
 }
 impl PackRules {
+    /// Returns the default RGB for an item whose sprite alpha stores a dye mask.
+    pub fn default_item_tint(&self, identifier: &str) -> Option<[u8; 3]> {
+        self.default_item_tints.get(identifier).copied()
+    }
     /// Resolves the exact source shape of a retained selector-alias cube.
     pub fn alias_cube(&self, identifier: &str) -> Option<&AliasCubeSource> {
         self.alias_cubes.get(identifier)
@@ -225,9 +271,19 @@ impl PackRules {
             .iter()
             .any(|slot| self.textures[slot] == key)
     }
-    /// Resolves a native material alias without reclassifying it as an actor.
+    /// Resolves a material class while keeping undeclared aliases explicit.
     pub fn material(&self, name: &str) -> Option<MaterialKind> {
-        self.materials.get(name).copied()
+        let name = material_name(name);
+        self.materials.get(name).copied().or_else(|| {
+            if material_states().contains_key(name) {
+                return Some(MaterialKind::Actor);
+            }
+            vocabulary()
+                .get("material")?
+                .iter()
+                .any(|known| *known == name || known.strip_suffix(".skinning") == Some(name))
+                .then_some(MaterialKind::Provisional)
+        })
     }
     /// Selects the shader contract for exact authored native material targets.
     pub fn raster(&self, name: &str) -> EntityRenderMaterial {
@@ -238,44 +294,30 @@ impl PackRules {
             _ => EntityRenderMaterial::Default,
         }
     }
-    /// Resolves built-in material aliases before reading their policy state.
+    /// Resolves generated declaration states, including their skinning aliases.
     pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
-        let name = match name {
-            "harness" => "entity_alphatest",
-            _ => name,
-        };
-        let mut state = EntityRenderMaterialState::default();
-        match self.material(name)? {
-            MaterialKind::AlphaTestNoCull => {
-                state.alpha_test = true;
-                state.cull = false;
-            }
-            MaterialKind::AlphaTest => state.alpha_test = true,
-            MaterialKind::AlphaBlend => state.blend = true,
-            MaterialKind::Wind => {
-                state.alpha_test = true;
-                state.blend = true;
-                state.cull = false;
-                state.depth_write = false;
-                state.disable_overlay = true;
-            }
-            MaterialKind::Charged => {
-                state.alpha_test = true;
-                state.cull = false;
-                state.blend = true;
-                state.additive = true;
-                state.disable_overlay = true;
-            }
-            _ => return None,
+        if matches!(
+            self.raster(name),
+            EntityRenderMaterial::DissolveDepth | EntityRenderMaterial::DissolveColor
+        ) {
+            // Paired passes retain the dedicated renderer's comparison and write contracts.
+            return None;
         }
-        Some(state)
+        material_states().get(material_name(name)).copied()
+    }
+    /// Enumerates generated states so pipeline preparation follows the material catalog.
+    pub fn material_states(&self) -> impl Iterator<Item = (&str, EntityRenderMaterialState)> {
+        material_states().keys().filter_map(|name| {
+            self.material_state(name)
+                .map(|state| (name.as_str(), state))
+        })
     }
     /// Resolves the actor-to-retail egg rename, retaining ordinary suffix routing.
     pub fn egg_identifier(&self, actor: &str) -> String {
         self.egg_aliases
             .get(actor)
             .cloned()
-            .unwrap_or_else(|| format!("{actor}_spawn_egg"))
+            .unwrap_or_else(|| format!("{actor}{}", super::SPAWN_EGG_SUFFIX))
     }
     /// Returns the newer actor definition that supersedes a compatibility egg.
     pub fn superseding_egg(&self, actor: &str) -> Option<&str> {
@@ -289,6 +331,12 @@ impl PackRules {
             self.item_visuals.get(identifier).copied()
         }
     }
+    /// Each omitted render controller and the pack controller that completes it.
+    pub fn omitted_render_controllers(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.omitted_render_controllers
+            .iter()
+            .map(|(name, template)| (name.as_str(), template.as_str()))
+    }
     /// Returns the canonical empty-hand item identity for constructing its route.
     pub fn empty_hand(&self) -> &str {
         &self.blocks[&self.empty_hand]
@@ -298,6 +346,23 @@ impl PackRules {
         self.minerals
             .iter()
             .find(|rule| rule.identifier == identifier)
+    }
+}
+
+/// Loads generated declaration states independently of pack-authored overrides.
+fn material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
+    static STATES: OnceLock<BTreeMap<String, EntityRenderMaterialState>> = OnceLock::new();
+    STATES.get_or_init(|| {
+        serde_json::from_str(include_str!("../../data/entity-material-states.json"))
+            .expect("valid entity material states")
+    })
+}
+
+/// Normalizes skinning variants and the material used by synthesized harness bindings.
+fn material_name(name: &str) -> &str {
+    match name.strip_suffix(".skinning").unwrap_or(name) {
+        HARNESS_MATERIAL => "entity_alphatest",
+        name => name,
     }
 }
 
@@ -313,6 +378,30 @@ pub fn leather_sprite(path: &str) -> bool {
     facts
         .by_identifier(&format!("minecraft:{stem}"))
         .is_some_and(|fact| fact.is_leather())
+}
+
+/// How a built-in block's native class picks its terrain texture array entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureVariant {
+    /// One entry for every state of the block.
+    Fixed(usize),
+    /// Entry one while the boolean state is set, else entry zero.
+    Flag(super::BlockProperty),
+}
+
+/// The class-selected terrain array entry of a built-in block; entries past an array draw its first.
+pub fn texture_variant(identifier: &str) -> Option<TextureVariant> {
+    use TextureVariant::{Fixed, Flag};
+    Some(match identifier {
+        "minecraft:carved_pumpkin" | "minecraft:cave_vines" => Fixed(0),
+        "minecraft:lit_pumpkin"
+        | "minecraft:cave_vines_body_with_berries"
+        | "minecraft:cave_vines_head_with_berries" => Fixed(1),
+        "minecraft:pumpkin" => Fixed(2),
+        "minecraft:pale_hanging_moss" => Flag(super::BlockProperty::Tip),
+        "minecraft:mangrove_propagule" => Flag(super::BlockProperty::Hanging),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

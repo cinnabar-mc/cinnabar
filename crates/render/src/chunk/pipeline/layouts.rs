@@ -1,7 +1,9 @@
 use crate::chunk::*;
+use crate::device_settings::vertex_storage_buffers;
 
 #[cfg(test)]
 mod cutout_contact_tests;
+mod descriptors;
 mod terrain_blend;
 mod terrain_cutout;
 
@@ -11,31 +13,24 @@ mod terrain_cutout;
 const LIQUID_FRONT_FACE: bevy::render::render_resource::FrontFace =
     bevy::render::render_resource::FrontFace::Cw;
 
-/// Minimum vertex storage slots required by the shared world layout.
+/// Vertex storage slots used by the preferred world layout.
 pub fn required_vertex_storage_buffers() -> u32 {
-    chunk_bind_group_layout()
-        .entries
-        .iter()
-        .filter(|entry| {
-            entry.visibility.contains(ShaderStages::VERTEX)
-                && matches!(
-                    entry.ty,
-                    BindingType::Buffer {
-                        ty: BufferBindingType::Storage { .. },
-                        ..
-                    }
-                )
-        })
-        .count() as u32
+    vertex_storage_buffers(&chunk_bind_group_layout())
+}
+
+/// Minimum storage slots used by the compact terrain layout.
+pub fn minimum_vertex_storage_buffers() -> u32 {
+    vertex_storage_buffers(&compact_chunk_bind_group_layout())
 }
 
 pub(in crate::chunk) struct ChunkPipelineSpecializer;
 
 #[derive(Resource)]
-pub(in crate::chunk) struct ChunkPipeline {
+pub(crate) struct ChunkPipeline {
     pub(in crate::chunk) variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) unit_variants: [Variants<RenderPipeline, ChunkPipelineSpecializer>; 4],
     pub(in crate::chunk) unit_supported: bool,
+    pub(in crate::chunk) compact: bool,
     pub(in crate::chunk) solid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     /// Sorted transparent liquid and model draws, one pipeline so they never switch programs.
@@ -46,96 +41,19 @@ pub(in crate::chunk) struct ChunkPipeline {
 }
 
 impl FromWorld for ChunkPipeline {
-    fn from_world(_world: &mut World) -> Self {
-        let transparent_bind_group_layout = chunk_bind_group_layout();
-        let bind_group_layout = opaque_chunk_bind_group_layout();
-        let mut descriptor = RenderPipelineDescriptor {
-            label: Some("packed chunk pipeline".into()),
-            layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
-            vertex: VertexState {
-                shader: CHUNK_SHADER_HANDLE,
-                // Opaque terrain fetches its vertex index and first instance; see `chunk.wesl`.
-                buffers: vec![draw_offsets_layout()],
-                ..default()
-            },
-            fragment: Some(FragmentState {
-                shader: CHUNK_SHADER_HANDLE,
-                entry_point: Some("fragment".into()),
-                targets: vec![Some(ColorTargetState {
-                    format: render_scene::SCENE_COLOR_FORMAT,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            primitive: PrimitiveState {
-                // Native cutout leaves disable culling; opaque/deep faces keep
-                // their single-sided policy through the material fragment gate.
-                cull_mode: None,
-                ..default()
-            },
-            depth_stencil: Some(DepthStencilState {
-                format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(CompareFunction::GreaterEqual),
-                stencil: default(),
-                bias: default(),
-            }),
-            ..default()
-        };
-        let mut model_descriptor = descriptor.clone();
-        model_descriptor.label = Some("packed model pipeline".into());
-        model_descriptor.vertex.shader = MODEL_SHADER_HANDLE;
-        model_descriptor
-            .fragment
-            .as_mut()
-            .expect("model fragment")
-            .shader = MODEL_SHADER_HANDLE;
-        model_descriptor
-            .fragment
-            .as_mut()
-            .expect("model fragment")
-            .entry_point = Some("fragment".into());
-        model_descriptor.primitive.cull_mode = None;
-        // Single-sided opaque cube runs: hardware culling replaces both fragment discards.
-        let mut solid_descriptor = descriptor.clone();
-        solid_descriptor.label = Some("packed solid chunk pipeline".into());
-        solid_descriptor.primitive.cull_mode = Some(bevy::render::render_resource::Face::Back);
-        solid_descriptor
-            .fragment
-            .as_mut()
-            .expect("solid fragment")
-            .entry_point = Some("fragment_solid".into());
-        let mut transparent_descriptor = descriptor.clone();
-        transparent_descriptor.label = Some("packed transparent terrain pipeline".into());
-        transparent_descriptor.vertex.shader = TRANSPARENT_SHADER_HANDLE;
-        transparent_descriptor.vertex.entry_point = Some("vertex".into());
-        // Sorted transparency is never GPU-culled and indexes its refs by instance.
-        transparent_descriptor.vertex.buffers.clear();
-        transparent_descriptor.layout[0] = transparent_bind_group_layout.clone();
-        let transparent_fragment = transparent_descriptor
-            .fragment
-            .as_mut()
-            .expect("transparent fragment");
-        transparent_fragment.shader = TRANSPARENT_SHADER_HANDLE;
-        transparent_fragment.entry_point = Some("fragment".into());
-        terrain_blend::apply(&mut transparent_descriptor);
-        transparent_descriptor.primitive.cull_mode = None;
-        let mut depth_liquid_descriptor = descriptor.clone();
-        depth_liquid_descriptor.label = Some("packed depth-writing liquid pipeline".into());
-        depth_liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
-        depth_liquid_descriptor.vertex.entry_point = Some("vertex_depth".into());
-        let depth_fragment = depth_liquid_descriptor
-            .fragment
-            .as_mut()
-            .expect("depth-writing liquid fragment");
-        depth_fragment.shader = LIQUID_SHADER_HANDLE;
-        depth_fragment.entry_point = Some("fragment_depth".into());
-        depth_liquid_descriptor.primitive.cull_mode = None;
-        depth_liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
-        // Apply after cloning: model geometry includes the opaque stairs/slabs
-        // that must win a shared plane against a two-sided cutout cube.
-        terrain_cutout::apply(&mut descriptor);
+    fn from_world(world: &mut World) -> Self {
+        let compact = world.get_resource::<RenderDevice>().is_some_and(|device| {
+            device.limits().max_storage_buffers_per_shader_stage < required_vertex_storage_buffers()
+        });
+        let [
+            descriptor,
+            solid_descriptor,
+            model_descriptor,
+            transparent_descriptor,
+            depth_liquid_descriptor,
+        ] = descriptors::build(compact);
+        let bind_group_layout = descriptor.layout[0].clone();
+        let transparent_bind_group_layout = transparent_descriptor.layout[0].clone();
         let unit_variants = [
             &solid_descriptor,
             &descriptor,
@@ -144,6 +62,7 @@ impl FromWorld for ChunkPipeline {
         ]
         .map(|descriptor| Variants::new(ChunkPipelineSpecializer, unit_descriptor(descriptor)));
         Self {
+            compact,
             unit_variants,
             unit_supported: false,
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
@@ -263,6 +182,27 @@ pub(crate) fn opaque_chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
     layout
         .entries
         .retain(|entry| entry.binding != TRANSPARENT_REFS_BINDING);
+    layout
+}
+
+/// Keeps the three large streams separate and packs the remaining tables into binding two.
+pub(crate) fn compact_chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
+    let mut layout = chunk_bind_group_layout();
+    layout.entries.retain_mut(|entry| {
+        if !matches!(
+            entry.ty,
+            BindingType::Buffer {
+                ty: BufferBindingType::Storage { .. },
+                ..
+            }
+        ) {
+            return true;
+        }
+        if entry.binding == 2 {
+            entry.visibility = ShaderStages::VERTEX_FRAGMENT;
+        }
+        matches!(entry.binding, 1 | 2 | 7 | 13)
+    });
     layout
 }
 
@@ -593,6 +533,55 @@ mod enhanced_tests {
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    /// Capable GPUs retain the original separate storage layouts for every terrain pass.
+    #[test]
+    fn desktop_terrain_keeps_the_existing_storage_layout() {
+        for available in [
+            required_vertex_storage_buffers(),
+            required_vertex_storage_buffers() + 1,
+        ] {
+            let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+                required_limits: wgpu::Limits {
+                    max_storage_buffers_per_shader_stage: available,
+                    ..default()
+                },
+                ..default()
+            });
+            let mut world = World::new();
+            world.insert_resource(RenderDevice::from(device));
+            world.init_resource::<ChunkPipeline>();
+            let pipeline = world.resource::<ChunkPipeline>();
+            assert!(!pipeline.compact);
+            assert_eq!(pipeline.bind_group_layout, opaque_chunk_bind_group_layout());
+            assert_eq!(
+                pipeline.transparent_bind_group_layout,
+                chunk_bind_group_layout()
+            );
+        }
+    }
+
+    #[test]
+    fn compact_layout_matches_its_requirement_and_all_terrain_programs() {
+        let layout = compact_chunk_bind_group_layout();
+        assert_eq!(
+            vertex_storage_buffers(&layout),
+            minimum_vertex_storage_buffers()
+        );
+        assert!(minimum_vertex_storage_buffers() <= 4);
+        for source in [
+            include_str!("../../chunk.wesl"),
+            include_str!("../../model.wesl"),
+            include_str!("../../liquid.wesl"),
+            include_str!("../../transparent_terrain.wesl"),
+        ] {
+            crate::shader_test_support::assert_binding_visibility(
+                &crate::shader_source::composed(source, &["PACKED_TERRAIN"]),
+                0,
+                &layout,
+            );
+        }
+    }
     #[test]
     fn review_render_storage_budget_covers_the_actual_layout() {
         let count = chunk_bind_group_layout()

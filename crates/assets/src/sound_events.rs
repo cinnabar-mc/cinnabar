@@ -3,9 +3,12 @@
 //! Block, entity, individual and interactive (per-material footstep) sections share one route
 //! model. An explicit empty sound string is silence, distinct from an absent event.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
+
+/// Material used when neither a resource-pack block entry nor a server component names a sound.
+pub const DEFAULT_BLOCK_MATERIAL: &str = "stone";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatRange {
@@ -16,9 +19,11 @@ pub struct FloatRange {
 impl FloatRange {
     pub const ONE: Self = Self { min: 1.0, max: 1.0 };
 
-    /// Value at `unit` in `[0, 1]` between the bounds.
-    pub fn sample(self, unit: f32) -> f32 {
-        self.min + (self.max - self.min) * unit.clamp(0.0, 1.0)
+    /// Triangular value from two independent rolls in `[0, 1]`: the midpoint plus half the
+    /// span times their difference, as vanilla samples sound volume and pitch.
+    pub fn sample(self, first: f32, second: f32) -> f32 {
+        let offset = first.clamp(0.0, 1.0) - second.clamp(0.0, 1.0);
+        (self.min + self.max) * 0.5 + (self.max - self.min) * offset * 0.5
     }
 
     fn scaled(self, other: Self) -> Self {
@@ -51,12 +56,32 @@ pub struct SoundRoute {
     pub pitch: FloatRange,
 }
 
+/// An event entry as written: its own ranges replace its set's ranges, and an omitted
+/// range inherits the set's.
+#[derive(Clone, Debug, PartialEq)]
+struct EventRoute {
+    sound: Box<str>,
+    volume: Option<FloatRange>,
+    pitch: Option<FloatRange>,
+}
+
+impl EventRoute {
+    /// Fills omitted ranges from the defining set.
+    fn resolve(self, set: &EventSet) -> SoundRoute {
+        SoundRoute {
+            sound: self.sound,
+            volume: self.volume.unwrap_or(set.volume),
+            pitch: self.pitch.unwrap_or(set.pitch),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Entry {
     Silent,
-    Route(SoundRoute),
+    Route(EventRoute),
     /// Per-material alternatives keyed by material name plus `default`.
-    ByMaterial(HashMap<Box<str>, Option<SoundRoute>>),
+    ByMaterial(HashMap<Box<str>, Option<EventRoute>>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,39 +122,42 @@ pub struct SoundEventTables {
     materials: HashMap<Box<str>, Box<str>>,
 }
 
-fn route(value: &Value) -> Option<SoundRoute> {
+fn event_route(value: &Value) -> Option<EventRoute> {
     match value {
-        Value::String(name) if !name.is_empty() => Some(SoundRoute {
+        Value::String(name) if !name.is_empty() => Some(EventRoute {
             sound: name.as_str().into(),
-            volume: FloatRange::ONE,
-            pitch: FloatRange::ONE,
+            volume: None,
+            pitch: None,
         }),
         Value::Object(map) => {
             let sound = map.get("sound")?.as_str().filter(|name| !name.is_empty())?;
-            Some(SoundRoute {
+            Some(EventRoute {
                 sound: sound.into(),
-                volume: map
-                    .get("volume")
-                    .and_then(FloatRange::from_json)
-                    .unwrap_or(FloatRange::ONE),
-                pitch: map
-                    .get("pitch")
-                    .and_then(FloatRange::from_json)
-                    .unwrap_or(FloatRange::ONE),
+                volume: map.get("volume").and_then(FloatRange::from_json),
+                pitch: map.get("pitch").and_then(FloatRange::from_json),
             })
         }
         _ => None,
     }
 }
 
+/// Individual events belong to no set, so omitted ranges are unity.
+fn route(value: &Value) -> Option<SoundRoute> {
+    event_route(value).map(|found| SoundRoute {
+        sound: found.sound,
+        volume: found.volume.unwrap_or(FloatRange::ONE),
+        pitch: found.pitch.unwrap_or(FloatRange::ONE),
+    })
+}
+
 fn entry(value: &Value) -> Entry {
-    if let Some(found) = route(value) {
+    if let Some(found) = event_route(value) {
         return Entry::Route(found);
     }
     match value {
         Value::Object(map) if !map.contains_key("sound") && !map.is_empty() => Entry::ByMaterial(
             map.iter()
-                .map(|(material, value)| (material.as_str().into(), route(value)))
+                .map(|(material, value)| (material.as_str().into(), event_route(value)))
                 .collect(),
         ),
         _ => Entry::Silent,
@@ -190,6 +218,24 @@ fn bare(identifier: &str) -> &str {
     identifier.strip_prefix("minecraft:").unwrap_or(identifier)
 }
 
+/// Looks up an exact pack entry before trying the shared legacy block alias.
+fn explicit_material<'a>(
+    materials: &'a HashMap<Box<str>, Box<str>>,
+    identifier: &str,
+) -> Option<&'a str> {
+    materials
+        .get(bare(identifier))
+        .or_else(|| materials.get(crate::legacy_resource_pack_block_alias(identifier)?))
+        .map(AsRef::as_ref)
+}
+
+/// Accepts a lowered material name or the sound property of a block definition.
+fn block_material(value: &Value) -> Option<&str> {
+    value
+        .as_str()
+        .or_else(|| value.get("sound").and_then(Value::as_str))
+}
+
 /// Outcome of an event lookup; `Silent` is an explicit empty sound, `Absent` means no entry.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RouteLookup {
@@ -226,11 +272,7 @@ fn lookup(set: &EventSet, event: &str, material: Option<&str>) -> RouteLookup {
             }
         }
     };
-    RouteLookup::Route(SoundRoute {
-        sound: base.sound,
-        volume: base.volume.scaled(set.volume),
-        pitch: base.pitch.scaled(set.pitch),
-    })
+    RouteLookup::Route(base.resolve(set))
 }
 
 fn resolve(set: &EventSet, event: &str, material: Option<&str>) -> Option<SoundRoute> {
@@ -278,8 +320,8 @@ impl SoundEventTables {
         if let Value::Object(map) = block_materials {
             tables.materials = map
                 .iter()
-                .filter_map(|(block, material)| {
-                    Some((bare(block).into(), material.as_str()?.into()))
+                .filter_map(|(block, value)| {
+                    Some((bare(block).into(), block_material(value)?.into()))
                 })
                 .collect();
         }
@@ -303,22 +345,30 @@ impl SoundEventTables {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty() && self.entities.is_empty() && self.individual.is_empty()
+        self.blocks.is_empty()
+            && self.entity_defaults.events.is_empty()
+            && self.entities.is_empty()
+            && self.individual.is_empty()
+            && self.interactive_blocks.is_empty()
+            && self.interactive_defaults.events.is_empty()
+            && self.interactive_entities.is_empty()
+            && self.materials.is_empty()
     }
 
     /// Sound material name (`stone`, `wood`, ...) of a block identifier.
     pub fn material_of(&self, block_identifier: &str) -> Option<&str> {
-        // Vanilla loads block textures and `sound` from the same
-        // blocks.json entry. The pack
-        // still calls grass_block `grass`; apply the shared texture alias
-        // after the exact entry, without inventing a default sound material.
-        self.materials
-            .get(bare(block_identifier))
-            .or_else(|| {
-                self.materials
-                    .get(crate::legacy_resource_pack_block_alias(block_identifier)?)
-            })
-            .map(AsRef::as_ref)
+        Some(explicit_material(&self.materials, block_identifier).unwrap_or(DEFAULT_BLOCK_MATERIAL))
+    }
+
+    /// Prefers an explicit pack material, then a nonempty component, then the default.
+    pub fn material_of_with_component<'a>(
+        &'a self,
+        block_identifier: &str,
+        component_material: Option<&'a str>,
+    ) -> &'a str {
+        explicit_material(&self.materials, block_identifier)
+            .or_else(|| component_material.filter(|material| !material.is_empty()))
+            .unwrap_or(DEFAULT_BLOCK_MATERIAL)
     }
 
     /// Resolves a block event through its base materials, preserving explicit silence and
@@ -355,6 +405,36 @@ impl SoundEventTables {
         self.entity_lookup(identifier, event, variant).route()
     }
 
+    /// Enumerates audible resolved events for an entity's default variant.
+    pub fn entity_events<'a>(
+        &'a self,
+        identifier: &'a str,
+    ) -> impl Iterator<Item = (&'a str, SoundRoute)> {
+        let events: HashSet<_> = self
+            .entity_defaults
+            .events
+            .keys()
+            .chain(
+                self.entities
+                    .get(bare(identifier))
+                    .into_iter()
+                    .flat_map(|entity| {
+                        entity.base.events.keys().chain(
+                            entity
+                                .variants
+                                .get("default")
+                                .into_iter()
+                                .flat_map(|set| set.events.keys()),
+                        )
+                    }),
+            )
+            .collect();
+        events.into_iter().filter_map(move |event| {
+            self.entity(identifier, event, None)
+                .map(|route| (event.as_ref(), route))
+        })
+    }
+
     /// Like [`Self::entity`] but distinguishing an explicit silent entry from no entry.
     pub fn entity_lookup(
         &self,
@@ -374,14 +454,9 @@ impl SoundEventTables {
         if entity.base.events.contains_key(event) {
             return lookup(&entity.base, event, None);
         }
-        match lookup(&self.entity_defaults, event, None) {
-            RouteLookup::Route(found) => RouteLookup::Route(SoundRoute {
-                volume: found.volume.scaled(entity.base.volume),
-                pitch: found.pitch.scaled(entity.base.pitch),
-                ..found
-            }),
-            other => other,
-        }
+        // The shared defaults keep their own ranges; the entity's set ranges apply only to
+        // events the entity defines.
+        lookup(&self.entity_defaults, event, None)
     }
 
     /// Footstep/fall/jump/land route of an actor moving over a block sound material. Block routes are
@@ -418,6 +493,13 @@ impl SoundEventTables {
     /// Named individual sound event (`bucket.fill.water`, `random.click`, ...).
     pub fn individual(&self, event: &str) -> Option<&SoundRoute> {
         self.individual.get(event).and_then(Option::as_ref)
+    }
+
+    /// Iterates audible individual event routes, omitting explicit silence.
+    pub fn individual_events(&self) -> impl Iterator<Item = (&str, &SoundRoute)> {
+        self.individual
+            .iter()
+            .filter_map(|(event, route)| Some((event.as_ref(), route.as_ref()?)))
     }
 }
 
@@ -470,10 +552,10 @@ mod tests {
     }
 
     #[test]
-    fn block_route_scales_by_set_ranges_and_default_is_silent() {
+    fn block_event_ranges_replace_set_ranges_and_default_is_silent() {
         let route = tables().block("stone", "break").expect("break route");
         assert_eq!(&*route.sound, "dig.stone");
-        assert!((route.volume.min - 0.4).abs() < 1e-6);
+        assert_eq!(route.volume, FloatRange { min: 0.8, max: 0.8 });
         assert_eq!(route.pitch, FloatRange { min: 1.0, max: 2.0 });
         assert!(tables().block("stone", "place").is_none());
     }
@@ -487,11 +569,52 @@ mod tests {
         );
         assert!(tables.entity("cow", "step", None).is_none());
         let eat = tables.entity("minecraft:cow", "eat", None).unwrap();
-        assert_eq!(eat.pitch, FloatRange { min: 0.8, max: 1.2 });
+        assert_eq!(eat.pitch, FloatRange::ONE);
         assert_eq!(
             &*tables.entity("pig", "hurt", None).unwrap().sound,
             "game.hurt"
         );
+    }
+
+    /// The pinned pack gives the player no `eat`, so it plays the shared default's
+    /// own ranges, not those ranges multiplied by the default and player set ranges.
+    #[test]
+    fn player_eat_uses_the_default_event_ranges_unscaled() {
+        let tables = SoundEventTables::from_json(
+            &json!({"entity_sounds": {
+                "defaults": {"volume": 1.0, "pitch": [0.8, 1.2], "events": {
+                    "eat": {"sound": "random.eat", "volume": [0.5, 1.1], "pitch": [0.8, 1.2]},
+                    "hurt": "game.hurt"
+                }},
+                "entities": {"player": {"volume": 1.0, "pitch": [0.8, 1.2], "events": {
+                    "attack.strong": "game.player.attack.strong"
+                }}}
+            }}),
+            &json!({}),
+        );
+        let eat = tables.entity("minecraft:player", "eat", None).unwrap();
+        assert_eq!(&*eat.sound, "random.eat");
+        assert_eq!(eat.pitch, FloatRange { min: 0.8, max: 1.2 });
+        assert_eq!(eat.volume, FloatRange { min: 0.5, max: 1.1 });
+        let hurt = tables.entity("minecraft:player", "hurt", None).unwrap();
+        assert_eq!(hurt.pitch, FloatRange { min: 0.8, max: 1.2 });
+        let attack = tables
+            .entity("minecraft:player", "attack.strong", None)
+            .unwrap();
+        assert_eq!(attack.pitch, FloatRange { min: 0.8, max: 1.2 });
+        assert_eq!(attack.volume, FloatRange::ONE);
+    }
+
+    /// Two rolls give a triangular spread that peaks at the midpoint and stays in range.
+    #[test]
+    fn range_samples_are_triangular_within_the_bounds() {
+        let range = FloatRange { min: 0.8, max: 1.2 };
+        assert!((range.sample(0.5, 0.5) - 1.0).abs() < 1e-6);
+        assert!((range.sample(0.9, 0.9) - 1.0).abs() < 1e-6);
+        assert!((range.sample(1.0, 0.0) - 1.2).abs() < 1e-6);
+        assert!((range.sample(0.0, 1.0) - 0.8).abs() < 1e-6);
+        assert!((range.sample(0.75, 0.25) - 1.1).abs() < 1e-6);
+        assert_eq!(FloatRange::ONE.sample(0.3, 0.9), 1.0);
     }
 
     #[test]
@@ -508,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_block_materials_resolve_canonical_names_without_custom_fallbacks() {
+    fn legacy_block_materials_resolve_canonical_names_and_unknowns_use_stone() {
         let tables = SoundEventTables::from_json(
             &json!({}),
             &json!({"grass": "grass", "dirt": "gravel", "chain": "metal"}),
@@ -518,8 +641,33 @@ mod tests {
         assert_eq!(tables.material_of("minecraft:grass"), Some("grass"));
         assert_eq!(tables.material_of("minecraft:dirt"), Some("gravel"));
         assert_eq!(tables.material_of("minecraft:iron_chain"), Some("metal"));
-        assert_eq!(tables.material_of("example:grass_block"), None);
-        assert_eq!(tables.material_of("minecraft:unknown_block"), None);
+        assert_eq!(tables.material_of("example:grass_block"), Some("stone"));
+        assert_eq!(tables.material_of("minecraft:unknown_block"), Some("stone"));
+    }
+
+    #[test]
+    fn blocks_json_objects_and_sound_components_follow_the_requested_precedence() {
+        let tables = SoundEventTables::from_json(
+            &json!({}),
+            &json!({
+                "stone": {"sound": "stone"},
+                "example:resource_block": {"sound": "wood"}
+            }),
+        );
+        assert_eq!(tables.material_of("minecraft:stone"), Some("stone"));
+        assert_eq!(tables.material_of("example:resource_block"), Some("wood"));
+        assert_eq!(
+            tables.material_of_with_component("example:resource_block", Some("metal")),
+            "wood"
+        );
+        assert_eq!(
+            tables.material_of_with_component("example:component_block", Some("metal")),
+            "metal"
+        );
+        assert_eq!(
+            tables.material_of_with_component("example:unknown_block", None),
+            "stone"
+        );
     }
 
     #[test]

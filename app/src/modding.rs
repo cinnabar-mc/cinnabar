@@ -29,9 +29,10 @@ const PACKAGE_ENV: &str = "CINNABAR_MOD_PACKAGE";
 const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
+mod action_filter;
 mod admission;
-mod anchors;
-mod drawing_policy;
+pub(crate) mod anchors;
+pub(crate) mod drawing_policy;
 mod drive;
 
 use drive::drive_mod;
@@ -215,6 +216,10 @@ pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
         .collect();
     Some(serde_json::json!({ "suspended": runtime.suspended, "hosts": hosts }))
 }
+
+/// Publishes personal and packet drawing before session-owned client-part drawing.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct DrawingPublication;
 
 /// Installs the developer extension only when its component path is explicit.
 pub(crate) fn configure_from_environment(app: &mut App) {
@@ -406,6 +411,9 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
     };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.insert_resource(VisualTimeOverride(host.time_override()));
+    app.insert_resource(crate::environment::VisualWeatherOverride(
+        host.weather_override(),
+    ));
     let mut runtime = ModRuntime::new(host, metadata);
     for (host, metadata) in hosts {
         runtime.push_host(host, metadata);
@@ -433,6 +441,7 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.add_systems(
         Update,
         anchors::publish
+            .in_set(DrawingPublication)
             .after(ClientFrameSet::ActorPublication)
             .after(drive_mod)
             .before(ClientFrameSet::UiPublication),

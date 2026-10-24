@@ -5,17 +5,21 @@ mod bodies;
 mod cape_tests;
 mod cloth_contacts;
 mod commit;
+mod companions;
+pub(crate) mod fishing_line;
 mod flames;
 mod geometry;
+mod ground_effects;
 mod hand_frame;
 mod hats;
+pub use ground_effects::{GroundEffectWearer, GroundEffectWearers};
 pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
 mod layers;
 mod occlusion;
 mod paintings;
 pub use flames::WorldActorFlames;
 mod views;
-use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
+use geometry::{SessionGeometryReady, SessionIconInput, apply_session_pack, register_geometries};
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
 mod emote_geometry;
@@ -73,6 +77,15 @@ pub struct ActorFrameInput {
     pub custom_emote: Option<(cosmetics::emotes::Item, f64)>,
     /// API-authenticated playback already resolved to this session's actor lifetimes.
     pub remote_emotes: Vec<RemoteEmote>,
+}
+
+impl ActorFrameInput {
+    /// Applies the local visibility preference before attachments and ground effects are sampled.
+    fn apply_cosmetic_visibility(&mut self, show_other_players: bool) {
+        if !show_other_players {
+            self.remote_hats.clear();
+        }
+    }
 }
 
 /// Render-only remote playback bound to one spawned actor, preventing runtime-ID reuse.
@@ -144,6 +157,7 @@ pub struct ActorFramePublication<'w, 's> {
     partial_tick: ResMut<'w, ActorFramePartialTick>,
     flames: Option<ResMut<'w, WorldActorFlames>>,
     cosmetic_emitters: Option<ResMut<'w, CosmeticEmitterPlacements>>,
+    ground_effects: Option<ResMut<'w, GroundEffectWearers>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -155,16 +169,31 @@ pub fn prepare_actor_render_frame(
     mut params: ActorFramePublication,
 ) {
     let state = &mut *params.state;
-    let Some(input) = state.input.take() else {
+    let Some(mut input) = state.input.take() else {
         if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
             placements.0.clear();
         }
+        if let Some(wearers) = params.ground_effects.as_deref_mut() {
+            wearers.0.clear();
+        }
         return;
     };
+    input.apply_cosmetic_visibility(
+        params
+            .presentation
+            .settings
+            .feel()
+            .show_other_player_cosmetics,
+    );
     let step = state
         .step
         .expect("actor preparation precedes final rendering");
     let artwork = state.session_artwork.as_ref().unwrap_or(&params.artwork);
+    if let Some(equipment) = params.equipment.as_deref_mut() {
+        equipment.set_show_custom_item_models(
+            params.presentation.settings.feel().show_custom_item_models,
+        );
+    }
     let view = state.captured_view;
     let pose_view = bodies::PoseView {
         partial_tick: step.partial_tick,
@@ -180,6 +209,9 @@ pub fn prepare_actor_render_frame(
         view.camera_rotation(),
     );
     let stream = client_world.stream.as_deref();
+    if let Some(wearers) = params.ground_effects.as_deref_mut() {
+        wearers.capture(&input, stream);
+    }
     let authoritative_subject_eye = authoritative_local_actor_eye(
         input.predicted_eye,
         stream.map(|stream| stream.resolved_server_position().position),
@@ -294,6 +326,9 @@ pub fn prepare_actor_render_frame(
     }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
     // Remote bodies passed frame-model admission before bounded skin registration.
+    let hidden_companion_body = (!local_visible && !coverage_local)
+        .then(|| local.as_ref().map(|local| local.submission.clone()))
+        .flatten();
     let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
         local_visible || coverage_local,
@@ -354,6 +389,8 @@ pub fn prepare_actor_render_frame(
         &mut params.scene,
         step.partial_tick,
         hats::AttachmentFrame {
+            collisions: client_world.collisions,
+            hidden_local: hidden_companion_body.as_ref(),
             geometries: &new_geometries,
             equipment: params.equipment.as_deref(),
             local_emote: bodies.local_emote_pose.as_ref(),
@@ -381,6 +418,36 @@ pub fn prepare_actor_render_frame(
             &mut batch,
         );
     }
+    let owner_holds_rod = |runtime_id| {
+        fishing_line::owner_holds_fishing_rod(
+            stream,
+            runtime_id,
+            bodies.local_runtime_id,
+            &input.local_equipment,
+        )
+    };
+    let first_person_fishing_line_anchor = (!input.hide_hand
+        && owner_holds_rod(bodies.local_runtime_id))
+    .then(|| params.presentation.camera.single().ok())
+    .flatten()
+    .and_then(|(camera, projection)| {
+        hand_source.as_ref().and_then(|source| {
+            fishing_line::first_person_fishing_line_anchor_for(
+                source,
+                step.partial_tick,
+                camera,
+                projection,
+                state.captured_aspect,
+                hand_camera_fov?,
+            )
+        })
+    });
+    let mut fishing_line_anchors =
+        fishing_line::fishing_line_anchors_for(&batch, step.partial_tick, owner_holds_rod);
+    if let Some(anchor) = first_person_fishing_line_anchor {
+        fishing_line_anchors.retain(|known| known.runtime_id != anchor.runtime_id);
+        fishing_line_anchors.push(anchor);
+    }
     drop(preparation);
     register_geometries(
         &mut params.hand_builder.0,
@@ -388,6 +455,7 @@ pub fn prepare_actor_render_frame(
         new_geometries,
         params.profiler.as_deref(),
     );
+    let independent_layers = state.hat_state.independent_layers(&batch);
     params.prepared.0 = Some(commit::PendingActorPublication::new(
         batch,
         step.partial_tick,
@@ -401,6 +469,7 @@ pub fn prepare_actor_render_frame(
         bodies.unrigged_actors,
     ));
     if let Some(pending) = params.prepared.0.as_mut() {
+        pending.independent_layers = independent_layers;
         pending.mask_only_runtime_ids = bodies.mask_only_runtime_ids;
         if !local_visible && coverage_local {
             pending.mask_only_runtime_ids.push(bodies.local_runtime_id);
@@ -427,7 +496,14 @@ pub fn prepare_actor_render_frame(
             }),
             cull_view,
         ),
-        step.partial_tick,
+        crate::dropped_items::DroppedItemFrame {
+            partial_tick: step.partial_tick,
+            fishing_line_anchors: &fishing_line_anchors,
+            prepared_blocks: params
+                .equipment
+                .as_deref()
+                .map(EquipmentRuntime::prepared_block_items),
+        },
         (
             artwork.item_glint.clone(),
             render_model::ActorGlint {
@@ -464,6 +540,9 @@ mod culling_capacity_tests;
 
 #[cfg(test)]
 mod xp_orb_tests;
+
+#[cfg(test)]
+mod vehicle_motion_tests;
 
 #[cfg(test)]
 mod billboard_frame_tests;

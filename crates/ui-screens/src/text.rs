@@ -45,6 +45,125 @@ pub fn resolve_chat_line<'a>(
     }
 }
 
+/// Highlights the local display name and all-player mentions, preserving surrounding formatting.
+pub fn highlight_mentions<'a>(
+    text: &'a str,
+    local_player: &str,
+    mention_code: char,
+) -> Cow<'a, str> {
+    if !text.contains('@') {
+        return Cow::Borrowed(text);
+    }
+    let target = (!local_player.is_empty())
+        .then(|| format!("@{}", protocol::quote_chat_player_name(local_player)));
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut chars = text.char_indices().peekable();
+    let mut style = ui::TextStyle::default();
+    let mut color = None;
+    let mut last_end = 0;
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '§' {
+            if let Some((_, code)) = chars.next() {
+                if ui::BedrockColor::from_code(code).is_some() {
+                    color = Some(code);
+                } else {
+                    match code {
+                        'k' => style.obfuscated = true,
+                        'l' => style.bold = true,
+                        'o' => style.italic = true,
+                        'r' => {
+                            style = ui::TextStyle::default();
+                            color = None;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            continue;
+        }
+        if ch == '@' {
+            let remaining = &text[idx..];
+            let matched = [Some(protocol::ALL_PLAYERS_MENTION), target.as_deref()]
+                .into_iter()
+                .flatten()
+                .find(|candidate| {
+                    remaining.strip_prefix(*candidate).is_some_and(|tail| {
+                        !tail
+                            .as_bytes()
+                            .first()
+                            .is_some_and(u8::is_ascii_alphanumeric)
+                    })
+                });
+            if let Some(matched) = matched {
+                let end = idx + matched.len();
+                while chars.peek().is_some_and(|(next, _)| *next < end) {
+                    chars.next();
+                }
+                out.push_str(&text[last_end..idx]);
+                out.push('§');
+                out.push(mention_code);
+                out.push_str(&text[idx..end]);
+                if let Some(code) = color {
+                    // Color codes preserve the other active style flags.
+                    out.push('§');
+                    out.push(code);
+                } else {
+                    out.push_str("§r");
+                    if style.obfuscated {
+                        out.push_str("§k");
+                    }
+                    if style.bold {
+                        out.push_str("§l");
+                    }
+                    if style.italic {
+                        out.push_str("§o");
+                    }
+                }
+                last_end = end;
+            }
+        }
+    }
+    if last_end == 0 {
+        Cow::Borrowed(text)
+    } else {
+        out.push_str(&text[last_end..]);
+        Cow::Owned(out)
+    }
+}
+
+/// Applies the saved default color and then mention coloring to a decoded label.
+pub(crate) fn format_chat_label(
+    text: &str,
+    color: Option<char>,
+    mention: Option<char>,
+    local_player: &str,
+) -> String {
+    let colored = color.map(|code| {
+        let mut result = format!("§{code}");
+        let mut chars = text.chars();
+        while let Some(ch) = chars.next() {
+            result.push(ch);
+            if ch == '§'
+                && let Some(next) = chars.next()
+            {
+                result.push(next);
+                if next == 'r' {
+                    result.push('§');
+                    result.push(code);
+                }
+            }
+        }
+        result
+    });
+    match mention {
+        Some(mention) => {
+            highlight_mentions(colored.as_deref().unwrap_or(text), local_player, mention)
+                .into_owned()
+        }
+        None => colored.unwrap_or_else(|| text.to_owned()),
+    }
+}
+
 /// `value` cut at a character boundary to [`MAX_PRESENTED_TEXT_BYTES`].
 pub fn bounded_visible_text(value: &str) -> &str {
     bounded_text(value, MAX_PRESENTED_TEXT_BYTES)
@@ -72,6 +191,95 @@ mod tests {
             source: source.map(Arc::from),
             message: Arc::from(text),
             parameters: parameters.iter().map(|value| Arc::from(*value)).collect(),
+        }
+    }
+
+    #[test]
+    fn unrelated_mentions_and_longer_names_keep_their_original_text() {
+        let text = "§d@Steve @something @Alex123 @Alexander @alex";
+        let formatted = highlight_mentions(text, "Alex", 'e');
+        assert!(matches!(formatted, Cow::Borrowed(_)));
+        assert_eq!(formatted, text);
+    }
+
+    #[test]
+    fn only_the_current_display_name_and_all_players_are_highlighted() {
+        for (name, expected) in [
+            ("Alex", "§e@Alex§r @Steve §e@here§r"),
+            ("Steve", "@Alex §e@Steve§r §e@here§r"),
+            ("", "@Alex @Steve §e@here§r"),
+        ] {
+            assert_eq!(
+                highlight_mentions("@Alex @Steve @here", name, 'e'),
+                expected
+            );
+        }
+        assert_eq!(
+            highlight_mentions("@hereafter @Here", "Alex", 'e'),
+            "@hereafter @Here"
+        );
+    }
+
+    #[test]
+    fn quoted_names_match_the_whole_completion_spelling() {
+        for name in ["Alex One", "123", "プレイヤー"] {
+            let target = format!("@{}", protocol::quote_chat_player_name(name));
+            let text = format!("{target}! @{name} @{name}Extra");
+            assert_eq!(
+                highlight_mentions(&text, name, 'e'),
+                format!("§e{target}§r! @{name} @{name}Extra")
+            );
+        }
+    }
+
+    #[test]
+    fn mentions_are_highlighted_with_selected_color() {
+        let text = "Hello @PlayerName how are you?";
+        let formatted = highlight_mentions(text, "PlayerName", 'e');
+        assert_eq!(formatted, "Hello §e@PlayerName§r how are you?");
+    }
+
+    #[test]
+    fn emails_or_inner_ats_are_not_mentions() {
+        let text = "Contact test@example.com for info";
+        let formatted = highlight_mentions(text, "Alex", 'e');
+        assert_eq!(formatted, "Contact test@example.com for info");
+    }
+
+    #[test]
+    fn mention_highlighting_preserves_surrounding_styles() {
+        let text = "§c§l§oAlert @Alex still red";
+        let formatted = highlight_mentions(text, "Alex", 'e');
+        let spans = ui::parse_bedrock_text(&formatted, usize::MAX).unwrap();
+        assert_eq!(spans.plain_text(), "Alert @Alex still red");
+        let after = spans.last().unwrap();
+        assert_eq!(after.style.color, ui::BedrockColor::Red);
+        assert!(after.style.bold && after.style.italic);
+    }
+
+    #[test]
+    fn white_mentions_and_explicit_white_survive_a_selected_chat_color() {
+        let text = format_chat_label("Hello @Alex§r tail §fwhite", Some('a'), Some('f'), "Alex");
+        let spans = ui::parse_bedrock_text(&text, usize::MAX).unwrap();
+        assert_eq!(spans.plain_text(), "Hello @Alex tail white");
+        assert_eq!(spans[0].style.color, ui::BedrockColor::Green);
+        assert_eq!(spans[1].style.color, ui::BedrockColor::White);
+        assert_eq!(spans[2].style.color, ui::BedrockColor::Green);
+        assert_eq!(spans[3].style.color, ui::BedrockColor::White);
+    }
+
+    #[test]
+    fn mentions_restore_default_styles_and_handle_formatting_at_boundaries() {
+        for input in ["§l§o@Alex tail", "§l§oHello @Alex tail"] {
+            let text = highlight_mentions(input, "Alex", 'e');
+            let spans = ui::parse_bedrock_text(&text, usize::MAX).unwrap();
+            let after = spans.last().unwrap();
+            assert_eq!(after.style.color, ui::BedrockColor::Base);
+            assert!(after.style.bold && after.style.italic);
+            assert!(
+                spans.iter().any(|span| span.text.contains("@Alex")
+                    && span.style.color == ui::BedrockColor::Yellow)
+            );
         }
     }
 

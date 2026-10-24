@@ -24,6 +24,7 @@ const WORLD_FILES: Filter = Filter {
     name: "Minecraft worlds",
     extensions: &[WORLD_ARCHIVE_EXTENSION],
     unavailable_hint: "Drop a world file onto the Worlds tab to import it.",
+    max_bytes: None,
 };
 
 /// Work kept on the local-world worker, including thumbnail persistence.
@@ -47,6 +48,7 @@ fn read_thumbnails(
     let worlds = match event {
         Event::Listed(worlds) => worlds.as_slice(),
         Event::Created(world) | Event::Updated(world) => std::slice::from_ref(world),
+        Event::Applied { applied, .. } => std::slice::from_ref(&applied.world),
         Event::Imported { worlds, .. } => worlds.as_slice(),
         Event::Deleted(id) => {
             loaded.remove(id);
@@ -209,6 +211,18 @@ fn execute(
         Effect::Update { id, update } => manager
             .update(&id, &update)
             .map_or_else(failed, Event::Updated),
+        Effect::Apply {
+            id,
+            revision,
+            update,
+        } => match manager.apply(&id, &update) {
+            Ok(applied) => Event::Applied { revision, applied },
+            Err(error) => Event::ApplyFailed {
+                id,
+                revision,
+                error: error.public_message(),
+            },
+        },
         Effect::Open(id) => match manager.open(&id, None) {
             Ok(()) => Event::Status(route.status(manager)),
             Err(WorldError::EulaRequired) => Event::EulaRequired,
@@ -233,7 +247,13 @@ fn execute(
             .map_or_else(failed, |()| Event::EulaAccepted),
         Effect::Import(Some(files)) => import_files(manager, files, cancelled),
         Effect::Import(None) => match picker::pick(&WORLD_FILES) {
-            Ok(file) => import_files(manager, file.into_iter().collect(), cancelled),
+            Ok(file) => import_files(
+                manager,
+                file.iter()
+                    .map(|file| file.as_ref().to_path_buf())
+                    .collect(),
+                cancelled,
+            ),
             Err(error) => Event::Imported {
                 worlds: Vec::new(),
                 errors: vec![error],
@@ -242,6 +262,10 @@ fn execute(
         Effect::PollStatus => Event::Status(route.status(manager)),
         Effect::Close => {
             manager.close();
+            return None;
+        }
+        Effect::Leave => {
+            manager.leave();
             return None;
         }
         Effect::SetPaused(paused) => {
@@ -283,6 +307,58 @@ fn import_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use launcher::local_worlds::world::{Generator, NewWorld};
+
+    /// A metadata write failure restores the saved selection without leaving world settings.
+    #[test]
+    fn a_failed_metadata_save_rolls_back_and_allows_retry() {
+        use launcher::local_worlds::{
+            in_world::Action,
+            model::{Input, Screen, WorldsMenu},
+            world::{Difficulty, Generator, NewWorld},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("worlds");
+        let manager = launcher_host::local_worlds::open_store(root.clone()).unwrap();
+        let world = manager
+            .create(&NewWorld {
+                name: "Home".into(),
+                generator: Generator::Flat,
+                ..Default::default()
+            })
+            .unwrap();
+        // Loading existing BDS metadata needs no installed server or running backend.
+        let metadata = root.join(&world.id).join("world.json");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&metadata).unwrap()).unwrap();
+        record["backend"] = serde_json::json!(bridge::Backend::Bds);
+        std::fs::write(&metadata, serde_json::to_vec(&record).unwrap()).unwrap();
+        let world = manager.list().unwrap().pop().unwrap();
+        let route = CoreRoute::default();
+        let mut menu = WorldsMenu::default();
+        menu.apply(Event::Listed(vec![world.clone()]));
+        let input = Input::InWorld(world.id.clone(), Action::Difficulty(Difficulty::Hard));
+        let effect = menu.update(input.clone()).pop().unwrap();
+        std::fs::rename(&root, dir.path().join("saved-worlds")).unwrap();
+        std::fs::write(&root, b"blocks the store directory").unwrap();
+        let event = execute(&manager, &route, effect, &|| false).unwrap();
+        assert!(matches!(&event, Event::ApplyFailed { id, .. } if id == &world.id));
+        menu.apply(event);
+        assert_eq!(
+            menu.screen(),
+            Screen::List,
+            "the general error screen is not used"
+        );
+        assert_eq!(menu.worlds()[0].difficulty, world.difficulty);
+        assert!(menu.in_world_view(&world.id).unwrap().error.is_some());
+        let mut retry = menu.update(input);
+        assert_eq!(retry.len(), 1, "the same choice can retry");
+        std::fs::remove_file(&root).unwrap();
+        std::fs::rename(dir.path().join("saved-worlds"), &root).unwrap();
+        menu.apply(execute(&manager, &route, retry.pop().unwrap(), &|| false).unwrap());
+        assert_eq!(menu.worlds()[0].difficulty, Difficulty::Hard);
+        assert!(menu.in_world_view(&world.id).unwrap().error.is_none());
+    }
 
     #[test]
     fn failures_show_only_public_messages() {
@@ -296,13 +372,14 @@ mod tests {
     /// A detached client's worker never starts a world after the detach closed the old one.
     #[test]
     fn a_revoked_worker_never_opens_a_world() {
-        use launcher::local_worlds::world::NewWorld;
         let worlds = tempfile::tempdir().expect("worlds folder");
         let manager =
             launcher_host::local_worlds::open_store(worlds.path().to_path_buf()).expect("manager");
         let world = manager
             .create(&NewWorld {
                 name: "w".into(),
+                generator: Generator::Flat,
+                backend: Some(bridge::Backend::Dragonfly),
                 ..NewWorld::default()
             })
             .expect("create");
@@ -322,13 +399,13 @@ mod tests {
     /// A status poll answers when the world changes instead of waiting out its delay.
     #[test]
     fn a_status_poll_answers_as_soon_as_the_world_changes() {
-        use launcher::local_worlds::world::NewWorld;
         let worlds = tempfile::tempdir().expect("worlds folder");
         let manager =
             launcher_host::local_worlds::open_store(worlds.path().to_path_buf()).expect("manager");
         let world = manager
             .create(&NewWorld {
                 name: "w".into(),
+                generator: Generator::Flat,
                 backend: Some(bridge::Backend::Dragonfly),
                 ..NewWorld::default()
             })
@@ -349,6 +426,19 @@ mod tests {
         assert!(matches!(&events[0].event, Event::Status(_)));
     }
 
+    /// Builds a minimal flat-world level.dat for the import worker.
+    fn flat_level_dat() -> Vec<u8> {
+        let nbt = b"\x0a\0\0\x03\x09\0Generator\x02\0\0\0\0";
+        let mut level = 10u32.to_le_bytes().to_vec();
+        level.extend(
+            u32::try_from(nbt.len())
+                .expect("fixture length")
+                .to_le_bytes(),
+        );
+        level.extend(nbt);
+        level
+    }
+
     /// Dropped files import in one answer: each accepted world, and each refusal by file name.
     #[test]
     fn the_worker_imports_every_dropped_file() {
@@ -359,7 +449,7 @@ mod tests {
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         zip.start_file("Home/level.dat", zip::write::SimpleFileOptions::default())
             .expect("entry");
-        zip.write_all(b"level").expect("body");
+        zip.write_all(&flat_level_dat()).expect("body");
         let good = worlds.path().join("Home.mcworld");
         std::fs::write(&good, zip.finish().expect("zip").into_inner()).expect("archive");
         let bad = worlds.path().join("Broken.mcworld");
@@ -377,6 +467,7 @@ mod tests {
         };
         assert_eq!(worlds.len(), 1);
         assert_eq!(worlds[0].name, "Home");
+        assert_eq!(worlds[0].generator, Generator::Flat);
         assert!(
             errors.len() == 1 && errors[0].starts_with("Broken.mcworld: "),
             "{errors:?}"

@@ -69,6 +69,17 @@ fn potted_models_sample_the_exposed_server_texture_grid() {
         cache.begin_frame();
         cache.finish_demand();
         let handle = DroppedItemPublisher::potted_model(&mut cache, &runtime, 1).unwrap();
+        let cost = source_cost::template_cost(
+            &runtime,
+            runtime
+                .potted_model_template(NetworkIdMode::Sequential, 1)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            Some(cost),
+            render_model::dropped_item::ItemModelCost::from_model(&cache.models[handle as usize])
+        );
         let DroppedItemModel::Block(model) = &cache.models[handle as usize] else {
             panic!("pot contents must retain their model");
         };
@@ -178,7 +189,7 @@ fn retained_items_and_falling_blocks_resolve_the_current_session_palette() {
     for internal in [7, 6] {
         let stream = stream(false, internal);
         assert_eq!(
-            item_block_id(&stream, visual),
+            item_block_id(&stream, visual, None, None),
             Some((NetworkIdMode::Sequential, internal))
         );
         assert_eq!(
@@ -211,7 +222,9 @@ fn retained_items_and_falling_blocks_preserve_high_bit_hashes() {
             &stream,
             ItemVisualRoute::RetainedBlock {
                 block_runtime_id: raw
-            }
+            },
+            None,
+            None,
         ),
         Some((NetworkIdMode::Hashed, hash)),
     );
@@ -231,11 +244,84 @@ fn compiled_block_item_and_tnt_visuals_are_already_internal() {
     let stream = stream(false, 7);
     let visual = ItemVisualRoute::BlockItem(assets::BlockVisualId(1));
     assert_eq!(
-        item_block_id(&stream, visual),
+        item_block_id(&stream, visual, None, None),
         Some((NetworkIdMode::Sequential, 1))
     );
     assert_eq!(
         entity_block_id(&stream, &BlockEntityKind::PrimedTnt { visual }),
+        Some((NetworkIdMode::Sequential, 1, 1.0)),
+    );
+}
+
+#[test]
+fn dropped_crossed_plants_use_sprites_while_falling_blocks_keep_their_model() {
+    let cross = assets::BlockVisual {
+        faces: [0; 6],
+        flags: assets::BlockFlags::empty(),
+        kind: VisualKind::Cross,
+        support: assets::VisualSupport::Exact,
+        contributor_role: assets::ContributorRole::Primary,
+        model_template: 0,
+        animation: assets::NO_ANIMATION,
+        variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
+    };
+    let quad = assets::ModelQuad {
+        positions: [[0, 256, 0], [256, 256, 256], [256, 0, 256], [0, 0, 0]],
+        uvs: [[0, 0], [4096, 0], [4096, 4096], [0, 4096]],
+        material: 0,
+        flags: assets::MODEL_QUAD_FLAG_TWO_SIDED,
+    };
+    let overlay = assets::BlockOverlay {
+        visuals: vec![
+            cross,
+            assets::BlockVisual {
+                kind: VisualKind::Cube,
+                flags: assets::BlockFlags::CUBE_GEOMETRY,
+                model_template: assets::NO_MODEL_TEMPLATE,
+                ..cross
+            },
+        ],
+        light_properties: vec![assets::LightProperties::default(); 2],
+        materials: vec![assets::Material::unvaried()],
+        model_templates: vec![assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        model_quads: vec![quad],
+        ..Default::default()
+    };
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &overlay)
+        .unwrap();
+    let stream = stream(false, 1);
+    for visual in [
+        ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 1,
+        },
+    ] {
+        assert_eq!(item_block_id(&stream, visual, None, Some(&assets)), None);
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(2)),
+            None,
+            Some(&assets),
+        ),
+        Some((NetworkIdMode::Sequential, 2)),
+    );
+    assert!(block_template(&assets, NetworkIdMode::Sequential, 1).is_some());
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1,
+            },
+        ),
         Some((NetworkIdMode::Sequential, 1, 1.0)),
     );
 }
@@ -361,6 +447,135 @@ fn dropped_barrel_models_use_authored_carried_faces_for_both_id_modes() {
 }
 
 #[test]
+fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
+    let (compiled, records) = barrels();
+    let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let visual = assets::BlockVisualId(
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == "minecraft:barrel")
+            .unwrap()
+            .sequential_id,
+    );
+    let tiles = std::array::from_fn(|face| assets::IconSprite {
+        width: assets::BLOCK_ITEM_FACE_SIDE,
+        height: assets::BLOCK_ITEM_FACE_SIDE,
+        rgba8: [31 + face as u8, 70, 90, 255]
+            .repeat(usize::from(assets::BLOCK_ITEM_FACE_SIDE).pow(2))
+            .into(),
+    });
+    let catalog = assets::RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog_with_block_sheets(
+            runtime.provenance().source_manifest_sha256,
+            &[assets::compose_block_item_sheet(&tiles).unwrap()],
+            &[assets::IconEntry {
+                identifier: "minecraft:barrel".into(),
+                metadata: 0,
+                sprite: 0,
+            }],
+            &[assets::IconBlockSheet { visual, sprite: 0 }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut icons = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        client_ui::test_support::fixture_hud(),
+        Arc::new(catalog),
+    )
+    .unwrap();
+    let mut placement = render_model::StaticItemPlacement {
+        allow_block_models: true,
+        identifier: "minecraft:barrel".into(),
+        metadata: 0,
+        potted_block: None,
+        carried_block: Some(visual),
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        light: None,
+    };
+    let icon = icons.startup_item_icon(&placement.identifier, placement.metadata);
+    assert!(icon.is_some());
+    let mut cache = ModelCache::default();
+    cache.begin_frame();
+    cache.finish_demand();
+    let model =
+        DroppedItemPublisher::placement_model(&mut cache, &icons, Some(&runtime), &placement, icon)
+            .unwrap();
+    let DroppedItemModel::Cube(cube) = &cache.models[model as usize] else {
+        panic!("framed cubes retain six carried faces");
+    };
+    for (face, pixels) in cube.faces.iter().enumerate() {
+        assert_eq!(pixels.as_ref(), tiles[face].rgba8.as_ref());
+    }
+    for assets in [None, Some(&runtime)] {
+        placement.carried_block = None;
+        let sprite =
+            DroppedItemPublisher::placement_model(&mut cache, &icons, assets, &placement, icon)
+                .unwrap();
+        assert!(matches!(
+            &cache.models[sprite as usize],
+            DroppedItemModel::Sprite(_)
+        ));
+    }
+    placement.carried_block = Some(visual);
+    let sprite =
+        DroppedItemPublisher::placement_model(&mut cache, &icons, None, &placement, icon).unwrap();
+    assert!(matches!(
+        &cache.models[sprite as usize],
+        DroppedItemModel::Sprite(_)
+    ));
+    for (metadata, override_metadata, overridden) in
+        [(0, 0, true), (7, 7, true), (7, 0, true), (3, 7, false)]
+    {
+        use client_ui::ui_runtime::{
+            UiRuntime,
+            presentation::{SessionIcon, SessionIcons},
+        };
+        let mut ui = UiRuntime::new(1);
+        ui.set_session_icons(Some(Arc::new(SessionIcons {
+            icons: vec![SessionIcon {
+                identifier: Arc::clone(&placement.identifier),
+                metadata: override_metadata,
+                width: 1,
+                height: 1,
+                rgba8: Box::new([190, 20, 80, 255]),
+            }],
+            ..Default::default()
+        })));
+        icons
+            .build(
+                &player_state::PlayerState::new(1),
+                &ui,
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        placement.metadata = metadata;
+        let icon = icons.startup_item_icon(&placement.identifier, metadata);
+        let model = DroppedItemPublisher::placement_model(
+            &mut cache,
+            &icons,
+            Some(&runtime),
+            &placement,
+            icon,
+        )
+        .unwrap();
+        if overridden {
+            let DroppedItemModel::Sprite(sprite) = &cache.models[model as usize] else {
+                panic!("a session icon without a sheet must replace the startup carried cube");
+            };
+            assert_eq!(sprite.rgba8.as_ref(), [190, 20, 80, 255]);
+        } else {
+            assert!(matches!(
+                &cache.models[model as usize],
+                DroppedItemModel::Cube(_)
+            ));
+        }
+    }
+}
+
+#[test]
 fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
     let (mut compiled, records) = barrels();
     let record = records
@@ -431,3 +646,6 @@ fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
         assert_eq!(material.variation_weight, weight.to_bits());
     }
 }
+
+#[path = "tests/sprite_routes.rs"]
+mod sprite_routes;

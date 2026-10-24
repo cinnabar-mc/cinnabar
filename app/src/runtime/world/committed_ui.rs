@@ -81,10 +81,10 @@ pub(crate) fn drain_committed_ui_before_authority(
             // world epoch it has left, while their sequence numbers stay spent.
             CommittedUiEvent::Experience { event, .. } => {
                 #[cfg(not(target_arch = "wasm32"))]
-                ui_runtime.experiences.receive(&event.bytes, local_millis);
+                ui_runtime.experiences.receive(event, local_millis);
                 #[cfg(target_arch = "wasm32")]
                 bevy::log::debug!(
-                    bytes = event.bytes.len(),
+                    bytes = event.as_bytes().len(),
                     "server extension execution unavailable on this host"
                 );
                 Ok(())
@@ -253,6 +253,21 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 event,
                 local_millis,
+            ),
+            CommittedUiEvent::LocalSpawn {
+                sequence,
+                health,
+                ridden_unique_id,
+            } => ui_runtime.apply_local_spawn(
+                &mut player_runtime,
+                SequencedLocalAttributes {
+                    session_id: clock.session_generation(),
+                    fifo_sequence: sequence,
+                    local_millis,
+                    server_tick: 0,
+                    attributes: health,
+                },
+                ridden_unique_id,
             ),
             CommittedUiEvent::LocalMount {
                 sequence,

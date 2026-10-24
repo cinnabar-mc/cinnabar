@@ -22,7 +22,8 @@ impl json_ui::TextureSource for Art {
 
 /// Builds actual scaled card hit regions and retains one action for a focused input test.
 fn frame(editor: &mut HudEditor, action: &str) -> [f32; 2] {
-    let catalog = template::catalog(&editor.draft, editor.viewport).unwrap();
+    let catalog =
+        template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap();
     let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
         .control
         .unwrap();
@@ -493,6 +494,26 @@ fn studio_republish_keeps_capture_and_the_completed_history_baseline() {
             assert_eq!(editor.draft.cards[0].offset, [0.; 2]);
         }
     }
+}
+
+#[test]
+fn studio_republish_moves_captured_hover_with_its_reordered_card() {
+    let mut editor = editor(true);
+    let point = frame(&mut editor, "hud.card:0");
+    editor.pointer(point, true, true, &mut []);
+    assert_eq!(editor.hovered, Some(0));
+    let mut published = editor.draft.cards.clone();
+    published.insert(
+        0,
+        Card {
+            id: "new".into(),
+            ..Default::default()
+        },
+    );
+    editor.republish_cards(&published, true);
+    let point = frame(&mut editor, "hud.card:1");
+    editor.pointer([point[0] + 40., point[1] + 40.], false, true, &mut []);
+    assert_eq!(editor.hovered, Some(1));
 }
 
 #[test]

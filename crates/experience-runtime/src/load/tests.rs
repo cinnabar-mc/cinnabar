@@ -1,3 +1,4 @@
+use experience_sdk::artifact::{ASSETS_DIR, DATA_SCHEMA, MAX_STACK_SIZE, SERVER_WASM};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -9,25 +10,27 @@ use super::{axes, engine, validate_blocks, validate_registration, wit};
 use crate::host::{Api, HostState};
 use crate::limits::{
     MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_BONES, MAX_CONDITION_TESTS, MAX_DISPLAY_NAME_BYTES,
-    MAX_ITEMS, MAX_PERMUTATIONS, MAX_STACK_SIZE, MAX_STATE_VALUES,
+    MAX_ITEMS, MAX_PERMUTATIONS, MAX_STATE_VALUES,
 };
-use crate::manifest::{ASSETS_DIR, DATA_SCHEMA, Manifest, SERVER_WASM};
+use crate::manifest::Manifest;
 use crate::protocol::{ItemDef, PlacementState, StateDef, StateValues};
 
 #[test]
 fn returned_guest_lists_share_the_protocol_copy_ceiling() {
     let length = 32768;
     let count = crate::limits::MAX_FRAME_BYTES / length;
+    // Every string aliases the same bytes, just past the descriptors, in the module's one page.
+    let data = 1024 + count * 8;
+    assert!(data + length <= 65536);
     let mut stores = String::new();
     for index in 0..count {
         let descriptor = 1024 + index * 8;
         stores.push_str(&format!(
-            "i32.const {descriptor} i32.const 4096 i32.store \
+            "i32.const {descriptor} i32.const {data} i32.store \
              i32.const {} i32.const {length} i32.store ",
             descriptor + 4
         ));
     }
-    assert!(1024 + count * 8 <= 4096);
     let source = format!(
         r#"(component
         (core module $m

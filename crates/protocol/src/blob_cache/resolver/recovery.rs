@@ -186,6 +186,7 @@ pub(super) fn cached_sub_chunk_admission(
 impl BlobCacheResolver {
     /// Abandons retained cached work while preserving exact scheduler rollback events.
     pub fn recover_pending(&mut self) -> Result<(), BlobCacheError> {
+        self.requested_hashes = Default::default();
         if !self.pending.is_empty() || !self.ready.is_empty() {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
             self.recover_retained_cached_transactions()?;
@@ -224,6 +225,7 @@ impl BlobCacheResolver {
     }
 
     pub fn reset_pending(&mut self) {
+        self.requested_hashes = Default::default();
         if !self.pending.is_empty() || !self.ready.is_empty() {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
         }
@@ -242,6 +244,7 @@ impl BlobCacheResolver {
         self.immediate_ready = BTreeMap::new();
         self.recovery_ready = BTreeMap::new();
         self.fast_transfer_reset_armed = false;
+        self.ordinary_lane_stalled = false;
         self.next_ready_sequence = 0;
         self.stats.pending_transactions = 0;
         self.stats.pending_bytes = 0;

@@ -8,6 +8,7 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
 reads = [
+    "assets/startup-screen.json",
     "assets/branding/icon.png",
     "assets/branding/title.png",
     "core/authcache/derived_suffix.txt",
@@ -35,7 +36,6 @@ shaderpack = { path = "../shaderpack", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 update-manifest = { path = "../update-manifest" }
-sha2.workspace = true
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true
 

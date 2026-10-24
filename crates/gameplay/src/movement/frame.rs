@@ -229,8 +229,7 @@ impl LocomotionState {
             }
             input.immobile = facts.immobile;
             input.vertical_physics = facts.vertical_physics;
-            movement_speed.set_sprinting(input.sprinting);
-            input.movement_speed = movement_speed.prediction_speed();
+            input.movement_speed = movement_speed.requested_prediction_speed(input.sprinting);
             let liquid = movement_speed.liquid();
             input.underwater_movement_speed = liquid.underwater;
             input.lava_movement_speed = liquid.lava;
@@ -250,6 +249,8 @@ impl LocomotionState {
                         no_clip: facts.no_clip,
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
+                        vehicle: facts.vehicle,
+                        vehicle_controlled_locally: facts.vehicle_controlled_locally,
                         can_fly: facts.can_fly,
                         flight: facts.flight,
                         ability_sequence: facts.ability_sequence,
@@ -277,8 +278,16 @@ impl LocomotionState {
                         sneak: processed_sneak,
                         sprint_down: controlled.sprint_down,
                         sneak_down: input.sneaking,
+                        // A gamepad's sneak control is vanilla's toggle-sneak
+                        // control under either sneak setting.
+                        sneak_toggle_down: (frame.toggle_sneak
+                            || input_mode == protocol::PlayerInputMode::GamePad)
+                            && processed_sneak.held,
                         server_sprinting: server.and_then(|flags| flags.sprinting),
                         server_sneaking: server.and_then(|flags| flags.sneaking),
+                        server_mode: None,
+                        server_pose_flags: None,
+                        server_spinning: None,
                     },
                 },
                 world,
@@ -344,31 +353,36 @@ impl LocomotionState {
 
     /// Retains riding input even when transport admission pauses physics, preserving server links.
     pub fn observe_dismount(&mut self, frame: &PhysicsFrameInput, session: u64) {
-        let trigger = if frame.facts.ride == Some(super::RideKind::Boat) {
-            ClientInputLock::Jump
-        } else {
-            ClientInputLock::Sneak
-        };
+        // A boat maps both jump and sneak to dismount; other mounts keep jump for themselves.
+        // A press counts through whichever pressed button its locks still allow.
+        let boat = frame.facts.ride == Some(super::RideKind::Boat);
+        let allowed = |lock| !frame.facts.input_locks.blocks(lock);
+        let trigger = [
+            (boat && frame.jump.pressed, ClientInputLock::Jump),
+            (frame.sneak.pressed, ClientInputLock::Sneak),
+        ]
+        .into_iter()
+        .find(|(pressed, lock)| *pressed && allowed(*lock))
+        .map(|(_, lock)| lock);
         let mount = frame
             .facts
             .ride
             .and(frame.facts.mount_runtime_id)
             .filter(|mount| *mount != 0)
             .filter(|_| frame.active && !frame.input_authority_released && frame.hold.is_none())
-            .map(|mount| (session, mount, trigger));
-        if self.pending_dismount != mount {
+            .map(|mount| (session, mount));
+        // A retained press survives later frames on the same mount, whichever button made it.
+        if self
+            .pending_dismount
+            .map(|(session, mount, _)| (session, mount))
+            != mount
+        {
             self.pending_dismount = None;
         }
-        let pressed = if frame.facts.ride == Some(super::RideKind::Boat) {
-            frame.jump.pressed
-        } else {
-            frame.sneak.pressed
-        };
-        if pressed
-            && !frame.facts.input_locks.blocks(ClientInputLock::Dismount)
-            && !frame.facts.input_locks.blocks(trigger)
+        if let (Some(trigger), Some((session, mount))) = (trigger, mount)
+            && allowed(ClientInputLock::Dismount)
         {
-            self.pending_dismount = mount;
+            self.pending_dismount = Some((session, mount, trigger));
         }
     }
 }

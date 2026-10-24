@@ -69,6 +69,9 @@ func Register(loaded []Loaded) (*Registry, error) {
 			return nil, fmt.Errorf("experience %q is loaded twice", l.ID)
 		}
 		experiences[l.ID] = true
+		if len(l.Blocks) > maxBlocks {
+			return nil, fmt.Errorf("experience %q declares %d blocks; the limit is %d", l.ID, len(l.Blocks), maxBlocks)
+		}
 		if len(l.Items) > maxItems {
 			return nil, fmt.Errorf("experience %q declares %d items; the limit is %d", l.ID, len(l.Items), maxItems)
 		}

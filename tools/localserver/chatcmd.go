@@ -30,7 +30,9 @@ func registerChatCommands() {
 	cmd.Register(cmd.New("fly", "Toggles being allowed to fly", nil, flyToggle{}))
 	cmd.Register(cmd.New("tp", "Teleports to a position", []string{"teleport"}, teleport{}))
 	cmd.Register(cmd.New("give", "Adds a vanilla item to your inventory", nil, giveItem{}))
+	cmd.Register(cmd.New("fixture_items", "Fills both hands and the hotbar from a filtered item registry", nil, itemFixture{}))
 	cmd.Register(cmd.New("fixture_totem", "Applies server damage while holding a protective totem", nil, totemFixture{}))
+	cmd.Register(cmd.New("fixture_dummy", "Spawns a player to attack two blocks ahead", nil, targetDummy{}))
 	cmd.Register(cmd.New("weather", "Sets the weather: clear, rain or thunder", nil, weatherSet{}))
 }
 

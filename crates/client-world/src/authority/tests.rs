@@ -70,7 +70,7 @@ fn totem_activation_publishes_only_the_local_player_event() {
 }
 
 /// Supplies a local pose without server-authored health attributes.
-fn local_health_feed() -> crate::LocalPlayerFeed {
+pub(super) fn local_health_feed() -> crate::LocalPlayerFeed {
     crate::LocalPlayerFeed {
         game_mode: None,
         prefer_client_skin: false,
@@ -317,6 +317,7 @@ fn set_health_updates_the_local_actor_death_clock_and_preserves_ui_delivery() {
     assert!(matches!(
         authority.take_committed_ui().as_slice(),
         [
+            CommittedUiEvent::LocalSpawn { sequence: 1, .. },
             CommittedUiEvent::Ui {
                 sequence: 2,
                 event: UiEvent::Hud(protocol::HudEvent::Health { health: 0 })
@@ -492,8 +493,10 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: "example:plain".into(),
                 tags: Default::default(),
+                tags_complete: true,
                 state_count: 1,
                 collides: true,
                 collision_boxes: None,
@@ -507,8 +510,10 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 state_physics: Default::default(),
                 state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: "example:powered".into(),
                 tags: Default::default(),
+                tags_complete: true,
                 state_count: 2,
                 collides: true,
                 collision_boxes: None,
@@ -640,8 +645,10 @@ fn plain_identity_block(name: &str) -> CustomBlock {
         state_physics: Default::default(),
         state_mining: Default::default(),
         player_interact: false,
+        sound: None,
         name: name.into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count: 1,
         collides: true,
         collision_boxes: None,
@@ -756,6 +763,7 @@ fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
         let custom = CustomBlocks {
             blocks: Arc::from([CustomBlock {
                 name: "example:highlighted".into(),
+                sound: None,
                 state_count: 1,
                 collides: true,
                 collision_boxes: None,
@@ -767,6 +775,7 @@ fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
                 state_mining: Default::default(),
                 player_interact: false,
                 tags: Default::default(),
+                tags_complete: true,
                 visual: Arc::default(),
             }]),
             ..Default::default()
@@ -852,5 +861,95 @@ fn sequential_block_names_accumulate_repeated_definitions() {
     assert_eq!(
         authority.block_ids_for_name("example:repeated"),
         [100_000, 100_001]
+    );
+}
+
+/// A vehicle correction names the vehicle the player steers when it commits; once the player
+/// leaves it, a late correction is dropped instead of seating the player again.
+#[test]
+fn vehicle_corrections_reach_only_a_vehicle_the_player_steers() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    authority.sync_local_player_pose(&local_health_feed());
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 50,
+                runtime_id: 50,
+                kind: protocol::ActorKind::Entity {
+                    identifier: "minecraft:boat".into(),
+                },
+                position: [0.0; 3],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+            Some(1),
+        )
+        .unwrap();
+    let link = |link_type| {
+        WorldEvent::ActorLink(protocol::ActorLinkEvent {
+            dimension: 0,
+            ridden_unique_id: 50,
+            rider_unique_id: 1,
+            link_type,
+            immediate: false,
+            rider_initiated: false,
+        })
+    };
+    let correction = protocol::PlayerMovementCorrectionEvent {
+        position: [4.0, 0.0, 0.0],
+        delta: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        subject: protocol::MovementCorrectionSubject::Vehicle,
+        on_ground: false,
+        tick: 9,
+        vehicle_angular_velocity: None,
+    };
+    authority
+        .apply_ordered_event(link(protocol::ActorLinkType::Rider), Some(2))
+        .unwrap();
+    authority.commit_vehicle_correction(3, correction);
+    authority
+        .apply_ordered_event(link(protocol::ActorLinkType::Remove), Some(4))
+        .unwrap();
+    authority.commit_vehicle_correction(5, correction);
+    assert_eq!(
+        authority
+            .take_committed_controls()
+            .into_iter()
+            .filter(|control| matches!(
+                control,
+                CommittedControlEvent::VehicleMovementCorrection { .. }
+            ))
+            .collect::<Vec<_>>(),
+        vec![CommittedControlEvent::VehicleMovementCorrection {
+            sequence: 3,
+            correction,
+            vehicle_runtime_id: 50,
+            vehicle_revision: crate::VehicleRevision { pose: 0, motion: 0 },
+        }]
     );
 }

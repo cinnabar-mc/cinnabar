@@ -15,8 +15,8 @@ use world::{ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
 use {
     render_model::{
         AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-        BlockEntitySubmission, ConduitModel, CrackShapeCache, SceneClock, SignFace, SignModel,
-        StaticItemPlacement, item_frame_item_transform, matrix_rows,
+        BlockEntitySubmission, ConduitModel, CrackShapeCache, FramedMap, SceneClock, SignFace,
+        SignModel, StaticItemPlacement, item_frame_item_transform, matrix_rows,
     },
     render_scene::AtmosphereFrame,
 };
@@ -56,7 +56,9 @@ pub(super) mod columns;
 mod crystal_beams;
 mod culling;
 mod dragon_death;
+mod placement;
 mod portals;
+use placement::held_placement;
 
 #[cfg(test)]
 mod beacon_tint_tests;
@@ -133,8 +135,6 @@ pub(crate) struct BlockEntityRuntime {
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
-    /// When each map id was last requested from the server, in real seconds.
-    map_requests: HashMap<i64, f64>,
     /// Session and dimension the runtime-id keyed caches were filled from.
     session: Option<(u64, i32)>,
     beam_source: Option<(Arc<assets::RuntimeAssets>, Option<protocol::DimensionRange>)>,
@@ -157,7 +157,6 @@ impl BlockEntityRuntime {
             shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
             missing_maps: Vec::new(),
-            map_requests: HashMap::new(),
             session: None,
             beam_source: None,
             books: books::TableBooks::default(),
@@ -199,7 +198,6 @@ impl BlockEntityRuntime {
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
-        self.map_requests.clear();
         self.books = books::TableBooks::default();
     }
 }
@@ -225,7 +223,8 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
                     .after(crate::runtime::network::prepare_actor_render_frame),
                 request_missing_maps,
             )
-                .chain(),
+                .chain()
+                .run_if(bevy::prelude::resource_exists::<PhysicsCollisionRegistries>),
         );
 }
 
@@ -725,58 +724,54 @@ fn yaw_toward(eye: Vec3, position: [i32; 3]) -> f32 {
     (-dx).atan2(-dz).to_degrees()
 }
 
-fn held_placement(
-    item: &HeldItem,
-    world_from_item: [[f32; 4]; 3],
-    light: Option<(u8, u8)>,
-) -> StaticItemPlacement {
-    StaticItemPlacement {
-        identifier: Arc::clone(&item.identifier),
-        metadata: item.metadata,
-        potted_block: None,
-        world_from_item,
-        light,
-    }
-}
-
 /// Item offsets over the grill, in block-center pixels; provisional.
 const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-4.0, 4.0]];
 const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 
-/// Seconds before an unanswered map request is repeated.
-const MAP_REQUEST_RETRY_SECONDS: f64 = 5.0;
-
-/// Asks the server for the pixels of framed maps whose images have not arrived.
+/// Requests each missing held or framed map once per session after output admission.
 pub(crate) fn request_missing_maps(
     mut runtime: ResMut<BlockEntityRuntime>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
-    time: Res<Time<Real>>,
+    mut world: ResMut<ClientWorld>,
+    player: Res<client_state::PlayerRuntime>,
+    ui: Option<Res<UiRuntimeResource>>,
 ) {
     let Some(network) = network else {
+        runtime.missing_maps.clear();
         return;
     };
-    let now = time.elapsed_secs_f64();
+    let Some(stream) = world.stream.as_mut() else {
+        runtime.missing_maps.clear();
+        return;
+    };
     let runtime = &mut *runtime;
+    {
+        let held = client_presentation::presentation::equipment::local_input(
+            &player,
+            stream,
+            ui.as_deref().map(|ui| &ui.0),
+            stream.local_player_runtime_id(),
+        );
+        for item in [held.main, held.off].into_iter().flatten() {
+            if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
+                && let Some(id) = item.map_id
+                && stream.map_image(id).is_none()
+            {
+                runtime.missing_maps.push(id);
+            }
+        }
+    }
     runtime.missing_maps.sort_unstable();
     runtime.missing_maps.dedup();
     for id in std::mem::take(&mut runtime.missing_maps) {
-        let due = runtime
-            .map_requests
-            .get(&id)
-            .is_none_or(|last| now - last >= MAP_REQUEST_RETRY_SECONDS);
-        if due
+        if !stream.map_is_known(id)
             && network
                 .send_inventory_packet(protocol::map_info_request_packet(id))
                 .is_ok()
         {
-            runtime.map_requests.insert(id, now);
+            stream.admit_map_request(id);
         }
-    }
-    if runtime.map_requests.len() > 256 {
-        runtime
-            .map_requests
-            .retain(|_, last| now - *last < MAP_REQUEST_RETRY_SECONDS);
     }
 }
 
@@ -891,12 +886,18 @@ fn resolve(
             if hidden {
                 return None;
             }
-            model.map = map;
-            if let (Some(item), None) = (item, map) {
+            model.map = map.map(|image| FramedMap {
+                image,
+                rotation_degrees,
+            });
+            if let (Some(item), None) = (item, map)
+                && item.identifier.as_ref() != assets::facts::FILLED_MAP_IDENTIFIER
+            {
                 held.push(held_placement(
                     item,
                     item_frame_item_transform(position, model.outward, rotation_degrees),
                     model.glow.then_some((15, 15)),
+                    Some(stream),
                 ));
             }
             Some(BlockEntityKind::ItemFrame(model))
@@ -911,9 +912,11 @@ fn resolve(
                 &plant.states,
             )?;
             held.push(StaticItemPlacement {
+                allow_block_models: false,
                 identifier: Arc::clone(&plant.identifier),
                 metadata: 0,
                 potted_block: Some(id),
+                carried_block: None,
                 world_from_item: render_model::dropped_item_transform(
                     position.map(|axis| axis as f32 + 0.5),
                     0.0,
@@ -937,7 +940,7 @@ fn resolve(
                     * Mat4::from_translation(Vec3::new(x, CAMPFIRE_ITEM_HEIGHT, z))
                     * Mat4::from_scale(Vec3::splat(CAMPFIRE_ITEM_SCALE * 16.0))
                     * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-                held.push(held_placement(item, matrix_rows(pose), None));
+                held.push(held_placement(item, matrix_rows(pose), None, None));
             }
             None
         }

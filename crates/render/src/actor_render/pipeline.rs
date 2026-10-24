@@ -6,6 +6,8 @@ pub(super) struct ActorPipelineSpecializer;
 
 #[derive(Resource)]
 pub(crate) struct ActorPipeline {
+    pub(super) compact: bool,
+    pub(super) motion_supported: bool,
     pub(super) variants: Variants<RenderPipeline, ActorPipelineSpecializer>,
     pub(super) bind_group_layout: BindGroupLayoutDescriptor,
     draw_variants: std::collections::HashMap<
@@ -19,12 +21,26 @@ pub(crate) struct ActorPipeline {
 }
 
 impl FromWorld for ActorPipeline {
-    fn from_world(_world: &mut World) -> Self {
-        let bind_group_layout = actor_bind_group_layout();
+    fn from_world(world: &mut World) -> Self {
+        let limit = world
+            .get_resource::<RenderDevice>()
+            .map_or(u32::MAX, |device| {
+                device.limits().max_storage_buffers_per_shader_stage
+            });
+        let compact =
+            limit < crate::device_settings::vertex_storage_buffers(&actor_bind_group_layout());
+        let mut bind_group_layout = actor_bind_group_layout();
+        if compact {
+            bind_group_layout.entries.retain(|entry| entry.binding != 5);
+        }
         let descriptor = actor_pipeline_descriptor(bind_group_layout.clone());
         let mut motion_descriptor = descriptor.clone();
         motion_descriptor.layout.push(super::motion::layout());
         Self {
+            compact,
+            motion_supported: limit
+                >= crate::device_settings::vertex_storage_buffers(&actor_bind_group_layout())
+                    + crate::device_settings::vertex_storage_buffers(&super::motion::layout()),
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
@@ -36,6 +52,24 @@ impl FromWorld for ActorPipeline {
 }
 
 impl ActorPipeline {
+    /// Removes the separate current endpoint binding when both endpoints share one allocation.
+    pub(super) fn entries<'a, 'b>(
+        &self,
+        entries: &'b [BindGroupEntry<'a>],
+    ) -> std::borrow::Cow<'b, [BindGroupEntry<'a>]> {
+        if self.compact {
+            std::borrow::Cow::Owned(
+                entries
+                    .iter()
+                    .filter(|entry| entry.binding != 5)
+                    .cloned()
+                    .collect(),
+            )
+        } else {
+            std::borrow::Cow::Borrowed(entries)
+        }
+    }
+
     /// Queues draw and eligible motion contracts before actors enter a view.
     pub(super) fn prewarm(
         &mut self,
@@ -64,7 +98,7 @@ impl ActorPipeline {
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
-                if super::motion::eligible(material) {
+                if self.motion_supported && super::motion::eligible(material) {
                     let id = match self.motion_ids.entry(contract) {
                         Entry::Occupied(entry) => *entry.get(),
                         Entry::Vacant(entry) => {
@@ -183,6 +217,11 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
     });
     ordinary
         .chain(additive)
+        .chain(
+            assets::facts::pack::rules()
+                .material_states()
+                .map(|(name, state)| assets::facts::pack::rules().raster(name).word(Some(state))),
+        )
         .flat_map(|material| {
             [
                 material,
@@ -194,6 +233,7 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
         .flat_map(|material| {
             [
                 Some(material),
+                Some(material | assets::EntityRenderMaterialState::DEPTH_EQUAL),
                 Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
                 (material & assets::EntityRenderMaterialState::KIND_MASK
                     == assets::EntityRenderMaterial::DissolveColor as u32)
@@ -201,6 +241,14 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             ]
             .into_iter()
             .flatten()
+        })
+        .flat_map(|material| {
+            [
+                0,
+                assets::EntityRenderMaterialState::DISABLE_ALPHA_WRITE,
+                assets::EntityRenderMaterialState::DISABLE_COLOR_WRITE,
+            ]
+            .map(|writes| material | writes)
         })
 }
 
@@ -218,10 +266,12 @@ pub(super) fn prepare_actor_pipelines(
     let mut ready = true;
     for (camera, msaa, enhanced) in &views {
         has_view = true;
-        ready &= pipeline
-            .prewarm(&cache, *msaa, camera.hdr, enhanced.is_some())
-            .is_some()
-            && pipeline.ready(&cache, *msaa, camera.hdr, enhanced.is_some());
+        for msaa in crate::pipeline_warmup::sample_modes(*msaa) {
+            ready &= pipeline
+                .prewarm(&cache, msaa, camera.hdr, enhanced.is_some())
+                .is_some()
+                && pipeline.ready(&cache, msaa, camera.hdr, enhanced.is_some());
+        }
     }
     readiness.publish(has_view && ready);
 }
@@ -381,7 +431,11 @@ pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
 pub(super) fn actor_pipeline_descriptor(
     bind_group_layout: BindGroupLayoutDescriptor,
 ) -> RenderPipelineDescriptor {
-    RenderPipelineDescriptor {
+    let compact = !bind_group_layout
+        .entries
+        .iter()
+        .any(|entry| entry.binding == 5);
+    let mut descriptor = RenderPipelineDescriptor {
         label: Some("bounded shared actor pipeline".into()),
         layout: vec![bind_group_layout, crate::lighting::layout()],
         vertex: VertexState {
@@ -408,7 +462,17 @@ pub(super) fn actor_pipeline_descriptor(
             bias: default(),
         }),
         ..default()
+    };
+    if compact {
+        descriptor.vertex.shader_defs.push("COMPACT_BONES".into());
+        descriptor
+            .fragment
+            .as_mut()
+            .unwrap()
+            .shader_defs
+            .push("COMPACT_BONES".into());
     }
+    descriptor
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -428,6 +492,8 @@ pub(super) struct ActorPipelineContract {
     blend: bool,
     depth_write: bool,
     depth_always: bool,
+    depth_equal: bool,
+    write_color: bool,
     additive: bool,
     additive_alpha: bool,
     alpha_to_coverage: bool,
@@ -472,13 +538,18 @@ impl ActorPipelineKey {
             blend: state.blend,
             depth_write: state.depth_write,
             depth_always: state.depth_always,
+            depth_equal: (state.depth_equal || kind == assets::EntityRenderMaterial::DissolveColor)
+                && !state.depth_always,
+            write_color: !state.disable_color_write,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
-            write_alpha: self.material
-                & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
-                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)
-                != (render_model::LEGACY_COMBAT_MATERIAL_FLAG
-                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
+            write_alpha: !state.disable_color_write
+                && !state.disable_alpha_write
+                && self.material
+                    & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                        | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)
+                    != (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                        | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
             alpha_to_coverage: self.msaa.samples() > 1
                 && state.alpha_test
                 && !state.blend
@@ -529,12 +600,13 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .unwrap()
                 .write_mask = ColorWrites::COLOR;
         }
-        if kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
+        if !contract.write_color || kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
                 .unwrap()
                 .write_mask = ColorWrites::empty();
-        } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
+        }
+        if contract.depth_equal || kind == assets::EntityRenderMaterial::DissolveColor as u32 {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare = Some(CompareFunction::Equal);
         }
         if state.is_some_and(|state| state.depth_always) {

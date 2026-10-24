@@ -42,6 +42,8 @@ pub struct ActorTickContext {
     /// A known first appearance is still awaiting its immutable model preparation.
     pub appearance_pending: bool,
     pub is_riding: bool,
+    /// A locked seat's facing in degrees; the rider's body faces along it.
+    pub seat_facing: Option<f32>,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub main_hand: Option<Arc<str>>,
     pub off_hand: Option<Arc<str>>,
@@ -172,12 +174,20 @@ pub(super) fn advance_motion(
             .horse
             .advance(query::actor_flag(actor, ActorFlag::Standing.wire_value()));
     }
-    // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
-    // a mob: its interpolated body yaw is 0, while
-    // query.target_y_rotation reads the actor's absolute rotation.
-    if query::is_arrow(actor) {
+    super::shulker::advance_peek(&mut motion.shulker_peek, actor);
+    // Arrow orientation is entirely in animation.arrow.move's body bone, and a shulker's
+    // attach face orients its model, so both keep a zero body yaw while
+    // query.target_y_rotation still reads the actor's rotation.
+    if query::has_zero_body_yaw(actor) {
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;
+    }
+    // Boats are not mobs: they face their own rotation without body-turn lag.
+    if super::boat::is_boat(actor) {
+        motion.body_yaw = actor.yaw();
+    }
+    if let Some(facing) = context.seat_facing {
+        motion.body_yaw = facing;
     }
     let baby_scale = if query::actor_flag(actor, ActorFlag::Baby.wire_value()) {
         BABY_MOVE_SPEED_SCALE
@@ -305,7 +315,7 @@ pub(super) fn seed_presentation_input(
         position: actor.position(),
         velocity: actor.velocity(),
         on_ground: actor.on_ground(),
-        body_yaw: if query::is_arrow(actor) {
+        body_yaw: if query::has_zero_body_yaw(actor) {
             0.0
         } else {
             state.motion.body_yaw
@@ -875,6 +885,7 @@ pub(super) fn apply_engine_variables(
             truth(super::horse::mouth_open(actor)),
         );
     }
+    super::shulker::publish(engine, variables, actor, context, motion);
     for &(slot, offset, axis) in &engine.dragon_history {
         if let Some(frame) = actor.dragon_historical_frame(offset) {
             variables.set(Some(slot), frame[axis]);

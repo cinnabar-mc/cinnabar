@@ -15,8 +15,12 @@
       {
         "messages_panel@chat.messages_scrolling_panel": {
           "$history_anchor": "bottom_left",
-          "$history_offset": [ 0, "$cinnabar_chat_history_bottom" ],
+          "$cinnabar_hotbar_lift": 0,
+          "$history_offset": [ 0, "($cinnabar_chat_history_bottom + $cinnabar_hotbar_lift)" ],
           "variables": [{
+            "requires": "$cinnabar_bedrock_hotbar",
+            "$cinnabar_hotbar_lift": "$cinnabar_bedrock_hotbar_lift"
+          }, {
             "requires": "$cinnabar_chat_top",
             "$history_anchor": "top_left",
             "$history_offset": [ 0, 0 ]
@@ -170,6 +174,7 @@
           { "background": {
             "type": "image",
             "texture": "textures/ui/Black",
+            "alpha": "$chat_background_opacity",
             "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
             "size": [ "100%", "100%" ]
           } }
@@ -182,6 +187,9 @@
     "size": [ "100% - 8px", "default" ],
     "anchor_from": "top_left",
     "anchor_to": "top_left",
+    "font_type": "$chat_font_type",
+    "font_scale_factor": "$chat_font_scale_factor",
+    "line_padding": "($chat_line_spacing - 1)",
     "shadow": true,
     "layer": 1
   }

@@ -70,6 +70,8 @@ pub enum Input {
     ImportFiles(Vec<PathBuf>),
     /// Cancels the current screen; while opening it also closes the world.
     Back,
+    /// A change to the open world `id` from its in-game settings.
+    InWorld(String, super::in_world::Action),
 }
 
 /// World-service work for the executor; each yields at most one [`Event`].
@@ -82,10 +84,18 @@ pub enum Effect {
         id: String,
         update: WorldUpdate,
     },
+    /// Saves an in-game change and applies it to the world's running server.
+    Apply {
+        id: String,
+        revision: u64,
+        update: WorldUpdate,
+    },
     Open(String),
     /// Reads the open world's status once it changes, or after a short wait.
     PollStatus,
     Close,
+    /// Saves and stops the open world; its outcome is never surfaced.
+    Leave,
     /// Its outcome is never surfaced.
     SetPaused(bool),
     /// Readies a server ahead of a likely open; its outcome is never surfaced.
@@ -110,6 +120,17 @@ pub enum Event {
     Created(World),
     Deleted(String),
     Updated(World),
+    /// The world as an [`Effect::Apply`] saved it.
+    Applied {
+        revision: u64,
+        applied: super::in_world::Applied,
+    },
+    /// A particular in-game edit could not be saved; Settings handles it inline.
+    ApplyFailed {
+        id: String,
+        revision: u64,
+        error: String,
+    },
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
     EulaRequired,
@@ -231,7 +252,12 @@ pub struct WorldsMenu {
     setup: Option<Setup>,
     unavailable: Option<UnavailableReason>,
     pending: Option<Pending>,
+    /// A Docker probe is in flight behind the modal, which offers only Cancel meanwhile.
+    checking: bool,
     eula_for: Option<String>,
+    /// The open world whose running server missed an in-game change this session.
+    missed_live: Option<String>,
+    in_world: super::in_world::Edits,
 }
 
 impl WorldsMenu {
@@ -297,6 +323,19 @@ impl WorldsMenu {
         self.ready.take()
     }
 
+    /// Whether world `id`'s running server missed an in-game change since it opened.
+    pub fn missed_live(&self, id: &str) -> bool {
+        self.missed_live.as_deref() == Some(id)
+    }
+
+    /// The played world's settings, including pending choices and inline save failures.
+    pub fn in_world_view(&self, id: &str) -> Option<super::in_world::View> {
+        let world = self.worlds.iter().find(|world| world.id == id)?;
+        let mut view = self.in_world.view(world)?;
+        view.missed = self.missed_live(id);
+        Some(view)
+    }
+
     /// The open world's player limit, the host included, once its server reported one.
     pub fn max_players(&self) -> Option<u32> {
         self.opening_status
@@ -342,8 +381,11 @@ impl WorldsMenu {
         })
     }
 
-    /// Why the BDS backend cannot run on this machine.
+    /// Why the modal is up: a probe in flight, or why the BDS backend cannot run here.
     fn prompt_kind(&self) -> Option<PromptKind> {
+        if self.checking {
+            return Some(PromptKind::Checking);
+        }
         match self.unavailable? {
             UnavailableReason::DockerMissing => Some(PromptKind::DockerMissing),
             UnavailableReason::DockerNotRunning => Some(PromptKind::DockerNotRunning),
@@ -370,11 +412,20 @@ impl WorldsMenu {
                 .then_some(PromptFor::Play),
         };
         if blocking.is_some() && self.prompt_kind().is_some() {
+            // The verdict may predate installing or starting Docker, so probe again before asking.
             self.pending = Some(pending);
             self.screen = Screen::BackendPrompt;
-            return Vec::new();
+            return self.redetect();
         }
         self.proceed(pending)
+    }
+
+    fn redetect(&mut self) -> Vec<Effect> {
+        self.checking = true;
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: false,
+            redetect: true,
+        }]
     }
 
     fn proceed(&mut self, pending: Pending) -> Vec<Effect> {
@@ -413,6 +464,8 @@ impl WorldsMenu {
     }
 
     fn begin_opening(&mut self, id: String) -> Vec<Effect> {
+        self.missed_live = None;
+        self.in_world.reset();
         self.opening = Some(id.clone());
         self.opening_status = None;
         self.ready = None;
@@ -421,7 +474,10 @@ impl WorldsMenu {
     }
 
     fn prompt_button(&mut self, button: PromptButton) -> Vec<Effect> {
-        if self.screen != Screen::BackendPrompt {
+        if !self
+            .prompt()
+            .is_some_and(|prompt| prompt.buttons().contains(&button))
+        {
             return Vec::new();
         }
         match button {
@@ -433,13 +489,7 @@ impl WorldsMenu {
                 _ => self.proceed(Pending::Create),
             },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
-            PromptButton::Retry => {
-                self.busy = true;
-                vec![Effect::SetPrefs {
-                    dismiss_docker_prompt: false,
-                    redetect: true,
-                }]
-            }
+            PromptButton::Retry => self.redetect(),
             PromptButton::Cancel => self.back(),
         }
     }
@@ -457,6 +507,14 @@ impl WorldsMenu {
     }
 
     pub fn update(&mut self, input: Input) -> Vec<Effect> {
+        // The open world's settings are independent of the menu's screens and requests.
+        if let Input::InWorld(id, action) = input {
+            return self
+                .in_world
+                .change(&mut self.worlds, &id, action)
+                .into_iter()
+                .collect();
+        }
         if self.busy && !matches!(input, Input::Back) {
             return Vec::new();
         }
@@ -694,6 +752,7 @@ impl WorldsMenu {
     }
 
     fn back(&mut self) -> Vec<Effect> {
+        self.checking = false;
         match self.screen {
             Screen::Edit => {
                 self.play_after_update = false;
@@ -794,11 +853,33 @@ impl WorldsMenu {
                 self.screen = Screen::List;
                 self.play_edited()
             }
+            Event::Applied { revision, applied } => {
+                if applied.missed {
+                    self.missed_live = Some(applied.world.id.clone());
+                }
+                self.in_world.finish(
+                    &mut self.worlds,
+                    &applied.world.id,
+                    revision,
+                    Ok(&applied.world),
+                );
+                Vec::new()
+            }
+            Event::ApplyFailed {
+                id,
+                revision,
+                error,
+            } => {
+                self.in_world
+                    .finish(&mut self.worlds, &id, revision, Err(error));
+                Vec::new()
+            }
             Event::Status(status) => {
                 self.note_status(&status);
                 self.apply_status(status)
             }
             Event::Prefs(_, status) => {
+                self.checking = false;
                 self.note_status(&status);
                 self.busy = self.mutation_pending;
                 // The Docker probe outlives startup; keep reading until it reports a verdict.

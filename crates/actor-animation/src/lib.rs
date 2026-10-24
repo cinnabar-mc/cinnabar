@@ -53,6 +53,7 @@ pub use store::ActorAnimationStore;
 use store::{PackCatalog, PoseStep, model_scale};
 
 mod attachable;
+mod boat;
 mod cape;
 pub use cape::CapePreparationQueue;
 mod clock;
@@ -78,6 +79,7 @@ mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
 mod replay;
 mod server_animation;
+mod shulker;
 pub use server_animation::ServerAnimationCompiler;
 mod schedule;
 mod skin;

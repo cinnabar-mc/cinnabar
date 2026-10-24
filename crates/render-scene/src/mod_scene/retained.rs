@@ -39,7 +39,7 @@ impl RootPose {
                     && id.session_id == key.session
                     && id.dimension == key.dimension
                     && id.runtime_id == key.runtime_id
-                    && id.spawn_revision == key.spawn_revision)
+                    && id.spawn_revision.get() == key.spawn_revision)
                     .then_some(Self {
                         world_from_actor: instance.world_from_actor,
                         frame_generation: frame.rig.frame_generation,
@@ -57,6 +57,8 @@ pub struct GpuInstance {
     pub line: [f32; 4],
     pub params: [f32; mod_api::materials::PARAMS],
 }
+
+const _: () = assert!(std::mem::size_of::<GpuInstance>() == mod_api::drawing::INSTANCE_GPU_BYTES);
 
 /// Resolves admitted world, block and camera anchors from one trusted frame and view.
 pub fn resolve(
@@ -241,7 +243,7 @@ mod actor_tests {
         ActorRenderSource {
             runtime_id: 7,
             unique_id: 77,
-            spawn_revision: 1,
+            spawn_revision: std::num::NonZeroU64::MIN,
             movement_revision: 1,
             previous_position: [0.; 3],
             position: [10., 0., 0.],

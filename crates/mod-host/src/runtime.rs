@@ -1,4 +1,7 @@
+mod action_filter;
 mod input_host;
+mod output_lifecycle;
+mod presentation;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
     GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
@@ -20,7 +23,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/player-mod@0.1.0",
+    world: "cinnabar:extension/filtered-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
 });
@@ -54,6 +57,8 @@ mod player_state;
 mod render;
 #[path = "terrain_host.rs"]
 mod terrain_host;
+#[path = "touch.rs"]
+mod touch;
 
 /// What a package declares that the host checks guest output and events against.
 #[derive(Clone, Debug, Default)]
@@ -63,7 +68,7 @@ pub(crate) struct Declared {
     pub(crate) keys: BTreeSet<String>,
 }
 
-struct State {
+pub(crate) struct State {
     exclusive: crate::exclusive::Exclusive,
     terrain: crate::terrain::TerrainState,
     limits: StoreLimits,
@@ -72,19 +77,10 @@ struct State {
     hud: hud::HudState,
     pending: Option<String>,
     writes: u32,
-    grants: ModGrants,
-    time_override: Option<u32>,
-    pending_time: Option<Option<u32>>,
-    fullbright: bool,
-    pending_fullbright: Option<bool>,
-    environment_writes: u32,
+    pub(crate) grants: ModGrants,
+    environment: output_lifecycle::Environment,
+    motion: output_lifecycle::Movement,
     snapshot: Option<GameplaySnapshot>,
-    movement: Option<GameplayMovementSnapshot>,
-    pending_jump: bool,
-    pending_jump_cancel: bool,
-    jump_cancel: bool,
-    jump_pulse: bool,
-    movement_writes: u32,
     gameplay_reads: u32,
     camera_writes: u32,
     pending_camera: Option<CameraDelta>,
@@ -99,8 +95,10 @@ struct State {
     camera_policy: camera::CameraPolicy,
     item_use_policy: item_use::ItemUsePolicy,
     player_state: player_state::PlayerState,
-    render: render::RenderState,
+    pub(crate) render: render::RenderState,
     drawing_policy: Option<mod_api::drawing::DrawingSession>,
+    presentation_epoch: Option<u64>,
+    pub(crate) asset_files: std::collections::BTreeMap<String, Vec<u8>>,
     declared: Declared,
     layout: Option<HostLayout>,
     session: Arc<SessionData>,
@@ -113,6 +111,7 @@ struct State {
     block_highlights: block_highlights::HighlightState,
     inventory: inventory::InventoryRequests,
     events: player_mod::EventContext,
+    touch: touch::TouchState,
 }
 
 impl State {
@@ -125,7 +124,7 @@ impl State {
             || self.camera_policy.committed_hurt_style.is_some()
     }
 
-    fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
+    pub(crate) fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
                 .memory_size(MEMORY_BYTES)
@@ -143,18 +142,9 @@ impl State {
             pending: None,
             writes: 0,
             grants,
-            time_override: None,
-            pending_time: None,
-            fullbright: false,
-            pending_fullbright: None,
-            environment_writes: 0,
+            environment: Default::default(),
+            motion: Default::default(),
             snapshot: None,
-            movement: None,
-            pending_jump: false,
-            pending_jump_cancel: false,
-            jump_cancel: false,
-            jump_pulse: false,
-            movement_writes: 0,
             gameplay_reads: 0,
             camera_writes: 0,
             pending_camera: None,
@@ -171,6 +161,8 @@ impl State {
             player_state: player_state::PlayerState::default(),
             render: render::RenderState::new(),
             drawing_policy: None,
+            presentation_epoch: None,
+            asset_files: Default::default(),
             declared,
             layout: None,
             session: Arc::default(),
@@ -181,6 +173,7 @@ impl State {
             block_highlights: block_highlights::HighlightState::default(),
             inventory: Default::default(),
             events: Default::default(),
+            touch: Default::default(),
         }
     }
 }
@@ -243,24 +236,34 @@ impl cinnabar::extension::hud::Host for State {
 }
 
 impl cinnabar::extension::environment::Host for State {
-    fn set_fullbright(&mut self, enabled: bool) -> Result<Result<(), String>> {
-        self.environment_writes += 1;
-        if self.environment_writes > MAX_IMPORT_WRITES {
-            bail!("environment import budget exhausted");
+    /// Stages presentation weather under the same authority and budget as visual time.
+    fn set_weather_override(
+        &mut self,
+        value: Option<cinnabar::extension::environment::Weather>,
+    ) -> Result<Result<(), String>> {
+        self.environment.write()?;
+        if self.exclusive.environment {
+            return Ok(Err(self.exclusive.refuse()));
         }
+        if !self.grants.environment {
+            return Ok(Err("environment capability denied".into()));
+        }
+        self.environment.pending_weather = Some(value);
+        Ok(Ok(()))
+    }
+
+    fn set_fullbright(&mut self, enabled: bool) -> Result<Result<(), String>> {
+        self.environment.write()?;
         if !self.grants.fullbright {
             return Ok(Err("fullbright capability denied".into()));
         }
-        self.pending_fullbright = Some(enabled);
+        self.environment.pending_fullbright = Some(enabled);
         Ok(Ok(()))
     }
 
     /// Stages a fixed visual clock only with explicit authority and a valid tick.
     fn set_time_override(&mut self, ticks: Option<u32>) -> Result<Result<(), String>> {
-        self.environment_writes += 1;
-        if self.environment_writes > MAX_IMPORT_WRITES {
-            bail!("environment import budget exhausted");
-        }
+        self.environment.write()?;
         if self.exclusive.environment {
             return Ok(Err(self.exclusive.refuse()));
         }
@@ -270,7 +273,7 @@ impl cinnabar::extension::environment::Host for State {
         if ticks.is_some_and(|tick| tick >= mod_api::BEDROCK_DAY_TICKS) {
             return Ok(Err("time override must be within one Bedrock day".into()));
         }
-        self.pending_time = Some(ticks);
+        self.environment.pending_time = Some(ticks);
         Ok(Ok(()))
     }
 }
@@ -290,6 +293,7 @@ pub(super) struct Instance {
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
+    filter_identity: u64,
 }
 
 impl Instance {
@@ -356,18 +360,13 @@ impl Instance {
         let state = self.store.data_mut();
         state.terrain.begin_frame();
         state.snapshot = None;
-        state.movement = None;
-        state.pending_jump = false;
-        state.pending_jump_cancel = false;
-        state.jump_cancel = false;
-        state.jump_pulse = false;
-        state.movement_writes = 0;
+        state.motion.begin_frame();
         state.pending_camera = None;
         state.camera_delta = None;
         state.pending_packet_delay = None;
         state.packet_delay_writes = 0;
         state.pending_show_real_position = None;
-        state.pending_fullbright = None;
+        state.environment.begin_frame();
         state.controls.begin_frame();
         state.render.begin_frame();
         state.block_highlights.begin_frame();
@@ -386,7 +385,7 @@ impl Instance {
         state.snapshot = None;
         state.player_state.begin_frame();
         state.player_state.clear_presentation();
-        state.movement = None;
+        state.motion.finish_frame();
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
@@ -422,7 +421,7 @@ impl Instance {
         let state = self.store.data_mut();
         state.pressed = pressed;
         state.snapshot = snapshot;
-        state.movement = movement;
+        state.motion.snapshot = movement;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
@@ -436,6 +435,7 @@ impl Instance {
             return Ok(());
         }
         self.store.data_mut().controls.begin_text_frame();
+        self.store.data_mut().touch.begin_frame();
         let result = match delivery {
             CallbackOutcome::Executed => {
                 self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
@@ -445,10 +445,10 @@ impl Instance {
         if matches!(&result, Ok(CallbackOutcome::Deferred)) {
             hud::sources::refresh(self.store.data_mut());
         }
-        self.store
-            .data_mut()
-            .controls
-            .finish_text_frame(matches!(&result, Ok(CallbackOutcome::Deferred)));
+        let deferred = matches!(&result, Ok(CallbackOutcome::Deferred));
+        let state = self.store.data_mut();
+        state.controls.finish_text_frame(deferred);
+        state.touch.finish_frame(deferred);
         if result.is_ok() {
             hud::bounds::update(self.store.data_mut());
         }
@@ -497,10 +497,10 @@ impl Instance {
         };
         let state = self.store.data_mut();
         state.writes = 0;
-        state.environment_writes = 0;
+        state.environment.begin_callback();
         state.gameplay_reads = 0;
         state.camera_writes = 0;
-        state.movement_writes = 0;
+        state.motion.begin_callback();
         state.packet_delay_writes = 0;
         state.controls.reset_budget();
         state.calls = 0;
@@ -508,6 +508,7 @@ impl Instance {
         state.pending_screens = None;
         state.inventory.begin();
         state.render.begin_callback();
+        state.touch.begin_callback();
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
@@ -538,7 +539,11 @@ impl Instance {
         if camera && !state.exclusive.camera && state.exclusive.camera_claimed {
             state.exclusive.refuse();
         }
-        if environment && !state.exclusive.environment && state.time_override.is_some() {
+        if environment
+            && !state.exclusive.environment
+            && (state.environment.time_override.is_some()
+                || state.environment.weather_override.is_some())
+        {
             state.exclusive.refuse();
         }
         state.exclusive.camera_claimed |= state.camera_output();
@@ -601,16 +606,9 @@ impl Instance {
         state.hud = hud::HudState::default();
         state.player_state.revoke();
         state.terrain = Default::default();
-        state.pending_time = None;
-        state.time_override = None;
-        state.fullbright = false;
-        state.pending_fullbright = None;
+        state.environment.revoke();
         state.snapshot = None;
-        state.movement = None;
-        state.pending_jump = false;
-        state.pending_jump_cancel = false;
-        state.jump_cancel = false;
-        state.jump_pulse = false;
+        state.motion.revoke();
         state.pending_camera = None;
         state.camera_delta = None;
         state.controls.revoke();
@@ -626,6 +624,7 @@ impl Instance {
         state.pending_screens = None;
         state.screens = ModScreens::default();
         state.inventory.revoke();
+        state.touch.revoke();
     }
 
     pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
@@ -652,12 +651,12 @@ impl Instance {
 
     /// Consumes the committed cancellation once.
     pub(super) fn take_jump_cancel(&mut self) -> bool {
-        std::mem::take(&mut self.store.data_mut().jump_cancel)
+        std::mem::take(&mut self.store.data_mut().motion.jump_cancel)
     }
 
     /// Consumes the committed jump request once.
     pub(super) fn take_jump_pulse(&mut self) -> bool {
-        std::mem::take(&mut self.store.data_mut().jump_pulse)
+        std::mem::take(&mut self.store.data_mut().motion.jump_pulse)
     }
 
     pub(super) fn terrain_subscriptions(&self) -> usize {
@@ -706,7 +705,7 @@ impl Instance {
         self.store.data().packet_delay_ms
     }
     pub(super) fn fullbright(&self) -> bool {
-        self.store.data().fullbright
+        self.store.data().environment.fullbright
     }
     pub(super) fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
         self.store.data().block_highlights.committed.as_ref()
@@ -718,8 +717,19 @@ impl Instance {
     /// Reads the committed presentation clock without entering the component.
     pub(super) fn time_override(&self) -> Option<u32> {
         (!self.store.data().exclusive.environment)
-            .then_some(self.store.data().time_override)
+            .then_some(self.store.data().environment.time_override)
             .flatten()
+    }
+
+    /// Reads committed weather subject to active environment precedence.
+    pub(super) fn weather_override(&self) -> Option<cinnabar::extension::environment::Weather> {
+        (!self.store.data().exclusive.environment)
+            .then_some(self.store.data().environment.weather_override)
+            .flatten()
+    }
+    /// Reads committed subtractive input policy without entering the guest.
+    pub(super) fn click_limits(&self) -> [Option<u32>; 2] {
+        self.store.data().environment.click_limits
     }
 
     /// Reads retained UI without entering the component.
@@ -859,8 +869,7 @@ impl Instance {
 /// Publishes retained presentation changes after the entire callback succeeds.
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
-    state.jump_cancel = std::mem::take(&mut state.pending_jump_cancel);
-    state.jump_pulse = std::mem::take(&mut state.pending_jump) && !state.jump_cancel;
+    state.motion.commit_frame();
     state.terrain.commit();
     state.render.commit();
     state.block_highlights.commit();
@@ -900,13 +909,9 @@ fn commit_event(store: &mut Store<State>) {
         }
     }
     state.controls.commit();
+    state.touch.commit();
     state.inventory.commit();
-    if let Some(enabled) = state.pending_fullbright.take() {
-        state.fullbright = enabled;
-    }
-    if let Some(ticks) = state.pending_time.take() {
-        state.time_override = ticks;
-    }
+    state.environment.commit();
     if let Some(text) = state.pending.take() {
         state.label = (!text.is_empty()).then_some(text);
     }

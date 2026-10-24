@@ -1,6 +1,9 @@
 //! Vendor-independent, renderer-independent semantic input primitives.
 
 mod action;
+pub mod action_filter;
+mod click_limit;
+pub use click_limit::ClickLimiter;
 mod axes;
 mod binding;
 mod button_events;
@@ -27,10 +30,7 @@ pub use device::{
     MAX_MOUSE_BUTTONS, MAX_TOUCH_CONTACTS, MAX_TOUCH_CONTROLS, TouchAxis, TouchContact,
     TouchControl, TouchControlKind, TouchControlLayout, TouchLayoutError,
 };
-pub use ordered::{
-    ActionButtons, ActionEvent, DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS,
-    OrderedActions,
-};
+pub use ordered::{ActionButtons, ActionEvent, DesktopEvent, DesktopEvents, OrderedActions};
 pub use router::{MAX_LOOK_DELTA_PER_FRAME, RouterError, SemanticInputRouter};
 
 /// Stable default hit identifiers supplied by the app-owned touch layout.
@@ -71,6 +71,30 @@ pub mod touch {
     /// The movement stick; the contact delta is its normalized deflection, positive Y forward.
     pub const JOYSTICK: u16 = 33;
     pub const INVENTORY: u16 = 34;
+    pub const CHAT: u16 = 35;
+    pub const EMOTE: u16 = 36;
+    pub const UTILITIES: u16 = 37;
+    pub const DEBUG_OVERLAY: u16 = 38;
+    pub const PLAYER_LIST: u16 = 39;
+    pub const DISMISS_UTILITIES: u16 = 40;
+    /// Mod-registered buttons, one per presented slot. They complete as taps in the app and
+    /// never enter the gameplay router's layout.
+    pub const MOD_BUTTONS: std::ops::Range<u16> = 64..80;
+
+    /// The presented slot of a mod button's hit id.
+    pub fn mod_button_slot(hit_id: u16) -> Option<usize> {
+        MOD_BUTTONS
+            .contains(&hit_id)
+            .then(|| usize::from(hit_id - MOD_BUTTONS.start))
+    }
+
+    /// The hit id of a presented mod button slot.
+    pub fn mod_button(slot: usize) -> Option<u16> {
+        u16::try_from(slot)
+            .ok()
+            .and_then(|slot| MOD_BUTTONS.start.checked_add(slot))
+            .filter(|id| MOD_BUTTONS.contains(id))
+    }
 }
 
 mod touch_controls;

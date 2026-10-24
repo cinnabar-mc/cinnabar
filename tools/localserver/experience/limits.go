@@ -33,7 +33,7 @@ const shutdownGrace = time.Second
 
 // maxFrameBytes is the largest frame body. It must equal the Rust runtime's MAX_FRAME_BYTES,
 // which TestFrameLimitMatchesRust checks against the limits fixture.
-const maxFrameBytes = 4 << 20
+const maxFrameBytes = 16 << 20
 
 // stderrLineBytes is the longest helper stderr line that is logged; the rest of a longer line is
 // dropped.
@@ -85,6 +85,8 @@ const (
 // Registration checks a block type by the runtime's bounds again. Each must equal its Rust
 // constant, which TestCommitLimitsMatchRust checks against the limits fixture.
 const (
+	// maxBlocks is the most blocks one Experience registers: Rust's MAX_BLOCKS.
+	maxBlocks = 256
 	// maxNameBytes is the most bytes in a state's name after "<id>:", a string state value, a
 	// material instance and a geometry's name: Rust's MAX_NAME_BYTES.
 	maxNameBytes = 64
@@ -128,7 +130,7 @@ const (
 	// hotbarSlots is the slots of the hotbar, of which one is selected: Rust's HOTBAR_SLOTS.
 	hotbarSlots = 9
 	// maxItems is the most items one Experience registers: Rust's MAX_ITEMS.
-	maxItems = 64
+	maxItems = 512
 	// maxStackSize is the most one stack of an Experience's item holds: Rust's MAX_STACK_SIZE.
 	maxStackSize = 64
 	// maxItemDataBytes is the most data of an Experience's own on one stack: Rust's

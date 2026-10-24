@@ -8,6 +8,7 @@ mod icon;
 pub mod mod_hud;
 pub mod mod_metadata;
 pub mod mod_panel;
+pub mod mod_touch;
 mod model;
 pub mod oreui_theme;
 mod scoreboard;
@@ -52,10 +53,11 @@ pub use scoreboard::{
 pub use settings::{
     ANTI_ALIASING_SAMPLE_COUNTS, AntiAliasingSupport, CURRENT_SETTINGS_SCHEMA,
     DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION,
-    DEFAULT_SMAA_MODE, GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES,
-    MIN_RENDER_DISTANCE_CHUNKS, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality,
-    RenderDistanceDefaults, RenderDistanceDevice, RenderMode, SmaaMode, UserSettings,
-    VideoSettings, ViewBobbing,
+    DEFAULT_RENDER_SCALE_PERCENT, DEFAULT_RENDER_SCALE_SHARPEN, DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
+    DEFAULT_SHOW_OTHER_PLAYER_COSMETICS, DEFAULT_SMAA_MODE, FSR_SHARPNESS_STOPS, GameplaySettings,
+    MAX_FOV_DEGREES, MAX_RENDER_SCALE_PERCENT, MIN_FOV_DEGREES, MIN_RENDER_DISTANCE_CHUNKS,
+    MIN_RENDER_SCALE_PERCENT, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality, RenderDistanceDefaults,
+    RenderDistanceDevice, RenderMode, SmaaMode, UserSettings, VideoSettings, ViewBobbing,
 };
 pub use text::{
     BedrockColor, ColorDescriptor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS,

@@ -1,5 +1,5 @@
 //! Client-predicted sounds tied to local interaction: block place/hit/break, eating and drinking,
-//! actor hurt/death status events, and dropped-item pickup.
+//! the player's own attacks, actor hurt/death status events, and dropped-item pickup.
 
 use std::sync::Arc;
 
@@ -46,10 +46,26 @@ pub enum LocalBlockCue {
     },
 }
 
+/// The local player's attack sound, voiced on the frame the attack is sent. Servers send
+/// it only to other players, so no server copy is expected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Message)]
+pub struct LocalAttackCue {
+    /// The player's level sound event, such as `attack.strong`.
+    pub event: &'static str,
+}
+
 #[derive(Debug, Default)]
 pub struct MiningAudio {
-    target: Option<([i32; 3], Option<String>)>,
+    target: Option<([i32; 3], Option<String>, Option<String>)>,
     hit_timer: f32,
+}
+
+/// A predicted block sound with the material captured before the world changes.
+struct BlockSoundCue {
+    event: &'static str,
+    identifier: Option<String>,
+    component_material: Option<String>,
+    cell: [i32; 3],
 }
 
 fn center(cell: [i32; 3]) -> [f32; 3] {
@@ -104,7 +120,7 @@ pub fn drive_block_cues(
         stream.current_dimension(),
         Default::default(),
     );
-    let mut requests: Vec<(&'static str, Option<String>, [i32; 3])> = Vec::new();
+    let mut requests = Vec::new();
     for cue in cues.read() {
         let (event, position, block_runtime_id) = match *cue {
             LocalBlockCue::Place {
@@ -116,25 +132,48 @@ pub fn drive_block_cues(
                 block_runtime_id,
             } => ("break", position, block_runtime_id),
         };
-        requests.push((event, lookup(block_runtime_id as u32), position));
+        let runtime_id = block_runtime_id as u32;
+        requests.push(BlockSoundCue {
+            event,
+            identifier: lookup(runtime_id),
+            component_material: collisions
+                .block_sound_material(mode, runtime_id)
+                .map(str::to_owned),
+            cell: position,
+        });
     }
     let target = survival
         .and_then(|survival| survival.destroying_target())
         .map(|(cell, _face)| cell);
-    let previous = mining.target.as_ref().map(|(cell, _)| *cell);
+    let previous = mining.target.as_ref().map(|(cell, _, _)| *cell);
     if target != previous {
         mining.hit_timer = 0.0;
         mining.target = target.map(|cell| {
+            let runtime_id = palette.primary_runtime_id(cell).ok();
             let identifier = identifier_ref(&palette, collisions, mode, cell).map(str::to_owned);
-            (cell, identifier)
+            let component_material = runtime_id
+                .and_then(|runtime_id| collisions.block_sound_material(mode, runtime_id))
+                .map(str::to_owned);
+            (cell, identifier, component_material)
         });
     }
-    if let Some(cell) = mining.target.as_ref().map(|(cell, _)| *cell) {
+    if let Some(cell) = mining.target.as_ref().map(|(cell, _, _)| *cell) {
         mining.hit_timer -= time.delta_secs();
         if mining.hit_timer <= 0.0 {
             mining.hit_timer = HIT_INTERVAL;
-            let identifier = mining.target.as_ref().and_then(|(_, id)| id.clone());
-            requests.push(("hit", identifier, cell));
+            let (identifier, component_material) = mining
+                .target
+                .as_ref()
+                .map(|(_, identifier, component_material)| {
+                    (identifier.clone(), component_material.clone())
+                })
+                .unwrap_or_default();
+            requests.push(BlockSoundCue {
+                event: "hit",
+                identifier,
+                component_material,
+                cell,
+            });
         }
     }
     let built: Vec<(&'static str, [i32; 3], SoundRequest)> = {
@@ -142,14 +181,23 @@ pub fn drive_block_cues(
         let tables = bank.tables();
         requests
             .into_iter()
-            .filter_map(|(event, identifier, cell)| {
-                let material = tables.material_of(identifier.as_deref()?)?;
-                let route = tables.block(material, event)?;
-                let request = SoundRequest::new(route.sound)
-                    .with_ranges(route.volume, route.pitch)
-                    .at(center(cell));
-                Some((event, cell, request))
-            })
+            .filter_map(
+                |BlockSoundCue {
+                     event,
+                     identifier,
+                     component_material,
+                     cell,
+                 }| {
+                    let identifier = identifier?;
+                    let material = tables
+                        .material_of_with_component(&identifier, component_material.as_deref());
+                    let route = tables.block(material, event)?;
+                    let request = SoundRequest::new(route.sound)
+                        .with_ranges(route.volume, route.pitch)
+                        .at(center(cell));
+                    Some((event, cell, request))
+                },
+            )
             .collect()
     };
     for (event, cell, request) in built {
@@ -303,6 +351,49 @@ pub fn drive_consume_audio(
     for request in requests {
         engine.enqueue(request);
     }
+}
+
+/// Voices the local player's attack cues at `position`, unless the player is silent.
+pub fn drive_attack_cues(
+    mut cues: MessageReader<LocalAttackCue>,
+    world: crate::observations::WorldObservation<'_>,
+    position: bevy::prelude::Vec3,
+    mut engine: ResMut<AudioEngine>,
+) {
+    use actor_animation::AnimatedActor;
+    let silent = world.stream.as_ref().is_none_or(|stream| {
+        stream
+            .authority()
+            .actor(stream.local_player_runtime_id())
+            .is_some_and(|actor| actor.flag(protocol_ids::ActorFlag::Silent.wire_value()))
+    });
+    let requests: Vec<SoundRequest> = match engine.bank() {
+        Some(bank) if !silent => cues
+            .read()
+            .filter_map(|cue| attack_request(bank.tables(), *cue, position.into()))
+            .collect(),
+        _ => {
+            cues.clear();
+            return;
+        }
+    };
+    for request in requests {
+        engine.enqueue(request);
+    }
+}
+
+/// The player's sound for an attack cue at `position`.
+fn attack_request(
+    tables: &assets::SoundEventTables,
+    cue: LocalAttackCue,
+    position: [f32; 3],
+) -> Option<SoundRequest> {
+    let route = tables.entity(PLAYER, cue.event, None)?;
+    Some(
+        SoundRequest::new(route.sound)
+            .with_ranges(route.volume, route.pitch)
+            .at(position),
+    )
 }
 
 /// Hurt or death sound of `identifier` for a status `notice`, from the actor's head.
@@ -641,5 +732,30 @@ mod tests {
     #[test]
     fn cell_centers_offset_by_half_a_block() {
         assert_eq!(center([1, -2, 3]), [1.5, -1.5, 3.5]);
+    }
+
+    #[test]
+    fn attack_cues_voice_the_player_attack_sound_at_the_player() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {"entities": {"player": {
+                "volume": 1.0, "pitch": [0.8, 1.2], "events": {
+                    "attack.critical": "game.player.attack.critical",
+                    "attack.strong": "game.player.attack.strong"}}}}}),
+            &serde_json::json!({}),
+        );
+        let request = attack_request(
+            &tables,
+            LocalAttackCue {
+                event: "attack.critical",
+            },
+            [1.0, 65.62, 1.0],
+        )
+        .unwrap();
+        assert_eq!(&*request.name, "game.player.attack.critical");
+        assert_eq!(request.position, Some([1.0, 65.62, 1.0]));
+        let missing = LocalAttackCue {
+            event: "attack.nodamage",
+        };
+        assert!(attack_request(&tables, missing, [0.0; 3]).is_none());
     }
 }

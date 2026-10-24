@@ -176,7 +176,9 @@ impl ModHosts {
             self.host(earlier).is_active() && self.host(earlier).has_camera_output()
         });
         let environment = (0..index).any(|earlier| {
-            self.host(earlier).is_active() && self.host(earlier).time_override().is_some()
+            self.host(earlier).is_active()
+                && (self.host(earlier).time_override().is_some()
+                    || self.host(earlier).weather_override().is_some())
         });
         let budget = self.budget.clone();
         let claims = self.hud_claims.clone();
@@ -295,6 +297,11 @@ impl ModHosts {
         false
     }
 
+    /// Only the earliest active, granted, explicitly exporting component filters actions.
+    pub fn action_filter_owner(&self) -> Option<usize> {
+        (0..self.host_count()).find(|&i| self.host(i).action_filter_identity().is_some())
+    }
+
     /// The earliest card publisher owns the retained card surface.
     pub fn hud_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
@@ -341,6 +348,62 @@ impl ModHosts {
     /// Every mod's render output with its generation, in load order.
     pub fn render_outputs(&self) -> impl Iterator<Item = (&mod_render::RenderOutput, u64)> {
         (0..self.host_count()).map(|index| self.host(index).render())
+    }
+
+    /// Presented touch buttons with their owning host index, in load order. A button id an
+    /// earlier mod already uses is skipped, and the set is bounded across all mods.
+    pub fn touch_buttons(&self) -> Vec<(usize, &ui::mod_touch::TouchButton)> {
+        let mut buttons: Vec<(usize, &ui::mod_touch::TouchButton)> = Vec::new();
+        for index in 0..self.host_count() {
+            for button in self.host(index).touch_buttons() {
+                if buttons.len() < ui::mod_touch::MAX_PRESENTED_TOUCH_BUTTONS
+                    && !buttons.iter().any(|(_, other)| other.id == button.id)
+                {
+                    buttons.push((index, button));
+                }
+            }
+        }
+        buttons
+    }
+
+    /// Queues a completed tap for the instance `owner` that still presents button `id`; a tap
+    /// on a button now presented by another instance is dropped.
+    pub fn queue_touch_press(&mut self, owner: u64, id: &str) -> bool {
+        let index = self
+            .touch_buttons()
+            .into_iter()
+            .find_map(|(index, button)| {
+                (button.id == id && self.host(index).touch_owner() == owner).then_some(index)
+            });
+        index.is_some_and(|index| self.host_mut(index).queue_touch_press(id))
+    }
+
+    /// Shows the panel of each mod whose last executed frame received taps and opened it.
+    pub fn select_panels_opened_by_taps(&mut self) {
+        for index in 0..self.host_count() {
+            if self.host(index).touch_presses_delivered() {
+                self.select_opened_panel(index);
+            }
+        }
+    }
+
+    /// Shows the panel a tapped mod opened, as its toggle key would, closing the selected
+    /// panel. A panel capturing keys keeps the selection.
+    pub fn select_opened_panel(&mut self, index: usize) -> bool {
+        let previous = self.panel_owner();
+        if index >= self.host_count() || index == previous {
+            return false;
+        }
+        let host = self.host(index);
+        let current = self.host(previous);
+        if !(host.is_active() && host.panel().is_some() && host.panel_open())
+            || (current.panel_open() && current.panel().is_some_and(|panel| panel.capture_key))
+        {
+            return false;
+        }
+        self.panel_selection = index;
+        self.host_mut(previous).set_panel_open(false);
+        true
     }
 
     /// Collects the distinct physical keys reserved by all loaded components.
@@ -398,6 +461,23 @@ pub struct FrameInput<'a> {
 pub fn run_frame(
     runtime: &mut ModHosts,
     input: FrameInput<'_>,
+    world: impl FnMut(
+        &ModGrants,
+    ) -> (
+        Option<GameplaySnapshot>,
+        Vec<GameplayMob>,
+        Option<GameplayMovementSnapshot>,
+    ),
+    failed: impl FnMut(usize, String),
+) -> Merged {
+    run_frame_callbacks(runtime, input, world, failed);
+    collect_frame_outputs(runtime)
+}
+
+/// Runs observations and guest frames before input filtering and output collection.
+pub fn run_frame_callbacks(
+    runtime: &mut ModHosts,
+    input: FrameInput<'_>,
     mut world: impl FnMut(
         &ModGrants,
     ) -> (
@@ -406,7 +486,7 @@ pub fn run_frame(
         Option<GameplayMovementSnapshot>,
     ),
     mut failed: impl FnMut(usize, String),
-) -> Merged {
+) {
     let mut union = ModGrants::default();
     let mut active = false;
     for index in 0..runtime.host_count() {
@@ -432,7 +512,6 @@ pub fn run_frame(
     };
     let owner = runtime.panel_owner();
     let mut claimed = Vec::new();
-    let mut merged = Merged::default();
     for index in 0..runtime.host_count() {
         let host = runtime.host(index);
         if !host.is_active() {
@@ -499,6 +578,13 @@ pub fn run_frame(
         if let Some(error) = host.take_settings_error() {
             bevy::log::warn!("Cinnabar extension preferences could not be saved: {error}");
         }
+    }
+}
+
+/// Collects only still-active guests, so a failed input callback cannot publish prior output.
+pub fn collect_frame_outputs(runtime: &mut ModHosts) -> Merged {
+    let mut merged = Merged::default();
+    for host in runtime.iter_mut().filter(|host| host.is_active()) {
         merged.absorb(host);
     }
     merged
@@ -526,6 +612,8 @@ pub struct Merged {
     pub item_use_delay_fix: Option<(u64, i32)>,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
+    pub weather_override: Option<[f32; 2]>,
+    pub click_limits: [Option<u32>; 2],
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     pub jump_pulse: bool,
@@ -550,6 +638,13 @@ impl Merged {
         self.hurt_style = self.hurt_style.or(host.camera_hurt_style());
         self.item_use_delay_fix = self.item_use_delay_fix.or(host.item_use_delay_fix());
         self.time_override = self.time_override.or(host.time_override());
+        self.weather_override = self.weather_override.or(host.weather_override());
+        for (cap, next) in self.click_limits.iter_mut().zip(host.click_limits()) {
+            *cap = match (*cap, next) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
     }

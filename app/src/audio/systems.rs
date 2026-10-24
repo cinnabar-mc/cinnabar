@@ -4,13 +4,15 @@ use bevy::prelude::{App, Local, MessageReader, Res, ResMut, Time, Update};
 use client_audio::audio::{
     AudioSettings,
     local::LocalMotion,
-    systems::{AmbientState, IngestState, UiSoundCue},
+    systems::{IngestState, UiSoundCue, ambience::AmbientState},
 };
 use client_audio::audio_ingress::SequencedAudioEvent;
 use render_scene::{ParticleSimulation, RuntimeStage, RuntimeStageProfiler};
 use std::collections::HashSet;
 use {
-    super::predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
+    super::predicted::{
+        drive_actor_audio, drive_attack_cues, drive_block_cues, drive_consume_audio,
+    },
     client_audio::audio::AudioEngine,
 };
 use {
@@ -34,6 +36,10 @@ pub(crate) fn configure(app: &mut App) {
         drive_block_cues
             .after(crate::melee::produce_attacks)
             .after(crate::block_use::produce_block_use),
+        // Attacks dispatched before or after movement sound in the frame they are sent.
+        drive_attack_cues
+            .after(crate::melee::produce_attacks)
+            .after(crate::item_use::produce_item_use),
         drive_consume_audio,
         drive_actor_audio,
         pump_audio.after(client_state::ClientFrameSet::Camera),
@@ -138,7 +144,7 @@ pub(crate) fn drive_ambience(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::Audio));
-    client_audio::audio::systems::drive_ambience(
+    client_audio::audio::systems::ambience::drive_ambience(
         time,
         client_audio::observations::WorldObservation {
             stream: world.stream.as_ref(),

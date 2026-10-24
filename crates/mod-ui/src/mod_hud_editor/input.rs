@@ -167,20 +167,27 @@ impl HudEditor {
                         } else {
                             (c.anchor, c.offset)
                         };
+                        let factory_preview = c.editor_size.is_some()
+                            && c.position.is_none()
+                            && c.anchor == c.reset_anchor.unwrap_or(c.anchor)
+                            && c.offset == c.reset_offset.unwrap_or(c.offset)
+                            && c.scale == c.reset_scale.unwrap_or(c.scale);
                         Placement {
                             id: c.id.clone(),
                             anchor,
                             offset,
-                            position: Some(c.position.unwrap_or_else(|| {
-                                std::array::from_fn(|axis| {
-                                    let available = (self.viewport[axis] - size[axis]).max(0.);
-                                    if available > 0. {
-                                        (at[axis] / available) as f32
-                                    } else {
-                                        0.
-                                    }
+                            position: (!factory_preview).then(|| {
+                                c.position.unwrap_or_else(|| {
+                                    std::array::from_fn(|axis| {
+                                        let available = (self.viewport[axis] - size[axis]).max(0.);
+                                        if available > 0. {
+                                            (at[axis] / available) as f32
+                                        } else {
+                                            0.
+                                        }
+                                    })
                                 })
-                            })),
+                            }),
                             scale: c.scale,
                         }
                     })
@@ -369,12 +376,33 @@ impl HudEditor {
             .iter()
             .rev()
             .find(|hit| hit.enabled && hit.pressed.is_some() && hit.contains(point));
-        let hovered = hit.map(|hit| hit.key.as_str());
-        if self.view.hovered.as_deref() != hovered {
+        // A captured drag hovers its own, possibly reindexed, card: the previous frame's
+        // regions trail a fast pointer, and a changed view state would discard every
+        // retained placement.
+        let captured = self.drag.as_ref().filter(|_| !pressed && held);
+        let (hovered, hovered_card) = match captured {
+            Some(drag) => {
+                let action = match drag.resize {
+                    Some(resize) => format!("hud.resize:{}:{}", drag.index, resize.corner),
+                    None => format!("hud.card:{}", drag.index),
+                };
+                let key = frame
+                    .hits
+                    .iter()
+                    .rev()
+                    .find(|hit| hit.pressed.as_deref() == Some(action.as_str()))
+                    .map(|hit| hit.key.as_str());
+                (key, Some(drag.index))
+            }
+            None => (
+                hit.map(|hit| hit.key.as_str()),
+                hit.and_then(|hit| card_action_index(hit.pressed.as_deref()?)),
+            ),
+        };
+        if (captured.is_none() || hovered.is_some()) && self.view.hovered.as_deref() != hovered {
             self.data_dirty = true;
             self.view.hovered = hovered.map(str::to_owned);
         }
-        let hovered_card = hit.and_then(|hit| card_action_index(hit.pressed.as_deref()?));
         if self.hovered != hovered_card {
             self.data_dirty = true;
             self.hovered = hovered_card;

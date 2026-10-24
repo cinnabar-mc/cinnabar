@@ -1,20 +1,24 @@
 use std::{
-    sync::{Arc, Condvar, Mutex, TryLockError},
+    sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
+use bridge::{Backend, WorldState};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
-use launcher::local_worlds::world::{
-    NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus, WorldUpdate,
+use launcher::local_worlds::{
+    in_world::{Applied, Timing, timing},
+    options::OptionChanges,
+    world::{
+        NATURAL_TERRAIN_REQUIRES_BDS, NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldUpdate,
+    },
 };
 
 use crate::lifecycle::children::{self, ExitHookGuard};
 
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
-    process::{Instance, Runner, SAVE_BUDGET, StartSpec},
+    process::{HostGrant, Instance, Runner, SAVE_BUDGET, StartSpec},
     provision::{Provisioner, RuntimeInfo, RuntimeKind},
     store::Store,
     world::{WorldError, validate_name},
@@ -23,6 +27,21 @@ use super::{
 const DEFAULT_STOP_TIMEOUT: Duration = SAVE_BUDGET;
 /// Outlasts the Docker probe's own timeout.
 const DEFAULT_RUNTIME_WAIT: Duration = Duration::from_secs(25);
+/// Covers a first sign-in's profile load, counted from before the server launches; a start then
+/// proceeds without an operator.
+const DEFAULT_HOST_WAIT: Duration = Duration::from_secs(30);
+/// How often a start waiting on the host rechecks its cancel.
+const HOST_POLL: Duration = Duration::from_millis(50);
+
+/// The account hosting later opens, which BDS makes an operator as a vanilla world owner is.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum Host {
+    #[default]
+    SignedOut,
+    /// Signed in with the XUID still loading; BDS starts wait for it before reporting running.
+    Loading,
+    Xuid(String),
+}
 
 /// The runner of each backend; a missing one cannot host worlds.
 #[derive(Clone, Default)]
@@ -42,6 +61,14 @@ impl Runners {
             .ok_or(WorldError::BackendUnavailable)?
             .start(spec, cancel)
     }
+
+    /// When `backend`'s runner applies the host grant; Dragonfly and a missing runner grant nobody.
+    fn host_grant(&self, backend: Backend) -> HostGrant {
+        match (backend, &self.bds) {
+            (Backend::Bds, Some(runner)) => runner.host_grant(),
+            (Backend::Bds, None) | (Backend::Dragonfly, _) => HostGrant::None,
+        }
+    }
 }
 
 /// What a [`Manager`] is built from.
@@ -57,6 +84,8 @@ pub(crate) struct Parts {
     pub stop_timeout: Duration,
     /// How long a create waits for a runtime detection in flight.
     pub runtime_wait: Duration,
+    /// How long a BDS start waits for a [`Host::Loading`] host, counted from before its launch.
+    pub host_wait: Duration,
 }
 
 impl Parts {
@@ -69,14 +98,15 @@ impl Parts {
             unavailable: Vec::new(),
             stop_timeout: DEFAULT_STOP_TIMEOUT,
             runtime_wait: DEFAULT_RUNTIME_WAIT,
+            host_wait: DEFAULT_HOST_WAIT,
         }
     }
 }
 
-/// BDS when it can run natively or in a container, else Dragonfly.
+/// Prefer the dedicated server wherever a complete runtime is available.
 pub(crate) fn default_backend(runtime: &RuntimeInfo) -> Backend {
     match runtime.kind {
-        RuntimeKind::Native | RuntimeKind::Container => Backend::Bds,
+        RuntimeKind::Native | RuntimeKind::Container | RuntimeKind::Translated => Backend::Bds,
         RuntimeKind::None => Backend::Dragonfly,
     }
 }
@@ -95,6 +125,13 @@ struct Inner {
     stop_timeout: Duration,
     runtime_wait: Duration,
     life: Mutex<Life>,
+    host_wait: Duration,
+    /// Read by each start; see [`Manager::set_host`].
+    host: Mutex<Host>,
+    host_changed: Condvar,
+    /// Starts that have waited on a loading host, so tests can publish it mid-wait.
+    #[cfg(test)]
+    host_waits: std::sync::atomic::AtomicUsize,
     subscribers: Mutex<Vec<Sender<()>>>,
     /// Background starts, stops and exit watches still running.
     background: Mutex<usize>,
@@ -120,6 +157,8 @@ struct Life {
     retiring: Vec<Retiring>,
     /// Counts opens, so a stop that finishes late never idles a newer open.
     generation: u64,
+    /// Pending edits applied live by one server generation; only that server can save them.
+    live_applied: Option<(u64, OptionChanges)>,
 }
 
 /// A world whose exited or closing server has not finished backend cleanup.
@@ -176,6 +215,11 @@ impl Manager {
                 stop_timeout: parts.stop_timeout,
                 runtime_wait: parts.runtime_wait,
                 life: Mutex::default(),
+                host_wait: parts.host_wait,
+                host: Mutex::default(),
+                host_changed: Condvar::new(),
+                #[cfg(test)]
+                host_waits: Default::default(),
                 subscribers: Mutex::default(),
                 background: Mutex::new(0),
                 background_done: Condvar::new(),
@@ -218,7 +262,11 @@ impl Manager {
     pub fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
         let mut world = world.clone();
         world.name = validate_name(&world.name)?;
-        world.backend = Some(self.creatable_backend(world.backend)?);
+        let backend = self.creatable_backend(world.backend)?;
+        if !world.generator.supports_backend(backend) {
+            return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
+        }
+        world.backend = Some(backend);
         self.inner.store.create(&world)
     }
 
@@ -274,10 +322,67 @@ impl Manager {
         self.inner.store.update(id, update)
     }
 
-    /// Deletes a world that is not starting, running or stopping.
+    /// Saves `update` to world `id` and sends the running server the commands that apply it at
+    /// once; settings the server reads only at startup, or that it failed to take, apply on the
+    /// next start.
+    pub fn apply(&self, id: &str, update: &WorldUpdate) -> Result<Applied, WorldError> {
+        let world = self.inner.store.update(id, update)?;
+        let (instance, generation) = {
+            let mut life = lock(&self.inner.life);
+            let running = life.state == WorldState::Running
+                && life.world.as_ref().is_some_and(|open| open.id == id);
+            if !running {
+                return Ok(Applied {
+                    world,
+                    missed: false,
+                });
+            }
+            life.world = Some(world.clone());
+            self.notify_subscribers();
+            (life.instance.clone(), life.generation)
+        };
+        let Some(instance) = instance else {
+            return Ok(Applied {
+                world,
+                missed: false,
+            });
+        };
+        let commands = super::bds::live_commands(&world, update);
+        let sent = commands
+            .iter()
+            .all(|command| match instance.console(command) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!("local world {id}: `{command}` failed: {error}");
+                    false
+                }
+            });
+        if sent && let Some(changes) = &update.options {
+            let mut life = lock(&self.inner.life);
+            if life.generation == generation
+                && life.state == WorldState::Running
+                && life
+                    .instance
+                    .as_ref()
+                    .is_some_and(|running| Arc::ptr_eq(running, &instance))
+            {
+                life.live_applied
+                    .get_or_insert_with(|| (generation, OptionChanges::default()))
+                    .1
+                    .extend(&changes.filtered(|id| timing(id) == Timing::Live));
+            }
+        }
+        Ok(Applied {
+            world,
+            missed: !sent,
+        })
+    }
+
+    /// Deletes a world that is not open or saving.
     pub fn delete(&self, id: &str) -> Result<(), WorldError> {
         let life = lock(&self.inner.life);
-        let open = !matches!(life.state, WorldState::Idle | WorldState::Failed);
+        // A stopping world is always retiring, so `saving` covers it.
+        let open = matches!(life.state, WorldState::Starting | WorldState::Running);
         let saving = life
             .retiring
             .iter()
@@ -309,36 +414,6 @@ impl Manager {
             Some(dismissed) => self.inner.store.update_prefs(dismissed),
             None => Ok(self.inner.store.prefs()),
         }
-    }
-
-    /// The open world's lifecycle and the dedicated server's setup.
-    pub fn status(&self) -> WorldStatus {
-        let mut status = {
-            let life = lock(&self.inner.life);
-            WorldStatus {
-                state: life.state,
-                world_id: life.world.as_ref().map(|world| world.id.clone()),
-                backend: life.world.as_ref().map(|world| world.backend),
-                paused: life.paused,
-                pause_supported: life
-                    .instance
-                    .as_ref()
-                    .is_none_or(|instance| instance.can_pause()),
-                error: life.failure.clone(),
-                setup: None,
-                backend_unavailable_reason: None,
-                max_players: life
-                    .instance
-                    .as_ref()
-                    .and_then(|instance| instance.max_players()),
-            }
-        };
-        if let Some(setup) = &self.inner.setup {
-            let (setup, unavailable) = setup.status();
-            status.setup = Some(setup);
-            status.backend_unavailable_reason = unavailable;
-        }
-        status
     }
 
     /// Readies a Dragonfly server ahead of an open, while the worlds are on screen.
@@ -389,6 +464,7 @@ impl Manager {
             .map(|retiring| retiring.done.clone())
             .collect();
         life.generation += 1;
+        life.live_applied = None;
         let generation = life.generation;
         life.world = Some(world.clone());
         life.instance = None;
@@ -402,6 +478,7 @@ impl Manager {
             dir,
             view_distance,
             options_unapplied: false,
+            host_xuid: None,
         };
         let started = self.background(move |manager| {
             manager.start(&spec, &cancel, generation, after);
@@ -425,6 +502,14 @@ impl Manager {
                 break;
             }
         }
+        let grant = self.inner.runners.host_grant(spec.world.backend);
+        // Set before launch, so a new world's creation run counts against the host's wait.
+        let host_deadline = Instant::now() + self.inner.host_wait;
+        let host_xuid = match grant {
+            HostGrant::None => None,
+            HostGrant::AtLaunch => self.await_host(host_deadline, cancel, "before launch", None),
+            HostGrant::WhenReady => self.known_host(),
+        };
         let mut fresh_world = None;
         let mut applied = Default::default();
         let started = if cancel.is_cancelled() {
@@ -438,6 +523,7 @@ impl Manager {
                         dir: spec.dir.clone(),
                         view_distance: spec.view_distance,
                         options_unapplied,
+                        host_xuid: host_xuid.clone(),
                     };
                     let started = self.inner.runners.start(&fresh, cancel);
                     fresh_world = Some(fresh.world);
@@ -445,8 +531,18 @@ impl Manager {
                 },
             )
         };
+        let (started, host_guard) = match started {
+            Ok(instance) if grant == HostGrant::WhenReady && !cancel.is_cancelled() => {
+                match self.grant_when_ready(instance, host_xuid.as_deref(), host_deadline, cancel) {
+                    Ok((instance, host)) => (Ok(instance), Some(host)),
+                    Err(error) => (Err(error), None),
+                }
+            }
+            started => (started, None),
+        };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
+            drop(host_guard);
             drop(life);
             if let Ok(instance) = started {
                 self.stop_instance(instance.as_ref());
@@ -470,6 +566,7 @@ impl Manager {
         let paused = life.paused && instance.can_pause();
         life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
+        drop(host_guard);
         drop(life);
         if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
@@ -489,41 +586,92 @@ impl Manager {
     /// Fails the running world while retaining its backend cleanup barrier for any later open.
     fn watch(&self, instance: &Arc<dyn Instance>) {
         let _ = instance.exited().recv();
-        let mut life = lock(&self.inner.life);
+        let life = lock(&self.inner.life);
         let current = life
             .instance
             .as_ref()
             .is_some_and(|running| Arc::ptr_eq(running, instance));
         if current && life.state == WorldState::Running {
-            tracing::error!("the local world server exited unexpectedly");
-            let (cleaning, done) = crossbeam_channel::bounded::<()>(0);
-            if let Some(world) = &life.world {
-                let retiring = Retiring {
-                    world_id: world.id.clone(),
-                    done,
-                };
-                life.retiring.push(retiring);
-            }
-            life.instance = None;
-            life.failure = Some("local world server exited unexpectedly".to_owned());
-            self.set_state(&mut life, WorldState::Failed);
-            drop(life);
-            // stop joins the backend's shared cleanup even when its process has already exited.
-            self.stop_instance(instance.as_ref());
-            drop(cleaning);
+            self.fail_exited(life, instance);
         }
     }
 
-    fn stop_instance(&self, instance: &dyn Instance) {
-        if let Err(error) = instance.stop(self.inner.stop_timeout) {
+    /// Fails the current server after an unexpected exit, keeping cleanup ahead of later opens.
+    fn fail_exited(&self, mut life: MutexGuard<'_, Life>, instance: &Arc<dyn Instance>) {
+        tracing::error!("the local world server exited unexpectedly");
+        let (cleaning, done) = crossbeam_channel::bounded::<()>(0);
+        if let Some(world) = &life.world {
+            let retiring = Retiring {
+                world_id: world.id.clone(),
+                done,
+            };
+            life.retiring.push(retiring);
+        }
+        life.instance = None;
+        life.live_applied = None;
+        life.failure = Some("local world server exited unexpectedly".to_owned());
+        self.set_state(&mut life, WorldState::Failed);
+        drop(life);
+        // stop joins the backend's shared cleanup even when its process has already exited.
+        self.stop_instance(instance.as_ref());
+        drop(cleaning);
+    }
+
+    /// Stops the server; true once it exited and completed cleanup in time.
+    fn stop_instance(&self, instance: &dyn Instance) -> bool {
+        let stopped = instance.stop(self.inner.stop_timeout);
+        if let Err(error) = &stopped {
             tracing::warn!("stop local world server: {error}");
         }
+        stopped.is_ok()
+    }
+
+    /// The live edits the current server generation applied, with its world, for acknowledgement
+    /// once that server has saved.
+    fn generation_saved(life: &Life) -> Option<(String, OptionChanges)> {
+        life.live_applied
+            .as_ref()
+            .filter(|(applied_generation, _)| *applied_generation == life.generation)
+            .zip(life.world.as_ref())
+            .map(|((_, applied), world)| (world.id.clone(), applied.clone()))
+    }
+
+    /// [`Self::generation_saved`], clearing the lifecycle's record of them.
+    fn take_saved(life: &mut Life) -> Option<(String, OptionChanges)> {
+        let saved = Self::generation_saved(life);
+        life.live_applied = None;
+        saved
+    }
+
+    /// Stops the server, then drops the pending edits it applied live once its successful exit
+    /// shows it saved them; otherwise the next start applies them again.
+    fn stop_and_acknowledge(
+        &self,
+        instance: &dyn Instance,
+        saved: Option<(String, OptionChanges)>,
+    ) {
+        if self.stop_instance(instance)
+            && instance.exited_cleanly()
+            && let Some((id, applied)) = saved.filter(|(_, applied)| !applied.is_empty())
+            && let Err(error) = self.inner.store.acknowledge(&id, &applied)
+        {
+            tracing::warn!("local world {id}: record its saved settings: {error}");
+        }
+    }
+
+    /// Leaves the open world, requesting its save and stop immediately.
+    pub fn leave(&self) {
+        self.close();
     }
 
     /// Stops the open world (saving it) or clears a failure, normally without waiting.
     /// If a stop worker cannot start, completes cleanup inline before releasing its barrier.
     pub fn close(&self) {
-        let mut life = lock(&self.inner.life);
+        self.close_locked(lock(&self.inner.life));
+    }
+
+    /// [`Self::close`] on the held lifecycle.
+    fn close_locked(&self, mut life: MutexGuard<'_, Life>) {
         let state = life.state;
         match state {
             WorldState::Failed => self.idle(&mut life),
@@ -558,16 +706,17 @@ impl Manager {
                 self.set_state(&mut life, WorldState::Stopping);
                 let stopping = Arc::clone(&instance);
                 let generation = life.generation;
-                let fallback_done = stopping_done.clone();
+                let saved = Self::take_saved(&mut life);
+                let fallback = (stopping_done.clone(), saved.clone());
                 let spawned = self.background(move |manager| {
-                    manager.stop_instance(stopping.as_ref());
+                    manager.stop_and_acknowledge(stopping.as_ref(), saved);
                     drop(stopping_done);
                     manager.idle_if_current(generation);
                 });
                 if !spawned {
                     drop(life);
-                    self.stop_instance(instance.as_ref());
-                    drop(fallback_done);
+                    self.stop_and_acknowledge(instance.as_ref(), fallback.1);
+                    drop(fallback.0);
                     self.idle_if_current(generation);
                 }
             }
@@ -637,32 +786,7 @@ impl Manager {
         }
     }
 
-    /// The open world as the core routes and hosts it.
-    pub(crate) fn core_report(&self) -> LocalWorld {
-        let life = lock(&self.inner.life);
-        let target = match (&life.instance, &life.world) {
-            (Some(instance), Some(world)) if life.state == WorldState::Running => {
-                Some(target_for(world, instance.as_ref()))
-            }
-            _ => None,
-        };
-        LocalWorld {
-            state: life.state,
-            world: life.world.as_ref().map(|world| LocalWorldInfo {
-                id: world.id.clone(),
-                name: world.name.clone(),
-                game_mode: world.game_mode,
-                backend: world.backend,
-                multiplayer_disabled: !world
-                    .options
-                    .enabled(launcher::local_worlds::options::WorldOption::Multiplayer),
-            }),
-            target,
-            error: life.failure.clone(),
-        }
-    }
-
-    /// A receiver that wakes after each lifecycle change.
+    /// A receiver that wakes after lifecycle changes and updates to the active world report.
     pub fn subscribe(&self) -> Receiver<()> {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         lock(&self.inner.subscribers).push(sender);
@@ -671,6 +795,11 @@ impl Manager {
 
     fn set_state(&self, life: &mut Life, state: WorldState) {
         life.state = state;
+        self.notify_subscribers();
+    }
+
+    /// Wakes report readers, coalescing changes until each reader consumes its notification.
+    fn notify_subscribers(&self) {
         lock(&self.inner.subscribers).retain(|subscriber| {
             !matches!(subscriber.try_send(()), Err(TrySendError::Disconnected(())))
         });
@@ -723,29 +852,16 @@ impl Manager {
     }
 }
 
-/// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
-/// LAN advertisement when the server publishes one.
-fn target_for(world: &World, instance: &dyn Instance) -> LocalTarget {
-    let address = instance.address().to_owned();
-    match (world.backend, instance.lan_address()) {
-        (Backend::Bds, Some(lan)) if !lan.is_empty() => LocalTarget {
-            address,
-            transport: Transport::NetherNetLan,
-            lan_address: Some(lan.to_owned()),
-            level_name: Some(world.id.clone()),
-        },
-        (Backend::Bds, _) => LocalTarget {
-            address,
-            transport: Transport::NetherNet,
-            lan_address: None,
-            level_name: None,
-        },
-        (Backend::Dragonfly, _) => LocalTarget {
-            address,
-            transport: Transport::RakNet,
-            lan_address: None,
-            level_name: None,
-        },
+#[path = "manager_host.rs"]
+mod host;
+#[path = "manager_report.rs"]
+mod report;
+
+/// The XUID `host` names, `None` while signed out or loading.
+fn host_xuid_of(host: &Host) -> Option<String> {
+    match host {
+        Host::Xuid(xuid) => Some(xuid.clone()),
+        Host::SignedOut | Host::Loading => None,
     }
 }
 

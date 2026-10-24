@@ -4,9 +4,10 @@ import (
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // localPlayerHandler owns temporary flight controls and clears Experience focus on quit.
@@ -17,10 +18,31 @@ type localPlayerHandler struct {
 	flight flySpeedState
 }
 
+// HandleTeleport applies authoritative teleports through the host's session fence.
+func (h *localPlayerHandler) HandleTeleport(ctx *player.Context, pos mgl64.Vec3) {
+	if h.host != nil && h.host.TeleportPlayer(ctx.Player(), experience.Position{X: pos.X(), Y: pos.Y(), Z: pos.Z()}) {
+		ctx.Cancel()
+	}
+}
+
+// HandleAttackEntity keeps the attacker's own attack sound from being sent back to it and
+// keeps target dummies in place.
+func (h *localPlayerHandler) HandleAttackEntity(ctx *player.Context, e world.Entity, force, height *float64, _ *bool) {
+	markAttacker(ctx.Tx, ctx.Player().Addr())
+	if isTargetDummy(e) {
+		*force, *height = 0, 0
+	}
+}
+
+// HandlePunchAir keeps the attacker's own missed-swing sound from being sent back to it.
+func (h *localPlayerHandler) HandlePunchAir(ctx *player.Context) {
+	markAttacker(ctx.Tx, ctx.Player().Addr())
+}
+
 // HandleQuit forgets this player's focus when the server hosts Experiences.
 func (h *localPlayerHandler) HandleQuit(p *player.Player) {
 	if h.host != nil {
-		h.host.PlayerLeft(p.UUID())
+		h.host.PlayerDisconnected(p)
 	}
 }
 

@@ -25,16 +25,20 @@ const MAX_BONE_VISIBILITY: usize = 256;
 /// Collision primitives one custom block may contribute before extras are ignored.
 const MAX_COLLISION_BOXES: usize = 256;
 /// The namespace of vanilla's own blocks.
-const VANILLA_NAMESPACE: &str = "minecraft";
+pub(crate) const VANILLA_NAMESPACE: &str = "minecraft";
 
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlock {
     /// Mining values shared by every state unless a permutation replaces them.
     pub mining: Arc<CustomBlockMining>,
+    /// `minecraft:sound` material declared by the block's base component set.
+    pub sound: Option<Arc<str>>,
     pub name: Arc<str>,
     /// Server-declared block tags used by target priorities and exclusions.
     pub tags: Arc<[Arc<str>]>,
+    /// False when any server tag was discarded during decoding or state admission.
+    pub tags_complete: bool,
     /// Palette states: the value combinations that fit the client's 16 state bits.
     pub state_count: u32,
     /// False when the definition disables its collision box.
@@ -49,8 +53,8 @@ pub struct CustomBlock {
     /// Using the block interacts with it (a crafting table or a player-interact handler)
     /// rather than placing the held block against it.
     pub player_interact: bool,
-    /// Resolved mining components in palette order; an absent component is unknown.
-    pub state_mining: Arc<[Option<Arc<CustomBlockMining>>]>,
+    /// Resolved mining components in palette order; empty until session preparation.
+    pub state_mining: Arc<[Arc<CustomBlockMining>]>,
     /// Resolved palette-order physical components; empty until session preparation.
     pub state_physics: Arc<[CustomBlockPhysics]>,
     /// Every physical permutation was parsed and evaluated for every state.
@@ -94,8 +98,8 @@ pub struct CustomBlockVisuals {
     pub permutations: Box<[CustomPermutation]>,
     /// Physical or placement data was discarded while parsing the definition.
     pub components_incomplete: bool,
-    /// Discarded component data or permutations could change this block's mining value.
-    pub mining_incomplete: bool,
+    /// A permutation past the bound set mining, so no state's mining value is known.
+    pub mining_truncated: bool,
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
@@ -259,12 +263,12 @@ impl CustomBlock {
             .unwrap_or_else(|| self.base_physics())
     }
 
-    /// Borrows resolved mining data; an unprepared mining permutation cannot use the base value.
+    /// Borrows resolved mining data; `None` only before a mining permutation is prepared.
     pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
-        if self.visual.mining_incomplete {
+        if self.visual.mining_truncated {
             None
         } else if let Some(mining) = self.state_mining.get(index as usize) {
-            mining.as_ref()
+            Some(mining)
         } else if self
             .visual
             .permutations
@@ -475,8 +479,10 @@ impl CustomBlocks {
                     skipped += definition.skipped;
                     blocks.push(CustomBlock {
                         mining: definition.mining,
+                        sound: definition.sound,
                         name: Arc::from(name),
                         tags: definition.tags,
+                        tags_complete: definition.tags_complete,
                         state_count: definition.state_count,
                         collides: definition.collides,
                         collision_boxes: definition.collision_boxes,
@@ -504,6 +510,7 @@ impl CustomBlocks {
                 exhausted = true;
                 skipped += 1;
                 block.tags = Arc::default();
+                block.tags_complete = false;
                 block.collision_boxes = None;
                 block.visual = Arc::new(CustomBlockVisuals {
                     state_identity_incomplete: true,
@@ -532,7 +539,9 @@ impl CustomBlocks {
 
 struct Definition {
     mining: Arc<CustomBlockMining>,
+    sound: Option<Arc<str>>,
     tags: Arc<[Arc<str>]>,
+    tags_complete: bool,
     skipped: usize,
     state_count: u32,
     collides: bool,
@@ -594,33 +603,30 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
     let mut permutation_skips = 0;
     let mut physical_permutation_skips = 0;
-    let mut mining_incomplete = mining_skips > 0;
+    let mut mining_truncated = false;
     let permutations = root
         .list("permutations")
         .iter()
         .enumerate()
         .filter_map(|(index, permutation)| {
             let components = permutation.field("components");
-            let changes_mining = components
-                .and_then(|set| set.field(mining::COMPONENT))
-                .is_some();
             if index >= MAX_PERMUTATIONS {
                 permutation_skips += 1;
                 physical_permutation_skips += usize::from(!mining::only_component(components));
-                mining_incomplete |= changes_mining;
+                mining_truncated |= components
+                    .and_then(|set| set.field(mining::COMPONENT))
+                    .is_some();
                 return None;
             }
             placement::components(&mut placement, components);
+            // A missing condition evaluates as an empty expression, which never holds.
             let Some(Nbt::String(condition)) = permutation.field("condition") else {
                 permutation_skips += 1;
-                physical_permutation_skips += usize::from(!mining::only_component(components));
-                mining_incomplete |= changes_mining;
                 return None;
             };
             let (physical, skipped, mining_skips) = physical_components(components);
             permutation_skips += skipped + mining_skips;
             physical_permutation_skips += skipped;
-            mining_incomplete |= mining_skips > 0;
             Some(CustomPermutation {
                 condition: condition.as_str().into(),
                 components: visual_components(permutation.field("components")),
@@ -643,7 +649,9 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         );
     Some(Definition {
         mining: mining.unwrap_or_default(),
+        sound: sound_component(components),
         tags,
+        tags_complete: tag_skips == 0,
         skipped: tag_skips + mining_skips + physical_skips + permutation_skips,
         state_count: states.count,
         collides,
@@ -672,12 +680,23 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                 }),
             permutations,
             components_incomplete: physical_skips > 0 || physical_permutation_skips > 0,
-            mining_incomplete,
+            mining_truncated,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
             materialization_disabled: false,
         },
     })
+}
+
+/// Reads a nonempty material from a scalar or compound sound component.
+fn sound_component(components: Option<&Nbt>) -> Option<Arc<str>> {
+    let component = components?.field("minecraft:sound")?;
+    let sound = component
+        .field("sound")
+        .and_then(Nbt::as_str)
+        .or_else(|| component.as_str())
+        .filter(|sound| !sound.is_empty())?;
+    Some(sound.into())
 }
 
 /// Whether using a block with these components interacts with it: a crafting table, an

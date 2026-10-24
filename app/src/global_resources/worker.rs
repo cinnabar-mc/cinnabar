@@ -11,6 +11,7 @@ const PACKS: Filter = Filter {
     name: "Resource packs",
     extensions: &PACK_IMPORT_EXTENSIONS,
     unavailable_hint: "Drop a pack onto the window to import it.",
+    max_bytes: Some(resource_pack::MAX_ARCHIVE_BYTES as u64),
 };
 
 pub(super) enum Command {
@@ -191,7 +192,15 @@ fn run(
                 action: Action::Import,
                 ..
             } => match picker::pick_files(&PACKS) {
-                Ok(paths) => import_files(&mut library, paths, &mut snapshot, refresh_icons),
+                Ok(paths) => import_files(
+                    &mut library,
+                    paths
+                        .iter()
+                        .map(|file| file.as_ref().to_path_buf())
+                        .collect(),
+                    &mut snapshot,
+                    refresh_icons,
+                ),
                 Err(error) => {
                     snapshot.message = error;
                     Ok(())

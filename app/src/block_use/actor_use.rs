@@ -1,4 +1,5 @@
 //! Actor use shares the pre-physics pick and press admission with block use.
+use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
 use gameplay::melee::{Crosshair, classify_block_hit, pick_actor};
 use simulation_clock::identity::SessionGeneration;
 use {
@@ -73,7 +74,12 @@ pub(super) fn prepare(
         .ok()
         .and_then(|query| query.value.ok().map(|block| (block, query.identity)));
     let block = obstruction.as_ref().and_then(|(block, _)| block.as_ref());
-    let Crosshair::Actor(hit) = classify_block_hit(actor, pick.origin.to_array(), block, reach)
+    // Like attacks, an actor is the use target only within the game-mode cap.
+    let cap = player
+        .facts
+        .game_mode_capabilities()
+        .map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
+    let Crosshair::Actor(hit) = classify_block_hit(actor, pick.origin.to_array(), block, cap)
     else {
         return None;
     };
@@ -97,7 +103,13 @@ pub(super) fn prepare(
         .authority()
         .actor(hit.runtime_id)
         .map_or(LocalUse::Interact, |actor| {
-            LocalUse::for_actor(&actor.kind, context.ui.gameplay_hud().has_interact_text())
+            LocalUse::for_actor(
+                &actor.kind,
+                context.ui.gameplay_hud().has_interact_text(),
+                stream
+                    .authority()
+                    .offered_use(hit.runtime_id, &use_equipment(player, &selection.item)),
+            )
         });
     Some(ActorUse {
         packet,
@@ -106,6 +118,36 @@ pub(super) fn prepare(
         due,
         clock,
     })
+}
+
+/// Reads the hands and armor that actor offerings test, keeping unobserved gear unknown.
+fn use_equipment(
+    player: &client_state::PlayerRuntime,
+    main_hand: &protocol::VerifiedNetworkItemStack,
+) -> client_world::UseEquipment {
+    use inventory::{PlayerInventorySlot, inventory_ledger::InventoryTarget};
+    let ledger = player.inventory.ledger();
+    let gear = |target| match ledger.gear_slot_state(target) {
+        Some(PlayerInventorySlot::Present(stack)) => Some(Some(stack)),
+        Some(PlayerInventorySlot::Empty) => Some(None),
+        Some(PlayerInventorySlot::Unknown) | None => None,
+    };
+    let offhand = gear(InventoryTarget::Offhand);
+    let armor = (0..4).map(|slot| gear(InventoryTarget::Armor(slot)));
+    client_world::UseEquipment {
+        main_hand: client_world::HandStack::verified(main_hand),
+        offhand: offhand
+            .map(|stack| stack.map_or_else(Default::default, client_world::HandStack::of)),
+        enchantments: client_world::equipment_enchantments(
+            std::iter::once(Some(main_hand.extra_data()))
+                .chain(std::iter::once(offhand).chain(armor).map(gear_extra_data)),
+        ),
+    }
+}
+
+/// An observed gear slot's user data, empty for an empty slot.
+fn gear_extra_data(slot: Option<Option<&protocol::NetworkItemStack>>) -> Option<&[u8]> {
+    slot.map(|stack| stack.map_or(&[][..], |stack| &stack.extra_data[..]))
 }
 
 /// Commits the current actor use only after its packet enters the session FIFO.

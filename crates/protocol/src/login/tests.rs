@@ -1006,7 +1006,7 @@ fn absolute_actor_move_uses_bedrock_varuint_and_raw_byte_rotations() {
             position_origin: crate::ActorPositionOrigin::NetworkOffset,
             pitch: Some(45.0),
             yaw: Some(90.0),
-            head_yaw: Some(180.0),
+            head_yaw: Some(-180.0),
             on_ground: Some(true),
             teleported: true,
             force_local_move: false,
@@ -1082,6 +1082,7 @@ fn allowlisted_movement_correction_is_materialized_and_normalized() {
             subject: crate::MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 55,
+            vehicle_angular_velocity: None,
         })
     );
 }

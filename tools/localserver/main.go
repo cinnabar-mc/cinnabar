@@ -1,9 +1,9 @@
-// Command bedrock-local-server hosts saved Dragonfly worlds with flat or natural terrain,
+// Command bedrock-local-server hosts saved Dragonfly worlds with flat terrain,
 // or opt-in synthetic terrain and opaque-overdraw fixtures.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin, and
 // "experience reload <id>" lines when it hosts Experiences; stdin EOF and SIGINT/SIGTERM also stop
-// it. Started with only -standby, it warms world generation until a "start <JSON args>" line gives
-// it a world without -experiences. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
+// it. Started with only -standby, it waits until a "start <JSON args>" line gives
+// it a world. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
 // the -extension flags.
 package main
 
@@ -21,14 +21,15 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"time"
 
-	_ "github.com/bedrock-mc/vanilla-gen/block"
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // experienceDataDir is the directory under -dir that holds the Experiences' private data.
@@ -45,9 +46,14 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "list-mod-clients" {
+		return listModClients(args[1:], stdout)
+	}
+	if len(args) > 0 && args[0] == "export-mod-pack" {
+		return exportModPack(args[1:])
+	}
 	standby := len(args) == 1 && args[0] == standbyFlag
 	if standby {
-		go warmGeneration()
 		started, rest, ok, err := awaitStandbyStart(stdin)
 		if err != nil || !ok {
 			return err
@@ -58,15 +64,25 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := cfg.loadMods(); err != nil {
+		return err
+	}
 	if cfg.terrainFixtureGenerate {
 		return generateTerrainFixture(cfg, stdout)
 	}
-	if standby && cfg.experiences != "" {
-		// Its warm-up has finalised the block registry that Experience blocks register in.
-		return errors.New("a standby server cannot host -experiences")
+	var gallery []entityAppearance
+	if cfg.entityGallery != "" {
+		gallery, err = loadEntityGallery(cfg.entityGallery, cfg.entityGalleryAppearances)
+		if err != nil {
+			return fmt.Errorf("prepare entity gallery: %w", err)
+		}
 	}
-	pending := cfg.startGenerators()
-	defer pending.discard()
+	if cfg.luckyBlock {
+		registerLuckyBlock()
+	}
+	if cfg.baseTextureIcon {
+		registerBaseTextureIcon()
+	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	// The offer's marker pack must be written before the resource packs load.
 	var ext *extension.Server
@@ -85,14 +101,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return err
 	}
 	var exps *experiences
-	if cfg.experiences != "" {
+	if cfg.experiences != "" || len(cfg.modArtifacts) > 0 {
 		if exps, err = startExperiences(cfg, logger); err != nil {
 			return err
 		}
 	} else if err := experience.CheckDisabled(filepath.Join(cfg.dir, experienceDataDir)); err != nil {
 		return err
 	}
-	pending.begin()
 	conf, err := cfg.userConfig().Config(logger)
 	if err != nil {
 		if exps != nil {
@@ -120,29 +135,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		conf.Resources = append(conf.Resources, pack)
 	}
-	generators, err := pending.configure(&conf)
-	if err != nil {
-		if exps != nil {
-			err = errors.Join(err, exps.closeSupervisors())
+	if cfg.baseTextureIcon {
+		pack, err := baseTextureIconPack()
+		if err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return fmt.Errorf("prepare base texture icon fixture: %w", err)
 		}
-		return err
-	}
-	defer generators.close()
-	if cfg.generationStats && len(generators) > 0 {
-		defer meterGeneration(&conf, stdout)()
-	}
-	for dim, generator := range generators {
-		logger.Info("world generation acceleration", "dimension", dim, "status", generator.AccelerationStatus())
-	}
-	_, spawnErr := os.Stat(filepath.Join(cfg.dir, "db", "level.dat"))
-	firstWorld := errors.Is(spawnErr, fs.ErrNotExist)
-	generator, normal := generators[world.Overworld]
-	if firstWorld && normal {
-		// Saved before the worlds open, so the first tick finds a spawn instead of generating a
-		// column to search one.
-		settings := conf.WorldProvider.Settings()
-		settings.Spawn = generator.DefaultSpawn(world.Overworld)
-		conf.WorldProvider.SaveSettings(settings)
+		// The first pack is the top of the stack, above the generated custom item pack.
+		conf.Resources = append([]*resource.Pack{pack}, conf.Resources...)
 	}
 	if ext != nil {
 		for i, listen := range conf.Listeners {
@@ -152,6 +154,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.cameraTest {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = cameraTestListener(listen)
+		}
+	}
+	if cfg.containerTitleTest {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = containerTitleListener(listen)
 		}
 	}
 	if cfg.totemTest || cfg.totemTexture {
@@ -169,49 +176,66 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = actorBurstListener(listen, cfg.actorBurstArtwork)
 		}
 	}
-	cfg.configureTerrainFixture(&conf)
-	cfg.configureOpaqueOverdraw(&conf)
-	conf.ChunkLoadWorkers = cfg.chunkWorkers
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	lines, stopped := readCommands(ctx, stdin)
-	if cfg.pregenRadius > 0 {
-		startup, cancelStartup := startupContext(ctx, stopped)
-		defer cancelStartup()
-		if err := preparePregeneration(startup, conf.WorldProvider, conf.Generator(world.Overworld), firstWorld, cfg.pregenRadius, cfg.chunkWorkers, stdout); err != nil {
-			if exps != nil {
-				err = errors.Join(err, exps.closeSupervisors())
-			}
-			return errors.Join(err, conf.WorldProvider.Close(), conf.PlayerProvider.Close())
+	if cfg.entityGallery != "" {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = entityGalleryListener(listen, gallery)
 		}
 	}
+	cfg.configureTerrainFixture(&conf)
+	cfg.configureOpaqueOverdraw(&conf)
+	if err := cfg.configureBlockGallery(&conf); err != nil {
+		if exps != nil {
+			err = errors.Join(err, exps.closeSupervisors())
+		}
+		return fmt.Errorf("prepare block gallery: %w", err)
+	}
+	if cfg.holograms {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = hologramListener(listen)
+		}
+	}
+	conf.ChunkLoadWorkers = cfg.chunkWorkers
+	configureChunkSending(&conf)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	cfg.configureLocalPlayers(&conf)
+	var host *experience.Host
+	if exps != nil {
+		var channels experience.ClientChannels
+		if ext != nil {
+			channels = ext
+		}
+		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		provider, err := host.PlayerProvider(conf.PlayerProvider, filepath.Join(cfg.dir, "player-worlds"))
+		if err != nil {
+			return errors.Join(err, conf.PlayerProvider.Close(), host.Close())
+		}
+		conf.PlayerProvider = provider
+	}
 	var srv *server.Server
 	for i, listen := range conf.Listeners {
 		conf.Listeners[i] = flySpeedListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
 			return srv.Player(id)
 		})
 	}
-	srv = conf.New()
+	var closeUnstarted func() error
+	srv, closeUnstarted = newLocalServer(conf)
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
-	cfg.applyTo(worlds...)
-	pauses := &pauseState{worlds: worlds}
-	warmup := func() {}
-	if firstWorld && normal {
-		warmup = warmSpawn(srv.World(), pauses)
+	pauses := &pauseState{settings: cfg}
+	for _, w := range worlds {
+		pauses.WorldOpened(w)
 	}
 	cmds := commands{pause: pauses.request}
-	var host *experience.Host
 	var running sync.WaitGroup
 	runCtx, stopRunning := context.WithCancel(context.Background())
 	defer stopRunning()
 	if exps != nil {
-		// Without client parts every staged client message is dropped and counted.
-		var channels experience.ClientChannels
-		if ext != nil {
-			channels = ext
+		if err := host.BindDefaultWorlds(worlds...); err != nil {
+			return errors.Join(err, closeUnstarted(), host.Close())
 		}
-		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		if err := host.ConfigureWorlds(ctx, filepath.Join(cfg.dir, "experience-worlds"), pauses); err != nil {
+			return errors.Join(err, closeUnstarted(), host.Close())
+		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
 		// without them: each loads again with them.
 		for id := range exps.sups {
@@ -242,17 +266,26 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	go func() {
 		defer close(accepting)
 		for p := range srv.Accept() {
-			warmup()
 			p.Handle(&localPlayerHandler{host: host})
+			if host != nil {
+				host.PlayerJoined(p)
+			}
 		}
 	}()
 	fmt.Fprintln(stdout, "ready")
 
-	serveCommandLines(ctx, lines, cmds)
-	closeErr := srv.Close()
+	serveCommands(ctx, stdin, cmds)
+	var closeErr error
+	if host != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		closeErr = host.Drain(drainCtx)
+		cancel()
+		stopRunning()
+	}
+	closeErr = errors.Join(closeErr, srv.Close())
 	<-accepting
 	if host != nil {
-		// The worlds have stopped, so no hook changes the store once the Host flushes it.
+		// Callbacks have drained and player saves completed before guest worlds close.
 		if err := host.Close(); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("close experiences: %w", err))
 		}
@@ -275,9 +308,13 @@ type experiences struct {
 // provided, then registers the blocks before server.Config.New and records their IDs together.
 // On error no helper is left running.
 func startExperiences(cfg settings, log *slog.Logger) (_ *experiences, err error) {
-	dirs, err := discoverArtifacts(cfg.experiences)
-	if err != nil {
-		return nil, err
+	dirs := slices.Clone(cfg.modArtifacts)
+	if cfg.experiences != "" {
+		found, err := discoverArtifacts(cfg.experiences)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, found...)
 	}
 	store, err := experience.OpenStore(filepath.Join(cfg.dir, experienceDataDir))
 	if err != nil {

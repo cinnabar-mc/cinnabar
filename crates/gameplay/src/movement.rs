@@ -9,6 +9,7 @@ use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags};
 mod anchor_probe;
 mod anchor_probe_evidence;
 mod authority;
+mod boosts;
 pub mod bootstrap;
 mod collision_registries;
 pub mod control_modes;
@@ -35,6 +36,7 @@ mod speed_authority;
 mod state;
 mod teleport_ack;
 pub mod trace;
+pub mod vehicle;
 pub use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
@@ -52,7 +54,9 @@ pub use diagnostics::{
     CorrectionContext, CorrectionContextLine, CorrectionContextLog, CorrectionKind,
     CorrectionPacket, note_correction, note_motion,
 };
-pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
+pub use effects::{
+    BoostSpan, LocalMovementEffectTimeline, MeleeEffects, MiningEffects, MovementBoost,
+};
 use encoding::{HeldInput, input_flags};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -74,7 +78,7 @@ pub use physics::{
 pub use prediction_sync::send_movement_prediction_sync;
 use sim::WorldCollisionIdentity;
 pub use speed_authority::LocalMovementSpeedAuthority;
-pub use state::ProcessedMovementState;
+pub use state::{PoseFlags, ProcessedMovementState};
 pub use teleport_ack::ServerTeleportKind;
 use tokio::sync::watch;
 pub use trace::note_click_drop;
@@ -154,6 +158,8 @@ pub struct MovementTicker {
     pending_fault: Option<PhysicsAuthorityFaultRecord>,
     next_admission_id: u64,
     reanchor_epoch: PositionAuthorityGeneration,
+    /// Advances only when queued interactions are revoked; replayed corrections keep it.
+    interaction_epoch: PositionAuthorityGeneration,
     terminal_drain: bool,
     pending_control_fence: bool,
     teleport_ack_enabled: bool,
@@ -207,6 +213,7 @@ impl MovementTicker {
             pending_fault: None,
             next_admission_id: 0,
             reanchor_epoch: PositionAuthorityGeneration::default(),
+            interaction_epoch: PositionAuthorityGeneration::default(),
             terminal_drain: false,
             pending_control_fence: false,
             teleport_ack_enabled: teleport_ack::enabled_from_env(),
@@ -472,6 +479,7 @@ impl MovementTicker {
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),
             input_mode: sample.input_mode,
+            vehicle: sample.processed.vehicle.map(|vehicle| vehicle.input()),
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
@@ -805,7 +813,7 @@ impl MovementTicker {
         }
         match plan.outcome {
             PhysicsCorrectionOutcome::Snapped { .. } => {
-                self.correction_authority_changed();
+                self.correction_authority_changed(true);
                 self.next_tick = plan.final_tick.saturating_add(1);
                 self.previous_position = plan.final_position;
                 self.outbox.clear();
@@ -864,6 +872,9 @@ impl MovementTicker {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
                     pending.snapshot.position = replayed.position;
+                    if let Some(mining) = pending.mining.as_mut() {
+                        mining.replay_at(replayed.position);
+                    }
                     pending.snapshot.delta = replayed.velocity;
                     pending.displacement = replayed.movement;
                     pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);
@@ -882,6 +893,16 @@ impl MovementTicker {
                     Ok(Some(()))
                 };
 
+                // Ticks at or before the corrected one leave the outbox and a cancelled send
+                // of one is not retried, so their block actions could never reach the server.
+                let drops_interactions = self
+                    .outbox
+                    .iter()
+                    .any(|pending| pending.snapshot.tick <= plan.corrected_tick)
+                    || self.pending_sends.iter().any(|pending| {
+                        pending.sample.snapshot.tick <= plan.corrected_tick
+                            && pending.sample.mining.is_some()
+                    });
                 let mut replacement = VecDeque::with_capacity(self.outbox.len());
                 for mut pending in self.outbox.drain(..) {
                     if replay_sample(&mut pending)?.is_none() {
@@ -894,7 +915,7 @@ impl MovementTicker {
                     let _ = replay_sample(&mut pending.sample)?;
                 }
 
-                self.correction_authority_changed();
+                self.correction_authority_changed(drops_interactions);
                 for pending in &mut self.pending_sends {
                     pending.retry_after_cancellation =
                         pending.sample.snapshot.tick > plan.corrected_tick;
@@ -919,32 +940,11 @@ impl MovementTicker {
     }
 }
 
-/// Provisional local pre-first-input anchor: public protocol documentation does
-/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
-/// separate clock domain.
-const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
-
-pub fn reset_start_game_prediction(
-    movement: &mut MovementTicker,
-    local_physics: &mut LocalPhysicsController,
-    session_generation: u64,
-    initial_position: [f32; 3],
-) {
-    movement.reset(
-        session_generation,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        initial_position,
-    );
-    local_physics.reanchor_network_position_before_advance(
-        initial_position,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        false,
-    );
-}
-
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod anchor_probe_context_tests;
 #[cfg(test)]
 mod anchor_probe_tests;
 #[cfg(test)]
@@ -953,6 +953,8 @@ mod correction_tests;
 mod effects_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod interaction_replay_tests;
 #[cfg(test)]
 mod locomotion_tests;
 #[cfg(test)]

@@ -227,12 +227,17 @@ impl LocalUse {
         }
     }
 
-    /// An actor use consumes the press only when the target offers an interaction;
-    /// otherwise the press falls through to item use after the interact transaction.
-    /// Players have no client-side interaction, so the server's interact text alone
-    /// decides; other actors' component interactions are not modelled and always interact.
-    pub const fn for_actor(target: &protocol::ActorKind, interact_text: bool) -> Self {
-        if interact_text || !matches!(target, protocol::ActorKind::Player { .. }) {
+    /// A verified absent offering falls through after the actor transaction. Unresolved
+    /// component or native state retains the conservative interaction behavior.
+    pub const fn for_actor(
+        target: &protocol::ActorKind,
+        interact_text: bool,
+        offered: assets::entity::offered_use::OfferedUse,
+    ) -> Self {
+        if interact_text
+            || (!matches!(target, protocol::ActorKind::Player { .. })
+                && !matches!(offered, assets::entity::offered_use::OfferedUse::Absent))
+        {
             Self::Interact
         } else {
             Self::Nothing
@@ -487,6 +492,17 @@ impl BlockUseRuntime {
     }
 }
 
+/// Whether a held repeat sends its transaction: block items always do, and any other hand
+/// repeats only a block's own use. Buckets never do, as some bucket kinds skip held repeats;
+/// other items' own uses on blocks are not predicted, so they do not repeat yet.
+pub fn repeats_while_held(
+    item: &VerifiedNetworkItemStack,
+    bucket: bool,
+    local_use: LocalUse,
+) -> bool {
+    item.block_runtime_id() != 0 || (local_use == LocalUse::Interact && !bucket)
+}
+
 /// The cell and state a switch use predicts within the observed world.
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
@@ -527,7 +543,7 @@ fn predicted_door_toggle(
     }
     let clicked_states =
         serde_json::from_str(collisions.block_canonical_state(mode, clicked)?).ok()?;
-    let upper = toggle_bit(&clicked_states, P::UpperBlockBit)?;
+    let upper = toggle_bit(fact, &clicked_states, P::UpperBlockBit)?;
     let mut neighbor = position;
     neighbor[1] = neighbor[1].checked_add(if upper { -1 } else { 1 })?;
     let partner = world.primary_runtime_id(neighbor).ok()?;
@@ -540,7 +556,7 @@ fn predicted_door_toggle(
         (position, clicked)
     };
     let mut states = serde_json::from_str(collisions.block_canonical_state(mode, lower)?).ok()?;
-    let open = toggle_bit(&states, P::OpenBit)?;
+    let open = toggle_bit(fact, &states, P::OpenBit)?;
     crate::placement_state::set_bit(&mut states, P::OpenBit.name(), !open)?;
     let block = collisions.block_state_runtime_id(
         mode,
@@ -551,8 +567,12 @@ fn predicted_door_toggle(
 }
 
 /// Reads a generated boolean domain without changing its canonical representation.
-fn toggle_bit(states: &serde_json::Map<String, serde_json::Value>, property: P) -> Option<bool> {
-    crate::placement_state::valid_property(states, property)?;
+fn toggle_bit(
+    fact: BlockFact,
+    states: &serde_json::Map<String, serde_json::Value>,
+    property: P,
+) -> Option<bool> {
+    crate::placement_state::valid_property(fact, states, property)?;
     let value = crate::placement_state::value(states, property.name())?;
     value
         .as_bool()
