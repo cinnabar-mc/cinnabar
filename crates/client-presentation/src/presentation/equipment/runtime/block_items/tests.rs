@@ -115,7 +115,7 @@ fn unavailable_prepared_sheets_keep_the_model_fallback_available() {
 
 #[test]
 fn carried_cost_rejects_geometry_and_pixels_the_builder_cannot_use() {
-    for corrupt in [0, 1, 2, 3] {
+    for corrupt in [0, 1, 2, 3, 4] {
         let (mut source, _) = PreparedBlockItems::narrow_box(20);
         let source = Arc::get_mut(&mut source).unwrap();
         match corrupt {
@@ -124,7 +124,8 @@ fn carried_cost_rejects_geometry_and_pixels_the_builder_cannot_use() {
             }
             1 => source.models.get_mut(&1).unwrap()[0].position[0] = f32::NAN,
             2 => source.rasters[0].rgba8 = Arc::from([]),
-            _ => source.placements[0].as_mut().unwrap().width -= 1,
+            3 => source.placements[0].as_mut().unwrap().width -= 1,
+            _ => source.placements[0].as_mut().unwrap().width = 0,
         }
         assert!(source.dropped_model_cost(1).is_none());
         assert!(source.dropped_model(1).is_none());

@@ -5,7 +5,8 @@ use crate::presentation::equipment::PreparedBlockItems;
 use bevy::platform::collections::{HashMap, HashSet};
 
 use render_model::{
-    DroppedItemModel, DroppedItemSpawnPose, MAX_ITEM_LAYERS, dropped_item::DroppedItemBounds,
+    DroppedItemModel, DroppedItemSpawnPose, MAX_ITEM_LAYERS,
+    dropped_item::{DroppedItemBounds, ItemModelCost},
 };
 
 mod planning;
@@ -83,7 +84,7 @@ pub(crate) struct ModelCache {
     omitted_items: u64,
     sprite_only: bool,
     planning: bool,
-    costs: HashMap<ModelKey, planning::ModelCost>,
+    costs: HashMap<ModelKey, ItemModelCost>,
     planned: HashSet<ModelKey>,
     selected: HashSet<ModelKey>,
     budget_rejections: HashMap<(ModelKey, bool, bool), planning::RejectionBudget>,
@@ -420,7 +421,7 @@ impl ModelCache {
     pub(super) fn model(
         &mut self,
         key: ModelKey,
-        cost: impl FnOnce() -> Option<planning::ModelCost>,
+        cost: impl FnOnce() -> Option<ItemModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
         if self.planning {
@@ -433,7 +434,7 @@ impl ModelCache {
     pub(super) fn warm_icon(
         &mut self,
         key: ModelKey,
-        cost: impl FnOnce() -> Option<planning::ModelCost>,
+        cost: impl FnOnce() -> Option<ItemModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
         if !self.can_warm(&key) {
@@ -446,7 +447,7 @@ impl ModelCache {
     fn admit(
         &mut self,
         key: ModelKey,
-        cost: impl FnOnce() -> Option<planning::ModelCost>,
+        cost: impl FnOnce() -> Option<ItemModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
         reclaim: bool,
     ) -> Option<u32> {

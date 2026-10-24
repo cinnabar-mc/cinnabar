@@ -151,7 +151,9 @@ impl PreparedBlockItems {
         let grid = assets::BLOCK_ITEM_SHEET_GRID.map(u32::from);
         let size = [u32::from(placement.width), u32::from(placement.height)];
         let [width, height] = std::array::from_fn(|axis| size[axis] / grid[axis]);
-        if size != [width * grid[0], height * grid[1]]
+        if width == 0
+            || height == 0
+            || size != [width * grid[0], height * grid[1]]
             || layers > assets::BlockFace::ALL.len()
             || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
         {

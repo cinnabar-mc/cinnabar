@@ -41,8 +41,8 @@ fn sprite() -> DroppedItemModel {
 }
 
 /// Measures the solid square fixture without constructing its pixel buffer.
-fn sprite_cost(side: u32) -> Option<planning::ModelCost> {
-    planning::ModelCost::new(
+fn sprite_cost(side: u32) -> Option<ItemModelCost> {
+    ItemModelCost::new(
         side,
         1,
         (side * side * 4) as usize,
@@ -51,8 +51,8 @@ fn sprite_cost(side: u32) -> Option<planning::ModelCost> {
 }
 
 /// Measures six solid faces without constructing their pixel buffers.
-fn cube_cost(side: u32) -> Option<planning::ModelCost> {
-    planning::ModelCost::new(side, 6, (side * side * 4 * 6) as usize, 36)
+fn cube_cost(side: u32) -> Option<ItemModelCost> {
+    ItemModelCost::new(side, 6, (side * side * 4 * 6) as usize, 36)
 }
 
 /// Makes an independent key for capacity tests.
@@ -335,7 +335,7 @@ fn rejected_layer_estimates_stay_bounded_and_drop_unused_keys() {
         assert_eq!(
             cache.model(
                 key(id),
-                || planning::ModelCost::new(32, MAX_ITEM_LAYERS, 4, 36),
+                || ItemModelCost::new(32, MAX_ITEM_LAYERS, 4, 36),
                 || panic!("oversized models must not be built")
             ),
             None
@@ -854,7 +854,7 @@ fn invalid_geometry_is_retried_only_after_artwork_generation_changes() {
                 assert_eq!(
                     cache.model(
                         key.clone(),
-                        || planning::ModelCost::from_model(&invalid),
+                        || ItemModelCost::from_model(&invalid),
                         || {
                             builds.set(builds.get() + 1);
                             Some(DroppedItemModel::NativeSprite(DroppedItemSprite {
@@ -885,7 +885,7 @@ fn dedicated_model_budget_refusal_keeps_icon_fallback_and_recovers_after_demand_
     let occupied = cache
         .model(
             key(0),
-            || planning::ModelCost::from_model(&occupied_model),
+            || ItemModelCost::from_model(&occupied_model),
             || Some(occupied_model.clone()),
         )
         .unwrap();
@@ -899,7 +899,7 @@ fn dedicated_model_budget_refusal_keeps_icon_fallback_and_recovers_after_demand_
         quad.material %= 2;
     }
     let model = DroppedItemModel::Block(model);
-    let cost = || planning::ModelCost::from_model(&model);
+    let cost = || ItemModelCost::from_model(&model);
     let build = || Some(model.clone());
     assert_eq!(cache.model(dedicated.clone(), cost, build), None);
     let fallback = admit(&mut cache, 1).expect("the remaining layer keeps a sprite fallback");

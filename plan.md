@@ -491,7 +491,8 @@ and rendered qualification remain incomplete.
   and retain their result. They choose the plan that draws more items, keeping cubes on a tie,
   and count and log omissions. Capacity rejections reuse their decision until the budget
   changes; invalid meshes stay rejected until their artwork generation changes.
-  Cache-pressure captures, frame pose comparisons, shaped models and special models remain incomplete.
+  Cache-pressure captures, frame pose comparisons and matched shaped and special-model
+  comparisons remain incomplete.
   Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand;
   dropped eyeblossoms and pitcher plants remain incomplete.
   Shulker previews apply each face brightness once.

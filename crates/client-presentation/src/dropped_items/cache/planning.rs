@@ -1,6 +1,5 @@
 //! Measures borrowed artwork before either complete plan constructs its selected models.
 use super::*;
-pub(super) use render_model::dropped_item::ItemModelCost as ModelCost;
 
 /// The exact upload and source capacity under which an artwork source was refused.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -53,8 +52,8 @@ impl ModelCache {
     pub(super) fn measure_cost(
         &mut self,
         key: &ModelKey,
-        measure: impl FnOnce() -> Option<ModelCost>,
-    ) -> Option<ModelCost> {
+        measure: impl FnOnce() -> Option<ItemModelCost>,
+    ) -> Option<ItemModelCost> {
         if self.invalid_meshes.contains(key)
             || self
                 .rejected
@@ -90,7 +89,7 @@ impl ModelCache {
     pub(super) fn charge_cost(
         &mut self,
         key: &ModelKey,
-        cost: ModelCost,
+        cost: ItemModelCost,
         layers: usize,
         pixels: usize,
     ) -> bool {
@@ -136,7 +135,7 @@ impl ModelCache {
     }
 
     /// Reserves distinct sources once without copying pixels or evicting resident models.
-    pub(super) fn plan_cost(&mut self, key: &ModelKey, cost: ModelCost) -> Option<u32> {
+    pub(super) fn plan_cost(&mut self, key: &ModelKey, cost: ItemModelCost) -> Option<u32> {
         if self.planned.contains(key) {
             return Some(u32::MAX);
         }
@@ -157,7 +156,7 @@ impl ModelCache {
     pub(super) fn plan_model(
         &mut self,
         key: ModelKey,
-        measure: impl FnOnce() -> Option<ModelCost>,
+        measure: impl FnOnce() -> Option<ItemModelCost>,
     ) -> Option<u32> {
         self.request(&key);
         let cost = self.measure_cost(&key, measure)?;

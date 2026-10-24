@@ -75,7 +75,7 @@ fn resolve(
                         hashed: false,
                         id: id as u32,
                     },
-                    || planning::ModelCost::from_model(model),
+                    || ItemModelCost::from_model(model),
                     || {
                         models[id].builds.set(models[id].builds.get() + 1);
                         Some(model.clone())
@@ -260,7 +260,7 @@ fn device_rejections_never_build_and_recheck_only_after_budget_changes() {
             cache.finish_frame();
             cache.warm_icon(
                 rejected_key.clone(),
-                || planning::ModelCost::from_model(&artwork[1].model),
+                || ItemModelCost::from_model(&artwork[1].model),
                 || {
                     artwork[1].builds.set(artwork[1].builds.get() + 1);
                     Some(artwork[1].model.clone())
@@ -402,7 +402,7 @@ fn animation_warming_reuses_rejection_after_later_consumers_fill_the_budget() {
             cache
                 .warm_icon(
                     key.clone(),
-                    || planning::ModelCost::from_model(&artwork[1].model),
+                    || ItemModelCost::from_model(&artwork[1].model),
                     || {
                         artwork[1].builds.set(artwork[1].builds.get() + 1);
                         Some(artwork[1].model.clone())
@@ -433,7 +433,7 @@ fn animation_warming_reuses_rejection_after_later_consumers_fill_the_budget() {
             cache
                 .warm_icon(
                     key.clone(),
-                    || planning::ModelCost::from_model(&artwork[1].model),
+                    || ItemModelCost::from_model(&artwork[1].model),
                     || {
                         artwork[1].builds.set(artwork[1].builds.get() + 1);
                         Some(artwork[1].model.clone())
