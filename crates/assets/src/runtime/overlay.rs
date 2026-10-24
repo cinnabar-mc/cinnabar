@@ -64,6 +64,9 @@ pub struct BlockOverlay {
     /// The per-array layer limit the shards were built against, so a carrier
     /// laid out for one adapter never reaches a smaller one.
     pub max_page_layers: u32,
+    /// Normal, height and material layers of server texture sets, keyed by the overlay
+    /// texture references their colour layers occupy; only the Enhanced renderer reads them.
+    pub enhanced: Option<std::sync::Arc<crate::texture::EnhancedTextureAssets>>,
 }
 
 /// A hand-built overlay with no device restriction inherits the format
@@ -90,6 +93,7 @@ impl Default for BlockOverlay {
             template_overrides: Vec::new(),
             biomes: None,
             max_page_layers: MAX_TEXTURE_LAYERS as u32,
+            enhanced: None,
         }
     }
 }
@@ -256,6 +260,9 @@ impl RuntimeAssets {
                     }))
         {
             return Err(invalid("overlay source UV grids are invalid"));
+        }
+        if let Some(enhanced) = &overlay.enhanced {
+            validate_server_enhanced(enhanced, overlay.base_texture_pages, &overlay.textures)?;
         }
         let material_base = offset(self.materials.len())?;
         let template_base = offset(self.model_templates.len())?;
@@ -628,9 +635,40 @@ impl RuntimeAssets {
             provenance: self.provenance,
             carrier_identity: None,
             retextured_visuals,
+            server_enhanced: overlay.enhanced.clone(),
             missing: AtomicU64::new(0),
         })
     }
+}
+
+/// Server maps may name only overlay texture slots, never base-carrier slots or material
+/// overrides, so they cannot change vanilla blocks.
+fn validate_server_enhanced(
+    enhanced: &crate::texture::EnhancedTextureAssets,
+    base_pages: u32,
+    shards: &[TextureArray],
+) -> Result<(), AssetError> {
+    use crate::texture::EnhancedTextureAssets as Maps;
+    if enhanced.texture_refs.len() != Maps::REFERENCE_BASE_WORDS {
+        return Err(invalid("server Enhanced maps carry material overrides"));
+    }
+    let foreign = enhanced
+        .texture_refs
+        .iter()
+        .enumerate()
+        .filter(|(_, reference)| **reference != u32::MAX)
+        .any(|(slot, _)| {
+            let (page, layer) = (slot / MAX_TEXTURE_LAYERS, slot % MAX_TEXTURE_LAYERS);
+            page.checked_sub(base_pages as usize)
+                .and_then(|shard| shards.get(shard))
+                .is_none_or(|shard| layer >= shard.layers as usize)
+        });
+    if foreign {
+        return Err(invalid(
+            "server Enhanced maps name a slot outside the overlay",
+        ));
+    }
+    Ok(())
 }
 
 /// Mips must halve from a square power-of-two base down to 1x1 with exact

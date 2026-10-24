@@ -4,7 +4,7 @@ use std::{
 };
 
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
-use pack_compile_input::texture_set::{TextureSetLayer, parse_texture_set};
+use pack_compile_input::texture_set::{TextureSetDefinition, TextureSetLayer, parse_texture_set};
 use serde_json::Value;
 
 use super::{PbrFormat, PbrPack, PbrSurface, PbrTexture, PbrTextureSource, decode};
@@ -162,6 +162,25 @@ fn read_json(path: &Path) -> Result<Value, String> {
 fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
     let set = parse_texture_set(&read_json(path)?)
         .map_err(|error| format!("texture set is invalid: {error:?}"))?;
+    texture_from_set(
+        &set,
+        pack.color_style,
+        pack.normal_format,
+        &mut |value, channels, source| layer(pack, path, value, channels, source),
+    )
+}
+
+/// One texture-set layer as an image with an allowed channel count, and the file it came from.
+pub type LayerLoader<'a> =
+    dyn FnMut(&TextureSetLayer, &[u8], &mut Option<PathBuf>) -> Result<RgbaImage, String> + 'a;
+
+/// Builds an authored texture from a validated set, reading each layer through `load`.
+pub(super) fn texture_from_set(
+    set: &TextureSetDefinition,
+    color_style: super::PbrColorStyle,
+    normal_format: super::PbrNormalFormat,
+    load: &mut LayerLoader<'_>,
+) -> Result<PbrTexture, String> {
     let mut source = PbrTextureSource {
         color: None,
         normal: None,
@@ -170,23 +189,21 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         native_color_size: [0; 2],
         native_normal_size: [0; 2],
         native_material_size: [0; 2],
-        color_style: pack.color_style,
+        color_style,
     };
-    let color = layer(pack, path, &set.color, &[3, 4], &mut source.color)?;
+    let color = load(&set.color, &[3, 4], &mut source.color)?;
     source.native_color_size = [color.width(), color.height()];
     let mut flags = PBR_REF_COLOR;
     let normal = if let Some(reference) = &set.normal {
         flags |= PBR_REF_NORMAL;
         let (normal, normal_flags) = decode::normal(
-            layer(
-                pack,
-                path,
+            load(
                 &TextureSetLayer::Image(reference.clone()),
                 &[3, 4],
                 &mut source.normal,
             )?,
             PbrFormat::Legacy,
-            pack.normal_format,
+            normal_format,
         );
         flags |= normal_flags;
         normal
@@ -197,10 +214,8 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         Some(value) => {
             let subsurface = set.material_has_subsurface;
             let allowed: &[u8] = if subsurface { &[4] } else { &[3, 4] };
-            let (material, material_flags) = decode::mer(
-                layer(pack, path, value, allowed, &mut source.material)?,
-                subsurface,
-            );
+            let (material, material_flags) =
+                decode::mer(load(value, allowed, &mut source.material)?, subsurface);
             flags |= material_flags;
             material
         }
@@ -209,7 +224,7 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
     let height = set
         .heightmap
         .as_ref()
-        .map(|value| layer(pack, path, value, &[1], &mut source.height))
+        .map(|value| load(value, &[1], &mut source.height))
         .transpose()?;
     source.native_normal_size = [normal.width(), normal.height()];
     source.native_material_size = [material.width(), material.height()];
@@ -225,6 +240,30 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         source,
         terrain_override: false,
     })
+}
+
+/// Decodes size-bounded image bytes with one of the required channel counts.
+pub(super) fn image_bytes(bytes: &[u8], channels: &[u8]) -> Result<RgbaImage, String> {
+    if bytes.len() as u64 > IMAGE_BYTES_LIMIT {
+        return Err("image exceeds authored texture byte limit".to_owned());
+    }
+    let image = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?
+        .decode()
+        .map_err(|error| error.to_string())?;
+    if !channels.contains(&image.color().channel_count()) {
+        return Err(format!(
+            "image has unsupported {}-channel data",
+            image.color().channel_count()
+        ));
+    }
+    Ok(DynamicImage::into_rgba8(image))
+}
+
+/// A uniform layer as a single texel.
+pub(super) fn uniform(pixel: [u8; 4]) -> RgbaImage {
+    solid(pixel)
 }
 
 /// Reads supported frame indices from bounded animation metadata.
