@@ -363,39 +363,9 @@ fn modal_screens_need_their_grants_and_an_indexed_template() {
     assert!(denied.dispatch(&pick, 1, &drawing_context(1)).is_err());
 }
 
-/// The test client part shaped like SP3's terminal, built for wasm32 and turned into a
-/// component. The build gets a target directory of its own inside this test's, so it neither
-/// waits on the running `cargo test`'s lock nor leaves the shared target.
+/// Builds the terminal fixture with its real SDK bindings for host callback tests.
 fn terminal_component() -> Vec<u8> {
-    let exe = std::env::current_exe().unwrap();
-    let target = exe
-        .ancestors()
-        .nth(3)
-        .unwrap()
-        .join(worktree_dir("mod-host-guests"));
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = std::process::Command::new(cargo)
-        .current_dir(&root)
-        .args(["build", "--locked", "--target", "wasm32-unknown-unknown"])
-        .args(["-p", "experience-terminal-client", "--target-dir"])
-        .arg(&target)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "building the terminal client part failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let module =
-        std::fs::read(target.join("wasm32-unknown-unknown/debug/experience_terminal_client.wasm"))
-            .unwrap();
-    wit_component::ComponentEncoder::default()
-        .module(&module)
-        .unwrap()
-        .validate(true)
-        .encode()
-        .unwrap()
+    guests::component("experience-terminal-client")
 }
 
 /// A list record the size of SP3's terminal, about 22 KB of wire JSON in 144 records of an id, a
@@ -1190,4 +1160,6 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
 }
 
 mod binding;
+mod guests;
 mod scene;
+mod space;

@@ -5979,6 +5979,7 @@ dependencies = [
  "test-alloc",
  "test-time",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "tracing",
  "ui",
  "wasi-preview1-component-adapter-provider",

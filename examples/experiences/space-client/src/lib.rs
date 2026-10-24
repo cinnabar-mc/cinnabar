@@ -2,12 +2,23 @@
 
 use experience_sdk::client::{ClientPart, drawing as draw, environment};
 use serde::Deserialize;
+use std::cell::RefCell;
 
 mod declared {
     experience_sdk::include_declarations!();
 }
 
 struct Space;
+
+thread_local! {
+    static RESOURCES: RefCell<Vec<draw::Handle>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Tracks each successful creation so a rebuild can release dependencies in reverse order.
+fn remember(handle: draw::Handle) -> draw::Handle {
+    RESOURCES.with_borrow_mut(|resources| resources.push(handle));
+    handle
+}
 
 #[experience_sdk::entry::client]
 impl ClientPart for Space {
@@ -21,6 +32,13 @@ impl ClientPart for Space {
 
 /// Rebuilds session-scoped resources after initialization or a server world change.
 fn rebuild() {
+    for handle in RESOURCES.take().into_iter().rev() {
+        match draw::remove(handle) {
+            Ok(()) => {}
+            Err(error) if error.code == draw::ErrorCode::StaleHandle => {}
+            Err(error) => panic!("remove old drawing resource: {error:?}"),
+        }
+    }
     let model: Model =
         serde_json::from_slice(&declared::assets::PLANET.read().expect("signed model"))
             .expect("original model");
@@ -28,7 +46,7 @@ fn rebuild() {
     assert_eq!(texture.len(), 32 * 16 * 4);
     let source = String::from_utf8(declared::assets::SPACE.read().expect("signed shader"))
         .expect("shader UTF-8");
-    let material = draw::create_material(&source).expect("drawing material grant");
+    let material = remember(draw::create_material(&source).expect("drawing material grant"));
     let vertices = model
         .vertices
         .into_iter()
@@ -49,22 +67,27 @@ fn rebuild() {
             }
         })
         .collect();
-    let planet = draw::create_geometry(&draw::GeometrySpec::Triangles(draw::Mesh {
-        vertices,
-        indices: model.indices,
-    }))
-    .expect("planet geometry");
-    let sky =
-        draw::create_geometry(&draw::GeometrySpec::Triangles(skybox())).expect("sky geometry");
-    draw::create(&instance(sky, material, [0.; 3], 40_000., true)).expect("sky cube");
-    draw::create(&instance(
-        planet,
-        material,
-        [0., 0., -18_000.],
-        6000.,
-        false,
-    ))
-    .expect("celestial planet");
+    let planet = remember(
+        draw::create_geometry(&draw::GeometrySpec::Triangles(draw::Mesh {
+            vertices,
+            indices: model.indices,
+        }))
+        .expect("planet geometry"),
+    );
+    let sky = remember(
+        draw::create_geometry(&draw::GeometrySpec::Triangles(skybox())).expect("sky geometry"),
+    );
+    remember(draw::create(&instance(sky, material, [0.; 3], 40_000., true)).expect("sky cube"));
+    remember(
+        draw::create(&instance(
+            planet,
+            material,
+            [0., 0., -18_000.],
+            6000.,
+            false,
+        ))
+        .expect("celestial planet"),
+    );
     environment::set_time_override(Some(18_000)).expect("visual time grant");
     environment::set_weather_override(Some(environment::Weather::Clear))
         .expect("visual weather grant");

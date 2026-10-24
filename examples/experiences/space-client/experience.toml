@@ -2,5 +2,5 @@ id = "space"
 version = "1.0.0"
 
 [client]
-permissions = ["world_draw", "render_material"]
+permissions = ["world_draw", "render_material", "environment_time", "environment_weather"]
 assets = ["assets/planet.json", "assets/surface.rgba", "assets/space.wgsl"]
