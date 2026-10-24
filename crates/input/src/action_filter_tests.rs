@@ -373,3 +373,62 @@ fn accepted_momentary_edges_preserve_the_raw_projection() {
     assert_eq!(input.phases[Action::Attack as usize], original);
     assert_eq!(input.ordered.unwrap().events.len(), 2);
 }
+
+/// A phase-only release that leaves another binding down keeps the logical hold.
+#[test]
+fn phase_only_release_with_another_binding_held_keeps_the_hold() {
+    let mut state = ActionFilterState::default();
+    let held = ActionPhase {
+        pressed: true,
+        held: true,
+        ..Default::default()
+    };
+    let mut press = frame(held, Default::default());
+    state.filter(&mut press, Some(1), 0, false, |f| {
+        Some(ActionVerdict::passthrough(f))
+    });
+    let mut release = frame(
+        ActionPhase {
+            released: true,
+            held: true,
+            ..Default::default()
+        },
+        Default::default(),
+    );
+    state.filter(&mut release, Some(1), 1, false, |f| {
+        assert!(f.transitions.iter().all(|t| t.held_after));
+        Some(ActionVerdict::passthrough(f))
+    });
+    assert!(release.phases[Action::Attack as usize].held);
+    let mut idle = frame(
+        ActionPhase {
+            held: true,
+            ..Default::default()
+        },
+        Default::default(),
+    );
+    state.filter(&mut idle, Some(1), 2, false, |_| panic!("idle hold"));
+    assert!(idle.phases[Action::Attack as usize].held);
+}
+
+/// An authorized repeat cannot revive a gesture whose fresh press was suppressed.
+#[test]
+fn repeat_does_not_revive_a_suppressed_press() {
+    for owner in [Some(1), None] {
+        let mut state = ActionFilterState::default();
+        let mut first = ordered([false; 2], &[(Action::Attack, true)]);
+        state.filter(&mut first, Some(1), 0, false, |_| {
+            decide(&[false], [false; 2])
+        });
+        assert!(!first.phases[Action::Attack as usize].held);
+        let mut repeat = ordered([true, false], &[]);
+        let admitted = state.filter(&mut repeat, owner, 1, true, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        assert!(!admitted);
+        assert_eq!(
+            repeat.phases[Action::Attack as usize],
+            ActionPhase::default()
+        );
+    }
+}

@@ -266,7 +266,8 @@ impl ActionFilterState {
                 });
             }
         }
-        let admitted = repeat && verdict.accepted[decision];
+        // A repeat continues an owned gesture; it cannot revive a suppressed or released one.
+        let admitted = repeat && verdict.accepted[decision] && held[FilterAction::Attack.index()];
         if admitted {
             let buttons = ActionButtons::new(input.phases.map(|p| p.held));
             emit(
@@ -338,10 +339,13 @@ fn aggregate_events(input: &ActionSnapshot, initial: ActionButtons) -> Vec<Actio
         } else {
             [p.pressed.then_some(true), p.released.then_some(false)]
         };
-        for pressed in order.into_iter().flatten() {
+        let count = order.iter().flatten().count();
+        for (n, pressed) in order.into_iter().flatten().enumerate() {
+            // The final transition carries the resolved hold, which another binding may keep.
+            let held = if n + 1 == count { p.held } else { pressed };
             buttons = ActionButtons::new(std::array::from_fn(|i| {
                 if i == action as usize {
-                    pressed
+                    held
                 } else {
                     buttons.held(Action::ALL[i])
                 }
