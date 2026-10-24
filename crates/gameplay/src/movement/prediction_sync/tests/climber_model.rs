@@ -232,11 +232,13 @@ fn check_replay(
 
 #[test]
 fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
-    for seed in 1..=64 {
+    // Run the existing input streams both without shapes and after a scaffold teleport.
+    for case in 0..64 {
+        let seed = case % 32 + 1;
         let mut random = Random(seed);
         let world = ContactWorld {
             seed: random.next(),
-            collision: seed > 32,
+            collision: case >= 32,
         };
         let mut physics = due_physics();
         let first = sim::MovementInput::default();
