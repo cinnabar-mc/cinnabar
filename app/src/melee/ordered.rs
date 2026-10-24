@@ -40,6 +40,7 @@ pub(crate) fn press(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+    mut attack_cues: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalAttackCue>,
 ) {
     let Some(selection) = hand_interaction_selection(&player) else {
         return;
@@ -174,6 +175,9 @@ pub(crate) fn press(
     }
     for request in admitted.cancelled_mining_requests {
         player.inventory.ledger_mut().cancel_mining_request(request);
+    }
+    if let Some(hit) = admitted.actor_attack {
+        attack_cues.write(super::attack_cue(&context, hit.runtime_id));
     }
     if let Some(tick) = admitted.rotation_tick
         && let Some(rotation) = picked.action_rotation

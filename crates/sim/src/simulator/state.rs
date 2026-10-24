@@ -107,6 +107,12 @@ impl PlayerState {
         self.fall_distance
     }
 
+    /// Whether the latest tick ended with a climbable block at the feet.
+    #[must_use]
+    pub fn on_climbable_block(&self) -> bool {
+        self.climber.is_some_and(|contact| contact.ascending)
+    }
+
     /// Clears accumulated falling when a movement action starts or stops flight.
     pub fn clear_fall_distance(&mut self) {
         self.fall_distance = 0.0;
@@ -320,4 +326,17 @@ pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
         return Err(WorldQueryError::QueryExtentExceeded.into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn climbable_contact_follows_the_ascending_block_at_the_feet() {
+        let mut state = PlayerState::new(Vec3::ZERO);
+        assert!(!state.on_climbable_block());
+        state.update_climber_contact(None, None, Some(true), None);
+        assert!(state.on_climbable_block());
+    }
 }

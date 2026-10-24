@@ -1,5 +1,5 @@
 //! Client-predicted sounds tied to local interaction: block place/hit/break, eating and drinking,
-//! actor hurt/death status events, and dropped-item pickup.
+//! the player's own attacks, actor hurt/death status events, and dropped-item pickup.
 
 use std::sync::Arc;
 
@@ -44,6 +44,14 @@ pub enum LocalBlockCue {
         position: [i32; 3],
         block_runtime_id: i32,
     },
+}
+
+/// The local player's attack sound, voiced on the frame the attack is sent. Servers send
+/// it only to other players, so no server copy is expected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Message)]
+pub struct LocalAttackCue {
+    /// The player's level sound event, such as `attack.strong`.
+    pub event: &'static str,
 }
 
 #[derive(Debug, Default)]
@@ -343,6 +351,49 @@ pub fn drive_consume_audio(
     for request in requests {
         engine.enqueue(request);
     }
+}
+
+/// Voices the local player's attack cues at `position`, unless the player is silent.
+pub fn drive_attack_cues(
+    mut cues: MessageReader<LocalAttackCue>,
+    world: crate::observations::WorldObservation<'_>,
+    position: bevy::prelude::Vec3,
+    mut engine: ResMut<AudioEngine>,
+) {
+    use actor_animation::AnimatedActor;
+    let silent = world.stream.as_ref().is_none_or(|stream| {
+        stream
+            .authority()
+            .actor(stream.local_player_runtime_id())
+            .is_some_and(|actor| actor.flag(protocol_ids::ActorFlag::Silent.wire_value()))
+    });
+    let requests: Vec<SoundRequest> = match engine.bank() {
+        Some(bank) if !silent => cues
+            .read()
+            .filter_map(|cue| attack_request(bank.tables(), *cue, position.into()))
+            .collect(),
+        _ => {
+            cues.clear();
+            return;
+        }
+    };
+    for request in requests {
+        engine.enqueue(request);
+    }
+}
+
+/// The player's sound for an attack cue at `position`.
+fn attack_request(
+    tables: &assets::SoundEventTables,
+    cue: LocalAttackCue,
+    position: [f32; 3],
+) -> Option<SoundRequest> {
+    let route = tables.entity(PLAYER, cue.event, None)?;
+    Some(
+        SoundRequest::new(route.sound)
+            .with_ranges(route.volume, route.pitch)
+            .at(position),
+    )
 }
 
 /// Hurt or death sound of `identifier` for a status `notice`, from the actor's head.
@@ -681,5 +732,30 @@ mod tests {
     #[test]
     fn cell_centers_offset_by_half_a_block() {
         assert_eq!(center([1, -2, 3]), [1.5, -1.5, 3.5]);
+    }
+
+    #[test]
+    fn attack_cues_voice_the_player_attack_sound_at_the_player() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {"entities": {"player": {
+                "volume": 1.0, "pitch": [0.8, 1.2], "events": {
+                    "attack.critical": "game.player.attack.critical",
+                    "attack.strong": "game.player.attack.strong"}}}}}),
+            &serde_json::json!({}),
+        );
+        let request = attack_request(
+            &tables,
+            LocalAttackCue {
+                event: "attack.critical",
+            },
+            [1.0, 65.62, 1.0],
+        )
+        .unwrap();
+        assert_eq!(&*request.name, "game.player.attack.critical");
+        assert_eq!(request.position, Some([1.0, 65.62, 1.0]));
+        let missing = LocalAttackCue {
+            event: "attack.nodamage",
+        };
+        assert!(attack_request(&tables, missing, [0.0; 3]).is_none());
     }
 }

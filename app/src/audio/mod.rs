@@ -10,4 +10,4 @@ pub(crate) use systems::configure;
 mod local_bank_tests;
 
 #[cfg(test)]
-pub(crate) use predicted::drive_block_cues;
+pub(crate) use predicted::{drive_attack_cues, drive_block_cues};

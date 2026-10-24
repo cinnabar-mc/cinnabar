@@ -216,6 +216,7 @@ fn maintain_attacks(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     mut cues: bevy::prelude::MessageWriter<client_audio::audio::LocalBlockCue>,
+    mut attack_cues: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalAttackCue>,
 ) {
     let (mut runtime, mut mining, mut swings, item_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -369,6 +370,9 @@ fn maintain_attacks(
     for request in admitted.cancelled_mining_requests {
         player.inventory.ledger_mut().cancel_mining_request(request);
     }
+    if let Some(hit) = admitted.actor_attack {
+        attack_cues.write(attack_cue(&context, hit.runtime_id));
+    }
     for cue in mining.take_break_cues() {
         let gameplay::survival_mining::BlockBreakCue::Break {
             position,
@@ -388,6 +392,36 @@ fn maintain_attacks(
             &mut movement,
             tick,
         );
+    }
+}
+
+/// The local attack sound for an actor attack sent this frame, chosen from the player's
+/// latest completed tick. Without local physics the player counts as standing.
+pub(crate) fn attack_cue(
+    context: &MeleeContext,
+    target_runtime_id: u64,
+) -> client_audio::audio::predicted::LocalAttackCue {
+    let target_is_mob = context
+        .client_world
+        .stream
+        .as_ref()
+        .and_then(|stream| stream.authority().actor(target_runtime_id))
+        .is_none_or(|actor| match actor.kind {
+            protocol::ActorKind::Player { .. } => true,
+            protocol::ActorKind::Entity { .. } => gameplay::melee::is_mob(&actor.entity_fact),
+        });
+    let physics = context.physics.as_deref();
+    let state = physics.and_then(|physics| physics.state());
+    let attacker = gameplay::melee::AttackerState {
+        effects: context.effects.melee_effects(),
+        fall_distance: state.map_or(0.0, |state| state.fall_distance()),
+        on_ground: state.is_none_or(|state| state.on_ground),
+        on_climbable: state.is_some_and(|state| state.on_climbable_block()),
+        in_water: physics.is_some_and(|physics| physics.in_water()),
+        riding: physics.is_some_and(|physics| physics.mode() == sim::MovementMode::Riding),
+    };
+    client_audio::audio::predicted::LocalAttackCue {
+        event: gameplay::melee::attack_sound(attacker, target_is_mob).event(),
     }
 }
 

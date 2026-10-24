@@ -206,6 +206,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	var closeUnstarted func() error
 	srv, closeUnstarted = newLocalServer(conf)
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
+	installAttackSounds(worlds...)
 	pauses := &pauseState{settings: cfg}
 	for _, w := range worlds {
 		pauses.WorldOpened(w)

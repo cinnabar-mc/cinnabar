@@ -25,6 +25,11 @@ func (h *localPlayerHandler) HandleTeleport(ctx *player.Context, pos mgl64.Vec3)
 	}
 }
 
+// HandleAttackEntity keeps the attacker's own attack sound from being sent back to it.
+func (h *localPlayerHandler) HandleAttackEntity(ctx *player.Context, _ world.Entity, _, _ *float64, _ *bool) {
+	markAttacker(ctx.Tx, ctx.Player().Addr())
+}
+
 // HandleQuit forgets this player's focus when the server hosts Experiences.
 func (h *localPlayerHandler) HandleQuit(p *player.Player) {
 	if h.host != nil {
