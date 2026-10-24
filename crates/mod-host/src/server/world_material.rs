@@ -8,12 +8,21 @@ use server_experience::world_material::{
 
 impl State {
     /// Validates the shader within the per-callback compile budget, after the declaration's
-    /// own bounds, so a rejected source still spends an attempt.
-    fn compile_world_material(&mut self, spec: &WorldMaterialSpec) -> Result<(), String> {
+    /// own bounds, so a rejected source still spends an attempt. Redeclaring material `id`
+    /// with only new parameters revalidates nothing and spends no compile.
+    fn compile_world_material(&mut self, id: u32, spec: &WorldMaterialSpec) -> Result<(), String> {
         self.capabilities
             .world_authority()
             .validate_material(spec)
             .map_err(|error| error.to_string())?;
+        if self
+            .world_staged
+            .materials
+            .get(&id)
+            .is_some_and(|staged| staged.same_program(spec))
+        {
+            return Ok(());
+        }
         if self.world_compiles >= mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK {
             return Err("world material compile budget exceeded".into());
         }
@@ -40,7 +49,7 @@ impl wit::Host for State {
                 wit::Blend::Additive => WorldBlend::Additive,
             },
         };
-        if let Err(error) = self.compile_world_material(&spec) {
+        if let Err(error) = self.compile_world_material(id, &spec) {
             self.charge()?;
             return Ok(Err(error));
         }
