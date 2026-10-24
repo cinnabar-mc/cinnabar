@@ -23,6 +23,47 @@ import (
 	"github.com/go-gl/mathgl/mgl64"
 )
 
+func TestEntityDespawnRetainsSurvivingSnapshots(t *testing.T) {
+	f := newEntityFixture(t)
+	removed, surviving := f.spawnEntity(), f.spawnEntity()
+	f.do(f.source, func(tx *world.Tx) {
+		e, ok := f.h.findEntity(tx, "probe", removed)
+		if !ok {
+			t.Fatal("entity missing before removal")
+		}
+		if err := e.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var observed *event
+	for len(f.d.events) > 0 {
+		ev := <-f.d.events
+		if ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned" {
+			observed = &ev
+		}
+	}
+	if observed == nil {
+		t.Fatal("removal omitted its observation")
+	}
+	f.d.seq++
+	snap, err := f.h.snapshot(t.Context(), f.d, observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entities := snap.req.Info.Context.Entities
+	if len(entities) != 1 || entities[0].State.Handle != surviving {
+		t.Fatalf("live removal snapshot lost the surviving entity: %+v", entities)
+	}
+	state := entities[0].State
+	state.Position.X++
+	f.do(f.source, func(tx *world.Tx) {
+		ops := []Op{{Entity: &EntityCommand{Action: EntityOp{Type: "update", State: &state}}}}
+		if _, err := f.h.apply(tx, "probe", *observed, snap, ops); err != nil {
+			t.Fatalf("removal callback cannot update a surviving entity: %v", err)
+		}
+	})
+}
+
 func TestMovingEntitySurvivesChunkCleanupBeforeTick(t *testing.T) {
 	f := newEntityFixture(t)
 	synctest.Test(t, func(t *testing.T) {

@@ -192,6 +192,9 @@ Server WIT 0.10 adds registered entities in the mod's namespace. Definitions sel
 an existing built-in appearance or indexed geometry, PNG and render-controller assets.
 The host validates resources before freezing its world registry and resource packs;
 helper restarts must return the same declarations.
+Cinnabar resolves a built-in appearance from the actor's admitted constructor when
+its custom identity has no authored artwork, including server-pack overrides of that
+built-in appearance. Authored custom artwork takes priority.
 
 | Operation | Contract |
 | --- | --- |
@@ -210,6 +213,8 @@ on the next framework tick. Deferred world tasks retry missing destinations even
 that entity can tick; despawn cancels pending retries. Actors and seats are process-local: unload and shutdown
 release them and their chunk leases, and terrain saves exclude them. Player travel
 leaves actors in their original world and dismounts departing riders.
+Removal callbacks retain live entity snapshots while their world opening exists.
+After unload, they retain only the historical opening and private stores.
 
 Seat offsets are relative to the actor. At most one seat steers; input supplies
 movement intent, look angles, jump and sneak rather than client vehicle coordinates.

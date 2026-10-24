@@ -554,9 +554,7 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	if ev.call.Player != nil {
 		return h.observationSnapshot(d, *ev), nil
 	}
-	if ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned" {
-		return h.entityDespawnSnapshot(d, *ev), nil
-	}
+	despawn := ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned"
 	if !h.playerCurrent(*ev) {
 		return snapshot{}, errStale
 	}
@@ -572,9 +570,15 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 				snap = h.read(tx, d, *ev)
 			}
 		})); err != nil {
+			if despawn && errors.Is(err, world.ErrWorldClosed) {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, err
 		}
 		if !valid {
+			if despawn {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, fmt.Errorf("%w: world instance changed", errStale)
 		}
 		return snap, nil

@@ -1050,7 +1050,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   publish the requested velocity after repositioning. Moving actors retain the old chunk lease
   until framework membership migrates on the next entity tick; missing destinations retry
   independently of entity ticks. Actor and seat state are
-  process-local; unload releases their chunk leases. The shared-ID ship sample, live seat
+  process-local; unload releases their chunk leases. Live removal callbacks retain surviving
+  entities; closed openings retain historical observations. Built-in appearance lookup has
+  offline rig coverage without replacing custom artwork. The shared-ID ship sample, live seat
   positions/link acceptance and mixed-client rendering remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
