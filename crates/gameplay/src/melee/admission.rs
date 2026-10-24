@@ -33,6 +33,9 @@ pub struct AttackEffects<Send, Duration, Request, Predict> {
 #[derive(Debug, Default)]
 pub struct AttackAdmission {
     pub admitted: Option<u64>,
+    /// The actor whose attack entered the outbound FIFO now; vanilla voices its attack sound
+    /// on this frame. Item-directed attacks resolve on the server and are not reported.
+    pub actor_attack: Option<super::ActorHit>,
     pub rotation_tick: Option<u64>,
     pub cancelled_mining_requests: Vec<i32>,
 }
@@ -227,6 +230,12 @@ fn admit(
                     break;
                 }
                 result.admitted = Some(entry.id);
+                if let Crosshair::Actor(hit) = crosshair
+                    && press.item_attack.is_none()
+                    && press.selection.is_some()
+                {
+                    result.actor_attack = Some(*hit);
+                }
                 if rotates {
                     result.rotation_tick = Some(press.tick);
                 }

@@ -560,10 +560,7 @@ impl Simulator {
                 &mut sampled.block_samples,
             )?;
             identity = identity.merge(&feet.identity)?;
-            let flags = feet.value.flags;
-            flags.contains(crate::BlockPhysicsFlags::CLIMBABLE)
-                || (input.can_stand_on_snow
-                    && flags.contains(crate::BlockPhysicsFlags::POWDER_SNOW))
+            feet.value.flags.climbable_for(input.can_stand_on_snow)
         } else {
             false
         };

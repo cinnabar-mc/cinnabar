@@ -41,6 +41,7 @@ pub(crate) fn press(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     item_use: Res<client_interaction::item_use::ItemUseRuntime>,
+    mut attack_cues: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalAttackCue>,
 ) {
     // An earlier use edge in this batch may have started eating or drawing.
     if item_use.vetoes_attack(&player, context.client_world.stream.as_ref()) {
@@ -180,6 +181,9 @@ pub(crate) fn press(
     }
     for request in admitted.cancelled_mining_requests {
         player.inventory.ledger_mut().cancel_mining_request(request);
+    }
+    if let Some(hit) = admitted.actor_attack {
+        attack_cues.write(super::attack_cue(&context, hit.runtime_id));
     }
     if let Some(tick) = admitted.rotation_tick
         && let Some(rotation) = picked.action_rotation

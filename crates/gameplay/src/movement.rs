@@ -54,7 +54,9 @@ pub use diagnostics::{
     CorrectionContext, CorrectionContextLine, CorrectionContextLog, CorrectionKind,
     CorrectionPacket, note_correction, note_motion,
 };
-pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
+pub use effects::{
+    BoostSpan, LocalMovementEffectTimeline, MeleeEffects, MiningEffects, MovementBoost,
+};
 use encoding::{HeldInput, input_flags};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
