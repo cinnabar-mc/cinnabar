@@ -169,8 +169,15 @@ validation or native compilation is skipped, reported once in the log and the ex
 indicator, and its targets keep their Bedrock materials. Stopping a client part, F9 or a
 disconnect removes every material and binding in one publication without a reconnect.
 
-Not yet: Enhanced and shader-pack terrain draw bound blocks as Bedrock. Identifiers outside the
-signed namespace, vanilla included, take `render_world_material_override`.
+With a shader pack, a bound block samples an atlas sprite of its own: each frame the guest's
+`shade` renders the material over the sprite's square, every mip level, as the albedo with its
+emission added and as LabPBR emission in the specular map, and the pack lights it as any block
+sprite. The sprite sees a white base, an upward face seen from above and full light, so effects
+that depend on world position, view direction or the block's tint are flattened; until the
+first render, and after revocation, the block keeps its Bedrock sprite.
+
+Not yet: Enhanced terrain draws bound blocks as Bedrock. Identifiers outside the signed
+namespace, vanilla included, take `render_world_material_override`.
 
 ## Modal screens
 

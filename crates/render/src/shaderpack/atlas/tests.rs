@@ -76,6 +76,8 @@ pub(super) struct Fixture {
     pub materials: Vec<Material>,
     pub animations: Vec<Animation>,
     pub frames: Vec<TextureRef>,
+    /// World material sprites the plan places; none by default.
+    pub world_sprites: u32,
 }
 
 pub(super) fn fixture() -> Fixture {
@@ -110,6 +112,7 @@ pub(super) fn fixture() -> Fixture {
         ],
         animations: vec![animation(0), animation(ANIMATION_FLAG_BLEND)],
         frames: vec![reference(0, 3), reference(0, 4), reference(0, 5)],
+        world_sprites: 0,
     }
 }
 
@@ -128,6 +131,7 @@ impl Fixture {
             animation_frames: &self.frames,
             layout: &layout,
             authored,
+            world_sprites: self.world_sprites,
         })
     }
 }
@@ -681,6 +685,7 @@ fn terrain_source_lod_keeps_detail_on_a_larger_physical_page() {
             source_side: 16,
         },
         authored: None,
+        world_sprites: 0,
     };
     let content = plan::SpriteContent::Layer {
         reference: reference(0, 0),

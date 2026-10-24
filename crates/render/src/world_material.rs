@@ -215,16 +215,13 @@ pub(crate) fn register_all_shaders(
     if !bevy::ecs::change_detection::DetectChanges::is_changed(&scene) {
         return;
     }
-    register_shaders(
-        &[
-            crate::actor_render::world_materials::family(),
-            crate::chunk::world_materials::family(),
-            crate::chunk::world_materials::model_family(),
-        ],
-        &scene,
-        &mut shaders,
-        &mut registered,
-    );
+    let families = [
+        crate::actor_render::world_materials::family(),
+        crate::chunk::world_materials::family(),
+        crate::chunk::world_materials::model_family(),
+        crate::shaderpack::atlas::world_sprites::family(),
+    ];
+    register_shaders(&families, &scene, &mut shaders, &mut registered);
 }
 
 /// One material's GPU resources.

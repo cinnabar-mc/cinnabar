@@ -79,6 +79,7 @@ fn expansion_inputs() -> ExpansionInputs {
         biome_tints: BufferId::new(),
         biome_tint_table: ChunkBiomeTintIdentity::new(4, 5),
         atlas_generation: 1,
+        world_sprites: 0,
         attribute_key: AttributeKey {
             assets: 1,
             revision: 1,

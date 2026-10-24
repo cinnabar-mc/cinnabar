@@ -322,6 +322,8 @@ struct CubeQuad {
     material_id: u32,
     /// `material_id` after positional variation at the origin block.
     selected_material_id: u32,
+    /// One more than the quad's world material slot; zero draws the Bedrock material.
+    world: u32,
 }
 
 /// Decodes packed quad `instance_index` of the section in origin slot `metadata_index`.
@@ -344,6 +346,7 @@ fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
         chunk_origin.stream_bases.y + local_quad_index,
         quad.material_id,
         positional_material_id(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin)),
+        geometry >> 26u,
     );
 }
 
