@@ -31,6 +31,8 @@ pub(crate) struct AuthoredTextureLoading {
     base: Arc<RuntimeAssets>,
     keys: Option<MaterialKeys>,
     loading: Loading,
+    /// The last local and server maps combined, by their shared identities, and the result.
+    combined: Option<((usize, usize), AuthoredMaps)>,
 }
 
 impl AuthoredTextureLoading {
@@ -40,6 +42,7 @@ impl AuthoredTextureLoading {
             base,
             keys,
             loading: Loading::Unrequested,
+            combined: None,
         }
     }
 
@@ -135,6 +138,45 @@ fn spawn(
     Ok(receiver)
 }
 
+/// Combines the selected local maps with the session carrier's server texture-set maps, which
+/// take precedence where both author a slot. Without the Enhanced selection there are no local
+/// maps and server maps are dropped too, leaving every server texture its colour. Combined maps
+/// the device cannot hold keep only the local ones.
+fn with_server_maps(
+    loading: &mut AuthoredTextureLoading,
+    textures: &ChunkTextureAssets,
+    mode: RenderMode,
+    limits: Option<&wgpu::Limits>,
+) -> AuthoredMaps {
+    let local = loading.selected(mode);
+    if mode != RenderMode::Enhanced {
+        return local;
+    }
+    let Some(server) = textures.assets().server_enhanced() else {
+        return local;
+    };
+    let identity = (
+        local.as_ref().map_or(0, |maps| Arc::as_ptr(maps) as usize),
+        Arc::as_ptr(server) as usize,
+    );
+    if let Some((cached, maps)) = &loading.combined
+        && *cached == identity
+    {
+        return maps.clone();
+    }
+    let combined = EnhancedTextureAssets::merged(local.as_deref(), server)
+        .filter(|maps| {
+            limits.is_none_or(|limits| render_scene::enhanced_maps_fit_device_limits(maps, limits))
+        })
+        .map(Arc::new)
+        .or_else(|| {
+            warn!("unsupported server Enhanced maps; retained their colour");
+            local
+        });
+    loading.combined = Some((identity, combined.clone()));
+    combined
+}
+
 /// Replaces optional maps only when their shared source changes.
 fn apply(textures: &mut ChunkTextureAssets, maps: AuthoredMaps) {
     let unchanged = match (textures.enhanced(), maps.as_ref()) {
@@ -173,7 +215,8 @@ pub(super) fn update_authored_textures(
     if reload.is_some_and(|reload| reload.geometry_pending()) {
         return;
     }
-    apply(&mut textures, loading.selected(mode));
+    let maps = with_server_maps(&mut loading, &textures, mode, limits.as_ref());
+    apply(&mut textures, maps);
 }
 
 #[cfg(test)]
@@ -200,6 +243,70 @@ mod tests {
             )
             .unwrap(),
         )
+    }
+
+    /// A carrier whose overlay holds one texture with server Enhanced maps on its slot.
+    fn server_carrier() -> Arc<RuntimeAssets> {
+        let shard = assets::texture::TextureArray {
+            layers: 1,
+            mips: (0..5)
+                .map(|level| assets::texture::TextureMip {
+                    size: 16 >> level,
+                    rgba8: vec![200; 4 * (16usize >> level).pow(2)].into_boxed_slice(),
+                })
+                .collect(),
+        };
+        let server = maps();
+        let mut references = server.texture_refs.to_vec();
+        references[assets::MAX_TEXTURE_LAYERS] = 1 << 31;
+        let server = EnhancedTextureAssets::new(
+            server.color_pages.clone(),
+            server.normal_pages.clone(),
+            server.mer_pages.clone(),
+            references.into_boxed_slice(),
+        )
+        .unwrap();
+        let overlay = assets::BlockOverlay {
+            textures: vec![shard],
+            enhanced: Some(Arc::new(server)),
+            ..Default::default()
+        };
+        Arc::new(
+            RuntimeAssets::diagnostic()
+                .with_block_overlay(1, &overlay)
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn server_maps_attach_only_with_the_enhanced_selection_and_are_combined_once() {
+        let carrier = server_carrier();
+        let textures = ChunkTextureAssets::new(Arc::clone(&carrier));
+        let mut loading = AuthoredTextureLoading::new(Arc::clone(&carrier), None);
+        assert!(with_server_maps(&mut loading, &textures, RenderMode::Vanilla, None).is_none());
+        let server = carrier.server_enhanced().unwrap();
+        let alone = with_server_maps(&mut loading, &textures, RenderMode::Enhanced, None).unwrap();
+        assert_eq!(alone.as_ref(), server.as_ref());
+        let again = with_server_maps(&mut loading, &textures, RenderMode::Enhanced, None).unwrap();
+        assert!(
+            Arc::ptr_eq(&alone, &again),
+            "unchanged inputs are not combined again"
+        );
+        loading.loading = Loading::Complete(Some(maps()));
+        let combined =
+            with_server_maps(&mut loading, &textures, RenderMode::Enhanced, None).unwrap();
+        let slot = assets::TextureRef::new(1, 0).unwrap();
+        assert_eq!(combined.material_reference(0, slot), 1 << 31);
+        let tiny = wgpu::Limits {
+            max_texture_dimension_2d: 0,
+            ..Default::default()
+        };
+        loading.combined = None;
+        let local = with_server_maps(&mut loading, &textures, RenderMode::Enhanced, Some(&tiny));
+        assert!(
+            local.is_some_and(|maps| maps.material_reference(0, slot) == u32::MAX),
+            "maps the device cannot hold keep only the local ones"
+        );
     }
 
     #[test]

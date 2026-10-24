@@ -12,6 +12,7 @@ mod geometry_inputs;
 use pack_compiler::block_geometry as geometry;
 mod legacy;
 mod materials;
+mod pbr;
 use materials::cube_blends;
 mod storage;
 mod texture_admission;
@@ -64,6 +65,10 @@ pub(crate) struct OverlayGaps {
     pub(crate) invalid_legacy_bindings: u32,
     /// Routes refused because the overlay texture array had no layer left.
     pub(crate) saturated_textures: u32,
+    /// Server texture sets whose surface layers did not decode or fit the terrain budget; they
+    /// keep only their colour.
+    #[serde(default)]
+    pub(crate) downgraded_texture_sets: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -170,6 +175,7 @@ pub(super) fn compile_block_overlay_with_textures(
         slots: TextureSlots::default(),
         materials: HashMap::new(),
         state_masks: bindings::StateMasks::default(),
+        pbr: Default::default(),
         visuals: HashMap::new(),
         gaps: OverlayGaps {
             invalid_legacy_bindings: legacy.invalid,
@@ -261,6 +267,7 @@ pub(super) fn compile_block_overlay_with_textures(
     }
     builder.catalog.emit_diagnostics();
     let _zone = bevy::log::info_span!("pack.blocks.finish").entered();
+    builder.build_server_surfaces(view);
     builder.finish()
 }
 
@@ -326,6 +333,8 @@ struct Builder<'a> {
     materials: HashMap<(String, u32, u32, [u32; 3]), u32>,
     /// Mask textures bindings assign to the state being pushed.
     state_masks: bindings::StateMasks,
+    /// Textures whose colour came from a server texture set, for their surface layers.
+    pbr: pbr::PbrCandidates,
     visuals: HashMap<String, BlockVisual>,
     gaps: OverlayGaps,
 }
