@@ -508,6 +508,12 @@ and rendered qualification remain incomplete.
   Heavy-core inventory previews use their carried scale and screen offset.
   Shelf inventory previews use their carried scale and position.
   Azalea previews keep separate stems and open-bottom canopies.
+- [ ] Inherit every base-game image that server `item_texture.json` entries name without
+  shipping it. Session icons fall back to the world carrier's terrain layer only when that
+  layer is an exact copy of the source image: an untinted image of exactly one 16x16 tile.
+  Larger and animated block images, carried-only textures such as `textures/blocks/barrier`
+  and the `*_carried` leaves, and UI images still draw no icon; they need base images kept
+  at source resolution by path.
 - [ ] Draw an inventory icon for structure voids, the remaining pinned registry item
   without one. Copper golem statue previews use the standing pack geometry, oxidation
   artwork and eye layer; item pose metadata remains incomplete. Variant indices of

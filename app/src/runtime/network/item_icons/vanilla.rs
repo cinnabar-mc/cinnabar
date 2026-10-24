@@ -188,17 +188,16 @@ fn sprite(path: &str) -> Option<DecodedTexture> {
 /// Base world materials by their lowercase source image filename, built on first use.
 static TERRAIN_RASTERS: OnceLock<HashMap<String, u32>> = OnceLock::new();
 
-/// Indexes materials whose carrier pixels equal their source image; the lowest id wins when
-/// several states share one image. Materials with a baked atlas tint differ from the file.
+/// Indexes materials whose carrier layer is an exact copy of their source image, so inheriting
+/// an image gives the same pixels as shipping it; the lowest id wins when states share one.
+/// Larger or animated images are compiled to a downsampled tile or a selected frame instead.
 fn terrain_raster_index(keys: &MaterialKeys) -> HashMap<String, u32> {
     let mut index = HashMap::new();
-    for (material, source) in keys.material_sources() {
-        if source.baked_tint.is_none() {
-            index
-                .entry(source.raster.to_ascii_lowercase())
-                .and_modify(|id: &mut u32| *id = (*id).min(material))
-                .or_insert(material);
-        }
+    for (material, source) in keys.exact_carrier_rasters() {
+        index
+            .entry(source.raster.to_ascii_lowercase())
+            .and_modify(|id: &mut u32| *id = (*id).min(material))
+            .or_insert(material);
     }
     index
 }
