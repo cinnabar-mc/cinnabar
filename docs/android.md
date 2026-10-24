@@ -15,7 +15,8 @@ signing key so later APKs can update the installed app. The desktop updater does
 Uninstall an earlier CI test build before installing a release APK; this clears its app data.
 
 On Android 11+, reopening the app after an unexpected exit offers **Copy details** with the
-device, exit reason and the end of the client log. Include those details when reporting a crash.
+device, a readable exit cause with its numeric reason, and the end of the client log. Consecutive
+duplicate log lines appear once with a repeat count. Include those details when reporting a crash.
 **Save report** writes a ZIP to Downloads with those details and Android's retained crash trace,
 when available. For native crashes on Android 12+, the trace is the original tombstone protobuf;
 attach the ZIP to the crash report. Nothing is uploaded automatically.
@@ -104,10 +105,10 @@ require a connection. Earlier startup aborts leave extended reliability testing 
 An available account can join the local server without online verification when account services
 are unavailable or the server reports missing verification keys. This local retry lacks the host's
 account-based operator grant. Complete APK acceptance and the ten-second startup target remain open.
-The most recently played BDS world starts in the background once the menu is up. A left world's
-server keeps running for five minutes, so opening either skips the server start; see
-[local worlds](local-worlds.md). Battery cost and physical-phone timing of these hidden servers
-remain unmeasured.
+Saved BDS worlds start only when opened explicitly. Leaving a world requests its save and stop
+immediately; reopening waits for the previous server to finish saving and cleaning up. Reusable
+startup-code preparation remains separate from saved-world opens; see [local worlds](local-worlds.md).
+Physical-phone battery cost and startup timing remain unmeasured.
 Local-server startup logs include milestone elapsed times and, when accessible, child-process CPU
 time. These entries are available without verbose logging and help distinguish CPU work from waiting.
 BDS worlds cannot pause simulation.

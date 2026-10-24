@@ -33,10 +33,14 @@ pub enum World {}
 /// Marks a registered item definition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {}
+/// Marks a registered block definition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Block {}
 
 pub type EntityId = Id<Entity>;
 pub type WorldId = Id<World>;
 pub type ItemId = Id<Item>;
+pub type BlockId = Id<Block>;
 
 /// Creates a typed ID; its type comes from the surrounding declaration.
 #[macro_export]
@@ -153,6 +157,22 @@ pub trait Message: Sized {
     fn decode(record: Vec<Value>) -> Result<Self, String>;
 }
 
+/// A message sent by the client and handled by the server.
+pub trait ToServer: Message {}
+
+/// A message sent by the server and handled by the client.
+pub trait ToClient: Message {
+    /// Whether a refused reply is retained until transport credit returns.
+    const CONTROL: bool = false;
+}
+
+/// Implementation details used by the entry macros.
+#[doc(hidden)]
+pub mod __private {
+    /// Makes duplicate handlers for the same message a conflicting implementation.
+    pub trait Handles<M> {}
+}
+
 /// Validates a record before a generated encoder or decoder exposes it.
 pub fn validate(channel: &Channel, record: &[Value]) -> Result<(), String> {
     if channel.fields.len() == record.len()
@@ -214,7 +234,7 @@ impl RegistryState {
         }
         if record != [Value::Text(registry.fingerprint.to_owned())] {
             *self = Self::Refused;
-            return Err("mod registry fingerprint mismatch; rebuild the client and server definitions together".into());
+            return Err(crate::REGISTRY_MISMATCH.into());
         }
         let first = *self != Self::Active;
         *self = Self::Active;
