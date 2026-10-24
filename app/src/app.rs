@@ -334,6 +334,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // the upstream client-cache advertisement from the same cache it later
     // hands to the network session.
     let client_blob_cache = ClientBlobCacheOwner::persistent(layout.client_blob_cache_file());
+    let packet_mods = crate::modding::packets::from_environment();
+    let startup_cache = packet_mods.startup_cache(&client_blob_cache, &layout.user_config_root);
     // Bound before the core guard is declared so Rust's reverse local-drop
     // order always stops the core before releasing this directory, including
     // every startup `?` before the app takes ownership of the guard.
@@ -454,7 +456,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                     &socket_dir,
                     address,
                     None,
-                    client_blob_cache.enables_upstream_client_cache(),
+                    startup_cache.enables_upstream_client_cache(),
                     false,
                 )
                 .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
@@ -509,7 +511,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .with_language_assets(carriers.path.clone(), args.language.as_deref());
     crate::runtime::network::await_overlay_texture_device();
-    let packet_mods = crate::modding::packets::from_environment();
     let network = NetworkHandle::<PackApplication>::disconnected();
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
@@ -628,6 +629,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(present_mode_runtime)
     .insert_resource(
         SessionController::new(core_process)
+            .with_blob_cache(startup_cache)
             .with_client_random_id(client_random_id)
             .with_address(args.address.as_deref())
             .with_startup_endpoint(

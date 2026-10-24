@@ -52,7 +52,7 @@ pub fn spawn_network<P: Send + 'static>(
                                 &config.socket_dir,
                                 &config.display_name,
                                 config.client_random_id,
-                                Some(config.client_blob_cache.clone()),
+                                config.client_blob_cache,
                                 Some(config.player_skin),
                                 &config.login_settings,
                                 packet_relay,

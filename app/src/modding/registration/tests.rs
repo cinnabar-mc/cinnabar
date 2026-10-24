@@ -719,7 +719,7 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
     );
     let relay = world
         .resource::<crate::modding::packets::PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     let identity = protocol::session_wire::SessionIdentity {
         display_name: "Steve".into(),
@@ -738,7 +738,7 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
     assert!(
         world
             .resource::<crate::modding::packets::PacketMods>()
-            .session_relay()
+            .session_relay(false)
             .is_none()
     );
 }
@@ -773,7 +773,7 @@ fn joins_wait_for_initial_observation_and_finish_after_admission() {
     assert!(
         world
             .resource::<crate::modding::packets::PacketMods>()
-            .session_relay()
+            .session_relay(false)
             .is_some()
     );
 

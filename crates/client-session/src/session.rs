@@ -38,8 +38,8 @@ pub struct NetworkConfig {
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
-    /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
-    pub client_blob_cache: protocol::ClientBlobCache,
+    /// Verified blobs outlive play; absent when this connection needs inline chunk bodies.
+    pub client_blob_cache: Option<protocol::ClientBlobCache>,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: protocol::ClientSkin,
     /// The player's language, input mode and GUI scale, reported at login.
