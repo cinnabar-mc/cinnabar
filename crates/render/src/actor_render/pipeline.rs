@@ -283,6 +283,8 @@ fn prewarm_materials() -> impl Iterator<Item = (u32, render_api::render_state::R
                     disable_overlay: native.disable_overlay,
                     color_mask: class == Some(MaterialKind::ColorMask),
                     multitexture: class == Some(MaterialKind::Multitexture),
+                    // The native table names no glint, tint or mask defines.
+                    ..Default::default()
                 }),
                 render_state: Some(native.definition().render_state()),
                 ..Default::default()

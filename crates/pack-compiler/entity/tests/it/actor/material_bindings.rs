@@ -167,3 +167,60 @@ fn draws_dropped_for_missing_textures_are_counted_once_per_compilation() {
         );
     }
 }
+
+#[test]
+fn only_materials_with_use_uv_anim_or_a_native_base_apply_the_controllers_uv_anim() {
+    for (material, applied) in [
+        ("plain", false),
+        ("scroll", true),
+        ("entity_alphatest", true),
+    ] {
+        let fixture = per_bone_pack(json!([{"*":"Material.default"}]), false);
+        write(
+            fixture.path(),
+            "materials/fixture.material",
+            &serde_json::to_vec(&json!({"materials": {"version": "1.0.0",
+                "plain": {"fragmentShader": "shaders/entity.fragment"},
+                "scroll": {"fragmentShader": "shaders/entity.fragment", "+defines": ["USE_UV_ANIM"]}
+            }}))
+            .unwrap(),
+        );
+        write(
+            fixture.path(),
+            "entity/example.entity.json",
+            &serde_json::to_vec(&json!({"format_version":"1.8.0","minecraft:client_entity":{
+                "description":{
+                    "identifier":"minecraft:example",
+                    "geometry":{"default":"geometry.example"},
+                    "materials":{"default": material},
+                    "textures":{"default":"textures/entity/example"},
+                    "render_controllers":["controller.render.example"]
+                }
+            }}))
+            .unwrap(),
+        );
+        write(
+            fixture.path(),
+            "render_controllers/example.json",
+            &serde_json::to_vec(&json!({"format_version":"1.8.0","render_controllers":{
+                "controller.render.example":{
+                    "geometry":"Geometry.default",
+                    "materials":[{"*":"Material.default"}],"textures":["Texture.default"],
+                    "uv_anim":{"offset":[0.0,"query.life_time"],"scale":[1.0,1.0]}
+                }
+            }}))
+            .unwrap(),
+        );
+        let compiled =
+            pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+        assert!(!compiled.render.layers.is_empty(), "{material}");
+        assert!(
+            compiled
+                .render
+                .layers
+                .iter()
+                .all(|layer| layer.uv_anim.is_some() == applied),
+            "{material}"
+        );
+    }
+}

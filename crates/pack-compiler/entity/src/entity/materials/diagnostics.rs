@@ -200,6 +200,7 @@ mod tests {
             "repeat": {"fragmentShader": "shaders/entity.fragment", "+states": ["NotAState"], "+defines": ["NOT_A_FLAG"]},
             "sampled": {"fragmentShader": "shaders/entity.fragment", "samplerStates": [{"samplerIndex": 7}, {"samplerIndex": 8}, {"samplerIndex": 12}]},
             "glint": {"fragmentShader": "shaders/entity.fragment", "+defines": ["GLINT"]},
+            "fancy": {"fragmentShader": "shaders/entity.fragment", "+defines": ["FANCY"]},
             "pattern": {"fragmentShader": "shaders/pattern.fragment"},
             "custom": {"fragmentShader": "shaders/custom.fragment"},
             "stencil:entity": {"+states": ["EnableStencilTest"]},

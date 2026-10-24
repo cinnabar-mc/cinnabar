@@ -371,6 +371,41 @@ impl MaterialStates {
         }
     }
 
+    /// Whether actor draws of `target` apply their controller's `uv_anim`; see
+    /// [`applies_uv_anim`]. A material that does not resolve draws no layer, so this is moot.
+    pub(super) fn applies_uv_anim(&self, target: &str, table: &mut MaterialTable) -> bool {
+        self.resolve_with(material_name(target), &builtin, &mut table.chains)
+            .is_none_or(|resolved| applies_uv_anim(resolved.actor_variant()))
+    }
+
+    /// Whether actor draws of extension material `name` apply their controller's `uv_anim`.
+    pub(super) fn extension_applies_uv_anim(&self, name: &str, table: &mut MaterialTable) -> bool {
+        self.extension_material(name, &mut table.chains)
+            .is_none_or(|(_, resolved)| applies_uv_anim(resolved.actor_variant()))
+    }
+
+    /// Extension material `name` and its fields resolved over its base; `memo` serves the
+    /// built-in bases.
+    fn extension_material(
+        &self,
+        name: &str,
+        memo: &mut ChainMemo,
+    ) -> Option<(&extension::Material, Resolved)> {
+        let material = self.extension.as_ref()?.materials.get(name)?;
+        let mut resolved = match &material.base {
+            Some(base) => self.resolve_with(material_name(base), &builtin, memo)?,
+            // Without a base the constructor defaults name no program; the extension draws
+            // such a material with the entity program.
+            None => Resolved {
+                assumes_entity_program: true,
+                ..Resolved::default()
+            },
+        };
+        resolved.version = 1;
+        resolved.apply(&material.fields);
+        Some((material, resolved))
+    }
+
     /// Resolves `target`, interns its complete definition and returns its shading features
     /// alongside the definition's table index. `None` leaves the material unresolved.
     pub(super) fn resolve(
@@ -448,18 +483,7 @@ impl MaterialStates {
         actor: bool,
         table: &mut MaterialTable,
     ) -> Option<(EntityRenderMaterialState, u32, Option<u32>)> {
-        let material = self.extension.as_ref()?.materials.get(name)?;
-        let mut resolved = match &material.base {
-            Some(base) => self.resolve_with(material_name(base), &builtin, &mut table.chains)?,
-            // Without a base the constructor defaults name no program; the extension draws
-            // such a material with the entity program.
-            None => Resolved {
-                assumes_entity_program: true,
-                ..Resolved::default()
-            },
-        };
-        resolved.version = 1;
-        resolved.apply(&material.fields);
+        let (material, resolved) = self.extension_material(name, &mut table.chains)?;
         let masks = material
             .masks(|path| self.textures.get(path).copied())
             .and_then(|masks| table.intern_masks(masks));
@@ -654,15 +678,6 @@ fn material_name(target: &str) -> &str {
     target.strip_suffix(".skinning").unwrap_or(target)
 }
 
-const OVERLAY: &str = "USE_OVERLAY";
-const ALPHA_TEST: &str = "ALPHA_TEST";
-const EMISSIVE: &str = "USE_EMISSIVE";
-const COLOR_MASK: &str = "USE_COLOR_MASK";
-const MULTITEXTURE: &str = "USE_MULTITEXTURE";
-/// The actor defines [`shading`] draws; the client carries every other actor define without
-/// drawing it.
-const APPLIED_DEFINES: [&str; 5] = [ALPHA_TEST, EMISSIVE, OVERLAY, COLOR_MASK, MULTITEXTURE];
-
 /// Native material bases the client ships outside resource packs, as the states, defines and
 /// colour blend pair each declares. The generated native table wins over the base names below.
 fn builtin(name: &str) -> Option<Resolved> {
@@ -717,32 +732,6 @@ fn color_mask_base(name: &str) -> Option<Resolved> {
             Some(Resolved::default())
         }
         _ => builtin(name),
-    }
-}
-
-/// The shading features an actor draw reads: [`shading`] for the material's actor material
-/// type. A material whose program has no actor type draws as plain `Actor`, whose name the
-/// multitexture define no longer selects.
-fn actor_shading(resolved: &Resolved) -> EntityRenderMaterialState {
-    let mut state = shading(resolved);
-    if actor_type::of(resolved) == actor_type::ActorMaterialType::Other {
-        state.multitexture = false;
-    }
-    state
-}
-
-/// The shading features the actor shader reads from a definition's defines.
-fn shading(resolved: &Resolved) -> EntityRenderMaterialState {
-    EntityRenderMaterialState {
-        // Native JSON actors select the transparent pass before legacy ALPHA_TEST; that pass
-        // preserves sampled opacity without a cutout discard.
-        alpha_test: resolved.defines.contains(ALPHA_TEST)
-            && !resolved.states.contains(&EntityMaterialState::Blending),
-        emissive: resolved.defines.contains(EMISSIVE),
-        only_emissive: resolved.defines.contains("USE_ONLY_EMISSIVE"),
-        disable_overlay: !resolved.defines.contains(OVERLAY),
-        color_mask: resolved.defines.contains(COLOR_MASK),
-        multitexture: resolved.defines.contains(MULTITEXTURE),
     }
 }
 
@@ -806,6 +795,13 @@ pub(crate) mod list;
 
 #[path = "materials/actor_type.rs"]
 mod actor_type;
+
+#[path = "materials/shading.rs"]
+mod shading;
+use shading::{
+    ALPHA_TEST, APPLIED_DEFINES, COLOR_MASK, EMISSIVE, MULTITEXTURE, OVERLAY, actor_shading,
+    applies_uv_anim, shading,
+};
 
 #[path = "materials/diagnostics.rs"]
 pub(crate) mod diagnostics;

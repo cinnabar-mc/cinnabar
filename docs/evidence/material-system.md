@@ -55,6 +55,12 @@ Confirmed gaps against the current client:
   `entity`, `pattern` or an elided third stem draws as plain `Actor`, so the client
   drops its three-sampler draw; the absent variant flags' defaults and the per-type material
   tables are unknown, so `pattern` draws as `entity`.
+- Actor draws bind their extra textures and colours as Bedrock wires its defines: a second
+  texture for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and `MASKED_MULTITEXTURE`, a
+  third for `USE_MULTITEXTURE`, the overlay colour with `USE_OVERLAY` or `TINTED_ALPHA_TEST`, and
+  `uv_anim` with `USE_UV_ANIM`. The shader formulas are unknown, so the glint (the
+  client's actor glint), multiplicative tint, masked multitexture and coloured second texture
+  draws are provisional; `MULTI_COLOR_TINT` and `COLOR_BASED` are carried but not drawn.
 - Colour masking and three-sampler draws follow `USE_COLOR_MASK` and `USE_MULTITEXTURE`. The
   vanilla pack does not define the native `sheep`, `wolf` and `llama` materials, so the client's
   built-in bases declare them; packs cannot derive from `entity_change_color` or

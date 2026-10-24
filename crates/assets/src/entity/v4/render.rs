@@ -47,6 +47,19 @@ pub struct EntityRenderMaterialState {
     /// `USE_MULTITEXTURE`: the draw samples its controller's first three textures together.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub multitexture: bool,
+    /// `GLINT`: the draw adds the animated enchantment glint.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub glint: bool,
+    /// `MULTIPLICATIVE_TINT`: a second texture's alpha weights the colour multiplier.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub texture_tint: bool,
+    /// `MASKED_MULTITEXTURE`: a second texture is laid over the base by its alpha.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub texture_mask: bool,
+    /// `COLOR_SECOND_TEXTURE` with `USE_MULTITEXTURE`: the colour multiplier tints the
+    /// second texture.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub color_second_texture: bool,
 }
 
 impl EntityRenderMaterialState {
@@ -62,6 +75,21 @@ impl EntityRenderMaterialState {
     pub const DISABLE_OVERLAY: u32 = 1 << 14;
     /// `USE_COLOR_MASK`: texture alpha weights the dye multiplier.
     pub const COLOR_MASK: u32 = 1 << 15;
+    /// `GLINT`. Bits 16 and 17 belong to the renderer's own profile flags.
+    pub const GLINT: u32 = 1 << 18;
+    /// `MULTIPLICATIVE_TINT`.
+    pub const TEXTURE_TINT: u32 = 1 << 19;
+    /// `MASKED_MULTITEXTURE`.
+    pub const TEXTURE_MASK: u32 = 1 << 20;
+    /// `COLOR_SECOND_TEXTURE` with `USE_MULTITEXTURE`.
+    pub const COLOR_SECOND_TEXTURE: u32 = 1 << 21;
+
+    /// Whether the draw samples a second texture of its controller beside the base: every
+    /// three-sampler material, and tinted or masked materials, which sample one more.
+    #[must_use]
+    pub fn samples_extra_textures(self) -> bool {
+        self.multitexture || self.texture_tint || self.texture_mask
+    }
 
     /// Reads the word's shading flags; `None` when no material was authored. Multitexturing
     /// travels in the instance's texture layers instead.
@@ -73,6 +101,10 @@ impl EntityRenderMaterialState {
             only_emissive: word & Self::ONLY_EMISSIVE != 0,
             disable_overlay: word & Self::DISABLE_OVERLAY != 0,
             color_mask: word & Self::COLOR_MASK != 0,
+            glint: word & Self::GLINT != 0,
+            texture_tint: word & Self::TEXTURE_TINT != 0,
+            texture_mask: word & Self::TEXTURE_MASK != 0,
+            color_second_texture: word & Self::COLOR_SECOND_TEXTURE != 0,
             ..Self::default()
         })
     }
@@ -98,6 +130,13 @@ impl EntityRenderMaterial {
                 EntityRenderMaterialState::DISABLE_OVERLAY,
             )
             | flag(state.color_mask, EntityRenderMaterialState::COLOR_MASK)
+            | flag(state.glint, EntityRenderMaterialState::GLINT)
+            | flag(state.texture_tint, EntityRenderMaterialState::TEXTURE_TINT)
+            | flag(state.texture_mask, EntityRenderMaterialState::TEXTURE_MASK)
+            | flag(
+                state.color_second_texture,
+                EntityRenderMaterialState::COLOR_SECOND_TEXTURE,
+            )
     }
 }
 
