@@ -17,7 +17,9 @@ use super::{
     selection::{Selector, selection_condition},
 };
 
-const MAX_SLOTS_PER_LAYER: usize = 16;
+/// Texture expressions a controller draws with: the native render controller evaluates
+/// only the first three, the samplers a material can bind.
+const MAX_SLOTS_PER_LAYER: usize = 3;
 
 mod material_groups;
 use super::super::materials;
