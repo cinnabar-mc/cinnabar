@@ -32,8 +32,10 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
   `vector` (two to four numbers), `color` (RGBA) or `boolean`.
 - Two texture names draw masks on the base texture's coordinates, scaled by the `strength`
   scalar (default 1):
-  - `glow_mask` adds `rgb × alpha × strength` after lighting, so it shows in the dark;
-  - `emissive_mask` draws texels unlit, weighted by `alpha × strength`.
+  - `glow_mask` adds `rgb × alpha × strength` after lighting, so it shows in the dark. Its RGB
+    is the glow colour, not only its alpha: a black texel adds nothing at any alpha;
+  - `emissive_mask` draws the base texture's texels unlit, weighted by `alpha × strength`; only
+    its alpha is read.
   On entities the value is a texture path and the mask must be the same size as the texture it
   masks. On blocks the value is a `terrain_texture.json` key, as material instances name their
   textures; weighted-variation faces and sorted blended model faces draw without masks.
