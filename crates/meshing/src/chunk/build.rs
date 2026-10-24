@@ -445,6 +445,10 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
                                 continue;
                             };
+                            let world = super::opaque::world_material_tag(
+                                options.world_materials,
+                                entry.network_value,
+                            );
                             model_refs.push(PackedModelRef::new(
                                 pack_model_transform(
                                     [x as u8, y as u8, z as u8],
@@ -478,7 +482,8 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             let mut remaining = visible_quad_mask;
                             while remaining != 0 {
                                 let quad_index = remaining.trailing_zeros();
-                                let draw_ref = PackedModelDrawRef::new(model_ref_index, quad_index);
+                                let draw_ref = PackedModelDrawRef::new(model_ref_index, quad_index)
+                                    .with_world_material(world);
                                 if template_quads[quad_index as usize].material
                                     != DIAGNOSTIC_MATERIAL
                                     && visuals

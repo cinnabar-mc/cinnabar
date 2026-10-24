@@ -152,7 +152,7 @@ fn model_flags(
     model_refs: &[PackedModelRef],
     draw: PackedModelDrawRef,
 ) -> Option<u32> {
-    let [model_ref, quad_index] = draw.words();
+    let (model_ref, quad_index) = (draw.model_ref_index(), draw.quad_index());
     let template_id = model_refs.get(model_ref as usize)?.words()[1];
     let template = tables.model_templates.get(template_id as usize)?;
     (quad_index < template.quad_count).then_some(())?;
@@ -235,7 +235,8 @@ pub(crate) fn plan_section(
         ),
     ] {
         for draw in draws {
-            let [model, quad] = draw.words();
+            // Shader packs draw world-material blocks as their Bedrock material.
+            let (model, quad) = (draw.model_ref_index(), draw.quad_index());
             let flags = model_flags(tables, section.model_refs, *draw).unwrap_or(0);
             categories[category.index()].push(
                 FACING_REST,

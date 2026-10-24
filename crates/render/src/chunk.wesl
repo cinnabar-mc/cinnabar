@@ -859,22 +859,22 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     // lightmap, face shade and fog; its emission adds after lighting like a glow mask.
     @if(!ENHANCED && WORLD_MATERIAL)
     {
-        let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
-        let light = terrain_light_colour(in.native_light_levels) * in.native_ao_face;
-        let surface = world_material_resolve(WorldMaterialInput(
+        let world_fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+        let world_light = terrain_light_colour(in.native_light_levels) * in.native_ao_face;
+        let world_surface = world_material_resolve(WorldMaterialInput(
             in.uv, in.world_position, vec4(sampled.rgb * tint_gamma, sampled.a),
-            vec4(light, in.native_ao_face),
-            vec4(fog_gamma, distance_fog_amount(in.world_position)),
+            vec4(world_light, in.native_ao_face),
+            vec4(world_fog_gamma, distance_fog_amount(in.world_position)),
             vec4(0.0), world_material_phase()));
         @if(WORLD_MATERIAL_CUTOUT)
-        if (surface.coverage < 0.5) { discard; }
-        texture = vec4(surface.color, surface.coverage);
+        if (world_surface.coverage < 0.5) { discard; }
+        texture = vec4(world_surface.color, world_surface.coverage);
         @if(WORLD_MATERIAL_OPAQUE || WORLD_MATERIAL_CUTOUT)
         { texture.a = 1.0; }
         tint_gamma = vec3(1.0);
         // The Bedrock overlay mask and leaf colour rules no longer apply to the guest colour.
         flags = 0u;
-        masks.glow += surface.emission;
+        masks.glow += world_surface.emission;
     }
     @if(!ENHANCED)
     let native_colour = native_masked_cube_colour(
@@ -887,11 +887,17 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         distance_fog_amount(in.world_position),
         masks,
     );
+    // A blended world material in the gamma-blended translucent pass writes gamma colour, as
+    // ordinary translucent terrain does there.
+    @if(!ENHANCED && NATIVE_GAMMA_BLEND)
+    let output = tint_to_gamma(native_colour);
+    @if(!ENHANCED && !NATIVE_GAMMA_BLEND)
+    let output = native_colour;
     // Premultiplied and additive world material classes blend with a source factor of one.
     @if(!ENHANCED && WORLD_MATERIAL_PREMULTIPLY)
-    return vec4(native_colour.rgb * native_colour.a, native_colour.a);
+    return vec4(output.rgb * output.a, output.a);
     @if(!ENHANCED && !WORLD_MATERIAL_PREMULTIPLY)
-    return native_colour;
+    return output;
 }
 
 // Alpha-tested terrain depth; opaque texels cast independently of baked light.

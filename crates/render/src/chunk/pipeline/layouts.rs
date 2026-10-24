@@ -47,6 +47,10 @@ pub(crate) struct ChunkPipeline {
         bevy::render::render_resource::CachedRenderPipelineId,
     >,
     pub(in crate::chunk) world_fallback: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    /// The same passes over the model pipeline.
+    pub(in crate::chunk) world_model_variants:
+        Variants<RenderPipeline, crate::chunk::world_materials::WorldTerrainSpecializer>,
+    pub(in crate::chunk) world_model_fallback: Variants<RenderPipeline, ChunkPipelineSpecializer>,
 }
 
 impl FromWorld for ChunkPipeline {
@@ -82,6 +86,14 @@ impl FromWorld for ChunkPipeline {
             world_fallback: Variants::new(
                 ChunkPipelineSpecializer,
                 crate::chunk::world_materials::fallback_descriptor(&descriptor),
+            ),
+            world_model_variants: Variants::new(
+                crate::chunk::world_materials::WorldTerrainSpecializer,
+                model_descriptor.clone(),
+            ),
+            world_model_fallback: Variants::new(
+                ChunkPipelineSpecializer,
+                crate::chunk::world_materials::fallback_descriptor(&model_descriptor),
             ),
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             solid_variants: Variants::new(ChunkPipelineSpecializer, solid_descriptor),
