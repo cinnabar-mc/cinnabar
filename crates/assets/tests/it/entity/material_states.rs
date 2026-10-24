@@ -5,7 +5,7 @@ use super::suite::carrier_v4_fixture;
 #[test]
 fn material_shading_round_trips_through_entity_carrier() {
     let mut compiled = carrier_v4_fixture();
-    for bits in 0..64 {
+    for bits in 0..1024 {
         let state = EntityRenderMaterialState {
             alpha_test: bits & 1 != 0,
             emissive: bits & 2 != 0,
@@ -13,6 +13,10 @@ fn material_shading_round_trips_through_entity_carrier() {
             only_emissive: bits & 8 != 0,
             color_mask: bits & 16 != 0,
             multitexture: bits & 32 != 0,
+            glint: bits & 64 != 0,
+            texture_tint: bits & 128 != 0,
+            texture_mask: bits & 256 != 0,
+            color_second_texture: bits & 512 != 0,
         };
         compiled.render.layers[0].material_state = Some(state);
         let encoded = encode_entity_blob(&compiled).unwrap();

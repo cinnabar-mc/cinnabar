@@ -230,6 +230,20 @@ pub(super) fn carry_layer_poses(
     }
 }
 
+/// Controller texture slots a material samples beside its base, as Bedrock binds them:
+/// `MatTexture1` for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and
+/// `MASKED_MULTITEXTURE`, and `MatTexture2` for `USE_MULTITEXTURE`. Glint draws with the
+/// client's own glint raster, so a glint material's tint or mask texture is the slot after its
+/// glint texture (provisional: the controller-to-sampler order is unknown).
+fn extra_samplers(state: Option<assets::EntityRenderMaterialState>) -> &'static [usize] {
+    match state {
+        Some(state) if state.multitexture => &[1, 2],
+        Some(state) if (state.texture_tint || state.texture_mask) && state.glint => &[2],
+        Some(state) if state.texture_tint || state.texture_mask => &[1],
+        _ => &[],
+    }
+}
+
 /// The `uv_anim` value of a controller without one.
 const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
@@ -396,9 +410,7 @@ fn evaluate_layer_into(
         definition: material_definition,
         masks: material_masks,
     } = selected_material(evaluator, variables, layer, budget)?;
-    // A selected `USE_MULTITEXTURE` material samples the controller's first three textures in
-    // one draw.
-    let multitexture = material_state.is_some_and(|state| state.multitexture);
+    let samplers = extra_samplers(material_state);
     let choices = render
         .geometries
         .get(
@@ -482,6 +494,8 @@ fn evaluate_layer_into(
         .ok_or(EvalError::Invalid)?;
     let mut selected_sources = Vec::with_capacity(slots.len());
     for (texture_slot, slot) in slots.iter().enumerate() {
+        // Later slots are samplers for this draw, not additional mesh layers.
+        let sampled = texture_slot == 0 || samplers.contains(&texture_slot);
         let candidates = render
             .candidates
             .get(
@@ -500,9 +514,8 @@ fn evaluate_layer_into(
             };
             if selected {
                 resolved = true;
-                // Later slots are samplers for this draw, not additional mesh layers.
-                if multitexture || texture_slot == 0 {
-                    selected_sources.push(candidate.source);
+                if sampled {
+                    selected_sources.push((texture_slot, candidate.source));
                 }
                 break;
             }
@@ -510,18 +523,26 @@ fn evaluate_layer_into(
         // A live selector with no source is missing artwork, not a disabled controller.
         unresolved_artwork |= texture_slot == 0 && !resolved && visible;
     }
-    if multitexture && selected_sources.len() != 3 {
-        return Ok(unresolved_artwork);
-    }
-    let grouped = if multitexture {
-        Some([selected_sources[1], selected_sources[2]])
-    } else {
-        None
+    let source = |slot: usize| {
+        selected_sources
+            .iter()
+            .find(|(texture_slot, _)| *texture_slot == slot)
+            .map(|(_, source)| *source)
     };
-    let count = if grouped.is_some() {
-        1
-    } else {
-        selected_sources.len()
+    let Some(base) = source(0) else {
+        return Ok(unresolved_artwork);
+    };
+    // A draw whose samplers do not all resolve is not drawn.
+    let grouped = match samplers {
+        [] => None,
+        [only] => match source(*only) {
+            Some(second) => Some([second, second]),
+            None => return Ok(unresolved_artwork),
+        },
+        [first, second, ..] => match (source(*first), source(*second)) {
+            (Some(first), Some(second)) => Some([first, second]),
+            _ => return Ok(unresolved_artwork),
+        },
     };
     let render_state = material_definition
         .and_then(|index| render.materials.get(index as usize))
@@ -529,27 +550,25 @@ fn evaluate_layer_into(
     let masks = material_masks
         .and_then(|index| render.material_masks.get(index as usize))
         .copied();
-    for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
-        output.push(RenderTextureLayer {
-            material,
-            material_state,
-            render_state,
-            masks,
-            source,
-            texture_slot: texture_slot as u16,
-            multitexture: grouped,
-            color: tint,
-            overlay,
-            hidden_bones: Arc::clone(&hidden_bones),
-            uv_anim,
-            geometry,
-            previous_pose: empty_pose(),
-            pose: empty_pose(),
-            ignore_lighting: layer.ignore_lighting,
-            light_color_multiplier,
-            sampled_scale: None,
-        });
-    }
+    output.push(RenderTextureLayer {
+        material,
+        material_state,
+        render_state,
+        masks,
+        source: base,
+        texture_slot: 0,
+        multitexture: grouped,
+        color: tint,
+        overlay,
+        hidden_bones: Arc::clone(&hidden_bones),
+        uv_anim,
+        geometry,
+        previous_pose: empty_pose(),
+        pose: empty_pose(),
+        ignore_lighting: layer.ignore_lighting,
+        light_color_multiplier,
+        sampled_scale: None,
+    });
     Ok(unresolved_artwork)
 }
 

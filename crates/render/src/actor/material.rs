@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn authored_actor_states_roundtrip_without_changing_the_shader_kind() {
-        for bits in 0..32 {
+        for bits in 0..512 {
             let expected = EntityRenderMaterialState {
                 alpha_test: bits & 1 != 0,
                 emissive: bits & 2 != 0,
@@ -153,6 +153,10 @@ mod tests {
                 only_emissive: bits & 8 != 0,
                 color_mask: bits & 16 != 0,
                 multitexture: false,
+                glint: bits & 32 != 0,
+                texture_tint: bits & 64 != 0,
+                texture_mask: bits & 128 != 0,
+                color_second_texture: bits & 256 != 0,
             };
             let material = ActorMaterial {
                 kind: assets::EntityRenderMaterial::Default,
