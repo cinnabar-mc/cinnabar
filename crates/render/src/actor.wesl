@@ -174,7 +174,7 @@ fn actor_vertex(
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     out.material = instance_words[instance_base + 27u];
     if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
-    let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
+    let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || (out.material & ACTOR_GLINT_DEFINE_FLAG) != 0u || word_f32(instance_base + 35u) != 0.0;
     // Cinnabar material masks name layers of the draw's page; MAX names none.
     let has_masks = instance_words[instance_base + 37u] != 0xffffffffu || instance_words[instance_base + 38u] != 0xffffffffu;
     out.skin_info.z = select(0xffffffffu, instance_index, has_glint || has_masks);
@@ -369,11 +369,23 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
         }
     }
     if (multitexture_material) {
-        // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
-        // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
-        let tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
-        let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
-        color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
+        var tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
+        let multiplier = select(vec3(1.0), unpack4x8unorm(input.tint).rgb, input.tint != 0u);
+        if ((input.material & ACTOR_TEXTURE_TINT_FLAG) != 0u) {
+            // Provisional MULTIPLICATIVE_TINT: the second texture's alpha weights the colour
+            // multiplier, as colour masks weight dye by the base alpha.
+            color = vec4(mix(color.rgb, color.rgb * multiplier, tex1.a), color.a);
+        } else if ((input.material & ACTOR_TEXTURE_MASK_FLAG) != 0u) {
+            // Provisional MASKED_MULTITEXTURE: the second texture lies over the base by its alpha.
+            color = vec4(mix(color.rgb, tex1.rgb, tex1.a), color.a);
+        } else {
+            // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
+            // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
+            // Provisional COLOR_SECOND_TEXTURE: the colour multiplier tints the second texture.
+            if ((input.material & ACTOR_COLOR_SECOND_TEXTURE_FLAG) != 0u) { tex1 = vec4(tex1.rgb * multiplier, tex1.a); }
+            let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
+            color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
+        }
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
@@ -399,7 +411,9 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting + glow;
     var legacy_foil = vec3(0.0);
     var legacy_alpha = color.a;
-    if (input.skin_info.z != 0xffffffffu && (material == ACTOR_MATERIAL_GLINT || word_f32(input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS + 35u) != 0.0)) {
+    // A `GLINT` material adds the client's actor glint, a provisional stand-in for Bedrock's
+    // glint program, whose constants are unknown.
+    if (input.skin_info.z != 0xffffffffu && (material == ACTOR_MATERIAL_GLINT || (input.material & ACTOR_GLINT_DEFINE_FLAG) != 0u || word_f32(input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS + 35u) != 0.0)) {
         let base = input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS;
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
         let strength = word_f32(base + 32u);

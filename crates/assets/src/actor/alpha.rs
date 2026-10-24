@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{EntityRenderData, EntityRenderLayer, EntityRenderMaterial};
+use crate::{EntityRenderData, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState};
 
 /// Dissolve depth masks retain fractional alpha because their threshold changes each frame.
 fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
@@ -28,8 +28,9 @@ pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
                 definition.has_state(crate::entity::material::EntityMaterialState::Blending)
             });
             let reads = blends
-                || state
-                    .is_some_and(|state| state.emissive || state.color_mask || state.multitexture);
+                || state.is_some_and(|state| {
+                    state.emissive || state.color_mask || state.samples_extra_textures()
+                });
             for source in layer_sources(render, layer) {
                 let (tests, read) = drawn.entry(source).or_insert((true, false));
                 *tests &= state.is_some_and(|state| state.alpha_test);
@@ -56,23 +57,24 @@ pub fn actor_material_mask_sources(render: &EntityRenderData) -> impl Iterator<I
         .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
 }
 
-/// Sources any possible `USE_MULTITEXTURE` material of a layer samples, including Molang
-/// material choices; they share one array page so the draw can read all three.
+/// Sources any possible material of a layer that samples extra textures reads
+/// ([`EntityRenderMaterialState::samples_extra_textures`]), including Molang material choices;
+/// they share one array page so the draw can read them together.
 pub fn actor_multitexture_sources(render: &EntityRenderData) -> ActorMultitextureSources {
     ActorMultitextureSources::from_draws(
         render
             .layers
             .iter()
             .filter(|layer| {
-                render
-                    .materials(layer)
-                    .any(|(_, state, _)| state.is_some_and(|state| state.multitexture))
+                render.materials(layer).any(|(_, state, _)| {
+                    state.is_some_and(EntityRenderMaterialState::samples_extra_textures)
+                })
             })
             .map(|layer| layer_sources(render, layer)),
     )
 }
 
-/// The sources `USE_MULTITEXTURE` draws sample, kept per draw so that every source one draw
+/// The sources draws that sample extra textures read, kept per draw so that every source one draw
 /// samples can be placed on the same page.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ActorMultitextureSources {

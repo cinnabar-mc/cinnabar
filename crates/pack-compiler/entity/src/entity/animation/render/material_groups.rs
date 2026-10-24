@@ -19,7 +19,7 @@ use super::{
 };
 use crate::entity::{invalid, molang::MolangCompiler};
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 struct Raster {
     material: EntityRenderMaterial,
     state: Option<EntityRenderMaterialState>,
@@ -29,6 +29,22 @@ struct Raster {
     masks: Option<u32>,
     /// Textures the controller must supply for this material to draw.
     required_textures: u16,
+    /// Whether the material applies the controller's `uv_anim`.
+    uv_anim: bool,
+}
+
+impl Default for Raster {
+    /// A layer naming no material, which applies its controller's `uv_anim`.
+    fn default() -> Self {
+        Self {
+            material: EntityRenderMaterial::default(),
+            state: None,
+            definition: None,
+            masks: None,
+            required_textures: 0,
+            uv_anim: true,
+        }
+    }
 }
 
 pub(super) struct Group {
@@ -49,6 +65,7 @@ fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut Material
         masks: None,
         required_textures: resolved
             .map_or(0, |(_, definition)| table.required_textures(definition)),
+        uv_anim: target.is_none_or(|target| materials.applies_uv_anim(target, table)),
     }
 }
 
@@ -104,6 +121,7 @@ pub(super) fn resolve(
                 definition: Some(definition),
                 masks,
                 required_textures: table.required_textures(definition),
+                uv_anim: materials.extension_applies_uv_anim(material, table),
             };
             rules.push((pattern.to_owned(), raster));
         }
@@ -324,6 +342,7 @@ pub(super) fn append(
             material_state: group.raster.state,
             material_definition: group.raster.definition,
             material_masks: group.raster.masks,
+            uv_anim: base.uv_anim.filter(|_| group.raster.uv_anim),
             material_selection: group
                 .selection
                 .and_then(|selection| retain_selection(selection, selections, molang)),
@@ -377,6 +396,7 @@ pub(super) fn append(
         layer.material_state = group.raster.state;
         layer.material_definition = group.raster.definition;
         layer.material_masks = group.raster.masks;
+        layer.uv_anim = base.uv_anim.filter(|_| group.raster.uv_anim);
         layer.material_selection = group
             .selection
             .and_then(|selection| retain_selection(selection, selections, molang));

@@ -668,23 +668,23 @@ fn programs_without_an_actor_type_draw_as_plain_actor() {
 }
 
 #[test]
-fn applied_defines_are_exactly_the_actor_defines_shading_reads() {
-    let state = |defines: &[&str]| {
-        let mut resolved = Resolved {
-            assumes_entity_program: true,
-            ..Resolved::default()
-        };
-        resolved
-            .defines
+fn applied_defines_are_exactly_the_actor_defines_drawing_reads() {
+    // What an actor draw reads: its shading and whether it applies `uv_anim`. Second-texture
+    // colouring only exists beside `USE_MULTITEXTURE`, so every define is added to that base.
+    let drawn = |defines: &[&str]| {
+        let mut resolved = Resolved::default();
+        resolved.definition.fragment_shader = Some("shaders/entity.fragment".into());
+        Arc::make_mut(&mut resolved.defines)
             .extend(defines.iter().map(|&define| Box::from(define)));
-        actor_shading(&resolved)
+        (actor_shading(&resolved), applies_uv_anim(&resolved))
     };
-    let plain = state(&[]);
+    let plain = drawn(&[MULTITEXTURE]);
     for define in assets::entity::material::ACTOR_DEFINE_FLAGS {
-        assert_eq!(
-            state(&[define]) != plain,
-            APPLIED_DEFINES.contains(&define),
-            "{define}"
-        );
+        let changes = if define == MULTITEXTURE {
+            drawn(&[]) != plain
+        } else {
+            drawn(&[MULTITEXTURE, define]) != plain
+        };
+        assert_eq!(changes, APPLIED_DEFINES.contains(&define), "{define}");
     }
 }
