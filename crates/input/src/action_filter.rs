@@ -73,6 +73,8 @@ pub struct ActionFilterState {
     generation: Option<crate::identity::InputAuthorityGeneration>,
     epoch: u64,
     interrupted: bool,
+    /// Physical holds the projection withheld, which stay withheld until physical release.
+    suppressed: [bool; 2],
 }
 impl ActionFilterState {
     /// Invalidates continuity; the next sample completes retained releases before its edges.
@@ -124,7 +126,11 @@ impl ActionFilterState {
             FilterAction::ALL.map(|a| initial.held(a.action()))
         };
         let physical_end = FilterAction::ALL.map(|a| input.phases[a.action() as usize].held);
-        let logical = self.logical.unwrap_or(physical);
+        // A hold that resolves without an edge, as when the input device changes, follows
+        // its source unless the projection already withheld that gesture.
+        let logical = self.logical.map_or(physical, |logical| {
+            std::array::from_fn(|i| logical[i] || (physical[i] && !self.suppressed[i]))
+        });
         if interrupted {
             self.epoch = self.epoch.wrapping_add(1);
         }
@@ -174,6 +180,7 @@ impl ActionFilterState {
         if frame.transitions.is_empty() && logical == physical && !interrupted && !invalid {
             self.logical = Some(logical);
             self.physical = Some(physical_end);
+            self.suppressed = std::array::from_fn(|i| physical_end[i] && !logical[i]);
             return false;
         }
         let callable = owner.is_some()
@@ -293,6 +300,7 @@ impl ActionFilterState {
         }
         self.logical = Some(held);
         self.physical = Some(physical_end);
+        self.suppressed = std::array::from_fn(|i| physical_end[i] && !held[i]);
         admitted
     }
 }
@@ -326,21 +334,25 @@ fn project(raw: ActionButtons, held: [bool; 2]) -> ActionButtons {
             .map_or_else(|| raw.held(Action::ALL[i]), |a| held[a.index()])
     }))
 }
-/// Defines stable ordering for phase-only devices: an existing hold releases first;
-/// a new gesture presses first. These samples cannot recover sub-frame device order.
+/// Defines stable ordering for phase-only devices: coalesced edges alternate from the
+/// gesture's starting hold to its final hold. These samples cannot recover sub-frame order.
 fn aggregate_events(input: &ActionSnapshot, initial: ActionButtons) -> Vec<ActionEvent> {
     let mut events = Vec::new();
     let mut buttons = initial;
     for a in FilterAction::ALL {
         let action = a.action();
         let p = input.phases[action as usize];
-        let order = if p.pressed && p.released && p.held {
-            [Some(false), Some(true)]
-        } else {
-            [p.pressed.then_some(true), p.released.then_some(false)]
+        let order: &[bool] = match (p.pressed, p.released, initial.held(action), p.held) {
+            (true, true, false, false) => &[true, false],
+            (true, true, true, true) => &[false, true],
+            (true, true, false, true) => &[true, false, true],
+            (true, true, true, false) => &[false, true, false],
+            (true, false, ..) => &[true],
+            (false, true, ..) => &[false],
+            (false, false, ..) => &[],
         };
-        let count = order.iter().flatten().count();
-        for (n, pressed) in order.into_iter().flatten().enumerate() {
+        let count = order.len();
+        for (n, &pressed) in order.iter().enumerate() {
             // The final transition carries the resolved hold, which another binding may keep.
             let held = if n + 1 == count { p.held } else { pressed };
             buttons = ActionButtons::new(std::array::from_fn(|i| {

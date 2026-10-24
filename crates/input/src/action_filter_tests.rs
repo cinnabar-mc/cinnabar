@@ -432,3 +432,50 @@ fn repeat_does_not_revive_a_suppressed_press() {
         );
     }
 }
+
+/// A hold that resolves without an edge after a device change follows its source.
+#[test]
+fn device_change_hold_without_an_edge_is_not_suppressed() {
+    for owner in [Some(1), None] {
+        let mut state = ActionFilterState::default();
+        let mut neutral = frame(Default::default(), Default::default());
+        state.filter(&mut neutral, owner, 0, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        for time in 1..3 {
+            let mut mouse = ordered([true, false], &[]);
+            state.filter(&mut mouse, owner, time, false, |f| {
+                Some(ActionVerdict::passthrough(f))
+            });
+            assert!(mouse.phases[Action::Attack as usize].held);
+        }
+    }
+}
+
+/// A rapid press, release and press from rest keeps its coalesced release.
+#[test]
+fn phase_only_rapid_taps_from_rest_keep_their_release() {
+    let mut state = ActionFilterState::default();
+    let mut rest = frame(Default::default(), Default::default());
+    state.filter(&mut rest, Some(1), 0, false, |f| {
+        Some(ActionVerdict::passthrough(f))
+    });
+    let tapped = ActionPhase {
+        pressed: true,
+        released: true,
+        held: true,
+    };
+    let mut input = frame(tapped, Default::default());
+    state.filter(&mut input, Some(1), 1, false, |f| {
+        assert_eq!(
+            f.transitions.iter().map(|t| t.kind).collect::<Vec<_>>(),
+            [
+                TransitionKind::Press,
+                TransitionKind::Release,
+                TransitionKind::Press
+            ]
+        );
+        Some(ActionVerdict::passthrough(f))
+    });
+    assert_eq!(input.phases[Action::Attack as usize], tapped);
+}
