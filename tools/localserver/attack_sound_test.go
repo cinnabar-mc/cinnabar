@@ -56,8 +56,24 @@ func TestTargetDummySpawnsAPlayerAhead(t *testing.T) {
 		runCommand(t, tx, p, "fixture_dummy", "")
 		for e := range tx.Players() {
 			if dummy := e.(*player.Player); dummy.Name() == "Target" {
-				if dummy.Position().Sub(p.Position()).Len() < 1.9 || dummy.MaxHealth() != dummyHealth {
+				if dummy.Position().Sub(p.Position()).Len() < 1.9 || dummy.MaxHealth() != dummyHealth || !isTargetDummy(dummy) {
 					t.Fatalf("dummy at %v with max health %v", dummy.Position(), dummy.MaxHealth())
+				}
+				return
+			}
+		}
+		t.Fatal("fixture_dummy spawned no player")
+	})
+}
+
+func TestTargetDummyIsNotKnockedBack(t *testing.T) {
+	withPlayer(t, world.GameModeSurvival, func(tx *world.Tx, p *player.Player) {
+		runCommand(t, tx, p, "fixture_dummy", "")
+		for e := range tx.Players() {
+			if dummy := e.(*player.Player); dummy.Name() == "Target" {
+				p.AttackEntity(dummy)
+				if v := dummy.Velocity(); v.Len() != 0 {
+					t.Fatalf("dummy knocked back with velocity %v", v)
 				}
 				return
 			}
