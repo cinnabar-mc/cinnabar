@@ -29,6 +29,9 @@ pub(super) struct BundleWorld<'a> {
     pub world: &'a WorldMaterials,
     /// The bundle's share of the signed GPU limit.
     pub gpu_bytes: u64,
+    /// The bundle's share of the signed memory limit, which the host's copies of its shader
+    /// sources, parameters and decoded textures draw from.
+    pub memory_bytes: u64,
     /// The bundle's signed PNGs by path.
     pub textures: &'a [(String, Vec<u8>)],
 }
@@ -50,6 +53,9 @@ pub(super) struct WorldMaterialPresenter {
     /// Failures already reported, so each is logged once.
     reported: BTreeSet<(String, u32, u64, String)>,
     diagnostics: VecDeque<String>,
+    /// GPU bytes of each bundle's replaced or removed materials: the renderer cannot destroy
+    /// a compiled pipeline, so they stay charged for the session.
+    retired: BTreeMap<String, u64>,
 }
 
 impl WorldMaterialPresenter {
@@ -74,7 +80,8 @@ impl WorldMaterialPresenter {
         let mut blocks = BTreeMap::new();
         let mut live = BTreeSet::new();
         for bundle in bundles {
-            let mut remaining = bundle.gpu_bytes;
+            let mut used = 0_u64;
+            let mut memory = bundle.memory_bytes;
             let mut slots = BTreeMap::new();
             for (&id, spec) in &bundle.world.materials {
                 let key = (bundle.bundle.to_owned(), id);
@@ -83,7 +90,10 @@ impl WorldMaterialPresenter {
                     Some(cached) if cached.spec == *spec => {
                         (cached.attempt, cached.outcome.clone())
                     }
-                    _ => {
+                    previous => {
+                        if previous.is_some_and(|cached| cached.outcome.is_ok()) {
+                            self.retire(bundle.bundle);
+                        }
                         self.next_key += 1;
                         let outcome = admit(self.next_key, spec, bundle.textures);
                         self.cache.insert(
@@ -110,11 +120,27 @@ impl WorldMaterialPresenter {
                     .map(Texture::bytes)
                     .sum::<u64>()
                     .saturating_add(PIPELINE_CHARGE_BYTES);
+                // Retirements this rebuild already made count against what the material may use.
+                let remaining = bundle
+                    .gpu_bytes
+                    .saturating_sub(self.retired.get(bundle.bundle).copied().unwrap_or(0))
+                    .saturating_sub(used);
                 if charge > remaining {
                     self.report(bundle.bundle, id, attempt, "exceeds the bundle's GPU limit");
                     continue;
                 }
-                remaining -= charge;
+                let host_bytes = memory_charge(spec, &published);
+                if host_bytes > memory {
+                    self.report(
+                        bundle.bundle,
+                        id,
+                        attempt,
+                        "exceeds the bundle's memory limit",
+                    );
+                    continue;
+                }
+                used += charge;
+                memory -= host_bytes;
                 let Ok(slot) = u16::try_from(materials.len()) else {
                     continue;
                 };
@@ -132,6 +158,15 @@ impl WorldMaterialPresenter {
                 // Two bundles may sign one namespace; the first in bundle order keeps it.
                 map.entry(identifier.as_str().into()).or_insert(slot);
             }
+        }
+        let removed: Vec<String> = self
+            .cache
+            .iter()
+            .filter(|(key, cached)| !live.contains(*key) && cached.outcome.is_ok())
+            .map(|((bundle, _), _)| bundle.clone())
+            .collect();
+        for bundle in removed {
+            self.retire(&bundle);
         }
         self.cache.retain(|key, _| live.contains(key));
         let set = WorldMaterialSet {
@@ -152,6 +187,12 @@ impl WorldMaterialPresenter {
             ..set
         });
         true
+    }
+
+    /// Charges a replaced or removed material's pipelines to `bundle` for the session.
+    fn retire(&mut self, bundle: &str) {
+        let retired = self.retired.entry(bundle.to_owned()).or_default();
+        *retired = retired.saturating_add(PIPELINE_CHARGE_BYTES);
     }
 
     /// Logs a failure once per declaration attempt and keeps it for the diagnostics.
@@ -176,6 +217,16 @@ impl WorldMaterialPresenter {
                 .is_some_and(|cached| cached.attempt == *attempt)
         });
     }
+}
+
+/// Host bytes a published material holds: its shader source, parameters and decoded textures.
+fn memory_charge(spec: &WorldMaterialSpec, published: &Published) -> u64 {
+    let textures: u64 = published
+        .textures
+        .iter()
+        .map(|texture| texture.rgba.len() as u64)
+        .sum();
+    (spec.source.len() + spec.params.len() * 4) as u64 + textures
 }
 
 /// Validates the shader again and decodes the declared textures; the helper's validation is

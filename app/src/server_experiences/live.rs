@@ -595,6 +595,7 @@ impl<H: Worker> Live<H> {
                 bundle,
                 world: &instance.contributions.world,
                 gpu_bytes: instance.capabilities.scope.gpu_bytes,
+                memory_bytes: instance.capabilities.scope.memory_bytes,
                 textures: &instance.files.textures,
             })
     }
