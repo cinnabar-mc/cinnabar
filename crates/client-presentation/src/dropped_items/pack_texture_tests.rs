@@ -10,6 +10,15 @@ const ITEM: &str = "minecraft:stone";
 
 /// Creates original one-pixel base artwork and an ordinary dropped stack.
 fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
+    fixture_item(ITEM, metadata, 0)
+}
+
+/// Supplies original artwork and a stack with the requested retained block runtime ID.
+fn fixture_item(
+    identifier: &str,
+    metadata: u32,
+    block_runtime_id: i32,
+) -> (UiPresentationRuntime, WorldStream) {
     let catalog = assets::RuntimeIconCatalog::decode(
         &assets::encode_icon_catalog(
             [5; 32],
@@ -19,7 +28,7 @@ fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
                 rgba8: Arc::from([20, 30, 40, 255]),
             }],
             &[assets::IconEntry {
-                identifier: ITEM.into(),
+                identifier: identifier.into(),
                 metadata: 0,
                 sprite: 0,
             }],
@@ -27,12 +36,22 @@ fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
         .unwrap(),
     )
     .unwrap();
-    fixture_with_catalog(metadata, catalog)
+    fixture_item_with_catalog(identifier, metadata, block_runtime_id, catalog)
 }
 
 /// Spawns a retained block item with the supplied original startup artwork.
 fn fixture_with_catalog(
     metadata: u32,
+    catalog: assets::RuntimeIconCatalog,
+) -> (UiPresentationRuntime, WorldStream) {
+    fixture_item_with_catalog(ITEM, metadata, 1, catalog)
+}
+
+/// Spawns a named item using original startup artwork and its retained block identity.
+fn fixture_item_with_catalog(
+    identifier: &str,
+    metadata: u32,
+    block_runtime_id: i32,
     catalog: assets::RuntimeIconCatalog,
 ) -> (UiPresentationRuntime, WorldStream) {
     let icons = UiPresentationRuntime::with_hud_and_icons(
@@ -44,7 +63,7 @@ fn fixture_with_catalog(
     let mut stream = stream(false, 1);
     let id = protocol::vanilla_item_registry()
         .iter()
-        .find(|entry| entry.identifier.as_ref() == ITEM)
+        .find(|entry| entry.identifier.as_ref() == identifier)
         .unwrap()
         .network_id;
     stream
@@ -66,7 +85,7 @@ fn fixture_with_catalog(
                 held_item: protocol::NetworkItemStack {
                     network_id: id,
                     metadata,
-                    block_runtime_id: 1,
+                    block_runtime_id,
                     count: 1,
                     ..Default::default()
                 },
@@ -82,11 +101,22 @@ fn fixture_with_catalog(
 
 /// Installs pack artwork through the same UI build boundary used by the client.
 fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool, metadata: u32) {
+    install_item(icons, ITEM, color, cube, metadata);
+}
+
+/// Installs one named item override through normal UI admission.
+fn install_item(
+    icons: &mut UiPresentationRuntime,
+    identifier: &str,
+    color: Option<u8>,
+    cube: bool,
+    metadata: u32,
+) {
     let mut runtime = UiRuntime::new(1);
     runtime.set_session_icons(color.map(|color| {
         let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
         let sheet = SessionIcon {
-            identifier: ITEM.into(),
+            identifier: identifier.into(),
             metadata,
             width,
             height,
@@ -102,7 +132,7 @@ fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool, met
         };
         Arc::new(SessionIcons {
             icons: vec![SessionIcon {
-                identifier: ITEM.into(),
+                identifier: identifier.into(),
                 metadata,
                 width: 1,
                 height: 1,
@@ -418,7 +448,7 @@ fn dropped_session_cube_uses_session_sprite_under_cache_pressure() {
     for free in 1..assets::BlockFace::ALL.len() {
         let mut cache = pressured_cache(free);
         let prepared =
-            DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, &preparation)
+            DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, None, &preparation)
                 .expect("a refused cube must try its one-layer session sprite");
         let mut instances = Vec::new();
         prepared.append(view, &mut instances, |_| (0, 15));
@@ -498,9 +528,15 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
         )
         .unwrap();
         let model = if native {
-            let prepared =
-                DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, &preparation)
-                    .expect("resident startup sprites must survive refused session artwork");
+            let prepared = DroppedItemPublisher::dropped_model(
+                &mut cache,
+                &icons,
+                None,
+                None,
+                None,
+                &preparation,
+            )
+            .expect("resident startup sprites must survive refused session artwork");
             let mut instances = Vec::new();
             prepared.append(view, &mut instances, |_| (0, 15));
             instances[0].model
@@ -589,6 +625,7 @@ fn regression_checkerboard_session_icon_is_validated_once() {
             &mut cache,
             &icons,
             Some(&assets),
+            None,
             item_block_id(
                 &stream,
                 view.item.visual,
@@ -909,3 +946,6 @@ fn session_block_sheets_render_without_startup_identity_but_campfire_items_stay_
         cache.finish_frame();
     }
 }
+
+#[path = "pack_texture_tests/model_tests.rs"]
+mod model_tests;

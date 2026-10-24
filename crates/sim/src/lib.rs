@@ -25,9 +25,10 @@ pub use simulator::{
     AxisCollisions, BoatBody, BoatBuoyancy, BoatFloat, BoatPaddles, BoatState, BoatTick,
     ControlledTickResult, DEFAULT_MOVEMENT_SPEED, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
     MAX_SAFE_LIQUID_VELOCITY, MovementEffects, MovementEnvironment, MovementInput, MovementMode,
-    NORMAL_GRAVITY, PlayerState, ProcessedControls, RiptideLaunch, SPRINT_SPEED_MULTIPLIER,
-    SimulationError, Simulator, TickResult, VerticalPhysics, boat_paddle_power, pose_fits,
-    sample_actor_liquid_submersion, sample_liquid_submersion, sample_water_head, tick_boat,
+    NORMAL_GRAVITY, PlayerState, ProcessedControls, RiptideLaunch, SNEAKING_HEIGHT_CHANGE_VERSION,
+    SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, SneakProfile, TickResult, VerticalPhysics,
+    boat_paddle_power, descends_through_block, pose_fits, sample_actor_liquid_submersion,
+    sample_liquid_submersion, sample_water_head, tick_boat,
 };
 
 pub use world::{
@@ -36,8 +37,8 @@ pub use world::{
     CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionSnapshot,
     CollisionWorld, DEFAULT_SURFACE_FRICTION, DoorFacing, DoorState, FlowBlockFacts,
     LenientCollisionBoxes, LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS,
-    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider, RegistryError, SurfaceResponse,
-    TERRAIN_EMPTY_SHAPE, TERRAIN_NO_LAYER, TerrainColumn, TerrainGeometry, TerrainSample,
-    TerrainSampleError, TerrainSampler, TerrainShape, TerrainShapeBinding, TerrainShapeOverride,
-    TerrainState, WorldCollisionIdentity, WorldQueryError,
+    MAX_COLLISION_QUERY_EXTENT, MoverColliders, PaletteWorld, ProvenancedCollider, RegistryError,
+    SurfaceResponse, TERRAIN_EMPTY_SHAPE, TERRAIN_NO_LAYER, TerrainColumn, TerrainGeometry,
+    TerrainSample, TerrainSampleError, TerrainSampler, TerrainShape, TerrainShapeBinding,
+    TerrainShapeOverride, TerrainState, WorldCollisionIdentity, WorldQueryError,
 };

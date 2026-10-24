@@ -72,7 +72,12 @@ impl ModelCache {
         }
         let Some(cost) = measure() else {
             self.reject_unavailable(key);
-            if !matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. }) {
+            if !matches!(
+                key,
+                ModelKey::Block { .. }
+                    | ModelKey::PottedBlock { .. }
+                    | ModelKey::PreparedBlock { .. }
+            ) {
                 self.invalid_meshes.insert(key.clone());
             }
             return None;

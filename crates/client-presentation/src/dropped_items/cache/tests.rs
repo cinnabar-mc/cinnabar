@@ -3,6 +3,34 @@ use crate::dropped_items::DroppedItemPublisher;
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use render_model::{DroppedItemCube, DroppedItemSprite};
 
+#[test]
+fn prepared_carried_models_replace_pixels_and_retire_with_their_source() {
+    let (first, _) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
+    let (second, _) = crate::presentation::equipment::PreparedBlockItems::narrow_box(80);
+    let mut cache = ModelCache::default();
+    let pose = DroppedItemSpawnPose::new([0.0; 3], Some(([0.0; 3], 30.0)));
+    cache.spawn_poses.insert((7, 1), pose);
+    for (source, seed) in [(&first, 20), (&second, 80)] {
+        cache.sync_prepared_blocks(Some(source));
+        cache.begin_frame();
+        cache.request(&ModelKey::PreparedBlock { id: 1 });
+        cache.finish_demand();
+        let model = cache
+            .prepared_block(1)
+            .expect("carried geometry must be available");
+        assert!(matches!(
+            &cache.models[model as usize],
+            DroppedItemModel::Block(block) if block.materials[0].0.rgba8[..4] == [seed, 40, 60, 255]
+        ));
+        cache.sync_prepared_blocks(Some(source));
+        assert_eq!(cache.prepared_block(1), Some(model));
+        assert_eq!(cache.spawn_poses.get(&(7, 1)), Some(&pose));
+    }
+    cache.sync_prepared_blocks(None);
+    assert!(cache.prepared_block(1).is_none());
+    assert_eq!(cache.spawn_poses.get(&(7, 1)), Some(&pose));
+}
+
 /// Creates a one-layer model without local carriers.
 fn sprite() -> DroppedItemModel {
     DroppedItemModel::Sprite(DroppedItemSprite {
@@ -843,4 +871,45 @@ fn invalid_geometry_is_retried_only_after_artwork_generation_changes() {
         assert_eq!(builds.get(), 0);
         assert_eq!(cache.mesh_validations[&key], 1);
     }
+}
+
+#[test]
+fn dedicated_model_budget_refusal_keeps_icon_fallback_and_recovers_after_demand_changes() {
+    let (source, _) = crate::presentation::equipment::PreparedBlockItems::narrow_box(30);
+    let mut occupied_model = source.dropped_model(1).unwrap();
+    occupied_model.materials =
+        vec![occupied_model.materials[0].clone(); MAX_ITEM_LAYERS - 2].into();
+    let occupied_model = DroppedItemModel::Block(occupied_model);
+    let mut cache = ModelCache::default();
+    frame(&mut cache, []);
+    let occupied = cache
+        .model(
+            key(0),
+            || planning::ModelCost::from_model(&occupied_model),
+            || Some(occupied_model.clone()),
+        )
+        .unwrap();
+    let dedicated = ModelKey::HeldBlock {
+        artwork: [30; 32],
+        rig: render_model::EntityRigId(1),
+    };
+    let mut model = source.dropped_model(1).unwrap();
+    model.materials = model.materials[..2].into();
+    for quad in Arc::make_mut(&mut model.quads) {
+        quad.material %= 2;
+    }
+    let model = DroppedItemModel::Block(model);
+    let cost = || planning::ModelCost::from_model(&model);
+    let build = || Some(model.clone());
+    assert_eq!(cache.model(dedicated.clone(), cost, build), None);
+    let fallback = admit(&mut cache, 1).expect("the remaining layer keeps a sprite fallback");
+    cache.begin_frame();
+    cache.request(&dedicated);
+    cache.request(&key(1));
+    cache.finish_demand();
+    let model = cache.model(dedicated.clone(), cost, build).unwrap();
+    assert_eq!(cache.resident(&dedicated), Some(model));
+    assert_eq!(cache.resident(&key(1)), Some(fallback));
+    assert_eq!(model, occupied);
+    assert_eq!(cache.models[model as usize].texture_layers(), 2);
 }

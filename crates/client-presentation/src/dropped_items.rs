@@ -30,6 +30,7 @@ pub(crate) struct DroppedItemFrame<'a> {
     pub(crate) partial_tick: f32,
     pub(crate) fishing_line_anchors:
         &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+    pub(crate) prepared_blocks: Option<&'a Arc<crate::presentation::equipment::PreparedBlockItems>>,
 }
 
 mod dials;
@@ -37,6 +38,7 @@ mod lighting;
 mod preparation;
 mod source_cost;
 use crate::session_artwork::ItemArtwork;
+mod special;
 use preparation::DropPreparation;
 
 // Provisional world sizes and colours; each needs independent measurement.
@@ -60,6 +62,7 @@ use cache::{ModelCache, ModelKey};
 pub(super) struct DroppedItemPublisher<'w, 's> {
     scene: Option<ResMut<'w, DroppedItemScene>>,
     textures: Option<Res<'w, ChunkTextureAssets>>,
+    block_entities: Option<Res<'w, render_scene::BlockEntitySceneResource>>,
     placements: Option<Res<'w, render_scene::StaticItemPlacementsResource>>,
     cache: Local<'s, ModelCache>,
     scratch: Local<'s, PublishScratch>,
@@ -118,13 +121,50 @@ fn item_block_id(
         _ => None,
     }?;
     if identifier.is_some_and(|identifier| {
-        assets::facts::block_render_fact(identifier).kind == assets::facts::BlockRenderKind::Lantern
+        matches!(
+            assets::facts::block_render_fact(identifier).kind,
+            assets::facts::BlockRenderKind::Lantern
+                | assets::facts::BlockRenderKind::Chain
+                | assets::facts::BlockRenderKind::Bamboo
+                | assets::facts::BlockRenderKind::CoralFan
+                | assets::facts::BlockRenderKind::DefaultRail
+                | assets::facts::BlockRenderKind::LeafLitter
+                | assets::facts::BlockRenderKind::ResinClump
+                | assets::facts::BlockRenderKind::TripwireHook
+                | assets::facts::BlockRenderKind::Ladder
+                | assets::facts::BlockRenderKind::LilyPad
+                | assets::facts::BlockRenderKind::SeaPickle
+        ) || assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::FLOWER_BED_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CANDLE_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::METAL_BAR_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::SHAPED_SPRITE_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
     }
     assets
         .is_none_or(|assets| assets.resolve(block.0, block.1).kind() != VisualKind::Cross)
         .then_some(block)
+}
+
+/// Selects stock carried geometry only when this item has no admitted session sprite.
+fn prepared_block_visual(
+    icons: &UiPresentationRuntime,
+    identifier: &str,
+    metadata: u32,
+    block: Option<(NetworkIdMode, u32)>,
+    assets: Option<&RuntimeAssets>,
+) -> Option<u32> {
+    if icons.session_item_icon(identifier, metadata).is_some() {
+        return None;
+    }
+    let ((mode, id), assets) = block.zip(assets)?;
+    match mode {
+        NetworkIdMode::Sequential => Some(id),
+        NetworkIdMode::Hashed => assets.sequential_id_for_hash(id),
+    }
 }
 
 fn entity_block_id(
@@ -442,6 +482,7 @@ impl DroppedItemPublisher<'_, '_> {
         cache: &mut ModelCache,
         icons: &UiPresentationRuntime,
         assets: Option<&RuntimeAssets>,
+        held_models: Option<&render_model::block_entity::PreparedHeldBlockModels>,
         block_id: Option<(NetworkIdMode, u32)>,
         preparation: &DropPreparation<'_>,
     ) -> Option<preparation::PreparedDrop> {
@@ -483,6 +524,35 @@ impl DroppedItemPublisher<'_, '_> {
                 )
             }
             ItemArtwork::StartupCube => {
+                if let Some((key, shape, model)) =
+                    special::model(icons, held_models, identifier, view.item.identity.metadata)
+                {
+                    let model = DroppedItemModel::Block(model.clone());
+                    if let Some(prepared) = preparation.model(cache, &key, shape, |cache| {
+                        cache.model(
+                            key.clone(),
+                            || render_model::dropped_item::ItemModelCost::from_model(&model),
+                            || Some(model.clone()),
+                        )
+                    }) {
+                        return Some(prepared);
+                    }
+                }
+                let visual = prepared_block_visual(
+                    icons,
+                    identifier,
+                    view.item.identity.metadata,
+                    block_id,
+                    assets,
+                )?;
+                if let Some(prepared) = preparation.model(
+                    cache,
+                    &ModelKey::PreparedBlock { id: visual },
+                    DroppedItemShape::Cube,
+                    |cache| cache.prepared_block(visual),
+                ) {
+                    return Some(prepared);
+                }
                 let ((mode, id), assets) = block_id.zip(assets)?;
                 let hashed = mode == NetworkIdMode::Hashed;
                 preparation
@@ -520,6 +590,7 @@ impl DroppedItemPublisher<'_, '_> {
         let DroppedItemFrame {
             partial_tick,
             fishing_line_anchors,
+            prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
         let frustum = self.culling_view(cull_view);
@@ -546,10 +617,15 @@ impl DroppedItemPublisher<'_, '_> {
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
-        let assets = self
-            .textures
+        let world = self.textures.as_ref().map(|textures| textures.assets());
+        cache.sync_prepared_blocks(
+            prepared_blocks.filter(|source| world.is_some_and(|world| source.matches(world))),
+        );
+        let assets = world.map(Arc::as_ref);
+        let held_models = self
+            .block_entities
             .as_ref()
-            .map(|textures| textures.assets().as_ref());
+            .and_then(|scene| scene.0.held_models());
         stream.authority().dropped_items_into(partial_tick, dropped);
         let mut dial_models = dials::DialModels::default();
         let budget = self.device.as_ref().map_or_else(
@@ -606,7 +682,8 @@ impl DroppedItemPublisher<'_, '_> {
                     camera,
                     frustum: frustum.as_ref(),
                 };
-                let prepared = Self::dropped_model(cache, icons, assets, block_id, &preparation);
+                let prepared =
+                    Self::dropped_model(cache, icons, assets, held_models, block_id, &preparation);
                 if let Some(prepared) = prepared {
                     prepared.append(view, instances, |position| stream.light_level_at(position));
                 }

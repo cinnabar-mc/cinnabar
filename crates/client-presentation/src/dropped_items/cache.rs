@@ -1,6 +1,7 @@
 //! Bounded CPU models and atlas slots for current item consumers.
 use std::sync::Arc;
 
+use crate::presentation::equipment::PreparedBlockItems;
 use bevy::platform::collections::{HashMap, HashSet};
 
 use render_model::{
@@ -22,6 +23,13 @@ pub(super) enum ModelKey {
     CarriedBlock {
         hashed: bool,
         id: u32,
+    },
+    PreparedBlock {
+        id: u32,
+    },
+    HeldBlock {
+        artwork: [u8; 32],
+        rig: render_model::EntityRigId,
     },
     SessionBlock {
         page: u16,
@@ -60,6 +68,7 @@ pub(crate) struct ModelCache {
     session: u64,
     assets: Option<render_scene::ChunkTextureAssetIdentity>,
     icons: u64,
+    prepared_blocks: Option<Arc<PreparedBlockItems>>,
     pub(super) revision: u64,
     pub(super) models: Vec<DroppedItemModel>,
     layers: usize,
@@ -189,6 +198,38 @@ impl ModelCache {
     /// Whether this pass only measures artwork costs, without preparing draws.
     pub(super) fn is_planning(&self) -> bool {
         self.planning
+    }
+
+    /// Replaces residents when their immutable carried geometry and pixel source changes.
+    pub(super) fn sync_prepared_blocks(&mut self, source: Option<&Arc<PreparedBlockItems>>) {
+        let unchanged = match (self.prepared_blocks.as_ref(), source) {
+            (Some(current), Some(source)) => Arc::ptr_eq(current, source),
+            (None, None) => true,
+            _ => false,
+        };
+        if unchanged {
+            return;
+        }
+        let spawn_poses = std::mem::take(&mut self.spawn_poses);
+        *self = Self {
+            session: self.session,
+            assets: self.assets,
+            icons: self.icons,
+            revision: self.revision.wrapping_add(1),
+            prepared_blocks: source.cloned(),
+            spawn_poses,
+            ..Default::default()
+        };
+    }
+
+    /// Admits a canonical carried model only from the source retained by this cache.
+    pub(super) fn prepared_block(&mut self, id: u32) -> Option<u32> {
+        let source = Arc::clone(self.prepared_blocks.as_ref()?);
+        self.model(
+            ModelKey::PreparedBlock { id },
+            || source.dropped_model_cost(id),
+            || source.dropped_model(id).map(DroppedItemModel::Block),
+        )
     }
 
     /// Reuses a successfully admitted model while preserving current-consumer protection.
@@ -341,7 +382,10 @@ impl ModelCache {
 
     /// Remembers unavailable block sources whose assets cannot become ready later this generation.
     fn reject_unavailable(&mut self, key: &ModelKey) {
-        if matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. }) {
+        if matches!(
+            key,
+            ModelKey::Block { .. } | ModelKey::PottedBlock { .. } | ModelKey::PreparedBlock { .. }
+        ) {
             self.remember_rejection(key.clone(), true);
         }
     }
