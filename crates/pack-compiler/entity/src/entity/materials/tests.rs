@@ -559,3 +559,85 @@ fn actor_draws_use_a_materials_skinning_variant_and_otherwise_the_material() {
         assert!(drawn.has_define(define), "{name}");
     }
 }
+
+/// Resolves `name` from documents admitted by path, as compilation loads them.
+fn listed_definition(documents: &[(&str, Value)], name: &str) -> Option<EntityMaterialDefinition> {
+    let states =
+        MaterialStates::from_documents(documents.iter().map(|(path, value)| (*path, value)));
+    let mut table = MaterialTable::default();
+    let (_, index) = states.resolve(name, &mut table)?;
+    Some(table.definitions[index as usize].clone())
+}
+
+#[test]
+fn list_defines_seed_every_root_of_the_listed_file() {
+    let documents = [
+        (
+            list::ENTITY_MATERIAL_LIST_PATH,
+            json!([{"path": "materials/listed.material", "tag": "ignored", "+defines": ["LISTED"]}]),
+        ),
+        (
+            "materials/listed.material",
+            modern(json!({
+                "root": {"+defines": ["OWN"]},
+                "child:root": {},
+                "native:entity_alphatest": {},
+                "replaced": {"defines": ["ONLY"]}
+            })),
+        ),
+        ("materials/other.material", modern(json!({"other": {}}))),
+    ];
+    for name in ["root", "child", "native"] {
+        let definition = listed_definition(&documents, name).unwrap();
+        assert!(definition.has_define("LISTED"), "{name}");
+    }
+    let native = listed_definition(&documents, "native").unwrap();
+    assert!(native.has_define("ALPHA_TEST"));
+    let replaced = listed_definition(&documents, "replaced").unwrap();
+    assert!(replaced.has_define("ONLY") && !replaced.has_define("LISTED"));
+    let other = listed_definition(&documents, "other").unwrap();
+    assert!(
+        !other.has_define("LISTED"),
+        "unlisted files have no list defines"
+    );
+}
+
+#[test]
+fn listed_files_load_before_unlisted_files() {
+    let documents = [
+        (
+            list::ENTITY_MATERIAL_LIST_PATH,
+            json!([{"path": "materials/z.material"}]),
+        ),
+        (
+            "materials/a.material",
+            modern(json!({"shared": {"+defines": ["UNLISTED"]}})),
+        ),
+        (
+            "materials/z.material",
+            modern(json!({"shared": {"+defines": ["LISTED"]}})),
+        ),
+    ];
+    let shared = listed_definition(&documents, "shared").unwrap();
+    assert!(shared.has_define("LISTED") && !shared.has_define("UNLISTED"));
+}
+
+#[test]
+fn a_list_entry_whose_path_is_too_long_loads_nothing() {
+    let path = format!(
+        "materials/{}.material",
+        "a".repeat(list::MAX_MATERIAL_LIST_PATH_BYTES)
+    );
+    let documents = [
+        (
+            list::ENTITY_MATERIAL_LIST_PATH,
+            json!([{"path": path, "+defines": ["LISTED"]}]),
+        ),
+        (path.as_str(), modern(json!({"long": {}}))),
+    ];
+    let long = listed_definition(&documents, "long").unwrap();
+    assert!(
+        !long.has_define("LISTED"),
+        "the file loads only as unlisted"
+    );
+}

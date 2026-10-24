@@ -169,6 +169,11 @@ fn compile_with_behavior(
     collect_family(root, "animation_controllers", &["json"], &mut selected)?;
     collect_family(root, "render_controllers", &["json"], &mut selected)?;
     collect_optional_family(root, "materials", &["material"], &mut selected)?;
+    collect_optional_file(
+        root,
+        materials::list::ENTITY_MATERIAL_LIST_PATH,
+        &mut selected,
+    )?;
     collect_family(
         root,
         "textures/entity",
@@ -596,6 +601,7 @@ fn parse_source(
         "textures/item_texture.json"
             | "manifest.json"
             | materials::extension::MATERIAL_BINDINGS_PATH
+            | materials::list::ENTITY_MATERIAL_LIST_PATH
     ) {
         parse_unique_json(absolute_path, bytes)?;
         return Ok(());
