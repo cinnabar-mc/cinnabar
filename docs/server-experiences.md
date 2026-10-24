@@ -151,9 +151,10 @@ the host applies Bedrock lighting and fog to the returned surface, adding emissi
 lighting. A bound entity's body and render-controller layers draw with the material; equipment,
 capes, hats and players never do. A bound block's cube faces and model quads are tagged in
 meshing and drawn in a world material pass: opaque and cutout classes in the opaque phase,
-premultiplied and additive classes as one sorted translucent item per section and material,
-whose faces draw back to front with the face metric ordinary translucent terrain uses. Until the material's pipelines are ready the block draws with its Bedrock
-material.
+premultiplied and additive classes merged face by face into their section's ordinary
+translucent order, so a bound face and the water or glass beside it draw back to front by the
+face metric ordinary translucent terrain uses. Until the material's pipelines are ready the
+block draws with its Bedrock material.
 Each material charges its shader source, parameters and decoded textures to the bundle's share of
 the signed memory limit, and its textures and pipelines to its share of the GPU limit; replaced
 materials stay charged because compiled pipelines cannot be destroyed. A material that fails
@@ -161,9 +162,7 @@ validation or native compilation is skipped, reported once in the log and the ex
 indicator, and its targets keep their Bedrock materials. Stopping a client part, F9 or a
 disconnect removes every material and binding in one publication without a reconnect.
 
-Not yet: a section's bound translucent faces draw as their own item and do not interleave with
-its ordinary translucent faces, and Enhanced and shader-pack terrain draw bound blocks as
-Bedrock. Overriding identifiers outside the signed
+Not yet: Enhanced and shader-pack terrain draw bound blocks as Bedrock. Overriding identifiers outside the signed
 namespace, vanilla included, needs a separate permission.
 
 ## Modal screens

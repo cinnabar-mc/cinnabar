@@ -152,13 +152,14 @@ impl Plugin for ChunkRenderPlugin {
             .init_resource::<TransparentPresentationFence>()
             .init_resource::<TransparentRetirementFence>()
             .init_resource::<super::world_materials::WorldTerrainSections>()
+            .init_resource::<super::world_materials::InterleavedTerrain>()
             .add_render_command::<
                 bevy::core_pipeline::core_3d::Opaque3d,
                 super::world_materials::DrawWorldMaterialTerrainCommands,
             >()
             .add_render_command::<
                 bevy::core_pipeline::core_3d::Transparent3d,
-                super::world_materials::DrawWorldMaterialTranslucentCommands,
+                super::world_materials::DrawInterleavedTerrainCommands,
             >();
         if let Some(runtime_stage_profiler) = runtime_stage_profiler {
             render_app.insert_resource(runtime_stage_profiler);
@@ -201,7 +202,8 @@ impl Plugin for ChunkRenderPlugin {
                         .after(queue_chunks),
                     queue_transparent_chunks
                         .in_set(crate::world_passes::WorldPassSystems)
-                        .in_set(RenderSystems::Queue),
+                        .in_set(RenderSystems::Queue)
+                        .after(super::world_materials::queue_world_material_chunks),
                     prepare_chunk_texture_assets
                         .in_set(ChunkPublicationStage::Attributes)
                         .run_if(render_scene::startup_work::world_work_allowed),
