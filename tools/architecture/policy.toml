@@ -526,6 +526,18 @@ allowed_dependencies = ["block-transform", "experience-sdk", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "experience-material-fx"
+path = "examples/experiences/material-fx/server"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "experience-material-fx-client"
+path = "examples/experiences/material-fx/client"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "experience-probe"
 path = "examples/experiences/probe"
 allowed_dependencies = ["experience-sdk"]
@@ -660,6 +672,12 @@ forbidden_dependencies = ["bevy", "wgpu"]
 name = "release-manifest"
 path = "tools/release-manifest"
 allowed_dependencies = ["update-manifest"]
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "material-fx"
+path = "tools/material-fx"
+allowed_dependencies = ["cinnabar-cxb", "experience-runtime", "server-experience"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]

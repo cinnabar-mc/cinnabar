@@ -138,6 +138,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = materialShowcaseListener(listen)
 		}
 	}
+	if cfg.materialFx {
+		pack, err := materialFxPack()
+		if err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return fmt.Errorf("prepare world material showcase fixture: %w", err)
+		}
+		conf.Resources = append(conf.Resources, pack)
+	}
 	if cfg.totemTexture {
 		pack, err := totemTexturePack()
 		if err != nil {
@@ -226,10 +236,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		conf.PlayerProvider = provider
 	}
 	var srv *server.Server
+	players := func(id uuid.UUID) (*world.EntityHandle, bool) { return srv.Player(id) }
 	for i, listen := range conf.Listeners {
-		conf.Listeners[i] = flySpeedListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
-			return srv.Player(id)
-		})
+		conf.Listeners[i] = flySpeedListener(listen, players)
+	}
+	if cfg.materialFx {
+		var sender *experienceSender
+		if ext != nil {
+			sender = &experienceSender{send: ext.SendRecord}
+		}
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = materialFxListener(listen, players, sender)
+		}
 	}
 	var closeUnstarted func() error
 	if exps != nil {

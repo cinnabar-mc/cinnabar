@@ -37,7 +37,7 @@ pub(crate) struct ActorPipeline {
     /// Programmable world material pipelines, which never gate readiness: their draws stay
     /// Bedrock's until they compile.
     world_variants: Variants<RenderPipeline, super::world_materials::WorldActorSpecializer>,
-    world_ids: std::collections::HashMap<
+    pub(super) world_ids: std::collections::HashMap<
         (ActorPipelineContract, crate::world_material::WorldVariant),
         CachedRenderPipelineId,
     >,
