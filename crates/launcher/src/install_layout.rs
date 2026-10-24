@@ -188,6 +188,16 @@ impl InstallLayout {
         self.compiled_assets != self.resource_root.join("assets/compiled")
     }
 
+    /// The game client executable, which packaging and Cargo place beside the core executable.
+    #[must_use]
+    pub fn client_executable(&self) -> PathBuf {
+        let mut client = self.core_executable.with_file_name(CLIENT_STEM);
+        if let Some(extension) = self.core_executable.extension() {
+            client.set_extension(extension);
+        }
+        client
+    }
+
     /// Redirects carrier loading to the per-user prepared directory when the bundle ships none.
     #[must_use]
     pub fn with_prepared_assets(mut self) -> Self {
@@ -578,6 +588,10 @@ fn absolute_for(platform: Platform, path: &Path) -> bool {
         Platform::Linux | Platform::MacOs => value.starts_with('/'),
     }
 }
+
+/// The client executable's name without the platform's extension, as `app/Cargo.toml` names its
+/// binary.
+const CLIENT_STEM: &str = "cinnabar";
 
 const fn core_filename(platform: Platform) -> &'static str {
     match platform {

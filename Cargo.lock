@@ -5293,6 +5293,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "launcher-app"
+version = "0.1.28"
+dependencies = [
+ "anyhow",
+ "bootstrap-ui",
+ "first-run",
+ "gilrs",
+ "image",
+ "launcher",
+ "launcher-host",
+ "render-model",
+ "tempfile",
+ "ui",
+ "update-manifest",
+ "winit",
+]
+
+[[package]]
 name = "launcher-host"
 version = "0.1.28"
 dependencies = [

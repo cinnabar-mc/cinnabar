@@ -1347,6 +1347,13 @@ path = "crates/bootstrap-ui"
 allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
+# The standalone `cinnabar-launcher` window that starts the client; it never links the client.
+[[crates]]
+name = "launcher-app"
+path = "crates/launcher-app"
+allowed_dependencies = ["bootstrap-ui", "first-run", "launcher", "launcher-host", "render-model", "ui", "update-manifest", "gilrs"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
+
 # The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.
 [[crates]]
 name = "crash-monitor"
@@ -1400,6 +1407,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "crates/launcher/src/install_layout.rs"
+literal = "cinnabar"
+reason = "The client executable's file name from app/Cargo.toml, which a test checks; not a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "tools/devtool/src/startup.rs"

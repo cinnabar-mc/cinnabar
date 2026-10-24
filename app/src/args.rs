@@ -570,6 +570,21 @@ mod tests {
         assert!(!args.connection_requested());
     }
 
+    /// The standalone launcher joins servers through this shared flag.
+    #[test]
+    fn launcher_join_flag_requests_a_direct_connection() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from([
+            "client",
+            launcher::JOIN_ADDRESS_FLAG,
+            "play.example.net:19132",
+        ])
+        .unwrap() else {
+            panic!("run");
+        };
+        assert_eq!(args.address.as_deref(), Some("play.example.net:19132"));
+        assert!(args.connection_requested());
+    }
+
     #[test]
     fn defaults_are_stable() {
         let ParseOutcome::Run(args) = ClientArgs::parse_from(["client"]).unwrap() else {

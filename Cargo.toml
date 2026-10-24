@@ -69,6 +69,7 @@ members = [
     "crates/launcher",
     "crates/launcher-host",
     "crates/first-run",
+    "crates/launcher-app",
     "crates/rich-presence",
     "crates/client-ui",
     "crates/client-presentation",

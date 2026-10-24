@@ -76,6 +76,7 @@ impl PanoramaView {
     }
 }
 
+pub mod cpu;
 mod launcher;
 pub use launcher::{decode_faces, launcher_faces, launcher_view, overlay_tint};
 
