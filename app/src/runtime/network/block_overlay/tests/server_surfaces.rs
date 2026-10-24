@@ -182,3 +182,26 @@ fn surface_layers_join_the_block_fingerprint_and_unchanged_reloads_reuse_their_m
         "a changed normal map recompiles the overlay"
     );
 }
+
+#[test]
+fn surfaces_that_exceed_the_terrain_budget_keep_only_their_colour() {
+    let view = surface_view(
+        json!({"format_version": "1.16.100", "minecraft:texture_set": {
+            "color": "gen_color", "metalness_emissive_roughness": [0, 255, 128]
+        }}),
+        &[("textures/blocks/gen_color.png", color())],
+    );
+    let unlimited = compiled(&view);
+    assert!(unlimited.overlay.enhanced.is_some());
+    use crate::runtime::network::block_overlay::pbr::SURFACE_BUDGET_LIMIT;
+    SURFACE_BUDGET_LIMIT.set(Some(0));
+    let exhausted = compiled(&view);
+    SURFACE_BUDGET_LIMIT.set(None);
+    assert!(exhausted.overlay.enhanced.is_none());
+    assert_eq!(exhausted.gaps.downgraded_texture_sets, 1);
+    assert_eq!(
+        exhausted.overlay.textures, unlimited.overlay.textures,
+        "the colour pages are unchanged"
+    );
+    assert_eq!(exhausted.overlay.materials, unlimited.overlay.materials);
+}
