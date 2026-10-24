@@ -406,3 +406,22 @@ fn snapshot_declarations_keep_native_permissions_and_update_metadata_together() 
     assert!(declared.requested.unwrap().unwrap().controls);
     assert_eq!(declared.metadata.update_url.unwrap().asset(), "native.wasm");
 }
+
+#[test]
+fn an_appended_request_is_read_back_and_a_second_is_refused() {
+    let mut component = wat::parse_str("(component)").unwrap();
+    append_requested_grants(
+        &mut component,
+        br#"{"world_draw":true,"render_material":true}"#,
+    )
+    .unwrap();
+    let requested = declarations_snapshot(&component)
+        .unwrap()
+        .requested
+        .unwrap()
+        .expect("the request is declared");
+    assert!(requested.world_draw && requested.render_material);
+    assert!(append_requested_grants(&mut component, b"{}").is_err());
+    let mut plain = wat::parse_str("(component)").unwrap();
+    assert!(append_requested_grants(&mut plain, b"{\"unknown\":true}").is_err());
+}

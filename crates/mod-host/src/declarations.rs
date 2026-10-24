@@ -131,6 +131,39 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     })
 }
 
+/// Appends `request`, a JSON grant request, to `component` as its top-level
+/// [`REQUESTED_GRANTS_SECTION`], after checking that the loader would accept it. A component
+/// that already declares a request is refused rather than given a second one.
+pub fn append_requested_grants(component: &mut Vec<u8>, request: &[u8]) -> Result<()> {
+    requested(request)?;
+    ensure!(
+        declarations_snapshot(component)?.requested?.is_none(),
+        "the component already declares its requested grants"
+    );
+    let name = REQUESTED_GRANTS_SECTION.as_bytes();
+    let mut payload = Vec::new();
+    leb128(&mut payload, name.len() as u64);
+    payload.extend_from_slice(name);
+    payload.extend_from_slice(request);
+    component.push(0);
+    leb128(component, payload.len() as u64);
+    component.extend(payload);
+    Ok(())
+}
+
+/// Appends `value` as unsigned LEB128, the encoding of WebAssembly section sizes.
+fn leb128(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            out.push(byte);
+            return;
+        }
+        out.push(byte | 0x80);
+    }
+}
+
 /// Parses and validates one bounded JSON grant request.
 fn requested(data: &[u8]) -> Result<ModGrants> {
     ensure!(

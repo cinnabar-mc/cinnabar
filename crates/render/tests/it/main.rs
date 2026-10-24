@@ -58,6 +58,7 @@ mod cloud_config;
 mod cloud_render;
 mod cube_tint_raster;
 mod dragon_death_rays;
+mod drawing_material_fx;
 mod end_rod_snapshot;
 mod end_sky;
 mod entity_shadow;

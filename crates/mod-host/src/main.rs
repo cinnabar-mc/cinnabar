@@ -23,6 +23,15 @@ fn main() -> Result<()> {
                 .encode()?;
             std::fs::write(output, component)?;
         }
+        [command, source, output, flag, request] if command == "pack" && flag == "--request" => {
+            let bytes = std::fs::read(source)?;
+            let mut component = wit_component::ComponentEncoder::default()
+                .module(&bytes)?
+                .validate(true)
+                .encode()?;
+            mod_host::append_requested_grants(&mut component, &std::fs::read(request)?)?;
+            std::fs::write(output, component)?;
+        }
         [command, path] if command == "probe" || command == "probe-environment" => {
             let mut host = ModHost::load_with_grants(
                 Path::new(path),
@@ -58,7 +67,7 @@ fn main() -> Result<()> {
         }
         [command, path] if command == "probe-render" => probe_render(Path::new(path))?,
         _ => bail!(
-            "usage: mod-host pack [--world packet-mod] CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | probe-render COMPONENT.wasm | bench COMPONENT.wasm | bench-packets COMPONENT.wasm CAPTURE"
+            "usage: mod-host pack [--world packet-mod] CORE.wasm COMPONENT.wasm [--request GRANTS.json] | probe[-environment] COMPONENT.wasm | probe-render COMPONENT.wasm | bench COMPONENT.wasm | bench-packets COMPONENT.wasm CAPTURE"
         ),
     }
     Ok(())

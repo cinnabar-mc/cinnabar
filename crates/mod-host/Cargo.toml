@@ -9,6 +9,7 @@ publish = false
 platform-specific = ["windows"]
 reads = [
     "crates/mod-api/native-render-v1.json",
+    "examples/mods/material-showcase/grants.json",
     "crates/experience-sdk/wit/client",
     "crates/experience-sdk/wit/session",
     "crates/mod-api/wit",

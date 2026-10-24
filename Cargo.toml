@@ -56,6 +56,7 @@ members = [
     "examples/mods/hello",
     "examples/mods/time-changer",
     "examples/mods/render-sample",
+    "examples/mods/material-showcase",
     "examples/mods/screen-probe",
     "crates/protocol",
     "crates/protocol-ids",

@@ -14,6 +14,9 @@ const MOVEMENT_ENV: &str = "CINNABAR_MOD_MOVEMENT";
 const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
 const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
+/// Lets a component create custom retained-drawing materials (`create-material`), beside the
+/// world draw switch.
+const RENDER_MATERIAL_ENV: &str = "CINNABAR_MOD_RENDER_MATERIAL";
 const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
 const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";
 const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
@@ -45,33 +48,43 @@ pub fn environment_packet_mod() -> Option<PacketModSelection> {
 
 /// The grants a component or package selected on its own gets from the environment.
 pub fn environment_grants() -> ModGrants {
+    grants_from(
+        |name| std::env::var_os(name).is_some_and(|value| value == "1"),
+        |name| std::env::var(name).ok(),
+    )
+}
+
+/// The grants whose switches `enabled` reports set to `1`, with the command list `value`
+/// returns for [`COMMANDS_ENV`].
+fn grants_from(
+    enabled: impl Fn(&str) -> bool,
+    value: impl Fn(&str) -> Option<String>,
+) -> ModGrants {
     ModGrants {
         environment: true,
-        world_draw: std::env::var("CINNABAR_MOD_WORLD_DRAW").is_ok_and(|value| value == "1"),
-        render_through_walls: std::env::var("CINNABAR_MOD_RENDER_THROUGH_WALLS")
-            .is_ok_and(|value| value == "1"),
-        entity_observe: std::env::var("CINNABAR_MOD_ENTITY_OBSERVE")
-            .is_ok_and(|value| value == "1"),
-        entity_highlight: std::env::var("CINNABAR_MOD_ENTITY_HIGHLIGHT")
-            .is_ok_and(|value| value == "1"),
-        terrain: std::env::var("CINNABAR_MOD_TERRAIN").is_ok_and(|value| value == "1"),
-        players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
-        player_state: std::env::var(PLAYER_STATE_ENV).is_ok_and(|value| value == "1"),
-        clock: std::env::var(CLOCK_ENV).is_ok_and(|value| value == "1"),
-        item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
-        camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
-        controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
-        hud: std::env::var(HUD_ENV).is_ok_and(|value| value == "1"),
-        movement: std::env::var(MOVEMENT_ENV).is_ok_and(|value| value == "1"),
-        interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
-        settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
-        render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
-        block_highlights: std::env::var(BLOCK_HIGHLIGHTS_ENV).is_ok_and(|value| value == "1"),
-        fullbright: std::env::var(FULLBRIGHT_ENV).is_ok_and(|value| value == "1"),
-        render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),
-        entities: std::env::var(ENTITIES_ENV).is_ok_and(|value| value == "1"),
-        inventory: std::env::var(INVENTORY_ENV).is_ok_and(|value| value == "1"),
-        commands: std::env::var(COMMANDS_ENV)
+        world_draw: enabled("CINNABAR_MOD_WORLD_DRAW"),
+        render_through_walls: enabled("CINNABAR_MOD_RENDER_THROUGH_WALLS"),
+        entity_observe: enabled("CINNABAR_MOD_ENTITY_OBSERVE"),
+        entity_highlight: enabled("CINNABAR_MOD_ENTITY_HIGHLIGHT"),
+        terrain: enabled("CINNABAR_MOD_TERRAIN"),
+        players: enabled(PLAYERS_ENV),
+        player_state: enabled(PLAYER_STATE_ENV),
+        clock: enabled(CLOCK_ENV),
+        item_use: enabled(ITEM_USE_ENV),
+        camera: enabled(CAMERA_ENV),
+        controls: enabled(CONTROLS_ENV),
+        hud: enabled(HUD_ENV),
+        movement: enabled(MOVEMENT_ENV),
+        interaction: enabled(INTERACTION_ENV),
+        settings: enabled(SETTINGS_ENV),
+        render: enabled(RENDER_ENV),
+        render_material: enabled(RENDER_MATERIAL_ENV),
+        block_highlights: enabled(BLOCK_HIGHLIGHTS_ENV),
+        fullbright: enabled(FULLBRIGHT_ENV),
+        render_depth: enabled(RENDER_DEPTH_ENV),
+        entities: enabled(ENTITIES_ENV),
+        inventory: enabled(INVENTORY_ENV),
+        commands: value(COMMANDS_ENV)
             .map(|names| {
                 names
                     .split(',')
@@ -80,8 +93,20 @@ pub fn environment_grants() -> ModGrants {
                     .collect()
             })
             .unwrap_or_default(),
-        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1")
-            || std::env::var(PACKET_DELAY_VISUAL_ENV).is_ok_and(|value| value == "1"),
+        packet_delay: enabled(PACKET_DELAY_ENV) || enabled(PACKET_DELAY_VISUAL_ENV),
         ..ModGrants::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_render_material_switch_grants_custom_drawing_materials() {
+        let grants = |names: &[&str]| grants_from(|name| names.contains(&name), |_| None);
+        assert!(!grants(&["CINNABAR_MOD_WORLD_DRAW"]).render_material);
+        let both = grants(&["CINNABAR_MOD_WORLD_DRAW", RENDER_MATERIAL_ENV]);
+        assert!(both.world_draw && both.render_material);
     }
 }
