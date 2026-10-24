@@ -186,9 +186,9 @@ pub(super) fn compile_render(
             let Some(definition) = definition.as_object() else {
                 continue;
             };
-            let condition = match activation {
+            let condition = match &activation {
                 None => None,
-                Some(text) => match compile_condition(molang, &text) {
+                Some(text) => match compile_condition(molang, text) {
                     Some(index) => Some(index),
                     None => continue,
                 },
@@ -368,6 +368,7 @@ pub(super) fn compile_render(
             };
             material_groups::append(
                 layer,
+                activation.as_deref(),
                 groups,
                 material_groups::Records {
                     selections: &mut material_selections,

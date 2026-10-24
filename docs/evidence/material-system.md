@@ -77,8 +77,11 @@ Confirmed gaps against the current client:
   whose `GLINT`, `MULTIPLICATIVE_TINT` or `MASKED_MULTITEXTURE` defines need more textures than its
   controller supplies is not drawn. Bedrock runs that check from a material's second draw on; the
   client also checks the first.
-- Render-controller material rules apply per bone pattern, the last match winning; a rule whose
-  material is a Molang expression rather than a plain `Material.<alias>` is not evaluated.
+- Render-controller material rules apply per bone pattern, the last match winning. A Molang
+  material expression draws each material it can select as its own layer under the condition
+  selecting it, evaluated each tick like controller activation; all of them compile and prewarm
+  with the pack. Beyond 16 combinations of expression rules, each keeps its default-actor
+  material.
 
 Each server pack's entity compilation counts, and logs once, the material behaviour the client
 does not draw exactly: unknown state names (Bedrock asserts), define names without an actor flag
