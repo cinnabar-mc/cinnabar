@@ -73,6 +73,8 @@ struct State {
     world: WorldMaterials,
     /// `world` with this callback's staged declarations applied.
     world_staged: WorldMaterials,
+    /// World material validations this callback has spent.
+    world_compiles: u32,
 }
 
 impl State {
@@ -101,6 +103,7 @@ impl State {
         self.commands.clear();
         self.calls = 0;
         self.world_staged = self.world.clone();
+        self.world_compiles = 0;
         self.bytes = serde_json::to_vec(&Transaction {
             owner: self.owner.clone(),
             epoch: self.epoch,
@@ -658,6 +661,7 @@ impl BundleHost {
             negotiation: None,
             world: WorldMaterials::default(),
             world_staged: WorldMaterials::default(),
+            world_compiles: 0,
         };
         state.presentation.render.limit_draws(MAX_DRAWS as usize);
         state.presentation.bind_presentation(drawing)?;
