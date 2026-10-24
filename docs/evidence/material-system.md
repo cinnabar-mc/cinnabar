@@ -37,6 +37,9 @@ Confirmed gaps against the current client:
   Server-authored slots win over local Enhanced maps. Only builds that can draw Enhanced decode
   them, and the Enhanced renderer is disabled, so non-Enhanced draws use colour only, as Bedrock
   does outside Vibrant Visuals. A set that does not decode or fit keeps its colour and is counted.
+- Entity texture references resolve through a same-pack texture set to its colour layer, which is
+  all an entity draws outside Vibrant Visuals. Entity MER/MERS and normal layers are not carried
+  yet; a future Enhanced actor path would need them.
 - Entity material files load through the entity material list, `materials/fancy.json` (the
   client draws with fancy graphics): every pack's copy is read, each entry's defines seed the
   root of the file it names and `tag` is ignored. The vanilla lists are not shipped to the

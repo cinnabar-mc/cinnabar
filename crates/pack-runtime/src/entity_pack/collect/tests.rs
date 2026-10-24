@@ -927,3 +927,73 @@ fn an_invalid_material_bindings_document_is_counted() {
         assert_eq!(report.invalid_extension_documents, invalid);
     }
 }
+
+#[test]
+fn entity_textures_resolve_through_a_same_pack_texture_set_to_its_colour() {
+    let pixel = |rgba: [u8; 4]| {
+        let image = image::RgbaImage::from_pixel(2, 2, image::Rgba(rgba));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    };
+    let entity = json!({"format_version": "1.10.0", "minecraft:client_entity": {"description": {
+        "identifier": "example:moth", "textures": {"default": "textures/entity/moth"}
+    }}});
+    for (set, plain_wins) in [
+        (
+            json!({"format_version": "1.16.100", "minecraft:texture_set": {
+            "color": "moth_color", "metalness_emissive_roughness": [0, 0, 255]}}),
+            false,
+        ),
+        (
+            json!({"format_version": "9.9.9", "minecraft:texture_set": {"color": "moth_color"}}),
+            true,
+        ),
+        (
+            json!({"format_version": "1.16.100", "minecraft:texture_set": {"color": "moth_absent"}}),
+            true,
+        ),
+    ] {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let manifest = json!({"format_version":2,"header":{"uuid":"00000000-0000-0000-0000-000000000009",
+            "version":[1,0,0]},"modules":[{"type":"resources"}]});
+        for (path, bytes) in [
+            ("manifest.json", serde_json::to_vec(&manifest).unwrap()),
+            (
+                "entity/moth.entity.json",
+                serde_json::to_vec(&entity).unwrap(),
+            ),
+            (
+                "textures/entity/moth.texture_set.json",
+                serde_json::to_vec(&set).unwrap(),
+            ),
+            ("textures/entity/moth_color.png", pixel([10, 20, 30, 255])),
+            ("textures/entity/moth.png", pixel([200, 0, 0, 255])),
+        ] {
+            zip.start_file(path, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(&bytes).unwrap();
+        }
+        let archive = protocol::ResourcePackArchive::unencrypted(
+            "00000000-0000-0000-0000-000000000009".parse().unwrap(),
+            "1.0.0".into(),
+            String::new(),
+            zip.finish().unwrap().into_inner(),
+        );
+        let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        ));
+        let files = super::collect_files(&view, None, None);
+        let (_, bytes) = files
+            .iter()
+            .find(|(path, _)| path.as_ref() == "textures/entity/moth.png")
+            .expect("the entity raster is collected");
+        let decoded = image::load_from_memory(bytes).unwrap().into_rgba8();
+        let expected = if plain_wins {
+            [200, 0, 0, 255]
+        } else {
+            [10, 20, 30, 255]
+        };
+        assert_eq!(decoded.get_pixel(0, 0).0, expected);
+    }
+}
