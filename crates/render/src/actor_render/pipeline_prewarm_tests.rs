@@ -78,6 +78,7 @@ fn generated_material_catalog_is_prewarmed_before_entities_arrive() {
                     emissive: native.emissive,
                     only_emissive: native.only_emissive,
                     disable_overlay: native.disable_overlay,
+                    ..Default::default()
                 }),
                 render_state: Some(raster),
                 ..Default::default()
@@ -537,9 +538,10 @@ fn a_sessions_authored_rasters_are_requested_before_any_actor_draws_them() {
         ..Default::default()
     };
     let material = EntityRenderMaterial::Default as u32;
-    let mut frame = render_scene::ActorRenderFrame::default();
-    frame.authored_rasters = std::sync::Arc::from([(material, raster)]);
-    world.insert_resource(frame);
+    world.insert_resource(render_scene::ActorRenderFrame {
+        authored_rasters: std::sync::Arc::from([(material, raster)]),
+        ..Default::default()
+    });
     world
         .run_system_once(super::super::prepare_actor_pipelines)
         .unwrap();
@@ -552,4 +554,54 @@ fn a_sessions_authored_rasters_are_requested_before_any_actor_draws_them() {
         .draw_variant(msaa, view.hdr, false, material, raster)
         .expect("the session's raster is requested with no actor drawing it");
     assert!(!pipeline.ready_with((msaa, view.hdr, false), |id| id != authored));
+}
+
+#[test]
+fn a_downgraded_view_requests_the_sessions_authored_rasters_again_before_drawing() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let raster = render_api::render_state::RenderState {
+        cull: render_api::render_state::CullMode::Front,
+        ..Default::default()
+    };
+    let material = EntityRenderMaterial::Default as u32;
+    world.insert_resource(render_scene::ActorRenderFrame {
+        authored_rasters: std::sync::Arc::from([(material, raster)]),
+        ..Default::default()
+    });
+    world
+        .run_system_once(super::super::prepare_actor_pipelines)
+        .unwrap();
+    let (&before, view) = world
+        .query::<(&Msaa, &ExtractedCamera)>()
+        .single(world)
+        .unwrap();
+    let hdr = view.hdr;
+    // The adapter or settings drop multisampling mid-session: the same session's rasters must be
+    // requested for the new view, and its readiness must wait for them.
+    let after = if before == Msaa::Off {
+        Msaa::Sample4
+    } else {
+        Msaa::Off
+    };
+    for mut msaa in world.query::<&mut Msaa>().iter_mut(world) {
+        *msaa = after;
+    }
+    world
+        .run_system_once(super::super::prepare_actor_pipelines)
+        .unwrap();
+    let pipeline = world.resource::<ActorPipeline>();
+    let previous = pipeline
+        .draw_variant(before, hdr, false, material, raster)
+        .expect("the first view keeps its pipeline");
+    let current = pipeline
+        .draw_variant(after, hdr, false, material, raster)
+        .expect("the new view requests the session's raster");
+    assert_ne!(previous, current, "sample counts need distinct pipelines");
+    assert!(
+        !pipeline.ready_with((after, hdr, false), |id| id != current),
+        "the new view's readiness waits for the session's raster"
+    );
 }
