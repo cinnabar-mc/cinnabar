@@ -508,6 +508,37 @@ fn controller_hold_resumes_after_a_neutral_desktop_frame() {
     }
 }
 
+/// Releasing one controller binding after desktop input keeps the other binding's hold.
+#[test]
+fn controller_release_only_sample_after_desktop_input_keeps_its_hold() {
+    for owner in [Some(1), None] {
+        let mut state = ActionFilterState::default();
+        let mut desktop = ordered([false; 2], &[]);
+        state.filter(&mut desktop, owner, 0, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        let released = ActionPhase {
+            released: true,
+            held: true,
+            ..Default::default()
+        };
+        let mut controller = frame(released, Default::default());
+        state.filter(&mut controller, owner, 1, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        assert!(controller.phases[Action::Attack as usize].held);
+        let held = ActionPhase {
+            held: true,
+            ..Default::default()
+        };
+        let mut next = frame(held, Default::default());
+        state.filter(&mut next, owner, 2, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        assert!(next.phases[Action::Attack as usize].held);
+    }
+}
+
 /// A rapid press, release and press from rest keeps its coalesced release.
 #[test]
 fn phase_only_rapid_taps_from_rest_keep_their_release() {

@@ -107,9 +107,11 @@ impl ActionFilterState {
             || {
                 ActionButtons::new(std::array::from_fn(|i| {
                     let phase = input.phases[i];
-                    // An edge-free sample, as after a device change, starts at its own hold.
-                    if !phase.pressed && !phase.released {
-                        return phase.held;
+                    // A sample that determines its own start overrides the cached hold, which
+                    // may belong to another device: an edge-free sample starts at its own
+                    // hold, and a release-only sample started held.
+                    if !phase.pressed {
+                        return phase.held || phase.released;
                     }
                     FilterAction::from_action(Action::ALL[i])
                         .and_then(|a| {
