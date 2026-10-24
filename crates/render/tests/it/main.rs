@@ -100,5 +100,6 @@ mod terrain_seams;
 mod transparent_terrain;
 mod ui_textures;
 mod water_material;
+mod world_material_terrain;
 mod world_model_colour;
 mod world_seams;
