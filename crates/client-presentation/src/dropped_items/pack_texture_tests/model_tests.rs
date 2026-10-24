@@ -2,6 +2,31 @@
 use super::*;
 
 #[test]
+fn rejected_session_artwork_falls_back_to_dedicated_geometry() {
+    let identifier = "minecraft:chest";
+    let (mut icons, stream) = fixture_item(identifier, 0, 0);
+    checkerboard_session_icon(&mut icons, identifier);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    chest_artwork(&mut world, Some(30));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    publisher.get_mut(&mut world).unwrap().publish(
+        Some(&icons),
+        Some(&stream),
+        None,
+        (None, None),
+        Default::default(),
+        (None, Default::default()),
+    );
+    let scene = world.resource::<DroppedItemScene>();
+    assert_eq!(scene.instances.len(), 1);
+    let DroppedItemModel::Block(model) = &scene.models[scene.instances[0].model as usize] else {
+        panic!("rejected session artwork must allow the dedicated startup model");
+    };
+    assert_eq!(model.materials[0].0.rgba8[0], 30);
+}
+
+#[test]
 fn dedicated_plans_charge_complete_geometry_and_reuse_cached_costs() {
     let (icons, stream) = fixture_item("minecraft:chest", 0, 0);
     let mut world = World::new();
@@ -11,7 +36,7 @@ fn dedicated_plans_charge_complete_geometry_and_reuse_cached_costs() {
         .0
         .held_models()
         .unwrap();
-    let (key, _, model) = special::model(&icons, Some(source), "minecraft:chest", 0).unwrap();
+    let (key, _, model) = special::model(Some(source), "minecraft:chest").unwrap();
     let model = DroppedItemModel::Block(model.clone());
     let cost = render_model::dropped_item::ItemModelCost::from_model(&model).unwrap();
     assert_eq!(cost.vertices, model.mesh(cost.side, 1).unwrap().len());
@@ -50,8 +75,9 @@ fn dedicated_plans_charge_complete_geometry_and_reuse_cached_costs() {
             matches!(cache.models[slot], DroppedItemModel::Block(_)),
             vertices == cost.vertices
         );
+        cache.finish_frame();
         assert!(
-            cache.publication_mask()[slot],
+            !matches!(cache.shared[slot], DroppedItemModel::Vacant),
             "planned artwork must survive upload admission"
         );
         assert_eq!(cache.mesh_validations[&key], 1);

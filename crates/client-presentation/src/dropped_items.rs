@@ -149,17 +149,11 @@ fn item_block_id(
         .then_some(block)
 }
 
-/// Selects stock carried geometry only when this item has no admitted session sprite.
+/// Resolves the stock carried visual after earlier artwork sources have been refused.
 fn prepared_block_visual(
-    icons: &UiPresentationRuntime,
-    identifier: &str,
-    metadata: u32,
     block: Option<(NetworkIdMode, u32)>,
     assets: Option<&RuntimeAssets>,
 ) -> Option<u32> {
-    if icons.session_item_icon(identifier, metadata).is_some() {
-        return None;
-    }
     let ((mode, id), assets) = block.zip(assets)?;
     match mode {
         NetworkIdMode::Sequential => Some(id),
@@ -524,9 +518,7 @@ impl DroppedItemPublisher<'_, '_> {
                 )
             }
             ItemArtwork::StartupCube => {
-                if let Some((key, shape, model)) =
-                    special::model(icons, held_models, identifier, view.item.identity.metadata)
-                {
+                if let Some((key, shape, model)) = special::model(held_models, identifier) {
                     let model = DroppedItemModel::Block(model.clone());
                     if let Some(prepared) = preparation.model(cache, &key, shape, |cache| {
                         cache.model(
@@ -538,13 +530,7 @@ impl DroppedItemPublisher<'_, '_> {
                         return Some(prepared);
                     }
                 }
-                let visual = prepared_block_visual(
-                    icons,
-                    identifier,
-                    view.item.identity.metadata,
-                    block_id,
-                    assets,
-                )?;
+                let visual = prepared_block_visual(block_id, assets)?;
                 if let Some(prepared) = preparation.model(
                     cache,
                     &ModelKey::PreparedBlock { id: visual },

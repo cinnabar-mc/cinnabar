@@ -563,13 +563,12 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
     }
 }
 
-#[test]
-fn regression_checkerboard_session_icon_is_validated_once() {
-    let (mut icons, stream, assets, _) = carried_fixture();
+/// Installs original checkerboard pixels whose extrusion exceeds the shared mesh budget.
+fn checkerboard_session_icon(icons: &mut UiPresentationRuntime, identifier: &str) -> ui::IconRef {
     let mut runtime = UiRuntime::new(1);
     runtime.set_session_icons(Some(Arc::new(SessionIcons {
         icons: vec![SessionIcon {
-            identifier: ITEM.into(),
+            identifier: identifier.into(),
             metadata: 0,
             width: 512,
             height: 512,
@@ -600,9 +599,15 @@ fn regression_checkerboard_session_icon_is_validated_once() {
                 ui::DpiScale::new(1.0).unwrap(),
             )
             .unwrap();
-        icons.session_item_icon(ITEM, 0).is_some()
+        icons.session_item_icon(identifier, 0).is_some()
     });
-    let icon = icons.session_item_icon(ITEM, 0).unwrap();
+    icons.session_item_icon(identifier, 0).unwrap()
+}
+
+#[test]
+fn regression_checkerboard_session_icon_is_validated_once() {
+    let (mut icons, stream, assets, _) = carried_fixture();
+    let icon = checkerboard_session_icon(&mut icons, ITEM);
     let pixels = icons.resolved_item_sprite(icon, 512).unwrap();
     assert_eq!([pixels.width, pixels.height], [512; 2]);
     let mut cache = ModelCache::default();
