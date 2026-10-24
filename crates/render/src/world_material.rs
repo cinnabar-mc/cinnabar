@@ -24,6 +24,7 @@ use std::collections::{BTreeSet, HashMap};
 /// Shader namespaces: one composed module per material and renderer.
 pub(crate) const ACTOR_SHADERS: u64 = u64::from_le_bytes(*b"wmactor\0");
 pub(crate) const TERRAIN_SHADERS: u64 = u64::from_le_bytes(*b"wmterra\0");
+pub(crate) const MODEL_SHADERS: u64 = u64::from_le_bytes(*b"wmmodel\0");
 
 /// What distinguishes a world material's pipelines from the base ones.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -209,6 +210,7 @@ pub(crate) fn register_all_shaders(
         &[
             crate::actor_render::world_materials::family(),
             crate::chunk::world_materials::family(),
+            crate::chunk::world_materials::model_family(),
         ],
         &scene,
         &mut shaders,
@@ -512,6 +514,11 @@ mod tests {
             include_str!("chunk.wesl"),
             material.library(crate::chunk::world_materials::WORLD_MATERIAL_GROUP)
         ));
+        let model = crate::material_shader::source(&format!(
+            "{}\n{}",
+            include_str!("model.wesl"),
+            material.library(crate::chunk::world_materials::WORLD_MATERIAL_GROUP)
+        ));
         for class in [
             "WORLD_MATERIAL_OPAQUE",
             "WORLD_MATERIAL_CUTOUT",
@@ -519,11 +526,25 @@ mod tests {
         ] {
             crate::shader_source::composed(&actor, &["WORLD_MATERIAL", class]);
             crate::shader_source::composed(&terrain, &["WORLD_MATERIAL", class]);
+            crate::shader_source::composed(&model, &["WORLD_MATERIAL", class]);
         }
-        // The Bedrock fallback pass composes without any library.
-        crate::shader_source::composed(
-            &crate::material_shader::source(include_str!("chunk.wesl")),
-            &["WORLD_MATERIAL_FALLBACK"],
-        );
+        // Translucent classes also compose for the gamma-blended translucent pass.
+        for module in [&terrain, &model] {
+            crate::shader_source::composed(
+                module,
+                &[
+                    "WORLD_MATERIAL",
+                    "WORLD_MATERIAL_PREMULTIPLY",
+                    "NATIVE_GAMMA_BLEND",
+                ],
+            );
+        }
+        // The Bedrock fallback passes compose without any library.
+        for source in [include_str!("chunk.wesl"), include_str!("model.wesl")] {
+            crate::shader_source::composed(
+                &crate::material_shader::source(source),
+                &["WORLD_MATERIAL_FALLBACK"],
+            );
+        }
     }
 }

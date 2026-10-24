@@ -149,8 +149,11 @@ cannot be removed. A bundle holds at most eight materials and 64 bindings (provi
 The host owns depth, blend factors, pass and visibility: a class selects the host's raster, and
 the host applies Bedrock lighting and fog to the returned surface, adding emission after
 lighting. A bound entity's body and render-controller layers draw with the material; equipment,
-capes, hats and players never do. A bound block's cube faces are tagged in meshing and drawn in a
-world material pass; until the material's pipeline is ready they draw with the Bedrock material.
+capes, hats and players never do. A bound block's cube faces and model quads are tagged in
+meshing and drawn in a world material pass: opaque and cutout classes in the opaque phase,
+premultiplied and additive classes as sorted translucent items, ordered by section as ordinary
+translucent terrain is. Until the material's pipelines are ready the block draws with its Bedrock
+material.
 Each material charges its shader source, parameters and decoded textures to the bundle's share of
 the signed memory limit, and its textures and pipelines to its share of the GPU limit; replaced
 materials stay charged because compiled pipelines cannot be destroyed. A material that fails
@@ -158,9 +161,9 @@ validation or native compilation is skipped, reported once in the log and the ex
 indicator, and its targets keep their Bedrock materials. Stopping a client part, F9 or a
 disconnect removes every material and binding in one publication without a reconnect.
 
-Not yet: model-geometry blocks are not tagged, blended block classes draw unsorted in the opaque
-phase, and Enhanced and shader-pack terrain draw bound blocks as Bedrock. Overriding identifiers
-outside the signed namespace, vanilla included, needs a separate permission.
+Not yet: faces within one translucent section draw in mesh order rather than sorted, and Enhanced
+and shader-pack terrain draw bound blocks as Bedrock. Overriding identifiers outside the signed
+namespace, vanilla included, needs a separate permission.
 
 ## Modal screens
 

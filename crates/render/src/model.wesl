@@ -249,8 +249,21 @@ fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
         return invalid_model_quad();
     }
     let model_ref_index = geometry_streams[draw_ref_word];
-    let quad_index = geometry_streams[draw_ref_word + 1u];
-    return model_quad_at(model_ref_index, quad_index, metadata_index);
+    let quad_word = geometry_streams[draw_ref_word + 1u];
+    // Draws tagged for a programmable world material draw only in that material's pass, or in
+    // the fallback pass while it is not ready; Enhanced terrain draws them as Bedrock.
+    let world_tag = quad_word >> 26u;
+    var world_hidden = false;
+    @if(!ENHANCED)
+    { world_hidden = world_tag != 0u; }
+    @if(WORLD_MATERIAL)
+    { world_hidden = world_tag != world_material_tag(); }
+    @if(WORLD_MATERIAL_FALLBACK)
+    { world_hidden = world_tag == 0u; }
+    if (world_hidden) {
+        return invalid_model_quad();
+    }
+    return model_quad_at(model_ref_index, quad_word & 0x3ffffffu, metadata_index);
 }
 
 /// Decodes a stable model-ref address and template quad in an origin slot, validating all reads.
@@ -731,15 +744,39 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 @if(!ENHANCED)
 fn ordinary_world_model_gamma_colour(@if(!ENHANCED)
 in: VertexOutput, @if(!ENHANCED)
-sampled_gamma: vec4<f32>) -> vec4<f32> {
+sampled_bedrock: vec4<f32>) -> vec4<f32> {
+    var sampled_gamma = sampled_bedrock;
+    var base_tint = in.tint_gamma;
+    var flags = in.material_flags;
+    var world_glow = vec3(0.0);
+    // A programmable world material replaces the tinted Bedrock colour before the host's
+    // lightmap, face shade and fog; its emission adds after lighting like a glow mask.
+    @if(WORLD_MATERIAL)
+    {
+        let world_fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+        let world_light = terrain_light_colour(in.native_light_levels) * in.native_ao_face;
+        let world_surface = world_material_resolve(WorldMaterialInput(
+            in.uv, in.world_position, vec4(sampled_bedrock.rgb * in.tint_gamma, sampled_bedrock.a),
+            vec4(world_light, in.native_ao_face),
+            vec4(world_fog_gamma, distance_fog_amount(in.world_position)),
+            vec4(0.0), world_material_phase()));
+        @if(WORLD_MATERIAL_CUTOUT)
+        if (world_surface.coverage < 0.5) { discard; }
+        sampled_gamma = vec4(world_surface.color, world_surface.coverage);
+        @if(WORLD_MATERIAL_OPAQUE || WORLD_MATERIAL_CUTOUT)
+        { sampled_gamma.a = 1.0; }
+        base_tint = vec3(1.0);
+        flags = 0u;
+        world_glow = world_surface.emission;
+    }
     // Alpha-masked tint: alpha weights the tint and the face stays opaque, as on cube faces.
-    let overlay = material_uses_overlay_mask(in.material_flags);
-    let tint_gamma = select(in.tint_gamma, mix(vec3(1.0), in.tint_gamma, sampled_gamma.a), overlay);
+    let overlay = material_uses_overlay_mask(flags);
+    let tint_gamma = select(base_tint, mix(vec3(1.0), base_tint, sampled_gamma.a), overlay);
     // Cinnabar masks: emissive texels skip shade and lightmap; glow adds before fog.
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     let strength = model_mask_strength(in.visibility);
-    var glow = vec3(0.0);
+    var glow = world_glow;
     var unlit = 0.0;
     if (in.visibility.z != 0u) {
         let mask = sample_model_ref(in, material_mask_reference(in.visibility.z), dx, dy);
@@ -851,6 +888,15 @@ fn shade_blend(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32
     );
     @if(ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+    // Premultiplied and additive world material classes blend with a source factor of one.
+    @if(!ENHANCED && WORLD_MATERIAL_PREMULTIPLY)
+    {
+        @if(NATIVE_GAMMA_BLEND)
+        let output = ordinary_world_model_gamma_colour(in, sampled);
+        @if(!NATIVE_GAMMA_BLEND)
+        let output = ordinary_world_model_colour(in, sampled);
+        return vec4(output.rgb * output.a, output.a);
+    }
     @if(!ENHANCED && NATIVE_GAMMA_BLEND)
     return ordinary_world_model_gamma_colour(in, sampled);
     @if(!ENHANCED && !NATIVE_GAMMA_BLEND)

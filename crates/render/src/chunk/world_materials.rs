@@ -1,26 +1,32 @@
-//! Programmable world materials on bound blocks. Meshing tags a bound block's cube quads with
-//! its material slot; ordinary terrain pipelines skip tagged quads, and this pass draws each
-//! visible section's tagged quads once per material with that material's pipeline. A section
-//! whose materials are not all ready draws its tagged quads with the Bedrock fallback pipeline
-//! instead, so a bound block never disappears while its material compiles.
+//! Programmable world materials on bound blocks. Meshing tags a bound block's cube quads and
+//! model draws with its material slot; ordinary terrain pipelines skip tagged geometry, and the
+//! world material passes draw each visible section's tagged geometry once per material:
+//! opaque and cutout classes in the opaque phase, premultiplied and additive classes as sorted
+//! translucent items ordered like ordinary translucent terrain. A section whose materials are
+//! not all ready draws its tagged geometry with the Bedrock fallback pipelines instead, so a
+//! bound block never disappears while its material compiles.
 
 use crate::chunk::*;
 use crate::world_material::{
-    ShaderFamily, TERRAIN_SHADERS, WorldMaterialGpu, WorldVariant, layout,
+    MODEL_SHADERS, ShaderFamily, TERRAIN_SHADERS, WorldMaterialGpu, WorldVariant, layout,
 };
-use bevy::ecs::system::lifetimeless::SQuery;
 use bevy::render::render_resource::{BlendComponent, BlendFactor, BlendOperation};
-use bevy::shader::Shader;
 use mod_render::world_material::publication::{Blend, Depth};
 use render_scene::ChunkRenderInstance;
-use std::collections::HashMap;
+
+mod draw;
+pub(in crate::chunk) use draw::{
+    DrawWorldMaterialTerrainCommands, DrawWorldMaterialTranslucentCommands, WorldTerrainSections,
+    queue_world_material_chunks,
+};
 
 /// The bind group a world material terrain pipeline reads its frame, textures and sampler from.
 pub(crate) const WORLD_MATERIAL_GROUP: u32 = 2;
-/// The terrain shader every world material's module extends.
+/// The cube and model terrain shaders a world material's modules extend.
 const CHUNK_SOURCE: &str = include_str!("../chunk.wesl");
+const MODEL_SOURCE: &str = include_str!("../model.wesl");
 
-/// How terrain modules compose: the production cube shader with the library appended.
+/// How cube terrain modules compose: the production cube shader with the library appended.
 pub(crate) fn family() -> ShaderFamily {
     ShaderFamily {
         namespace: TERRAIN_SHADERS,
@@ -34,11 +40,33 @@ pub(crate) fn family() -> ShaderFamily {
     }
 }
 
-/// A view's cutout terrain key drawn with a world material.
+/// How model terrain modules compose: the production model shader with the library appended.
+pub(crate) fn model_family() -> ShaderFamily {
+    ShaderFamily {
+        namespace: MODEL_SHADERS,
+        group: WORLD_MATERIAL_GROUP,
+        build: |library, path| {
+            crate::shader_safety::from_wesl(
+                crate::material_shader::source(&format!("{MODEL_SOURCE}\n{library}")),
+                path,
+            )
+        },
+    }
+}
+
+/// Which terrain geometry a world material pipeline draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(in crate::chunk) enum Geometry {
+    Cube,
+    Model,
+}
+
+/// A view's terrain key drawn with a world material.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::chunk) struct WorldTerrainKey {
     pub(in crate::chunk) base: ChunkPipelineKey,
     pub(in crate::chunk) world: WorldVariant,
+    pub(in crate::chunk) geometry: Geometry,
 }
 
 impl SpecializerKey for WorldTerrainKey {
@@ -46,8 +74,15 @@ impl SpecializerKey for WorldTerrainKey {
     type Canonical = Self;
 }
 
-/// Specializes the two-sided cube pipeline with a material's module and host-owned raster: the
-/// class selects blending and depth writes, and `Always` passes regardless of stored depth.
+/// Whether a blend class draws in the sorted translucent phase.
+pub(in crate::chunk) fn translucent(blend: Blend) -> bool {
+    matches!(blend, Blend::Premultiplied | Blend::Additive)
+}
+
+/// Specializes the two-sided cube or model pipeline with a material's module and host-owned
+/// raster: the class selects blending and depth writes, translucent classes write the
+/// translucent pass's target as ordinary translucent terrain does, and `Always` passes
+/// regardless of stored depth.
 pub(in crate::chunk) struct WorldTerrainSpecializer;
 
 impl Specializer<RenderPipeline> for WorldTerrainSpecializer {
@@ -58,10 +93,20 @@ impl Specializer<RenderPipeline> for WorldTerrainSpecializer {
         key: Self::Key,
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
-        let shader = key.world.shader(TERRAIN_SHADERS);
+        let shader = key.world.shader(match key.geometry {
+            Geometry::Cube => TERRAIN_SHADERS,
+            Geometry::Model => MODEL_SHADERS,
+        });
         descriptor.vertex.shader = shader.clone();
         let fragment = descriptor.fragment.as_mut().expect("terrain colour");
         fragment.shader = shader;
+        if key.geometry == Geometry::Model {
+            // The guest decides coverage, so models use the blend entry without the alpha test.
+            fragment.entry_point = Some("fragment_blend".into());
+        }
+        if translucent(key.world.blend) {
+            fragment.shader_defs.push("NATIVE_GAMMA_BLEND".into());
+        }
         ChunkPipelineSpecializer.specialize(key.base, descriptor)?;
         if descriptor.layout.len() != WORLD_MATERIAL_GROUP as usize {
             return Err(BevyError::from(
@@ -74,20 +119,17 @@ impl Specializer<RenderPipeline> for WorldTerrainSpecializer {
         let fragment = descriptor.fragment.as_mut().expect("terrain colour");
         fragment.shader_defs.extend(key.world.defs());
         let target = fragment.targets[0].as_mut().expect("terrain colour target");
+        let one = BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
         let blended = match key.world.blend {
             Blend::Opaque | Blend::Cutout => None,
             Blend::Premultiplied => Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             Blend::Additive => Some(BlendState {
-                color: BlendComponent {
-                    src_factor: BlendFactor::One,
-                    dst_factor: BlendFactor::One,
-                    operation: BlendOperation::Add,
-                },
-                alpha: BlendComponent {
-                    src_factor: BlendFactor::One,
-                    dst_factor: BlendFactor::One,
-                    operation: BlendOperation::Add,
-                },
+                color: one,
+                alpha: one,
             }),
         };
         target.blend = blended;
@@ -100,7 +142,8 @@ impl Specializer<RenderPipeline> for WorldTerrainSpecializer {
     }
 }
 
-/// The fallback pipeline draws every tagged quad as its Bedrock material.
+/// The fallback pipeline draws every tagged quad of `source`'s geometry as its Bedrock
+/// material.
 pub(in crate::chunk) fn fallback_descriptor(
     source: &RenderPipelineDescriptor,
 ) -> RenderPipelineDescriptor {
@@ -113,237 +156,28 @@ pub(in crate::chunk) fn fallback_descriptor(
     descriptor
 }
 
-/// World material slots each section's cube quads carry, by entity and mesh generation, so a
-/// section is scanned once per mesh.
-#[derive(Resource, Default)]
-pub(in crate::chunk) struct WorldTerrainSections {
-    masks: HashMap<Entity, (u64, u64)>,
-    /// Per view: the sections to draw, with their slot masks.
-    views: HashMap<Entity, Vec<(Entity, u64)>>,
-}
-
-/// Slot mask of `quads`: bit `tag - 1` for every world material tag present.
-fn slot_mask(quads: &[meshing::PackedQuad]) -> u64 {
-    quads
-        .iter()
-        .map(meshing::PackedQuad::world_material)
-        .filter(|tag| *tag != 0)
-        .fold(0, |mask, tag| mask | (1 << (tag - 1)))
-}
-
-/// Queues one world material item per view that sees a tagged section, after resolving each
-/// visible section's slot mask.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::chunk) fn queue_world_material_chunks(
-    pipeline_cache: Res<PipelineCache>,
-    mut pipeline: ResMut<ChunkPipeline>,
-    world: Option<Res<WorldMaterialGpu>>,
-    mut sections: ResMut<WorldTerrainSections>,
-    mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-    draw_functions: Res<DrawFunctions<Opaque3d>>,
-    views: Query<super::draw::ChunkViewQuery>,
-    instances: Query<&ChunkRenderInstance>,
-    pack: render_scene::shaderpack::ShaderPackDrawnViews,
-    failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
-) {
-    let sections = &mut *sections;
-    sections.views.clear();
-    let Some(world) = world.filter(|world| world.has_materials()) else {
-        sections.masks.clear();
-        return;
-    };
-    let draw_function = draw_functions
-        .read()
-        .id::<DrawWorldMaterialTerrainCommands>();
-    for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced, camera) in &views {
-        if pack.replaces(view_entity, |drawn| drawn.terrain) || enhanced.is_some() {
-            continue;
-        }
-        let mut draws = Vec::new();
-        for (entity, _) in visible_entities
-            .get::<ChunkRenderInstance>()
-            .into_iter()
-            .flat_map(|class| class.iter_visible())
-        {
-            let Ok(instance) = instances.get(*entity) else {
-                continue;
-            };
-            let mask = match sections.masks.get(entity) {
-                Some((generation, mask)) if *generation == instance.generation => *mask,
-                _ => {
-                    let mask = slot_mask(&instance.cube_quads);
-                    sections.masks.insert(*entity, (instance.generation, mask));
-                    mask
-                }
-            };
-            if mask != 0 {
-                draws.push((*entity, mask));
-            }
-        }
-        if draws.is_empty() {
-            continue;
-        }
-        let key = ChunkPipelineKey {
-            msaa: *msaa,
-            hdr: camera.hdr,
-            enhanced: false,
-        };
-        let union = draws.iter().fold(0, |union, (_, mask)| union | mask);
-        for slot in (0..64).filter(|slot| union & (1 << slot) != 0) {
-            if let Some(variant) = world.variant(slot) {
-                let world_key = WorldTerrainKey {
-                    base: key,
-                    world: variant,
-                };
-                if let Ok(id) = pipeline
-                    .world_variants
-                    .specialize(&pipeline_cache, world_key)
-                {
-                    pipeline.world_ids.insert(world_key, id);
-                }
-            }
-        }
-        let Ok(fallback) = pipeline.world_fallback.specialize(&pipeline_cache, key) else {
-            continue;
-        };
-        let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
-            continue;
-        };
-        phase.add(
-            Opaque3dBatchSetKey {
-                draw_function,
-                pipeline: fallback,
-                material_bind_group_index: None,
-                lightmap_slab: None,
-                slabs: default(),
-            },
-            Opaque3dBinKey {
-                asset_id: AssetId::<Shader>::default().untyped(),
-            },
-            (view_entity, *view_main_entity),
-            InputUniformIndex::default(),
-            BinnedRenderPhaseType::NonMesh,
-        );
-        sections.views.insert(view_entity, draws);
-    }
-    if let Some(failures) = failures.as_deref() {
-        crate::world_material::record_failures(
-            &pipeline_cache,
-            pipeline
-                .world_ids
-                .iter()
-                .map(|(key, id)| (key.world.key, *id)),
-            failures,
-        );
-    }
-    // Despawned sections leave no stale masks behind.
-    sections
-        .masks
-        .retain(|entity, _| instances.contains(*entity));
-}
-
-pub(in crate::chunk) type DrawWorldMaterialTerrainCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawWorldMaterialTerrain,
-);
-
-/// Draws a view's tagged sections: each ready material's quads with its pipeline, and every
-/// tagged quad of a section with an unready material through the fallback pipeline the item
-/// set.
-pub(in crate::chunk) struct DrawWorldMaterialTerrain;
-
-impl<P: PhaseItem> RenderCommand<P> for DrawWorldMaterialTerrain {
-    type Param = (
-        SRes<ChunkGpuArena>,
-        SRes<WorldTerrainSections>,
-        Option<SRes<WorldMaterialGpu>>,
-        SRes<ChunkPipeline>,
-        SRes<PipelineCache>,
-        SQuery<Read<GpuChunkAllocation>>,
-    );
-    type ViewQuery = (
-        Entity,
-        Read<ViewUniformOffset>,
-        Read<Msaa>,
-        Read<bevy::render::camera::ExtractedCamera>,
-    );
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        (view_entity, view_offset, msaa, camera): ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, sections, world, pipeline, cache, allocations): SystemParamItem<
-            'w,
-            '_,
-            Self::Param,
-        >,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let arena = arena.into_inner();
-        let (Some(bind_group), Some(draws), Some(world)) = (
-            &arena.bind_group,
-            sections.into_inner().views.get(&view_entity),
-            world,
-        ) else {
-            return RenderCommandResult::Skip;
-        };
-        let world = world.into_inner();
-        let pipeline = pipeline.into_inner();
-        let cache = cache.into_inner();
-        let key = ChunkPipelineKey {
-            msaa: *msaa,
-            hdr: camera.hdr,
-            enhanced: false,
-        };
-        let ready = |slot: u16| {
-            let (variant, group) = world.slot(slot)?;
-            let id = *pipeline.world_ids.get(&WorldTerrainKey {
-                base: key,
-                world: variant,
-            })?;
-            Some((cache.get_render_pipeline(id)?, group))
-        };
-        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
-        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
-        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
-        let draw = |pass: &mut TrackedRenderPass<'w>, entity: Entity| {
-            let Some((cube, _, base_vertex)) =
-                allocations.get(entity).ok().and_then(cube_draw_base)
-            else {
-                return;
-            };
-            pass.draw_indexed(0..STATIC_QUAD_INDICES.len() as u32, base_vertex, cube);
-        };
-        // The item's own pipeline is the fallback; sections with an unready material use it.
-        let all_ready = |mask: u64| {
-            (0..64)
-                .filter(|slot| mask & (1 << slot) != 0)
-                .all(|slot| ready(slot as u16).is_some())
-        };
-        for (entity, _) in draws.iter().filter(|(_, mask)| !all_ready(*mask)) {
-            draw(pass, *entity);
-        }
-        let union = draws
+/// Slot mask of a section: bit `tag - 1` for every world material tag its cube quads and model
+/// draws carry.
+pub(in crate::chunk) fn slot_mask(instance: &ChunkRenderInstance) -> u64 {
+    slot_mask_of(
+        &instance.cube_quads,
+        instance
+            .model_draw_refs
             .iter()
-            .filter(|(_, mask)| all_ready(*mask))
-            .fold(0, |union, (_, mask)| union | mask);
-        for slot in (0..64u16).filter(|slot| union & (1 << slot) != 0) {
-            let Some((variant, group)) = ready(slot) else {
-                continue;
-            };
-            pass.set_render_pipeline(variant);
-            pass.set_bind_group(WORLD_MATERIAL_GROUP as usize, group, &[]);
-            for (entity, _) in draws
-                .iter()
-                .filter(|(_, mask)| mask & (1 << slot) != 0 && all_ready(*mask))
-            {
-                draw(pass, *entity);
-            }
-        }
-        RenderCommandResult::Success
-    }
+            .chain(instance.transparent_model_draw_refs.iter()),
+    )
+}
+
+/// [`slot_mask`] over a section's cube quads and model draws.
+fn slot_mask_of<'a>(
+    quads: &[meshing::PackedQuad],
+    draws: impl Iterator<Item = &'a meshing::PackedModelDrawRef>,
+) -> u64 {
+    let bit = |tag: u8| if tag == 0 { 0 } else { 1_u64 << (tag - 1) };
+    let cubes = quads
+        .iter()
+        .fold(0, |mask, quad| mask | bit(quad.world_material()));
+    draws.fold(cubes, |mask, draw| mask | bit(draw.world_material()))
 }
 
 #[cfg(test)]
@@ -356,8 +190,16 @@ mod tests {
             meshing::PackedQuad::new([0; 3], meshing::Face::PositiveY, 1, 1, 1)
                 .with_world_material(tag)
         };
-        assert_eq!(slot_mask(&[quad(0), quad(0)]), 0);
-        assert_eq!(slot_mask(&[quad(1), quad(3), quad(0), quad(3)]), 0b101);
+        let draw = |tag| meshing::PackedModelDrawRef::new(0, 1).with_world_material(tag);
+        assert_eq!(slot_mask_of(&[quad(0), quad(0)], [draw(0)].iter()), 0);
+        assert_eq!(
+            slot_mask_of(&[quad(1), quad(3), quad(0), quad(3)], [].iter()),
+            0b101
+        );
+        assert_eq!(
+            slot_mask_of(&[quad(1)], [draw(5), draw(0)].iter()),
+            0b1_0001
+        );
     }
 
     #[test]
@@ -367,7 +209,7 @@ mod tests {
             hdr: false,
             enhanced: false,
         };
-        let descriptor = |blend, depth| {
+        let descriptor = |blend, depth, geometry| {
             let mut descriptor = RenderPipelineDescriptor {
                 label: None,
                 layout: vec![
@@ -404,11 +246,18 @@ mod tests {
                 depth,
             };
             WorldTerrainSpecializer
-                .specialize(WorldTerrainKey { base, world }, &mut descriptor)
+                .specialize(
+                    WorldTerrainKey {
+                        base,
+                        world,
+                        geometry,
+                    },
+                    &mut descriptor,
+                )
                 .unwrap();
             (descriptor, world)
         };
-        let (opaque, world) = descriptor(Blend::Cutout, Depth::Test);
+        let (opaque, world) = descriptor(Blend::Cutout, Depth::Test, Geometry::Cube);
         assert_eq!(opaque.vertex.shader, world.shader(TERRAIN_SHADERS));
         assert_eq!(
             opaque.fragment.as_ref().unwrap().shader,
@@ -418,7 +267,17 @@ mod tests {
         assert!(!opaque.multisample.alpha_to_coverage_enabled);
         let depth = opaque.depth_stencil.as_ref().unwrap();
         assert_eq!(depth.depth_write_enabled, Some(true));
-        let (additive, _) = descriptor(Blend::Additive, Depth::Test);
+        let (additive, _) = descriptor(Blend::Additive, Depth::Test, Geometry::Cube);
+        assert!(
+            additive
+                .fragment
+                .as_ref()
+                .unwrap()
+                .shader_defs
+                .contains(&"NATIVE_GAMMA_BLEND".into())
+                == crate::chunk::transparent::gamma_pass::admitted(false, Msaa::Off, false),
+            "translucent classes write the translucent pass's target"
+        );
         assert!(
             additive.fragment.unwrap().targets[0]
                 .as_ref()
@@ -430,7 +289,12 @@ mod tests {
             additive.depth_stencil.unwrap().depth_write_enabled,
             Some(false)
         );
-        let (through, _) = descriptor(Blend::Opaque, Depth::Always);
+        let (model, world) = descriptor(Blend::Opaque, Depth::Test, Geometry::Model);
+        let fragment = model.fragment.unwrap();
+        assert_eq!(fragment.shader, world.shader(MODEL_SHADERS));
+        assert_eq!(fragment.entry_point.as_deref(), Some("fragment_blend"));
+        assert!(translucent(Blend::Premultiplied) && !translucent(Blend::Cutout));
+        let (through, _) = descriptor(Blend::Opaque, Depth::Always, Geometry::Cube);
         let depth = through.depth_stencil.unwrap();
         assert_eq!(depth.depth_compare, Some(CompareFunction::Always));
         assert_eq!(depth.depth_write_enabled, Some(false));

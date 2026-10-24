@@ -112,12 +112,7 @@ impl<'a> CubeMeshOutput<'a> {
 
     /// One more than the world material slot shading block `network_value`; zero for none.
     fn world_material(&self, network_value: u32) -> u8 {
-        if self.world_materials.is_empty() {
-            return 0;
-        }
-        self.world_materials
-            .binary_search_by_key(&network_value, |(value, _)| *value)
-            .map_or(0, |index| self.world_materials[index].1)
+        world_material_tag(self.world_materials, network_value)
     }
 }
 
@@ -314,6 +309,16 @@ const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize
         Face::NegativeZ => [u, v, SIDE - 1],
         Face::PositiveZ => [u, v, 0],
     }
+}
+
+/// One more than the world material slot `tags` (sorted by network value) give block
+/// `network_value`; zero for none.
+pub(crate) fn world_material_tag(tags: &[(u32, u8)], network_value: u32) -> u8 {
+    if tags.is_empty() {
+        return 0;
+    }
+    tags.binary_search_by_key(&network_value, |(value, _)| *value)
+        .map_or(0, |index| tags[index].1)
 }
 
 pub(crate) fn greedy_slice(
