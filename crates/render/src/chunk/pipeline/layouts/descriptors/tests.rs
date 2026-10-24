@@ -20,7 +20,7 @@ fn terrain_descriptors_preserve_model_liquid_and_blend_contracts() {
             liquid.fragment.as_ref().unwrap().entry_point.as_deref(),
             Some("fragment_depth")
         );
-        for descriptor in [&model, &liquid] {
+        for descriptor in [&cutout, &model, &liquid] {
             assert_eq!(
                 descriptor.fragment.as_ref().unwrap().targets[0]
                     .as_ref()

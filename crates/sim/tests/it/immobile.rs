@@ -33,6 +33,27 @@ impl CollisionWorld for Unqueried {
 
 struct Empty;
 
+#[test]
+fn scenario_immobile_ticks_share_the_material_registry_identity() {
+    let script: sim::ScenarioScript = serde_json::from_str(
+        include_str!("../../fixtures/bedsim-v0.1.3-terrain.jsonl")
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let world = &script.steps[0].world;
+    let registry = world.block_physics(world.origin).unwrap().identity.registry;
+    let mut state = script.initial;
+    let position = state.position;
+    let result = Simulator::default()
+        .tick(&mut state, moving_frozen_input(), world)
+        .unwrap();
+    assert_eq!(result.world_identity.registry, registry);
+    assert_eq!(result.position, position);
+    assert_eq!(result.movement, Vec3::ZERO);
+}
+
 impl CollisionWorld for Empty {
     fn collision_boxes(&self, _: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         Ok(CollisionQuery::synthetic(Vec::new()))

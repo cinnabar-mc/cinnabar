@@ -298,6 +298,11 @@ fn validate_physics(physics: BlockPhysicsFacts, line: usize) -> Result<(), Confo
 }
 
 impl CollisionWorld for ScenarioWorld {
+    /// Terrain-free ticks retain the same registry provenance as scenario material reads.
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        self.identity().registry
+    }
+
     /// Scenario colliders all carry the fixture's one homogeneous material.
     fn collision_boxes_with_provenance(
         &self,
