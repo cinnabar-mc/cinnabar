@@ -5660,6 +5660,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "material-bin"
+version = "0.1.28"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "matroska-demuxer"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
