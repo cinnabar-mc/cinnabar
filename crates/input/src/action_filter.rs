@@ -365,7 +365,8 @@ fn project(raw: ActionButtons, held: [bool; 2]) -> ActionButtons {
     }))
 }
 /// Defines stable ordering for phase-only devices: coalesced edges alternate from the
-/// gesture's starting hold to its final hold. These samples cannot recover sub-frame order.
+/// gesture's starting hold to its final hold, except that a hold kept throughout never
+/// reports an unheld interval. These samples cannot recover sub-frame order.
 fn aggregate_events(input: &ActionSnapshot, initial: ActionButtons) -> Vec<ActionEvent> {
     let mut events = Vec::new();
     let mut buttons = initial;
@@ -374,7 +375,8 @@ fn aggregate_events(input: &ActionSnapshot, initial: ActionButtons) -> Vec<Actio
         let p = input.phases[action as usize];
         let order: &[bool] = match (p.pressed, p.released, initial.held(action), p.held) {
             (true, true, false, false) => &[true, false],
-            (true, true, true, true) => &[false, true],
+            // A tap on another binding while one stays held never leaves the action unheld.
+            (true, true, true, true) => &[true, false],
             (true, true, false, true) => &[true, false, true],
             (true, true, true, false) => &[false, true, false],
             (true, false, ..) => &[true],

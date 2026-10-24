@@ -647,3 +647,37 @@ fn aggregate_release_on_a_device_change_reaches_the_filter() {
     assert_eq!(events.len(), 2);
     assert!(events[0].action == Action::Attack && !events[0].pressed);
 }
+
+/// Tapping a second controller binding while the first stays held keeps the hold even when
+/// the filter suppresses the extra press.
+#[test]
+fn coalesced_tap_on_a_second_binding_keeps_the_held_binding() {
+    let mut state = ActionFilterState::default();
+    let pressed = ActionPhase {
+        pressed: true,
+        held: true,
+        ..Default::default()
+    };
+    let mut first = frame(pressed, Default::default());
+    state.filter(&mut first, Some(1), 0, false, |f| {
+        Some(ActionVerdict::passthrough(f))
+    });
+    let tapped = ActionPhase {
+        pressed: true,
+        released: true,
+        held: true,
+    };
+    let mut second = frame(tapped, Default::default());
+    state.filter(&mut second, Some(1), 1, false, |f| {
+        assert!(f.transitions.iter().all(|t| t.held_after));
+        Some(ActionVerdict {
+            accepted: f
+                .transitions
+                .iter()
+                .map(|t| t.kind != TransitionKind::Press)
+                .collect(),
+            release: [false; 2],
+        })
+    });
+    assert!(second.phases[Action::Attack as usize].held);
+}
