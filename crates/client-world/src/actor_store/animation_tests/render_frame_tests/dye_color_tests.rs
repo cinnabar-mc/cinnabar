@@ -13,6 +13,8 @@ use actor_animation::{AttachableAnimationInput, AttachablesRuntime, test_support
 const WOLF_IDENTIFIER: &str = test_support::WOLF_IDENTIFIER;
 const COLOR_KEY: u32 = protocol_ids::ActorDataKey::ColorIndex.wire_value();
 const FLAGS_KEY: u32 = 0;
+/// Bedrock's palette white, 0xF0F0F0, the colour of index 0 and of a wild wolf.
+const WHITE: [f32; 4] = [240.0 / 255.0, 240.0 / 255.0, 240.0 / 255.0, 0.0];
 const TAMED: u64 = match MolangQuery::IsTamed.descriptor().handler {
     MolangQueryHandler::Flag(bit) => 1 << bit,
     _ => panic!("query.is_tamed reads an actor flag"),
@@ -141,7 +143,7 @@ fn wolf_collar_color_follows_byte_dye_updates_and_taming() {
     assert_eq!(store.actor_rig(1).unwrap().render[0].color, blue);
     assert_eq!(store.render_frame(0.75).layers(1).unwrap()[0].color, blue);
     update(&mut store, 0, ActorMetadataValue::Byte(14));
-    assert_eq!(store.actor_rig(1).unwrap().render[0].color, [1.0; 4]);
+    assert_eq!(store.actor_rig(1).unwrap().render[0].color, WHITE);
     update(&mut store, TAMED | (1 << 25), ActorMetadataValue::Byte(14));
     assert_eq!(store.render_frame(0.25).layers(1).unwrap()[0].color, red);
 }
@@ -155,10 +157,7 @@ fn wolf_collar_masks_byte_index_and_rejects_other_metadata_types() {
     );
     for invalid in [ActorMetadataValue::Int(14), ActorMetadataValue::Float(14.0)] {
         update(&mut store, TAMED, invalid);
-        assert_eq!(
-            store.render_frame(0.5).layers(1).unwrap()[0].color,
-            [1.0; 4]
-        );
+        assert_eq!(store.render_frame(0.5).layers(1).unwrap()[0].color, WHITE);
     }
 }
 
@@ -186,7 +185,7 @@ fn a_sheep_fleece_takes_its_colour_index_dye() {
     assert_eq!(store.actor_rig(1).unwrap().render[0].color, red);
     assert_eq!(store.render_frame(0.5).layers(1).unwrap()[0].color, red);
     let white = spawn("minecraft:sheep", true, 0, ActorMetadataValue::Byte(0));
-    assert_eq!(white.actor_rig(1).unwrap().render[0].color, [1.0; 4]);
+    assert_eq!(white.actor_rig(1).unwrap().render[0].color, WHITE);
 }
 
 #[test]
