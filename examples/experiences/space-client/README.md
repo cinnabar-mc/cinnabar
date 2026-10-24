@@ -17,8 +17,7 @@ Use `cinnabar-cxb build` with this directory's `experience.toml` and the resulti
 `experience_space_client.wasm`, then offer the `.cxb` through the existing local
 server extension helper. Seed the developer client's cache with `cinnabar-cxb
 seed-cache`. The client needs the existing developer execution switch and consent
-for `world_draw`, `render_material`, `environment_time` and `environment_weather`.
-Production execution remains unavailable.
+for `world_draw` and `render_material`. Production execution remains unavailable.
 
 The build script generates `declared::assets` from the manifest and rejects missing
 files. `Asset::read_range` lets other guests stream larger assets across callbacks.

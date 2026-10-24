@@ -49,10 +49,9 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `scene` | Declarative objects sharing the bundle's drawing snapshot and budgets |
 | `media` | Playback of indexed signed descriptors |
 | `items` | Read-only session item catalog |
-| `world_draw` | Shared retained drawing and immediate primitives |
+| `world_draw` | Shared retained drawing, immediate primitives and local visual time/weather overrides |
 | `entity_observe`, `entity_highlight` | Current native actor references and masks |
 | `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
-| `environment_time`, `environment_weather` | Local visual overrides |
 
 Client parts share the personal-mod drawing, render, environment and signed-asset
 imports. Terrain, packet interception and local settings remain personal-mod APIs.
