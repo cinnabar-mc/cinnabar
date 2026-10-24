@@ -3,3 +3,4 @@
 
 pub mod art;
 pub mod artifact;
+pub mod command;

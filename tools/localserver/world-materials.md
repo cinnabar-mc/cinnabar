@@ -32,11 +32,12 @@ From the repository root:
    runs, so a client that pinned the server keeps trusting it), the signed client part under
    `.local/material-fx/cxb`, and prints the server command line.
 
-3. Start the server with the printed command, for example:
+3. Build the server and runtime with `make local-server` if needed, then start the server
+   with the printed command (it prints absolute binary paths), for example:
 
    ```sh
-   target/release/bedrock-local-server -material-fx \
-     -experiences .local/material-fx/experiences \
+   target/release/bedrock-local-server -dir .local/material-fx/world -addr 127.0.0.1:19132 \
+     -material-fx -experiences .local/material-fx/experiences \
      -experience-runtime target/release/experience-runtime \
      -extension-key .local/material-fx/keys/server.seed \
      -extension-audience 127.0.0.1:19132 \
