@@ -11,7 +11,8 @@ use assets::texture::{TextureArray, TextureMip};
 use pack_compiler::pbr::PbrPack;
 use sha2::{Digest, Sha256};
 
-use super::{LOW_PBR_TILE_SIZE, Source};
+use super::Source;
+use pack_compiler::pbr::LOW_PBR_TILE_SIZE;
 
 const CACHE_PATH: &str = ".local/enhanced-pbr.cache";
 // Includes unclamped signed normal filtering and opacity-weighted resizing.
@@ -166,7 +167,7 @@ fn word(input: &mut impl Read) -> Option<u32> {
 /// Requires the same complete, bounded mip chain for cache reads and writes.
 fn array_header_is_valid(layers: u32, side: u32, levels: u32) -> bool {
     layers > 0
-        && layers <= super::MAX_AUTHORED_LAYERS
+        && layers <= pack_compiler::pbr::MAX_AUTHORED_LAYERS
         && side.is_power_of_two()
         && side <= assets::texture::PBR_TILE_SIZE
         && levels == side.ilog2() + 1

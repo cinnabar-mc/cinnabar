@@ -110,7 +110,21 @@ impl Builder<'_> {
             self.slots.insert_frames(storage_key, storage, !image.pack);
             return storage.ok().map(|storage| (storage, image.pack));
         }
+        let set_path = match &storage_key.path {
+            super::textures::TexturePath::Catalog(path)
+                if image.pack && source.is_none() && storage_key.grid == 0 =>
+            {
+                Some((path.clone(), storage_key.tint))
+            }
+            _ => None,
+        };
         let admission = self.store_frames(key, storage_key.grid, image.texture, source);
+        if let (Ok(storage), Some((path, tint))) = (&admission, set_path)
+            && storage.frame_count == 1
+            && let Ok(texture) = assets::TextureRef::new(storage.page, storage.layer)
+        {
+            self.pbr.record(texture, &path, tint);
+        }
         let storage = match admission {
             Err(AdmissionFailure::Timing) => return None,
             Ok(storage) => Ok(storage),

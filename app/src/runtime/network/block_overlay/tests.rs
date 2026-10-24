@@ -42,6 +42,7 @@ mod mining;
 mod multi_page;
 mod partial_faces;
 mod random_offset;
+mod server_surfaces;
 mod session;
 mod texture_budget;
 mod texture_variations;

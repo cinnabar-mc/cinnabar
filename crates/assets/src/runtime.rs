@@ -158,6 +158,8 @@ pub struct RuntimeAssets {
     provenance: BlobProvenance,
     /// Sorted base visual ids whose face art a session overlay changed.
     retextured_visuals: Box<[u32]>,
+    /// Server texture-set maps of the applied block overlay, for the Enhanced renderer.
+    server_enhanced: Option<std::sync::Arc<crate::texture::EnhancedTextureAssets>>,
     missing: AtomicU64,
 }
 
@@ -209,6 +211,7 @@ impl RuntimeAssets {
             provenance: BlobProvenance::ZEROED,
             carrier_identity: None,
             retextured_visuals: Box::new([]),
+            server_enhanced: None,
             missing: AtomicU64::new(0),
         }
     }
@@ -425,6 +428,14 @@ impl RuntimeAssets {
             self.materials[0]
         })
     }
+    /// The applied overlay's server texture-set maps, if any.
+    #[must_use]
+    pub fn server_enhanced(
+        &self,
+    ) -> Option<&std::sync::Arc<crate::texture::EnhancedTextureAssets>> {
+        self.server_enhanced.as_ref()
+    }
+
     #[must_use]
     pub const fn materials(&self) -> &[Material] {
         &self.materials
