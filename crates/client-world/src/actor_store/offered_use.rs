@@ -51,19 +51,13 @@ pub struct UseEquipment {
     pub enchantments: Option<u64>,
 }
 
-/// Folds the enchantment ids in every equipped stack's user data into one mask; an
-/// unobserved slot (`None`) leaves the mask unknown.
+/// Folds the complete enchantment masks of every equipped stack's user data; an unobserved
+/// slot (`None`) or an unreadable list leaves the result unknown.
 pub fn equipment_enchantments<'a>(
     extra_data: impl IntoIterator<Item = Option<&'a [u8]>>,
 ) -> Option<u64> {
     extra_data.into_iter().try_fold(0, |mask, extra_data| {
-        Some(
-            protocol::item_display(extra_data?)
-                .enchantments
-                .iter()
-                .filter_map(|(id, _)| u32::try_from(*id).ok().and_then(|id| 1u64.checked_shl(id)))
-                .fold(mask, |mask, bit| mask | bit),
-        )
+        Some(mask | protocol::item_enchantment_mask(extra_data?)?)
     })
 }
 

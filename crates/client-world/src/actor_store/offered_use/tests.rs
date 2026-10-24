@@ -306,3 +306,38 @@ fn an_empty_live_registry_uses_only_the_effective_builtin_throwable_record() {
         OfferedUse::Absent
     );
 }
+
+/// User data whose `ench` list holds `count` entries ending with `last`.
+fn enchanted_extra(count: i16, last: i16) -> Vec<u8> {
+    let mut nbt = vec![10, 0, 0, 9, 4, 0];
+    nbt.extend(b"ench");
+    nbt.push(10);
+    nbt.extend(i32::from(count).to_le_bytes());
+    for index in 0..count {
+        let id = if index + 1 == count { last } else { 0 };
+        for (key, value) in [("id", id), ("lvl", 1)] {
+            nbt.push(2);
+            nbt.extend((key.len() as u16).to_le_bytes());
+            nbt.extend(key.as_bytes());
+            nbt.extend(value.to_le_bytes());
+        }
+        nbt.push(0);
+    }
+    nbt.push(0);
+    let mut extra = (-1_i16).to_le_bytes().to_vec();
+    extra.push(1);
+    extra.extend(nbt);
+    extra
+}
+
+#[test]
+fn equipment_enchantments_include_entries_past_the_tooltip_prefix() {
+    let fire_aspect = protocol_ids::Enchantment::Fireaspect.wire_value();
+    let late = enchanted_extra(40, i16::from(fire_aspect));
+    let mask = crate::equipment_enchantments([Some(&late[..]), Some(&[][..])]).unwrap();
+    assert_ne!(mask & 1 << fire_aspect, 0);
+    let mut cut = late.clone();
+    cut.truncate(late.len() - 12);
+    assert_eq!(crate::equipment_enchantments([Some(&cut[..])]), None);
+    assert_eq!(crate::equipment_enchantments([Some(&[][..]), None]), None);
+}

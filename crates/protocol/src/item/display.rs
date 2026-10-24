@@ -224,6 +224,72 @@ fn read_enchantments(mut list: &[u8], display: &mut ItemDisplay) {
     })();
 }
 
+/// Every enchantment id in a stack's root `ench` list as bits of a mask, at any level and
+/// without the tooltip cap. `None` when the user data, root compound or list cannot be read
+/// in full, or an id falls outside the mask, so a clear bit always means that enchantment is
+/// absent.
+#[must_use]
+pub fn item_enchantment_mask(extra_data: &[u8]) -> Option<u64> {
+    let Some(header) = extra_data.get(..2) else {
+        return extra_data.is_empty().then_some(0);
+    };
+    match i16::from_le_bytes([header[0], header[1]]) {
+        // A zero length carries no user-data compound.
+        0 => return Some(0),
+        -1 => {}
+        _ => return None,
+    }
+    let mut cursor = decode_extra_nbt(extra_data)?;
+    if read_u8(&mut cursor)? != TAG_COMPOUND {
+        return None;
+    }
+    let name_len = usize::from(read_u16_le(&mut cursor)?);
+    cursor = cursor.get(name_len..)?;
+    loop {
+        let tag = read_u8(&mut cursor)?;
+        if tag == 0 {
+            return Some(0);
+        }
+        let name_len = usize::from(read_u16_le(&mut cursor)?);
+        let name = cursor.get(..name_len)?;
+        cursor = cursor.get(name_len..)?;
+        if tag == TAG_LIST && name == b"ench" {
+            return enchantment_list_mask(cursor);
+        }
+        skip_le_payload(&mut cursor, tag, 0)?;
+    }
+}
+
+/// Folds every entry's `id`; an empty list of any element type holds no enchantment.
+fn enchantment_list_mask(mut list: &[u8]) -> Option<u64> {
+    let element = read_u8(&mut list)?;
+    let count = read_i32_le(&mut list)?;
+    if count <= 0 {
+        return Some(0);
+    }
+    if element != TAG_COMPOUND {
+        return None;
+    }
+    let mut mask = 0_u64;
+    for _ in 0..count {
+        loop {
+            let tag = read_u8(&mut list)?;
+            if tag == 0 {
+                break;
+            }
+            let name_len = usize::from(read_u16_le(&mut list)?);
+            let name = list.get(..name_len)?;
+            list = list.get(name_len..)?;
+            if tag == TAG_SHORT && name == b"id" {
+                let id = i16::from_le_bytes(list.get(..2)?.try_into().ok()?);
+                mask |= 1_u64.checked_shl(u32::try_from(id).ok()?)?;
+            }
+            skip_le_payload(&mut list, tag, 1)?;
+        }
+    }
+    Some(mask)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +452,68 @@ mod tests {
     fn malformed_data_reads_as_absent() {
         assert_eq!(item_display(&[1, 2, 3]), ItemDisplay::default());
         assert_eq!(item_display(&[]), ItemDisplay::default());
+    }
+
+    /// Appends one `ench` entry holding only its id and level.
+    fn enchantment_entry(nbt: &mut Vec<u8>, id: i16) {
+        for (key, value) in [("id", id), ("lvl", 1)] {
+            nbt.push(TAG_SHORT);
+            nbt.extend((key.len() as u16).to_le_bytes());
+            nbt.extend(key.as_bytes());
+            nbt.extend(value.to_le_bytes());
+        }
+        nbt.push(0);
+    }
+
+    #[test]
+    fn the_enchantment_mask_reads_entries_beyond_the_tooltip_cap() {
+        let fire_aspect = 13;
+        let data = extra(|nbt| {
+            nbt.push(TAG_LIST);
+            nbt.extend(4_u16.to_le_bytes());
+            nbt.extend(b"ench");
+            nbt.push(TAG_COMPOUND);
+            let count = MAX_ENCHANTMENTS as i16 + 1;
+            nbt.extend(i32::from(count).to_le_bytes());
+            for _ in 0..MAX_ENCHANTMENTS {
+                enchantment_entry(nbt, 0);
+            }
+            enchantment_entry(nbt, fire_aspect);
+        });
+        assert!(
+            item_display(&data)
+                .enchantments
+                .iter()
+                .all(|(id, _)| *id != fire_aspect)
+        );
+        assert_eq!(item_enchantment_mask(&data), Some(1 | 1 << fire_aspect));
+    }
+
+    #[test]
+    fn the_enchantment_mask_is_unknown_unless_the_whole_list_reads() {
+        assert_eq!(item_enchantment_mask(&[]), Some(0));
+        assert_eq!(item_enchantment_mask(&0_i16.to_le_bytes()), Some(0));
+        assert_eq!(item_enchantment_mask(&extra(|_| {})), Some(0));
+        let mut truncated = extra(|nbt| {
+            nbt.push(TAG_LIST);
+            nbt.extend(4_u16.to_le_bytes());
+            nbt.extend(b"ench");
+            nbt.push(TAG_COMPOUND);
+            nbt.extend(1_i32.to_le_bytes());
+            enchantment_entry(nbt, 9);
+        });
+        assert_eq!(item_enchantment_mask(&truncated), Some(1 << 9));
+        truncated.truncate(truncated.len() - 6);
+        assert_eq!(item_enchantment_mask(&truncated), None);
+        let out_of_range = extra(|nbt| {
+            nbt.push(TAG_LIST);
+            nbt.extend(4_u16.to_le_bytes());
+            nbt.extend(b"ench");
+            nbt.push(TAG_COMPOUND);
+            nbt.extend(1_i32.to_le_bytes());
+            enchantment_entry(nbt, 64);
+        });
+        assert_eq!(item_enchantment_mask(&out_of_range), None);
+        assert_eq!(item_enchantment_mask(&5_i16.to_le_bytes()), None);
     }
 }

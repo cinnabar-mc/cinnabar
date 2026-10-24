@@ -154,6 +154,37 @@ fn a_bow_cannot_prime_a_tnt_minecart_while_a_lighter_or_fire_aspect_can() {
 }
 
 #[test]
+fn a_fire_charge_named_by_its_legacy_alias_can_prime_a_tnt_minecart() {
+    assert_eq!(
+        outcome(tnt_minecart(), "minecraft:fire_charge"),
+        OfferedUse::Unresolved
+    );
+}
+
+#[test]
+fn unverified_legacy_item_names_cannot_rule_out_any_held_item() {
+    let entity = serde_json::json!({"components": {
+        "minecraft:breedable": {"breed_items": ["carrotonastick", "fixture:unregistered"]}
+    }});
+    assert_eq!(outcome(entity, "minecraft:bow"), OfferedUse::Unresolved);
+}
+
+#[test]
+fn native_tool_offerings_name_retail_identities() {
+    for identifier in [
+        "minecraft:bucket",
+        "minecraft:water_bucket",
+        "minecraft:shears",
+        "minecraft:name_tag",
+    ] {
+        assert_eq!(
+            assets::item::retail::canonical_identifier(identifier),
+            Some(identifier)
+        );
+    }
+}
+
+#[test]
 fn a_single_interaction_object_is_read_like_a_list_entry() {
     let entity = serde_json::json!({"components": {"minecraft:interact": {"interactions": {
         "on_interact": {"filters": {"test": "has_equipment", "subject": "other",

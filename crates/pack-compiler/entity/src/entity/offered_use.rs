@@ -308,7 +308,8 @@ fn player_component(name: Option<&str>, player: &Interactor<'_>) -> C {
     }
 }
 
-/// Normalizes item names and byte auxiliary values; unsupported descriptor syntax stays unknown.
+/// Normalizes item names and byte auxiliary values to retail identities; unsupported descriptor
+/// syntax and names without a verified identity stay unknown.
 fn item(value: &Value) -> C {
     let Some(value) = value
         .as_str()
@@ -344,6 +345,10 @@ fn item(value: &Value) -> C {
     if parts.last().is_some_and(|name| name.starts_with("tile.")) {
         return C::Unresolved;
     }
+    // A retired or unknown name may alias any held item, so only a resolved identity compares.
+    let Some(identifier) = assets::item::retail::canonical_identifier(&identifier) else {
+        return C::Unresolved;
+    };
     C::HeldItem {
         identifier: identifier.into(),
         metadata,
