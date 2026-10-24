@@ -25,12 +25,12 @@ fn covered_snow_cannot_accumulate_a_third_primary() {
             Some(snow.network_value)
         );
         assert_eq!(
-            contributors.covered_plant.unwrap().network_value,
+            contributors.extra_model.unwrap().network_value,
             plant.network_value
         );
         contributors.push(plant);
         assert_eq!(contributors.primary_network_value(), None);
-        assert!(contributors.covered_plant.is_none());
+        assert!(contributors.extra_model.is_none());
         assert_eq!(
             contributors.diagnostic_network_value(),
             Some(plant.network_value)
