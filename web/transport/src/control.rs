@@ -16,6 +16,8 @@ pub(crate) struct Hello {
     pub generation: u64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub join: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub user_agent: String,
 }
 impl Hello {
     /// Builds the channel declaration from the authoritative bridge contract.
@@ -36,8 +38,21 @@ impl Hello {
                 Channel::Control => 0,
                 Channel::Play { join } => join,
             },
+            user_agent: browser_user_agent(),
         }
     }
+}
+
+/// Reports browser identity in the framed handshake, including on transports without HTTP headers.
+#[cfg(target_arch = "wasm32")]
+fn browser_user_agent() -> String {
+    crate::browser::user_agent()
+}
+
+/// Leaves browser metadata absent for native transport tests and non-browser callers.
+#[cfg(not(target_arch = "wasm32"))]
+fn browser_user_agent() -> String {
+    String::new()
 }
 
 /// A rotated capability and its control generation, observed after a bounded frame arrives.

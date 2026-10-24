@@ -76,7 +76,8 @@ until authentication succeeds. Filesystem failures retain credential-free operat
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.
 Login device claims report the native core's OS and detected hardware model, keeping a stable
 install ID and migrating old fabricated profiles. Browser sessions use the browser-reported
-OS, omit unavailable hardware models and keep their device ID through account changes. Xbox sign-in still uses the Android OAuth
+OS through the framed control handshake, omit unavailable hardware models and keep their
+device ID through account changes, including when HTTP transport headers are absent. Xbox sign-in still uses the Android OAuth
 registration; native Windows device authentication and other platform registrations remain
 incomplete. Live acceptance of native device claims across platforms remains open.
 

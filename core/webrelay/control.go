@@ -25,6 +25,15 @@ type hello struct {
 	Channels   []string `json:"channels,omitempty"`
 	Resume     string   `json:"resume,omitempty"`
 	Generation uint64   `json:"generation,omitempty"`
+	UserAgent  string   `json:"user_agent,omitempty"`
+}
+
+// browserUserAgent prefers framed browser metadata when the transport omits HTTP user-agent headers.
+func (h hello) browserUserAgent(httpAgent string) string {
+	if h.UserAgent != "" {
+		return h.UserAgent
+	}
+	return httpAgent
 }
 
 type controlRequest struct {

@@ -220,6 +220,7 @@ func TestControlFramingAndContractConformance(t *testing.T) {
 		controlEvent{Type: bridgecontract.RelayEventPing, Version: bridgecontract.RelayVersion, Resume: "test-token", Generation: 1, ExpiresSeconds: int(resumeTTL / time.Second)},
 		controlEvent{Type: bridgecontract.RelayEventAccount, Account: &control.AuthV1{State: bridgecontract.AuthSignedOut}},
 		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 2, ReceivedBytes: 512, TotalBytes: 1024}},
+		hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}, UserAgent: testBrowserUserAgent},
 	}
 	if len(values) != len(manifest.Relay.Fixtures) {
 		t.Fatal("missing contract fixture")

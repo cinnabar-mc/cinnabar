@@ -1,10 +1,60 @@
 package webrelay
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
 	"testing"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
+
+func TestHeaderlessControlHandshakeSuppliesLoginDevice(t *testing.T) {
+	data, err := os.ReadFile("../../crates/bridge/data/contract.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Relay struct {
+			Fixtures []json.RawMessage `json:"fixtures"`
+		} `json:"relay"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range manifest.Relay.Fixtures {
+		var prefix hello
+		if json.Unmarshal(fixture, &prefix) != nil || prefix.UserAgent == "" {
+			continue
+		}
+		conn := &bufferConn{reader: bytes.NewReader(frameJSON(prefix))}
+		got, err := readHello(conn, bridgecontract.RelayChannelControl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile := browserDevice(got.browserUserAgent(""))
+		if profile == nil {
+			t.Fatal("headerless browser has no login device")
+		}
+		// Cinnabar supplies skin and gameplay claims; the relay supplies all device claims.
+		claims := login.ClientData{GameVersion: minecraft.DefaultProtocol.Ver(), LanguageCode: "en_US", SkinID: "skin", ThirdPartyName: "Steve"}
+		if claims.Validate() == nil {
+			t.Fatal("device-free login unexpectedly validated")
+		}
+		profile.Apply(&claims)
+		if err := claims.Validate(); err != nil {
+			t.Fatalf("headerless login: %v", err)
+		}
+		if claims.DeviceOS != protocol.DeviceWin32 || claims.DeviceModel != "" {
+			t.Fatal("headerless login used relay hardware")
+		}
+		return
+	}
+	t.Fatal("shared browser handshake fixture is missing")
+}
 
 func TestBrowserDeviceUsesBrowserPlatformWithoutRelayModel(t *testing.T) {
 	for agent, want := range map[string]protocol.DeviceOS{

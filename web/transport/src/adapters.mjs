@@ -1,5 +1,8 @@
 // Browser handles stay on the event loop. Rust owns framing, session policy and copies.
 
+/** Reports browser identity for control handshakes on both QUIC and WebSocket. */
+export function userAgent() { return globalThis.navigator?.userAgent ?? ""; }
+
 /** Creates a candidate without awaiting readiness, so its owner can cancel a failed attempt. */
 export function create(origin, quic, config) {
     const c = JSON.parse(config);
