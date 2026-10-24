@@ -92,13 +92,7 @@ pub(super) fn shrink(icon: &SessionIcon, shift: u32) -> ([u32; 2], Vec<u8>) {
                     count += 1;
                 }
             }
-            let color = |channel: u64| {
-                if sum[3] == 0 {
-                    0
-                } else {
-                    (channel / sum[3]) as u8
-                }
-            };
+            let color = |channel: u64| channel.checked_div(sum[3]).map_or(0, |value| value as u8);
             out.extend([
                 color(sum[0]),
                 color(sum[1]),
