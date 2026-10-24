@@ -58,36 +58,21 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
         multiview_mask: None,
         cache: None,
     });
-    let no_masks = [assets::NO_MASK, assets::NO_MASK, 0];
-    let words: [u32; 27] = [
-        1,
-        0,
-        u32::MAX,
-        1,
-        2,
-        0,
-        no_masks[0],
-        no_masks[1],
-        no_masks[2],
-        1,
-        0,
-        u32::MAX,
-        0,
-        0,
-        0.25_f32.to_bits(),
-        no_masks[0],
-        no_masks[1],
-        no_masks[2],
-        2,
-        0,
-        u32::MAX,
-        0,
-        0,
-        0.75_f32.to_bits(),
-        no_masks[0],
-        no_masks[1],
-        no_masks[2],
-    ];
+    let record = |texture, variation_start, variation_count, variation_weight: f32| {
+        crate::material_records::material_words(assets::Material {
+            texture: assets::TextureRef::from_raw(texture).expect("a valid texture reference"),
+            variation_start,
+            variation_count,
+            variation_weight: variation_weight.to_bits(),
+            ..assets::Material::unvaried()
+        })
+    };
+    let words = [
+        record(1, 1, 2, 0.0),
+        record(1, 0, 0, 0.25),
+        record(2, 0, 0, 0.75),
+    ]
+    .concat();
     let materials = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         contents: bytemuck::cast_slice(&words),

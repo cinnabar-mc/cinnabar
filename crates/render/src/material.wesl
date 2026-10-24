@@ -13,6 +13,8 @@ struct MaterialGpu {
     glow_mask: u32,
     emissive_mask: u32,
     mask_strength: u32,
+    // f32 bits of the authored AO exponent; 1 draws vanilla AO.
+    ao_exponent: u32,
 }
 
 @if(!PACKED_TERRAIN)
@@ -80,11 +82,12 @@ fn material_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
 }
 
 // Vanilla ambient occlusion raises the four-sample average * face coefficient to the source
-// material's exponent before vertex interpolation. Zero encoding keeps the default exponent 1.
-fn material_ao_shade(ao_face: f32, flags: u32) -> f32 {
-    let encoded = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    if (encoded == 0u) { return ao_face; }
-    return pow(ao_face, f32(encoded) / MATERIAL_LEAF_AO_EXPONENT_SCALE);
+// material's exponent before vertex interpolation; exponent 0 leaves the face unshaded.
+fn material_ao_shade(ao_face: f32, exponent_bits: u32) -> f32 {
+    let exponent = bitcast<f32>(exponent_bits);
+    if (exponent == 1.0) { return ao_face; }
+    if (exponent == 0.0) { return 1.0; }
+    return pow(ao_face, exponent);
 }
 
 // Vanilla uses wrapping coordinates, subtractive weights, last fallback.

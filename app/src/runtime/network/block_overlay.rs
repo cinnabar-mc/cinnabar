@@ -302,7 +302,7 @@ struct Builder<'a> {
     base_assets: Option<&'a assets::RuntimeAssets>,
     base_keys: Option<&'a MaterialKeys>,
     vanilla_carried: Vec<CarriedBlock>,
-    terrain_materials: HashMap<(String, u32, u32), u32>,
+    terrain_materials: HashMap<(String, u32, u32, u32), u32>,
     overlay: BlockOverlay,
     /// Base-carrier textures for vanilla keys the server stack does not ship.
     fallback: Option<assets::VanillaFallback<'a>>,
@@ -317,8 +317,8 @@ struct Builder<'a> {
     texture_policy: TexturePolicy,
     max_layers: usize,
     slots: TextureSlots,
-    /// Admitted materials by texture key, flags and raw mask references.
-    materials: HashMap<(String, u32, [u32; 3]), u32>,
+    /// Admitted materials by texture key, flags, AO exponent bits and raw mask references.
+    materials: HashMap<(String, u32, u32, [u32; 3]), u32>,
     /// Mask textures bindings assign to the state being pushed.
     state_masks: bindings::StateMasks,
     visuals: HashMap<String, BlockVisual>,
