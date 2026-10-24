@@ -255,7 +255,7 @@ impl UiPresentationRuntime {
         state.editor = None;
         state.editor_viewport = None;
         if let Some(buttons) = state.deferred_mod_buttons.take() {
-            state.install_mod_buttons(buttons.iter());
+            state.install_mod_buttons(buttons.iter().map(|(owner, button)| (*owner, button)));
         }
     }
     /// A completed transaction: Save returns its layout; Cancel returns no replacement.

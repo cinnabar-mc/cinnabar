@@ -155,11 +155,9 @@ pub(super) fn drive_mod(
         return;
     }
     // Taps completed this frame reach their owners before frame callbacks read them.
-    let tapped: Vec<_> = presentation
-        .take_mod_touch_taps()
-        .iter()
-        .filter_map(|id| extension.hosts.queue_touch_press(id))
-        .collect();
+    for (owner, id) in presentation.take_mod_touch_taps() {
+        extension.hosts.queue_touch_press(owner, &id);
+    }
     drawing_policy::bind(&mut extension.hosts, &gameplay);
     anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
@@ -250,9 +248,7 @@ pub(super) fn drive_mod(
         },
     );
     // A tapped mod that opened its panel shows it, as its toggle key would.
-    for index in tapped {
-        extension.hosts.select_opened_panel(index);
-    }
+    extension.hosts.select_panels_opened_by_taps();
     for index in 0..extension.hosts.host_count() {
         for message in extension.hosts.host_mut(index).take_local_messages() {
             ui.push_local_chat_line(
@@ -416,12 +412,12 @@ pub(super) fn drive_mod(
             .mod_ui_mut()
             .set_mod_panel_open(extension.hosts.host(owner).panel_open());
     }
+    let hosts = &extension.hosts;
     presentation.set_mod_touch_buttons(
-        extension
-            .hosts
+        hosts
             .touch_buttons()
             .into_iter()
-            .map(|(_, button)| button),
+            .map(|(index, button)| (hosts.host(index).touch_owner(), button)),
     );
     let editor_session = gameplay.hud_editor_session(&ui);
     hud_editor::publish(

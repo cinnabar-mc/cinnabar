@@ -91,7 +91,7 @@ pub(super) fn png(state: &State, dir: &Path, view: TouchUtilityView) -> Result<V
                     [44., 24.],
                 ),
             ];
-            presentation.set_mod_touch_buttons(buttons.iter());
+            presentation.set_mod_touch_buttons(buttons.iter().map(|button| (1, button)));
             presentation.hold_mod_touch_button(1);
         }
         TouchUtilityView::Closed | TouchUtilityView::Menu => {}

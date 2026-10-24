@@ -5,8 +5,13 @@ use super::{
 use anyhow::{Result, bail};
 use ui::mod_touch::{MAX_QUEUED_TOUCH_PRESSES, TouchButton};
 
-#[derive(Default)]
+/// Source of per-instance owner tokens, distinct for every component instance in the process.
+static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub(super) struct TouchState {
+    /// Identifies this component instance to the host, so a tap is never delivered to a
+    /// replacement instance or another mod presenting the same button id.
+    owner: u64,
     pub committed: Vec<TouchButton>,
     pending: Option<Vec<TouchButton>>,
     writes: u32,
@@ -15,6 +20,23 @@ pub(super) struct TouchState {
     presses: Vec<String>,
     /// Taps are readable only while a frame callback runs.
     in_frame: bool,
+    /// Whether the last executed frame callback received taps.
+    delivered: bool,
+}
+
+impl Default for TouchState {
+    fn default() -> Self {
+        Self {
+            owner: NEXT_OWNER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            committed: Vec::new(),
+            pending: None,
+            writes: 0,
+            reads: 0,
+            presses: Vec::new(),
+            in_frame: false,
+            delivered: false,
+        }
+    }
 }
 
 impl TouchState {
@@ -32,8 +54,12 @@ impl TouchState {
             self.committed = buttons;
         }
     }
+    /// Drops buttons and taps while keeping this instance's owner token.
     pub fn revoke(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            owner: self.owner,
+            ..Self::default()
+        };
     }
     /// Admits a tap on a committed button while the bounded queue has room.
     pub fn queue(&mut self, id: &str) -> bool {
@@ -47,11 +73,13 @@ impl TouchState {
     /// Exposes queued taps to the frame callback about to run.
     pub fn begin_frame(&mut self) {
         self.in_frame = true;
+        self.delivered = false;
     }
     /// Consumes delivered taps unless the frame was deferred.
     pub fn finish_frame(&mut self, deferred: bool) {
         self.in_frame = false;
         if !deferred {
+            self.delivered = !self.presses.is_empty();
             self.presses.clear();
         }
     }
@@ -124,6 +152,16 @@ impl Instance {
         } else {
             &[]
         }
+    }
+
+    /// This instance's owner token for presented buttons and their taps.
+    pub(crate) fn touch_owner(&self) -> u64 {
+        self.store.data().touch.owner
+    }
+
+    /// Whether the last executed frame callback received taps, even ones deferred earlier.
+    pub(crate) fn touch_presses_delivered(&self) -> bool {
+        self.is_active() && self.store.data().touch.delivered
     }
 
     /// Queues one completed tap for the next frame callback. Taps on a button the instance no

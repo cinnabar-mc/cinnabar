@@ -361,13 +361,25 @@ impl ModHosts {
         buttons
     }
 
-    /// Queues a completed tap for the mod presenting button `id`, returning that mod's index.
-    pub fn queue_touch_press(&mut self, id: &str) -> Option<usize> {
-        let owner = self
+    /// Queues a completed tap for the instance `owner` that still presents button `id`; a tap
+    /// on a button now presented by another instance is dropped.
+    pub fn queue_touch_press(&mut self, owner: u64, id: &str) -> bool {
+        let index = self
             .touch_buttons()
             .into_iter()
-            .find_map(|(index, button)| (button.id == id).then_some(index))?;
-        self.host_mut(owner).queue_touch_press(id).then_some(owner)
+            .find_map(|(index, button)| {
+                (button.id == id && self.host(index).touch_owner() == owner).then_some(index)
+            });
+        index.is_some_and(|index| self.host_mut(index).queue_touch_press(id))
+    }
+
+    /// Shows the panel of each mod whose last executed frame received taps and opened it.
+    pub fn select_panels_opened_by_taps(&mut self) {
+        for index in 0..self.host_count() {
+            if self.host(index).touch_presses_delivered() {
+                self.select_opened_panel(index);
+            }
+        }
     }
 
     /// Shows the panel a tapped mod opened, as its toggle key would, closing the selected

@@ -75,24 +75,34 @@ pub(super) fn label_binding(slot: usize) -> String {
 }
 
 impl TouchControls {
-    /// Installs a new button set, rebuilding the layout only when it changed.
+    /// Installs a new button set with each button's owner token. A change of any slot's owner
+    /// or id advances the epoch; only a change of the buttons themselves rebuilds the layout.
     pub(super) fn install_mod_buttons<'a>(
         &mut self,
-        buttons: impl Iterator<Item = &'a TouchButton> + Clone,
+        buttons: impl Iterator<Item = (u64, &'a TouchButton)> + Clone,
     ) {
         let buttons = buttons.take(MAX_PRESENTED_TOUCH_BUTTONS);
-        if self.mod_buttons.iter().eq(buttons.clone()) {
-            return;
+        let identity = |owner: &u64, button: &TouchButton| (*owner, button.id.clone());
+        let identities_changed = !self
+            .mod_owners
+            .iter()
+            .zip(&self.mod_buttons)
+            .map(|(owner, button)| identity(owner, button))
+            .eq(buttons
+                .clone()
+                .map(|(owner, button)| identity(&owner, button)));
+        if identities_changed {
+            self.mod_button_epoch = self.mod_button_epoch.wrapping_add(1);
+            self.mod_owners = buttons.clone().map(|(owner, _)| owner).collect();
         }
-        let ids_changed = !self
+        if self
             .mod_buttons
             .iter()
-            .map(|button| &button.id)
-            .eq(buttons.clone().map(|button| &button.id));
-        if ids_changed {
-            self.mod_button_epoch = self.mod_button_epoch.wrapping_add(1);
+            .eq(buttons.clone().map(|(_, button)| button))
+        {
+            return;
         }
-        self.mod_buttons = buttons.cloned().collect();
+        self.mod_buttons = buttons.map(|(_, button)| button.clone()).collect();
         self.catalog = None;
         self.base = None;
         self.base_viewport = None;
@@ -103,14 +113,19 @@ impl TouchControls {
 impl UiPresentationRuntime {
     /// Presents mod buttons in load order. While the layout editor is open its controls stay
     /// fixed, and the latest set is installed when it closes.
+    /// Each button carries its owning instance's token, which its taps report.
     pub fn set_mod_touch_buttons<'a>(
         &mut self,
-        buttons: impl Iterator<Item = &'a TouchButton> + Clone,
+        buttons: impl Iterator<Item = (u64, &'a TouchButton)> + Clone,
     ) {
         let state = &mut self.screens.touch;
         if state.editor.is_some() {
-            state.deferred_mod_buttons =
-                Some(buttons.take(MAX_PRESENTED_TOUCH_BUTTONS).cloned().collect());
+            state.deferred_mod_buttons = Some(
+                buttons
+                    .take(MAX_PRESENTED_TOUCH_BUTTONS)
+                    .map(|(owner, button)| (owner, button.clone()))
+                    .collect(),
+            );
         } else {
             state.install_mod_buttons(buttons);
         }
@@ -119,10 +134,12 @@ impl UiPresentationRuntime {
     /// Records a completed tap on a presented mod button; later taps beyond the bound drop.
     pub fn complete_mod_touch_tap(&mut self, hit_id: u16) {
         let state = &mut self.screens.touch;
-        if let Some(button) = touch::mod_button_slot(hit_id).and_then(|s| state.mod_buttons.get(s))
+        if let Some(slot) = touch::mod_button_slot(hit_id)
+            && let (Some(&owner), Some(button)) =
+                (state.mod_owners.get(slot), state.mod_buttons.get(slot))
             && state.mod_taps.len() < MAX_QUEUED_TOUCH_PRESSES
         {
-            state.mod_taps.push(button.id.clone());
+            state.mod_taps.push((owner, button.id.clone()));
         }
     }
 
@@ -138,14 +155,14 @@ impl UiPresentationRuntime {
         }];
     }
 
-    /// Changes whenever a slot's button identity changes. A finger held on a mod button across
+    /// Changes whenever a slot's owner or button id changes. A finger held on a mod button across
     /// a change is cancelled, so its lift cannot complete a tap on a different button.
     pub fn mod_touch_epoch(&self) -> u64 {
         self.screens.touch.mod_button_epoch
     }
 
-    /// Button ids tapped since the last call, oldest first.
-    pub fn take_mod_touch_taps(&mut self) -> Vec<String> {
+    /// Owner tokens and button ids tapped since the last call, oldest first.
+    pub fn take_mod_touch_taps(&mut self) -> Vec<(u64, String)> {
         std::mem::take(&mut self.screens.touch.mod_taps)
     }
 }

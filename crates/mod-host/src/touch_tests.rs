@@ -107,8 +107,11 @@ fn taps_queue_for_the_next_frame_and_survive_deferral() {
     assert_eq!(state.read_presses().unwrap().unwrap(), ["demo-menu"]);
     assert_eq!(state.read_presses().unwrap().unwrap(), ["demo-menu"]);
     state.touch.finish_frame(false);
+    assert!(state.touch.delivered);
     state.touch.begin_frame();
     assert!(state.read_presses().unwrap().unwrap().is_empty());
+    state.touch.finish_frame(false);
+    assert!(!state.touch.delivered);
 }
 
 /// The queue is bounded, removed buttons drop their pending taps and revocation clears all.
@@ -130,6 +133,9 @@ fn taps_are_bounded_and_expire_with_their_buttons() {
     state.set_buttons(vec![button("keep")]).unwrap().unwrap();
     state.touch.commit();
     assert!(state.touch.presses.iter().all(|id| id == "keep"));
+    let owner = state.touch.owner;
     state.touch.revoke();
     assert!(state.touch.committed.is_empty() && state.touch.presses.is_empty());
+    assert_eq!(state.touch.owner, owner);
+    assert_ne!(super::TouchState::default().owner, owner);
 }

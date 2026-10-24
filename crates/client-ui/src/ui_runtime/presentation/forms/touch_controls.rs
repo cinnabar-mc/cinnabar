@@ -69,10 +69,12 @@ pub(in super::super) struct TouchControls {
     contacts: Vec<TouchContact>,
     /// Presented mod buttons in load order; a button's index is its slot.
     mod_buttons: Vec<ui::mod_touch::TouchButton>,
+    /// Owner token of each presented slot.
+    mod_owners: Vec<u64>,
     /// The newest set received while the editor fixed the controls.
-    deferred_mod_buttons: Option<Vec<ui::mod_touch::TouchButton>>,
-    /// Completed mod button taps, as button ids, until the app delivers them.
-    mod_taps: Vec<String>,
+    deferred_mod_buttons: Option<Vec<(u64, ui::mod_touch::TouchButton)>>,
+    /// Completed mod button taps, with their owner tokens, until the app delivers them.
+    mod_taps: Vec<(u64, String)>,
     /// Advances whenever a slot's button identity changes.
     mod_button_epoch: u64,
 }
