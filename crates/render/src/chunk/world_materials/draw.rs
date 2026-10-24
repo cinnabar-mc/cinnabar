@@ -1,13 +1,10 @@
 //! Queueing and drawing the world material terrain passes.
 
-use super::order::{OrderIdentity, WorldSegment, WorldStream, order, tagged_faces};
 use super::*;
-use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use bevy::ecs::system::lifetimeless::SQuery;
 use bevy::render::render_resource::CachedRenderPipelineId;
 use bevy::shader::Shader;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// World material slots each section carries, by entity and mesh generation, so a section is
 /// scanned once per mesh, and the sections each view draws this frame.
@@ -17,13 +14,17 @@ pub(in crate::chunk) struct WorldTerrainSections {
     /// Per view: the sections it draws, with their slot masks, and its cube and model fallback
     /// pipelines.
     views: HashMap<Entity, ViewDraws>,
-    /// Per view, section and translucent slot: the face order its sorted item draws, kept
-    /// while its mesh, assets and camera order class are unchanged.
-    orders: HashMap<(Entity, Entity, u16), CachedOrder>,
+    /// Per view: its sections with ready translucent materials and their slot masks, which
+    /// the transparent queue merges into those sections' ordinary translucent order this frame.
+    translucent: HashMap<Entity, HashMap<Entity, u64>>,
 }
 
-/// One section's face order for one material and what it was computed from.
-type CachedOrder = (OrderIdentity, Arc<[WorldSegment]>);
+impl WorldTerrainSections {
+    /// Takes `view`'s sections with ready translucent materials queued this frame.
+    pub(in crate::chunk) fn take_translucent(&mut self, view: Entity) -> HashMap<Entity, u64> {
+        self.translucent.remove(&view).unwrap_or_default()
+    }
+}
 
 /// One view's tagged sections with their slot masks, and its cube and model fallback pipelines.
 type ViewDraws = (Vec<(Entity, u64)>, [CachedRenderPipelineId; 2]);
@@ -62,7 +63,7 @@ fn ready_mask(
 }
 
 /// The compiled pipeline and bind group of `slot`'s material for `geometry`, once both exist.
-fn ready<'w>(
+pub(in crate::chunk) fn ready<'w>(
     slot: u16,
     world: &'w WorldMaterialGpu,
     pipeline: &ChunkPipeline,
@@ -79,45 +80,32 @@ fn ready<'w>(
     Some((cache.get_render_pipeline(id)?, group, variant))
 }
 
-/// Queues the opaque world material item of each view that sees a tagged section, and one
-/// sorted translucent item per section and translucent material, at the section distance
-/// ordinary translucent terrain sorts by.
+/// Queues the opaque world material item of each view that sees a tagged section, and records
+/// the view's sections whose translucent materials are ready, which the transparent queue
+/// draws merged into their ordinary translucent order.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn queue_world_material_chunks(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<ChunkPipeline>,
     world: Option<Res<WorldMaterialGpu>>,
     mut sections: ResMut<WorldTerrainSections>,
-    (mut opaque_phases, mut transparent_phases): (
-        ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-        ResMut<ViewSortedRenderPhases<Transparent3d>>,
-    ),
-    (draw_functions, transparent_functions): (
-        Res<DrawFunctions<Opaque3d>>,
-        Res<DrawFunctions<Transparent3d>>,
-    ),
+    mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
+    draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<super::super::draw::ChunkViewQuery>,
-    instances: Query<(&ChunkRenderInstance, &MainEntity)>,
+    instances: Query<&ChunkRenderInstance>,
     pack: render_scene::shaderpack::ShaderPackDrawnViews,
-    (failures, texture_assets): (
-        Option<Res<render_scene::world_material::WorldMaterialFailures>>,
-        Res<render_scene::ChunkTextureAssets>,
-    ),
+    failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
 ) {
     let sections = &mut *sections;
     sections.views.clear();
-    let mut previous_orders = std::mem::take(&mut sections.orders);
+    sections.translucent.clear();
     let Some(world) = world.filter(|world| world.has_materials()) else {
         sections.masks.clear();
         return;
     };
-    let runtime_assets = texture_assets.assets();
     let opaque_draw = draw_functions
         .read()
         .id::<DrawWorldMaterialTerrainCommands>();
-    let translucent_draw = transparent_functions
-        .read()
-        .id::<DrawWorldMaterialTranslucentCommands>();
     for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced, camera) in &views {
         if pack.replaces(view_entity, |drawn| drawn.terrain) || enhanced.is_some() {
             continue;
@@ -128,7 +116,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
             .into_iter()
             .flat_map(|class| class.iter_visible())
         {
-            let Ok((instance, _)) = instances.get(*entity) else {
+            let Ok(instance) = instances.get(*entity) else {
                 continue;
             };
             let mask = match sections.masks.get(entity) {
@@ -196,76 +184,19 @@ pub(in crate::chunk) fn queue_world_material_chunks(
                 BinnedRenderPhaseType::NonMesh,
             );
         }
-        if let Some(phase) = transparent_phases.get_mut(&view.retained_view_entity) {
-            let rangefinder = view.rangefinder3d();
-            let camera = view.world_from_view.translation();
-            let metric = TransparentFaceMetric::new(camera);
-            for &(entity, mask) in &draws {
-                let Ok((instance, main)) = instances.get(entity) else {
-                    continue;
-                };
-                // A section still drawing its fallback draws nothing translucent yet.
-                if !ready_mask(mask, &world, &pipeline, &pipeline_cache, base) {
-                    continue;
-                }
+        // A section still drawing its fallback draws nothing translucent yet.
+        let translucent = draws
+            .iter()
+            .filter(|(_, mask)| ready_mask(*mask, &world, &pipeline, &pipeline_cache, base))
+            .filter_map(|&(entity, mask)| {
                 let (_, sorted) = split_classes(mask, |slot| {
                     world.variant(slot).map(|variant| variant.blend)
                 });
-                for slot in slots(sorted) {
-                    let Some(variant) = world.variant(slot) else {
-                        continue;
-                    };
-                    let Some(&id) = pipeline.world_ids.get(&WorldTerrainKey {
-                        base,
-                        world: variant,
-                        geometry: Geometry::Cube,
-                    }) else {
-                        continue;
-                    };
-                    let identity = OrderIdentity {
-                        generation: instance.generation,
-                        assets: texture_assets.identity(),
-                        class: metric.class(instance.key),
-                    };
-                    let key = (view_entity, entity, slot);
-                    let segments = match previous_orders.remove(&key) {
-                        Some((cached, segments)) if cached == identity => segments,
-                        _ => order(
-                            instance.key,
-                            camera,
-                            tagged_faces(
-                                instance,
-                                runtime_assets.model_templates(),
-                                runtime_assets.model_quads(),
-                                (slot + 1) as u8,
-                            ),
-                        )
-                        .into(),
-                    };
-                    sections.orders.insert(key, (identity, segments));
-                    crate::transparent_phase::add(
-                        phase,
-                        Transparent3d {
-                            sorting_info:
-                                bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
-                            entity: (entity, *main),
-                            pipeline: id,
-                            draw_function: translucent_draw,
-                            distance:
-                                crate::chunk::transparent::model::transparent_model_phase_distance(
-                                    &rangefinder,
-                                    instance.key,
-                                ),
-                            batch_range: 0..1,
-                            extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                                range: u32::from(slot)..u32::from(slot) + 1,
-                                batch_set_index: None,
-                            },
-                            indexed: true,
-                        },
-                    );
-                }
-            }
+                (sorted != 0).then_some((entity, sorted))
+            })
+            .collect::<HashMap<_, _>>();
+        if !translucent.is_empty() {
+            sections.translucent.insert(view_entity, translucent);
         }
         sections
             .views
@@ -415,135 +346,6 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWorldMaterialTerrain {
             }
         }
         RenderCommandResult::Success
-    }
-}
-
-pub(in crate::chunk) type DrawWorldMaterialTranslucentCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawWorldMaterialTranslucent,
-);
-
-/// Draws one section's faces of one translucent material, the slot its item carries, back to
-/// front in the order queued for the view.
-pub(in crate::chunk) struct DrawWorldMaterialTranslucent;
-
-impl RenderCommand<Transparent3d> for DrawWorldMaterialTranslucent {
-    type Param = (
-        SRes<ChunkGpuArena>,
-        Option<SRes<WorldMaterialGpu>>,
-        SRes<ChunkPipeline>,
-        SRes<PipelineCache>,
-        SRes<WorldTerrainSections>,
-    );
-    type ViewQuery = (
-        Entity,
-        Read<ViewUniformOffset>,
-        Read<Msaa>,
-        Read<bevy::render::camera::ExtractedCamera>,
-    );
-    type ItemQuery = Read<GpuChunkAllocation>;
-
-    fn render<'w>(
-        item: &Transparent3d,
-        (view_entity, view_offset, msaa, camera): ROQueryItem<'w, '_, Self::ViewQuery>,
-        allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, world, pipeline, cache, sections): SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let arena = arena.into_inner();
-        let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = item.extra_index() else {
-            return RenderCommandResult::Skip;
-        };
-        let (Some(bind_group), Some(allocation), Some(world), Ok(slot)) = (
-            &arena.bind_group,
-            allocation,
-            world,
-            u16::try_from(range.start),
-        ) else {
-            return RenderCommandResult::Skip;
-        };
-        let Some((_, segments)) =
-            sections
-                .into_inner()
-                .orders
-                .get(&(view_entity, item.entity(), slot))
-        else {
-            return RenderCommandResult::Skip;
-        };
-        let world = world.into_inner();
-        let pipeline = pipeline.into_inner();
-        let cache = cache.into_inner();
-        let base = ChunkPipelineKey {
-            msaa: *msaa,
-            hdr: camera.hdr,
-            enhanced: false,
-        };
-        let geometry = |geometry| ready(slot, world, pipeline, cache, base, geometry);
-        let (Some((cube, group, _)), Some((model, _, _))) =
-            (geometry(Geometry::Cube), geometry(Geometry::Model))
-        else {
-            return RenderCommandResult::Skip;
-        };
-        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
-        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
-        pass.set_bind_group(WORLD_MATERIAL_GROUP as usize, group, &[]);
-        draw_segments(pass, arena, allocation, segments, cube, model);
-        RenderCommandResult::Success
-    }
-}
-
-/// Draws `segments` of one section in order, each run as one instanced draw of its list with
-/// that geometry's pipeline; a run outside the section's uploaded lists is skipped.
-fn draw_segments<'w>(
-    pass: &mut TrackedRenderPass<'w>,
-    arena: &'w ChunkGpuArena,
-    allocation: &GpuChunkAllocation,
-    segments: &[WorldSegment],
-    cube: &'w RenderPipeline,
-    model: &'w RenderPipeline,
-) {
-    let cubes = cube_draw_base(allocation);
-    let models = [
-        model_direct_draw_command(allocation),
-        transparent_model_direct_draw_command(allocation),
-    ];
-    for segment in segments {
-        let within = |count: u32| segment.range.end <= count;
-        match segment.stream {
-            WorldStream::Cube => {
-                let Some((quads, _, base_vertex)) = &cubes else {
-                    continue;
-                };
-                if !within(quads.end - quads.start) {
-                    continue;
-                }
-                pass.set_render_pipeline(cube);
-                pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
-                pass.draw_indexed(
-                    0..STATIC_QUAD_INDICES.len() as u32,
-                    *base_vertex,
-                    quads.start + segment.range.start..quads.start + segment.range.end,
-                );
-            }
-            WorldStream::Model | WorldStream::TransparentModel => {
-                let list = usize::from(segment.stream == WorldStream::TransparentModel);
-                let Some(command) = &models[list] else {
-                    continue;
-                };
-                if !within(command.instance_count) {
-                    continue;
-                }
-                pass.set_render_pipeline(model);
-                pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
-                pass.draw_indexed(
-                    command.first_index..command.first_index + command.index_count,
-                    command.base_vertex,
-                    command.first_instance + segment.range.start
-                        ..command.first_instance + segment.range.end,
-                );
-            }
-        }
     }
 }
 
