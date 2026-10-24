@@ -90,6 +90,25 @@ impl WorldMaterialPresenter {
                     Some(cached) if cached.spec == *spec => {
                         (cached.attempt, cached.outcome.clone())
                     }
+                    // New parameters keep the compiled shader, its key and its charge; the
+                    // renderer writes them into the material's uniform.
+                    Some(Cached {
+                        spec: cached,
+                        attempt,
+                        outcome: Ok(published),
+                    }) if cached.same_program(spec) => {
+                        let updated = Cached {
+                            spec: spec.clone(),
+                            attempt: *attempt,
+                            outcome: Ok(Published {
+                                params: params(&spec.params),
+                                ..published.clone()
+                            }),
+                        };
+                        let result = (updated.attempt, updated.outcome.clone());
+                        self.cache.insert(key.clone(), updated);
+                        result
+                    }
                     previous => {
                         if previous.is_some_and(|cached| cached.outcome.is_ok()) {
                             self.retire(bundle.bundle);
@@ -265,15 +284,11 @@ fn admit(
             decode(bytes).ok_or_else(|| format!("{path} is not a bounded PNG"))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut params = [0.0; 16];
-    for (slot, value) in params.iter_mut().zip(&spec.params) {
-        *slot = *value;
-    }
     Ok(Published {
         key,
         material: Arc::new(material),
         textures: decoded.into(),
-        params,
+        params: params(&spec.params),
         depth: match spec.depth {
             WorldDepth::Test => Depth::Test,
             WorldDepth::Always => Depth::Always,
@@ -301,6 +316,15 @@ fn decode(bytes: &[u8]) -> Option<Texture> {
         height: image.height(),
         rgba: image.into_raw().into(),
     })
+}
+
+/// A declaration's parameters as the sixteen the renderer uploads, missing ones zero.
+fn params(declared: &[f32]) -> [f32; 16] {
+    let mut params = [0.0; 16];
+    for (slot, value) in params.iter_mut().zip(declared) {
+        *slot = *value;
+    }
+    params
 }
 
 #[cfg(test)]

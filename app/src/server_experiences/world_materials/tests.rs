@@ -199,3 +199,39 @@ fn a_native_compile_failure_is_reported_once_and_keeps_the_material_out_of_the_w
     assert_eq!(reports.len(), 1, "{reports:?}");
     assert!(reports[0].contains("failed to compile"));
 }
+
+#[test]
+fn new_parameters_keep_the_compiled_material_and_its_charge() {
+    let textures = vec![("textures/glow.png".to_owned(), png(4, 2))];
+    let target = (0, WorldTarget::Entity("example:moth".into()), 1);
+    let declare = |params: Vec<f32>| {
+        world(
+            &[(
+                1,
+                WorldMaterialSpec {
+                    params,
+                    ..spec(PLAIN, &["textures/glow.png"])
+                },
+            )],
+            std::slice::from_ref(&target),
+        )
+    };
+    let mut presenter = WorldMaterialPresenter::default();
+    assert!(presenter.rebuild([bundle(&declare(vec![0.0]), &textures, u64::MAX)]));
+    let first = presenter.set().entity("example:moth").unwrap().1.clone();
+    // A damage flash every tick for far longer than the GPU share could hold new pipelines.
+    let budget = PIPELINE_CHARGE_BYTES + 4 * 2 * 4;
+    for step in 1..=200 {
+        let held = declare(vec![step as f32]);
+        assert!(presenter.rebuild([bundle(&held, &textures, budget)]));
+        let (_, published) = presenter.set().entity("example:moth").unwrap();
+        assert_eq!(published.key, first.key, "the shader is not recompiled");
+        assert!(Arc::ptr_eq(&published.material, &first.material));
+        assert_eq!(published.params[0], step as f32);
+    }
+    assert_eq!(
+        presenter.diagnostics().count(),
+        0,
+        "nothing exceeded the share"
+    );
+}

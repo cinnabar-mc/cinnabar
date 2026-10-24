@@ -1285,6 +1285,30 @@ fn hostile_world_shaders_are_refused_when_declared_and_compiles_are_bounded() {
         .unwrap();
 }
 
+#[test]
+fn redeclaring_only_parameters_spends_no_compile() {
+    use super::cinnabar::server_experience::world_material::{Blend, Depth, Host, MaterialSpec};
+    let mut state = state();
+    state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
+    state.capabilities.namespace = Some("example".into());
+    let spec = |params: Vec<f32>| MaterialSpec {
+        source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
+        textures: Vec::new(),
+        params,
+        depth: Depth::Test,
+        blend: Blend::Opaque,
+    };
+    state.set_material(0, spec(vec![0.0])).unwrap().unwrap();
+    // Far more parameter updates than the per-callback compile budget allows compiles.
+    for step in 0..4 * mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK {
+        state
+            .set_material(0, spec(vec![step as f32]))
+            .unwrap()
+            .unwrap();
+    }
+    assert_eq!(state.world_compiles, 1);
+}
+
 mod binding;
 mod guests;
 mod scene;

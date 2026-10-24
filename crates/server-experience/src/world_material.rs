@@ -50,6 +50,17 @@ pub struct WorldMaterialSpec {
     pub blend: WorldBlend,
 }
 
+impl WorldMaterialSpec {
+    /// Whether `other` declares the same shader, textures, depth and blend, so only its
+    /// parameters differ and it needs no new validation or pipeline.
+    pub fn same_program(&self, other: &Self) -> bool {
+        self.source == other.source
+            && self.textures == other.textures
+            && self.depth == other.depth
+            && self.blend == other.blend
+    }
+}
+
 /// What a binding restyles: every bone of an entity type, or every state of a block.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
