@@ -725,3 +725,58 @@ fn an_observed_release_precedes_a_repress_without_an_earlier_admission_attempt()
     assert!(!runtime.has_pending_release());
     assert!(!runtime.has_server_using_item());
 }
+
+/// A complete unordered tap releases a server use once without starting a second use.
+#[test]
+fn an_unordered_tap_takes_ownership_and_releases_only_once() {
+    use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(Some(true));
+    runtime.resolve_server_using_item(&frame(10, false));
+    let phase = semantic_input::ActionPhase {
+        pressed: true,
+        held: false,
+        released: true,
+    };
+    runtime.observe_unordered_use_input(
+        InputAuthorityGeneration::INITIAL,
+        InputSequence::new(1),
+        phase,
+    );
+    assert_eq!(kinds(&runtime.step(&frame(20, false))), ["release"]);
+    assert!(!runtime.is_using());
+    runtime.adopt_server_using_item(Some(true));
+    runtime.resolve_server_using_item(&frame(21, false));
+    runtime.observe_unordered_use_input(
+        InputAuthorityGeneration::INITIAL,
+        InputSequence::new(1),
+        phase,
+    );
+    assert!(runtime.step(&frame(22, false)).packets.is_empty());
+    assert!(
+        runtime.is_using(),
+        "the same input snapshot cannot release a later server use"
+    );
+}
+
+/// Releasing one physical binding cannot release an action whose aggregate state is still held.
+#[test]
+fn unordered_input_uses_the_aggregate_held_state() {
+    use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_use_button(true);
+    runtime.adopt_server_using_item(Some(true));
+    runtime.resolve_server_using_item(&frame(10, true));
+    runtime.observe_unordered_use_input(
+        InputAuthorityGeneration::INITIAL,
+        InputSequence::new(1),
+        semantic_input::ActionPhase {
+            pressed: false,
+            held: true,
+            released: true,
+        },
+    );
+    assert!(!runtime.has_pending_release());
+    assert!(runtime.step(&frame(11, true)).packets.is_empty());
+    assert!(runtime.is_using());
+}

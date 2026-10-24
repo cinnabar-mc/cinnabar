@@ -235,7 +235,7 @@ fn a_rejected_release_still_precedes_a_subsequent_press() {
     assert_eq!(use_kind(&sent[0]), "release");
     assert_eq!(use_kind(&sent[1]), "use");
     assert_eq!(runtime.active.as_ref().unwrap().started_tick, 111);
-    assert!(!runtime.release_pending);
+    assert!(!runtime.has_pending_release());
     let (ready, _open) = AdmissionQueue::with_command_capacity(1);
     assert!(send_use(
         &mut runtime,
@@ -285,7 +285,7 @@ fn a_release_can_be_admitted_while_its_deferred_restart_waits_for_verification()
     ));
     assert!(!runtime.is_using());
     assert!(runtime.has_work(false));
-    assert!(!runtime.release_pending);
+    assert!(!runtime.has_pending_release());
     assert!(!step_and_send(
         &mut runtime,
         &mut swings,
@@ -415,7 +415,7 @@ fn a_new_session_cancels_a_deferred_click() {
     runtime.synchronize(2);
     assert!(!runtime.has_work(false));
     assert!(runtime.pending.deferred_selection.is_none());
-    assert!(!runtime.release_pending);
+    assert!(!runtime.has_pending_release());
 }
 
 /// An accepted use marks its own unsent sample after the standalone batch is admitted.

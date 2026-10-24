@@ -15,7 +15,7 @@ pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
 use client_world::ResolvedUseCooldown as Cooldown;
-use server_flag::ServerUseState;
+use server_flag::{ReleaseState, ServerUseState};
 
 /// Vanilla re-arms the next build action this long after an air use.
 const USE_REARM_MILLIS: u64 = 200;
@@ -154,10 +154,13 @@ pub struct ItemUseRuntime {
     inventory_change: Option<(u8, u64, PredictedSlotChange)>,
     /// The use button has stayed down since a press no block interaction consumed.
     repeat_armed: bool,
-    /// A rejected release still precedes the next use, even if Use is pressed again.
-    release_pending: bool,
-    /// An owned button-up still owes its first release attempt, even after a re-press.
-    button_release_observed: bool,
+    /// Real release authority, separate from speculative queued button lookahead.
+    release: ReleaseState,
+    /// The unordered snapshot whose physical button phases were already observed.
+    unordered_button_frame: Option<(
+        semantic_input::identity::InputAuthorityGeneration,
+        semantic_input::identity::InputSequence,
+    )>,
     crossbows: crossbow::CrossbowPredictions,
     /// Launch retained only after the release transaction was admitted.
     riptide_launch: Option<RiptideLaunch>,
@@ -250,8 +253,7 @@ impl ItemUseRuntime {
     fn stop_without_release(&mut self) {
         self.stop_active_use();
         self.riptide_release = None;
-        self.release_pending = false;
-        self.button_release_observed = false;
+        self.release = ReleaseState::Idle;
         self.server_using = ServerUseState::Idle;
         self.deferred_button_release = false;
         self.local_using = Some(false);
@@ -293,14 +295,14 @@ impl ItemUseRuntime {
 
     /// Whether an accepted use has observed button-up or still owes its deferred release.
     pub fn is_releasing(&self, held: bool) -> bool {
-        self.active.as_ref().is_some_and(|active| {
-            (active.button_owned && !held) || self.release_pending || self.button_release_observed
-        })
+        self.active
+            .as_ref()
+            .is_some_and(|active| (active.button_owned && !held) || self.has_pending_release())
     }
 
     /// Reports an observed release that still belongs to the accepted use.
     pub const fn has_pending_release(&self) -> bool {
-        self.release_pending || self.button_release_observed
+        !matches!(self.release, ReleaseState::Idle)
     }
 
     /// Returns the first release-facing decision while its packet still awaits admission.
@@ -324,7 +326,7 @@ impl ItemUseRuntime {
         if !self.is_releasing(held) {
             return false;
         }
-        if active.release_selection_changed(selection, !self.release_pending) {
+        if active.release_selection_changed(selection, !self.release.is_captured()) {
             self.stop_without_release();
         } else if self.riptide_release.is_none() {
             self.riptide_release = Some(RiptideRelease {
@@ -332,7 +334,7 @@ impl ItemUseRuntime {
                 level: active.riptide_launch(tick, riptide, selection),
                 facing,
             });
-            self.release_pending = true;
+            self.release = ReleaseState::Captured;
             return true;
         }
         false
@@ -377,14 +379,14 @@ impl ItemUseRuntime {
         self.cancel_pending_input();
         self.stop_active_use();
         self.last_frame_tick = None;
-        self.release_pending = false;
-        self.button_release_observed = false;
+        self.release = ReleaseState::Idle;
         self.riptide_launch = None;
         self.riptide_release = None;
         self.server_using = ServerUseState::Idle;
         self.deferred_button_release = false;
         self.local_using = None;
         self.button_held = false;
+        self.unordered_button_frame = None;
         self.rocket_boost = false;
     }
 
@@ -426,7 +428,7 @@ impl ItemUseRuntime {
         held: bool,
         between_ticks: bool,
     ) -> Option<crate::movement::InteractionSample> {
-        let edge = self.pending.latched_press || self.release_pending || self.is_releasing(held);
+        let edge = self.pending.latched_press || self.is_releasing(held);
         let ticked = self
             .last_frame_tick
             .is_some_and(|tick| movement.completed_tick() >= tick);
@@ -459,8 +461,8 @@ impl ItemUseRuntime {
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
         self.observe_use_button(frame.held);
-        let release_pending = std::mem::take(&mut self.release_pending);
-        self.end_use(frame, &mut outcome, release_pending);
+        let release = std::mem::take(&mut self.release);
+        self.end_use(frame, &mut outcome, release);
         let ended = was_using && self.active.is_none();
         if self.active.is_none() && (pressed || frame.held) {
             self.try_use(frame, pressed, &mut outcome);
@@ -472,13 +474,14 @@ impl ItemUseRuntime {
             // A local start or end writes the item-use flag after any server write.
             self.server_using = ServerUseState::Idle;
             self.deferred_button_release = false;
-            self.button_release_observed = false;
             self.local_using = Some(self.active.is_some());
         }
         outcome
     }
 
-    fn end_use(&mut self, frame: &UseFrame, outcome: &mut UseOutcome, release_pending: bool) {
+    fn end_use(&mut self, frame: &UseFrame, outcome: &mut UseOutcome, release: ReleaseState) {
+        let release_pending = release.is_captured();
+        let release_observed = !matches!(release, ReleaseState::Idle);
         let Some(active) = &self.active else {
             return;
         };
@@ -488,9 +491,7 @@ impl ItemUseRuntime {
                     frame.selection.as_ref(),
                     // Only a release by the button that owns the use checks the
                     // count; vanilla's tick refresh ignores it.
-                    (!frame.held || self.button_release_observed)
-                        && !release_pending
-                        && active.button_owned,
+                    (!frame.held || release_observed) && !release_pending && active.button_owned,
                 ) =>
             {
                 // Switching away stops the use without a release, as vanilla does.
@@ -517,9 +518,7 @@ impl ItemUseRuntime {
         // Queue pressure must not turn an already-observed early release into a full charge.
         if !release_pending
             && depleted
-            && ((frame.held && !self.button_release_observed)
-                || active.crossbow
-                || !active.button_owned)
+            && ((frame.held && !release_observed) || active.crossbow || !active.button_owned)
         {
             // A depleted use finishes locally, without a release transaction.
             // A crossbow stores its loaded projectile for the next press's pose/action.
@@ -533,8 +532,7 @@ impl ItemUseRuntime {
             self.stop_active_use();
             return;
         }
-        if (frame.held || !active.button_owned) && !release_pending && !self.button_release_observed
-        {
+        if (frame.held || !active.button_owned) && !release_pending && !release_observed {
             return;
         }
         let launch = self.riptide_release.take().and_then(|release| {

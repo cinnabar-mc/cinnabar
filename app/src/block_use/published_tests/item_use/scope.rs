@@ -414,6 +414,57 @@ fn an_unordered_release_precedes_a_same_frame_server_clear() {
     );
 }
 
+/// Unordered adapter taps take and release ownership of an already active server use.
+#[test]
+fn a_complete_unordered_tap_releases_a_server_started_use() {
+    let (mut world, mut captured) = server_using_bow(false);
+    let snapshot = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_edges: semantic_input::ButtonEdges {
+                    pressed: vec![2],
+                    released: vec![2],
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(snapshot.ordered.is_none());
+    let phase = snapshot.phases[Action::Use as usize];
+    assert!(phase.pressed && phase.released && !phase.held);
+    world.insert_resource(SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
+    assert!(!world.resource::<ItemUseRuntime>().is_using());
+    assert_eq!(world.resource::<ItemUseRuntime>().movement_modifier(), None);
+    let transactions: Vec<_> = captured
+        .drain()
+        .iter()
+        .filter_map(protocol::test_support::transactions::observe_transaction)
+        .collect();
+    assert_eq!(
+        transactions
+            .iter()
+            .filter(|transaction| transaction.release().is_some())
+            .count(),
+        1
+    );
+    assert!(
+        transactions
+            .iter()
+            .all(|transaction| transaction.item_use().is_none())
+    );
+}
+
 /// A later server stop retires local writes from the old use before its following start.
 #[test]
 fn a_server_control_retires_older_local_item_use_writes() {

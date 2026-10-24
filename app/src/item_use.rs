@@ -121,6 +121,7 @@ pub(crate) fn adopt_server_item_use(
     // its tick, so a release now still sends its transaction.
     let button = use_button(&player_runtime, &context);
     runtime.observe_gameplay_focus(button.gameplay_focused);
+    button.observe(&mut runtime, &context.input);
     runtime.observe_ordered_use_buttons(
         button.held,
         crate::ordered_interactions::later_button_events(
@@ -265,7 +266,7 @@ fn produce_use(
     }
     runtime.observe_gameplay_focus(button.gameplay_focused);
     let held = button.held;
-    runtime.observe_use_button(held);
+    button.observe(&mut runtime, &context.input);
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
         && context
@@ -300,14 +301,6 @@ fn produce_use(
             .is_some_and(|policy| policy.scope == scope);
     runtime.set_delay_fix(delay_fix_enabled);
     runtime.observe_selected_slot(player_runtime.selected_hotbar_slot());
-    runtime.observe_press(
-        admitted
-            && use_phase.pressed
-            && context
-                .input
-                .snapshot()
-                .is_none_or(|input| input.ordered.is_none()),
-    );
     if !runtime.has_work(held) {
         return;
     }
@@ -372,6 +365,25 @@ struct UseButton {
     admitted: bool,
     /// The admitted use button is down at the ordered input cursor.
     held: bool,
+}
+
+impl UseButton {
+    /// Observes unordered phases once, or the real cursor state of ordered input.
+    fn observe(&self, runtime: &mut ItemUseRuntime, input: &SemanticInputSnapshot) {
+        if self.admitted
+            && let Some(snapshot) = input
+                .snapshot()
+                .filter(|snapshot| snapshot.ordered.is_none())
+        {
+            runtime.observe_unordered_use_input(
+                snapshot.authority_generation,
+                snapshot.frame_sequence,
+                input.phase(Action::Use),
+            );
+        } else {
+            runtime.observe_use_button(self.held);
+        }
+    }
 }
 
 /// Reads this frame's use-button facts from focus, game mode and input.

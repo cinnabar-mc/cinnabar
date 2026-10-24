@@ -8,6 +8,61 @@ mod matrix;
 #[path = "ordered/correction.rs"]
 mod correction;
 
+/// Server reconciliation cannot capture a local Riptide release with synthetic facing.
+#[test]
+fn server_reconciliation_leaves_riptide_release_facing_to_the_input() {
+    let (mut world, _) = respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    respawn::use_button(&mut world, false);
+    world
+        .resource_mut::<LocalViewPose>()
+        .set_rotation(Quat::from_rotation_y(90_f32.to_radians()));
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(false),
+                ..Default::default()
+            },
+        );
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    assert!(
+        world
+            .resource::<ItemUseRuntime>()
+            .riptide_release_facing()
+            .is_none()
+    );
+    let selection = client_interaction::block_use::verified_use_selection(
+        world.resource::<client_state::PlayerRuntime>(),
+        world.resource::<UiRuntimeResource>(),
+    )
+    .unwrap();
+    let tick = world.resource::<MovementTicker>().next_tick();
+    let facing = gameplay::item_use::RiptideFacing {
+        rotation: [15.0, 90.0],
+        assisted: true,
+    };
+    let mut runtime = world.resource_mut::<ItemUseRuntime>();
+    assert!(runtime.observe_riptide_release(
+        tick,
+        false,
+        Some(gameplay::item_use::RiptideUse {
+            level: 3,
+            wet: true,
+            mounted: false,
+            usable: true
+        }),
+        Some(&selection),
+        facing,
+    ));
+    assert_eq!(runtime.riptide_release_facing(), Some(facing));
+}
+
 /// Publishes a release followed by a wheel selection through the semantic desktop adapter.
 fn release_and_select(world: &mut World, release: bool) {
     let mut events = semantic_input::DesktopEvents::default();

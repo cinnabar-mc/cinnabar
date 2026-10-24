@@ -20,14 +20,53 @@ pub(super) enum ServerUseState {
     StopAfterInput,
 }
 
+/// An owned release is observed once, then keeps its captured facts through admission retries.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReleaseState {
+    #[default]
+    Idle,
+    Observed,
+    Captured,
+}
+
+impl ReleaseState {
+    /// Whether release facts were already captured and no longer compare the live stack count.
+    pub(super) const fn is_captured(self) -> bool {
+        matches!(self, Self::Captured)
+    }
+}
+
 impl ItemUseRuntime {
     /// Notes real button ownership and retains an owned button-up until release admission.
     pub fn observe_use_button(&mut self, held: bool) {
         self.button_held = held;
         if let Some(active) = self.active.as_mut() {
-            self.button_release_observed |= active.button_owned && !held;
+            if active.button_owned && !held && self.release == ReleaseState::Idle {
+                self.release = ReleaseState::Observed;
+            }
             active.button_owned |= held;
         }
+    }
+
+    /// Observes one unordered snapshot once; a complete tap owns a use before button-up.
+    /// Final held input stays held when another physical binding was released.
+    pub fn observe_unordered_use_input(
+        &mut self,
+        authority: semantic_input::identity::InputAuthorityGeneration,
+        frame: semantic_input::identity::InputSequence,
+        phase: semantic_input::ActionPhase,
+    ) {
+        if self.unordered_button_frame == Some((authority, frame)) {
+            return;
+        }
+        self.unordered_button_frame = Some((authority, frame));
+        if phase.pressed {
+            // A press that takes ownership of an existing use is already consumed by that use.
+            let fresh = phase.held || self.active.is_none() || self.has_pending_release();
+            self.observe_use_button(true);
+            self.observe_press(fresh);
+        }
+        self.observe_use_button(phase.held);
     }
 
     /// Projects queued buttons without committing their ownership or release.
@@ -44,7 +83,7 @@ impl ItemUseRuntime {
             .is_some_and(|active| active.button_owned);
         self.deferred_button_release = false;
         for held in later {
-            if self.button_release_observed || self.deferred_button_release {
+            if self.has_pending_release() || self.deferred_button_release {
                 break;
             }
             owned |= held && self.active.is_some();

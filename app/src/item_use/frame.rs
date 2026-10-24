@@ -79,7 +79,9 @@ pub(super) fn observe(
         )
     };
     // The completed local pose remains available while its movement input waits in the FIFO.
-    if runtime.is_releasing(held)
+    // Server reconciliation reads item facts; only local action observation captures releases.
+    if pinned_sample.is_none()
+        && runtime.is_releasing(held)
         && let Some(edge) = movement.build_action_state()
     {
         let first = runtime.observe_riptide_release(
