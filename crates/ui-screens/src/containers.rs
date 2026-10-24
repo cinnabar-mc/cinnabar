@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use json_ui::{CollectionItem, DataSource, Scalar, ViewState, hit_test, press_region};
+use json_ui::{CollectionItem, DataSource, HitKind, Scalar, ViewState, hit_test};
 use protocol::NetworkItemStack;
 use serde_json::Value;
 use ui::IconRef;
@@ -572,24 +572,53 @@ impl ScreenCache {
 /// routes them.
 const CURSOR_DROPS: [&str; 2] = ["button.cursor_drop_all", "button.cursor_drop_one"];
 
-/// Whether a press at `gui` on the engine-drawn container drops the held stack.
+/// The press target vanilla's item scroll panels map a primary press on their background to.
+const DESTROY_SELECTION: &str = "button.destroy_selection";
+
+/// What a primary press that reaches no slot does with the held stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeldStackPress {
+    /// The stack is dropped into the world.
+    Drop,
+    /// The stack is destroyed where the screen allows it, as on the creative item panel.
+    Destroy,
+}
+
+/// What a press at `gui` on the engine-drawn container does with the held stack.
 /// The press drops when it reaches no control, since the screen itself maps it
-/// to a cursor drop, or reaches a drop panel. Every `common.root_panel` section,
-/// such as the inventory, recipe book or creative hotbar, claims presses
-/// anywhere on its background, as do its buttons.
-pub fn engine_press_drops(frame: &EngineFrame, gui: [f32; 2]) -> bool {
+/// to a cursor drop, or reaches a drop panel; it destroys on a panel mapping it to
+/// `button.destroy_selection`, such as the creative and recipe book item grid. Every
+/// other `common.root_panel` section, such as the inventory or creative hotbar,
+/// claims presses anywhere on its background, as do its buttons. A disabled control
+/// claims the press and does nothing with it.
+pub fn engine_held_stack_press(frame: &EngineFrame, gui: [f32; 2]) -> Option<HeldStackPress> {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
-    press_region(&frame.hits, point).is_none_or(|region| {
-        region
-            .pressed
-            .as_deref()
-            .is_some_and(|target| CURSOR_DROPS.contains(&target))
-    })
+    // A scroll view without its own press mapping takes the wheel, not the press: the press
+    // reaches the input panel around it, as the item grid's background does.
+    let region = frame.hits.iter().rev().find(|region| {
+        region.contains(point)
+            && match region.kind {
+                HitKind::ScrollView | HitKind::Panel => region.pressed.is_some(),
+                _ => true,
+            }
+    });
+    let Some(region) = region else {
+        return Some(HeldStackPress::Drop);
+    };
+    if !region.enabled {
+        return None;
+    }
+    match region.pressed.as_deref() {
+        Some(target) if CURSOR_DROPS.contains(&target) => Some(HeldStackPress::Drop),
+        Some(DESTROY_SELECTION) => Some(HeldStackPress::Destroy),
+        _ => None,
+    }
 }
 
 /// Builds collections with one icon-table entry per cell, keeping later bindings stable.
 struct Cells<'a> {
     names: &'a std::collections::HashMap<(i32, u32), Arc<str>>,
+    facts: &'a inventory::SessionItemFacts,
     icons: &'a mut Vec<IconRef>,
 }
 
@@ -603,6 +632,7 @@ impl Cells<'_> {
         let index = self.icons.len();
         // Empty cells reserve an entry but never address it: their binding is Null.
         self.icons.push(icon.unwrap_or(IconRef {
+            color_mask: None,
             page: 0,
             uv: [0; 4],
             glint: false,
@@ -628,6 +658,12 @@ impl Cells<'_> {
             }),
         )
         .with("#hover_text", Scalar::Text(name))
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(
+                stack.map_or(-1, |stack| self.facts.id_aux(stack)),
+            )),
+        )
         .with("#is_selected_slot", Scalar::Bool(false))
         // The classic cell art; the controller always answers the background.
         .with("#container_item_background", Scalar::Int(0))
@@ -644,6 +680,17 @@ impl Cells<'_> {
     }
 }
 
+/// A recipe-book ghost: the missing item on the red cell art.
+fn ghost_cell(item: CollectionItem) -> CollectionItem {
+    item.with(
+        "#container_item_background",
+        Scalar::Int(GHOST_CELL_BACKGROUND),
+    )
+}
+
+/// `#container_item_background` for a cell the selected recipe still needs.
+const GHOST_CELL_BACKGROUND: i64 = 3;
+
 /// The player's main inventory (slots 9 to 35) and hotbar as vanilla's `inventory_items` and
 /// `hotbar_items` rows, reserving an icon entry even for empty cells.
 pub fn player_rows(
@@ -654,6 +701,7 @@ pub fn player_rows(
     let ledger = player_runtime.inventory.ledger();
     let mut cells = Cells {
         names: frame.item_names,
+        facts: ledger.item_facts(),
         icons,
     };
     let player_icon = |index: usize| frame.inventory_icons.get(index).copied().flatten();
@@ -708,6 +756,7 @@ pub fn screen_data(
     data.set_collection("hotbar_items", hotbar);
     let mut cells = Cells {
         names: frame.item_names,
+        facts: ledger.item_facts(),
         icons,
     };
     match layout {
@@ -718,18 +767,25 @@ pub fn screen_data(
                 2
             };
             let first = layout.craft_slot();
+            let icon = |index: usize| frame.crafting.icons.get(index).copied().flatten();
             let grid = (0..width * width)
                 .map(|index| {
                     let slot = first + index as u8;
-                    cells.cell(
-                        ledger.target_stack(InventoryTarget::Craft(slot)),
-                        frame.crafting_icons.get(index).copied().flatten(),
-                        None,
-                    )
+                    match ledger.target_stack(InventoryTarget::Craft(slot)) {
+                        Some(stack) => cells.cell(Some(stack), icon(index), None),
+                        None => match ledger.crafting_ghost_stack(slot) {
+                            Some(ghost) => ghost_cell(cells.cell(Some(ghost), icon(index), None)),
+                            None => cells.cell(None, icon(index), None),
+                        },
+                    }
                 })
                 .collect();
             data.set_collection("crafting_input_items", grid);
-            let output = match frame.crafting_output {
+            let output = match frame.crafting.output.as_ref() {
+                // An unfilled recipe-book selection shows its result as a ghost too.
+                Some((icon, stack)) if frame.crafting.output_is_ghost => {
+                    ghost_cell(cells.cell(Some(stack), *icon, None))
+                }
                 Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
                 None => cells.cell(None, None, None),
             };

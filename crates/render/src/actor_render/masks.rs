@@ -19,6 +19,7 @@ use mod_api::drawing::{
 use std::collections::{BTreeMap, HashMap};
 
 pub(crate) const FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+const PLACEMENT_BYTES: u64 = std::mem::size_of::<[f32; 4]>() as u64;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Key {
@@ -43,7 +44,7 @@ fn placement_layout() -> BindGroupLayoutDescriptor {
             ty: BindingType::Buffer {
                 ty: BufferBindingType::Uniform,
                 has_dynamic_offset: false,
-                min_binding_size: BufferSize::new(16),
+                min_binding_size: BufferSize::new(PLACEMENT_BYTES),
             },
             count: None,
         }],
@@ -157,6 +158,8 @@ pub(crate) struct MaskTarget {
     frame_generation: u64,
     ready: bool,
     encoded: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ledger: Option<mod_render::GpuLedger>,
+    _allocation: mod_render::GpuAllocation<()>,
 }
 
 impl MaskTarget {
@@ -165,10 +168,15 @@ impl MaskTarget {
         device: &RenderDevice,
         cache: &PipelineCache,
         depth: &ViewDepthStencilTexture,
+        ledger: Option<&mod_render::GpuLedger>,
     ) -> Option<Self> {
         let size = depth.texture().size();
         let samples = depth.texture().sample_count();
         let bytes = mod_render::masks::attachment_bytes(size.width, size.height, samples)?;
+        let allocation =
+            mod_render::GpuAllocation::new(ledger, bytes.checked_add(PLACEMENT_BYTES)?, || {
+                Some(())
+            })?;
         let allocate = |samples| {
             device.create_texture(&TextureDescriptor {
                 label: Some("owner actor mask"),
@@ -229,7 +237,14 @@ impl MaskTarget {
             frame_generation: 0,
             ready: false,
             encoded: Default::default(),
+            ledger: ledger.cloned(),
+            _allocation: allocation,
         })
+    }
+
+    /// Keeps this attachment group's charge alive while a consumer retains its sampled view.
+    pub(crate) fn allocation(&self) -> mod_render::GpuAllocation<()> {
+        self._allocation.clone()
     }
 
     /// Reallocates on physical size or sample-count changes, never by logical UI dimensions.
@@ -248,12 +263,12 @@ pub(crate) struct MaskGpu {
 
 impl FromWorld for MaskGpu {
     /// Shares actor bind layouts and shader ownership; no new mesh buffers are allocated.
-    fn from_world(_: &mut World) -> Self {
+    fn from_world(world: &mut World) -> Self {
+        world.init_resource::<ActorPipeline>();
+        let descriptor =
+            actor_pipeline_descriptor(world.resource::<ActorPipeline>().bind_group_layout.clone());
         Self {
-            variants: Variants::new(
-                MaskSpecializer,
-                actor_pipeline_descriptor(actor_bind_group_layout()),
-            ),
+            variants: Variants::new(MaskSpecializer, descriptor),
             targets: HashMap::new(),
             attachment_bytes: 0,
         }
@@ -280,7 +295,12 @@ pub(crate) struct MaskLabel;
 
 /// Installs preparation once; the post-pass owner installs the per-view draw schedule.
 pub(super) fn install(app: &mut SubApp) {
-    app.init_resource::<MaskGpu>().add_systems(
+    app.add_systems(
+        RenderStartup,
+        bevy::render::init_gpu_resource::<MaskGpu>
+            .after(bevy::render::init_gpu_resource::<ActorPipeline>),
+    )
+    .add_systems(
         Render,
         prepare
             .in_set(RenderSystems::PrepareBindGroups)
@@ -320,7 +340,7 @@ fn selected(mask: &mod_render::masks::Mask, identity: &render_model::ActorRender
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         })
 }
 
@@ -423,8 +443,12 @@ pub(crate) fn prepare(
     cache: Res<PipelineCache>,
     views: Query<(Entity, &Msaa, &ViewDepthStencilTexture)>,
 ) {
+    let mut retired = Vec::new();
     let (Some(scene), Some(gpu)) = (scene, gpu) else {
-        masks.targets.clear();
+        let old = std::mem::take(&mut masks.targets);
+        if !old.is_empty() {
+            crate::device_poll::on_frame_complete(&queue, move || drop(old));
+        }
         masks.attachment_bytes = 0;
         return;
     };
@@ -433,52 +457,82 @@ pub(crate) fn prepare(
         .iter()
         .filter(|mask| mask.authorized() && !mask.entities.is_empty())
         .collect();
+    let costs = views
+        .iter()
+        .try_fold((0u64, 0u64), |(coverage, halo), (_, _, depth)| {
+            let size = depth.texture().size();
+            Some((
+                coverage.checked_add(mod_render::masks::attachment_bytes(
+                    size.width,
+                    size.height,
+                    depth.texture().sample_count(),
+                )?)?,
+                halo.checked_add(mod_render::masks::halo_bytes(size.width, size.height)?)?,
+            ))
+        });
+    let same_group = |a: &mod_render::masks::Mask, b: &mod_render::masks::Mask| {
+        compatible(a, b)
+            && mod_render::GpuReservation::ledger_for(&scene.gpu_reservations, a.handle.owner)
+                == mod_render::GpuReservation::ledger_for(&scene.gpu_reservations, b.handle.owner)
+    };
     let mut groups: Vec<&mod_render::masks::Mask> = Vec::new();
     for mask in &active {
-        if !groups.iter().any(|other| compatible(mask, other)) {
+        if !groups.iter().any(|other| same_group(mask, other)) {
             groups.push(mask);
         }
     }
-    // Charge one group's attachments across all views before admitting its coverage.
-    let bytes = views.iter().try_fold(0u64, |sum, (_, _, depth)| {
-        let size = depth.texture().size();
-        sum.checked_add(mod_render::masks::attachment_bytes(
-            size.width,
-            size.height,
-            depth.texture().sample_count(),
-        )?)
-    });
-    masks.attachment_bytes = admit_groups(&mut groups, bytes);
+    // Bounds global attachment storage across all views before admitting coverage groups.
+    masks.attachment_bytes = admit_groups(&mut groups, costs.map(|(coverage, _)| coverage));
     // A previous union can split into several groups. Keep each old attachment for
     // at most one representative before rebuilding this frame's shared aliases.
     let mut retained = std::collections::HashSet::new();
-    masks.targets.retain(|(view, handle), target| {
-        views.contains(*view)
-            && groups.iter().any(|mask| mask.handle == *handle)
-            && retained.insert((*view, target.view.id()))
-    });
+    retired.extend(
+        masks
+            .targets
+            .extract_if(|(view, handle), target| {
+                !(views.contains(*view)
+                    && groups.iter().any(|mask| mask.handle == *handle)
+                    && retained.insert((*view, target.view.id())))
+            })
+            .map(|(_, target)| target),
+    );
     for (entity, msaa, depth) in &views {
         for mask in &active {
-            if !groups.iter().any(|group| compatible(mask, group)) {
-                masks.targets.remove(&(entity, mask.handle));
+            if !groups.iter().any(|group| same_group(mask, group)) {
+                if let Some(old) = masks.targets.remove(&(entity, mask.handle)) {
+                    retired.push(old);
+                }
                 continue;
             }
             let key = (entity, mask.handle);
             if let Some(group) = groups
                 .iter()
-                .find(|group| compatible(mask, group) && group.handle != mask.handle)
+                .find(|group| same_group(mask, group) && group.handle != mask.handle)
                 && let Some(target) = masks.targets.get(&(entity, group.handle)).cloned()
             {
                 masks.targets.insert(key, target);
                 continue;
             }
-            if masks
-                .targets
-                .get(&key)
-                .is_none_or(|target| !target.matches(depth))
-            {
-                masks.targets.remove(&key);
-                let Some(target) = MaskTarget::new(&device, &cache, depth) else {
+            if masks.targets.get(&key).is_none_or(|target| {
+                !target.matches(depth)
+                    || target.ledger.as_ref()
+                        != mod_render::GpuReservation::ledger_for(
+                            &scene.gpu_reservations,
+                            mask.handle.owner,
+                        )
+            }) {
+                if let Some(old) = masks.targets.remove(&key) {
+                    retired.push(old);
+                }
+                let Some(target) = MaskTarget::new(
+                    &device,
+                    &cache,
+                    depth,
+                    mod_render::GpuReservation::ledger_for(
+                        &scene.gpu_reservations,
+                        mask.handle.owner,
+                    ),
+                ) else {
                     continue;
                 };
                 masks.targets.insert(key, target);
@@ -546,6 +600,9 @@ pub(crate) fn prepare(
                 .store(false, std::sync::atomic::Ordering::Relaxed);
             target.frame_generation = gpu.frame_generation;
         }
+    }
+    if !retired.is_empty() {
+        crate::device_poll::on_frame_complete(&queue, move || drop(retired));
     }
 }
 

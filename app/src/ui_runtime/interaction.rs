@@ -1,3 +1,4 @@
+use client_shell::physical_input::set_cursor_capture;
 use launcher::menu::settings_options::BindingId;
 mod chat;
 mod chat_coordinates;
@@ -26,7 +27,7 @@ use bevy::{
         With,
     },
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
+    window::{CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
 use client_shell::menu::settings_options::control_bindings::{
@@ -65,6 +66,18 @@ pub(crate) fn dispatch_bound_inventory_hotbar(
         matched = true;
     }
     matched
+}
+
+/// Returns whether a mouse button is assigned to one or more hotbar slots.
+fn mouse_button_bound_to_hotbar(
+    menu: Option<&client_shell::menu::MenuRuntime>,
+    button: MouseButton,
+) -> bool {
+    client_shell::physical_input::mouse_button_code(button).is_some_and(|code| {
+        hotbar_control_slots(menu, semantic_input::PhysicalControl::MouseButton(code))
+            .next()
+            .is_some()
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -110,7 +123,10 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input()
+        || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
+    {
         runtime.screen_state_mut().container_close_armed = false;
         runtime.screen_state_mut().container_scroll_drag = None;
         return;
@@ -187,6 +203,7 @@ fn route_press(
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
     if button == MouseButton::Back
+        && !mouse_button_bound_to_hotbar(menu, button)
         && inventory::cancel_from_mouse_back(player_runtime, runtime, presentation.as_deref())
     {
         return (PressRoute::Binding, true);
@@ -359,8 +376,7 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if !input_available {
@@ -369,12 +385,12 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if runtime.sign_editor().is_open()
         || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation
@@ -394,8 +410,7 @@ pub(crate) fn drive_chat_keyboard_input(
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     let keyboard_events: Vec<_> = keyboard_messages.read().cloned().collect();
@@ -445,12 +460,17 @@ pub(crate) fn drive_chat_keyboard_input(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
-    if mouse_bindings && mouse_buttons.just_pressed(MouseButton::Back) {
-        let inventory_cancelled = inventory::cancel_from_mouse_back(
-            &mut player_runtime,
-            &mut runtime,
-            presentation.as_deref().map(|view| &view.0),
-        );
+    // Platform Back is routed below at its place among this frame's keys.
+    let platform_back = keyboard_events
+        .iter()
+        .any(crate::ui_runtime::platform_back::is_platform_back);
+    if mouse_bindings && !platform_back && mouse_buttons.just_pressed(MouseButton::Back) {
+        let inventory_cancelled = !mouse_button_bound_to_hotbar(menu.as_deref(), MouseButton::Back)
+            && inventory::cancel_from_mouse_back(
+                &mut player_runtime,
+                &mut runtime,
+                presentation.as_deref().map(|view| &view.0),
+            );
         if inventory_cancelled
             || chat::cancel_from_mouse_back(
                 &mut runtime,
@@ -549,6 +569,28 @@ pub(crate) fn drive_chat_keyboard_input(
             input.state == ButtonState::Pressed,
         );
         if input.state != ButtonState::Pressed {
+            continue;
+        }
+        if crate::ui_runtime::platform_back::is_platform_back(input) {
+            // Back cancels like a mouse Back press; a held key never cancels twice.
+            if !input.repeat {
+                let inventory_cancelled = inventory::cancel_from_mouse_back(
+                    &mut player_runtime,
+                    &mut runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                );
+                if inventory_cancelled
+                    || chat::cancel_from_mouse_back(
+                        &mut runtime,
+                        presentation.as_deref_mut().map(|view| &mut view.0),
+                    )
+                {
+                    dismissed |= !runtime.ui_focused(&player_runtime);
+                    inventory_ownership_changed |= inventory_cancelled;
+                    consumed_gameplay = true;
+                    mouse_buttons.clear_just_pressed(MouseButton::Back);
+                }
+            }
             continue;
         }
         if let Some(presentation) = presentation.as_deref_mut()

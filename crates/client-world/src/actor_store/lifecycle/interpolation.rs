@@ -58,36 +58,54 @@ impl ActorStore {
             self.actors
                 .iter()
                 .filter(|(runtime_id, _)| local != Some(**runtime_id))
-                .map(|(runtime_id, actor)| (*runtime_id, actor.motion_state())),
+                .map(|(runtime_id, actor)| movement_interpolation::PickState {
+                    runtime_id: *runtime_id,
+                    previous_yaw: actor.yaw,
+                    state: actor.motion_state(),
+                }),
         );
         self.pick_states
-            .sort_unstable_by_key(|(runtime_id, _)| *runtime_id);
+            .sort_unstable_by_key(|pick| pick.runtime_id);
         // The live loop's per-tick order: every actor's motion, then seating.
         for _ in 0..ticks {
-            for (_, state) in &mut self.pick_states {
-                state.tick();
+            for pick in &mut self.pick_states {
+                pick.previous_yaw = pick.state.pose.yaw;
+                pick.state.tick();
             }
+            self.hold_local_vehicle_pick();
             self.seat_pick_riders();
         }
     }
 
     /// The predicted pose picks read this frame, or `None` when the live pose is current.
-    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<([f32; 3], f32)> {
+    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<ActorPose> {
         if !self.picks_ahead {
             return None;
         }
-        self.pick_state(runtime_id)
-            .map(|state| (state.pose.position, state.pose.yaw))
+        self.pick_state(runtime_id).map(|state| state.pose)
     }
 
     pub(in crate::actor_store) fn pick_state(
         &self,
         runtime_id: u64,
     ) -> Option<&movement_interpolation::MotionState> {
+        self.pick(runtime_id).map(|pick| &pick.state)
+    }
+
+    /// This frame's predicted motion of a remote actor, while picks are ahead of the live
+    /// actors.
+    pub(in crate::actor_store) fn pick_ahead(
+        &self,
+        runtime_id: u64,
+    ) -> Option<&movement_interpolation::PickState> {
+        self.picks_ahead.then(|| self.pick(runtime_id)).flatten()
+    }
+
+    fn pick(&self, runtime_id: u64) -> Option<&movement_interpolation::PickState> {
         self.pick_states
-            .binary_search_by_key(&runtime_id, |(id, _)| *id)
+            .binary_search_by_key(&runtime_id, |pick| pick.runtime_id)
             .ok()
-            .map(|index| &self.pick_states[index].1)
+            .map(|index| &self.pick_states[index])
     }
 
     /// One tick of interpolated motion for every actor.
@@ -121,6 +139,10 @@ impl ActorStore {
             self.local_view_dirty = false;
         }
         self.prepare_appearances(ticks > 0);
+        if ticks > 0 {
+            // Vanilla applies queued riding links at its tick; a later spawn boards anew.
+            self.tick_links.clear();
+        }
         // The live actors now reach the positions picks were reading.
         self.picks_ahead = false;
         let prepare_frame = frame
@@ -138,6 +160,7 @@ impl ActorStore {
                     pending.tick();
                 }
                 self.step_motion();
+                self.show_local_vehicle_render();
                 self.seat_riders();
             }
             if !prepare_frame {
@@ -193,6 +216,12 @@ impl ActorStore {
             let local_bedrock_swing_ticks = self.local_bedrock_swing_ticks;
             let local_java_swing_ticks = self.local_java_swing_ticks;
             let view = self.animation_view.as_ref();
+            // A locked seat turns its rider's body along the seat's facing.
+            let seat_facings: FastHashMap<i64, f32> = self
+                .rider_to_ridden
+                .keys()
+                .filter_map(|rider| Some((*rider, self.rider_view_lock(*rider, 1.0)?.facing())))
+                .collect();
             let context = |actor: &ActorSnapshot| {
                 let lifetime = ActorLifetimeId {
                     session_id,
@@ -288,6 +317,7 @@ impl ActorStore {
                         ticks - 1
                     }),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
+                    seat_facing: seat_facings.get(&actor.unique_id).copied(),
                     hand_charged,
                     main_hand,
                     held_item_facts: [protocol::ActorHandedness::Right, protocol::ActorHandedness::Left]

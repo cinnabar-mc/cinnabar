@@ -98,11 +98,13 @@ pub struct ChatScreen {
     scale: f32,
     pointer: Option<UiPoint>,
     /// The chat context, kept while the engine context and placement stay.
-    context: crate::chat_position::PlacedContext,
+    context: crate::hud_placement::PlacedContext,
 }
 
 /// What one chat paint reads from the client's chat state.
 pub struct ChatInput<'a> {
+    /// The current local actor display name used for mention matching.
+    pub local_player: &'a str,
     pub editor: &'a ui::ChatEditor,
     /// The history, oldest first.
     pub messages: &'a VecDeque<ui::ChatMessage>,
@@ -149,19 +151,26 @@ impl ChatScreen {
         let view = self.view_state(input.selected_suggestion);
         let context = self.context.get(
             engine.context(),
-            self.settings.options.chat_at_top(),
-            crate::chat_position::placed,
+            crate::hud_placement::HudPlacement::from_settings(&self.settings.options),
+            |base, placement| placement.placed(base),
         );
         let catalog = Arc::clone(engine.screen_catalog(CHAT_SCREEN));
         let metrics = frame.metrics;
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
         let color = crate::settings_chat::default_color(&self.settings.options);
-        let text_color = |node: &json_ui::DrawNode| {
-            crate::settings_chat::message_color(&node.key, MESSAGES_VIEW, color)
+        let text_format = |node: &json_ui::DrawNode, text: &str| {
+            crate::settings_chat::message_text(
+                &node.key,
+                MESSAGES_VIEW,
+                text,
+                color,
+                Some(self.settings.options.mentions_color_code()),
+                input.local_player,
+            )
         };
         let art = ScreenArt {
-            text_color: Some(&text_color),
+            text_format: Some(&text_format),
             pointer: self.pointer.map(|point| {
                 [
                     (point.x() - frame.safe_area.left()) / px,
@@ -656,6 +665,10 @@ fn chat_data(
                 .var("chat_font_type", Value::from("default"))
                 .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
                 .var("chat_line_spacing", Value::from(chat_text.line_spacing))
+                .var(
+                    "chat_background_opacity",
+                    Value::from(crate::settings_chat::background_opacity(settings)),
+                )
         })
         .collect();
     data.set_factory("messages_factory", items);

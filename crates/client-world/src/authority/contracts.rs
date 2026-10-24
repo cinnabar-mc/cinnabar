@@ -106,20 +106,26 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
-    /// Movement flags from one local-player SetActorData.
+    /// Movement flags and dimensions from local metadata or an accepted spawn.
     LocalMovementFlags {
         sequence: u64,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
         flags: crate::MovementFlagUpdate,
+        /// Clears the preceding actor lifetime before applying this complete state.
+        replacement: bool,
+        /// Accepted sparse size writes, or the dimensions of a replacement actor.
+        dimensions: Option<crate::ExplicitDimensions>,
     },
-    /// Movement, underwater and lava speed attribute currents from one local
-    /// attribute update, as one control; an absent attribute is `None`.
+    /// Attribute authority from a local update or an accepted actor spawn.
+    /// Unsupported or absent spawn movement attributes still carry arrival.
     LocalMovementSpeed {
         sequence: u64,
         dimension: i32,
         /// Effective `minecraft:movement` current and its sprint recalculation facts.
         movement: Option<MovementSpeedAttribute>,
+        /// Movement state arrived or was replaced, even when no prediction model is available.
+        movement_received: bool,
         underwater: Option<f64>,
         lava: Option<f64>,
         /// Finite `minecraft:air_drag_modifier` current.
@@ -138,6 +144,15 @@ pub enum CommittedControlEvent {
         correction: PlayerMovementCorrectionEvent,
         resolved: ResolvedServerPosition,
     },
+    /// A server correction of the vehicle the local player steers and predicts.
+    VehicleMovementCorrection {
+        sequence: u64,
+        correction: PlayerMovementCorrectionEvent,
+        /// The vehicle the local player steered when the correction committed.
+        vehicle_runtime_id: u64,
+        /// That vehicle's revision when the correction committed.
+        vehicle_revision: crate::VehicleRevision,
+    },
     /// A server-authoritative velocity impulse for the local player
     /// (knockback, explosion, launch). Other actors have no velocity consumer.
     LocalActorMotion {
@@ -155,6 +170,10 @@ pub enum CommittedControlEvent {
     LocalMovementBoost {
         sequence: u64,
         event: protocol::MovementEffectEvent,
+    },
+    /// An accepted local alive-to-dead transition; input waits for respawn readiness.
+    LocalDeath {
+        sequence: u64,
     },
     /// The local player took damage; `source_direction` is the world-space horizontal `(x, z)`
     /// vector toward the damage source when a recent knockback impulse implies one.
@@ -236,6 +255,12 @@ pub enum CommittedUiEvent {
         sequence: u64,
         server_tick: u64,
         attributes: Arc<[ActorAttribute]>,
+    },
+    /// Spawn health and the resulting mount share one UI FIFO position.
+    LocalSpawn {
+        sequence: u64,
+        health: Arc<[ActorAttribute]>,
+        ridden_unique_id: Option<i64>,
     },
     /// Local-player SetEntityData entries (air supply, freezing strength, ...).
     LocalMetadata {

@@ -56,10 +56,19 @@ pub fn collect_held(
     entities: &RuntimeEntityAssets,
     icons: &assets::RuntimeIconCatalog,
 ) -> BlockSheets {
-    let states: BTreeMap<u32, u32> = icons
+    let states: BTreeMap<u32, HeldDisplay> = icons
         .block_models()
         .iter()
-        .map(|model| (model.sprite, model.visual.0))
+        .map(|model| {
+            (
+                model.sprite,
+                if model.held_sprite.is_some() {
+                    HeldDisplay::Sprite
+                } else {
+                    HeldDisplay::Block(model.visual.0)
+                },
+            )
+        })
         .collect();
     let display = |key: &assets::ItemVisualKey| {
         let sprite = u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
@@ -68,8 +77,15 @@ pub fn collect_held(
     collect_shapes(world, entities, Some(&display))
 }
 
-/// Resolves an item's inventory display state while borrowing its startup catalog.
-type DisplayState<'a> = dyn Fn(&assets::ItemVisualKey) -> Option<u32> + 'a;
+/// An explicit carried presentation retained by the icon catalog.
+#[derive(Clone, Copy)]
+enum HeldDisplay {
+    Block(u32),
+    Sprite,
+}
+
+/// Resolves an item's carried presentation while borrowing its startup catalog.
+type DisplayState<'a> = dyn Fn(&assets::ItemVisualKey) -> Option<HeldDisplay> + 'a;
 
 /// Collects cube sheets, and template models when `display` is given.
 fn collect_shapes(
@@ -96,6 +112,10 @@ fn collect_shapes(
         if by_visual.contains_key(&visual) || visual as usize >= world.visual_count() {
             continue;
         }
+        let display_state = display.and_then(|display| display(&definition.key));
+        if matches!(display_state, Some(HeldDisplay::Sprite)) {
+            continue;
+        }
         let model = (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
             .then(|| frame_model(world, visual))
             .flatten()
@@ -106,9 +126,21 @@ fn collect_shapes(
             .flatten();
         let model = model.or_else(|| {
             // Items the inventory draws flat (torches, plants, panes) stay sprites in hand.
-            let display = display.filter(|_| cube.is_none())?;
-            let shown = display(&definition.key)
-                .filter(|shown| (*shown as usize) < world.visual_count())?;
+            if cube.is_some() {
+                return None;
+            }
+            let shown = match display_state {
+                Some(HeldDisplay::Block(shown)) => shown,
+                None if display.is_some()
+                    && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>
+                {
+                    visual
+                }
+                _ => return None,
+            };
+            if shown as usize >= world.visual_count() {
+                return None;
+            }
             template_model(world, shown)
         });
         let Some(materials) = model.as_ref().map(|(materials, _)| *materials).or(cube) else {
@@ -462,67 +494,84 @@ pub fn dropped_model(
     }
     let mut quads = Vec::with_capacity(vertices.len() / 6);
     for vertices in vertices.as_chunks::<6>().0 {
-        let order = if vertices[4] == vertices[2] {
-            [0, 1, 2, 5]
-        } else {
-            [0, 4, 1, 2]
-        };
-        let corners = order.map(|index| vertices[index]);
-        if corners.iter().any(|vertex| {
-            vertex
-                .position
-                .iter()
-                .chain(&vertex.uv)
-                .any(|value| !value.is_finite())
-                || vertex.position.iter().any(|value| {
-                    let fixed = (value + 0.5) * 256.0;
-                    fixed < f32::from(i16::MIN) || fixed > f32::from(i16::MAX)
-                })
-                || vertex.uv.iter().any(|value| !(0.0..=1.0).contains(value))
-        }) {
-            return None;
-        }
-        let origin = corners[0].glint_origin;
-        let tile = std::array::from_fn::<_, 2, _>(|axis| {
-            (origin[axis] * grid[axis] as f32).round() as u32
-        });
-        if tile.iter().zip(grid).any(|(&tile, size)| tile >= size)
-            || corners.iter().any(|vertex| vertex.glint_origin != origin)
-        {
-            return None;
-        }
-        let local_uvs = corners.map(|vertex| {
-            std::array::from_fn::<_, 2, _>(|axis| {
-                (vertex.uv[axis] - origin[axis]) * grid[axis] as f32
-            })
-        });
-        if local_uvs
-            .iter()
-            .flatten()
-            .any(|value| !(-0.0001..=1.0001).contains(value))
-        {
-            return None;
-        }
-        quads.push(assets::ModelQuad {
-            positions: corners.map(|vertex| {
-                vertex
-                    .position
-                    .map(|value| ((value + 0.5) * 256.0).round() as i16)
-            }),
-            uvs: local_uvs.map(|uv| {
-                uv.map(|value| {
-                    (value.clamp(0.0, 1.0) * f32::from(assets::MODEL_UV_SCALE)).round() as u16
-                })
-            }),
-            material: tile[1] * grid[0] + tile[0],
-            flags: 0,
-        });
+        quads.push(dropped_quad(vertices)?);
     }
     Some(crate::DroppedItemBlock {
         materials: materials.into(),
         quads: quads.into(),
         rotation: 0,
     })
+}
+
+/// Validates and quantizes one held quad without allocating its dropped geometry.
+fn dropped_quad(vertices: &[crate::ActorRigVertex; 6]) -> Option<assets::ModelQuad> {
+    let grid = BLOCK_ITEM_SHEET_GRID.map(u32::from);
+    let order = if vertices[4] == vertices[2] {
+        [0, 1, 2, 5]
+    } else {
+        [0, 4, 1, 2]
+    };
+    let corners = order.map(|index| vertices[index]);
+    if corners.iter().any(|vertex| {
+        vertex
+            .position
+            .iter()
+            .chain(&vertex.uv)
+            .any(|value| !value.is_finite())
+            || vertex.position.iter().any(|value| {
+                let fixed = (value + 0.5) * 256.0;
+                fixed < f32::from(i16::MIN) || fixed > f32::from(i16::MAX)
+            })
+            || vertex.uv.iter().any(|value| !(0.0..=1.0).contains(value))
+    }) {
+        return None;
+    }
+    let origin = corners[0].glint_origin;
+    let tile =
+        std::array::from_fn::<_, 2, _>(|axis| (origin[axis] * grid[axis] as f32).round() as u32);
+    if tile.iter().zip(grid).any(|(&tile, size)| tile >= size)
+        || corners.iter().any(|vertex| vertex.glint_origin != origin)
+    {
+        return None;
+    }
+    let local_uvs = corners.map(|vertex| {
+        std::array::from_fn::<_, 2, _>(|axis| (vertex.uv[axis] - origin[axis]) * grid[axis] as f32)
+    });
+    if local_uvs
+        .iter()
+        .flatten()
+        .any(|value| !(-0.0001..=1.0001).contains(value))
+    {
+        return None;
+    }
+    Some(assets::ModelQuad {
+        positions: corners.map(|vertex| {
+            vertex
+                .position
+                .map(|value| ((value + 0.5) * 256.0).round() as i16)
+        }),
+        uvs: local_uvs.map(|uv| {
+            uv.map(|value| {
+                (value.clamp(0.0, 1.0) * f32::from(assets::MODEL_UV_SCALE)).round() as u16
+            })
+        }),
+        material: tile[1] * grid[0] + tile[0],
+        flags: 0,
+    })
+}
+
+/// Measures authored held geometry using exactly the conversion used to build dropped quads.
+pub fn dropped_vertex_count(vertices: &[crate::ActorRigVertex]) -> Option<usize> {
+    if vertices.is_empty() || !vertices.len().is_multiple_of(6) {
+        return None;
+    }
+    vertices
+        .as_chunks::<6>()
+        .0
+        .iter()
+        .try_fold(0usize, |count, vertices| {
+            Some(count + crate::dropped_item::block_quad_vertex_count(&dropped_quad(vertices)?))
+        })
 }
 
 /// Composes carried cube faces from overlay-local materials for inventory and held rendering.
@@ -573,21 +622,11 @@ fn overlay_face_tile(
     material: &Material,
     base: Option<&RuntimeAssets>,
 ) -> Option<IconSprite> {
-    if material.texture.page() == 0 {
-        let texture = &base?.texture_pages().first()?.texture;
+    let texture = overlay.texture_page(material.texture.page(), base)?;
+    if material.texture.page() < overlay.base_texture_pages {
         return face_tile(material, texture, texture.mips.first()?.size, 0);
     }
-    let shard = material.texture.page().checked_sub(1)? as usize;
-    let texture = overlay.textures.get(shard)?;
-    let layer = material.texture.layer() as usize;
-    if layer >= texture.layers as usize {
-        return None;
-    }
-    let flat = overlay.textures[..shard]
-        .iter()
-        .map(|shard| shard.layers as usize)
-        .sum::<usize>()
-        + layer;
+    let flat = overlay.flat_texture_layer(material.texture)?;
     let base = texture.mips.first()?;
     let grid = overlay.texture_source_grids.get(flat).copied().unwrap_or(0);
     let source_side = match overlay.texture_source_sizes.get(flat) {

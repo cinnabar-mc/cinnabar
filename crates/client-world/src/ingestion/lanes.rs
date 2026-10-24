@@ -236,6 +236,15 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
                 ..Footprint::session(C::CONTROLS)
             }
         }
+        // A vehicle correction reads the steered vehicle and its revision from the actors, so
+        // it keeps wire order with their links and moves.
+        WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_vehicle() => {
+            Footprint {
+                positional: true,
+                local_authority: true,
+                ..Footprint::session(C::CONTROLS.with(C::ACTORS))
+            }
+        }
         WorldEvent::PlayerMovementCorrection(_) => Footprint::session(C::NONE),
         WorldEvent::LevelChunk(event) => {
             Footprint::terrain([ChunkKey::new(event.dimension, event.x, event.z)], true)
@@ -368,6 +377,9 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         WorldEvent::Ui(UiEvent::PlayerGameMode { .. } | UiEvent::DefaultGameMode(_)) => {
             Footprint::session(C::UI.with(C::ACTORS))
         }
+        WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { .. })) => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
+        }
         WorldEvent::Ui(UiEvent::Boss(_)) => Footprint::session(C::UI.with(C::ACTORS)),
         WorldEvent::Ui(_) | WorldEvent::Experience(_) | WorldEvent::MapData(_) => {
             Footprint::session(C::UI)
@@ -386,6 +398,13 @@ fn actor_consumers(event: &ActorEvent, context: LaneContext) -> Consumers {
     let local_runtime = |runtime_id: u64| runtime_id == context.local_runtime_id;
     match event {
         ActorEvent::Move(_) | ActorEvent::Identifiers(_) => C::ACTORS,
+        ActorEvent::Spawn(spawn)
+        | ActorEvent::PlayerSpawn { spawn, .. }
+        | ActorEvent::PaintingSpawn { spawn, .. }
+            if local_runtime(spawn.runtime_id) =>
+        {
+            C::ACTORS.with(C::CONTROLS).with(C::UI)
+        }
         ActorEvent::Metadata(update) if local_runtime(update.runtime_id) => {
             C::ACTORS.with(C::CONTROLS).with(C::UI)
         }

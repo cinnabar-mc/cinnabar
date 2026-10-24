@@ -14,6 +14,7 @@ use crate::{
     ServerDisconnectEvent, ServerTransferEvent, SessionError, WorldEvent, into_world_event,
 };
 
+mod base_game_version;
 mod blob_prefetch;
 mod boundary;
 mod cache_status;
@@ -38,6 +39,7 @@ pub use web_handoff::WebSessionReader;
 
 /// Bounds the drain that surfaces the core's Transfer or Disconnect behind a failed write.
 pub const WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
+pub use base_game_version::BaseGameVersion;
 pub use client_data::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, LoginSettings,
     PROTOCOL_VERSION, login_memory_tier,
@@ -505,8 +507,10 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 .blob_cache
                 .as_mut()
                 .expect("enabled path owns a resolver");
-            if resolver.ordinary_lane_needs_drain() {
-                resolver.unblock_ordinary_lane()?;
+            // Retained ordinary work stops intake only while abandoning its blockers makes
+            // progress; a lane that cannot be unblocked keeps reading rather than spinning
+            // without ever awaiting the transport.
+            if resolver.ordinary_lane_needs_drain() && resolver.unblock_ordinary_lane()? {
                 continue;
             }
 

@@ -96,6 +96,14 @@ pub fn resolve_item_use(
 }
 
 impl ItemStateStore {
+    /// Returns a retail item identity admitted without a component payload override.
+    pub(crate) fn native_identifier(&self, network_id: i32) -> Option<&str> {
+        let record = self.registry.get(&network_id)?;
+        record
+            .unmodified_native
+            .then_some(record.identifier.as_ref())
+    }
+
     /// Rebuilds numerical profiles and owned category admissions only when source facts change.
     pub(super) fn rebuild_use_profiles(&mut self) {
         self.presentation_generation = Arc::new(());
@@ -186,6 +194,13 @@ impl ItemStateStore {
             .copied()
             .unwrap_or_default()
     }
+}
+
+/// Admits a retail identity only when the negotiated payload is canonically empty.
+pub(super) fn unmodified_native(entry: &protocol::ItemRegistryEntry) -> bool {
+    !matches!(entry.version, protocol::ItemRegistryVersion::Unknown(_))
+        && entry.canonical_empty_component_data
+        && protocol::vanilla_item_capacity(&entry.identifier, 0).is_some()
 }
 
 /// Admits a drawing shooter as a held use that its release ends, as a bow does. It runs before

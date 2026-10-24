@@ -45,6 +45,7 @@ impl UiPresentationRuntime {
         self.screens.chat.paint(
             renderer,
             ChatInput {
+                local_player: &runtime.local_player_display_name,
                 editor: runtime.chat_editor(),
                 messages: runtime.chat().messages(),
                 suggestions: runtime.chat_suggestions(),
@@ -139,6 +140,9 @@ impl UiPresentationRuntime {
 
     /// Keeps gameplay chat bound to current settings without opening the launcher menu.
     pub fn set_chat_settings_snapshot(&mut self, snapshot: (Arc<SettingsOptions>, Option<u16>)) {
+        if &self.screens.touch.saved != snapshot.0.touch_layout() {
+            self.screens.touch.saved = snapshot.0.touch_layout().clone();
+        }
         self.screens.chat.settings.set_snapshot(snapshot);
     }
 

@@ -1,38 +1,16 @@
-use crate::material_shader;
-use std::{
-    borrow::Cow,
-    future::Future,
-    task::{Context, Poll, Waker},
-};
+use crate::shader_source;
+use std::borrow::Cow;
 use wgpu::util::DeviceExt;
 
-/// Polls the adapter/device futures without adding another executor dependency.
-fn finish<T>(future: impl Future<Output = T>) -> T {
-    let mut future = std::pin::pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    loop {
-        if let Poll::Ready(value) = future.as_mut().poll(&mut context) {
-            return value;
-        }
-        std::thread::yield_now();
-    }
-}
-
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positional_material_gpu_matches_signed_coordinate_vectors() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-        .expect("this fixture requires a native GPU adapter");
-    assert_ne!(
-        adapter.get_info().backend,
-        wgpu::Backend::Noop,
-        "native GPU required"
-    );
-    eprintln!("positional material GPU fixture: {:?}", adapter.get_info());
-    let (device, queue) =
-        finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-    let source = material_shader::source(include_str!("../../src/material.wesl"));
+    let Some(gpu) = crate::gpu_snapshot::Gpu::for_fixture(
+        "positional_material_gpu_matches_signed_coordinate_vectors",
+    ) else {
+        return;
+    };
+    let (device, queue) = (gpu.device, gpu.queue);
+    let source = shader_source::preprocess(include_str!("../../src/material.wesl"), &[]);
     let source = format!(
         "{source}\n{}",
         r#"
@@ -46,7 +24,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
         let fixtures = array(vec3(0,0,0), vec3(-1,0,-1), vec3(16,64,-17), vec3(123456,-64,98765));
         position = fixtures[min(u32(p.x)/64u, 3u)];
     }
-    let selected = materials[positional_material_id(0u, position)];
+    let selected = materials(positional_material_id(0u, position));
     return select(vec4(1.0,0.0,0.0,1.0), vec4(0.0,1.0,0.0,1.0), selected.texture == 2u);
 }
 "#

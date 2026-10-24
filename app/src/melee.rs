@@ -16,6 +16,7 @@ use semantic_input::Action;
 pub(crate) mod crosshair;
 mod hover;
 pub(crate) mod ordered;
+pub(crate) mod server_swings;
 use crosshair::resolve_crosshair;
 
 use crate::interaction_override::ModInteraction;
@@ -77,7 +78,7 @@ pub(crate) struct MeleeContext<'w, 's> {
 }
 
 /// Publishes frame inputs and resolves presses through the single published-frame pick.
-/// Open screens and spectator mode cancel the press.
+/// Open screens, spectator mode and an item in use cancel the press.
 pub(crate) fn prepare_melee(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: MeleeContext,
@@ -85,6 +86,7 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
+    item_use: Res<client_interaction::item_use::ItemUseRuntime>,
 ) {
     let ordered = context
         .input
@@ -94,7 +96,7 @@ pub(crate) fn prepare_melee(
         (
             input.authority_generation,
             input.frame_sequence,
-            movement.interaction_authority_identity().1,
+            movement.position_authority_identity().1,
         )
     });
     if ordered.is_some() && target.prepared == identity {
@@ -104,12 +106,12 @@ pub(crate) fn prepare_melee(
     target.hover = None;
     target
         .frames
-        .publish(&context, movement.interaction_authority_identity().1);
+        .publish(&context, movement.position_authority_identity().1);
     let picked = resolve_crosshair(
         &player_runtime,
         &context,
         &target.frames,
-        movement.interaction_authority_identity().1,
+        movement.position_authority_identity().1,
     );
     target.prepared = picked.and(identity);
     if let Some(picked) = picked {
@@ -150,6 +152,7 @@ pub(crate) fn prepare_melee(
     if let Err(reason) = press_admission(
         focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),
+        item_use.vetoes_attack(&player_runtime, context.client_world.stream.as_ref()),
     ) {
         drop(reason);
         runtime.cancel();
@@ -218,7 +221,7 @@ fn maintain_attacks(
 ) {
     let (mut runtime, mut mining, mut swings, item_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let attack = (|| {
+    let mut attack = (|| {
         if context
             .input
             .snapshot()
@@ -245,6 +248,7 @@ fn maintain_attacks(
         Some((
             picked.crosshair,
             PressContext {
+                refused_destroy: None,
                 tick: sample.tick,
                 player_position: sample.position,
                 input_mode: protocol_input_mode(input.input_mode),
@@ -276,7 +280,10 @@ fn maintain_attacks(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let input = context.input.snapshot();
     let active = gameplay::survival_mining::mining_active(caps, focused, input.is_some());
+    // An item in use ignores a held Attack as it ignores a press, so no held mining starts or
+    // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
+        && !item_use.vetoes_attack(&player, context.client_world.stream.as_ref())
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,
@@ -284,7 +291,12 @@ fn maintain_attacks(
         );
     let wants_target =
         active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
-    let destroy = if wants_target {
+    // A block press is refused at its start even where the game mode cannot mine.
+    let block_press = focused
+        && attack
+            .as_ref()
+            .is_some_and(|(crosshair, _)| *crosshair == gameplay::melee::Crosshair::Block);
+    let observation = if wants_target || block_press {
         input.and_then(|input| {
             crate::survival_mining::observe_destroy_target(
                 &player,
@@ -293,11 +305,23 @@ fn maintain_attacks(
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),
-                movement.interaction_authority_identity().1,
+                movement.position_authority_identity().1,
             )
         })
     } else {
         None
+    };
+    let destroy = match observation {
+        Some(crate::survival_mining::DestroyObservation::Refused(refused)) => {
+            if let Some((_, press)) = attack.as_mut() {
+                press.refused_destroy = Some(refused);
+            }
+            None
+        }
+        Some(crate::survival_mining::DestroyObservation::Target(target)) if wants_target => {
+            Some(target)
+        }
+        _ => None,
     };
     let local_runtime_id = context
         .client_world

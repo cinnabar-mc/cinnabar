@@ -17,6 +17,7 @@ struct GeometrySpan {
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(3) var<storage, read> geometry_spans: array<GeometrySpan>;
 @group(0) @binding(4) var<storage, read> previous_bones: array<BoneMatrix>;
+@if(!COMPACT_BONES)
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
@@ -228,7 +229,10 @@ fn actor_vertex(
     let bone_index = vertex_words[vertex_base + 10u];
     out.material_parameters.y = vertex_words[vertex_base + 11u];
     let previous_bone = previous_bones[previous_bone_base + bone_index];
+    @if(!COMPACT_BONES)
     let current_bone = current_bones[current_bone_base + bone_index];
+    @if(COMPACT_BONES)
+    let current_bone = previous_bones[ACTOR_COMPACT_CURRENT_BONE_BASE + current_bone_base + bone_index];
     let posed = posed_point(previous_bone, current_bone, local, partial_tick);
     let bone_normal = posed_normal(previous_bone, current_bone, local_normal, partial_tick);
     let placement = BoneMatrix(
@@ -341,6 +345,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     if (legacy_mask && color.a == 0.0) { discard; }
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
     if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
+        if (emissive && (input.material & ACTOR_MATERIAL_ONLY_EMISSIVE_FLAG) != 0u && (color.a == 0.0 || color.a == 1.0)) { discard; }
         if (emissive && all(color == vec4(0.0))) { discard; }
         @if(!ALPHA_TO_COVERAGE)
         if (!emissive && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }

@@ -117,8 +117,13 @@ fn fixture_registries() -> PhysicsCollisionRegistries {
 }
 
 fn fixture_stream() -> WorldStream {
+    fixture_stream_in_dimension(0)
+}
+
+/// Starts the fixture in the requested server dimension.
+fn fixture_stream_in_dimension(dimension: i32) -> WorldStream {
     WorldStream::new(WorldBootstrap {
-        dimension: 0,
+        dimension,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
         player_position: [0.0, 70.0, 0.0],
@@ -298,6 +303,7 @@ fn committed_teleport_snap_correction_dispatches_through_production_reconciliati
             subject: MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 101,
+            vehicle_angular_velocity: None,
         }),
     );
     app.update();

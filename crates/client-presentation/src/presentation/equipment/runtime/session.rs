@@ -7,9 +7,10 @@ use crate::session_assets::SessionItems;
 
 /// Session icons get their own mesh id range above the startup item meshes: one per registry
 /// item, so no server item goes without its mesh.
-const MAX_SESSION_MESHES: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
+pub(super) const MAX_SESSION_MESHES: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 
 /// A session's icon sprites packed for the artwork pages, before placement on them.
+#[derive(Clone)]
 pub struct StagedSessionIcons {
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
@@ -23,7 +24,11 @@ impl StagedSessionIcons {
     /// Packs the pack's item icons and custom block material sheets; `None` when the session has
     /// none.
     pub fn stage(items: Option<&SessionItems>) -> Option<Self> {
-        let icons = items?.icons.as_deref()?;
+        Self::stage_icons(items?.icons.as_deref()?)
+    }
+
+    /// Packs `icons` without the item components, so a pack worker can stage them.
+    pub fn stage_icons(icons: &client_ui::ui_runtime::presentation::SessionIcons) -> Option<Self> {
         let mut sprites = Vec::new();
         let mut by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>> = BTreeMap::new();
         let mut block_sheets = BTreeMap::new();
@@ -185,19 +190,14 @@ impl EquipmentRuntime {
         }
     }
 
-    /// What a custom item is held as: its block's cube sheet (vanilla holds a block item as its
-    /// block), else its icon; with the mesh key, atlas placement and artwork location.
-    pub(super) fn session_held(
+    /// Returns the session block sheet only while its artwork placement is admitted.
+    pub(super) fn session_held_block(
         &self,
         identifier: &str,
-        metadata: u32,
-    ) -> Option<(usize, MeshKey, Placement, ActorArtworkLocation)> {
-        if let Some(&sheet) = self.session.block_sheets.get(identifier) {
-            let (placement, location) = self.session_placement(sheet)?;
-            return Some((sheet, MeshKey::SessionBlock(sheet), placement, location));
-        }
-        let (index, placement, location) = self.session_sprite(identifier, metadata)?;
-        Some((index, MeshKey::Session(index), placement, location))
+    ) -> Option<(usize, Placement, ActorArtworkLocation)> {
+        let sheet = *self.session.block_sheets.get(identifier)?;
+        let (placement, location) = self.session_placement(sheet)?;
+        Some((sheet, placement, location))
     }
 
     /// The session icon for `identifier` with its atlas placement and artwork location.

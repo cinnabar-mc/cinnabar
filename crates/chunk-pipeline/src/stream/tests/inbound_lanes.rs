@@ -527,48 +527,55 @@ fn deferred_burst_gets_one_guaranteed_heavy_step_per_poll() {
 
 /// A teleport committed mid-pass hands retention back to the server position, so a later
 /// correction in the same pass still waits for an earlier pending chunk.
+/// Player and vehicle corrections both wait for terrain committed ahead of them.
 #[test]
 fn correction_after_a_teleport_in_the_same_pass_waits_for_earlier_terrain() {
-    let mut stream = block_entity_visual_stream();
-    stream.local_player_chunk = Some(ChunkKey::new(0, 0, 0));
-    let context = stream.lane_context();
-    let ready = |stream: &mut WorldStream, sequence, event: WorldEvent, prepared| {
-        stream
-            .order
-            .admit(sequence, classify(&event, context), 0)
-            .unwrap();
-        if prepared {
+    for subject in [
+        MovementCorrectionSubject::Player,
+        MovementCorrectionSubject::Vehicle,
+    ] {
+        let mut stream = block_entity_visual_stream();
+        stream.local_player_chunk = Some(ChunkKey::new(0, 0, 0));
+        let context = stream.lane_context();
+        let ready = |stream: &mut WorldStream, sequence, event: WorldEvent, prepared| {
             stream
                 .order
-                .insert_ready(sequence, PreparedWorldEvent::Immediate(event))
+                .admit(sequence, classify(&event, context), 0)
                 .unwrap();
-        }
-    };
-    let teleport = WorldEvent::MovePlayer(MovePlayerEvent {
-        runtime_id: 1,
-        position: [100.5, 80.0, 100.5],
-        mode: MovePlayerMode::Teleport,
-        ..Default::default()
-    });
-    ready(&mut stream, 1, teleport, true);
-    ready(&mut stream, 2, inline_air_event(0), false);
-    let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
-        position: [0.5, 80.0, 0.5],
-        delta: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        subject: MovementCorrectionSubject::Player,
-        on_ground: true,
-        tick: 1,
-    });
-    ready(&mut stream, 3, correction, true);
-    stream.apply_ready();
-    assert!(stream.order.is_finished(1), "the teleport committed");
-    assert!(stream.local_player_chunk.is_none());
-    assert!(
-        !stream.order.is_finished(3),
-        "the correction waits for the chunk"
-    );
+            if prepared {
+                stream
+                    .order
+                    .insert_ready(sequence, PreparedWorldEvent::Immediate(event))
+                    .unwrap();
+            }
+        };
+        let teleport = WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 1,
+            position: [100.5, 80.0, 100.5],
+            mode: MovePlayerMode::Teleport,
+            ..Default::default()
+        });
+        ready(&mut stream, 1, teleport, true);
+        ready(&mut stream, 2, inline_air_event(0), false);
+        let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
+            position: [0.5, 80.0, 0.5],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            subject,
+            on_ground: true,
+            tick: 1,
+            vehicle_angular_velocity: None,
+        });
+        ready(&mut stream, 3, correction, true);
+        stream.apply_ready();
+        assert!(stream.order.is_finished(1), "the teleport committed");
+        assert!(stream.local_player_chunk.is_none());
+        assert!(
+            !stream.order.is_finished(3),
+            "the {subject:?} correction waits for the chunk"
+        );
+    }
 }
 
 /// Retained ingress supplies dependencies while its payload still waits outside admission.
@@ -680,4 +687,69 @@ fn remote_player_moves_apply_while_unrelated_terrain_decode_is_pending() {
         complete_pending_decode_jobs(&mut stream);
         assert_eq!(stream.committed_sequence(), 5);
     }
+}
+
+#[test]
+fn admitted_lethal_attribute_burst_retains_both_controls_without_overflow() {
+    let mut stream = block_entity_visual_stream();
+    // Delay a barrier so the entire light admission allowance commits in one pass.
+    stream
+        .order
+        .admit(1, client_world::ingestion::Footprint::barrier(), 0)
+        .unwrap();
+    let count = MAX_ADMITTED_WORLD_EVENTS - 1;
+    for index in 0..count {
+        let attributes = [
+            (protocol_ids::Attribute::Health, 20.0),
+            (protocol_ids::Attribute::Health, 0.0),
+            (protocol_ids::Attribute::Health, 20.0),
+            (protocol_ids::Attribute::Health, 0.0),
+            (protocol_ids::Attribute::Movement, 0.1),
+        ]
+        .map(|(attribute, current)| ActorAttribute {
+            name: attribute.wire_name().into(),
+            min: 0.0,
+            max: 20.0,
+            current,
+            default: Some(current),
+            modifiers: Default::default(),
+        });
+        stream
+            .submit(
+                index as u64 + 2,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    tick: 0,
+                    attributes: Arc::from(attributes),
+                })),
+            )
+            .unwrap();
+    }
+    assert_eq!(stream.light_admission_capacity(), 0);
+    stream
+        .order
+        .insert_ready(1, client_world::ingestion::PreparedWorldEvent::CommitOnly)
+        .unwrap();
+    stream.apply_ready();
+    let controls = stream.take_committed_controls();
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|event| matches!(event, CommittedControlEvent::LocalMovementSpeed { .. }))
+            .count(),
+        count
+    );
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|event| matches!(event, CommittedControlEvent::LocalDeath { .. }))
+            .count(),
+        count
+    );
+    assert_eq!(stream.committed_sequence(), count as u64 + 1);
+    stream
+        .authority
+        .restore_committed_controls(controls.into_iter());
+    assert_eq!(stream.take_committed_controls().len(), count * 2);
 }

@@ -17,6 +17,11 @@ client.
 
 <img width="1282" height="752" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
+| | |
+| --- | --- |
+| <img alt="Sunset with a shader pack" src="https://github.com/user-attachments/assets/25a2e8fa-23d8-4aeb-8e80-aca9d09dcee3" /> | <img alt="Moonlit river with a shader pack" src="https://github.com/user-attachments/assets/c0a8cdd8-03f2-4188-ae3c-36f516260060" /> |
+| <img alt="Light shafts in a cave with a shader pack" src="https://github.com/user-attachments/assets/1622104f-7ea2-4dde-a433-219a5f09103b" /> | <img alt="PvP on iOS" src="https://github.com/user-attachments/assets/b6135da0-ff6a-4b75-ade0-56439be56ca0" /> |
+
 ## Download
 
 - **Stable:** [latest release](https://github.com/cinnabar-mc/cinnabar/releases/latest)
@@ -50,7 +55,7 @@ Vanilla behaviour is the default. Everything below is extra:
 | **Custom skins** | Import custom-geometry (4D/5D) skins and skin packs. See [docs/custom-skins.md](docs/custom-skins.md). |
 | **Discord** | Rich presence, plus joining and inviting friends through Discord. See [docs/discord.md](docs/discord.md). |
 | **Cinnabar players** | A badge on other Cinnabar players in the tab list, and update notices as soon as a release ships. See [docs/cinnabar-api.md](docs/cinnabar-api.md). |
-| **Mods** *(preview)* | Sandboxed WebAssembly mods that hot-reload, for your own client and for servers. Servers can use it as a Roblox-style game engine, shipping client code that replaces the UI, rendering, input and game logic (in-world video included) to turn a server into an entirely different game. See [docs/modding-spike.md](docs/modding-spike.md) and [docs/server-experiences.md](docs/server-experiences.md). |
+| **Mods** *(preview)* | Personal WebAssembly mods with reload and explicit grants, plus paired server/client mods with declared blocks, items and typed messages. Start with [the mod guide](docs/mods/README.md); server client-code execution currently requires the developer switch. |
 | **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, at [jsonui.cinnabar.gg](https://jsonui.cinnabar.gg/). |
 | **Figma to JSON-UI** | A Figma plugin that turns a frame into a JSON-UI screen and resource pack. [Download it](https://jsonui.cinnabar.gg/figma-plugin.zip), or see [tools/figma-plugin](tools/figma-plugin/README.md). |
 

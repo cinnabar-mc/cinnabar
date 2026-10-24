@@ -19,6 +19,28 @@ pub(in crate::compiler) fn vanilla_cuboid_quads(
     quads
 }
 
+/// Full-cube native quads with each face's UVs flipped by its native `Flip` value
+/// (1 and 2 are opposite quarter turns, 3 a half turn), keeping each quad's own face culling.
+pub(in crate::compiler) fn flipped_cube_quads(
+    materials: [u32; 6],
+    flips: [u8; 6],
+) -> [ModelQuad; 6] {
+    let mut quads = vanilla_cuboid_quads(materials, [0; 3], [256; 3]);
+    for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
+        for uv in &mut quad.uvs {
+            let [u, v] = *uv;
+            *uv = match flips[face as usize] {
+                1 => [v, 4096 - u],
+                2 => [4096 - v, u],
+                3 => [4096 - u, 4096 - v],
+                _ => [u, v],
+            };
+        }
+        quad.flags |= (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4;
+    }
+    quads
+}
+
 pub(in crate::compiler) fn cuboid_quads(
     materials: [u32; 6],
     min: [i16; 3],
@@ -108,4 +130,39 @@ pub(in crate::compiler) fn cuboid_quads(
             6,
         ),
     ]
+}
+
+/// A texture region in 1/4096 tile units: `[u0, u1, v0, v1]`.
+pub(in crate::compiler) type UvRect = [u16; 4];
+
+/// Whether a cuboid face is its top or bottom.
+pub(in crate::compiler) fn is_horizontal(quad: &ModelQuad) -> bool {
+    quad.positions
+        .iter()
+        .all(|position| position[1] == quad.positions[0][1])
+}
+
+/// Replaces a cuboid face's position-derived UVs with `rect`, keeping which corner reads
+/// each end of the region. `quarter_turn` maps the face's v axis onto u and its reversed u
+/// axis onto v.
+pub(in crate::compiler) fn stretch_uvs(
+    mut quad: ModelQuad,
+    [u0, u1, v0, v1]: UvRect,
+    quarter_turn: bool,
+) -> ModelQuad {
+    let max_u = quad.uvs.iter().map(|uv| uv[0]).max().unwrap_or(0);
+    let max_v = quad.uvs.iter().map(|uv| uv[1]).max().unwrap_or(0);
+    for uv in &mut quad.uvs {
+        let (at_max_u, at_max_v) = (uv[0] == max_u, uv[1] == max_v);
+        let (at_max_u, at_max_v) = if quarter_turn {
+            (at_max_v, !at_max_u)
+        } else {
+            (at_max_u, at_max_v)
+        };
+        *uv = [
+            if at_max_u { u1 } else { u0 },
+            if at_max_v { v1 } else { v0 },
+        ];
+    }
+    quad
 }

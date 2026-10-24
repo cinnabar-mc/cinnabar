@@ -480,6 +480,7 @@ impl WorldStream {
                     return;
                 }
                 self.chunk_radius = Some(radius.min(MAX_VIEW_RADIUS_CHUNKS));
+                self.reserve_connectivity_for_view();
                 self.reevaluate_chunk_retention();
             }
             WorldEvent::PublisherUpdate(update) => {
@@ -561,8 +562,7 @@ impl WorldStream {
             WorldEvent::Respawn(respawn) => {
                 let sequence = sequence.expect("sequenced respawns commit through submit");
                 let resolved = if respawn.ready_to_spawn() {
-                    self.authority
-                        .push_committed_ui(CommittedUiEvent::LocalRespawnReady { sequence });
+                    self.authority.commit_local_respawn_ready(sequence);
                     let resolved = self.authority.resolve_position(sequence, respawn.position);
                     self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);
@@ -605,15 +605,18 @@ impl WorldStream {
                     });
             }
             WorldEvent::PlayerMovementCorrection(correction) => {
-                // Vehicle rewind subjects have no local-player consumer yet;
-                // skipping here keeps them out of resolution, retention, and
-                // the correction-tick guard until riding rewind handling
-                // exists. The protocol record itself is retained upstream.
+                let sequence =
+                    sequence.expect("sequenced movement corrections commit through submit");
+                // A vehicle correction names the predicted vehicle's position, so it stays out
+                // of the player's position resolution, retention and correction-tick guard.
+                if correction.subject.is_vehicle() {
+                    self.authority
+                        .commit_vehicle_correction(sequence, correction);
+                    return;
+                }
                 if !correction.subject.is_player() {
                     return;
                 }
-                let sequence =
-                    sequence.expect("sequenced movement corrections commit through submit");
                 if !self
                     .authority
                     .accept_movement_correction_tick(correction.tick)

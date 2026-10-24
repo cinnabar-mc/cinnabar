@@ -59,11 +59,16 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
+    /// The level's sneaking dimensions size the player box that blocks placement.
+    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
     audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }
 
 /// Drains physical interactions before physics, then advances held placement once.
 pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
+    if !world.contains_resource::<PhysicsCollisionRegistries>() {
+        return;
+    }
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
@@ -85,7 +90,7 @@ fn maintain_block_use(
     movement: Res<MovementTicker>,
     physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
 ) {
-    let pick = runtime.pick(movement.interaction_authority_identity());
+    let pick = runtime.pick(&movement);
     if context.input.phase(Action::Use).pressed
         && !context
             .input
@@ -204,7 +209,7 @@ fn maintain_block_use(
         input_mode,
         clock.survival,
         (input.authority_generation, input.frame_sequence),
-        movement.interaction_authority_identity().1,
+        movement.position_authority_identity().1,
         &runtime,
         pick,
         trigger,
@@ -213,11 +218,6 @@ fn maintain_block_use(
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     };
-    if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
-    {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
-        return;
-    }
     let mut attempt = build::BuildInput::new(observed, state, trigger, due, clock, *context.view);
     build::advance(
         &mut player_runtime,
@@ -247,3 +247,13 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
 mod published_tests;
+
+#[cfg(test)]
+mod startup_tests {
+    #[test]
+    fn input_maintenance_waits_for_deferred_world_resources() {
+        let mut world = bevy::prelude::World::new();
+        super::produce_block_use(&mut world);
+        assert!(!world.contains_resource::<crate::ordered_interactions::InteractionRuntime>());
+    }
+}

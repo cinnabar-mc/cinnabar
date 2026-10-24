@@ -16,6 +16,10 @@ use wasm_bindgen_futures::JsFuture;
 
 #[wasm_bindgen(module = "/src/adapters.mjs")]
 extern "C" {
+    #[wasm_bindgen(js_name = userAgent)]
+    pub(crate) fn user_agent() -> String;
+    #[wasm_bindgen(js_name = appleMobile)]
+    pub(crate) fn apple_mobile() -> bool;
     #[wasm_bindgen(catch)]
     fn create(origin: &str, quic: bool, config: &str) -> Result<JsValue, JsValue>;
     fn open(transport: &JsValue, name: &str, join: &str) -> Promise;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 /// Grid cells a crafting-table recipe may address.
 pub const MAX_INGREDIENTS: usize = 9;
 /// Ingredient metadata that accepts any item metadata.
-pub const ANY_AUX: u16 = 32767;
+pub const ANY_AUX: u16 = protocol_ids::ITEM_AUXILIARY_WILDCARD;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Ingredient {
@@ -200,6 +200,11 @@ impl RecipeHandle {
             .and_then(|index| self.batch.identities.get(index))
     }
 
+    /// Owners of this handle's decoded batch, so tests can prove a cache released it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn batch_owners(&self) -> usize {
+        Arc::strong_count(&self.batch)
+    }
     pub fn network_id(&self) -> u32 {
         self.batch.records[self.index].id
     }

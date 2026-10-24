@@ -27,7 +27,7 @@ pub struct CosmeticEmitterPlacement {
     pub effect: Arc<[u8]>,
     /// Particle-atlas tile key and `COSMETIC_SPRITE_SIDE`² RGBA8 texels for `atlas.cosmetic`
     /// effects; `None` when the effect samples a runtime atlas path.
-    pub sprite: Option<(u64, Arc<[u8]>)>,
+    pub sprite: Option<hats::CosmeticSprite>,
     pub transform: ActorEmitterTransform,
 }
 
@@ -276,7 +276,9 @@ impl HatState {
                     .collect()
             };
             for item in selected {
-                if hidden && hats::rig(item).companion().is_none() {
+                if hats::rig(item).is_ground_effect()
+                    || (hidden && hats::rig(item).companion().is_none())
+                {
                     continue;
                 }
                 let Some(rig) = stream.authority().actor_rig(id) else {
@@ -432,16 +434,13 @@ impl HatState {
                 placements.push(CosmeticEmitterPlacement {
                     key: CosmeticEmitterKey {
                         runtime_id: submission.input.identity.runtime_id,
-                        spawn_revision: submission.input.identity.spawn_revision,
+                        spawn_revision: submission.input.identity.spawn_revision.get(),
                         item,
                         emitter: emitter as u8,
                     },
                     identifier: Arc::clone(&definition.identifier),
                     effect: Arc::clone(&definition.effect),
-                    sprite: definition
-                        .sprite
-                        .as_ref()
-                        .map(|sprite| (sprite.key, Arc::clone(&sprite.pixels))),
+                    sprite: definition.sprite.clone(),
                     transform,
                 });
             }

@@ -45,6 +45,10 @@ pub struct HudModel {
     pub chat: Vec<Timed>,
     /// Optional presentation color; parser inputs retain the original message bytes.
     pub chat_color: Option<char>,
+    /// Optional mention color applied only to decoded message labels.
+    pub chat_mention_color: Option<char>,
+    /// The current local actor display name used for mention matching.
+    pub chat_local_player: std::sync::Arc<str>,
     pub chat_visible: bool,
     /// Seconds a chat line stays before its fade.
     pub chat_lifetime: f64,
@@ -84,6 +88,8 @@ impl Default for ChatText {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudSlot {
     pub icon: Option<usize>,
+    /// The stack's vanilla `#item_id_aux` key; `None` for an empty cell.
+    pub id_aux: Option<i32>,
     pub count: u32,
     pub selected: bool,
     pub durability: Option<f64>,
@@ -486,6 +492,11 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
             "#item_renderer_data",
             slot.icon
                 .map_or(Scalar::Json(Value::Null), |icon| Scalar::Num(icon as f64)),
+        )
+        // Packs key per-item overlays on this; vanilla answers -1 for an empty cell.
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(slot.id_aux.unwrap_or(-1))),
         )
         .with("#slot_selected", Scalar::Bool(slot.selected))
         .with(

@@ -2,6 +2,9 @@ use super::EquipmentRuntime;
 use bevy::prelude::{PerspectiveProjection, Projection, Transform, Vec3};
 use std::sync::Arc;
 
+#[path = "visibility_tests.rs"]
+mod visibility;
+
 /// Every actor the renderer can draw is animated: the guard-banded view admits a superset.
 #[test]
 fn the_animation_view_admits_everything_the_render_cull_draws() {
@@ -113,6 +116,11 @@ struct JumpPhysics(sim::PlayerState, sim::MovementMode);
 impl crate::observations::PhysicsObservation for JumpPhysics {
     fn mode(&self) -> sim::MovementMode {
         self.1
+    }
+
+    /// The fixture uses the current sneaking dimensions.
+    fn sneak_profile(&self) -> sim::SneakProfile {
+        sim::SneakProfile::Current
     }
 
     fn fall_fly_ticks(&self) -> u32 {
@@ -639,7 +647,7 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -691,7 +699,7 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -703,7 +711,7 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
         &mut scene,
         &restored_resources,
         None,
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -971,7 +979,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         Some(&mut equipment),
         None,
@@ -995,7 +1003,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 42,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,
@@ -1023,6 +1031,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
     let input = crate::presentation::equipment::ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:apple"),
@@ -1040,5 +1049,93 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         equipment.layers_for(&body, &input, None).len(),
         1,
         "the pack's player model must carry the held item"
+    );
+}
+
+/// Icons the pack worker placed publish the frame's pages and locations without copying pixels.
+#[test]
+fn worker_placed_session_icons_publish_without_restaging_pixels() {
+    use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
+    let (pack, startup) = equipment_pack_fixture();
+    let icon_bytes = 16 * 16 * 4;
+    let icons = Arc::new(SessionIcons {
+        icons: (0..64)
+            .map(|index| SessionIcon {
+                identifier: format!("fixture:item_{index}").into(),
+                metadata: 0,
+                width: 16,
+                height: 16,
+                rgba8: vec![index as u8; icon_bytes].into(),
+            })
+            .collect(),
+        ..Default::default()
+    });
+    let items = crate::session_assets::SessionItems {
+        components: Arc::default(),
+        icons: Some(Arc::clone(&icons)),
+    };
+    let prepared = crate::prepared_actor_artwork::PreparedActorArtwork::new(&startup, &pack)
+        .with_session_icons(Some(&icons));
+    let resources =
+        crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), Some(&prepared));
+    let mut scene = render_scene::ActorRenderScene::default();
+    let mut ready = super::SessionGeometryReady::default();
+    let (expected, _, expected_locations) = super::apply_session_pack(
+        &mut scene,
+        &resources,
+        Some(&pack),
+        super::SessionIconInput::Staged(crate::presentation::equipment::StagedSessionIcons::stage(
+            Some(&items),
+        )),
+        &mut ready,
+        None,
+        None,
+    );
+    let copy = Arc::new(SessionIcons {
+        icons: icons
+            .icons
+            .iter()
+            .map(|icon| SessionIcon {
+                identifier: Arc::clone(&icon.identifier),
+                rgba8: icon.rgba8.clone(),
+                ..*icon
+            })
+            .collect(),
+        ..Default::default()
+    });
+    assert!(
+        crate::prepared_actor_artwork::session_icons(
+            &startup,
+            Some(&pack),
+            Some(&copy),
+            Some(&prepared)
+        )
+        .is_none(),
+        "placement is reused only for the exact icon snapshot"
+    );
+    let placed = crate::prepared_actor_artwork::session_icons(
+        &startup,
+        Some(&pack),
+        Some(&icons),
+        Some(&prepared),
+    )
+    .unwrap();
+    let ((published, staged, locations), allocated) = test_alloc::measure(|| {
+        super::apply_session_pack(
+            &mut scene,
+            &resources,
+            Some(&pack),
+            super::SessionIconInput::Placed(placed),
+            &mut ready,
+            None,
+            None,
+        )
+    });
+    assert!(staged.is_some());
+    assert_eq!(locations, expected_locations);
+    assert_eq!(published.unwrap().identity(), expected.unwrap().identity());
+    assert!(
+        allocated.bytes < icon_bytes * icons.icons.len(),
+        "the frame copied icon pixels: {allocated:?}"
     );
 }

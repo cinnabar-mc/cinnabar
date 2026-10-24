@@ -254,6 +254,7 @@ pub fn apply_environment_control(
         CommittedControlEvent::MovePlayer { .. }
         | CommittedControlEvent::LocalActorMove { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
+        | CommittedControlEvent::VehicleMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::Respawn { .. }
@@ -263,6 +264,7 @@ pub fn apply_environment_control(
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
+        | CommittedControlEvent::LocalDeath { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. }
         | CommittedControlEvent::ClientInputLocks { .. } => false,

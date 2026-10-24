@@ -242,13 +242,18 @@ impl WorldStream {
         self.authority.sync_local_player_pose(feed)
     }
 
+    /// Drives the predicted pose of the boat the local player steers.
+    pub fn sync_local_vehicle_pose(&mut self, feed: Option<client_world::LocalVehicleFeed>) {
+        self.authority.sync_local_vehicle_pose(feed)
+    }
+
     /// Publishes a client-selected appearance against the retained local player profile.
     pub fn update_local_player_skin(&mut self, profile: &client_world::PlayerProfile) -> bool {
         self.authority
             .update_local_player_skin(profile.skin.clone())
     }
     /// Arm swings the server sent for the local player since the last call.
-    pub fn take_local_server_swings(&mut self) -> u8 {
+    pub fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         self.authority.take_local_server_swings()
     }
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
