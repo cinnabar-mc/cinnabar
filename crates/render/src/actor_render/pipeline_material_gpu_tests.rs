@@ -780,3 +780,59 @@ fn a_world_material_replaces_the_bedrock_colour_before_host_lighting() {
         "{pixel:?}"
     );
 }
+
+/// The acceptance view of a bound entity: a cutout class drops what the guest leaves uncovered,
+/// and emission brightens it beyond the host's lighting.
+#[test]
+fn bound_entity_acceptance_follows_coverage_and_emission() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture("bound_entity_acceptance") else {
+        return;
+    };
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let draw = |shade: &str, class: &str| {
+        let material = mod_render::world_material::compose(shade, 0).unwrap();
+        let frame = mod_render::world_material::frame_uniform(0.0, 1, &[]);
+        let pixels = actor_raster::raster_world_material(
+            &gpu,
+            &plane,
+            render_model::ActorMaterial::default(),
+            &material.library(2),
+            &frame,
+            &["WORLD_MATERIAL", class],
+        );
+        center(&pixels).to_vec()
+    };
+    let background = {
+        let material = mod_render::world_material::compose(
+            "fn shade(input: WorldMaterialInput) -> Surface { return Surface(vec3<f32>(1.0), 0.0, vec3<f32>(0.0)); }",
+            0,
+        )
+        .unwrap();
+        let frame = mod_render::world_material::frame_uniform(0.0, 1, &[]);
+        actor_raster::raster_world_material(
+            &gpu,
+            &plane,
+            render_model::ActorMaterial::default(),
+            &material.library(2),
+            &frame,
+            &["WORLD_MATERIAL", "WORLD_MATERIAL_CUTOUT"],
+        )
+    };
+    assert_eq!(
+        center(&background),
+        &background[..4],
+        "a cutout class discards uncovered pixels"
+    );
+    let dark = draw(
+        "fn shade(input: WorldMaterialInput) -> Surface { return Surface(vec3<f32>(0.2), 1.0, vec3<f32>(0.0)); }",
+        "WORLD_MATERIAL_OPAQUE",
+    );
+    let glowing = draw(
+        "fn shade(input: WorldMaterialInput) -> Surface { return Surface(vec3<f32>(0.2), 1.0, vec3<f32>(0.6)); }",
+        "WORLD_MATERIAL_OPAQUE",
+    );
+    assert!(
+        glowing[0] > dark[0],
+        "emission adds after lighting: {dark:?} {glowing:?}"
+    );
+}
