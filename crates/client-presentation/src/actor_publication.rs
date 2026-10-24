@@ -20,6 +20,7 @@ mod occlusion;
 mod paintings;
 pub use flames::WorldActorFlames;
 mod views;
+mod world_materials;
 use geometry::{SessionGeometryReady, SessionIconInput, apply_session_pack, register_geometries};
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
@@ -155,6 +156,7 @@ pub struct ActorFramePublication<'w, 's> {
     flames: Option<ResMut<'w, WorldActorFlames>>,
     cosmetic_emitters: Option<ResMut<'w, CosmeticEmitterPlacements>>,
     ground_effects: Option<ResMut<'w, GroundEffectWearers>>,
+    world_materials: Option<Res<'w, render_scene::world_material::WorldMaterialScene>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -361,6 +363,7 @@ pub fn prepare_actor_render_frame(
     if let Some(wearers) = params.ground_effects.as_deref_mut() {
         wearers.capture(&input, stream, &batch, local_visible);
     }
+    world_materials::tag(&mut batch, stream, params.world_materials.as_deref());
     if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
         state
             .hat_state
