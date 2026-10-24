@@ -42,6 +42,7 @@ type settings struct {
 	opaqueOverdraw                          bool
 	holograms                               bool
 	luckyBlock                              bool
+	baseTextureIcon                         bool
 	dir, addr, name, gameMode, diff         string
 	generator                               string
 	chunkWorkers                            int
@@ -54,6 +55,7 @@ type settings struct {
 	// extensionMedia is a directory served over loopback HTTPS at extensionMediaAddr for client
 	// part media; empty for none.
 	extensionMedia, extensionMediaAddr string
+	modArtifacts, modClients           []string
 }
 
 func parseSettings(args []string, stderr io.Writer) (settings, error) {
@@ -82,11 +84,12 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.entityGallery, "entity-gallery", "", "actor registry file; enable /entitygallery [filter] [page] and /entitygallery clear")
 	flags.StringVar(&s.entityGalleryAppearances, "entity-gallery-appearances", "", "optional JSON appearance cases for the entity gallery")
 	flags.BoolVar(&s.luckyBlock, "lucky-block", false, "register a server-defined lucky block; /lucky places three ahead")
+	flags.BoolVar(&s.baseTextureIcon, "base-texture-icon", false, "register fixture:base_texture_icon, whose pack icon names a base-game block texture")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.BoolVar(&s.holograms, "holograms", false, fmt.Sprintf("spawn %d formatted floating labels; /holograms, /holograms freeze, /holograms clear", hologramCount))
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
-	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")
+	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer; the last offered revision is kept beside it")
 	flags.StringVar(&s.extensionAudience, "extension-audience", "", "host:port that players join by, as the client canonicalizes it")
 	flags.StringVar(&s.extensionCXB, "extension-cxb", "", "directory of client part bundles (.cxb) to offer")
 	flags.StringVar(&s.extensionMedia, "extension-media", "", "directory of client part media served over loopback HTTPS; needs the -extension flags")

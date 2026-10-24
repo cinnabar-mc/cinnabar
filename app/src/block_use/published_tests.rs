@@ -44,6 +44,9 @@ mod attack_fields_tests;
 #[path = "published_tests/attack_admission.rs"]
 mod attack_admission_tests;
 
+#[path = "published_tests/attack_while_using.rs"]
+mod attack_while_using_tests;
+
 #[path = "published_tests/attack_validation.rs"]
 mod attack_validation_tests;
 
@@ -231,6 +234,7 @@ fn fixture_with_entity_assets(
     assert!(snapshot.phases[Action::Use as usize].pressed);
     let mut world = World::new();
     world.init_resource::<client_state::ScreenFocus>();
+    world.init_resource::<client_state::GameplayScreenControls>();
     world.insert_resource(client_state::SemanticInputSnapshot(
         semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
     ));

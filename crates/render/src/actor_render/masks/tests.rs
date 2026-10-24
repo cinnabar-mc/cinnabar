@@ -1,6 +1,8 @@
 use super::*;
 use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
 
+#[path = "reservation_tests.rs"]
+mod reservation_tests;
 mod viewport_raster;
 use bevy::prelude::UVec4;
 
@@ -78,7 +80,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     let spans = selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>()).unwrap();
@@ -164,7 +166,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     assert!(mask.authorized());
@@ -459,6 +461,7 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
         &device,
         &PipelineCache::new(device.clone(), true),
         &original,
+        None,
     )
     .unwrap();
     assert!(mask.matches(&original));
@@ -468,6 +471,7 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
         &device,
         &PipelineCache::new(device.clone(), true),
         &test_depth(&device, 127, 4),
+        None,
     )
     .unwrap();
     assert!(multisampled.matches(&test_depth(&device, 127, 4)));
@@ -513,7 +517,7 @@ fn masks_split_shared_coverage_after_membership_changes() {
             connection: entry.identity.session_id,
             dimension: entry.identity.dimension,
             runtime_id: entry.identity.runtime_id,
-            spawn_revision: entry.identity.spawn_revision,
+            spawn_revision: entry.identity.spawn_revision.get(),
         })
         .collect();
     let mut first = mod_render::masks::Mask {
@@ -658,7 +662,7 @@ fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() 
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     assert!(!selection(&mask, gpu).unwrap().is_empty());

@@ -5,7 +5,7 @@
 use bevy::{
     prelude::{
         App, DetectChanges, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res,
-        ResMut, Resource, Time, Transform, Update, Vec3, With,
+        ResMut, Resource, Time, Transform, Update, With,
     },
     time::Real,
 };
@@ -30,10 +30,14 @@ use render_scene::{
 
 use crate::{
     environment::{
-        CameraMediumState, FixedTime, VisualTimeOverride, rendered_clock, update_atmosphere_frame,
+        CameraMediumState, ClientPartEnvironment, FixedTime, VisualTimeOverride, rendered_clock,
+        update_atmosphere_frame,
     },
     runtime::world::ClientWorld,
 };
+
+#[cfg(test)]
+mod time_override_tests;
 
 /// Highest block or sky light level; light is stored in one nibble.
 const MAX_LIGHT_LEVEL: u8 = 15;
@@ -194,6 +198,7 @@ type EnvironmentSources<'w> = (
     Res<'w, WorldClock>,
     Option<Res<'w, FixedTime>>,
     Option<Res<'w, VisualTimeOverride>>,
+    Option<Res<'w, ClientPartEnvironment>>,
     Res<'w, Time<Real>>,
     Res<'w, AtmosphereFrame>,
     Res<'w, WorldLighting>,
@@ -221,7 +226,7 @@ fn publish_frame_inputs(
     ids: Res<ShaderPackIdMaps>,
     mut inputs: ResMut<ShaderPackFrameInputs>,
 ) {
-    let (clock, fixed_time, visual_time, time, frame, lighting, medium) = environment;
+    let (clock, fixed_time, visual_time, client_part, time, frame, lighting, medium) = environment;
     let (client_world, player_runtime, ui, vision, server_camera, physics, pin) = player;
     let mut next = ShaderPackFrameInputs {
         frame_time_counter: pin.0,
@@ -229,7 +234,12 @@ fn publish_frame_inputs(
     };
 
     // Same clock as the vanilla atmosphere draws with.
-    let clock = rendered_clock(*clock, fixed_time.as_deref(), visual_time.as_deref());
+    let clock = rendered_clock(
+        *clock,
+        fixed_time.as_deref(),
+        visual_time.as_deref(),
+        client_part.as_deref(),
+    );
     let day = DayClock::at(visual_world_time(clock, time.elapsed_secs_f64()));
     next.world_time = day.world_time;
     next.world_day = day.world_day;
@@ -335,8 +345,8 @@ fn publish_world_inputs(
     next.biome_block_y = feet[1].floor() as i32;
 }
 
-/// Fills the values sampled along and around the rendered camera: the biomes Java blends
-/// the sky and fog colours over, and the distance to the block at the screen's centre.
+/// Fills the values sampled around the rendered camera: the biomes Java blends the sky and
+/// fog colours over.
 fn publish_camera_inputs(
     next: &mut ShaderPackFrameInputs,
     stream: &WorldStream,
@@ -345,12 +355,6 @@ fn publish_camera_inputs(
     next.sky_biomes = sky_biomes(camera.translation.to_array(), |block| {
         stream.camera_biome_id(block.map(|v| v as f32))
     });
-    let forward = camera.rotation * Vec3::NEG_Z;
-    next.center_distance = stream.first_block_distance(
-        camera.translation.to_array(),
-        forward.to_array(),
-        next.render_distance,
-    );
 }
 
 /// The biomes around `position` with Java's Gaussian blend weights, heaviest first and

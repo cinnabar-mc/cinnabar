@@ -120,3 +120,14 @@ fn client_frame_dispatch_stays_within_its_budget() {
         "(schedule, systems, run conditions) dispatched per frame"
     );
 }
+
+/// Every host shares the world wiring, so each one follows the vehicle with the rider's view.
+#[test]
+fn shared_world_wiring_installs_vehicle_look_following() {
+    let mut app = App::new();
+    crate::game_frame::configure_world(&mut app);
+    assert!(
+        app.world()
+            .contains_resource::<client_presentation::camera::VehicleLookFollow>()
+    );
+}

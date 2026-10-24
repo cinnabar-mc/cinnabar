@@ -2,6 +2,8 @@
 use super::*;
 use bevy::math::Quat;
 
+mod cosmetic_visibility;
+
 /// Adds two remote players sharing skin data but using opposite head rotations, standing in a
 /// resident column so their moves interpolate instead of snapping as moves into unloaded terrain.
 fn spawn_remotes(stream: &mut WorldStream) {
@@ -799,7 +801,12 @@ fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
         placement.key,
         super::super::CosmeticEmitterKey {
             runtime_id: 2,
-            spawn_revision,
+            spawn_revision: stream
+                .authority()
+                .actor(2)
+                .unwrap()
+                .render_spawn_revision
+                .get(),
             item: glowing,
             emitter: 0,
         }
