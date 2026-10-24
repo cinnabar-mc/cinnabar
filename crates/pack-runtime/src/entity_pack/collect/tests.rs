@@ -240,11 +240,16 @@ fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchi
 
 /// A resource pack archive holding a manifest and `value` at `path`.
 fn archive_with(id: u128, path: &str, value: serde_json::Value) -> protocol::ResourcePackArchive {
+    archive_files(id, vec![(path, value)])
+}
+
+/// A resource pack archive holding a manifest and each `(path, value)` file.
+fn archive_files(id: u128, files: Vec<(&str, serde_json::Value)>) -> protocol::ResourcePackArchive {
     let id = format!("00000000-0000-0000-0000-{id:012x}");
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (path, value) in [("manifest.json", manifest), (path, value)] {
+    for (path, value) in std::iter::once(("manifest.json", manifest)).chain(files) {
         zip.start_file(path, zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(&serde_json::to_vec(&value).unwrap()).unwrap();
@@ -558,7 +563,10 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
         let mut materials = serde_json::Map::new();
         materials.insert("version".into(), json!("1.0.0"));
         materials.insert(declaration.into(), fields);
-        let authored = json!({"materials": materials});
+        let authored = (
+            "materials/entity.material".to_owned(),
+            json!({"materials": materials}),
+        );
         let inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
             Some(root.path()),
             std::slice::from_ref(&authored),
@@ -825,4 +833,65 @@ fn the_highest_material_bindings_file_shadows_lower_copies_even_when_invalid() {
         .map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(bytes).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(collected, [json!({"format_version":"9.9.9"})]);
+}
+
+#[test]
+fn every_packs_material_list_resolves_into_one_list_naming_its_files() {
+    let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
+    let lower = archive_files(
+        1,
+        vec![
+            (
+                list,
+                json!([
+                    {"path": "materials/shared.material", "+defines": ["LOWER"]},
+                    {"path": "materials/custom.json", "tag": "old"}
+                ]),
+            ),
+            ("materials/shared.material", json!({"lower": {}})),
+            ("materials/custom.json", json!({"custom": {}})),
+            ("materials/unlisted.material", json!({"unlisted": {}})),
+        ],
+    );
+    let upper = archive_files(
+        2,
+        vec![
+            (
+                list,
+                json!([{"path": "materials/shared.material", "+defines": ["UPPER"]}]),
+            ),
+            ("materials/shared.material", json!({"upper": {}})),
+        ],
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+    ));
+    let files = super::collect_files(&view, None, None)
+        .into_iter()
+        .filter(|(path, _)| path.starts_with("materials/"))
+        .map(|(path, bytes)| {
+            (
+                path.to_string(),
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let custom = "materials/:listed/1.material";
+    assert_eq!(
+        files[list],
+        json!([
+            {"path": "materials/shared.material", "defines": ["UPPER"]},
+            {"path": custom, "defines": []}
+        ])
+    );
+    assert_eq!(
+        files["materials/shared.material"],
+        json!({"lower": {}, "upper": {}})
+    );
+    assert_eq!(files[custom], json!({"custom": {}}));
+    assert_eq!(
+        files["materials/unlisted.material"],
+        json!({"unlisted": {}})
+    );
+    assert!(!files.contains_key("materials/custom.json"));
 }

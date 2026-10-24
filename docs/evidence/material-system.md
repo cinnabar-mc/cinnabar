@@ -33,6 +33,12 @@ Confirmed gaps against the current client:
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
 - Server texture sets contribute only their colour layer.
+- Entity material files load through the entity material list, `materials/fancy.json` (the
+  client draws with fancy graphics): every pack's copy is read, each entry's defines seed the
+  root of the file it names and `tag` is ignored. The vanilla lists are not shipped to the
+  client, so `materials/*.material` files no list names still load after the listed ones;
+  Bedrock loads only listed files. The order in which Bedrock processes the packs' list copies is
+  not settled; the client reads the highest pack's copy first.
 - Entity materials resolve completely, with version rules, `+name` modification, same-file
   parents and variants, into the carrier's material table. Actor draws use a material's
   `skinning` variant, as Bedrock does, with its culling, depth function, depth writes, blend
@@ -63,4 +69,6 @@ These questions remain unresolved:
 - the visual meaning of packed bit 4;
 - the render-target key literal;
 - how a material's depth bias reaches an actor draw, and its scale;
-- the backend addressing and filtering a material's sampler states select.
+- the backend addressing and filtering a material's sampler states select;
+- the order in which packs' copies of the entity material list are processed, and which files the
+  vanilla lists name.
