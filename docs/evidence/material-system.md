@@ -79,7 +79,11 @@ material files and partly read list entries.
 Actor pipelines are keyed by the lowered raster contract, a finite set; block and block-entity
 pipelines use a fixed key per view. An unchanged pack reload requests no pipelines, and a pack change
 retires the previous session's actor pipelines from readiness. Bevy's pipeline cache cannot destroy
-pipelines, so retired ones stay compiled and are reused if a later pack needs them again.
+pipelines, so retired ones stay compiled and are reused if a later pack needs them again. An actor
+material whose state the adapter's render targets cannot represent (blending into a format that does
+not blend there, or a sample count the format does not support), or whose pipeline fails to compile,
+draws with its view's unauthored pipeline; each such material is logged and counted once, and
+readiness does not wait on it.
 
 Texture variations have no client version gate, only the network bit. The
 separate `metalness`/`emissive`/`roughness` texture-set form merges when all three layers are
