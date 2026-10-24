@@ -22,6 +22,7 @@ pub mod dye;
 mod effects;
 mod encoding;
 pub mod entity;
+mod entity_material_report;
 mod environment_settings;
 pub mod equipment;
 mod error;
@@ -169,6 +170,7 @@ pub use entity::{
     encode_entity_blob, entity_render_pattern_matches, interactions, item_use, molang_call,
     molang_program_stack, placement, seats as entity_seats, validate_entity_geometry_inheritance,
 };
+pub use entity_material_report::{EntityMaterialDiagnostics, MaterialListReport};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, CompiledItemAttackCooldown,

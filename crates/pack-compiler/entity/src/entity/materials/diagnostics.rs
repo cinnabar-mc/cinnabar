@@ -8,47 +8,9 @@ use std::collections::BTreeSet;
 use assets::entity::material::{EntityMaterialState, actor_define_bit};
 use serde_json::{Map, Value};
 
-use super::{
-    MaterialStates, Resolved, actor_type, actor_type::ActorMaterialType, list::MaterialListReport,
-};
+use super::{MaterialStates, Resolved, actor_type, actor_type::ActorMaterialType};
 
-/// One compiled pack's entity material counts.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct EntityMaterialDiagnostics {
-    /// Distinct state names no Bedrock state matches. Bedrock asserts on them; the client
-    /// ignores them.
-    pub unknown_states: u32,
-    /// Distinct define names Bedrock gives no actor flag. It ignores them without a log, and so
-    /// does the client.
-    pub unknown_defines: u32,
-    /// `samplerStates` entries whose `samplerIndex` is 8 or more, skipped as Bedrock skips them.
-    pub skipped_samplers: u32,
-    /// Declared materials that do not resolve: a parent missing from their file, a parent
-    /// cycle, or a malformed state or define list.
-    pub failed_materials: u32,
-    /// Resolved materials whose program has no actor material type; they draw as plain `Actor`.
-    pub unassignable_programs: u32,
-    /// Resolved materials with stencil, polygon-offset or depth-bias state the client carries
-    /// without rendering.
-    pub unsupported_materials: u32,
-    /// Resolved materials drawn approximately: actor defines the client carries without
-    /// drawing, or the `pattern` type drawn as `entity`.
-    pub approximated_materials: u32,
-    /// Material draws dropped because their render controller supplies too few textures.
-    pub skipped_draws: u32,
-    /// `materials/*.material` files no list entry named, loaded in place of the vanilla lists.
-    pub unlisted_files: u32,
-    /// List entries the client read in part or loaded nothing from.
-    pub list: MaterialListReport,
-}
-
-impl EntityMaterialDiagnostics {
-    /// Whether any count is non-zero.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
-}
+use assets::{EntityMaterialDiagnostics, MaterialListReport};
 
 /// Names and entries noticed while admitting declarations, before resolution.
 #[derive(Default)]

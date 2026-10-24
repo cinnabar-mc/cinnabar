@@ -24,28 +24,7 @@ pub struct MaterialListEntry {
     pub defines: BTreeSet<Box<str>>,
 }
 
-/// Counted list entries the client loads nothing from or reads only in part.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct MaterialListReport {
-    /// Entries carrying `tag`, which Bedrock logs as no longer supported and ignores.
-    pub ignored_tags: u32,
-    /// Entries whose `path` is absent, empty, not a string or too long to copy.
-    pub empty_paths: u32,
-    /// Entries naming a file an earlier entry already loaded; the earlier entry's defines win.
-    pub repeated_paths: u32,
-    /// List copies that are not JSON.
-    pub unparsable_lists: u32,
-}
-
-impl MaterialListReport {
-    /// Adds `other`'s counts to these.
-    pub fn add(&mut self, other: Self) {
-        self.ignored_tags += other.ignored_tags;
-        self.empty_paths += other.empty_paths;
-        self.repeated_paths += other.repeated_paths;
-        self.unparsable_lists += other.unparsable_lists;
-    }
-}
+use assets::MaterialListReport;
 
 /// Resolves the list copies in the order the client processes them: entries of each copy in
 /// document order, and a file named again keeps the defines of the entry that loaded it first.

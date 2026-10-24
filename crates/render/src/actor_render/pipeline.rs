@@ -377,6 +377,9 @@ pub(super) fn prepare_actor_pipelines(
         }
     }
     readiness.publish(has_view && ready);
+    readiness.publish_material_fallbacks(
+        u32::try_from(pipeline.targets.fallback_count()).unwrap_or(u32::MAX),
+    );
 }
 
 pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {

@@ -16,6 +16,9 @@ pub struct SessionEntityPack {
     pub bindings: Arc<[ActorArtworkBinding]>,
     /// The pack's attachable bindings and rasters for held and worn items.
     pub equipment: Option<Arc<crate::RuntimeEquipmentCatalog>>,
+    /// The compile's entity material counts; `None` for a pack restored from the disk cache,
+    /// whose compile ran in an earlier process.
+    pub material_diagnostics: Option<crate::EntityMaterialDiagnostics>,
 }
 
 impl SessionEntityPack {
@@ -120,6 +123,8 @@ impl SessionEntityPack {
             textures: textures.into(),
             bindings: bindings.into(),
             equipment,
+            // The disk cache keeps the carrier, not the compile's diagnostics.
+            material_diagnostics: None,
         })
     }
 }
