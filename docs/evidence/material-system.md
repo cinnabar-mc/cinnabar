@@ -36,7 +36,9 @@ Confirmed gaps against the current client:
   pages keyed by the overlay texture their colour occupies, charged to the terrain byte budget.
   Server-authored slots win over local Enhanced maps. Only builds that can draw Enhanced decode
   them, and the Enhanced renderer is disabled, so non-Enhanced draws use colour only, as Bedrock
-  does outside Vibrant Visuals. A set that does not decode or fit keeps its colour and is counted.
+  does outside Vibrant Visuals. A set that does not decode or fit keeps its colour and is counted. Their images join the
+  block reload fingerprint, so an unchanged reload neither decodes nor combines them again, and a
+  changed pack releases the previous maps.
 - Entity texture references resolve through a same-pack texture set to its colour layer, which is
   all an entity draws outside Vibrant Visuals. Entity MER/MERS and normal layers are not carried
   yet; a future Enhanced actor path would need them.

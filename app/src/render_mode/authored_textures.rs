@@ -310,6 +310,56 @@ mod tests {
     }
 
     #[test]
+    fn an_unchanged_reload_keeps_the_uploaded_maps_and_a_changed_pack_retires_them() {
+        let carrier = server_carrier();
+        let overlay = assets::BlockOverlay {
+            textures: vec![assets::texture::TextureArray {
+                layers: 1,
+                mips: (0..5)
+                    .map(|level| assets::texture::TextureMip {
+                        size: 16 >> level,
+                        rgba8: vec![200; 4 * (16usize >> level).pow(2)].into_boxed_slice(),
+                    })
+                    .collect(),
+            }],
+            enhanced: carrier.server_enhanced().cloned(),
+            ..Default::default()
+        };
+        // A reload republishes the carrier around the same compiled overlay.
+        let reloaded = Arc::new(
+            RuntimeAssets::diagnostic()
+                .with_block_overlay(1, &overlay)
+                .unwrap(),
+        );
+        let mut loading = AuthoredTextureLoading::new(Arc::clone(&carrier), None);
+        let mut textures = ChunkTextureAssets::new(Arc::clone(&carrier));
+        let maps = with_server_maps(&mut loading, &textures, RenderMode::Enhanced, None);
+        apply(&mut textures, maps);
+        let retained = Arc::clone(textures.enhanced().unwrap());
+        textures = ChunkTextureAssets::with_optional_enhanced(
+            reloaded,
+            textures.enhanced().cloned(),
+            textures.revision,
+        );
+        let maps = with_server_maps(&mut loading, &textures, RenderMode::Enhanced, None);
+        apply(&mut textures, maps);
+        assert!(
+            Arc::ptr_eq(textures.enhanced().unwrap(), &retained),
+            "the same server maps are not combined or uploaded again"
+        );
+        // A different pack's carrier replaces the combined maps; nothing keeps the old ones.
+        let changed = ChunkTextureAssets::new(server_carrier());
+        let maps = with_server_maps(&mut loading, &changed, RenderMode::Enhanced, None);
+        assert!(!Arc::ptr_eq(maps.as_ref().unwrap(), &retained));
+        drop(textures);
+        assert_eq!(
+            Arc::strong_count(&retained),
+            1,
+            "the retired maps are released"
+        );
+    }
+
+    #[test]
     fn vanilla_selection_never_starts_optional_texture_work() {
         let base = Arc::new(RuntimeAssets::diagnostic());
         let mut loading = AuthoredTextureLoading::new(base, Some(MaterialKeys::default()));
