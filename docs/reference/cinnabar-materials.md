@@ -70,3 +70,31 @@ custom block state; it ships no images.
 
 Status: entity and block bindings render with their masks. Other textures and parameters are
 validated but not drawn.
+
+## Inspecting why a surface draws as it does
+
+- In a developer build, the developer-control state snapshot's `actor_draw.materials` section
+  lists each entity material the session's server pack draws:
+  - its pack-relative source file (or `client base`) and inheritance chain;
+  - the variant it draws (`skinning` or `base`);
+  - which defines are drawn and which are only carried;
+  - its bound texture slots, shading flags and render state;
+  - why it draws approximately, if it does.
+- The same section's `blocks` list shows the session's custom block materials with their blend,
+  cutout, masks, AO exponent and whether server texture-set surfaces back them.
+  `entity_materials` and `pipeline_fallbacks` give the pack's counted diagnostics and the materials
+  the GPU drew with the plain pipeline instead.
+- For the vanilla carrier, `assetc entity-assets` writes the same per-material record to its report's
+  `material_provenance` (schema 6).
+- Server pack loads log one line of material counts for entities and one for blocks.
+
+## Retained drawing materials and world materials
+
+Mod drawing materials (`create-material`, which needs both the `world_draw` and `render_material`
+grants; see `crates/mod-api/drawing-materials.md`) shade only the mod's own retained drawings.
+They do not draw entity or block surfaces, and a resource pack's material bindings never grant
+them. Programmable world materials for server Experiences would take a separate
+`render_world_material` permission. They stay blocked until Experience guests have a drawing
+interface (see `plan.md`). Moving a retained-drawing effect to a world surface today means
+expressing it as a binding in this file, with its states, defines, masks and parameters.
+
