@@ -667,7 +667,8 @@ pub(crate) fn compiled_stair_bases(
             index += 1;
             continue;
         }
-        let Some(group) = templates.get(index..index + 5) else {
+        let Some(group) = templates.get(index..index + crate::model::STAIR_TEMPLATE_COUNT as usize)
+        else {
             return Err(invalid("stair template group is truncated"));
         };
         if group
@@ -677,7 +678,7 @@ pub(crate) fn compiled_stair_bases(
             return Err(invalid("stair template group is noncanonical"));
         }
         bases.push(index);
-        index += 5;
+        index += crate::model::STAIR_TEMPLATE_COUNT as usize;
     }
     Ok(bases)
 }
@@ -704,7 +705,9 @@ pub(crate) fn compiled_connected_bases(
             bases.push((index, flag));
             index += crate::door::TEMPLATE_COUNT as usize;
         } else if flag == MODEL_TEMPLATE_FLAG_PANE {
-            let Some(group) = templates.get(index..index + 16) else {
+            let Some(group) =
+                templates.get(index..index + crate::model::PANE_TEMPLATE_COUNT as usize)
+            else {
                 return Err(invalid("pane template group is truncated"));
             };
             if group.iter().enumerate().any(|(mask, template)| {
@@ -713,12 +716,14 @@ pub(crate) fn compiled_connected_bases(
                 return Err(invalid("pane template group is noncanonical"));
             }
             bases.push((index, flag));
-            index += 16;
+            index += crate::model::PANE_TEMPLATE_COUNT as usize;
         } else if matches!(
             flag,
             MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER
         ) {
-            let Some(group) = templates.get(index..index + 17) else {
+            let Some(group) =
+                templates.get(index..index + crate::model::FENCE_TEMPLATE_COUNT as usize)
+            else {
                 return Err(invalid("fence template group is truncated"));
             };
             if group.iter().enumerate().any(|(offset, template)| {
@@ -732,7 +737,7 @@ pub(crate) fn compiled_connected_bases(
                 return Err(invalid("fence template group is noncanonical"));
             }
             bases.push((index, flag));
-            index += 17;
+            index += crate::model::FENCE_TEMPLATE_COUNT as usize;
         } else if flag == MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN {
             let Some(group) =
                 templates.get(index..index + crate::BUBBLE_COLUMN_TEMPLATE_COUNT as usize)

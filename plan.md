@@ -113,8 +113,6 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
   guests have no drawing interface yet, and production Experience execution stays fail-closed
   until the restricted-helper launch gate.
-- [ ] Bind vanilla model blocks with [Cinnabar material bindings](docs/reference/cinnabar-materials.md);
-  entity bindings, custom blocks and vanilla full cubes render with their masks.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no

@@ -39,11 +39,15 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
   attachable identifier exactly; `render_controller` and `bone` are `*` patterns, and omitting one
   matches everything. A binding without `bone` replaces the controller's whole material.
 - `block` bindings take an exact block identifier, an exact-value subset of its `states` and a
-  `material_instance` pattern. Vanilla blocks bind only as untinted full cubes, with no
-  `material_instance` or `*`. They replace the matching instances' render method with the
-  closest one the material lowers to: alpha blending, alpha test, opaque, one- or two-sided. Block
-  passes have no other blend factors, depth functions or write masks; a binding that needs them
-  draws approximately and counts as an approximated material in the session's block report.
+  `material_instance` pattern. Vanilla blocks bind as a whole, with no `material_instance` or
+  `*`: untinted full cubes through their faces, and model blocks (stairs, panes, fences, doors,
+  plants and their pot contents included) through every quad they can draw; tinted full cubes,
+  nether portals, lily pads and models drawing art outside `terrain_texture.json` keep their base
+  materials. They replace the matching instances' render method with the closest one the
+  material lowers to: alpha blending, alpha test, opaque, one- or two-sided, and bound model quads
+  take that sidedness. Block passes have no other blend factors, depth functions or write masks; a
+  binding that needs them draws approximately and counts as an approximated material in the
+  session's block report.
 
 Status: entity and block bindings render with their masks. Other textures and parameters are
 validated but not drawn.
