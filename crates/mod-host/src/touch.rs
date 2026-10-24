@@ -73,13 +73,15 @@ impl TouchState {
     /// Exposes queued taps to the frame callback about to run.
     pub fn begin_frame(&mut self) {
         self.in_frame = true;
-        self.delivered = false;
+        // Recorded before the callback, which may remove the tapped button.
+        self.delivered = !self.presses.is_empty();
     }
     /// Consumes delivered taps unless the frame was deferred.
     pub fn finish_frame(&mut self, deferred: bool) {
         self.in_frame = false;
-        if !deferred {
-            self.delivered = !self.presses.is_empty();
+        if deferred {
+            self.delivered = false;
+        } else {
             self.presses.clear();
         }
     }

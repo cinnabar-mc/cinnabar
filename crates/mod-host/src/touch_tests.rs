@@ -139,3 +139,23 @@ fn taps_are_bounded_and_expire_with_their_buttons() {
     assert_eq!(state.touch.owner, owner);
     assert_ne!(super::TouchState::default().owner, owner);
 }
+
+/// A callback that removes the tapped button still counts as having received the tap.
+#[test]
+fn delivery_is_recorded_before_the_callback_removes_its_button() {
+    let mut state = state(true);
+    state.touch.begin_callback();
+    state
+        .set_buttons(vec![button("demo-menu")])
+        .unwrap()
+        .unwrap();
+    state.touch.commit();
+    assert!(state.touch.queue("demo-menu"));
+    state.touch.begin_frame();
+    state.touch.begin_callback();
+    assert_eq!(state.read_presses().unwrap().unwrap(), ["demo-menu"]);
+    state.set_buttons(Vec::new()).unwrap().unwrap();
+    state.touch.commit();
+    state.touch.finish_frame(false);
+    assert!(state.touch.delivered);
+}
