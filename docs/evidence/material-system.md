@@ -25,11 +25,14 @@ test requires every inventory token to appear in a matrix row's surface, wire or
 Confirmed gaps against the current client:
 
 - Custom block texture variations draw like vanilla terrain variations. Alpha-masked tint uses
-  the grass-side overlay composition (alpha weights the tint, the face stays opaque); the Bedrock
-  shader formula is unknown, so this is provisional. Packed bit 4 is retained but not
-  rendered; its constant is unknown.
-- Block AO exponents reach the material as the exact authored f32, as Bedrock carries them; the
-  shading consumer is unknown, so raising vertex AO to the exponent is provisional.
+  the grass-side overlay composition (alpha weights the tint, the face stays opaque), which the
+  `RenderChunk` program draws the same way. Packed bit 4 is retained but not rendered:
+  the programs read its lightmap UV.x only as the camera-distance dither flag, and the value the
+  builder writes is unknown.
+- Block AO exponents reach the material as the exact authored f32, as Bedrock carries them. The
+  `RenderChunk` programs take occlusion premultiplied in the vertex colour, so the
+  exponent is applied on the CPU; that consumer is unknown, so raising vertex AO to
+  the exponent is provisional.
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
 - Server block texture sets keep their normal or height and MER or MERS layers in sparse Enhanced
@@ -70,9 +73,15 @@ Confirmed gaps against the current client:
 - Actor draws bind their extra textures and colours as Bedrock wires its defines: a second
   texture for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and `MASKED_MULTITEXTURE`, a
   third for `USE_MULTITEXTURE`, the overlay colour with `USE_OVERLAY` or `TINTED_ALPHA_TEST`, and
-  `uv_anim` with `USE_UV_ANIM`. The shader formulas are unknown, so the glint (the
-  client's actor glint), multiplicative tint, masked multitexture and coloured second texture
-  draws are provisional; `MULTI_COLOR_TINT` and `COLOR_BASED` are carried but not drawn.
+  `uv_anim` with `USE_UV_ANIM`. Multiplicative tint, masked multitexture and the coloured
+  second texture follow the actor programs exactly. The glint follows the programs'
+  composition, but the values the CPU sets for its colour, rotation, scroll and scale are unknown,
+  so it keeps the client's actor glint; `MULTI_COLOR_TINT` and `COLOR_BASED` are
+  carried but not drawn.
+
+Shader programs are read from a local install's `renderer/materials/*.material.bin`
+with `cargo run -p material-bin -- summary|source <file> ...`. Only facts derived from them,
+cited by file and pass, are committed; the programs themselves are game data and never are.
 - Colour masking and three-sampler draws follow `USE_COLOR_MASK` and `USE_MULTITEXTURE`. The
   vanilla pack does not define the native `sheep`, `wolf` and `llama` materials, so the client's
   built-in bases declare them; packs cannot derive from `entity_change_color` or
