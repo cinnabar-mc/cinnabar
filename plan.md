@@ -135,8 +135,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   declares materials and bindings; bound entities and cube blocks draw with them under
   host-owned depth, blend and pass, charged to the signed memory and GPU limits, and revocation
   restores Bedrock in one publication. Cube and model blocks are both tagged, and translucent
-  classes draw as sorted per-section items. Incomplete: faces within one translucent section are
-  not sorted, Enhanced and shader-pack terrain draw bound blocks as Bedrock, and only offline
+  classes draw as sorted per-section items whose faces sort back to front with ordinary
+  translucent terrain's face metric. Incomplete: a section's bound translucent faces do not
+  interleave with its ordinary translucent faces, Enhanced and shader-pack terrain draw bound blocks as Bedrock, and only offline
   raster acceptance exists; no in-game capture of a bound entity or block.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop

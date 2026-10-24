@@ -1,8 +1,9 @@
 //! Programmable world materials on bound blocks. Meshing tags a bound block's cube quads and
 //! model draws with its material slot; ordinary terrain pipelines skip tagged geometry, and the
 //! world material passes draw each visible section's tagged geometry once per material:
-//! opaque and cutout classes in the opaque phase, premultiplied and additive classes as sorted
-//! translucent items ordered like ordinary translucent terrain. A section whose materials are
+//! opaque and cutout classes in the opaque phase, premultiplied and additive classes as one
+//! sorted translucent item per section and material, whose faces draw back to front by the
+//! metric ordinary translucent terrain sorts its faces with. A section whose materials are
 //! not all ready draws its tagged geometry with the Bedrock fallback pipelines instead, so a
 //! bound block never disappears while its material compiles.
 
@@ -15,6 +16,7 @@ use mod_render::world_material::publication::{Blend, Depth};
 use render_scene::ChunkRenderInstance;
 
 mod draw;
+mod order;
 pub(in crate::chunk) use draw::{
     DrawWorldMaterialTerrainCommands, DrawWorldMaterialTranslucentCommands, WorldTerrainSections,
     queue_world_material_chunks,
