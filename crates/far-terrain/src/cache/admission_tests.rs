@@ -53,17 +53,49 @@ fn fill_admission(cache: &FarTerrainCache) {
     ));
 }
 
-/// Reads the worker's stored column after earlier commands have settled.
-fn stored(cache: &FarTerrainCache, namespace: NamespaceKey, pos: ColumnPos) -> Option<Versioned> {
-    let disk = cache.disk.as_ref().unwrap();
-    assert!(disk.load(namespace, RegionPos::of(pos)));
+/// Reads a stored column while delivering every other completion to its cache owner.
+fn stored(
+    cache: &mut FarTerrainCache,
+    namespace: NamespaceKey,
+    pos: ColumnPos,
+) -> Option<Versioned> {
+    assert!(
+        cache
+            .disk
+            .as_ref()
+            .unwrap()
+            .load(namespace, RegionPos::of(pos))
+    );
     cache.sync();
-    disk.events().find_map(|event| match event {
-        crate::DiskEvent::Loaded { columns, .. } => columns
-            .into_iter()
-            .find_map(|(column_pos, column)| (column_pos == pos).then_some(column)),
-        _ => None,
-    })
+    let mut budget = SummaryBudget::new(usize::MAX, usize::MAX);
+    if let Some(mut pending) = cache.pending_event.take() {
+        assert!(cache.apply_event(&mut pending, &mut budget));
+    }
+    let mut found = None;
+    loop {
+        let Some(event) = cache.disk.as_ref().unwrap().events().next() else {
+            break;
+        };
+        if let crate::DiskEvent::Loaded {
+            namespace: loaded,
+            region,
+            columns,
+            ..
+        } = &event
+            && *loaded == namespace
+            && *region == RegionPos::of(pos)
+        {
+            found = columns
+                .iter()
+                .find(|(column_pos, _)| *column_pos == pos)
+                .map(|(_, column)| column.clone());
+        }
+        cache.receive_event(event);
+        if let Some(mut pending) = cache.pending_event.take() {
+            assert!(cache.apply_event(&mut pending, &mut budget));
+        }
+    }
+    found
 }
 
 /// A refused empty-probe reservation cannot later reuse the matching lobby's epoch.
@@ -90,7 +122,7 @@ fn uncertain_retirement_keeps_fresh_intent_after_admission_retry() {
     let now = Instant::now();
     let (mut cache, previous) = resolved_cache(root.path(), 0);
     let pos = ColumnPos::new(0, 0);
-    let previous_version = stored(&cache, previous, pos).unwrap().version;
+    let previous_version = stored(&mut cache, previous, pos).unwrap().version;
     fill_admission(&cache);
     cache.begin_uncertain_visit("remote:cache.example:1", 0);
     let session = cache.retire_session().unwrap();
@@ -101,7 +133,7 @@ fn uncertain_retirement_keeps_fresh_intent_after_admission_retry() {
     cache.persist(session, [(pos, surface(64))], now);
     cache.sync();
     assert_eq!(
-        stored(&cache, previous, pos).unwrap().version,
+        stored(&mut cache, previous, pos).unwrap().version,
         previous_version
     );
 }
@@ -132,7 +164,7 @@ fn diverged_retirement_retries_migration_before_late_batches() {
         cache.disk.as_ref().unwrap().events().for_each(drop);
         cache.poll(now);
         cache.sync();
-        assert!(stored(&cache, previous, pos).is_none());
+        assert!(stored(&mut cache, previous, pos).is_none());
         let disk = cache.disk.as_ref().unwrap();
         assert!(disk.resolve(session.world, session.entry, session.intent, Vec::new()));
         cache.sync();
@@ -145,14 +177,14 @@ fn diverged_retirement_retries_migration_before_late_batches() {
             .unwrap();
         assert_ne!(migrated, previous);
         assert_eq!(
-            stored(&cache, previous, ColumnPos::new(0, 0))
+            stored(&mut cache, previous, ColumnPos::new(0, 0))
                 .unwrap()
                 .summary
                 .hash,
             surface(64).hash
         );
         assert_eq!(
-            stored(&cache, migrated, pos).unwrap().summary.hash,
+            stored(&mut cache, migrated, pos).unwrap().summary.hash,
             surface(90).hash
         );
         for x in [400, 500] {
@@ -160,10 +192,10 @@ fn diverged_retirement_retries_migration_before_late_batches() {
             cache.persist(session.clone(), [(late, surface(80))], now);
             cache.sync();
             assert_eq!(
-                stored(&cache, migrated, late).unwrap().summary.hash,
+                stored(&mut cache, migrated, late).unwrap().summary.hash,
                 surface(80).hash
             );
-            assert!(stored(&cache, previous, late).is_none());
+            assert!(stored(&mut cache, previous, late).is_none());
         }
     }
 }
@@ -190,11 +222,10 @@ fn pending_region_reservations_bound_dirty_and_in_flight_payloads() {
             now,
         );
         cache.flush_all();
-        assert!(cache.dirty.len() <= MAX_PENDING_WRITE_REGIONS);
-        assert!(cache.writing.len() <= MAX_PENDING_WRITE_REGIONS);
+        assert!(cache.pending.len() <= MAX_PENDING_WRITE_REGIONS);
     }
     let pos = *cache
-        .dirty
+        .pending
         .values()
         .next()
         .unwrap()
@@ -288,15 +319,19 @@ fn refused_writes_do_not_restore_older_terrain_after_eviction() {
         cache.store.version(pos).is_none(),
         "an old disk read restored rejected terrain"
     );
-    cache.writing.insert(
+    cache.pending.insert(
         (namespace, RegionPos::of(pos)),
-        BTreeMap::from([(
-            pos,
-            Versioned {
-                version: 2,
-                summary: surface(64),
-            },
-        )]),
+        PendingRegion {
+            since: Some(now),
+            in_flight: false,
+            columns: BTreeMap::from([(
+                pos,
+                Versioned {
+                    version: 2,
+                    summary: surface(64),
+                },
+            )]),
+        },
     );
     cache.pending_event = Some(PendingEvent::Loaded {
         namespace,
@@ -316,6 +351,113 @@ fn refused_writes_do_not_restore_older_terrain_after_eviction() {
     );
     cache.admit(0, pos, surface(100), now);
     assert_eq!(cache.store.encoded(pos).unwrap().hash, surface(100).hash);
+}
+
+/// Replacing a visit that could not flush must not restore its older persisted terrain.
+#[test]
+fn saturated_retirements_do_not_restore_discarded_versions() {
+    for preserve_migration in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let now = Instant::now();
+        let (mut cache, namespace) = resolved_cache(root.path(), 42);
+        fill_admission(&cache);
+        if preserve_migration {
+            cache.diverge();
+        }
+        cache.begin_visit("remote:cache.example:1", 42, 0);
+        let pos = ColumnPos::new(0, 0);
+        cache.admit(0, pos, surface(90), now);
+        cache.begin_visit("remote:cache.example:1", 43, 0);
+        cache.begin_visit("remote:cache.example:1", 42, 0);
+        cache.disk.as_ref().unwrap().events().for_each(drop);
+        cache.namespace = Some(namespace);
+        cache.pending_event = Some(PendingEvent::Loaded {
+            namespace,
+            region: RegionPos::of(pos),
+            columns: vec![(
+                pos,
+                Versioned {
+                    version: 1,
+                    summary: surface(64),
+                },
+            )]
+            .into_iter(),
+            after: None,
+        });
+        cache.poll(now);
+        assert!(
+            cache.store.version(pos).is_none(),
+            "an abandoned retirement restored older terrain"
+        );
+    }
+}
+
+/// Clean shutdown drains retained writes even while unread events consume every IO slot.
+#[test]
+fn saturated_shutdown_persists_retained_regions() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let (mut cache, namespace) = resolved_cache(root.path(), 42);
+    for region in 1..=2 {
+        cache.admit(0, ColumnPos::new(region * REGION_SIDE, 0), surface(90), now);
+        cache.flush_all();
+    }
+    cache.sync();
+    let disk = cache.disk.as_ref().unwrap();
+    for _ in 0..crate::disk::MAX_PENDING_OPERATIONS {
+        disk.resolve(
+            cache.world.unwrap(),
+            u64::MAX,
+            ResolutionIntent::Probed,
+            Vec::new(),
+        );
+    }
+    cache.sync();
+    let pos = ColumnPos::new(3 * REGION_SIDE, 0);
+    cache.admit(0, pos, surface(100), now);
+    cache.leave_world();
+    cache.sync();
+    drop(cache);
+    let mut reader =
+        FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 1000);
+    reader.enter_world("remote:cache.example:1", 42, 0);
+    assert_eq!(
+        stored(&mut reader, namespace, pos).map(|column| column.summary.hash),
+        Some(surface(100).hash)
+    );
+}
+
+/// Shutdown drains retained unresolved columns across more regions than writeback can hold.
+#[test]
+fn shutdown_resolves_and_drains_more_than_one_writeback_batch() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache =
+        FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 100);
+    cache.enter_world("remote:cache.example:1", 42, 0);
+    for region in 0..MAX_PENDING_WRITE_REGIONS + 1 {
+        cache.admit(
+            0,
+            ColumnPos::new(region as i32 * REGION_SIDE, 0),
+            surface(90),
+            now,
+        );
+    }
+    cache.sync();
+    cache.poll_budgeted(now, &mut SummaryBudget::new(0, 0));
+    let namespace = cache.namespace().unwrap();
+    cache.finish();
+    drop(cache);
+    let mut reader =
+        FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 1000);
+    reader.enter_world("remote:cache.example:1", 42, 0);
+    for region in 0..MAX_PENDING_WRITE_REGIONS + 1 {
+        let pos = ColumnPos::new(region as i32 * REGION_SIDE, 0);
+        assert_eq!(
+            stored(&mut reader, namespace, pos).map(|column| column.summary.hash),
+            Some(surface(90).hash)
+        );
+    }
 }
 
 /// Caller corruption and exhausted persisted clocks cannot wrap live ordering.

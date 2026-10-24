@@ -60,6 +60,7 @@ pub enum DiskEvent {
     /// written; a read asked for afterwards sees them.
     Written {
         namespace: NamespaceKey,
+        region: RegionPos,
         columns: Vec<(ColumnPos, u64)>,
     },
     /// The epoch whose cached terrain matches the probes, or a new one, for the caller's
@@ -221,16 +222,17 @@ impl DiskCache {
         self.observed_version.load(Ordering::Relaxed)
     }
 
-    /// Blocks until every earlier command has finished.
-    pub fn sync(&self) {
+    /// Blocks until every earlier command has finished; returns false if the worker stopped.
+    pub fn sync(&self) -> bool {
         let (done, wait) = crossbeam_channel::bounded(1);
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(Envelope {
+        self.tx.as_ref().is_some_and(|tx| {
+            tx.send(Envelope {
                 value: Command::Sync(done),
                 permit: None,
-            });
-            let _ = wait.recv();
-        }
+            })
+            .is_ok()
+                && wait.recv().is_ok()
+        })
     }
 
     /// Optional cache work is refused immediately when commands or results fill admission.
@@ -299,6 +301,7 @@ impl Worker {
                 self.write(namespace, region, columns);
                 Some(DiskEvent::Written {
                     namespace,
+                    region,
                     columns: written,
                 })
             }

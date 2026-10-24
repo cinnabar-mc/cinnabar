@@ -31,14 +31,22 @@ use completion::PendingEvent;
 mod admission_tests;
 
 #[derive(Debug)]
-struct DirtyRegion {
-    since: Instant,
+struct PendingRegion {
+    /// No timestamp means the retained payload should be flushed immediately.
+    since: Option<Instant>,
     /// Payloads are kept here, not looked up at flush, so memory eviction cannot lose them.
     columns: BTreeMap<ColumnPos, Versioned>,
+    in_flight: bool,
 }
 
 /// A world just left, which late summaries still reach.
-enum Retired {
+struct Retired {
+    identity: RetiredIdentity,
+    columns: Vec<(ColumnPos, Versioned)>,
+}
+
+/// The namespace or deferred identity decision belonging to one retired visit.
+enum RetiredIdentity {
     Resolved(NamespaceKey),
     /// Keeps the identity decision for a visit left before the worker resolved its namespace.
     Unresolved {
@@ -47,16 +55,15 @@ enum Retired {
         entry: u64,
         intent: ResolutionIntent,
         probes: Vec<(ColumnPos, ColumnSummary)>,
-        columns: Vec<(ColumnPos, Versioned)>,
     },
 }
 
 impl Retired {
     /// Accepts unkeyed late columns only while this is the most recently ended visit.
     fn accepts_late(&self, dimension: i32, current_entry: u64) -> bool {
-        match self {
-            Self::Resolved(namespace) => namespace.dimension == dimension,
-            Self::Unresolved { world, entry, .. } => {
+        match &self.identity {
+            RetiredIdentity::Resolved(namespace) => namespace.dimension == dimension,
+            RetiredIdentity::Unresolved { world, entry, .. } => {
                 world.dimension == dimension && entry.checked_add(1) == Some(current_entry)
             }
         }
@@ -65,12 +72,18 @@ impl Retired {
     /// A deferred migration must reach the worker before another retirement can replace it.
     fn migration_pending(&self) -> bool {
         matches!(
-            self,
-            Self::Unresolved {
+            self.identity,
+            RetiredIdentity::Unresolved {
                 intent: ResolutionIntent::Migrate { .. },
                 ..
             }
         )
+    }
+
+    /// True while retained columns or a non-default identity decision need admission.
+    fn needs_flush(&self) -> bool {
+        !self.columns.is_empty()
+            || matches!(self.identity, RetiredIdentity::Unresolved { intent, .. } if intent != ResolutionIntent::Probed)
     }
 }
 
@@ -128,10 +141,8 @@ pub struct FarTerrainCache {
     intent: ResolutionIntent,
     /// When this visit's first column arrived, for [`WORLD_PROBE_TIMEOUT`].
     pending_since: Option<Instant>,
-    /// Changes waiting to be written, per namespace and region.
-    dirty: BTreeMap<(NamespaceKey, RegionPos), DirtyRegion>,
-    /// Changes handed to the IO thread and not yet reported written.
-    writing: BTreeMap<(NamespaceKey, RegionPos), BTreeMap<ColumnPos, Versioned>>,
+    /// One owner keeps each region's newest unacknowledged columns through submission.
+    pending: BTreeMap<(NamespaceKey, RegionPos), PendingRegion>,
     pending_event: Option<PendingEvent>,
     requested: HashSet<RegionPos>,
     /// Regions read again after memory dropped some of their columns, once per focus.
@@ -177,8 +188,7 @@ impl FarTerrainCache {
             resolving: false,
             intent: ResolutionIntent::Probed,
             pending_since: None,
-            dirty: BTreeMap::new(),
-            writing: BTreeMap::new(),
+            pending: BTreeMap::new(),
             pending_event: None,
             requested: HashSet::new(),
             reread: HashSet::new(),
@@ -251,7 +261,7 @@ impl FarTerrainCache {
         self.start_resolving();
     }
 
-    /// Leaves the current world, as on disconnect, after writing what is waiting.
+    /// Leaves the current world, as on disconnect, after scheduling its retained writes.
     pub fn leave_world(&mut self) {
         self.end_entry();
         self.world = None;
@@ -259,37 +269,23 @@ impl FarTerrainCache {
 
     /// Flushes pending writes and keeps an unresolved visit's identity decision for retirement.
     fn end_entry(&mut self) {
-        if let Some(namespace) = self.namespace {
-            for (pos, column) in std::mem::take(&mut self.unresolved) {
-                self.queue_write(
-                    namespace,
-                    pos,
-                    column,
-                    self.pending_since
-                        .expect("unresolved columns have an admission time"),
-                );
-            }
-        }
         self.flush_all();
         self.flush_retired();
-        let retired = match (self.namespace.take(), self.world) {
-            (Some(namespace), _) => Some(Retired::Resolved(namespace)),
-            (None, Some(world)) => Some(Retired::Unresolved {
+        let identity = match (self.namespace.take(), self.world) {
+            (Some(namespace), _) => Some(RetiredIdentity::Resolved(namespace)),
+            (None, Some(world)) => Some(RetiredIdentity::Unresolved {
                 world,
                 entry: self.entry,
                 intent: self.intent,
                 probes: std::mem::take(&mut self.probes),
-                columns: std::mem::take(&mut self.unresolved),
             }),
             (None, None) => None,
         };
-        if !self
-            .retired
-            .as_ref()
-            .is_some_and(Retired::migration_pending)
-        {
-            self.retired = retired;
-        }
+        let retired = identity.map(|identity| Retired {
+            identity,
+            columns: std::mem::take(&mut self.unresolved),
+        });
+        self.replace_retired(retired);
         self.flush_retired();
         self.entry += 1;
         self.visit_start = self.next_version + 1;
@@ -305,28 +301,67 @@ impl FarTerrainCache {
         self.reread.clear();
     }
 
+    /// Preserves a deferred migration and invalidates every payload a visit change discards.
+    fn replace_retired(&mut self, next: Option<Retired>) {
+        let discarded = if self
+            .retired
+            .as_ref()
+            .is_some_and(Retired::migration_pending)
+        {
+            next
+        } else {
+            std::mem::replace(&mut self.retired, next)
+        };
+        if let Some(retired) = discarded {
+            self.discarded_through = retired
+                .columns
+                .iter()
+                .fold(self.discarded_through, |version, (_, column)| {
+                    version.max(column.version)
+                });
+        }
+    }
+
     /// Retries retired identity work and waiting columns without blocking the frame thread.
     fn flush_retired(&mut self) {
-        if let (
-            Some(Retired::Unresolved {
+        let Some(mut retired) = self.retired.take() else {
+            return;
+        };
+        match &mut retired.identity {
+            RetiredIdentity::Resolved(namespace) => {
+                while let Some((pos, column)) = retired.columns.last().cloned() {
+                    if !self.try_queue_write(*namespace, pos, &column, None) {
+                        break;
+                    }
+                    retired.columns.pop();
+                }
+            }
+            RetiredIdentity::Unresolved {
                 world,
                 entry,
                 intent,
                 probes,
-                columns,
-            }),
-            Some(disk),
-        ) = (&mut self.retired, &self.disk)
-            && (!columns.is_empty() || *intent != ResolutionIntent::Probed)
-        {
-            // Late columns probe too, so a world left before its first summary is still
-            // compared against cached maps rather than reusing the newest blindly.
-            add_probes(probes, columns);
-            if disk.resolve_and_write(*world, *entry, *intent, probes.clone(), columns.clone()) {
-                columns.clear();
-                *intent = ResolutionIntent::Probed;
+            } => {
+                if let Some(disk) = &self.disk
+                    && (!retired.columns.is_empty() || *intent != ResolutionIntent::Probed)
+                {
+                    // Late columns probe too, so a world left before its first summary is still
+                    // compared against cached maps rather than reusing the newest blindly.
+                    add_probes(probes, &retired.columns);
+                    if disk.resolve_and_write(
+                        *world,
+                        *entry,
+                        *intent,
+                        probes.clone(),
+                        retired.columns.clone(),
+                    ) {
+                        retired.columns.clear();
+                        *intent = ResolutionIntent::Probed;
+                    }
+                }
             }
         }
+        self.retired = Some(retired);
     }
 
     /// Records a column's encoded summary as the newest of it. Columns show at once and are
@@ -342,15 +377,19 @@ impl FarTerrainCache {
             .is_some_and(|retired| retired.accepts_late(dimension, self.entry))
             && self.world.is_none_or(|world| world.dimension != dimension)
         {
-            match &mut self.retired {
-                Some(Retired::Resolved(namespace)) => {
+            match self
+                .retired
+                .as_mut()
+                .map(|retired| (&mut retired.identity, &mut retired.columns))
+            {
+                Some((RetiredIdentity::Resolved(namespace), _)) => {
                     let namespace = *namespace;
                     self.queue_write(namespace, pos, column, now);
                 }
-                Some(Retired::Unresolved { columns, .. }) if self.disk.is_some() => {
+                Some((RetiredIdentity::Unresolved { .. }, columns)) if self.disk.is_some() => {
                     retain_unresolved(columns, &mut self.discarded_through, pos, column);
                 }
-                Some(Retired::Unresolved { .. }) | None => {}
+                Some((RetiredIdentity::Unresolved { .. }, _)) | None => {}
             }
             return;
         }
@@ -407,7 +446,7 @@ impl FarTerrainCache {
 
     /// Applies a bounded share of completed disk columns, retaining partial events in order.
     pub fn poll_budgeted(&mut self, now: Instant, budget: &mut SummaryBudget) {
-        self.apply_completions(now, budget);
+        self.apply_completions(Some(now), budget);
         if self.intent != ResolutionIntent::Probed && self.namespace.is_none() && !self.resolving {
             self.start_resolving();
         }
@@ -424,11 +463,13 @@ impl FarTerrainCache {
         let evicted = self.store.take_evicted();
         self.reread_evicted(&evicted);
         let due: Vec<(NamespaceKey, RegionPos)> = self
-            .dirty
+            .pending
             .iter()
-            .filter(|(_, dirty)| {
-                dirty.columns.len() >= REGION_FLUSH_COLUMNS
-                    || now.saturating_duration_since(dirty.since) >= REGION_FLUSH_AFTER
+            .filter(|(_, pending)| {
+                pending.columns.len() >= REGION_FLUSH_COLUMNS
+                    || pending.since.is_none_or(|since| {
+                        now.saturating_duration_since(since) >= REGION_FLUSH_AFTER
+                    })
             })
             .map(|(region, _)| *region)
             .collect();
@@ -437,9 +478,9 @@ impl FarTerrainCache {
         }
     }
 
-    /// Writes every waiting change now.
+    /// Submits retained regions as IO admission allows; refused work stays queued.
     pub fn flush_all(&mut self) {
-        let regions: Vec<(NamespaceKey, RegionPos)> = self.dirty.keys().copied().collect();
+        let regions: Vec<(NamespaceKey, RegionPos)> = self.pending.keys().copied().collect();
         for region in regions {
             self.flush(region);
         }
@@ -514,11 +555,39 @@ impl FarTerrainCache {
         self.store.set_budget(bytes);
     }
 
-    /// Waits until the IO thread has finished every queued command.
+    /// Waits until the IO thread has finished commands already submitted to it.
     pub fn sync(&self) {
         if let Some(disk) = &self.disk {
             disk.sync();
         }
+    }
+
+    /// Drains retained payloads and acknowledgements before leaving, without a frame budget.
+    pub fn finish(&mut self) {
+        self.focus = None;
+        while self.disk.is_some() {
+            if self.world.is_some() && self.namespace.is_none() && !self.resolving {
+                self.start_resolving();
+            }
+            self.flush_retired();
+            self.flush_all();
+            if !self.disk.as_ref().expect("checked above").sync() {
+                break;
+            }
+            self.apply_completions(None, &mut SummaryBudget::new(usize::MAX, usize::MAX));
+            if self.pending.is_empty()
+                && self.unresolved.is_empty()
+                && self.pending_event.is_none()
+                && self
+                    .retired
+                    .as_ref()
+                    .is_none_or(|retired| !retired.needs_flush())
+                && (self.world.is_none() || self.namespace.is_some())
+            {
+                break;
+            }
+        }
+        self.leave_world();
     }
 
     /// The active namespace, once its world identity is resolved.
@@ -541,12 +610,9 @@ impl FarTerrainCache {
     /// The newest pending write for a column, whether waiting or already on the IO thread.
     fn queued(&self, namespace: NamespaceKey, pos: ColumnPos) -> Option<&Versioned> {
         let key = (namespace, RegionPos::of(pos));
-        self.dirty
+        self.pending
             .get(&key)
-            .and_then(|dirty| dirty.columns.get(&pos))
-            .into_iter()
-            .chain(self.writing.get(&key).and_then(|columns| columns.get(&pos)))
-            .max_by_key(|column| column.version)
+            .and_then(|pending| pending.columns.get(&pos))
     }
 
     /// Compares a live column with the cached one it replaces, for the first
@@ -585,23 +651,23 @@ impl FarTerrainCache {
         };
         self.store.retain_since(self.visit_start);
         let keys: Vec<(NamespaceKey, RegionPos)> = self
-            .dirty
+            .pending
             .keys()
             .copied()
             .filter(|(written, _)| *written == namespace)
             .collect();
         for key in keys {
-            let Some(dirty) = self.dirty.get_mut(&key) else {
+            let Some(pending) = self.pending.get_mut(&key) else {
                 continue;
             };
             let visit = self.visit_start;
             let (live, older): (BTreeMap<_, _>, BTreeMap<_, _>) =
-                std::mem::take(&mut dirty.columns)
+                std::mem::take(&mut pending.columns)
                     .into_iter()
                     .partition(|(_, column)| column.version >= visit);
-            dirty.columns = older;
-            if dirty.columns.is_empty() {
-                self.dirty.remove(&key);
+            pending.columns = older;
+            if pending.columns.is_empty() && !pending.in_flight {
+                self.pending.remove(&key);
             }
             for (pos, column) in live {
                 retain_unresolved(
@@ -635,8 +701,7 @@ impl FarTerrainCache {
             self.disk = None;
             self.disk_root = None;
             self.store.clear();
-            self.dirty.clear();
-            self.writing.clear();
+            self.pending.clear();
             self.unresolved.clear();
             self.retired = None;
             self.pending_event = None;
@@ -702,59 +767,60 @@ impl FarTerrainCache {
         column: Versioned,
         now: Instant,
     ) {
+        if self.disk.is_some() && !self.try_queue_write(namespace, pos, &column, Some(now)) {
+            self.discarded_through = self.discarded_through.max(column.version);
+        }
+    }
+
+    /// Reserves one canonical writeback region, leaving refused retained payloads with callers.
+    fn try_queue_write(
+        &mut self,
+        namespace: NamespaceKey,
+        pos: ColumnPos,
+        column: &Versioned,
+        since: Option<Instant>,
+    ) -> bool {
         if self.disk.is_none() {
-            return;
+            return false;
         }
         let key = (namespace, RegionPos::of(pos));
         if column.summary.bytes.len() > crate::summary::MAX_ENCODED_BYTES
-            || (!self.dirty.contains_key(&key) && self.dirty.len() >= MAX_PENDING_WRITE_REGIONS)
+            || (!self.pending.contains_key(&key) && self.pending.len() >= MAX_PENDING_WRITE_REGIONS)
         {
-            self.discarded_through = self.discarded_through.max(column.version);
-            return;
+            return false;
         }
         let waiting = &mut self
-            .dirty
+            .pending
             .entry((namespace, RegionPos::of(pos)))
-            .or_insert_with(|| DirtyRegion {
-                since: now,
+            .or_insert_with(|| PendingRegion {
+                since,
                 columns: BTreeMap::new(),
+                in_flight: false,
             })
             .columns;
         if waiting
             .get(&pos)
             .is_none_or(|queued| queued.version < column.version)
         {
-            waiting.insert(pos, column);
+            waiting.insert(pos, column.clone());
         }
+        true
     }
 
+    /// Submits each region once while its owner retains newer edits until acknowledgement.
     fn flush(&mut self, key: (NamespaceKey, RegionPos)) {
-        if !self.writing.contains_key(&key) && self.writing.len() >= MAX_PENDING_WRITE_REGIONS {
-            return;
-        }
-        let (Some(dirty), Some(disk)) = (self.dirty.remove(&key), &self.disk) else {
+        let (Some(pending), Some(disk)) = (self.pending.get_mut(&key), &self.disk) else {
             return;
         };
-        let columns = dirty
+        if pending.in_flight || pending.columns.is_empty() {
+            return;
+        }
+        let columns = pending
             .columns
             .iter()
             .map(|(pos, column)| (region_index(*pos), column.clone()))
             .collect();
-        if !disk.write(key.0, key.1, columns) {
-            self.dirty.insert(key, dirty);
-            return;
-        }
-        for (pos, column) in dirty.columns {
-            let in_flight = self
-                .writing
-                .entry(key)
-                .or_default()
-                .entry(pos)
-                .or_insert_with(|| column.clone());
-            if in_flight.version < column.version {
-                *in_flight = column.clone();
-            }
-        }
+        pending.in_flight = disk.write(key.0, key.1, columns);
     }
 
     /// Reads regions again whose columns memory dropped while still in focus, once per
@@ -808,7 +874,7 @@ impl FarTerrainCache {
 
 impl Drop for FarTerrainCache {
     fn drop(&mut self) {
-        self.end_entry();
+        self.finish();
     }
 }
 
