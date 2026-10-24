@@ -134,6 +134,23 @@ pub(crate) fn adopt_server_item_use(
     if !runtime.has_server_using_item() {
         return;
     }
+    // A local click must reach its transaction admission before a server start
+    // can occupy the idle use. Ordered suffixes and unordered frame presses wait here.
+    let press_waits = context.input.snapshot().is_some_and(|input| {
+        if input.ordered.is_some() {
+            crate::ordered_interactions::later_button_states(
+                context.ordered.as_deref(),
+                &context.input,
+                Action::Use,
+            )
+            .any(|held| held)
+        } else {
+            context.input.phase(Action::Use).pressed
+        }
+    });
+    if button.admitted && !runtime.is_using() && (press_waits || runtime.pending_edge()) {
+        return;
+    }
     // The next tick physics simulates, whether or not earlier inputs await sending.
     let sample = gameplay::movement::InteractionSample {
         tick: movement.next_tick(),
@@ -360,7 +377,7 @@ struct UseButton {
 fn use_button(player_runtime: &client_state::PlayerRuntime, context: &ItemUseContext) -> UseButton {
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
-    let gameplay_focused = focused && !context.focus.ui_focused;
+    let gameplay_focused = focused && !context.focus.ui_focused && !context.focus.absorbs_input;
     let admitted =
         context.input.snapshot().is_some() && gameplay_focused && item_use_allowed(player_runtime);
     let held = admitted

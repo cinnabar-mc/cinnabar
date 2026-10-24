@@ -346,7 +346,8 @@ camera eye blend. Item use reconciles with the word's item-use bit only on movem
 a set bit starts the selected item's use and reports `StartUsingItem` (an item without a held
 use completes on the next tick, and whether vanilla slows that tick is unverified; an empty
 hand keeps the flag set), a clear bit stops the use without a release transaction, and a
-spectator game-mode change stops it in packet order. Each tick refreshes the in-use stack,
+spectator game-mode change stops it in packet order. Queued local presses keep their normal
+transaction admission before a server start occupies the use. Each tick refreshes the in-use stack,
 count included; release validation compares the whole stack. Two further stack properties,
 including charged-item state, remain unmapped in the retained item data. Replayed ticks
 keep the slowdown their live tick recorded. Glide, swim and crawl retain independent bits beside flight;

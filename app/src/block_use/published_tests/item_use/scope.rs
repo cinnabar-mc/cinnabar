@@ -85,8 +85,8 @@ fn server_item_use_survives_an_ordered_edge_after_a_dimension_change() {
     server_start_after_scope_change(7, 1);
 }
 
-/// Starts a server-owned bow use over two verified slots, aiming into air with known button ownership.
-fn server_using_bow(held: bool) -> (World, client_session::CapturedPackets) {
+/// Supplies two verified bow slots, an acknowledged movement sample and an air pick.
+fn bow_world(held: bool) -> (World, client_session::CapturedPackets) {
     let (mut world, mut captured) = fixture();
     hold_air_item(&mut world, "minecraft:bow", 1, [].into());
     world.init_resource::<crate::melee::MeleeTarget>();
@@ -125,24 +125,37 @@ fn server_using_bow(held: bool) -> (World, client_session::CapturedPackets) {
     world
         .run_system_cached(crate::item_use::ordered::synchronize_scope)
         .unwrap();
-    let using = client_world::MovementFlagUpdate {
-        using_item: Some(true),
-        ..Default::default()
-    };
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([4.5, 2.620_01, 8.5], 101, false);
-    physics.apply_server_movement_flags(0, using);
     world.insert_resource(physics);
     world
         .resource_mut::<Time<Real>>()
         .advance_by(simulation_clock::TICK_DURATION);
+    let mut events = semantic_input::DesktopEvents::default();
     if !held {
-        route_use_events(
-            &mut world,
-            semantic_input::DesktopEvents::default(),
-            Vec::new(),
-        );
+        events.push(semantic_input::DesktopEvent::Button {
+            control: semantic_input::PhysicalControl::MouseButton(2),
+            pressed: false,
+            modifiers: Default::default(),
+        });
     }
+    route_use_events(&mut world, events, if held { vec![2] } else { Vec::new() });
+    captured.drain();
+    (world, captured)
+}
+
+/// Starts a server-owned use without introducing a new local Use press.
+fn server_using_bow(held: bool) -> (World, client_session::CapturedPackets) {
+    let (mut world, mut captured) = bow_world(held);
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(true),
+                ..Default::default()
+            },
+        );
     world
         .run_system_cached(crate::item_use::adopt_server_item_use)
         .unwrap();
@@ -331,4 +344,99 @@ fn a_server_control_retires_older_local_item_use_writes() {
     assert!(captured.drain().iter().all(|packet| {
         protocol::test_support::transactions::observe_transaction(packet).is_none()
     }));
+}
+
+/// A queued local press keeps its click transaction instead of becoming a silent server use.
+#[test]
+fn local_use_presses_precede_pending_server_starts() {
+    for ordered in [false, true] {
+        let (mut world, mut captured) = bow_world(false);
+        world
+            .resource_mut::<LocalPhysicsController>()
+            .apply_server_movement_flags(
+                0,
+                client_world::MovementFlagUpdate {
+                    using_item: Some(true),
+                    ..Default::default()
+                },
+            );
+        if ordered {
+            let mut events = semantic_input::DesktopEvents::default();
+            for (button, pressed) in [(3, true), (3, false), (2, true)] {
+                events.push(semantic_input::DesktopEvent::Button {
+                    control: semantic_input::PhysicalControl::MouseButton(button),
+                    pressed,
+                    modifiers: Default::default(),
+                });
+            }
+            route_use_events(&mut world, events, vec![2]);
+        } else {
+            let snapshot = world
+                .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+                .route_and_finalize(semantic_input::DeviceFrame {
+                    keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                        mouse_buttons: vec![2],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(snapshot.phases[Action::Use as usize].pressed);
+            assert!(snapshot.ordered.is_none());
+            world.insert_resource(SemanticInputSnapshot(
+                semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+            ));
+        }
+        world.run_system_cached(produce_block_use).unwrap();
+        world
+            .run_system_cached(crate::item_use::adopt_server_item_use)
+            .unwrap();
+        assert!(
+            !world.resource::<ItemUseRuntime>().is_using(),
+            "a local press must reach admission before a server start"
+        );
+        world
+            .run_system_cached(crate::item_use::produce_item_use)
+            .unwrap();
+        assert_eq!(
+            captured
+                .drain()
+                .iter()
+                .filter_map(protocol::test_support::transactions::observe_transaction)
+                .filter(|transaction| transaction.item_use().is_some())
+                .count(),
+            1
+        );
+    }
+}
+
+/// An absorbing modal releases an unowned server use even without a menu or UI-focus flag.
+#[test]
+fn an_absorbing_screen_releases_a_server_started_use() {
+    let (mut world, mut captured) = server_using_bow(false);
+    world
+        .resource_mut::<client_state::ScreenFocus>()
+        .absorbs_input = true;
+    route_use_events(
+        &mut world,
+        semantic_input::DesktopEvents::default(),
+        Vec::new(),
+    );
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
+    assert!(
+        !world.resource::<ItemUseRuntime>().is_using(),
+        "absorbing screens must release server-started item use"
+    );
+    assert_eq!(world.resource::<ItemUseRuntime>().movement_modifier(), None);
+    assert_eq!(
+        captured
+            .drain()
+            .iter()
+            .filter_map(protocol::test_support::transactions::observe_transaction)
+            .filter(|transaction| transaction.release().is_some())
+            .count(),
+        1
+    );
 }
