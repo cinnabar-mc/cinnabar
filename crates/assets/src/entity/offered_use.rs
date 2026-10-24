@@ -140,7 +140,7 @@ impl HandItem<'_> {
             Self::Unknown => None,
             Self::Empty => Some(false),
             Self::Item { identifier, .. } => {
-                Some(identifier.ends_with("_spawn_egg") || identifier == "minecraft:spawn_egg")
+                Some(identifier.ends_with(crate::facts::SPAWN_EGG_SUFFIX))
             }
         }
     }

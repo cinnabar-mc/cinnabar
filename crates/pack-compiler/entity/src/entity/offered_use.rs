@@ -124,14 +124,14 @@ fn offerings(entity: &Value, player: &Interactor<'_>) -> Vec<ComponentUse> {
             selector: UseSelector::Base,
             component: "native:bucketable".into(),
             condition: C::Any(Box::new([
-                held("minecraft:bucket"),
-                held("minecraft:water_bucket"),
+                held(assets::facts::EMPTY_BUCKET_IDENTIFIER),
+                held(assets::facts::VanillaItem::WaterBucket.identifier()),
             ])),
         },
         ComponentUse {
             selector: UseSelector::Base,
             component: "native:cuttable_leash".into(),
-            condition: held("minecraft:shears"),
+            condition: held(assets::facts::VanillaItem::Shears.identifier()),
         },
     ];
     if entity
@@ -256,9 +256,9 @@ fn components(
                 | "minecraft:balloonable"
                 | assets::facts::entity::NPC_COMPONENT_IDENTIFIER
                 | "minecraft:sittable"
-                | "minecraft:tripod_camera"
+                | assets::facts::entity::TRIPOD_CAMERA_COMPONENT_IDENTIFIER
                 | "minecraft:interact_with" => C::Unresolved,
-                "minecraft:nameable" => held("minecraft:name_tag"),
+                "minecraft:nameable" => held(assets::facts::VanillaItem::NameTag.identifier()),
                 "minecraft:spawn_egg_interaction" => C::HeldActorPlacer,
                 // The client offers interactions only through its player-interaction component
                 // mappings and the ride, trade and container checks classified above. Dyeing is

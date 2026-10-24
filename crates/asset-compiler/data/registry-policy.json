@@ -6968,7 +6968,11 @@
       "Clock": "minecraft:clock",
       "CarvedPumpkin": "minecraft:carved_pumpkin",
       "EmptyMap": "minecraft:empty_map",
-      "SplashPotion": "minecraft:splash_potion"
+      "SplashPotion": "minecraft:splash_potion",
+      "WaterBucket": "minecraft:water_bucket",
+      "Shears": "minecraft:shears",
+      "NameTag": "minecraft:name_tag",
+      "FireCharge": "minecraft:fire_charge"
     },
     "VanillaBlock": {
       "Air": "minecraft:air",

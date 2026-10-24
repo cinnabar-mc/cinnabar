@@ -1,5 +1,6 @@
 //! The independent retail identity inventory used for item descriptor admission.
 
+use crate::facts::LEGACY_ITEM_ALIASES;
 use std::{collections::BTreeSet, sync::OnceLock};
 
 /// The existing protocol inventory included in descriptor carrier fingerprints.
@@ -27,15 +28,12 @@ pub fn identifiers() -> &'static BTreeSet<&'static str> {
     })
 }
 
-/// Legacy item names the client's vanilla item registration aliases to a retail identity.
-/// Descriptor names that are neither listed here nor retail identities stay unresolved.
-pub const LEGACY_ALIASES: &[(&str, &str)] = &[("minecraft:fireball", "minecraft:fire_charge")];
-
 /// Resolves a namespaced descriptor name to its retail identity through verified aliases.
+/// Descriptor names that are neither aliases nor retail identities stay unresolved.
 #[must_use]
 pub fn canonical_identifier(name: &str) -> Option<&'static str> {
     identifiers().get(name).copied().or_else(|| {
-        LEGACY_ALIASES
+        LEGACY_ITEM_ALIASES
             .iter()
             .find(|(alias, _)| *alias == name)
             .and_then(|(_, target)| identifiers().get(target).copied())
@@ -48,7 +46,7 @@ mod tests {
 
     #[test]
     fn legacy_aliases_name_only_retired_names_and_resolve_to_retail_identities() {
-        for (alias, target) in LEGACY_ALIASES {
+        for (alias, target) in LEGACY_ITEM_ALIASES {
             assert!(
                 !identifiers().contains(alias),
                 "{alias} is a retail identity"
