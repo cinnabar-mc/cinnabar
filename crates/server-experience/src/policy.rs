@@ -6,7 +6,7 @@ pub const WIRE_VERSION: u16 = 1;
 
 pub const MAX_WIRE_VERSION: u16 = 2;
 
-pub const API_VERSION: u16 = 2;
+pub const API_VERSION: u16 = 3;
 
 pub const MAX_IDENTIFIER_BYTES: usize = 96;
 
