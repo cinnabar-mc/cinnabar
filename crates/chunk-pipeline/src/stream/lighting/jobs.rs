@@ -196,14 +196,20 @@ impl WorldStream {
                 self.lighting.priority_wakeups.remove(&key);
                 continue;
             }
-            if key
+            if let Some(neighbour) = key
                 .mesh_dependents()
                 .filter(|candidate| *candidate != key)
-                .any(|neighbour| {
-                    selected.contains(&neighbour)
-                        || self.lighting.jobs.in_flight.contains_key(&neighbour)
+                .find(|neighbour| {
+                    selected.contains(neighbour)
+                        || self.lighting.jobs.in_flight.contains_key(neighbour)
                 })
             {
+                // Completion releases this exclusion even when the shared face is unchanged.
+                self.lighting
+                    .waiters
+                    .entry(neighbour)
+                    .or_default()
+                    .insert(key);
                 if queued {
                     self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }

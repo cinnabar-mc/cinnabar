@@ -300,43 +300,64 @@ fn ordinary_dependency_wakeup_requeues_a_consumed_pending_candidate() {
 /// A changed face releases its deferred neighbour before lower-priority ready lighting.
 #[test]
 fn changed_light_face_wakes_deferred_ordinary_neighbour() {
-    let mut stream = lit_stream(0);
-    let source = SubChunkKey::new(0, 0, 0, 0);
-    let target = SubChunkKey::new(0, 1, 0, 0);
-    let distant = [SubChunkKey::new(0, 20, 9, 0), SubChunkKey::new(0, 22, 9, 0)];
-    let camera = [8.0, 152.0, 8.0];
-    for key in [source, target].into_iter().chain(distant) {
+    assert_adjacent_light_completion_wakes_target(1, false);
+}
+
+/// An unchanged face still releases work excluded by an active neighbour.
+#[test]
+fn unchanged_light_completion_wakes_deferred_ordinary_neighbour() {
+    assert_adjacent_light_completion_wakes_target(2, false);
+}
+
+/// Releasing one neighbour keeps the target blocked until its other neighbour finishes.
+#[test]
+fn unchanged_light_completion_wakes_deferred_ordinary_neighbour_after_second_blocker() {
+    assert_adjacent_light_completion_wakes_target(2, true);
+}
+
+/// Checks completion wakeups outside local probes while farther ready work remains queued.
+fn assert_adjacent_light_completion_wakes_target(source_block: u32, second_blocker: bool) {
+    let mut stream = lit_stream(1);
+    let source = SubChunkKey::new(1, 12, 0, 0);
+    let target = SubChunkKey::new(1, 13, 0, 0);
+    let blocker = SubChunkKey::new(1, 14, 0, 0);
+    let distant = [SubChunkKey::new(1, 16, 0, 0), SubChunkKey::new(1, 18, 0, 0)];
+    let camera = [8.0; 3];
+    for key in [source, target]
+        .into_iter()
+        .chain(distant)
+        .chain(second_blocker.then_some(blocker))
+    {
+        let block = if key == source {
+            source_block
+        } else if key == blocker {
+            2
+        } else {
+            3
+        };
         stream
             .authority
-            .commit_sub_chunk(
-                key,
-                super::uniform_sub_chunk(if key == source { 1 } else { 3 }),
-            )
+            .commit_sub_chunk(key, super::uniform_sub_chunk(block))
             .unwrap();
         install_current_light(&mut stream, key, 0, 0, false);
         stream.mark_light_dirty_exact(key).unwrap();
     }
-    assert!(!scheduler::mesh_is_near(
-        stream.scheduler_view(camera),
-        target
-    ));
+    let view = stream.scheduler_view(camera);
+    assert!(view.startup_center.is_none());
+    assert!(!scheduler::light_column_is_near(view, target));
+    stream.mark_dirty_exact(target, Instant::now());
     let pending = stream.lighting.jobs.pending[&target];
 
     assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
     assert!(stream.lighting.jobs.in_flight.contains_key(&source));
     assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
-    assert!(stream.lighting.jobs.in_flight.contains_key(&distant[0]));
+    let next = if second_blocker { blocker } else { distant[0] };
+    assert!(stream.lighting.jobs.in_flight.contains_key(&next));
     assert!(!stream.lighting.jobs.in_flight.contains_key(&target));
-    assert!(
-        !stream
-            .lighting
-            .waiters
-            .values()
-            .any(|waiters| waiters.contains(&target))
-    );
+    assert!(stream.mesh_light_halo(target).is_none());
 
     let mut completed = Vec::new();
-    test_time::eventually("source and independent light completions", || {
+    test_time::eventually("source and next light completions", || {
         completed.extend(stream.lighting.rx.try_iter());
         completed.len() == 2
     });
@@ -349,9 +370,29 @@ fn changed_light_face_wakes_deferred_ordinary_neighbour() {
         .iter()
         .position(|&offset| offset_sub_chunk_key(source, offset) == Some(target))
         .unwrap();
-    assert!(source_completion.result.as_ref().unwrap().changed_faces[target_face]);
-    stream.accept_light_completion(completed.pop().unwrap());
+    let solved = source_completion.result.as_ref().unwrap();
+    assert_eq!(solved.changed_faces[target_face], source_block == 1);
+    if source_block == 2 {
+        assert!(!solved.light_levels_changed);
+        assert!(!solved.direct_sky_changed);
+        assert_eq!(solved.changed_faces, [false; 6]);
+    }
     stream.accept_light_completion(source_completion);
+    if second_blocker {
+        assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+        assert!(!stream.lighting.jobs.in_flight.contains_key(&target));
+        assert!(stream.lighting.jobs.in_flight.contains_key(&distant[0]));
+        assert!(stream.mesh_light_halo(target).is_none());
+        test_time::eventually("independent light completion", || {
+            let Ok(completion) = stream.lighting.rx.try_recv() else {
+                return false;
+            };
+            assert_eq!(completion.key, distant[0]);
+            stream.accept_light_completion(completion);
+            true
+        });
+    }
+    stream.accept_light_completion(completed.pop().unwrap());
     assert_eq!(
         stream.lighting.jobs.pending[&target].revision,
         pending.revision
@@ -361,14 +402,16 @@ fn changed_light_face_wakes_deferred_ordinary_neighbour() {
         pending.queued_at
     );
     assert!(stream.lighting.jobs.pending.contains_key(&distant[1]));
+    assert!(stream.mesh_light_halo(target).is_none());
 
     stream.poll_deadline = Some(Instant::now());
     assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
     assert!(
         stream.lighting.jobs.in_flight.contains_key(&target),
-        "changed face left ready neighbour behind distant lighting"
+        "completed light left ready neighbour behind distant lighting"
     );
     assert!(!stream.lighting.jobs.in_flight.contains_key(&distant[1]));
+    assert!(stream.mesh_light_halo(target).is_none());
     test_time::eventually("released neighbour light completion", || {
         let Ok(completion) = stream.lighting.rx.try_recv() else {
             return false;
@@ -378,6 +421,9 @@ fn changed_light_face_wakes_deferred_ordinary_neighbour() {
         true
     });
     assert!(stream.light_is_current(target));
+    assert!(stream.mesh_light_halo(target).is_some());
+    assert!(!stream.lighting.jobs.pending.contains_key(&source));
+    settle_light(&mut stream, camera);
 }
 
 #[test]

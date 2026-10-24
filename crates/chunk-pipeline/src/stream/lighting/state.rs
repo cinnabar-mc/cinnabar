@@ -149,8 +149,7 @@ impl Lighting {
     }
 
     pub(in crate::stream) fn remove_waiter_target(&mut self, key: SubChunkKey) -> usize {
-        // Waiter edges are registered only for face-adjacent light dependencies:
-        // the upper skylight dependency and `register_untrusted_light_waiters`.
+        // Skylight, retained-boundary and active-solve dependencies are all face-adjacent.
         // Therefore `key` can occur only in a face neighbour's waiter set.
         let mut probes = 0;
         for source in key.mesh_dependents().filter(|source| *source != key) {

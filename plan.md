@@ -246,9 +246,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   batches reuse one resident sky-ceiling scan for section snapshots and boundary
   waiters. Dispatched light members retire their queued candidates, so completed
   columns do not consume later dispatch scans. Changed light faces return pending
-  neighbours to readiness without replacing their revision or queue age. Near publication
-  receipts consume changed residency columns between full snapshots, preserving unchanged
-  receipts.
+  neighbours to readiness without replacing their revision or queue age. Completing
+  an adjacent solve also wakes excluded neighbours when their shared face is unchanged.
+  Near publication receipts consume changed residency columns between full snapshots,
+  preserving unchanged receipts.
   Foreground chunk-data offload requires a full allocation of service polling;
   idle waits do not count. Biome-only inline updates preserve current light while
   remeshing tint; block changes and new residency still invalidate light.
