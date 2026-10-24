@@ -177,7 +177,8 @@ impl Face {
 ///
 /// `geometry` packs local block origin X/Y/Z into bits 0..14 (five bits each),
 /// face into bits 15..17, `(width - 1)` into bits 18..21, and
-/// `(height - 1)` into bits 22..25. Bits 26..31 are reserved. The second word
+/// `(height - 1)` into bits 22..25, and one more than the quad's programmable world
+/// material slot into bits 26..31 (zero for none). The second word
 /// stores the compact material-table ID resolved from the active asset set.
 ///
 /// Width/height axes are Z/Y for X faces, X/Z for Y faces, and X/Y for Z
@@ -494,6 +495,9 @@ impl PackedQuad {
     const HEIGHT_SHIFT: u32 = 22;
     const POSITION_MASK: u32 = 0x1f;
     const EXTENT_MASK: u32 = 0x0f;
+    const WORLD_SHIFT: u32 = 26;
+    /// The largest world material tag a quad carries.
+    pub const MAX_WORLD_MATERIAL: u8 = 0x3f;
 
     /// Origin coordinates must lie inside the sub-chunk and extents in `1..=16`.
     #[must_use]
@@ -549,6 +553,23 @@ impl PackedQuad {
     #[must_use]
     pub const fn material_id(&self) -> u32 {
         self.material_id
+    }
+
+    /// This quad tagged with `world`, one more than its world material slot; a tag above
+    /// [`Self::MAX_WORLD_MATERIAL`] leaves it untagged.
+    #[must_use]
+    pub const fn with_world_material(mut self, world: u8) -> Self {
+        if world <= Self::MAX_WORLD_MATERIAL {
+            self.geometry = (self.geometry & !(0x3f << Self::WORLD_SHIFT))
+                | ((world as u32) << Self::WORLD_SHIFT);
+        }
+        self
+    }
+
+    /// One more than the quad's world material slot; zero draws the Bedrock material.
+    #[must_use]
+    pub const fn world_material(&self) -> u8 {
+        (self.geometry >> Self::WORLD_SHIFT) as u8
     }
 
     /// Raw words ready for upload to a storage buffer.

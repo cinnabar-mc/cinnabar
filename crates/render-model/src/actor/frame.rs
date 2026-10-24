@@ -35,6 +35,18 @@ pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
+
+/// Where an instance's material word keeps [`ActorMaterial::world`].
+pub const ACTOR_WORLD_MATERIAL_SHIFT: u32 = 23;
+/// The material word bits that hold [`ActorMaterial::world`].
+pub const ACTOR_WORLD_MATERIAL_MASK: u32 = 0xff << ACTOR_WORLD_MATERIAL_SHIFT;
+
+/// The programmable world material slot an instance's material word names, if any.
+#[must_use]
+pub fn actor_world_material(word: u32) -> Option<u16> {
+    let world = (word & ACTOR_WORLD_MATERIAL_MASK) >> ACTOR_WORLD_MATERIAL_SHIFT;
+    (world != 0).then(|| world as u16 - 1)
+}
 /// First player skin-animation layer, following the equipment range.
 pub const ACTOR_LAYER_SKIN_BASE: u8 = 26;
 /// World flames follow every supported animated skin layer.
@@ -123,6 +135,9 @@ pub struct ActorMaterial {
     pub light_color_multiplier: f32,
     /// Cinnabar material masks on the draw's artwork page.
     pub masks: super::ActorMaterialMasks,
+    /// One more than the slot of the programmable world material that shades this draw; zero
+    /// draws the Bedrock material alone.
+    pub world: u8,
 }
 
 impl ActorMaterial {
@@ -157,6 +172,7 @@ impl Default for ActorMaterial {
             dissolve_multiplier: 1.0,
             light_color_multiplier: 1.0,
             masks: super::ActorMaterialMasks::NONE,
+            world: 0,
         }
     }
 }
@@ -964,6 +980,7 @@ impl ActorMaterial {
             }
         };
         self.kind.word(self.state)
+            | (u32::from(self.world) << ACTOR_WORLD_MATERIAL_SHIFT)
             | flag(
                 raster.cull == render_api::render_state::CullMode::Back,
                 assets::EntityRenderMaterialState::CULL,

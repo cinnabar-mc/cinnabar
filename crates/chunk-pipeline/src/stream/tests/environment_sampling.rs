@@ -25,6 +25,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         light_halo,
         java_meshing: None,
         overlays: Default::default(),
+        world_materials: std::sync::Arc::from([]),
     };
 
     let mesh = snapshot.mesh(

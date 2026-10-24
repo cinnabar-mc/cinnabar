@@ -85,6 +85,10 @@ pub struct MeshOptions<'a> {
     pub water_filled: &'a [u32],
     /// The cell overlays of the sub-chunk's own cells, drawn in order after its block models.
     pub overlays: &'a [crate::CellOverlay],
+    /// Network values, sorted, of the blocks a programmable world material shades, each with
+    /// one more than its material slot. Their cube faces carry that slot, never merge with
+    /// other faces, and draw only in their material's pass; empty draws every block as Bedrock.
+    pub world_materials: &'a [(u32, u8)],
 }
 
 /// Greedy-mesh the bounded palette snapshot with solved block/sky light.
@@ -255,6 +259,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     &mut diagnostic_geometry,
                     visuals.materials(),
                     options.split_tinted_faces,
+                    options.world_materials,
                 ),
             );
         }
