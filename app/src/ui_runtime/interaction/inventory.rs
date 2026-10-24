@@ -327,9 +327,19 @@ pub(super) fn apply_inventory_pointer(
             now_millis,
         };
         let actions = runtime.screen_state_mut().pointer.step(frame);
+        // A Shift-click on a creative-layout hotbar slot deletes its stack.
+        let auto_destroy =
+            shift && gui.is_some_and(|gui| presentation.inventory_auto_place_destroys(gui));
         for action in actions {
             let was_open = runtime.inventory_open();
-            runtime.perform_pointer_action(player_runtime, action);
+            match action {
+                crate::ui_runtime::inventory_drag::PointerAction::QuickMove(hit)
+                    if auto_destroy =>
+                {
+                    let _ = runtime.destroy_on_auto_place(player_runtime, hit);
+                }
+                action => runtime.perform_pointer_action(player_runtime, action),
+            }
             if was_open
                 && !runtime.inventory_open()
                 && let Some(focus) = focus.as_deref_mut()
@@ -339,7 +349,7 @@ pub(super) fn apply_inventory_pointer(
         }
     }
     if !scrollbar_owned && hit.is_none() && !mod_owned {
-        use ui_screens::containers::HeldStackPress;
+        use ui_screens::containers::presses::HeldStackPress;
         // A held stack clicked off the screen's panels is dropped: all of it
         // on a primary click, one item on a secondary click. A primary click on
         // the item grid's empty background deletes it in creative.
