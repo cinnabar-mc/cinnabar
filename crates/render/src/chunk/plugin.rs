@@ -155,6 +155,10 @@ impl Plugin for ChunkRenderPlugin {
             .add_render_command::<
                 bevy::core_pipeline::core_3d::Opaque3d,
                 super::world_materials::DrawWorldMaterialTerrainCommands,
+            >()
+            .add_render_command::<
+                bevy::core_pipeline::core_3d::Transparent3d,
+                super::world_materials::DrawWorldMaterialTranslucentCommands,
             >();
         if let Some(runtime_stage_profiler) = runtime_stage_profiler {
             render_app.insert_resource(runtime_stage_profiler);

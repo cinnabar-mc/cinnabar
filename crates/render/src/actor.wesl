@@ -420,10 +420,10 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // and blends it as an ordinary material; its emission adds after lighting like a glow mask.
     @if(WORLD_MATERIAL)
     {
-        let fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
+        let world_fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
         let world_surface = world_material_resolve(WorldMaterialInput(
             uv, input.world_position, color, vec4(native_lighting, 1.0),
-            vec4(fog_gamma, world_fog_amount(input.world_position, view.world_position)),
+            vec4(world_fog_gamma, world_fog_amount(input.world_position, view.world_position)),
             overlay, world_material_phase()));
         @if(WORLD_MATERIAL_CUTOUT)
         if (world_surface.coverage < 0.5) { discard; }
