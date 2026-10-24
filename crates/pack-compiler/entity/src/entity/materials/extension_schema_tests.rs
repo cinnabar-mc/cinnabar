@@ -317,10 +317,6 @@ fn rejected() -> Vec<Value> {
         ),
         with(
             json!({}),
-            json!({"entity": "example:moth", "condition": "1.0", "material": "example:glow"}),
-        ),
-        with(
-            json!({}),
             json!({"entity": "example:moth", "bone": "b".repeat(65), "material": "example:glow"}),
         ),
     ]
@@ -350,6 +346,19 @@ fn the_schema_and_the_parser_accept_the_same_documents() {
     let unparsable = json!({"format_version": "1.0.0", "materials": {"example:glow": {}},
         "bindings": [{"block": "example:lamp", "condition": "(((", "material": "example:glow"}]});
     assert!(validate(&unparsable).is_err() && valid(&schema, &schema, &unparsable));
+    // Entity bindings take no condition: the schema rejects one, and the client binds
+    // unconditionally and counts the ignored condition.
+    let conditioned = json!({"format_version": "1.0.0", "materials": {"example:glow": {}},
+        "bindings": [{"entity": "example:moth", "condition": "1.0", "material": "example:glow"}]});
+    assert!(!valid(&schema, &schema, &conditioned));
+    let extension = parse(&conditioned).expect("the condition is ignored, not fatal");
+    assert_eq!(extension.ignored_entity_conditions, 1);
+    assert_eq!(
+        extension
+            .entity_rules("example:moth", "controller.render.moth")
+            .collect::<Vec<_>>(),
+        [("*", "example:glow")]
+    );
 }
 
 #[test]

@@ -166,6 +166,7 @@ fn compile_encoded(
             invalid_extension_documents = materials.invalid_extension_documents,
             unmatched_extension_bindings = materials.unmatched_extension_bindings,
             unresolved_extension_textures = materials.unresolved_extension_textures,
+            ignored_extension_conditions = materials.ignored_extension_conditions,
             "server pack entity materials draw in part"
         );
     }

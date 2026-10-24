@@ -44,7 +44,7 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
   `material_instance` pattern and an optional `condition`: Molang over the block's states
   (`q.block_state('name')`), read like a permutation condition. The binding applies in states where
   it rounds to a nonzero value; a condition that cannot evaluate, for example one naming a state
-  the block lacks, does not apply. Entity bindings take no condition. Vanilla blocks bind as a whole, with no `material_instance` or
+  the block lacks, does not apply. Vanilla blocks bind as a whole, with no `material_instance` or
   `*`: untinted full cubes through their faces, and model blocks (stairs, panes, fences, doors,
   plants and their pot contents included) through every quad they can draw; tinted full cubes,
   nether portals, lily pads and models drawing art outside `terrain_texture.json` keep their base
@@ -53,6 +53,9 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
   take that sidedness. Block passes have no other blend factors, depth functions or write masks; a
   binding that needs them draws approximately and counts as an approximated material in the
   session's block report.
+- Entity bindings take no `condition`. The schema rejects one; the client still applies such a
+  binding, unconditionally, and counts the ignored condition in the pack's entity material
+  diagnostics, logged once per compiled pack.
 
 The [JSON Schema](cinnabar-material-bindings-1.0.0.schema.json) (Draft 2020-12) describes format
 1.0.0. A test keeps it in step with the client's parser. The client also rejects a binding that names
