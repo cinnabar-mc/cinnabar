@@ -119,7 +119,8 @@ fn authored_rasters_skip_motion_pipelines_without_device_support() {
         let color = pipeline
             .draw_variant(view.0, view.1, view.2, material, raster)
             .unwrap();
-        assert!(pipeline.ready_with(view, |id| id == color));
+        // Session rasters wait on their colour pipeline alone.
+        assert_eq!(pipeline.session_prewarmed[&view], [color]);
     });
 }
 
@@ -276,4 +277,87 @@ fn a_sessions_dyed_alpha_tested_layer_is_prewarmed_under_msaa() {
             .draw_variant(Msaa::Sample4, hdr, false, dyed.gpu_word(), raster)
             .is_some()
     );
+}
+
+#[test]
+fn unchanged_pack_reloads_request_nothing_and_pack_changes_retire_old_session_pipelines() {
+    use bevy::ecs::system::RunSystemOnce;
+
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let authored = |blend_src| {
+        let mut raster = assets::entity::material::UNAUTHORED_RENDER_STATE;
+        raster.blend = Some(render_api::render_state::BlendState {
+            color: render_api::render_state::BlendComponent {
+                source: blend_src,
+                destination: render_api::render_state::BlendFactor::One,
+                operation: render_api::render_state::BlendOperation::Add,
+            },
+            alpha: render_api::render_state::BlendComponent {
+                source: blend_src,
+                destination: render_api::render_state::BlendFactor::One,
+                operation: render_api::render_state::BlendOperation::Add,
+            },
+        });
+        (assets::EntityRenderMaterialState::AUTHORED, raster)
+    };
+    let publish = |world: &mut World,
+                   rasters: Vec<(u32, render_api::render_state::RenderState)>| {
+        world.insert_resource(render_scene::ActorRenderFrame {
+            authored_rasters: std::sync::Arc::from(rasters),
+            ..Default::default()
+        });
+        world.run_system_once(prepare_actor_pipelines).unwrap();
+    };
+    let first = vec![authored(
+        render_api::render_state::BlendFactor::DestinationColor,
+    )];
+    publish(world, first.clone());
+    let requested = |world: &World| {
+        let pipeline = world.resource::<ActorPipeline>();
+        (
+            pipeline.draw_variants.len(),
+            pipeline.motion_ids.len(),
+            world.resource::<PipelineCache>().pipelines().count(),
+        )
+    };
+    let session = |world: &World| {
+        world
+            .resource::<ActorPipeline>()
+            .session_prewarmed
+            .values()
+            .flatten()
+            .copied()
+            .collect::<HashSet<_>>()
+    };
+    let loaded = requested(world);
+    let first_session = session(world);
+    assert!(!first_session.is_empty());
+    // A reload publishes equal contents in a new allocation.
+    publish(world, first.clone());
+    assert_eq!(
+        requested(world),
+        loaded,
+        "an unchanged reload creates no pipelines"
+    );
+    assert_eq!(session(world), first_session);
+    publish(
+        world,
+        vec![authored(
+            render_api::render_state::BlendFactor::OneMinusDestinationColor,
+        )],
+    );
+    let second_session = session(world);
+    assert!(!second_session.is_empty());
+    assert!(
+        first_session.is_disjoint(&second_session),
+        "the previous pack's pipelines no longer gate readiness"
+    );
+    // Returning to the first pack reuses its cached pipelines.
+    let changed = requested(world);
+    publish(world, first);
+    assert_eq!(requested(world), changed);
+    assert_eq!(session(world), first_session);
 }
