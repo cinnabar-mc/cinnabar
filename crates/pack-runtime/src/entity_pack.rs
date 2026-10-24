@@ -218,7 +218,12 @@ fn compile_encoded(
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment,
-        material_diagnostics: Some(materials),
+        material_report: Some(Arc::new(
+            assets::entity_material_report::EntityMaterialReport {
+                diagnostics: materials,
+                materials: std::mem::take(&mut compiled.material_provenance),
+            },
+        )),
     });
     Some((Some(pack), blob))
 }

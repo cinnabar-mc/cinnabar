@@ -159,7 +159,7 @@ impl MaterialStates {
 }
 
 /// Whether `resolved` carries state the client does not render for actors.
-fn unsupported(resolved: &Resolved) -> bool {
+pub(super) fn unsupported(resolved: &Resolved) -> bool {
     use EntityMaterialState as State;
     [
         State::StencilWrite,

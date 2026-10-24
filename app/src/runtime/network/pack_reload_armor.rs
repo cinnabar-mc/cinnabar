@@ -114,7 +114,7 @@ fn compiled_pack(files: Vec<(Box<str>, Vec<u8>)>) -> Option<assets::SessionEntit
             )
             .unwrap(),
         )),
-        material_diagnostics: None,
+        material_report: None,
     })
 }
 

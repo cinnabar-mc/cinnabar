@@ -92,7 +92,7 @@ fn fixture_with_identifier(
             pose_mode: assets::ActorPoseMode::CompiledLiteral,
         }]),
         equipment: None,
-        material_diagnostics: None,
+        material_report: None,
     });
     let artwork = ActorArtworkPages::default().with_pack_artwork(
         &pack.textures,
