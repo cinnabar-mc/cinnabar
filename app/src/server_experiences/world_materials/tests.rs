@@ -235,3 +235,42 @@ fn new_parameters_keep_the_compiled_material_and_its_charge() {
         "nothing exceeded the share"
     );
 }
+
+#[test]
+fn no_count_caps_a_bundle_but_a_block_past_the_tag_width_is_reported() {
+    let textures = Vec::new();
+    let count = publication::MAX_BLOCK_SLOTS as u32 + 1;
+    // Distinct sources, so each is its own material.
+    let materials: Vec<(u32, WorldMaterialSpec)> = (0..count)
+        .map(|id| {
+            let source = format!(
+                "fn shade(input: WorldMaterialInput) -> Surface {{ return Surface(vec3<f32>({id}.0 / 100.0), 1.0, vec3<f32>(0.0)); }}"
+            );
+            (id, spec(&source, &[]))
+        })
+        .collect();
+    let bindings: Vec<(u32, WorldTarget, u32)> = (0..count)
+        .map(|id| (id, WorldTarget::Block(format!("example:lamp_{id}")), id))
+        .chain([(count, WorldTarget::Entity("example:moth".into()), count - 1)])
+        .collect();
+    let held = world(&materials, &bindings);
+    let mut presenter = WorldMaterialPresenter::default();
+    assert!(presenter.rebuild([bundle(&held, &textures, u64::MAX)]));
+    let set = presenter.set();
+    assert_eq!(
+        set.materials.len(),
+        count as usize,
+        "every material is published"
+    );
+    assert!(set.block("example:lamp_0").is_some());
+    assert!(
+        set.block(&format!("example:lamp_{}", count - 1)).is_none(),
+        "a block cannot carry the last slot"
+    );
+    assert!(set.entity("example:moth").is_some(), "an entity can");
+    assert!(
+        presenter
+            .diagnostics()
+            .any(|line| line.contains("past the session's material slots"))
+    );
+}

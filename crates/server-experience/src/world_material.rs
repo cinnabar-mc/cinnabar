@@ -1,18 +1,18 @@
 //! Programmable world materials a client part declares for its own namespace's entities and
 //! blocks: the retained declarations, their bounds and the bindings that name them.
 //!
-//! Shader source is validated by the host that compiles it; this module bounds only what the
-//! declarations may name and how many a bundle may hold.
+//! Shader source is validated by the host that compiles it; this module bounds what the
+//! declarations may name and charges what the host holds of them to the bundle's signed memory
+//! limit. No count bounds a bundle: its memory and GPU charges do.
 
 use crate::manifest::{Permission, TEXTURE_DIR, in_namespace};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Provisional: materials one bundle may hold at once.
-pub const MAX_WORLD_MATERIALS: usize = 8;
-/// Provisional: bindings one bundle may hold at once.
-pub const MAX_WORLD_BINDINGS: usize = 64;
+/// Bytes the host charges for each retained declaration on top of its own text, for its keys
+/// and bookkeeping.
+pub const WORLD_DECLARATION_OVERHEAD_BYTES: u64 = 64;
 /// Textures one material may sample.
 pub const MAX_WORLD_MATERIAL_TEXTURES: usize = 4;
 /// Numbers one material passes to `param`.
@@ -195,15 +195,33 @@ impl WorldMaterials {
         Ok(())
     }
 
-    /// Whether the held declarations fit the per-bundle bounds.
-    pub fn check(&self) -> Result<()> {
+    /// Bytes the host holds of these declarations: each material's source, texture paths and
+    /// parameters and each binding's identifier, plus [`WORLD_DECLARATION_OVERHEAD_BYTES`] each.
+    pub fn charge(&self) -> u64 {
+        let materials = self.materials.values().map(|spec| {
+            spec.source.len() as u64
+                + spec
+                    .textures
+                    .iter()
+                    .map(|path| path.len() as u64)
+                    .sum::<u64>()
+                + spec.params.len() as u64 * 4
+        });
+        let bindings = self
+            .bindings
+            .values()
+            .map(|binding| binding.target.identifier().len() as u64);
+        materials
+            .chain(bindings)
+            .map(|bytes| bytes + WORLD_DECLARATION_OVERHEAD_BYTES)
+            .sum()
+    }
+
+    /// Whether the held declarations fit the bundle's signed memory limit.
+    pub fn check(&self, memory_bytes: u64) -> Result<()> {
         ensure!(
-            self.materials.len() <= MAX_WORLD_MATERIALS,
-            "world material budget exceeded"
-        );
-        ensure!(
-            self.bindings.len() <= MAX_WORLD_BINDINGS,
-            "world binding budget exceeded"
+            self.charge() <= memory_bytes,
+            "world materials exceed the bundle's memory limit"
         );
         Ok(())
     }

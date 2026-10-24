@@ -18,6 +18,7 @@ fn bound() -> Live<FakeWorker> {
         .permissions
         .insert(Permission::RenderWorldMaterial);
     instance.capabilities.namespace = Some("example".into());
+    instance.capabilities.scope.memory_bytes = server_experience::policy::MAX_GUEST_MEMORY;
     let material = WorldMaterialSpec {
         source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
         textures: Vec::new(),

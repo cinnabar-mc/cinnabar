@@ -4,7 +4,7 @@
 
 use mod_render::world_material::{
     self as abi,
-    publication::{Blend, Depth, Published, Texture, WorldMaterialSet},
+    publication::{self, Blend, Depth, Published, Texture, WorldMaterialSet},
 };
 use server_experience::world_material::{
     WorldBlend, WorldDepth, WorldMaterialSpec, WorldMaterials, WorldTarget,
@@ -170,10 +170,32 @@ impl WorldMaterialPresenter {
                 let Some(&slot) = slots.get(&binding.material) else {
                     continue;
                 };
-                let (map, identifier) = match &binding.target {
-                    WorldTarget::Entity(identifier) => (&mut entities, identifier),
-                    WorldTarget::Block(identifier) => (&mut blocks, identifier),
+                let (map, identifier, reachable) = match &binding.target {
+                    WorldTarget::Entity(identifier) => (
+                        &mut entities,
+                        identifier,
+                        usize::from(slot) < publication::MAX_ENTITY_SLOTS,
+                    ),
+                    WorldTarget::Block(identifier) => (
+                        &mut blocks,
+                        identifier,
+                        usize::from(slot) < publication::MAX_BLOCK_SLOTS,
+                    ),
                 };
+                // Only the tag width limits which material a target can draw with.
+                if !reachable {
+                    let attempt = self
+                        .cache
+                        .get(&(bundle.bundle.to_owned(), binding.material))
+                        .map_or(0, |cached| cached.attempt);
+                    self.report(
+                        bundle.bundle,
+                        binding.material,
+                        attempt,
+                        "bound past the session's material slots for its target kind",
+                    );
+                    continue;
+                }
                 // Two bundles may sign one namespace; the first in bundle order keeps it.
                 map.entry(identifier.as_str().into()).or_insert(slot);
             }
