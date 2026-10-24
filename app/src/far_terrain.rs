@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
+use bevy::prelude::{AppExit, DetectChangesMut, Local, MessageReader, Res, ResMut, Resource};
 use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, TerrainPublicationCursor, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
@@ -115,15 +115,20 @@ impl FarTerrain {
         true
     }
 
-    /// Keeps near receipts bounded and scoped to the stream even while far terrain is disabled.
-    fn publish_source(&mut self, stream: Option<&mut WorldStream>, scene: &mut FarTerrainScene) {
+    /// Updates shared near receipts and reports whether extraction needs a new source handle.
+    fn publish_source(
+        &mut self,
+        stream: Option<&mut WorldStream>,
+        scene: &mut FarTerrainScene,
+    ) -> bool {
         let revision = stream
             .as_deref()
             .map(WorldStream::terrain_publication_source);
         if self.source_revision == revision {
-            return;
+            return false;
         }
-        if self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0) {
+        let replaced = self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0);
+        if replaced {
             scene.publications = stream.as_ref().map(|_| Default::default());
             self.publication = None;
             self.source_cursor = TerrainPublicationCursor::default();
@@ -133,10 +138,16 @@ impl FarTerrain {
             publications.retain(reset, columns);
         }
         self.source_revision = revision;
+        replaced
     }
 
-    /// Shares current section requirements without rebuilding an unchanged publication target.
-    fn publish_target(&mut self, stream: &WorldStream, horizon: i32, scene: &mut FarTerrainScene) {
+    /// Updates section requirements and reports whether extraction needs a new target.
+    fn publish_target(
+        &mut self,
+        stream: &WorldStream,
+        horizon: i32,
+        scene: &mut FarTerrainScene,
+    ) -> bool {
         let revision = stream.terrain_publication_revision();
         let centre = stream.far_terrain_centre();
         let key = (
@@ -146,7 +157,7 @@ impl FarTerrain {
             horizon,
         );
         if self.publication == Some(key) && scene.target.is_some() {
-            return;
+            return false;
         }
         let mut target = self
             .publication
@@ -159,6 +170,7 @@ impl FarTerrain {
         target.empty_far = Arc::new(self.tiles.empty_columns().collect());
         scene.target = Some(Arc::new(target));
         self.publication = Some(key);
+        true
     }
 
     /// Summarises the stream's resident columns before it is dropped, so this session's
@@ -492,8 +504,9 @@ pub(crate) fn feed_far_terrain(
             .stream
             .as_ref()
             .map(WorldStream::terrain_publication_source)
+        && far.publish_source(world.stream.as_mut(), scene.bypass_change_detection())
     {
-        far.publish_source(world.stream.as_mut(), &mut scene);
+        scene.set_changed();
     }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
         far.cache.poll_budgeted(now, &mut summary_budget);
@@ -590,8 +603,10 @@ pub(crate) fn feed_far_terrain(
             scene.near = Arc::clone(&far.near);
         }
     }
-    if let Some(stream) = world.stream.as_ref() {
-        far.publish_target(stream, loaded + reach, &mut scene);
+    if let Some(stream) = world.stream.as_ref()
+        && far.publish_target(stream, loaded + reach, scene.bypass_change_detection())
+    {
+        scene.set_changed();
     }
 }
 

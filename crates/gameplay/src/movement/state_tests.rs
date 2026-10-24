@@ -217,9 +217,11 @@ fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
         sneaking: false,
         sprinting: false,
         mode: sim::MovementMode::Walking,
+        pose_flags: None,
         forced_sneak: false,
         ride: None,
         flight_request: None,
+        vehicle: None,
     };
     let mut released = settled_sample(42, [0.0, 64.9, 0.0]);
     // The button is up but the simulated arc is still in progress.

@@ -104,3 +104,59 @@ fn column_deltas_preserve_shared_receipts_and_reject_removed_heights() {
         HashMap::from([(kept, 10)])
     );
 }
+
+/// Coalesced column changes leave the same receipts and empty-proof
+/// revisions as reconciling the complete section set after every step.
+#[test]
+fn applied_column_changes_match_full_reconciliation() {
+    let keys: Vec<_> = (0..24).map(|y| SubChunkKey::new(0, y % 3, y, 0)).collect();
+    let (full, incremental) = (
+        TerrainPublications::default(),
+        TerrainPublications::default(),
+    );
+    let mut members = HashSet::new();
+    let mut seed = 0x2545_f491_u64;
+    let mut next = |bound: usize| {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        (seed >> 33) as usize % bound
+    };
+    for step in 0..2_000 {
+        let mut changes = Vec::new();
+        for _ in 0..next(5) {
+            let key = keys[next(keys.len())];
+            if next(2) == 0 {
+                members.insert(key);
+            } else {
+                members.remove(&key);
+            }
+            changes.push(key);
+        }
+        // Repeated changes and restored membership coalesce into one column update.
+        changes.extend(changes.clone());
+        retain_keys(&full, members.iter().copied());
+        let columns: HashSet<_> = changes.iter().map(|key| key.chunk()).collect();
+        incremental.retain(
+            false,
+            columns.into_iter().map(|column| {
+                (
+                    column,
+                    members
+                        .iter()
+                        .filter(|key| key.chunk() == column)
+                        .copied()
+                        .collect(),
+                )
+            }),
+        );
+        for _ in 0..next(4) {
+            let (key, generation, empty) = (keys[next(keys.len())], next(6) as u64, next(2) == 0);
+            full.record(key, generation + step, empty);
+            incremental.record(key, generation + step, empty);
+        }
+        let (full, incremental) = (full.0.lock().unwrap(), incremental.0.lock().unwrap());
+        assert_eq!(full.retained, incremental.retained, "step {step}");
+        assert_eq!(full.latest, incremental.latest, "step {step}");
+        assert_eq!(full.empty, incremental.empty, "step {step}");
+        assert_eq!(full.revision, incremental.revision, "step {step}");
+    }
+}

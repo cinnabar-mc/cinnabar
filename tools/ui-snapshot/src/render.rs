@@ -1,6 +1,8 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
 mod backup_font;
+#[cfg(feature = "test-support")]
+mod bedrock_hotbar;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -168,6 +170,10 @@ fn png_fixture(
     if let Fixture::TouchUtilities(view) = &fixture {
         return touch_utilities::png(state, dir, *view);
     }
+    #[cfg(feature = "test-support")]
+    if let Fixture::BedrockHotbar { raised } = &fixture {
+        return bedrock_hotbar::png(state, dir, *raised);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -186,6 +192,7 @@ fn png_fixture(
         #[cfg(feature = "test-support")]
         Fixture::TouchEditor { .. }
         | Fixture::TouchUtilities(..)
+        | Fixture::BedrockHotbar { .. }
         | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
@@ -244,6 +251,7 @@ fn png_fixture(
         | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
+        | Fixture::BedrockHotbar { .. }
         | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
@@ -352,6 +360,7 @@ fn png_fixture(
                     (
                         key.clone(),
                         ui::IconRef {
+                            color_mask: None,
                             page: first + sprite.page,
                             uv: sprite.bounds,
                             glint: false,
@@ -369,6 +378,7 @@ fn png_fixture(
                 .map_err(|error| Error::Invalid(format!("embedded title artwork: {error}")))?
                 .into_rgba8();
             let title_artwork = ui::IconRef {
+                color_mask: None,
                 page: carriers.pages.len() as u16,
                 uv: [0, 0, logo.width() as u16, logo.height() as u16],
                 glint: false,
@@ -523,6 +533,7 @@ fn png_fixture(
                     .paint(
                         &engine,
                         ChatInput {
+                            local_player: "Alex",
                             editor: &editor,
                             messages: &messages,
                             suggestions: &suggestions,
@@ -744,6 +755,7 @@ fn mod_icons(
         artwork.insert(
             key,
             ui::IconRef {
+                color_mask: None,
                 page,
                 uv: [0, 0, width as u16, height as u16],
                 glint: false,
@@ -781,6 +793,7 @@ fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Pa
         artwork.insert(
             item.thumbnail_key(),
             ui::IconRef {
+                color_mask: None,
                 page: pages.len() as u16,
                 uv: [0, 0, image.width as u16, image.height as u16],
                 glint: false,
