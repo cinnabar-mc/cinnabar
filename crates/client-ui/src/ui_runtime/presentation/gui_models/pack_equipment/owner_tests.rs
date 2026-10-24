@@ -254,6 +254,7 @@ fn catalog(definitions: &[Definition<'_>]) -> assets::SessionEntityPack {
             )
             .unwrap(),
         )),
+        material_diagnostics: None,
     }
 }
 

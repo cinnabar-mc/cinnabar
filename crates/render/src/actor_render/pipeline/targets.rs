@@ -38,7 +38,6 @@ impl TargetValidation {
     }
 
     /// Distinct material contracts drawn with the unauthored pipeline instead.
-    #[cfg(test)]
     pub(crate) fn fallback_count(&self) -> usize {
         self.fallen_back.len()
     }

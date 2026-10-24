@@ -27,7 +27,7 @@ mod item_bindings;
 mod legacy_block_geometry;
 mod legacy_icons;
 pub(crate) mod materials;
-pub use materials::diagnostics::EntityMaterialDiagnostics;
+use assets::EntityMaterialDiagnostics;
 mod molang;
 mod mount;
 mod native_bind_pose;

@@ -696,6 +696,7 @@ fn leaving_releases_all_decoded_outputs_but_keeps_the_archives() {
         .into(),
         bindings: Arc::from([]),
         equipment: None,
+        material_diagnostics: None,
     }));
     application.entity_artwork = Some(Arc::new(artwork.clone()));
     application.block_overlay = Some(Arc::new(super::super::CompiledBlockOverlay {

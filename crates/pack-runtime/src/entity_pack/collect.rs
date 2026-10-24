@@ -125,6 +125,20 @@ pub fn collect_files(
     vanilla: Option<&VanillaEntityRefs>,
     vanilla_pack_dir: Option<&Path>,
 ) -> Vec<(Box<str>, Vec<u8>)> {
+    collect_files_reporting(view, vanilla, vanilla_pack_dir).0
+}
+
+/// `(pack-relative path, bytes)` files entity compilation reads.
+pub type CollectedFiles = Vec<(Box<str>, Vec<u8>)>;
+
+/// [`collect_files`] with the counts collection notices: the entity material lists' entries
+/// it read in part or not at all.
+pub fn collect_files_reporting(
+    view: &LayeredPackView,
+    vanilla: Option<&VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&Path>,
+) -> (CollectedFiles, assets::EntityMaterialDiagnostics) {
+    let mut report = assets::EntityMaterialDiagnostics::default();
     let mut files = Vec::new();
     let CollectedEntities {
         files: entities,
@@ -145,7 +159,8 @@ pub fn collect_files(
     for (_, _, definitions) in &definitions {
         overrides.extend(definitions.keys().cloned());
     }
-    let materials = material_files(view);
+    let (materials, list_report) = material_files(view);
+    report.list = list_report;
     let material_documents = materials
         .iter()
         .filter_map(|(path, bytes)| Some((path.clone(), parse_pack_json(bytes)?)))
@@ -255,7 +270,7 @@ pub fn collect_files(
             files.push(texture);
         }
     }
-    files
+    (files, report)
 }
 
 /// All server formats have precedence over the installed vanilla layer.
@@ -342,6 +357,7 @@ pub fn material_bindings_document(view: &LayeredPackView) -> Option<Value> {
 /// the resolved entity material list and the files it names, then unlisted `.material` files.
 pub fn material_documents(view: &LayeredPackView) -> Vec<(String, Value)> {
     material_files(view)
+        .0
         .into_iter()
         .filter_map(|(path, bytes)| Some((path, parse_pack_json(&bytes)?)))
         .collect()
@@ -355,7 +371,7 @@ pub fn material_documents(view: &LayeredPackView) -> Vec<(String, Value)> {
 /// path, those outside `materials/*.material` under a key compilation admits. Unlisted
 /// `materials/*.material` files are kept too, standing in for the vanilla lists the client does
 /// not ship.
-fn material_files(view: &LayeredPackView) -> Vec<(String, Vec<u8>)> {
+fn material_files(view: &LayeredPackView) -> (Vec<(String, Vec<u8>)>, assets::MaterialListReport) {
     let list_path = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
     let copies = view.read_layers(list_path);
     let parsed = copies
@@ -383,15 +399,6 @@ fn material_files(view: &LayeredPackView) -> Vec<(String, Vec<u8>)> {
         listed_paths.insert(std::mem::replace(&mut entry.path, key.as_str().into()));
         files.insert(key, document);
         listed.push(entry);
-    }
-    if report != pack_entity_compiler::MaterialListReport::default() {
-        tracing::info!(
-            ignored_tags = report.ignored_tags,
-            empty_paths = report.empty_paths,
-            repeated_paths = report.repeated_paths,
-            unparsable_lists = report.unparsable_lists,
-            "server pack entity material lists were read in part"
-        );
     }
     for layer in view.layers() {
         for path in layer
@@ -422,10 +429,11 @@ fn material_files(view: &LayeredPackView) -> Vec<(String, Vec<u8>)> {
             pack_entity_compiler::material_list_document(&listed),
         );
     }
-    files
+    let files = files
         .into_iter()
         .filter_map(|(path, document)| Some((path, serde_json::to_vec(&document).ok()?)))
-        .collect()
+        .collect();
+    (files, report)
 }
 
 /// Catalog keys for listed files outside `materials/*.material` or longer than a catalog path.
