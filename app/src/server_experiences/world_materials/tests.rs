@@ -51,6 +51,7 @@ fn bundle<'a>(
         bundle: "example.bundle",
         world,
         gpu_bytes,
+        memory_bytes: u64::MAX,
         textures,
     }
 }
@@ -146,4 +147,37 @@ fn failures_skip_the_material_with_one_diagnostic_and_ending_the_runtime_restore
     // Revocation: no declarations publish an empty set.
     assert!(presenter.rebuild(std::iter::empty()));
     assert!(presenter.set().materials.is_empty() && presenter.set().entities.is_empty());
+}
+
+#[test]
+fn materials_charge_the_signed_memory_limit_and_retired_pipelines_stay_charged() {
+    let textures = vec![("textures/glow.png".to_owned(), png(8, 8))];
+    let held = world(&[(1, spec(PLAIN, &["textures/glow.png"]))], &[]);
+    // The decoded texture alone outweighs a tiny memory share.
+    let mut presenter = WorldMaterialPresenter::default();
+    presenter.rebuild([BundleWorld {
+        memory_bytes: 64,
+        ..bundle(&held, &textures, u64::MAX)
+    }]);
+    assert!(presenter.set().materials.is_empty());
+    assert!(
+        presenter
+            .diagnostics()
+            .any(|line| line.contains("memory limit"))
+    );
+    // Compile churn: every replacement keeps its pipelines charged, so a hostile guest that
+    // keeps replacing a material runs out of GPU budget rather than compiling forever.
+    let budget = PIPELINE_CHARGE_BYTES * 3;
+    let mut churn = WorldMaterialPresenter::default();
+    let mut published = 0;
+    for round in 0..6 {
+        let source = format!(
+            "fn shade(input: WorldMaterialInput) -> Surface {{ return Surface(vec3<f32>({round}.0), 1.0, vec3<f32>(0.0)); }}"
+        );
+        let held = world(&[(1, spec(&source, &[]))], &[]);
+        churn.rebuild([bundle(&held, &textures, budget)]);
+        published += churn.set().materials.len();
+    }
+    assert_eq!(published, 3, "the fourth compile exceeds the GPU limit");
+    assert!(churn.diagnostics().any(|line| line.contains("GPU limit")));
 }
