@@ -162,6 +162,13 @@ pub(crate) fn drive_gameplay_touch_targets(
         presentation.close_touch_utilities();
         return;
     };
+    // Panels and modals over the world own touches, so mod buttons beneath them never fire.
+    let mod_buttons_covered = client_shell::screen_policy::absorbs_input(
+        &player,
+        Some(&ui),
+        menu.as_deref(),
+        Some(&presentation),
+    );
     if *mod_button_epoch != presentation.mod_touch_epoch() {
         *mod_button_epoch = presentation.mod_touch_epoch();
         cancel_mod_button_contacts(&mut state);
@@ -230,8 +237,12 @@ pub(crate) fn drive_gameplay_touch_targets(
     for hit_id in pressed {
         targets.press(hit_id);
     }
-    for hit_id in mod_taps {
-        presentation.complete_mod_touch_tap(hit_id);
+    if mod_buttons_covered {
+        cancel_mod_button_contacts(&mut state);
+    } else {
+        for hit_id in mod_taps {
+            presentation.complete_mod_touch_tap(hit_id);
+        }
     }
     let held = state.sample();
     presentation.set_touch_contacts(held.clone());

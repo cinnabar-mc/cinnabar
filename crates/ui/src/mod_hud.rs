@@ -537,6 +537,11 @@ fn text_scale() -> f32 {
 fn white() -> [f32; 4] {
     [1.; 4]
 }
+/// Whether `value` is the bounded plain single-line text HUD cards and editor captions accept.
+pub fn plain_text_valid(value: &str) -> bool {
+    text(value).is_ok()
+}
+
 fn text(value: &str) -> Result<(), String> {
     if value.len() > MAX_TEXT_BYTES || value.chars().any(|c| c.is_control() || c == '§') {
         return Err("HUD text must be bounded plain single-line text".into());

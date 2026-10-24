@@ -361,13 +361,32 @@ impl ModHosts {
         buttons
     }
 
-    /// Queues a completed tap for the mod presenting button `id`; false when none does.
-    pub fn queue_touch_press(&mut self, id: &str) -> bool {
+    /// Queues a completed tap for the mod presenting button `id`, returning that mod's index.
+    pub fn queue_touch_press(&mut self, id: &str) -> Option<usize> {
         let owner = self
             .touch_buttons()
             .into_iter()
-            .find_map(|(index, button)| (button.id == id).then_some(index));
-        owner.is_some_and(|index| self.host_mut(index).queue_touch_press(id))
+            .find_map(|(index, button)| (button.id == id).then_some(index))?;
+        self.host_mut(owner).queue_touch_press(id).then_some(owner)
+    }
+
+    /// Shows the panel a tapped mod opened, as its toggle key would, closing the selected
+    /// panel. A panel capturing keys keeps the selection.
+    pub fn select_opened_panel(&mut self, index: usize) -> bool {
+        let previous = self.panel_owner();
+        if index >= self.host_count() || index == previous {
+            return false;
+        }
+        let host = self.host(index);
+        let current = self.host(previous);
+        if !(host.is_active() && host.panel().is_some() && host.panel_open())
+            || (current.panel_open() && current.panel().is_some_and(|panel| panel.capture_key))
+        {
+            return false;
+        }
+        self.panel_selection = index;
+        self.host_mut(previous).set_panel_open(false);
+        true
     }
 
     /// Collects the distinct physical keys reserved by all loaded components.

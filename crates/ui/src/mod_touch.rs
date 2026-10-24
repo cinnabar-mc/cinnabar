@@ -39,12 +39,11 @@ pub fn valid_button_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_-".contains(&byte))
 }
 
-/// Accepts one line of plain text that layout variables and bindings cannot reinterpret.
+/// Accepts nonblank plain single-line text, which the layout editor also shows as a caption.
 pub fn valid_label(label: &str) -> bool {
     !label.trim().is_empty()
         && label.len() <= MAX_TOUCH_LABEL_BYTES
-        && !label.starts_with(['#', '$', '@'])
-        && !label.chars().any(char::is_control)
+        && crate::mod_hud::plain_text_valid(label)
 }
 
 /// Checks a mod's complete button set, including unique ids.
@@ -111,6 +110,9 @@ mod tests {
             Ok(())
         );
         assert!(validate(&vec![button("a"); 1]).is_ok());
+        let mut literal = button("literal");
+        literal.label = "#(1 + 1)".into();
+        assert_eq!(validate(&[literal]), Ok(()));
         let too_many: Vec<_> = (0..=MAX_TOUCH_BUTTONS)
             .map(|index| button(&format!("b{index}")))
             .collect();
@@ -124,14 +126,7 @@ mod tests {
         ] {
             assert!(validate(&[button(id)]).is_err(), "{id:?}");
         }
-        for label in [
-            "",
-            "  ",
-            "#binding",
-            "$variable",
-            "two\nlines",
-            &"x".repeat(25),
-        ] {
+        for label in ["", "  ", "§cRed", "two\nlines", &"x".repeat(25)] {
             let mut invalid = button("a");
             invalid.label = label.into();
             assert!(validate(&[invalid]).is_err(), "{label:?}");

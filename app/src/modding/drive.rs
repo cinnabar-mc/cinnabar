@@ -155,9 +155,11 @@ pub(super) fn drive_mod(
         return;
     }
     // Taps completed this frame reach their owners before frame callbacks read them.
-    for id in presentation.take_mod_touch_taps() {
-        extension.hosts.queue_touch_press(&id);
-    }
+    let tapped: Vec<_> = presentation
+        .take_mod_touch_taps()
+        .iter()
+        .filter_map(|id| extension.hosts.queue_touch_press(id))
+        .collect();
     drawing_policy::bind(&mut extension.hosts, &gameplay);
     anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
@@ -247,6 +249,10 @@ pub(super) fn drive_mod(
             warn!("Cinnabar extension callback failed: {error}");
         },
     );
+    // A tapped mod that opened its panel shows it, as its toggle key would.
+    for index in tapped {
+        extension.hosts.select_opened_panel(index);
+    }
     for index in 0..extension.hosts.host_count() {
         for message in extension.hosts.host_mut(index).take_local_messages() {
             ui.push_local_chat_line(

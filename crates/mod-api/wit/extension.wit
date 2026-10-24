@@ -549,7 +549,7 @@ interface touch {
         /// placement is keyed by it, so prefix it with the mod's name; when two mods use one
         /// id, only the earlier mod's button is shown.
         id: string,
-        /// One line of 1–24 bytes, drawn centred; it may not begin with `#`, `$` or `@`.
+        /// One line of 1–24 bytes of plain text without `§` codes, drawn centred as written.
         label: string,
         /// Default placement, in GUI pixels inward from the anchored edges or right/down from
         /// centred axes, each at most 1024.

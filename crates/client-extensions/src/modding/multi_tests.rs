@@ -217,6 +217,22 @@ fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     assert!(runtime.host(0).panel_open());
 }
 
+/// A mod that opens its panel after a tap becomes the selected panel, unless another panel is
+/// capturing keys.
+#[test]
+fn a_tapped_mod_that_opens_its_panel_takes_the_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = panel_hosts(directory.path());
+    runtime.host_mut(0).set_panel_open(true);
+    assert!(!runtime.select_opened_panel(1));
+    runtime.host_mut(1).set_panel_open(true);
+    assert!(runtime.select_opened_panel(1));
+    assert_eq!(runtime.panel_owner(), 1);
+    assert!(!runtime.host(0).panel_open());
+    assert!(!runtime.select_opened_panel(1));
+    assert!(!runtime.select_opened_panel(7));
+}
+
 #[test]
 #[should_panic(expected = "a mod host collection must stay nonempty")]
 fn removing_the_last_host_is_rejected() {
