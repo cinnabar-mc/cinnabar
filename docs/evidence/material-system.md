@@ -36,9 +36,9 @@ Confirmed gaps against the current client:
   pages keyed by the overlay texture their colour occupies, charged to the terrain byte budget.
   Server-authored slots win over local Enhanced maps. Only builds that can draw Enhanced decode
   them, and the Enhanced renderer is disabled, so non-Enhanced draws use colour only, as Bedrock
-  does outside Vibrant Visuals. A set that does not decode or fit keeps its colour and is counted. Their images join the
-  block reload fingerprint, so an unchanged reload neither decodes nor combines them again, and a
-  changed pack releases the previous maps.
+  does outside Vibrant Visuals. A set that does not decode or fit keeps its colour and is counted.
+  Their images join the block reload fingerprint, so an unchanged reload neither decodes nor
+  combines them again, and a changed pack releases the previous maps.
 - Entity texture references resolve through a same-pack texture set to its colour layer, which is
   all an entity draws outside Vibrant Visuals. Entity MER/MERS and normal layers are not carried
   yet; a future Enhanced actor path would need them.
@@ -75,15 +75,20 @@ Confirmed gaps against the current client:
   built-in bases declare them; packs cannot derive from `entity_change_color` or
   `entity_multitexture`, which the vanilla pack never names. A material
   whose `GLINT`, `MULTIPLICATIVE_TINT` or `MASKED_MULTITEXTURE` defines need more textures than its
-  controller supplies is not drawn; whether the native check applies to every material is
-  unresolved.
+  controller supplies is not drawn. Bedrock runs that check from a material's second draw on; the
+  client also checks the first.
+- Render-controller material rules apply per bone pattern, the last match winning; a rule whose
+  material is a Molang expression rather than a plain `Material.<alias>` is not evaluated.
 
 Each server pack's entity compilation counts, and logs once, the material behaviour the client
 does not draw exactly: unknown state names (Bedrock asserts), define names without an actor flag
 (ignored silently, as Bedrock does), sampler entries at index 8 or above (skipped, as Bedrock
 does), materials that fail to resolve, programs without an actor type, stencil, polygon-offset or
 depth-bias state, carried-but-undrawn actor defines, draws dropped for missing textures, unlisted
-material files and partly read list entries.
+material files, partly read list entries, an invalid `cinnabar/material-bindings.json`, extension
+bindings that match nothing and extension masks that resolve to no texture. The developer-control
+snapshot and the assetc entity report list each material's source, inheritance chain, variant,
+defines and fallback reason.
 
 Actor pipelines are keyed by the lowered raster contract, a finite set; block and block-entity
 pipelines use a fixed key per view. An unchanged pack reload requests no pipelines, and a pack change
@@ -95,8 +100,9 @@ draws with its view's unauthored pipeline; each such material is logged and coun
 readiness does not wait on it.
 
 Texture variations have no client version gate, only the network bit. The
-separate `metalness`/`emissive`/`roughness` texture-set form merges when all three layers are
-present.
+texture-set parser merges separate `metalness`, `emissive` and `roughness` layers when all three are
+present, but neither schema version accepts those keys in a file, so an
+authored split set is discarded like any other invalid set (row `texture.split_mer`).
 
 These questions remain unresolved:
 
