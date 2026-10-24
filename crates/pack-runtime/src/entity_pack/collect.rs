@@ -284,6 +284,13 @@ fn texture_file(
     vanilla_pack_dir: Option<&Path>,
     stem: &str,
 ) -> Option<(Box<str>, Vec<u8>)> {
+    // A valid texture set whose colour resolves wins over the plain image, as for terrain;
+    // outside Vibrant Visuals an entity draws only its colour layer.
+    if let Some(set) = crate::pack_textures::PackTextureSet::find(view, stem)
+        && let Some(file) = texture_set_colour(&set, stem)
+    {
+        return Some(file);
+    }
     let paths = [format!("{stem}.png"), format!("{stem}.tga")];
     for path in &paths {
         if let Some(bytes) = view.read(path) {
@@ -317,6 +324,33 @@ fn texture_file(
         }
     }
     None
+}
+
+/// A texture set's colour layer as the entity raster at `{stem}.png` or `{stem}.tga`: a PNG or
+/// TGA image as authored, any other image or a uniform colour encoded as PNG.
+fn texture_set_colour(
+    set: &crate::pack_textures::PackTextureSet<'_>,
+    stem: &str,
+) -> Option<(Box<str>, Vec<u8>)> {
+    use pack_compile_input::texture_set::TextureSetLayer;
+    let png = |image: image::RgbaImage| {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).ok()?;
+        Some((format!("{stem}.png").into(), bytes.into_inner()))
+    };
+    match &set.definition.color {
+        TextureSetLayer::Uniform(pixel) => {
+            png(image::RgbaImage::from_pixel(1, 1, image::Rgba(*pixel)))
+        }
+        TextureSetLayer::Image(name) => {
+            let (path, bytes) = set.image_file(name)?;
+            let extension = path.rsplit_once('.')?.1.to_ascii_lowercase();
+            if matches!(extension.as_str(), "png" | "tga") {
+                return Some((format!("{stem}.{extension}").into(), bytes));
+            }
+            png(image::load_from_memory(&bytes).ok()?.into_rgba8())
+        }
+    }
 }
 
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
