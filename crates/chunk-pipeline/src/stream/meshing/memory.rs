@@ -9,12 +9,17 @@ pub(in crate::stream) struct MeshMemoryBudget {
 }
 
 impl MeshMemoryBudget {
-    /// Precomputes model bounds once for the stream's immutable assets.
+    /// Precomputes model bounds for the stream's initial assets.
     pub(in crate::stream) fn new(assets: &RuntimeAssets) -> Self {
         Self {
             retained: Arc::new(AtomicU64::new(0)),
             bounds: ::meshing::MeshOutputBounds::new(assets),
         }
+    }
+
+    /// Refreshes future reservations without releasing credit held by existing meshes.
+    pub(in crate::stream) fn reload_assets(&mut self, assets: &RuntimeAssets) {
+        self.bounds = ::meshing::MeshOutputBounds::new(assets);
     }
 
     /// Admits without blocking a worker or discarding a completed current mesh.

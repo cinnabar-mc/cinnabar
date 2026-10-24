@@ -274,6 +274,29 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         }
     }
 
+    /// Returns one queued job to ready across camera generations, preserving
+    /// its pending age and ordinary retry history. Unrouted work keeps its existing ingress.
+    pub(super) fn wake_deferred(&mut self, lane: usize, key: SubChunkKey) {
+        let Some(pending) = self.pending.get(&key).copied() else {
+            return;
+        };
+        let Some(mut candidate) = self.lanes[lane]
+            .deferred
+            .remove(&key)
+            .or_else(|| self.refresh.previous[lane].ready.remove(&key))
+            .or_else(|| self.refresh.previous[lane].deferred.remove(&key))
+            .filter(|candidate| candidate.revision == pending.revision())
+        else {
+            return;
+        };
+        if let Some(view) = self.refresh.view {
+            candidate.refresh_rank(view);
+        }
+        candidate.urgent |= pending.urgent();
+        self.retire_lane_ownership(&key);
+        self.lanes[lane].ready.push(candidate);
+    }
+
     /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.
     pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
         if self

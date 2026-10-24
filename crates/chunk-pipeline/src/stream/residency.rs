@@ -76,7 +76,7 @@ impl WorldStream {
         // would, without a node allocation per key on a full-view teleport.
         let mut changed = self.resident_keys_in_columns(&columns);
         // Capture acknowledged absence before detaching sources and pruning applied state.
-        let prepared_air = changed
+        let mut skip_removals = changed
             .iter()
             .copied()
             .filter(|&key| self.has_settled_air_publication(key))
@@ -88,6 +88,9 @@ impl WorldStream {
                     let key =
                         SubChunkKey::from_chunk(column, range.base_sub_chunk_y + offset as i32);
                     if self.authority.terrain().biome_storage(key).is_some() {
+                        if !self.has_mesh_retirement_work(key) {
+                            skip_removals.insert(key);
+                        }
                         changed.push(key);
                     }
                 }
@@ -153,7 +156,7 @@ impl WorldStream {
                 self.lighting.remove_key(key);
             }
             // Removals publish whatever detail the column had, so no mesh outlives it.
-            if !prepared_air.contains(&key) {
+            if !skip_removals.contains(&key) {
                 self.mark_dirty_exact_ungated(key, now, false);
             }
         }
@@ -182,6 +185,17 @@ impl WorldStream {
             && !self.mesh_jobs.pending.contains_key(&key)
             && !self.mesh_jobs.in_flight.contains_key(&key)
             && self.terrain_removal_kind(key) == render_api::TerrainRemovalKind::Empty
+    }
+
+    /// Checks section and publication ownership before eviction prunes it. Dirty revisions
+    /// cover pending jobs and staged, queued or extracted output until acknowledgement;
+    /// an in-flight predecessor can survive a newer acknowledgement.
+    fn has_mesh_retirement_work(&self, key: SubChunkKey) -> bool {
+        self.resident.contains(&key)
+            || self.authority.terrain().contains_sub_chunk(key)
+            || self.revisions.dirty(key).is_some()
+            || self.applied_mesh_generations.contains_key(&key)
+            || self.mesh_jobs.in_flight.contains_key(&key)
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours

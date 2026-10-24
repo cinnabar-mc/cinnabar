@@ -218,8 +218,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   remesh against current frame/join/streaming budgets. Attribute decode, light readiness,
   queue wait, worker time, upload, submission and present latency independently.
   Ordinary meshing now rechecks higher-priority deferred revisions within a bounded
-  poll budget, with backoff while neighbours or light remain unavailable. Hardware
-  dirty-to-visible latency qualification remains open. Empty-section evidence and
+  poll budget, with backoff while neighbours or light remain unavailable. Completed light
+  members return queued mesh dependents to ready across camera queue refreshes, including
+  distant geometry outside direct camera probes. Hardware dirty-to-visible latency
+  qualification remains open. Empty-section evidence and
   withdrawals use their separate allowance without spending geometry credits;
   both still share the frame operation cap. Ready air and withdrawals bypass geometry
   scheduler ingress and receive bounded service before decode and lighting, using the
@@ -228,8 +230,14 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   preparation waits for worker and result capacity while urgent reserves and independent
   removals retain service. Eviction skips a second removal for settled air with an
   acknowledged GPU publication; dirty or unfinished sections still publish removals.
+  Biome-only heights without section or publication ownership skip withdrawals;
+  surviving meshes still invalidate when their sampled biome data retires.
   Changed lighting also preserves settled air's empty publication; first empty
   receipts and unfinished removals still receive service.
+  Model output reservations share meshing's template-selection policy: fixed models
+  reserve their own compound chains and neighbour-selected models keep a conservative
+  allowance. Resource reloads refresh these bounds while retaining existing output
+  credits. The shared output-memory limit is unchanged.
   Late blob replies for retired transactions no longer discard valid, still-needed
   blobs in the same response. Sustained high-speed hardware qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream

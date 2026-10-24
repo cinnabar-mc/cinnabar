@@ -280,6 +280,7 @@ mod worker_caps;
 
 mod mesh_admission;
 mod mesh_preparation;
+mod output_bounds_reload;
 
 mod backlog;
 mod mixed_prefix;

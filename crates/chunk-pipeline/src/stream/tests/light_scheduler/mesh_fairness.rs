@@ -74,6 +74,79 @@ fn far_settled_halo_publishes_before_ready_backlog() {
     assert!(stream.mesh_jobs.pending.contains_key(&backlog));
 }
 
+/// A completed halo wakes distant geometry without waiting behind unrelated blocked retries.
+#[test]
+fn far_completed_halo_bypasses_blocked_retry_rotation() {
+    for refreshing in [false, true] {
+        let mut initial = lit_stream(1);
+        let radius = scheduler::NEAR_CAMERA_RADIUS;
+        // Keep the stale backlog behind the camera and outside its direct probes.
+        for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL * 2 {
+            let index = i32::try_from(index).unwrap();
+            let key = SubChunkKey::new(
+                1,
+                -radius - 1 - index % (radius * 2),
+                index / (radius * 2) % radius,
+                index / (radius * radius * 2) - radius,
+            );
+            initial
+                .authority
+                .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+                .unwrap();
+            install_current_light(&mut initial, key, 0, 0, false);
+            initial.mark_light_dirty_exact(key).unwrap();
+            initial.mark_dirty_exact(key, Instant::now());
+        }
+        let (mut stream, mut view, visible, backlog) = seed_deferred_meshes(initial);
+        if refreshing {
+            view.position[2] += 32.0;
+            stream.mesh_jobs.refresh.refresh(
+                view,
+                &mut stream.mesh_jobs.lanes,
+                Some(Instant::now()),
+                |_, _| true,
+            );
+        }
+        let corner = SubChunkKey::new(1, visible.x + 1, visible.y + 1, visible.z + 1);
+        install_current_light(&mut stream, corner, 0, 0, false);
+        let light_completion = synthetic_light_completion(
+            &mut stream,
+            corner,
+            DirectSkyMask::Uniform(false),
+            false,
+            false,
+            [false; 6],
+        );
+        assert!(stream.mesh_light_halo(visible).is_none());
+        let pending = stream.mesh_jobs.pending[&visible];
+
+        stream.accept_light_completion(light_completion);
+        assert!(stream.mesh_light_halo(visible).is_some());
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].revision,
+            pending.revision
+        );
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].queued_at,
+            pending.queued_at
+        );
+
+        stream.poll_deadline = Some(Instant::now());
+        assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+        let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(completion.key, visible);
+        assert_eq!(completion.revision, pending.revision);
+        stream.accept_mesh_completion(completion);
+        assert!(
+            stream
+                .take_mesh_changes()
+                .iter()
+                .any(|change| change.key() == visible)
+        );
+        assert!(stream.mesh_jobs.pending.contains_key(&backlog));
+    }
+}
+
 /// A successful retry spends the expired poll's single dispatch allowance.
 #[test]
 fn expired_far_retry_dispatches_once_before_ready_backlog() {

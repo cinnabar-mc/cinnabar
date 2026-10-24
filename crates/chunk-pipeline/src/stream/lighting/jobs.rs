@@ -645,6 +645,7 @@ impl WorldStream {
         // Unchanged light invalidates no mesh, yet still completes the halo deferred meshes wait on.
         for dependent in key.mesh_neighbourhood_dependents() {
             if self.mesh_jobs.pending.contains_key(&dependent) {
+                self.mesh_jobs.wake_deferred(RESIDENT_MESH_LANE, dependent);
                 self.mesh_jobs.refresh.wake_near(dependent);
             }
         }
