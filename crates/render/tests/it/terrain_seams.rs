@@ -258,17 +258,7 @@ impl Fixture {
         .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
         Some(Self {
             materials: gpu.words(
-                &[
-                    0,
-                    0,
-                    assets::NO_ANIMATION,
-                    0,
-                    0,
-                    0,
-                    assets::NO_MASK,
-                    assets::NO_MASK,
-                    0,
-                ],
+                &crate::material_records::plain_material(0, 0, assets::NO_ANIMATION),
                 storage,
             ),
             animations: gpu.words(&[0; 8], storage),

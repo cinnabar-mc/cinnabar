@@ -255,6 +255,7 @@ fn expand_section(name: &str, fixture: Fixture<'_>) -> Option<Expanded> {
                 material.glow_mask,
                 material.emissive_mask,
                 material.mask_strength,
+                material.ao_exponent,
             ]
         })
         .collect();

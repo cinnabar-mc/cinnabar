@@ -61,6 +61,8 @@ pub(in crate::chunk) struct MaterialGpu {
     pub(in crate::chunk) glow_mask: u32,
     pub(in crate::chunk) emissive_mask: u32,
     pub(in crate::chunk) mask_strength: u32,
+    /// f32 bits of the material's AO exponent.
+    pub(in crate::chunk) ao_exponent: u32,
 }
 
 const _: () = assert!(std::mem::size_of::<MaterialGpu>() == assets::MATERIAL_BYTES);

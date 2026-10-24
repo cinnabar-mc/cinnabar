@@ -150,7 +150,7 @@ fn material_words() -> Vec<u32> {
     ];
     (0..CASE_COUNT)
         .flat_map(|index| {
-            [
+            crate::material_records::plain_material(
                 if index % 2 == 0 {
                     0
                 } else {
@@ -162,13 +162,7 @@ fn material_words() -> Vec<u32> {
                 } else {
                     assets::NO_ANIMATION
                 },
-                0,
-                0,
-                0,
-                assets::NO_MASK,
-                assets::NO_MASK,
-                0,
-            ]
+            )
         })
         .collect()
 }

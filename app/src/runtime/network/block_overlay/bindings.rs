@@ -246,11 +246,17 @@ impl Builder<'_> {
         bound: VanillaBinding,
     ) -> Option<u32> {
         let texture = keys.material_source(id)?;
-        let flags = (base.material(id).flags
+        let base = base.material(id);
+        let flags = (base.flags
             & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT))
             | assets::block_render_method_flags(bound.method);
-        self.terrain_material(Some(keys), &texture.key, texture.variant, flags)
-            .map(|id| self.masked_material(id, bound.masks, bound.strength))
+        self.terrain_material(
+            Some(keys),
+            &texture.key,
+            texture.variant,
+            (flags, base.ao_exponent),
+        )
+        .map(|id| self.masked_material(id, bound.masks, bound.strength))
     }
 
     /// Copies the complete template span a vanilla model visual draws from `template`, with the

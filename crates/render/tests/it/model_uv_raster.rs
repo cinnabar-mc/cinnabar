@@ -89,17 +89,7 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
         &flags
             .into_iter()
             .flat_map(|flags| {
-                [
-                    0,
-                    flags,
-                    assets::NO_ANIMATION,
-                    0,
-                    0,
-                    0,
-                    assets::NO_MASK,
-                    assets::NO_MASK,
-                    0,
-                ]
+                crate::material_records::plain_material(0, flags, assets::NO_ANIMATION)
             })
             .collect::<Vec<_>>(),
         storage,
