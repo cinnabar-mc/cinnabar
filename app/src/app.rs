@@ -13,7 +13,6 @@ use assets::carriers::startup::select_asset_path_from_environment;
 use bevy::{
     anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
-    post_process::PostProcessPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
         Update, default,
@@ -575,9 +574,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
-        // Cameras use only Bevy's bloom and MSAA writeback; this also drops unfed stock systems.
-        .add_before::<PostProcessPlugin>(render::StockSystemsPlugin)
-        .disable::<PostProcessPlugin>()
+        .add_before::<bevy::post_process::PostProcessPlugin>(render::ClientPostProcessPlugin)
+        // Drops stock systems that no client camera or entity feeds.
+        .add_before::<bevy::post_process::PostProcessPlugin>(render::StockSystemsPlugin)
+        .disable::<bevy::post_process::PostProcessPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
