@@ -454,6 +454,7 @@ impl MaterialStates {
                     block: binding.block.clone(),
                     states: binding.states.clone(),
                     material_instance: binding.material_instance.clone(),
+                    condition: binding.condition.clone(),
                     definition: table.definitions[index as usize].clone(),
                     shading,
                     masks: extension.materials[&binding.material].mask_paths(),
