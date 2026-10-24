@@ -378,20 +378,24 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
         }
     }
     if (multitexture_material) {
-        var tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
+        let tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
         let multiplier = select(vec3(1.0), unpack4x8unorm(input.tint).rgb, input.tint != 0u);
         // MASKED_MULTITEXTURE composes before the alpha test above, so it never reaches here.
         if ((input.material_parameters.z & ACTOR_TEXTURE_TINT_FLAG) != 0u) {
-            // Provisional MULTIPLICATIVE_TINT: the second texture's alpha weights the colour
-            // multiplier, as colour masks weight dye by the base alpha.
-            color = vec4(mix(color.rgb, color.rgb * multiplier, tex1.a), color.a);
+            // MULTIPLICATIVE_TINT: the tinted second texture lies over the base by its alpha.
+            color = vec4(mix(color.rgb, tex1.rgb * multiplier, tex1.a), color.a);
         } else {
             // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
             // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
-            // Provisional COLOR_SECOND_TEXTURE: the colour multiplier tints the second texture.
-            if ((input.material_parameters.z & ACTOR_COLOR_SECOND_TEXTURE_FLAG) != 0u) { tex1 = vec4(tex1.rgb * multiplier, tex1.a); }
             let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
-            color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
+            color = vec4(mix(color.rgb, tex1.rgb, tex1.a), color.a);
+            if ((input.material_parameters.z & ACTOR_COLOR_SECOND_TEXTURE_FLAG) != 0u) {
+                // COLOR_SECOND_TEXTURE: a visible third texture replaces the mix, dyed by the
+                // change colour by its own alpha.
+                if (tex2.a > ACTOR_FP_EPSILON) { color = vec4(mix(tex2.rgb, tex2.rgb * multiplier, tex2.a), color.a); }
+            } else {
+                color = vec4(mix(color.rgb, tex2.rgb, tex2.a), color.a);
+            }
         }
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
@@ -424,8 +428,9 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting + glow;
     var legacy_foil = vec3(0.0);
     var legacy_alpha = color.a;
-    // A `GLINT` material adds the client's actor glint, a provisional stand-in for Bedrock's
-    // glint program, whose constants are unknown.
+    // A `GLINT` material adds two layers of the glint texture summed, tinted and lit, squared
+    // and added before fog with the alpha unchanged. Its colour, rotation, scroll and scale are
+    // unknown, so the client's actor glint supplies them.
     if (input.skin_info.z != 0xffffffffu && (material == ACTOR_MATERIAL_GLINT || (input.material_parameters.z & ACTOR_GLINT_DEFINE_FLAG) != 0u || word_f32(input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS + 35u) != 0.0)) {
         let base = input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS;
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
