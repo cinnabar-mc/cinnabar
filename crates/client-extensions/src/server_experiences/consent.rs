@@ -60,8 +60,8 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
     (Some(text), matches!(session.state, State::Offered(_)))
 }
 
-/// What approving `render_world_material` allows, stated on its own line with the GPU budget
-/// that bounds it; empty when the offer does not ask for it. The wording is provisional.
+/// What approving `render_world_material` allows, as one plain permission line with the GPU
+/// memory that bounds it, in whole megabytes rounded up; empty when the offer does not ask.
 pub fn world_material_notice(scope: &server_experience::manifest::Scope) -> String {
     if !scope
         .permissions
@@ -70,12 +70,18 @@ pub fn world_material_notice(scope: &server_experience::manifest::Scope) -> Stri
         return String::new();
     }
     format!(
-        concat!(
-            "World materials: server code may change how the world and entities look, ",
-            "for its own blocks and entities only, within the {} byte GPU limit.\n",
-        ),
-        scope.gpu_bytes
+        "Change how this server's own mobs and blocks look (up to {} MB GPU memory)\n",
+        gpu_megabytes(scope)
     )
+}
+
+/// The offer's GPU limit, as the host enforces it, in whole megabytes rounded up.
+fn gpu_megabytes(scope: &server_experience::manifest::Scope) -> u64 {
+    const MEGABYTE: u64 = 1024 * 1024;
+    scope
+        .gpu_bytes
+        .min(server_experience::policy::MAX_GPU_BYTES)
+        .div_ceil(MEGABYTE)
 }
 
 /// Leaves all ordinary input untouched when there is no offered experience.
@@ -99,7 +105,7 @@ mod status_tests {
     }
 
     #[test]
-    fn world_material_consent_names_appearance_and_the_gpu_budget() {
+    fn world_material_consent_is_one_plain_line_with_the_gpu_budget() {
         let mut scope = server_experience::manifest::Scope {
             permissions: Default::default(),
             origins: Default::default(),
@@ -111,8 +117,15 @@ mod status_tests {
         scope
             .permissions
             .insert(server_experience::manifest::Permission::RenderWorldMaterial);
-        let notice = world_material_notice(&scope);
-        assert!(notice.contains("world and entities look"), "{notice}");
-        assert!(notice.contains("4096 byte GPU limit"), "{notice}");
+        assert_eq!(
+            world_material_notice(&scope),
+            "Change how this server's own mobs and blocks look (up to 1 MB GPU memory)\n"
+        );
+        scope.gpu_bytes = 32 << 20;
+        assert!(world_material_notice(&scope).contains("(up to 32 MB GPU memory)"));
+        // A scope past the host's ceiling is stated at the ceiling the host enforces.
+        scope.gpu_bytes = u64::MAX;
+        let ceiling = server_experience::policy::MAX_GPU_BYTES >> 20;
+        assert!(world_material_notice(&scope).contains(&format!("(up to {ceiling} MB")));
     }
 }

@@ -129,8 +129,9 @@ planet with signed textures and a bounded procedural material.
 
 `render_world_material` lets a client part restyle its own entities and blocks with guest WGSL.
 It is developer-only: production clients do not implement it, so it stays fail-closed until the
-restricted-helper launch gate. The offer's consent text names it, says it changes how the world
-and entities look, and states the GPU limit (wording provisional).
+restricted-helper launch gate. The offer's consent text states it as one permission line:
+"Change how this server's own mobs and blocks look (up to N MB GPU memory)", N being the
+offer's GPU limit as the host enforces it.
 
 `world-material.set-material(id, spec)` declares a material: WGSL defining
 `fn shade(input: WorldMaterialInput) -> Surface`, at most four signed PNGs under `textures/`
