@@ -79,9 +79,9 @@ type sessionController struct {
 }
 
 // newWebSession prepares one signed-out account without persistent storage.
-func newWebSession(relay *Relay, client netip.Addr, now time.Time, userAgent string) (*webSession, error) {
+func newWebSession(relay *Relay, client netip.Addr, now time.Time, userAgent string, appleMobile bool) (*webSession, error) {
 	session := &webSession{
-		device:         browserDevice(userAgent),
+		device:         browserDevice(userAgent, appleMobile),
 		client:         client,
 		relay:          relay,
 		auth:           control.AuthV1{State: control.AuthSignedOut},

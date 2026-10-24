@@ -10,9 +10,11 @@ import (
 
 // browserDevice uses the browser's reported OS without inventing a hardware model.
 // Unrecognized agents keep their own login claims instead of adopting the relay host's device.
-func browserDevice(userAgent string) *device.Profile {
+func browserDevice(userAgent string, appleMobile bool) *device.Profile {
 	var os protocol.DeviceOS
 	switch {
+	case appleMobile:
+		os = protocol.DeviceIOS
 	case strings.Contains(userAgent, "Android"):
 		os = protocol.DeviceAndroid
 	case strings.Contains(userAgent, "iPhone"), strings.Contains(userAgent, "iPad"), strings.Contains(userAgent, "iPod"):

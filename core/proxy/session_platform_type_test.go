@@ -10,6 +10,18 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
+func TestSessionLoginClaimsIOSMobileInput(t *testing.T) {
+	profile := device.Profile{OS: protocol.DeviceIOS, Model: "", ID: "00112233445566778899AABBCCDDEEFF"}
+	downstream, err := newSessionDownstream(testSessionConnect(t), &profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := downstream.ClientData()
+	if data.DeviceOS != protocol.DeviceIOS || data.PlatformType != login.PlatformTypeMobile || data.DefaultInputMode != packet.InputModeTouch {
+		t.Fatalf("iOS login claimed desktop input: %+v", data)
+	}
+}
+
 func TestSessionLoginClaimsNativeDesktopDevice(t *testing.T) {
 	t.Parallel()
 	for _, os := range []protocol.DeviceOS{protocol.DeviceOSX, protocol.DeviceWin32, protocol.DeviceLinux} {
