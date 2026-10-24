@@ -113,4 +113,5 @@ These questions remain unresolved:
 - the backend addressing and filtering a material's sampler states select;
 - the order in which packs' copies of the entity material list are processed, and which files the
   vanilla lists name;
-- the separate `metalness`/`emissive`/`roughness` texture-set form.
+- the separate `metalness`/`emissive`/`roughness` texture-set form;
+- whether a flipbook texture resolves through a texture set and how its surface layers animate.
