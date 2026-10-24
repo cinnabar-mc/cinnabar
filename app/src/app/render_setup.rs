@@ -90,6 +90,17 @@ pub(super) fn finish(app: &mut bevy::prelude::App) -> anyhow::Result<()> {
     }
 }
 
+/// Preserves graphics recovery when a non-renderer prerequisite fails before the event loop.
+pub(super) fn finish_prerequisite<T>(
+    app: &mut bevy::prelude::App,
+    result: anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    if result.is_err() {
+        guarded::cancel_startup(app);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
