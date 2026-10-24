@@ -145,7 +145,11 @@ module state, overrides, entry points, loops, recursion or storage writes; bound
 texture reads per pixel), in the helper within four compiles per callback and again in the
 client. `bind(id, target, material)` binds `entity(identifier)` or `block(identifier)`, which
 must lie in the manifest's signed `namespace`; one target takes one binding, and a bound material
-cannot be removed. A bundle holds at most eight materials and 64 bindings (provisional).
+cannot be removed. No count limits a bundle: the host charges each declaration's source,
+texture paths, parameters and identifiers to the bundle's share of the signed memory limit, and
+each published material's textures and pipelines to its share of the GPU limit. The only fixed
+bound is the tag width a target carries: a session can bind blocks to its first 63 materials and
+entities to its first 255; a binding past that is reported and draws as Bedrock.
 
 The host owns depth, blend factors, pass and visibility: a class selects the host's raster, and
 the host applies Bedrock lighting and fog to the returned surface, adding emission after

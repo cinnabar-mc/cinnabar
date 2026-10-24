@@ -22,6 +22,15 @@ use render_scene::world_material::WorldMaterialScene;
 use std::collections::{BTreeSet, HashMap};
 
 /// Shader namespaces: one composed module per material and renderer.
+// The publication's slot limits are the tag widths meshing and the actor material word carry.
+const _: () =
+    assert!(abi::publication::MAX_BLOCK_SLOTS == meshing::PackedQuad::MAX_WORLD_MATERIAL as usize);
+const _: () = assert!(
+    abi::publication::MAX_ENTITY_SLOTS
+        == (render_model::actor::frame::ACTOR_WORLD_MATERIAL_MASK
+            >> render_model::actor::frame::ACTOR_WORLD_MATERIAL_SHIFT) as usize
+);
+
 pub(crate) const ACTOR_SHADERS: u64 = u64::from_le_bytes(*b"wmactor\0");
 pub(crate) const TERRAIN_SHADERS: u64 = u64::from_le_bytes(*b"wmterra\0");
 pub(crate) const MODEL_SHADERS: u64 = u64::from_le_bytes(*b"wmmodel\0");
