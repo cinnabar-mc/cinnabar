@@ -169,5 +169,6 @@ fn validate(material: &WorldMaterial) -> Result<(), String> {
     )
 }
 
+pub mod publication;
 #[cfg(test)]
 mod tests;

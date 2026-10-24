@@ -5,6 +5,7 @@ mod driver;
 mod live;
 mod media;
 mod worker;
+mod world_materials;
 
 pub(crate) use driver::configure;
 
