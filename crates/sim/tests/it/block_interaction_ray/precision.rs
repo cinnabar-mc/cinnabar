@@ -130,3 +130,23 @@ fn rounded_zero_motion_in_a_face_plane_meets_the_face_it_crosses() {
         }
     }
 }
+
+/// A stored corner intercept remains the exact closed endpoint when the world is refreshed.
+#[test]
+fn refreshing_a_saved_intercept_does_not_rebuild_its_endpoint() {
+    let (store, registry, _) = fixture(7);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
+    let endpoint = Vec3::new(0.0, 0.5, 0.0);
+    let hit = world
+        .block_interaction_segment_current(Vec3::new(-1.0, 0.5, -1.0), endpoint)
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.block_pos, [0, 0, 0]);
+    assert_eq!(hit.hit_world, endpoint);
+    assert!(
+        world
+            .block_interaction_segment_current(endpoint, endpoint)
+            .unwrap()
+            .is_none()
+    );
+}

@@ -23,6 +23,7 @@ fn touch_use(world: &mut World, held: bool) -> semantic_input::ActionSnapshot {
     world.insert_resource(client_state::SemanticInputSnapshot(
         semantic_input::finalized::FinalizedInput::from_finalized(snapshot.clone()),
     ));
+    publish_fixed_pick(world);
     snapshot
 }
 

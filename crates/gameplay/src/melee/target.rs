@@ -3,8 +3,6 @@ use client_world::ActorSnapshot;
 
 /// Actor-versus-block bias stays fixed when an actor overrides its pick-box inflation.
 const ACTOR_PICK_RADIUS: f32 = assets::facts::entity::DEFAULT_ACTOR_PICK_RADIUS;
-/// Axes with a smaller squared segment displacement do not supply a clipping plane.
-const PICK_AXIS_EPSILON_SQUARED: f32 = 1e-7;
 /// The nearest pickable actor along the crosshair ray.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorHit {
@@ -87,7 +85,19 @@ where
             let point = hit_boxes(actor).into_iter().find_map(|(min, max)| {
                 let min = min.map(|axis| axis - actor.entity_fact.pick_radius);
                 let max = max.map(|axis| axis + actor.entity_fact.pick_radius);
-                pick_box_point(origin, end, min, max)
+                let vector = |point: [f32; 3]| {
+                    sim::Vec3::new(
+                        f64::from(point[0]),
+                        f64::from(point[1]),
+                        f64::from(point[2]),
+                    )
+                };
+                let point = sim::Aabb::new(vector(min), vector(max)).clip_segment_point(
+                    vector(origin),
+                    vector(end),
+                    true,
+                )?;
+                Some([point.x as f32, point.y as f32, point.z as f32])
             })?;
             let distance_squared = pick_distance_squared(origin, point);
             Some((
@@ -101,51 +111,6 @@ where
         })
         .min_by(|(_, left), (_, right)| left.total_cmp(right))
         .map(|(hit, _)| hit)
-}
-
-/// Clips a float world-space segment to the inflated box, retaining the closest face.
-/// An origin inside the box is itself the hit point; tied faces retain axis order.
-fn pick_box_point(
-    origin: [f32; 3],
-    end: [f32; 3],
-    min: [f32; 3],
-    max: [f32; 3],
-) -> Option<[f32; 3]> {
-    if !origin
-        .into_iter()
-        .chain(end)
-        .chain(min)
-        .chain(max)
-        .all(f32::is_finite)
-        || (0..3).any(|axis| min[axis] >= max[axis])
-    {
-        return None;
-    }
-    if (0..3).all(|axis| (min[axis]..=max[axis]).contains(&origin[axis])) {
-        return Some(origin);
-    }
-    let delta: [f32; 3] = std::array::from_fn(|axis| end[axis] - origin[axis]);
-    let mut closest: Option<([f32; 3], f32)> = None;
-    for axis in 0..3 {
-        if delta[axis] * delta[axis] < PICK_AXIS_EPSILON_SQUARED {
-            continue;
-        }
-        for plane in [min[axis], max[axis]] {
-            let fraction = (plane - origin[axis]) / delta[axis];
-            if !(0.0..=1.0).contains(&fraction) {
-                continue;
-            }
-            let point = std::array::from_fn(|i| origin[i] + delta[i] * fraction);
-            if (0..3).any(|i| i != axis && !(min[i]..=max[i]).contains(&point[i])) {
-                continue;
-            }
-            let distance = pick_distance_squared(origin, point);
-            if closest.is_none_or(|(_, previous)| distance < previous) {
-                closest = Some((point, distance));
-            }
-        }
-    }
-    closest.map(|(point, _)| point)
 }
 
 /// Measures an unclamped world-space block intercept with actor occlusion rounding.

@@ -191,7 +191,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ClientFrameSet::ActorPreparation),
         )
         // Build actions resolve before the tick they precede, so its movement sees the block.
-        .add_systems(
+    .add_systems(
             Update,
             produce_block_use
                 .after(ClientFrameSet::SemanticFinalize)

@@ -500,6 +500,13 @@ camera-direction generation and runtime witnesses remain incomplete.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
+Held placement now retains complete frame picks in arrival order, consumes each batch once,
+and permits due retries within that batch. Stored-hit refresh preserves the original bounded
+intercept and eligible fallback, and line targeting does not add a support-centre range
+filter. Ordinary/liquid availability is independent; indirect refresh may produce a direct
+block hit. Placement and air use share the upcoming-tick category cooldown owner. Native repeat delays remain
+unchanged; fresh conformance and headless acceptance verification are pending.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage and compiled movement/selection ownership; see Local placement prediction and Block selection outlines and visual bounds in plan.md. |
