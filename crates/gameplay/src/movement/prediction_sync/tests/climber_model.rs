@@ -111,6 +111,7 @@ struct ModelTick {
     input: sim::MovementInput,
     entry: u64,
     edits: Vec<Edit>,
+    /// Only the pose and spin bits changed by the accepted live write.
     server_flags: client_world::MovementFlagUpdate,
 }
 
@@ -199,15 +200,11 @@ fn check_replay(
             "seed={seed} anchor={anchor} tick={}",
             actual.tick
         );
-        // Collision can change local pose producers. Replay refreshes later entry captures,
-        // so compare their completed pose above rather than requiring the old entry word.
-        if !world.collision {
-            assert_eq!(
-                actual.input.server_pose_flags, expected.input.server_pose_flags,
-                "seed={seed} anchor={anchor} tick={}",
-                actual.tick
-            );
-        }
+        assert_eq!(
+            actual.input.server_pose_flags, expected.input.server_pose_flags,
+            "seed={seed} anchor={anchor} tick={}",
+            actual.tick
+        );
         assert_eq!(
             actual.input.server_spinning, expected.input.server_spinning,
             "seed={seed} anchor={anchor} tick={}",
@@ -355,6 +352,7 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
             }
             let choices = random.next();
             let poses = physics.pose_flags();
+            let spinning = physics.state().unwrap().spin_attack_ticks.is_some();
             let server_flags = match choices % 8 {
                 0 => client_world::MovementFlagUpdate::default(),
                 1 => client_world::MovementFlagUpdate {
@@ -370,14 +368,14 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                     ..Default::default()
                 },
                 4 => client_world::MovementFlagUpdate {
-                    spinning: Some(physics.state().unwrap().spin_attack_ticks.is_none()),
+                    spinning: Some(!spinning),
                     ..Default::default()
                 },
                 5 => client_world::MovementFlagUpdate {
                     swimming: Some(poses.swimming),
                     crawling: Some(poses.crawling),
                     gliding: Some(poses.gliding),
-                    spinning: Some(physics.state().unwrap().spin_attack_ticks.is_some()),
+                    spinning: Some(spinning),
                     ..Default::default()
                 },
                 6 => client_world::MovementFlagUpdate {
@@ -408,7 +406,15 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                 input,
                 entry,
                 edits: std::mem::take(&mut pending),
-                server_flags,
+                // Matching server bits are no-ops, even if an earlier climber edit later
+                // changes the pose this reference run reaches before the write.
+                server_flags: client_world::MovementFlagUpdate {
+                    swimming: server_flags.swimming.filter(|flag| *flag != poses.swimming),
+                    crawling: server_flags.crawling.filter(|flag| *flag != poses.crawling),
+                    gliding: server_flags.gliding.filter(|flag| *flag != poses.gliding),
+                    spinning: server_flags.spinning.filter(|flag| *flag != spinning),
+                    ..Default::default()
+                },
             });
             let (expected, samples) = run_live_model(&ticks, &pending, &world);
             assert_eq!(
