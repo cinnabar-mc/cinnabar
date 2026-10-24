@@ -16,8 +16,13 @@ pub(crate) struct ActorPipeline {
     >,
     motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
     motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
-    /// Unique draw and motion pipelines for each view, retained for readiness and shader reloads.
+    /// Unique built-in draw and motion pipelines for each view, retained for readiness and
+    /// shader reloads.
     prewarmed: std::collections::HashMap<(Msaa, bool, bool), Vec<CachedRenderPipelineId>>,
+    /// Pipelines the current session's authored materials and frames requested, per view.
+    /// A pack change retires them from readiness; the pipelines themselves stay in Bevy's
+    /// cache, which cannot destroy them, and are reused if a later pack requests them again.
+    session_prewarmed: std::collections::HashMap<(Msaa, bool, bool), Vec<CachedRenderPipelineId>>,
     /// The session's published authored rasters and the views that already requested them.
     session_rasters: (AuthoredRasters, Vec<(Msaa, bool, bool)>),
     /// (view, word, raster) pairs a frame drew that are already requested, so an unchanged
@@ -56,6 +61,7 @@ impl FromWorld for ActorPipeline {
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
+            session_prewarmed: Default::default(),
             session_rasters: (std::sync::Arc::from([]), Vec::new()),
             frame_requests: Default::default(),
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
@@ -183,7 +189,7 @@ impl ActorPipeline {
                 Entry::Occupied(entry) => *entry.get(),
                 Entry::Vacant(entry) => *entry.insert(self.variants.specialize(cache, key).ok()?),
             };
-            let ids = self.prewarmed.entry(view).or_default();
+            let ids = self.session_prewarmed.entry(view).or_default();
             if !ids.contains(&id) {
                 ids.push(id);
             }
@@ -194,7 +200,7 @@ impl ActorPipeline {
                         *entry.insert(self.motion_variants.specialize(cache, key).ok()?)
                     }
                 };
-                let ids = self.prewarmed.entry(view).or_default();
+                let ids = self.session_prewarmed.entry(view).or_default();
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
@@ -226,6 +232,22 @@ impl ActorPipeline {
         Some(())
     }
 
+    /// Adopts a session's published authored rasters. Equal contents keep the views that
+    /// already requested them, so an unchanged reload requests nothing; a change retires the
+    /// previous session's pipelines from readiness.
+    pub(super) fn adopt_session_rasters(&mut self, rasters: &AuthoredRasters) {
+        if std::sync::Arc::ptr_eq(&self.session_rasters.0, rasters) {
+            return;
+        }
+        if *self.session_rasters.0 == **rasters {
+            self.session_rasters.0 = std::sync::Arc::clone(rasters);
+            return;
+        }
+        self.session_rasters = (std::sync::Arc::clone(rasters), Vec::new());
+        self.session_prewarmed.clear();
+        self.frame_requests.clear();
+    }
+
     /// Looks up a motion contract already requested by the loading path.
     pub(super) fn motion_variant(&self, key: ActorPipelineKey) -> Option<CachedRenderPipelineId> {
         self.motion_ids.get(&key.contract()).copied()
@@ -253,6 +275,10 @@ impl ActorPipeline {
         self.prewarmed
             .get(&view)
             .is_some_and(|ids| ids.iter().copied().all(&mut compiled))
+            && self
+                .session_prewarmed
+                .get(&view)
+                .is_none_or(|ids| ids.iter().copied().all(&mut compiled))
     }
 }
 
@@ -319,10 +345,8 @@ pub(super) fn prepare_actor_pipelines(
     )>,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
-    if let Some(frame) = &frame
-        && !std::sync::Arc::ptr_eq(&pipeline.session_rasters.0, &frame.authored_rasters)
-    {
-        pipeline.session_rasters = (std::sync::Arc::clone(&frame.authored_rasters), Vec::new());
+    if let Some(frame) = &frame {
+        pipeline.adopt_session_rasters(&frame.authored_rasters);
     }
     let changed = frame.filter(bevy::ecs::change_detection::DetectChanges::is_changed);
     let mut has_view = false;
