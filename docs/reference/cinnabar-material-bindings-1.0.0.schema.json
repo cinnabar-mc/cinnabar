@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cinnabar.invalid/schemas/cinnabar-material-bindings-1.0.0.schema.json",
   "title": "Cinnabar material bindings 1.0.0",
-  "description": "cinnabar/material-bindings.json. The client also rejects a binding naming a material the document does not declare, a condition that is not block-state Molang, and parameter numbers that are not finite 32-bit floats, and counts name and pattern limits in UTF-8 bytes where this schema counts characters.",
+  "description": "cinnabar/material-bindings.json. The client also rejects a binding naming a material the document does not declare, a block condition that is not block-state Molang, and parameter numbers that are not finite 32-bit floats, and counts name and pattern limits in UTF-8 bytes where this schema counts characters. An entity binding naming a condition, which this schema rejects, still binds unconditionally and the client counts the ignored condition.",
   "type": "object",
   "required": ["format_version"],
   "additionalProperties": false,
@@ -97,7 +97,7 @@
         "block": { "type": "null" },
         "states": { "type": "null" },
         "material_instance": { "type": "null" },
-        "condition": { "type": "null" }
+        "condition": false
       }
     },
     "block_binding": {

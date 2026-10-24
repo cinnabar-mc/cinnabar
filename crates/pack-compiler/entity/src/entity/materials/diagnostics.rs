@@ -108,6 +108,7 @@ impl MaterialStates {
             ..EntityMaterialDiagnostics::default()
         };
         if let Some(extension) = &self.extension {
+            diagnostics.ignored_extension_conditions = extension.ignored_entity_conditions;
             diagnostics.unmatched_extension_bindings = extension
                 .entity_bindings
                 .iter()
@@ -239,9 +240,8 @@ mod tests {
     }
 
     #[test]
-    fn extension_bindings_matching_nothing_and_missing_masks_are_counted() {
-        let mut states = MaterialStates::default();
-        states.extension = super::super::extension::parse(&json!({
+    fn extension_bindings_matching_nothing_missing_masks_and_ignored_conditions_are_counted() {
+        let extension = super::super::extension::parse(&json!({
             "format_version": "1.0.0",
             "materials": {
                 "example:glow": {"textures": {"glow_mask": "textures/example/missing"}},
@@ -250,15 +250,24 @@ mod tests {
             "bindings": [
                 {"entity": "example:moth", "render_controller": "controller.render.moth",
                  "material": "example:glow"},
-                {"entity": "example:absent", "material": "example:glow"},
+                {"entity": "example:absent", "condition": "query.is_baby",
+                 "material": "example:glow"},
                 {"entity": "example:moth", "render_controller": "controller.render.other",
                  "material": "example:glow"},
                 {"block": "example:lamp", "material": "example:block"}
             ]
         }))
         .ok();
+        let states = MaterialStates {
+            extension,
+            ..MaterialStates::default()
+        };
         let diagnostics = states.diagnostics(&[("example:moth", "controller.render.moth")]);
         assert_eq!(diagnostics.unmatched_extension_bindings, 2);
+        assert_eq!(
+            diagnostics.ignored_extension_conditions, 1,
+            "entity bindings take no condition"
+        );
         assert_eq!(
             diagnostics.unresolved_extension_textures, 1,
             "block masks name terrain keys, not entity rasters"
