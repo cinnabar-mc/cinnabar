@@ -1080,6 +1080,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Generic resolved action filtering exposes synchronous module verdicts, retained
+  releases and lifecycle reconciliation; timing and rates belong to modules. Legacy
+  native click caps remain frozen for compatibility. Local weather overrides retain
+  transactional host APIs. These contracts have offline behavior coverage; populated-world interaction and rendering acceptance
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.

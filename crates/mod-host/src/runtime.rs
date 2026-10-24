@@ -1,3 +1,4 @@
+mod action_filter;
 mod input_host;
 mod output_lifecycle;
 mod presentation;
@@ -22,7 +23,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/player-mod@0.1.0",
+    world: "cinnabar:extension/filtered-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
 });
@@ -288,6 +289,7 @@ pub(super) struct Instance {
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
+    filter_identity: u64,
 }
 
 impl Instance {
