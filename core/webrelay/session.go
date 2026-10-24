@@ -18,6 +18,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
+	"github.com/sandertv/gophertunnel/minecraft/device"
 	"golang.org/x/oauth2"
 )
 
@@ -38,6 +39,7 @@ var errSessionBusy = errors.New("webrelay: session is already playing")
 // handler its play connections join through. Relay.mu owns capability fields; mu owns account state.
 // commands orders account commands with takeover. Never acquire it while holding Relay.mu.
 type webSession struct {
+	device        *device.Profile
 	token         string
 	previousToken string
 	tokenPending  bool
@@ -77,8 +79,9 @@ type sessionController struct {
 }
 
 // newWebSession prepares one signed-out account without persistent storage.
-func newWebSession(relay *Relay, client netip.Addr, now time.Time) (*webSession, error) {
+func newWebSession(relay *Relay, client netip.Addr, now time.Time, userAgent string, appleMobile bool) (*webSession, error) {
 	session := &webSession{
+		device:         browserDevice(userAgent, appleMobile),
 		client:         client,
 		relay:          relay,
 		auth:           control.AuthV1{State: control.AuthSignedOut},
@@ -96,13 +99,12 @@ func newWebSession(relay *Relay, client netip.Addr, now time.Time) (*webSession,
 
 // newHandler builds the session handler for account; nil joins offline.
 func (session *webSession) newHandler(account *authcache.Account) (*proxy.SessionHandler, error) {
-	device, _ := authcache.LoadDevice("")
 	return proxy.NewSessionHandler(proxy.SessionHandlerConfig{
 		Account:         account,
 		Logger:          session.relay.logger,
 		Dialer:          session.relay.dialer,
 		SelectTarget:    selectTarget,
-		Device:          &device,
+		Device:          session.device,
 		ConnectProgress: session.setConnect,
 	})
 }

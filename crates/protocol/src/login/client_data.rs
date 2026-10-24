@@ -1,5 +1,5 @@
-//! The Bedrock login client-data claims the core presents upstream for this client. The core claims
-//! the device (`DeviceOS`, `DeviceModel`, `DeviceId`, `DefaultInputMode`) to match its sign-in.
+//! The Bedrock login client-data claims the core presents upstream for this client. The core supplies
+//! the host device (`DeviceOS`, `DeviceModel`, `DeviceId`, `DefaultInputMode`).
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bedrock_protocol_1_26_51::enums::InputMode;
