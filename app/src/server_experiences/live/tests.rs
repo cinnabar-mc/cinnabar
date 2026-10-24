@@ -2,6 +2,7 @@ use super::*;
 use protocol::ExperienceMessage;
 
 mod drawing;
+mod material_fx;
 mod negotiation;
 mod recovery;
 mod scheduling;
@@ -34,6 +35,18 @@ fn context(epoch: u64) -> mod_host::presentation::Context {
 
 /// Reserves real aggregate budgets for pending component helpers without starting processes.
 fn fixture(count: usize) -> Live<FakeWorker> {
+    let ids: Vec<String> = (0..count).map(|i| format!("bundle{i}")).collect();
+    fixture_with(&ids, PathBuf::new(), vec![0], |_| {})
+}
+
+/// [`fixture`] over worker `W` with bundles `ids`, starting `component` from `executable` with
+/// each bundle's capabilities after `configure` adjusted them.
+fn fixture_with<W: Worker>(
+    ids: &[String],
+    executable: PathBuf,
+    component: Vec<u8>,
+    configure: impl Fn(&mut Capabilities),
+) -> Live<W> {
     let scope = Scope {
         permissions: BTreeSet::from([
             Permission::Messaging,
@@ -46,9 +59,11 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         gpu_bytes: 0,
         personal_mods: Default::default(),
     };
-    let packages = (0..count)
-        .map(|i| PackageOffer {
-            id: format!("bundle{i}"),
+    let packages = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| PackageOffer {
+            id: id.clone(),
             publisher_key: String::new(),
             digest: format!("digest{i}"),
             bytes: 1,
@@ -100,22 +115,24 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     fields: vec![Field::Bool {}],
                 })
                 .collect();
+            let mut capabilities = Capabilities {
+                scope: scope.clone(),
+                assets: BTreeSet::from([SCREEN.to_owned()]),
+                templates: BTreeSet::from([SCREEN.to_owned()]),
+                channels,
+                actions: BTreeSet::from([format!("{}.pick", owner.bundle)]),
+                max_message_bytes: grant.wire.limits.max_message_bytes,
+                namespace: None,
+            };
+            configure(&mut capabilities);
             (
                 owner.bundle.clone(),
                 Instance {
                     helper: None,
                     assets: Default::default(),
                     presentation: Default::default(),
-                    component: Some(vec![0]),
-                    capabilities: Capabilities {
-                        scope: scope.clone(),
-                        assets: BTreeSet::from([SCREEN.to_owned()]),
-                        templates: BTreeSet::from([SCREEN.to_owned()]),
-                        channels,
-                        actions: BTreeSet::from([format!("{}.pick", owner.bundle)]),
-                        max_message_bytes: grant.wire.limits.max_message_bytes,
-                        namespace: None,
-                    },
+                    component: Some(component.clone()),
+                    capabilities,
                     owner,
                     contributions: Contributions::default(),
                     busy: true,
@@ -149,7 +166,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         grant,
         instances,
         last_recipient: None,
-        executable: PathBuf::new(),
+        executable,
         pending_sends: VecDeque::new(),
         pending_send_bytes: 0,
         budget,

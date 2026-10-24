@@ -3957,6 +3957,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-material-fx"
+version = "0.1.28"
+dependencies = [
+ "experience-sdk",
+]
+
+[[package]]
+name = "experience-material-fx-client"
+version = "0.1.28"
+dependencies = [
+ "experience-sdk",
+]
+
+[[package]]
 name = "experience-probe"
 version = "0.1.28"
 dependencies = [
@@ -5662,6 +5676,19 @@ name = "material-bin"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+]
+
+[[package]]
+name = "material-fx"
+version = "0.1.28"
+dependencies = [
+ "anyhow",
+ "cinnabar-cxb",
+ "experience-runtime",
+ "image",
+ "server-experience",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

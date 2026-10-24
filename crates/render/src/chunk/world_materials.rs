@@ -200,6 +200,10 @@ fn slot_mask_of<'a>(
 }
 
 #[cfg(test)]
+#[path = "world_materials/scale_tests.rs"]
+mod scale_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

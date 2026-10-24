@@ -44,6 +44,7 @@ type settings struct {
 	luckyBlock                              bool
 	baseTextureIcon                         bool
 	materialShowcase                        bool
+	materialFx                              bool
 	dir, addr, name, gameMode, diff         string
 	generator                               string
 	chunkWorkers                            int
@@ -91,6 +92,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.BoolVar(&s.luckyBlock, "lucky-block", false, "register a server-defined lucky block; /lucky places three ahead")
 	flags.BoolVar(&s.baseTextureIcon, "base-texture-icon", false, "register fixture:base_texture_icon, whose pack icon names a base-game block texture")
 	flags.BoolVar(&s.materialShowcase, "material-showcase", false, "offer an original material showcase pack; /materialshowcase spawns its row")
+	flags.BoolVar(&s.materialFx, "material-fx", false, "offer the world material showcase's entities; /materialfx drives the materialfx Experience (world-materials.md)")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.BoolVar(&s.holograms, "holograms", false, fmt.Sprintf("spawn %d formatted floating labels; /holograms, /holograms freeze, /holograms clear", hologramCount))
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")

@@ -265,16 +265,14 @@ pub(in crate::chunk) fn queue_world_material_chunks(
                 draws.push((*entity, mask));
             }
         }
-        if draws.is_empty() {
-            continue;
-        }
         let base = ChunkPipelineKey {
             msaa: *msaa,
             hdr: camera.hdr,
             enhanced: false,
         };
-        let union = draws.iter().fold(0, |union, (_, mask)| union | mask);
-        for slot in slots(union) {
+        // Every published material's pipelines compile as soon as it is published, before a
+        // bound block first comes into view; repeat requests are cache lookups.
+        for slot in 0..u16::try_from(u64::BITS).expect("slot masks are 64 bits") {
             let Some(variant) = world.variant(slot) else {
                 continue;
             };
@@ -284,6 +282,9 @@ pub(in crate::chunk) fn queue_world_material_chunks(
                     world: variant,
                     geometry,
                 };
+                if pipeline.world_ids.contains_key(&key) {
+                    continue;
+                }
                 let variants = match geometry {
                     Geometry::Cube => &mut pipeline.world_variants,
                     Geometry::Model => &mut pipeline.world_model_variants,
@@ -301,6 +302,9 @@ pub(in crate::chunk) fn queue_world_material_chunks(
         ) else {
             continue;
         };
+        if draws.is_empty() {
+            continue;
+        }
         if let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) {
             phase.add(
                 Opaque3dBatchSetKey {

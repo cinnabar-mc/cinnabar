@@ -251,4 +251,28 @@ mod tests {
             "once ready: the tagged word and the host's opaque raster and pass"
         );
     }
+
+    #[test]
+    fn many_bound_actors_of_one_entity_share_one_world_pipeline() {
+        let (mut app, _) = crate::queue_review_support::app();
+        let cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
+        let mut pipeline = ActorPipeline::from_world(app.world_mut());
+        let variant = WorldVariant {
+            program: 7,
+            textures: 1,
+            blend: Blend::Cutout,
+            depth: mod_render::world_material::publication::Depth::Test,
+        };
+        let first = pipeline
+            .request_world(&cache, WorldActorKey::new(base(), variant))
+            .expect("the world pipeline is requested");
+        // Every further actor of the entity draws with the same key: no new pipeline.
+        for _ in 0..1000 {
+            assert_eq!(
+                pipeline.request_world(&cache, WorldActorKey::new(base(), variant)),
+                Some(first)
+            );
+        }
+        assert_eq!(pipeline.world_ids.len(), 1);
+    }
 }
