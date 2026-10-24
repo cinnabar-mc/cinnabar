@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 
 use super::{
     super::selection::Selection,
-    materials::{MaterialStates, MaterialTable},
+    materials::{MaterialStates, MaterialTable, provenance::MaterialProvenance},
 };
 use crate::entity::{invalid, molang::MolangCompiler};
 
@@ -54,8 +54,16 @@ pub(super) struct Group {
 }
 
 /// The shader kind, shading features and interned definition one controller material selects.
-fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut MaterialTable) -> Raster {
+fn raster(
+    target: Option<&str>,
+    materials: &MaterialStates,
+    table: &mut MaterialTable,
+    provenance: &mut MaterialProvenance,
+) -> Raster {
     let resolved = target.and_then(|target| materials.resolve(target, table));
+    if let (Some(target), Some((_, definition))) = (target, resolved) {
+        materials.record_provenance(target, definition, table, provenance);
+    }
     Raster {
         material: target.map_or(EntityRenderMaterial::Default, |name| {
             assets::facts::pack::rules().raster(name)
@@ -77,7 +85,7 @@ pub(super) fn resolve(
     description: &Map<String, Value>,
     controller: &Map<String, Value>,
     materials: &MaterialStates,
-    table: &mut MaterialTable,
+    (table, provenance): (&mut MaterialTable, &mut MaterialProvenance),
     geometries: &[EntityGeometry],
     selected: impl IntoIterator<Item = u32>,
     parents: &mut Option<Box<[Option<usize>]>>,
@@ -88,7 +96,12 @@ pub(super) fn resolve(
         .next()
         .is_some();
     if !extended
-        && let Some(selection) = uniform_selection(description, controller, materials, table)?
+        && let Some(selection) = uniform_selection(
+            description,
+            controller,
+            materials,
+            (&mut *table, &mut *provenance),
+        )?
     {
         return Ok(vec![Group {
             raster: Raster::default(),
@@ -109,12 +122,12 @@ pub(super) fn resolve(
             let target = aliases.get(&alias.to_ascii_lowercase())?;
             Some((pattern.to_ascii_lowercase(), target))
         })
-        .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
+        .map(|(pattern, target)| (pattern, raster(Some(target), materials, table, provenance)))
         .collect::<Vec<_>>();
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
-        if let Some((state, definition, masks)) =
-            materials.resolve_extension(material, true, table)
+        if let Some((state, definition, masks)) = materials.resolve_extension(material, true, table)
         {
+            materials.record_extension_provenance(material, definition, table, provenance);
             let raster = Raster {
                 material: EntityRenderMaterial::Default,
                 state: Some(state),
@@ -229,7 +242,7 @@ fn uniform_selection(
     description: &Map<String, Value>,
     controller: &Map<String, Value>,
     materials: &MaterialStates,
-    table: &mut MaterialTable,
+    (table, provenance): (&mut MaterialTable, &mut MaterialProvenance),
 ) -> Result<Option<Arc<Selection<Raster>>>, AssetError> {
     use super::super::selection::Selector;
     let Some(expression) = controller
@@ -244,10 +257,11 @@ fn uniform_selection(
         return Ok(None);
     };
     let aliases = super::lowercase_map(description.get("materials"));
-    let table = RefCell::new(table);
+    let state = RefCell::new((table, provenance));
     let resolve_alias = |alias: &str| {
         let target = aliases.get(alias)?;
-        Some(raster(Some(target), materials, &mut table.borrow_mut()))
+        let (table, provenance) = &mut *state.borrow_mut();
+        Some(raster(Some(target), materials, table, provenance))
     };
     let selector = Selector {
         prefix: "material.",

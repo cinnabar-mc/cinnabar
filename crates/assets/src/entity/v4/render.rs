@@ -84,6 +84,24 @@ impl EntityRenderMaterialState {
     /// `COLOR_SECOND_TEXTURE` with `USE_MULTITEXTURE`.
     pub const COLOR_SECOND_TEXTURE: u32 = 1 << 21;
 
+    /// Controller texture slots a material samples beside its base, as Bedrock binds them:
+    /// `MatTexture1` for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and
+    /// `MASKED_MULTITEXTURE`, and `MatTexture2` for `USE_MULTITEXTURE`. Glint draws with the
+    /// client's own glint raster, so a glint material's tint or mask texture is the slot after
+    /// its glint texture (provisional: the controller-to-sampler order is unknown).
+    #[must_use]
+    pub fn extra_texture_slots(self) -> &'static [usize] {
+        if self.multitexture {
+            &[1, 2]
+        } else if (self.texture_tint || self.texture_mask) && self.glint {
+            &[2]
+        } else if self.texture_tint || self.texture_mask {
+            &[1]
+        } else {
+            &[]
+        }
+    }
+
     /// Whether the draw samples a second texture of its controller beside the base: every
     /// three-sampler material, and tinted or masked materials, which sample one more.
     #[must_use]

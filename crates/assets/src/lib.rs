@@ -22,7 +22,7 @@ pub mod dye;
 mod effects;
 mod encoding;
 pub mod entity;
-mod entity_material_report;
+pub mod entity_material_report;
 mod environment_settings;
 pub mod equipment;
 mod error;

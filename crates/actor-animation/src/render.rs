@@ -230,20 +230,6 @@ pub(super) fn carry_layer_poses(
     }
 }
 
-/// Controller texture slots a material samples beside its base, as Bedrock binds them:
-/// `MatTexture1` for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and
-/// `MASKED_MULTITEXTURE`, and `MatTexture2` for `USE_MULTITEXTURE`. Glint draws with the
-/// client's own glint raster, so a glint material's tint or mask texture is the slot after its
-/// glint texture (provisional: the controller-to-sampler order is unknown).
-fn extra_samplers(state: Option<assets::EntityRenderMaterialState>) -> &'static [usize] {
-    match state {
-        Some(state) if state.multitexture => &[1, 2],
-        Some(state) if (state.texture_tint || state.texture_mask) && state.glint => &[2],
-        Some(state) if state.texture_tint || state.texture_mask => &[1],
-        _ => &[],
-    }
-}
-
 /// The `uv_anim` value of a controller without one.
 const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
@@ -410,7 +396,10 @@ fn evaluate_layer_into(
         definition: material_definition,
         masks: material_masks,
     } = selected_material(evaluator, variables, layer, budget)?;
-    let samplers = extra_samplers(material_state);
+    let samplers = material_state.map_or(
+        &[] as &[usize],
+        assets::EntityRenderMaterialState::extra_texture_slots,
+    );
     let choices = render
         .geometries
         .get(
