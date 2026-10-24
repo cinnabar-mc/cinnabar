@@ -20,11 +20,9 @@ type attackSounds struct {
 	attacker string
 }
 
-// installAttackSounds gives each world its attacker-excluding attack sounds.
-func installAttackSounds(worlds ...*world.World) {
-	for _, w := range worlds {
-		w.Handle(&attackSounds{})
-	}
+// installAttackSounds gives w its attacker-excluding attack sounds.
+func installAttackSounds(w *world.World) {
+	w.Handle(&attackSounds{})
 }
 
 // markAttacker records the player attacking within tx. Its attack sound plays within the same

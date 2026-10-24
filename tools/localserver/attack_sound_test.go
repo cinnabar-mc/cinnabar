@@ -7,6 +7,9 @@ import (
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/sound"
+	"github.com/go-gl/mathgl/mgl64"
+
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // addressedViewer is a world viewer reached through one connection address.
@@ -80,4 +83,24 @@ func TestTargetDummyIsNotKnockedBack(t *testing.T) {
 		}
 		t.Fatal("fixture_dummy spawned no player")
 	})
+}
+
+// TestEveryOpenedWorldWithholdsTheAttackersAttackSound opens a world through the lifecycle that
+// Experience-created startup and runtime worlds use, as the default worlds do.
+func TestEveryOpenedWorldWithholdsTheAttackersAttackSound(t *testing.T) {
+	var lifecycle experience.WorldLifecycle = &pauseState{settings: settings{gameMode: "survival", diff: "peaceful"}}
+	w := world.Config{Synchronous: true}.New()
+	t.Cleanup(func() { _ = w.Close() })
+	lifecycle.WorldOpened(w)
+	defer lifecycle.WorldClosed(w)
+	if err := w.Do(func(tx *world.Tx) {
+		markAttacker(tx, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 50001})
+		ctx := tx.Event()
+		tx.World().Handler().HandleSound(ctx, sound.Attack{Damage: true}, mgl64.Vec3{})
+		if !ctx.Cancelled() {
+			t.Error("an opened world sent the attacker its own attack sound")
+		}
+	}).Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 }

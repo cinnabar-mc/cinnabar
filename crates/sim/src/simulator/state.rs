@@ -50,6 +50,11 @@ pub struct PlayerState {
     /// measures again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) climber: Option<super::scaffolding::ClimberContact>,
+    /// Whether the block at the feet cell was climbable after the previous
+    /// tick's move (`Actor::onClimbableBlock`), whatever the climbing
+    /// direction. Unreadable terrain keeps the last measurement.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) on_climbable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -98,6 +103,7 @@ impl PlayerState {
             collision_shape: None,
             fall_distance: 0.0,
             climber: None,
+            on_climbable: false,
         }
     }
 
@@ -107,10 +113,12 @@ impl PlayerState {
         self.fall_distance
     }
 
-    /// Whether the latest tick ended with a climbable block at the feet.
+    /// Whether the latest tick ended with a climbable block at the feet cell
+    /// (`Actor::onClimbableBlock`), such as a ladder or vine, whether the
+    /// player climbs, holds or descends it.
     #[must_use]
     pub fn on_climbable_block(&self) -> bool {
-        self.climber.is_some_and(|contact| contact.ascending)
+        self.on_climbable
     }
 
     /// Clears accumulated falling when a movement action starts or stops flight.
@@ -326,17 +334,4 @@ pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
         return Err(WorldQueryError::QueryExtentExceeded.into());
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn climbable_contact_follows_the_ascending_block_at_the_feet() {
-        let mut state = PlayerState::new(Vec3::ZERO);
-        assert!(!state.on_climbable_block());
-        state.update_climber_contact(None, None, Some(true), None);
-        assert!(state.on_climbable_block());
-    }
 }

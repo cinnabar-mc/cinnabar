@@ -958,9 +958,8 @@ latency, server-pack prewarming and physical output latency remain incomplete.
 Actor attacks voice the player's no-damage, critical or strong attack sound on the frame
 they are sent, and the local server sends that sound only to other players. Damage
 prediction counts the held item and its enchantments as zero, so Weakness II or stronger
-with a weapon is incomplete. Custom `minecraft:swing_sounds` overrides, critical hits on
-non-mob ordinary actors such as leash knots, and the powder-snow climbable case remain
-incomplete.
+with a weapon is incomplete. Custom `minecraft:swing_sounds` overrides and critical hits
+on non-mob ordinary actors such as leash knots remain incomplete.
 
 Block sound materials resolve from pack entries, then base server components, then a
 stone fallback. Per-permutation sound components and matched native fallback

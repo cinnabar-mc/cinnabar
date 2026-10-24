@@ -192,6 +192,14 @@ impl BlockPhysicsFlags {
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
     }
+
+    /// Whether a block with these flags is climbable for an actor
+    /// (`Actor::onClimbableBlock`): any climbable block, or powder snow for a
+    /// wearer who can stand on it.
+    #[must_use]
+    pub const fn climbable_for(self, can_stand_on_snow: bool) -> bool {
+        self.contains(Self::CLIMBABLE) || (can_stand_on_snow && self.contains(Self::POWDER_SNOW))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]

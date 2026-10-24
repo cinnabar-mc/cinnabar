@@ -4,9 +4,7 @@
 //! separate from effective flight when an ability layer fixes its value.
 
 use client_world::game_mode_capabilities::FlightAuthority;
-use sim::{
-    BlockPhysicsFlags, CollisionWorld, MovementMode, SneakProfile, Vec3, WorldQueryError, pose_fits,
-};
+use sim::{CollisionWorld, MovementMode, SneakProfile, Vec3, WorldQueryError, pose_fits};
 
 mod sprint_trigger;
 mod swimming_trigger;
@@ -520,12 +518,11 @@ fn feet_end_glide(
     {
         return Err(WorldQueryError::CoordinateOutOfRange);
     }
-    let flags = world
+    Ok(world
         .block_physics(block.map(|axis| axis as i32))?
         .primary()
-        .flags;
-    Ok(flags.contains(BlockPhysicsFlags::CLIMBABLE)
-        || (can_stand_on_snow && flags.contains(BlockPhysicsFlags::POWDER_SNOW)))
+        .flags
+        .climbable_for(can_stand_on_snow))
 }
 
 #[cfg(test)]
