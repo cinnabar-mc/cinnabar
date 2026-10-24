@@ -627,3 +627,90 @@ fn depth_and_channel_write_states_inherit_and_reset_independently() {
         json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true,"depth_always":true})
     );
 }
+
+/// The value of a compiled condition that folds to a constant.
+fn constant(compiled: &assets::CompiledEntityAssets, condition: u32) -> Option<f32> {
+    let expression = compiled.molang_expressions[condition as usize];
+    match &compiled.molang_ops[expression.first_op as usize
+        ..expression.first_op as usize + usize::from(expression.op_count)]
+    {
+        [assets::MolangOp::Push(value)] => Some(value.get()),
+        _ => None,
+    }
+}
+
+#[test]
+fn material_expressions_draw_each_selectable_material_under_its_condition() {
+    let materials = |rules: Value| {
+        let fixture = per_bone_pack(rules, false);
+        pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap()
+    };
+    // A queried choice: one layer per material, each drawn only under its own condition, so a
+    // pack prewarms both and a switch needs no new pipeline.
+    let queried = materials(json!([{"*":"query.is_baby ? Material.glass : Material.default"}]));
+    assert_eq!(queried.render.layers.len(), 2);
+    let definitions = queried
+        .render
+        .layers
+        .iter()
+        .map(|layer| layer.material_definition)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        definitions.len(),
+        2,
+        "both selectable materials are compiled"
+    );
+    assert!(
+        queried
+            .render
+            .layers
+            .iter()
+            .all(|layer| layer.condition.is_some())
+    );
+    // The selection follows the expression's value.
+    for (selector, drawn) in [("1.0", "glass"), ("0.0", "default")] {
+        let compiled =
+            materials(json!([{ "*": format!("{selector} ? Material.glass : Material.default") }]));
+        let active = compiled
+            .render
+            .layers
+            .iter()
+            .filter(|layer| {
+                layer.condition.is_none_or(|condition| {
+                    constant(&compiled, condition).is_some_and(|value| value != 0.0)
+                })
+            })
+            .map(|layer| summary(&compiled.render, layer))
+            .collect::<Vec<_>>();
+        let expected = materials(json!([{ "*": format!("Material.{drawn}") }]));
+        assert_eq!(
+            active,
+            vec![summary(&expected.render, &expected.render.layers[0])],
+            "{selector}"
+        );
+    }
+    // An array selection draws each element under its index.
+    let fixture = per_bone_pack(json!([{"*":"Array.looks[query.variant]"}]), false);
+    write(
+        fixture.path(),
+        "render_controllers/example.json",
+        &serde_json::to_vec(&json!({"format_version":"1.8.0","render_controllers":{
+            "controller.render.example":{
+                "arrays":{"materials":{"Array.looks":["Material.default","Material.glass"]}},
+                "geometry":"Geometry.default",
+                "materials":[{"*":"Array.looks[query.variant]"}],
+                "textures":["Texture.default"]
+            }
+        }}))
+        .unwrap(),
+    );
+    let indexed = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    assert_eq!(indexed.render.layers.len(), 2);
+    assert!(
+        indexed
+            .render
+            .layers
+            .iter()
+            .all(|layer| layer.condition.is_some())
+    );
+}

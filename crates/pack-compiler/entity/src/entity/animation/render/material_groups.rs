@@ -15,7 +15,9 @@ use serde_json::{Map, Value};
 
 use super::{
     super::selection::Selection,
+    Selector,
     materials::{MaterialStates, MaterialTable, provenance::MaterialProvenance},
+    selection_condition,
 };
 use crate::entity::{invalid, molang::MolangCompiler};
 
@@ -51,6 +53,20 @@ pub(super) struct Group {
     raster: Raster,
     hidden: Vec<Box<str>>,
     selection: Option<Arc<Selection<Raster>>>,
+    /// Molang that must hold for the group to draw: the material choices of the controller's
+    /// expression rules that produced it. `None` always draws.
+    condition: Option<String>,
+}
+
+/// Most combinations of expression-rule choices one controller expands into; beyond it each
+/// expression keeps the material a default actor selects.
+const MAX_MATERIAL_VARIANTS: usize = 16;
+
+/// One controller material rule: a fixed material, or each material an expression can select
+/// with the Molang condition selecting it.
+enum Rule {
+    Fixed(Raster),
+    Choice(Vec<(Option<String>, Raster)>),
 }
 
 /// The shader kind, shading features and interned definition one controller material selects.
@@ -107,23 +123,68 @@ pub(super) fn resolve(
             raster: Raster::default(),
             hidden: Vec::new(),
             selection: Some(selection),
+            condition: None,
         }]);
     }
+    let selected = selected.into_iter().collect::<Vec<_>>();
     let aliases = super::lowercase_map(description.get("materials"));
-    let mut rules: Vec<_> = controller
+    let arrays = controller
+        .get("arrays")
+        .and_then(|arrays| arrays.get("materials"))
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(name, members)| {
+            (
+                name.to_ascii_lowercase(),
+                members
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|member| member.as_str().map(str::to_owned))
+                    .collect(),
+            )
+        })
+        .collect();
+    let resolve_alias = |alias: &str| aliases.get(alias).cloned();
+    let selector = Selector {
+        prefix: "material.",
+        arrays,
+        resolve: &resolve_alias,
+    };
+    let mut rules = Vec::new();
+    for (pattern, value) in controller
         .get("materials")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_object)
         .flatten()
-        .filter_map(|(pattern, value)| {
-            let alias = value.as_str()?.strip_prefix("Material.")?;
-            let target = aliases.get(&alias.to_ascii_lowercase())?;
-            Some((pattern.to_ascii_lowercase(), target))
-        })
-        .map(|(pattern, target)| (pattern, raster(Some(target), materials, table, provenance)))
-        .collect::<Vec<_>>();
+    {
+        let Some(leaves) = value.as_str().and_then(|text| selector.leaves(text)) else {
+            continue;
+        };
+        let pattern = pattern.to_ascii_lowercase();
+        match leaves.as_slice() {
+            [] => {}
+            [(path, target)] if path.is_empty() => {
+                rules.push((
+                    pattern,
+                    Rule::Fixed(raster(Some(target), materials, table, provenance)),
+                ));
+            }
+            _ => {
+                let mut choices = Vec::with_capacity(leaves.len());
+                for (path, target) in &leaves {
+                    choices.push((
+                        selection_condition(path),
+                        raster(Some(target), materials, table, provenance),
+                    ));
+                }
+                rules.push((pattern, Rule::Choice(choices)));
+            }
+        }
+    }
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
         if let Some((state, definition, masks)) = materials.resolve_extension(material, true, table)
         {
@@ -136,9 +197,92 @@ pub(super) fn resolve(
                 required_textures: table.required_textures(definition),
                 uv_anim: materials.extension_applies_uv_anim(material, table),
             };
-            rules.push((pattern.to_owned(), raster));
+            rules.push((pattern.to_owned(), Rule::Fixed(raster)));
         }
     }
+    let mut groups = Vec::new();
+    for (condition, rules) in variants(&rules) {
+        for mut group in partition(&rules, geometries, &selected, parents)? {
+            group.condition = condition.clone();
+            groups.push(group);
+        }
+    }
+    Ok(groups)
+}
+
+/// One combination of expression-rule choices: its selecting condition and fixed rules.
+type Variant = (Option<String>, Vec<(String, Raster)>);
+
+/// Every combination of the expression rules' choices, as fixed rules with the condition that
+/// selects the combination. Choices are mutually exclusive, so exactly one combination draws.
+fn variants(rules: &[(String, Rule)]) -> Vec<Variant> {
+    let count = rules
+        .iter()
+        .try_fold(1usize, |count, (_, rule)| match rule {
+            Rule::Fixed(_) => Some(count),
+            Rule::Choice(choices) => count.checked_mul(choices.len()),
+        });
+    let Some(count) = count.filter(|count| *count <= MAX_MATERIAL_VARIANTS) else {
+        // Too many combinations: each expression keeps what a default actor selects.
+        let fixed = rules
+            .iter()
+            .filter_map(|(pattern, rule)| {
+                let raster = match rule {
+                    Rule::Fixed(raster) => *raster,
+                    Rule::Choice(choices) => {
+                        choices
+                            .iter()
+                            .find(|(condition, _)| {
+                                condition.as_deref().is_none_or(|text| {
+                                    MolangCompiler::evaluate_default(text)
+                                        .is_some_and(|value| value != 0.0)
+                                })
+                            })?
+                            .1
+                    }
+                };
+                Some((pattern.clone(), raster))
+            })
+            .collect();
+        return vec![(None, fixed)];
+    };
+    (0..count)
+        .map(|mut index| {
+            let mut conditions = Vec::new();
+            let fixed = rules
+                .iter()
+                .map(|(pattern, rule)| {
+                    let raster = match rule {
+                        Rule::Fixed(raster) => *raster,
+                        Rule::Choice(choices) => {
+                            let (condition, raster) = &choices[index % choices.len()];
+                            index /= choices.len();
+                            conditions.extend(condition.clone());
+                            *raster
+                        }
+                    };
+                    (pattern.clone(), raster)
+                })
+                .collect();
+            let condition = (!conditions.is_empty()).then(|| {
+                conditions
+                    .iter()
+                    .map(|condition| format!("({condition})"))
+                    .collect::<Vec<_>>()
+                    .join(" && ")
+            });
+            (condition, fixed)
+        })
+        .collect()
+}
+
+/// Partitions bones by fixed material rules, the last match winning per bone.
+fn partition(
+    rules: &[(String, Raster)],
+    geometries: &[EntityGeometry],
+    selected: &[u32],
+    parents: &mut Option<Box<[Option<usize>]>>,
+) -> Result<Vec<Group>, AssetError> {
     let fallback = rules
         .iter()
         .rev()
@@ -149,6 +293,7 @@ pub(super) fn resolve(
             raster: fallback,
             hidden: Vec::new(),
             selection: None,
+            condition: None,
         }]);
     }
     if parents.is_none() {
@@ -156,7 +301,7 @@ pub(super) fn resolve(
     }
     let parents = parents.as_deref().expect("resolved geometry parents");
     let mut names = BTreeSet::new();
-    for selected in selected {
+    for &selected in selected {
         let mut current = Some(selected as usize);
         while let Some(index) = current {
             let geometry = &geometries[index];
@@ -174,6 +319,7 @@ pub(super) fn resolve(
             raster: fallback,
             hidden: Vec::new(),
             selection: None,
+            condition: None,
         }]);
     }
     let assignments: Vec<_> = names
@@ -205,6 +351,7 @@ pub(super) fn resolve(
             raster: order[0],
             hidden: Vec::new(),
             selection: None,
+            condition: None,
         }]);
     }
     if order.len() > MAX_ENTITY_RENDER_LAYERS
@@ -232,6 +379,7 @@ pub(super) fn resolve(
                 .filter(|(_, assigned)| *assigned != raster)
                 .map(|(name, _)| name.as_str().into())
                 .collect(),
+            condition: None,
         })
         .collect())
 }
@@ -307,6 +455,7 @@ pub(super) struct Records<'a> {
 
 pub(super) fn append(
     base: EntityRenderLayer,
+    activation: Option<&str>,
     mut groups: Vec<Group>,
     records: Records<'_>,
     molang: &mut MolangCompiler,
@@ -316,6 +465,24 @@ pub(super) fn append(
     let before = groups.len();
     groups.retain(|group| group.raster.required_textures <= base.slot_count);
     *records.skipped_draws += (before - groups.len()) as u32;
+    // A group selected by a material expression draws only while its choice and the
+    // controller's activation both hold; one whose condition does not compile is not drawn.
+    let groups = groups
+        .into_iter()
+        .filter_map(|group| {
+            let condition = match &group.condition {
+                None => base.condition,
+                Some(choice) => {
+                    let text = activation.map_or_else(
+                        || choice.clone(),
+                        |activation| format!("({activation}) && ({choice})"),
+                    );
+                    Some(molang.compile(&text).ok()?)
+                }
+            };
+            Some((group, condition))
+        })
+        .collect::<Vec<_>>();
     if groups.is_empty() {
         return Ok(());
     }
@@ -333,7 +500,10 @@ pub(super) fn append(
         .iter()
         .map(|slot| usize::from(slot.candidate_count))
         .sum();
-    let added_visibility = groups.iter().map(|group| group.hidden.len()).sum::<usize>()
+    let added_visibility = groups
+        .iter()
+        .map(|(group, _)| group.hidden.len())
+        .sum::<usize>()
         + extra * usize::from(base.visibility_count);
     if layers.len() + groups.len() > MAX_ENTITY_RENDER_LAYERS
         || slots.len() + extra * usize::from(base.slot_count) > MAX_ENTITY_RENDER_SLOTS
@@ -341,7 +511,7 @@ pub(super) fn append(
         || geometries.len() + extra * usize::from(base.geometry_count)
             > MAX_ENTITY_RENDER_CANDIDATES
         || visibility.len() + added_visibility > MAX_ENTITY_RENDER_VISIBILITY
-        || groups.iter().any(|group| {
+        || groups.iter().any(|(group, _)| {
             usize::from(base.visibility_count) + group.hidden.len() > usize::from(u16::MAX)
         })
     {
@@ -349,16 +519,19 @@ pub(super) fn append(
             "entity material groups exceed admitted render bounds",
         ));
     }
-    if groups.len() == 1 && groups[0].hidden.is_empty() {
-        let group = groups.into_iter().next().expect("one group");
+    if let [(group, condition)] = groups.as_slice()
+        && group.hidden.is_empty()
+    {
         layers.push(EntityRenderLayer {
             material: group.raster.material,
             material_state: group.raster.state,
             material_definition: group.raster.definition,
             material_masks: group.raster.masks,
             uv_anim: base.uv_anim.filter(|_| group.raster.uv_anim),
+            condition: *condition,
             material_selection: group
                 .selection
+                .clone()
                 .and_then(|selection| retain_selection(selection, selections, molang)),
             ..base
         });
@@ -378,8 +551,8 @@ pub(super) fn append(
         })
         .collect();
     let authored_geometries = geometries[base.first_geometry as usize..].to_vec();
-    for (index, group) in groups.into_iter().enumerate() {
-        let mut layer = base;
+    for (index, (group, condition)) in groups.into_iter().enumerate() {
+        let mut layer = EntityRenderLayer { condition, ..base };
         if index != 0 {
             layer.first_slot = slots.len() as u32;
             for slot in &authored_slots {
