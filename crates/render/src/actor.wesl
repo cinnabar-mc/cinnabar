@@ -4,6 +4,8 @@ import render::glint::glint_layer_uvs;
 import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array_region};
+@if(WORLD_MATERIAL)
+import render::lighting::{world_atmosphere, world_fog_amount};
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -414,6 +416,22 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
             unlit = clamp(textureSampleGrad(skins, skin_sampler, uv, i32(emissive_layer), uv_dx, uv_dy).a * strength, 0.0, 1.0);
         }
     }
+    // A programmable world material replaces the Bedrock colour before the host lights, fogs
+    // and blends it as an ordinary material; its emission adds after lighting like a glow mask.
+    @if(WORLD_MATERIAL)
+    {
+        let fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
+        let world_surface = world_material_resolve(WorldMaterialInput(
+            uv, input.world_position, color, vec4(native_lighting, 1.0),
+            vec4(fog_gamma, world_fog_amount(input.world_position, view.world_position)),
+            overlay, world_material_phase()));
+        @if(WORLD_MATERIAL_CUTOUT)
+        if (world_surface.coverage < 0.5) { discard; }
+        color = vec4(world_surface.color, world_surface.coverage);
+        @if(WORLD_MATERIAL_OPAQUE || WORLD_MATERIAL_CUTOUT)
+        { color.a = 1.0; }
+        glow += world_surface.emission;
+    }
     let lighting = mix(select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive), vec3(1.0), unlit);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting + glow;
     var legacy_foil = vec3(0.0);
@@ -449,9 +467,14 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     @if(!ALPHA_TO_COVERAGE)
     let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position) + legacy_foil, legacy_alpha);
     @if(ACTOR_GAMMA_BLEND)
-    return fogged_gamma;
+    let output = fogged_gamma;
     @if(!ACTOR_GAMMA_BLEND)
-    return tint_to_linear(fogged_gamma);
+    let output = tint_to_linear(fogged_gamma);
+    // Premultiplied and additive world material classes blend with a source factor of one.
+    @if(WORLD_MATERIAL_PREMULTIPLY)
+    return vec4(output.rgb * output.a, output.a);
+    @if(!WORLD_MATERIAL_PREMULTIPLY)
+    return output;
 }
 
 @fragment
