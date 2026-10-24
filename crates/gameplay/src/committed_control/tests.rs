@@ -38,6 +38,69 @@ fn owners() -> (
     (movement, physics, effects, speed)
 }
 
+/// A dimension change discards an old-world server item-use write before the
+/// item-use owner can adopt it in the destination.
+#[test]
+fn dimension_change_discards_a_pending_server_item_use() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    let using = client_world::MovementFlagUpdate {
+        using_item: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(0, using);
+    let position = [10.0, 80.0, 20.0];
+    let control = CommittedControlEvent::ChangeDimension {
+        sequence: 1,
+        change: protocol::ChangeDimensionEvent {
+            dimension: 1,
+            position,
+            ..Default::default()
+        },
+        resolved: ResolvedServerPosition {
+            position,
+            surface_anchor: None,
+        },
+    };
+    CommittedGameplayState {
+        movement: &mut movement,
+        physics: &mut physics,
+        effects: &mut effects,
+        speed: &mut speed,
+        session_generation: 7,
+        dimension: 1,
+        dimension_transfer_active: true,
+    }
+    .apply(control, &NoQueries, |_| {});
+    assert_eq!(physics.take_server_using_item(), None);
+}
+
+/// A local game-mode control stops item use only when it makes the player a
+/// spectator, in its packet order with flag writes.
+#[test]
+fn a_spectator_game_mode_control_stops_item_use() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    for (sequence, spectator) in [(1, false), (2, true)] {
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(
+            CommittedControlEvent::LocalGameMode {
+                sequence,
+                spectator,
+            },
+            &NoQueries,
+            |_| {},
+        );
+        assert_eq!(physics.take_server_item_use_stop(), spectator);
+    }
+}
+
 #[test]
 fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
@@ -195,6 +258,7 @@ fn a_correction_outside_retained_history_keeps_prediction_and_still_resets_the_f
             subject: protocol::MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 3,
+            vehicle_angular_velocity: None,
         },
         resolved: ResolvedServerPosition {
             position,
@@ -467,48 +531,45 @@ fn speed_effect_updates_refresh_current_while_sprint_is_held() {
     }
 }
 
-/// A dimension change discards an old-world server item-use write before the
-/// item-use owner can adopt it in the destination.
+/// A vehicle correction that snaps the rider resets presentation and reports the snap like
+/// any correction; one already applied changes nothing.
 #[test]
-fn dimension_change_discards_a_pending_server_item_use() {
+fn an_applied_vehicle_correction_resets_presentation() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
-    let using = client_world::MovementFlagUpdate {
-        using_item: Some(true),
-        ..Default::default()
-    };
-    physics.apply_server_movement_flags(0, using);
-    let position = [10.0, 80.0, 20.0];
-    let control = CommittedControlEvent::ChangeDimension {
+    let mut observations = Vec::new();
+    physics.steer_completed(
+        crate::movement::vehicle::SteeredVehicle {
+            runtime_id: 7,
+            unique_id: -7,
+            body: sim::BoatBody {
+                width: 1.4,
+                height: 0.455,
+                height_offset: 0.375,
+            },
+            position: [0.5, 2.0, 0.5],
+            yaw: 0.0,
+            velocity: [0.0; 3],
+            seat: [0.0, -0.2, 0.0],
+            revision: client_world::VehicleRevision { pose: 0, motion: 0 },
+        },
+        100,
+    );
+    let control = CommittedControlEvent::VehicleMovementCorrection {
         sequence: 1,
-        change: protocol::ChangeDimensionEvent {
-            dimension: 1,
-            position,
-            ..Default::default()
+        correction: protocol::PlayerMovementCorrectionEvent {
+            position: [4.5, 2.0, 0.5],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            subject: protocol::MovementCorrectionSubject::Vehicle,
+            on_ground: false,
+            tick: 101,
+            vehicle_angular_velocity: None,
         },
-        resolved: ResolvedServerPosition {
-            position,
-            surface_anchor: None,
-        },
+        vehicle_runtime_id: 7,
+        vehicle_revision: client_world::VehicleRevision { pose: 0, motion: 0 },
     };
-    CommittedGameplayState {
-        movement: &mut movement,
-        physics: &mut physics,
-        effects: &mut effects,
-        speed: &mut speed,
-        session_generation: 7,
-        dimension: 1,
-        dimension_transfer_active: true,
-    }
-    .apply(control, &NoQueries, |_| {});
-    assert_eq!(physics.take_server_using_item(), None);
-}
-
-/// A local game-mode control stops item use only when it makes the player a
-/// spectator, in its packet order with flag writes.
-#[test]
-fn a_spectator_game_mode_control_stops_item_use() {
-    let (mut movement, mut physics, mut effects, mut speed) = owners();
-    for (sequence, spectator) in [(1, false), (2, true)] {
+    let mut apply = || {
         CommittedGameplayState {
             movement: &mut movement,
             physics: &mut physics,
@@ -518,14 +579,31 @@ fn a_spectator_game_mode_control_stops_item_use() {
             dimension: 0,
             dimension_transfer_active: false,
         }
-        .apply(
-            CommittedControlEvent::LocalGameMode {
-                sequence,
-                spectator,
-            },
-            &NoQueries,
-            |_| {},
-        );
-        assert_eq!(physics.take_server_item_use_stop(), spectator);
+        .apply(control, &NoQueries, |observed| observations.push(observed))
+    };
+    assert_eq!(
+        apply(),
+        ControlDisposition::Spatial(SpatialReset::Correction)
+    );
+    assert_eq!(apply(), ControlDisposition::Handled);
+    // The applied snap reaches movement evidence once, from the rider's place to its seat.
+    let [
+        ControlObservation::Correction {
+            outcome: PhysicsCorrectionOutcome::Snapped { .. },
+            previous,
+            position,
+        },
+    ] = observations.as_slice()
+    else {
+        panic!("{observations:?}");
+    };
+    assert_eq!(*previous, [0.5, 2.620_01, 0.5]);
+    let seat = [
+        4.5,
+        2.0 - 0.375 - 0.2 + protocol::PLAYER_NETWORK_OFFSET,
+        0.5,
+    ];
+    for (axis, expected) in position.iter().zip(seat) {
+        assert!((axis - expected).abs() < 1.0e-5, "{position:?}");
     }
 }
