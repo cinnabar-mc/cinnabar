@@ -147,6 +147,21 @@ fn compile_encoded(
             "server pack entities are incomplete"
         );
     }
+    let materials = compiled.material_diagnostics;
+    if !materials.is_empty() {
+        tracing::info!(
+            unknown_states = materials.unknown_states,
+            unknown_defines = materials.unknown_defines,
+            skipped_samplers = materials.skipped_samplers,
+            failed_materials = materials.failed_materials,
+            unassignable_programs = materials.unassignable_programs,
+            unsupported_materials = materials.unsupported_materials,
+            approximated_materials = materials.approximated_materials,
+            skipped_draws = materials.skipped_draws,
+            unlisted_files = materials.unlisted_files,
+            "server pack entity materials draw in part"
+        );
+    }
     equipment_artwork::merge(view, &mut compiled.equipment_textures, artwork_sources);
     if !compiled.entities.geometries.iter().any(|geometry| {
         assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL

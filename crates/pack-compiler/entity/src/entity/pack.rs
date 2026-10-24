@@ -65,6 +65,8 @@ pub struct EntityPackCompilation {
     /// Attachable bindings for the pack's items, geometry and texture resolved within it.
     pub equipment_bindings: Box<[EquipmentBinding]>,
     pub skipped: EntityPackSkips,
+    /// Counted entity material behaviour the client skips, ignores or approximates.
+    pub material_diagnostics: super::EntityMaterialDiagnostics,
     /// Retained source bytes by pack-relative path, for consumers that read rasters.
     pub payloads: BTreeMap<Box<str>, Box<[u8]>>,
 }
@@ -436,6 +438,7 @@ fn compile_selected(
                     unresolved_materials: compilation.unresolved_materials,
                     ..skipped
                 },
+                material_diagnostics: compilation.material_diagnostics,
                 payloads,
             })
         }),

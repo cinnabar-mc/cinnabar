@@ -92,6 +92,42 @@ impl EntityMaterialState {
     }
 }
 
+/// The defines Bedrock turns into actor flag bits, indexed by bit. The native define table gives
+/// every other define name no bit and ignores it without a log.
+pub const ACTOR_DEFINE_FLAGS: [&str; 22] = [
+    "ALPHA_TEST",
+    "COLOR_SECOND_TEXTURE",
+    "COLOR_BASED",
+    "DISABLE_TINTING",
+    "FANCY",
+    "ENABLE_FOG",
+    "ENABLE_LIGHT",
+    "GLINT",
+    "ITEM_IN_HAND",
+    "MULTI_COLOR_TINT",
+    "MULTIPLICATIVE_TINT",
+    "NO_TEXTURE",
+    "TINTED_ALPHA_TEST",
+    "UI_ENTITY",
+    "USE_COLOR_MASK",
+    "USE_EMISSIVE",
+    "USE_MULTITEXTURE",
+    "MASKED_MULTITEXTURE",
+    "USE_ONLY_EMISSIVE",
+    "USE_OVERLAY",
+    "USE_SKINNING",
+    "USE_UV_ANIM",
+];
+
+/// The actor flag bit Bedrock gives define `name`, or `None` for a define it ignores.
+#[must_use]
+pub fn actor_define_bit(name: &str) -> Option<u32> {
+    ACTOR_DEFINE_FLAGS
+        .iter()
+        .position(|flag| *flag == name)
+        .map(|bit| bit as u32)
+}
+
 /// Authored comparison names, used by `depthFunc` and `stencilFunc`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum EntityMaterialCompare {
@@ -627,6 +663,21 @@ impl EntityMaterialDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actor_define_bits_follow_the_native_table_and_ignore_other_names() {
+        assert_eq!(actor_define_bit("ALPHA_TEST"), Some(0));
+        assert_eq!(actor_define_bit("GLINT"), Some(7));
+        assert_eq!(actor_define_bit("MULTIPLICATIVE_TINT"), Some(10));
+        assert_eq!(actor_define_bit("MASKED_MULTITEXTURE"), Some(17));
+        assert_eq!(actor_define_bit("USE_UV_ANIM"), Some(21));
+        assert_eq!(actor_define_bit("ALPHA_TO_COVERAGE"), None);
+        assert_eq!(actor_define_bit("alpha_test"), None);
+        let unique = ACTOR_DEFINE_FLAGS
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), ACTOR_DEFINE_FLAGS.len());
+    }
 
     #[test]
     fn states_and_blend_lower_to_shared_draw_state() {
