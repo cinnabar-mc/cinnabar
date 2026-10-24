@@ -51,9 +51,15 @@ impl LocalPhysicsController {
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
+        input.sneak_profile = self.modes.sneak_profile();
         input.can_stand_on_snow = context.mode_intent.can_stand_on_snow;
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
+            let fall_distance_override = self
+                .history
+                .state_at(state.tick)
+                .filter(|captured| captured.fall_distance() != state.fall_distance())
+                .map(|_| state.fall_distance());
             let context = context.for_next_tick(state.tick);
             input.item_use_movement_modifier = context
                 .release_use_modifier
@@ -65,6 +71,13 @@ impl LocalPhysicsController {
                 .map(|request| request.launch);
             input.skip_travel = self.skip_travel_pending;
             let mut tick_input = self.input_edges.sample(context.input);
+            let mut flags = flag_frame::FrameFlags::capture(
+                &mut self.server_flags,
+                &self.modes,
+                state,
+                &mut tick_input,
+                self.live_climber,
+            );
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -83,7 +96,7 @@ impl LocalPhysicsController {
             input.movement_speed = requested_movement_speed;
             input.liquid_contact_height = Some(
                 self.modes
-                    .liquid_contact_height(state.spin_attack_ticks.is_some()),
+                    .spin_aware_contact_height(state.spin_attack_ticks.is_some()),
             );
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
@@ -91,7 +104,9 @@ impl LocalPhysicsController {
             let mut before_flight_action = None;
             let mut mode_error = None;
             let previous_modes = self.modes;
-            let [move_sideways, move_forward] = ModeObservation::input_vector(input);
+            let [move_sideways, move_forward] = self
+                .modes
+                .intent_vector(input, self.last_environment.in_water);
             let mut observed = ModeObservation {
                 feet: state.position,
                 on_ground: state.on_ground,
@@ -110,6 +125,7 @@ impl LocalPhysicsController {
                 liquid_contact_height: input.liquid_contact_height,
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
+                spinning: state.spin_attack_ticks.is_some(),
             };
             self.anchor_state.prepare_tick(
                 world,
@@ -140,6 +156,8 @@ impl LocalPhysicsController {
                 }
                 Err(error) => mode_error = Some(error),
             }
+            input.horizontal_pose = self.modes.pose_flags().horizontal();
+            input.swim_pose_active = Some(self.modes.pose_flags().swim_pose());
             if input.mode == sim::MovementMode::Riding {
                 input.sneaking = false;
             }
@@ -217,13 +235,18 @@ impl LocalPhysicsController {
                     self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
+                    let launched = input.riptide.is_some()
+                        && input.mode != sim::MovementMode::Riding
+                        && !input.spectator;
+                    let spun = flags.pose_entry.spinning() || launched;
+                    server_flags::note_spin_end(&mut self.server_flags, spun, launched, state);
                     let previous = self.live_climber;
                     let climber = ClimberFlags::after_tick(&input, &result.environment, previous);
                     self.live_climber = climber;
-                    self.pending_climber = Default::default();
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
+                    flags.climber_write = self.pending_climber.consume_live();
                     let mut controller = ControllerFrame {
                         tick: state.tick,
                         sync_state: Default::default(),
@@ -231,6 +254,7 @@ impl LocalPhysicsController {
                         position_before_tick: before,
                         anchor_state: self.anchor_state,
                         entry_velocity,
+                        fall_distance_override,
                         eye_offset: self.eye_offset,
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
@@ -239,6 +263,8 @@ impl LocalPhysicsController {
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
                         server_sprinting: tick_input.server_sprinting,
+                        flags,
+                        entry_eye: self.eye_offset,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
@@ -252,7 +278,6 @@ impl LocalPhysicsController {
                         input,
                         modes: self.modes,
                         environment: result.environment,
-                        entry_climber: previous,
                         climber,
                     };
                     controller.finish_eye(&mut self.eye_offset, state);
@@ -275,6 +300,7 @@ impl LocalPhysicsController {
                         input.sprinting,
                     );
                     processed.mode = input.mode;
+                    processed.pose_flags = Some(self.modes.pose_flags());
                     processed.spinning = state.spin_attack_ticks.is_some();
                     processed.spin_started = input.riptide.is_some()
                         && input.mode != sim::MovementMode::Riding

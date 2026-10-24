@@ -6,7 +6,7 @@ impl LocalPhysicsController {
     /// Clears session-owned prediction, accepted sync state and pending corrections.
     pub fn deactivate(&mut self) {
         self.prediction_sync.clear();
-        self.sync_state = Default::default();
+        self.sync_state.reset();
         self.sync_pending.clear();
         self.state = None;
         self.eye_offset = eye::LocalEyeOffset::default();
@@ -26,7 +26,6 @@ impl LocalPhysicsController {
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();
-        self.climber_corrections.clear();
         self.motion_ticks.clear();
         self.motion_anchor = self
             .state
@@ -37,6 +36,7 @@ impl LocalPhysicsController {
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
+        self.server_flags = Default::default();
         self.riptide_pending = None;
         self.boosts.clear();
         self.modes.reset();
@@ -96,13 +96,13 @@ impl LocalPhysicsController {
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();
-        self.climber_corrections.clear();
         self.motion_ticks.clear();
         self.motion_anchor = self
             .state
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.server_flags.reset_history();
         self.actor_position_pending = None;
         self.deferred_corrections = Default::default();
         self.modes.reset();

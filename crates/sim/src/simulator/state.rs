@@ -68,10 +68,12 @@ impl PlayerState {
             .is_some_and(super::RiptideLaunch::is_supported)
             && input.mode != super::MovementMode::Riding
             && !input.spectator;
-        if self.spin_attack_ticks.is_some() || launching {
+        if self.spin_attack_ticks.is_some() || launching || input.horizontal_pose {
             crate::PLAYER_WIDTH
         } else {
-            input.mode.hitbox_height(input.sneaking)
+            input
+                .mode
+                .hitbox_height(input.sneaking, input.sneak_profile)
         }
     }
     #[must_use]
@@ -113,6 +115,11 @@ impl PlayerState {
     /// Keeps the live fall distance when a spatial correction replaces movement state.
     pub fn keep_fall_distance(&mut self, previous: &Self) {
         self.fall_distance = previous.fall_distance;
+    }
+
+    /// Restores the retained fall distance consumed at a replayed input boundary.
+    pub fn restore_fall_distance(&mut self, distance: f32) {
+        self.fall_distance = distance;
     }
 
     /// Adopts changed actor contact flags before the next local action and scan.

@@ -1,12 +1,6 @@
-//! Accepted climber flag edits retained at their pre-input replay boundary.
+//! Server climber writes move from pending state to the input frame that consumes them.
 
 use super::*;
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ClimberCorrection {
-    pub(super) tick: u64,
-    pub(super) write: ClimberWrite,
-}
 
 /// Changed climber bits, composed in arrival order without replacing untouched contact.
 #[derive(Debug, Clone, Copy, Default)]
@@ -22,7 +16,7 @@ impl ClimberWrite {
         self.mask |= update.mask;
     }
 
-    /// Removes edits whose newer correction will be consumed by retained input replay.
+    /// Removes bits replaced before any successful input consumes them.
     fn supersede(&mut self, mask: u64) {
         self.mask &= !mask;
     }
@@ -47,6 +41,74 @@ impl ClimberWrite {
     }
 }
 
+/// An accepted write awaiting its first successful live or corrected input.
+#[derive(Debug, Clone, Copy)]
+struct PendingClimberWrite {
+    replay_tick: Option<u64>,
+    write: ClimberWrite,
+}
+
+/// Each pending bit belongs to its latest accepted write until an input consumes it.
+#[derive(Debug, Clone, Default)]
+pub(super) struct PendingClimberWrites(Vec<PendingClimberWrite>);
+
+impl PendingClimberWrites {
+    /// Queues changed bits, optionally offering them to a retained historical input first.
+    fn push(&mut self, replay_tick: Option<u64>, write: ClimberWrite) {
+        if write.mask != 0 {
+            for pending in &mut self.0 {
+                pending.write.supersede(write.mask);
+            }
+            self.0.retain(|pending| pending.write.mask != 0);
+            self.0.push(PendingClimberWrite { replay_tick, write });
+        }
+    }
+
+    /// Transfers all still-pending writes to the successful live input that consumed them.
+    pub(super) fn consume_live(&mut self) -> ClimberWrite {
+        let mut consumed = ClimberWrite::default();
+        for pending in self.0.drain(..) {
+            consumed.merge(pending.write);
+        }
+        consumed
+    }
+
+    /// Offers historical writes to this replay input without committing their consumption.
+    pub(super) fn for_replay(&self, tick: u64) -> ClimberWrite {
+        let mut consumed = ClimberWrite::default();
+        for pending in &self.0 {
+            if pending.replay_tick == Some(tick) {
+                consumed.merge(pending.write);
+            }
+        }
+        consumed
+    }
+
+    /// Retires writes only after their replayed inputs have successfully consumed them.
+    pub(super) fn complete_replay(&mut self, anchor: u64, through: u64) {
+        self.0.retain(|pending| {
+            !pending
+                .replay_tick
+                .is_some_and(|tick| tick > anchor && tick <= through)
+        });
+    }
+
+    /// Restores unconsumed server bits over the last completed contact report.
+    pub(super) fn apply_flags(&self, mut flags: Option<ClimberFlags>) -> Option<ClimberFlags> {
+        for pending in &self.0 {
+            flags = pending.write.apply_flags(flags);
+        }
+        flags
+    }
+
+    /// Restores the same unconsumed bits to the simulator after a replay.
+    pub(super) fn apply(&self, state: &mut PlayerState) {
+        for pending in &self.0 {
+            pending.write.apply(state);
+        }
+    }
+}
+
 impl LocalPhysicsController {
     /// Replaces live contact and unconsumed writes when ordered authority starts a new actor.
     pub(super) fn replace_climber_authority(&mut self, flags: client_world::MovementFlagUpdate) {
@@ -56,13 +118,10 @@ impl LocalPhysicsController {
             mask: ClimberFlags::mask(),
         };
         self.live_climber = Some(ClimberFlags::from_word(word));
-        self.pending_climber = write;
+        self.pending_climber = Default::default();
+        self.pending_climber.push(None, write);
         if let Some(state) = self.state.as_mut() {
-            self.climber_corrections
-                .retain(|edit| edit.tick <= state.tick);
             write.apply(state);
-        } else {
-            self.climber_corrections.clear();
         }
     }
 
@@ -72,49 +131,24 @@ impl LocalPhysicsController {
         let live = self.live_climber.unwrap_or_default().word();
         let oldest = self.history.oldest_tick().unwrap_or(state.tick);
         let anchor = stamp.max(oldest);
-        let boundary = if stamp == 0 {
-            state.tick.saturating_add(1)
-        } else if stamp > state.tick {
-            state.tick
-        } else {
-            anchor.saturating_add(1)
-        };
-        // The following capture includes live writes accepted between completed ticks.
-        let baseline = if stamp != 0 && anchor < state.tick {
+        let historical = if stamp != 0 && anchor < state.tick {
             self.controller_history
                 .iter()
                 .find(|frame| frame.tick == anchor.saturating_add(1))
-                .and_then(|frame| frame.entry_climber)
-                .map_or(live, ClimberFlags::word)
         } else {
-            live
+            None
         };
+        // Completed inputs compare with their original live entry, including accepted writes.
+        let baseline = historical.as_ref().map_or(live, |frame| {
+            frame.flags.captured_climber.unwrap_or_default().word()
+        });
         let mask = (baseline ^ word) & ClimberFlags::mask();
         let flags = ClimberFlags::from_word((live & !mask) | (word & mask));
         self.live_climber = Some(flags);
         flags.apply(state, mask);
         let write = ClimberWrite { word, mask };
-        if boundary > state.tick {
-            self.pending_climber.merge(write);
-        } else {
-            self.pending_climber.supersede(mask);
-        }
-        self.climber_corrections.retain(|edit| edit.tick > oldest);
-        if let Some(edit) = self
-            .climber_corrections
-            .iter_mut()
-            .find(|edit| edit.tick == boundary)
-        {
-            edit.write.merge(write);
-        } else if mask != 0 {
-            if self.climber_corrections.len() >= self.history_capacity {
-                self.climber_corrections.pop_front();
-            }
-            self.climber_corrections.push_back(ClimberCorrection {
-                tick: boundary,
-                write,
-            });
-        }
-        (stamp != 0 && anchor < state.tick && mask != 0).then_some(anchor)
+        self.pending_climber
+            .push(historical.map(|frame| frame.tick), write);
+        (historical.is_some() && mask != 0).then_some(anchor)
     }
 }

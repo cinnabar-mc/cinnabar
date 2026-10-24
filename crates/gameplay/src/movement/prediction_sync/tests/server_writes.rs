@@ -321,7 +321,7 @@ fn sync_replaces_explicit_dimensions_on_a_later_local_resize() {
         Some([
             1.0,
             0.6,
-            sim::MovementMode::Walking.hitbox_height(true) as f32
+            sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32
         ])
     );
     physics.advance(
@@ -482,6 +482,26 @@ fn sync_sizes_independent_horizontal_metadata_flags() {
                 .wire_value(),
             ActorMetadataValue::FlagsExtended(mask),
         );
+        let update = match flag {
+            ActorFlag::Gliding => client_world::MovementFlagUpdate {
+                gliding: Some(true),
+                ..Default::default()
+            },
+            ActorFlag::Swimming => client_world::MovementFlagUpdate {
+                swimming: Some(true),
+                ..Default::default()
+            },
+            ActorFlag::Crawling => client_world::MovementFlagUpdate {
+                crawling: Some(true),
+                ..Default::default()
+            },
+            ActorFlag::DamageNearbyMobs => client_world::MovementFlagUpdate {
+                spinning: Some(true),
+                ..Default::default()
+            },
+            _ => unreachable!("horizontal flag inventory"),
+        };
+        physics.apply_server_movement_flags(0, update);
         assert_eq!(
             protocol::test_support::packets::prediction_sync_bounding_box(&sync_packet(
                 &mut physics,
@@ -519,5 +539,101 @@ fn sync_flight_descent_keeps_the_standing_size() {
             &local_actor()
         )),
         Some([1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+    );
+}
+
+/// Each accepted pose is reported until its own local trigger ends it.
+#[test]
+fn sync_combined_pose_writes_follow_independent_local_stops() {
+    let mut physics = due_physics();
+    let actor = local_actor();
+    physics.advance(
+        simulation_clock::TICK_DURATION,
+        sim::MovementInput::default(),
+        &OpenWorld,
+    );
+    physics.apply_server_movement_flags(
+        0,
+        client_world::MovementFlagUpdate {
+            gliding: Some(true),
+            swimming: Some(true),
+            ..Default::default()
+        },
+    );
+    let words =
+        protocol::test_support::packets::prediction_sync_flags(&sync_packet(&mut physics, &actor))
+            .unwrap();
+    assert!(flag_set(&words, ActorFlag::Gliding));
+    assert!(flag_set(&words, ActorFlag::Swimming));
+    physics.advance(
+        simulation_clock::TICK_DURATION,
+        sim::MovementInput::default(),
+        &OpenWorld,
+    );
+    let packet = sync_packet(&mut physics, &actor);
+    let words = protocol::test_support::packets::prediction_sync_flags(&packet).unwrap();
+    assert!(!flag_set(&words, ActorFlag::Gliding));
+    assert!(!flag_set(&words, ActorFlag::Swimming));
+    assert_eq!(
+        protocol::test_support::packets::prediction_sync_bounding_box(&packet),
+        Some([1.0, 0.6, 1.8])
+    );
+}
+
+/// An echo of an older capture does not replace a newer live pose in the packet.
+#[test]
+fn sync_pose_echo_uses_the_effective_live_word() {
+    let mut physics = due_physics();
+    let actor = local_actor();
+    let context = crate::movement::PhysicsSampleContext {
+        mode_intent: crate::movement::ModeIntent {
+            elytra_ready: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    for jumping in [false, true] {
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput {
+                jumping,
+                ..Default::default()
+            },
+            context,
+            &OpenWorld,
+        );
+    }
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    physics.apply_server_movement_flags(
+        100,
+        client_world::MovementFlagUpdate {
+            gliding: Some(false),
+            ..Default::default()
+        },
+    );
+    let words =
+        protocol::test_support::packets::prediction_sync_flags(&sync_packet(&mut physics, &actor))
+            .unwrap();
+    assert!(flag_set(&words, ActorFlag::Gliding));
+}
+
+/// A reset keeps the level profile for server posture writes received before another tick.
+#[test]
+fn legacy_profile_survives_runtime_reset_before_server_resize() {
+    let mut physics = due_physics();
+    physics.set_base_game_version(protocol::BaseGameVersion::parse("1.19.80"));
+    physics.deactivate();
+    physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+    physics.apply_server_movement_flags(
+        0,
+        client_world::MovementFlagUpdate {
+            sneaking: Some(true),
+            ..Default::default()
+        },
+    );
+    assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
+    assert_eq!(
+        physics.prediction_sync_walking_height(),
+        Some(sim::PLAYER_HEIGHT as f32)
     );
 }

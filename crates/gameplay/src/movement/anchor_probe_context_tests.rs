@@ -102,10 +102,12 @@ fn network([x, y, z]: [f64; 3]) -> [f32; 3] {
     [x as f32, y as f32 + PLAYER_NETWORK_OFFSET, z as f32]
 }
 
+/// Places feet at the column centre at height `y`.
 fn column_feet(y: f64) -> [f64; 3] {
     [f64::from(COLUMN[0]) + 0.5, y, f64::from(COLUMN[1]) + 0.5]
 }
 
+/// Requests descent using the keyboard sneak state.
 fn sneaking() -> MovementInput {
     MovementInput {
         sneaking: true,
