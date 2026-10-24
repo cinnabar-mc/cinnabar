@@ -62,13 +62,15 @@ fn white_absent_or_mistyped_sheep_colour_stays_neutral() {
 }
 
 #[test]
-fn only_sheep_and_tamed_wolves_inherit_their_colour_index() {
+fn every_actor_but_a_wild_wolf_inherits_its_colour_index_without_the_rainbow() {
     let dyed = [(COLOR, ActorMetadataValue::Byte(14)), named(RAINBOW_NAME)];
-    let mut ordinary = sheep(&dyed);
-    ordinary.kind = ActorKind::Entity {
-        identifier: "minecraft:cow".into(),
-    };
-    assert_eq!(default_render_color(&ordinary, 30), [1.0; 4]);
+    for identifier in ["minecraft:cow", "minecraft:cat", "minecraft:llama"] {
+        let mut ordinary = sheep(&dyed);
+        ordinary.kind = ActorKind::Entity {
+            identifier: identifier.into(),
+        };
+        assert_eq!(default_render_color(&ordinary, 30), RED, "{identifier}");
+    }
     let wolf = actor(NativeEntityClass::Wolf, &dyed);
     assert_eq!(default_render_color(&wolf, 30), [1.0; 4]);
     let mut tamed = wolf;
