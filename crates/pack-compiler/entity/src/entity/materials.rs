@@ -50,6 +50,8 @@ pub(super) struct MaterialStates {
     modifications: BTreeMap<Box<str>, Vec<Modification>>,
     /// Declarations past the symbol bound, which stay unresolved.
     unadmitted: u32,
+    /// The defines each admitted file's root material holds, by file index.
+    file_defines: Vec<BTreeSet<Box<str>>>,
 }
 
 /// One material during resolution, before its variants are interned into a carrier table.
@@ -170,24 +172,21 @@ impl MaterialTable {
 }
 
 impl MaterialStates {
-    /// Reads retained material files once for this compilation, in path order.
+    /// Reads retained material files once for this compilation: the entity material list's
+    /// files first, in list order and with its defines, then unlisted files in path order.
     pub(super) fn load(
         root: &Path,
         payloads: &SourceDocuments<'_>,
         sources: &[EntityAssetSource],
     ) -> Result<Self, AssetError> {
-        let mut paths = sources
+        let mut documents = Vec::new();
+        for source in sources
             .iter()
-            .filter(|source| {
-                source.path.starts_with("materials/") && source.path.ends_with(".material")
-            })
-            .map(|source| source.path.as_ref())
-            .collect::<Vec<_>>();
-        paths.sort_unstable();
-        let mut states = Self::default();
-        for path in paths {
-            states.read(payloads.read(root, path)?);
+            .filter(|source| is_material_source(&source.path))
+        {
+            documents.push((source.path.as_ref(), payloads.read(root, &source.path)?));
         }
+        let mut states = Self::from_documents(documents);
         states.textures = sources
             .iter()
             .enumerate()
@@ -209,10 +208,46 @@ impl MaterialStates {
         Ok(states)
     }
 
-    /// Admits one file. Without a `+` prefix the first declaration of a name wins.
+    /// Admits material documents by path as the client loads them. Files the entity material
+    /// list names load first, in list order, each declaration starting from a root that holds
+    /// the entry's defines. Other `materials/*.material` files then load in path order with no
+    /// list defines: they stand in for the vanilla lists, which name vanilla paths a pack may
+    /// override but which the client does not ship.
+    pub(crate) fn from_documents<'a>(
+        documents: impl IntoIterator<Item = (&'a str, &'a Value)>,
+    ) -> Self {
+        let documents = documents.into_iter().collect::<BTreeMap<_, _>>();
+        let (entries, _) = documents
+            .get(list::ENTITY_MATERIAL_LIST_PATH)
+            .map(|list| list::resolve_material_lists([*list]))
+            .unwrap_or_default();
+        let mut states = Self::default();
+        let mut listed = BTreeSet::new();
+        for entry in entries {
+            if let Some(document) = documents.get(entry.path.as_ref()) {
+                listed.insert(entry.path.clone());
+                states.read_with(document, &entry.defines);
+            }
+        }
+        for (path, document) in documents {
+            if is_material_file(path) && !listed.contains(path) {
+                states.read(document);
+            }
+        }
+        states
+    }
+
+    /// Admits one file with no list defines.
     pub(super) fn read(&mut self, value: &Value) {
+        self.read_with(value, &BTreeSet::new());
+    }
+
+    /// Admits one file whose root material holds `defines`. Without a `+` prefix the first
+    /// declaration of a name wins.
+    fn read_with(&mut self, value: &Value, defines: &BTreeSet<Box<str>>) {
         let file = self.files;
         self.files += 1;
+        self.file_defines.push(defines.clone());
         let (entries, version) = match file_entries(value) {
             Some(entries) => entries,
             None => return,
@@ -278,6 +313,7 @@ impl MaterialStates {
         }
         self.files += upper.files;
         self.unadmitted += upper.unadmitted;
+        self.file_defines.extend(upper.file_defines);
         names
     }
 
@@ -345,16 +381,18 @@ impl MaterialStates {
         resolved
     }
 
-    /// Resolves a pack's block bindings: `.material` documents in path order supply bases, and
-    /// bindings whose material does not resolve are dropped.
+    /// Resolves a pack's block bindings: material documents by path supply bases as
+    /// [`Self::from_documents`] loads them, and bindings whose material does not resolve are
+    /// dropped.
     pub(crate) fn block_bindings(
-        material_documents: &[Value],
+        material_documents: &[(String, Value)],
         document: &Value,
     ) -> Vec<extension::ResolvedBlockBinding> {
-        let mut states = Self::default();
-        for value in material_documents {
-            states.read(value);
-        }
+        let mut states = Self::from_documents(
+            material_documents
+                .iter()
+                .map(|(path, document)| (path.as_str(), document)),
+        );
         states.extension = extension::parse(document).ok();
         let mut table = MaterialTable::default();
         let Some(extension) = &states.extension else {
@@ -410,6 +448,17 @@ impl MaterialStates {
         Some((shading(drawn), table.intern(drawn)?, masks))
     }
 
+    /// Adds the root defines of `file`'s list entry to a material starting from that root.
+    fn seed_root_defines(&self, resolved: &mut Resolved, file: usize) {
+        if let Some(defines) = self
+            .file_defines
+            .get(file)
+            .filter(|defines| !defines.is_empty())
+        {
+            Arc::make_mut(&mut resolved.defines).extend(defines.iter().cloned());
+        }
+    }
+
     /// Walks `name`'s parent chain until a link `memo` already knows, then applies each
     /// declaration and its `+name` modifications from there down, remembering every link, so
     /// each declaration applies once however many names share its chain. Declared parents come
@@ -455,8 +504,13 @@ impl MaterialStates {
                     }
                     break None;
                 }
-                // A built-in base the pack never declares still takes its modifications.
+                // A built-in base the pack never declares still takes its modifications. It
+                // stands in for a declaration of the child's own file, so it starts from that
+                // file's root.
                 let resolved = base(current).and_then(|mut resolved| {
+                    if let Some(file) = file {
+                        self.seed_root_defines(&mut resolved, file);
+                    }
                     self.modify(current, &mut resolved, &mut memo.applies)?;
                     Some(resolved)
                 });
@@ -481,7 +535,11 @@ impl MaterialStates {
                     file = Some(declaration.file);
                     current = parent;
                 }
-                None => break Some(base(current).unwrap_or_default()),
+                None => {
+                    let mut resolved = base(current).unwrap_or_default();
+                    self.seed_root_defines(&mut resolved, declaration.file);
+                    break Some(resolved);
+                }
             }
         };
         for (name, file, link) in chain.into_iter().rev() {
@@ -539,6 +597,17 @@ pub(super) struct ChainMemo {
     links: HashMap<ChainLink, Option<Arc<Resolved>>>,
     /// Declarations and modifications applied so far; tests bound resolution work with it.
     applies: usize,
+}
+
+/// Whether `path` is a source material admission reads: the entity material list or a
+/// `materials/*.material` file.
+pub(crate) fn is_material_source(path: &str) -> bool {
+    path == list::ENTITY_MATERIAL_LIST_PATH || is_material_file(path)
+}
+
+/// Whether `path` is a `materials/*.material` file.
+fn is_material_file(path: &str) -> bool {
+    path.starts_with("materials/") && path.ends_with(".material")
 }
 
 /// The declarations of one file and the version they parse with.
@@ -680,273 +749,11 @@ impl Resolved {
             .find(|(name, _)| name.as_ref() == SKINNING_VARIANT)
             .map_or(self, |(_, variant)| variant)
     }
-
-    /// Applies one declaration's fields with this material's version rules.
-    fn apply(&mut self, fields: &Map<String, Value>) {
-        let modern = self.version >= 1;
-        names(
-            fields,
-            "states",
-            modern,
-            &mut self.states,
-            EntityMaterialState::from_name,
-        );
-        names(fields, "defines", modern, &mut self.defines, |name| {
-            (!name.is_empty() && name.len() <= MAX_ENTITY_MATERIAL_NAME_BYTES).then(|| name.into())
-        });
-        if self
-            .states
-            .contains(&EntityMaterialState::EnableAlphaToCoverage)
-            && !self.defines.contains("ALPHA_TO_COVERAGE")
-        {
-            Arc::make_mut(&mut self.defines).insert("ALPHA_TO_COVERAGE".into());
-        }
-        let definition = &mut self.definition;
-        for (key, slot) in [
-            ("vertexShader", &mut definition.vertex_shader),
-            ("fragmentShader", &mut definition.fragment_shader),
-            ("geometryShader", &mut definition.geometry_shader),
-        ] {
-            if let Some(name) =
-                text(fields, key).filter(|name| name.len() <= MAX_ENTITY_MATERIAL_NAME_BYTES)
-            {
-                *slot = Some(name.into());
-            }
-        }
-        if let Some(value) = text(fields, "depthFunc").and_then(EntityMaterialCompare::from_name) {
-            definition.depth_func = value;
-        }
-        for (key, face) in [
-            ("frontFace", &mut definition.front_face),
-            ("backFace", &mut definition.back_face),
-        ] {
-            if let Some(fields) = fields.get(key).and_then(Value::as_object) {
-                stencil_face(fields, face);
-            }
-        }
-        if let Some(reference) = fields.get("stencilRef").and_then(Value::as_u64) {
-            definition.stencil_ref = Some(reference as u8);
-        }
-        for (key, slot) in [
-            ("stencilReadMask", &mut definition.stencil_read_mask),
-            ("stencilWriteMask", &mut definition.stencil_write_mask),
-        ] {
-            if let Some(mask) = fields.get(key).and_then(Value::as_u64) {
-                *slot = mask as u32;
-            }
-        }
-        let factor = |key| text(fields, key).and_then(EntityMaterialBlendFactor::from_name);
-        if let Some(source) = factor("blendSrc") {
-            definition.blend[0] = source;
-        }
-        if let Some(destination) = factor("blendDst") {
-            definition.blend[1] = destination;
-        }
-        // An absent alpha source follows the colour source; an absent alpha destination
-        // follows only a colour destination authored in the same declaration.
-        definition.blend[2] = factor("alphaSrc").unwrap_or(definition.blend[0]);
-        if let Some(destination) = factor("alphaDst").or_else(|| factor("blendDst")) {
-            definition.blend[3] = destination;
-        }
-        if let Some(value) = finite_f32(fields, "depthBias") {
-            definition.depth_bias = value;
-        }
-        if let Some(value) = finite_f32(fields, "slopeScaledDepthBias") {
-            definition.slope_scaled_depth_bias = value;
-        }
-        if let Some(value) = text(fields, "msaaSupport").and_then(EntityMaterialMsaa::from_name) {
-            definition.msaa = value;
-        }
-        if let Some(value) =
-            text(fields, "primitiveMode").and_then(EntityMaterialPrimitive::from_name)
-        {
-            definition.primitive = value;
-        }
-        if let Some(values) = fields.get("vertexFields").and_then(Value::as_array) {
-            self.vertex_fields = Some(
-                values
-                    .iter()
-                    .filter_map(|value| value.get("field")?.as_str())
-                    .filter_map(EntityMaterialVertexField::from_name)
-                    .collect(),
-            );
-        }
-        self.apply_samplers(fields, modern);
-        // Nesting, and so this recursion and the table's interning, is bounded only by the
-        // JSON parser's recursion limit; parsing must keep that limit enabled.
-        self.apply_variants(fields, modern);
-    }
-
-    fn apply_samplers(&mut self, fields: &Map<String, Value>, modern: bool) {
-        let plain = fields.get("samplerStates").and_then(Value::as_array);
-        if modern && plain.is_some() {
-            self.samplers = Default::default();
-        }
-        let entries = plain.or_else(|| fields.get("+samplerStates").and_then(Value::as_array));
-        for entry in entries.into_iter().flatten().filter_map(Value::as_object) {
-            let Some(slot) = entry
-                .get("samplerIndex")
-                .and_then(Value::as_u64)
-                .filter(|slot| *slot < u64::from(ENTITY_MATERIAL_SAMPLER_SLOTS))
-            else {
-                continue;
-            };
-            let stages = match text(entry, "shaderStage") {
-                Some("Vertex") => 1,
-                Some("Geometry") => 4,
-                _ => 2,
-            };
-            self.samplers[slot as usize] = Some(EntityMaterialSampler {
-                slot: slot as u8,
-                filter: text(entry, "textureFilter")
-                    .and_then(EntityMaterialFilter::from_name)
-                    .unwrap_or_default(),
-                wrap: text(entry, "textureWrap")
-                    .and_then(EntityMaterialWrap::from_name)
-                    .unwrap_or_default(),
-                stages,
-            });
-        }
-    }
-
-    /// Each variant clones the material parsed so far, then applies its own fields. Version 1
-    /// replaces inherited variants with a plain list; otherwise it adds `+variants` and then
-    /// removes the inherited or added variants that `-variants` names.
-    fn apply_variants(&mut self, fields: &Map<String, Value>, modern: bool) {
-        let plain = fields.get("variants").and_then(Value::as_array);
-        if modern && plain.is_some() {
-            self.variants = Arc::default();
-        }
-        self.add_variants(fields, plain);
-        if modern && plain.is_none() {
-            let removed = fields.get("-variants").and_then(Value::as_array);
-            for name in removed.into_iter().flatten().filter_map(Value::as_str) {
-                if self
-                    .variants
-                    .iter()
-                    .any(|(existing, _)| existing.as_ref() == name)
-                {
-                    Arc::make_mut(&mut self.variants)
-                        .retain(|(existing, _)| existing.as_ref() != name);
-                }
-            }
-        }
-    }
-
-    /// Clones and applies each entry of the plain list, or of `+variants` when it is absent,
-    /// replacing an existing variant of the same name.
-    fn add_variants(&mut self, fields: &Map<String, Value>, plain: Option<&Vec<Value>>) {
-        let entries = plain.or_else(|| fields.get("+variants").and_then(Value::as_array));
-        for entry in entries.into_iter().flatten().filter_map(Value::as_object) {
-            for (name, value) in entry {
-                let Some(variant_fields) = value.as_object() else {
-                    continue;
-                };
-                if name.is_empty() || name.len() > MAX_ENTITY_MATERIAL_NAME_BYTES {
-                    continue;
-                }
-                let mut variant = Self {
-                    variants: Arc::default(),
-                    ..self.clone()
-                };
-                if let Some(version) = text(variant_fields, "version") {
-                    variant.version = u8::from(!version.starts_with('0'));
-                }
-                variant.apply(variant_fields);
-                let variants = Arc::make_mut(&mut self.variants);
-                variants.retain(|(existing, _)| existing.as_ref() != name);
-                variants.push((name.as_str().into(), variant));
-            }
-        }
-    }
 }
 
-/// Whether every present state and define list is an array of strings. A malformed list leaves
-/// the material unresolved rather than guessing which entries were meant.
-fn lists_are_well_formed(fields: &Map<String, Value>) -> bool {
-    [
-        "states", "+states", "-states", "defines", "+defines", "-defines",
-    ]
-    .into_iter()
-    .filter_map(|key| fields.get(key).filter(|value| !value.is_null()))
-    .all(|value| {
-        value
-            .as_array()
-            .is_some_and(|values| values.iter().all(Value::is_string))
-    })
-}
-
-/// A number that stays finite once narrowed to `f32`; one that overflows is treated as absent,
-/// so the inherited value remains instead of an unrepresentable bias.
-fn finite_f32(fields: &Map<String, Value>, key: &str) -> Option<f32> {
-    fields
-        .get(key)
-        .and_then(Value::as_f64)
-        .map(|value| value as f32)
-        .filter(|value| value.is_finite())
-}
-
-fn text<'a>(fields: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
-    fields.get(key).and_then(Value::as_str)
-}
-
-/// Applies `key`, `+key` and `-key` lists with the version's replace and add rules, copying the
-/// shared set only when a list changes it.
-fn names<T: Ord + Clone>(
-    fields: &Map<String, Value>,
-    key: &str,
-    modern: bool,
-    set: &mut Arc<BTreeSet<T>>,
-    parse: impl Fn(&str) -> Option<T>,
-) {
-    let list = |key: &str| {
-        fields.get(key).and_then(Value::as_array).map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .filter_map(&parse)
-                .collect::<Vec<_>>()
-        })
-    };
-    if let Some(values) = list(key) {
-        if modern {
-            *set = Arc::new(values.into_iter().collect());
-        } else if values.iter().any(|value| !set.contains(value)) {
-            Arc::make_mut(set).extend(values);
-        }
-        return;
-    }
-    let added = list(&format!("+{key}")).unwrap_or_default();
-    if added.iter().any(|value| !set.contains(value)) {
-        Arc::make_mut(set).extend(added);
-    }
-    if modern {
-        let removed = list(&format!("-{key}")).unwrap_or_default();
-        if removed.iter().any(|value| set.contains(value)) {
-            let set = Arc::make_mut(set);
-            for value in &removed {
-                set.remove(value);
-            }
-        }
-    }
-}
-
-fn stencil_face(fields: &Map<String, Value>, face: &mut EntityMaterialStencilFace) {
-    if let Some(compare) = text(fields, "stencilFunc").and_then(EntityMaterialCompare::from_name) {
-        face.compare = compare;
-    }
-    for (key, slot) in [
-        ("stencilFailOp", &mut face.fail),
-        ("stencilDepthFailOp", &mut face.depth_fail),
-        ("stencilPassOp", &mut face.pass),
-    ] {
-        if let Some(operation) =
-            text(fields, key).and_then(EntityMaterialStencilOperation::from_name)
-        {
-            *slot = operation;
-        }
-    }
-}
+#[path = "materials/fields.rs"]
+mod fields;
+use fields::lists_are_well_formed;
 
 #[cfg(test)]
 #[path = "materials/tests.rs"]
@@ -954,3 +761,6 @@ mod tests;
 
 #[path = "materials/extension.rs"]
 pub(crate) mod extension;
+
+#[path = "materials/list.rs"]
+pub(crate) mod list;

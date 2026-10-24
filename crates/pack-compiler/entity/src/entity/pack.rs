@@ -70,12 +70,12 @@ pub struct EntityPackCompilation {
 }
 
 /// Whether a pack file feeds the entity catalog: definition JSON, geometry anywhere under
-/// `models/`, and rasters anywhere under `textures/`.
+/// `models/`, rasters anywhere under `textures/`, and the entity material list and files.
 fn in_families(path: &str) -> bool {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     let json = extension == Some("json");
     let raster = matches!(extension, Some("png" | "tga"));
-    let material = (path.starts_with("materials/") && extension == Some("material"))
+    let material = super::materials::is_material_source(path)
         || path == super::materials::extension::MATERIAL_BINDINGS_PATH;
     (json
         && [
