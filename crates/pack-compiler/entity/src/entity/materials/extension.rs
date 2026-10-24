@@ -281,6 +281,13 @@ impl Material {
         }
     }
 
+    /// The resource paths of the mask textures this material names.
+    pub(crate) fn mask_textures(&self) -> impl Iterator<Item = &str> {
+        [GLOW_MASK, EMISSIVE_MASK]
+            .into_iter()
+            .filter_map(|name| self.textures.get(name).map(AsRef::as_ref))
+    }
+
     /// The masks this material draws, with `source` mapping a resource path to its entity
     /// source; `None` without any mask. A mask whose texture is not loaded is omitted.
     pub(crate) fn masks(

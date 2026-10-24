@@ -100,11 +100,7 @@ impl Builder<'_> {
         let Some(masks) = self.state_masks.for_instance(name).cloned() else {
             return [assets::NO_MASK, assets::NO_MASK, 0];
         };
-        let mut reference = |key: Option<&str>| {
-            key.and_then(|key| self.texture_slot(key))
-                .and_then(|slot| TextureRef::new(slot.page, slot.layer).ok())
-                .map_or(assets::NO_MASK, TextureRef::raw)
-        };
+        let mut reference = |key: Option<&str>| self.mask_reference(key);
         [
             reference(masks.glow.as_deref()),
             reference(masks.emissive.as_deref()),

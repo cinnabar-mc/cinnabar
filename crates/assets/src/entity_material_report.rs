@@ -52,6 +52,12 @@ pub struct EntityMaterialDiagnostics {
     pub unlisted_files: u32,
     /// List entries the client read in part or loaded nothing from.
     pub list: MaterialListReport,
+    /// `cinnabar/material-bindings.json` documents ignored whole because they are invalid.
+    pub invalid_extension_documents: u32,
+    /// Entity bindings no compiled entity and render controller match.
+    pub unmatched_extension_bindings: u32,
+    /// Mask textures of entity-bound extension materials that name no loaded raster.
+    pub unresolved_extension_textures: u32,
 }
 
 impl EntityMaterialDiagnostics {

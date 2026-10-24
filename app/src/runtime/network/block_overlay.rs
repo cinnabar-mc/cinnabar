@@ -64,6 +64,12 @@ pub(crate) struct OverlayGaps {
     pub(crate) invalid_legacy_bindings: u32,
     /// Routes refused because the overlay texture array had no layer left.
     pub(crate) saturated_textures: u32,
+    /// Cinnabar block bindings no block state matched.
+    #[serde(default)]
+    pub(crate) unmatched_material_bindings: u32,
+    /// Distinct Cinnabar binding mask texture keys no terrain texture resolves.
+    #[serde(default)]
+    pub(crate) unresolved_binding_masks: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -166,6 +172,7 @@ pub(super) fn compile_block_overlay_with_textures(
         slots: TextureSlots::default(),
         materials: HashMap::new(),
         state_masks: bindings::StateMasks::default(),
+        unresolved_masks: Default::default(),
         visuals: HashMap::new(),
         gaps: OverlayGaps {
             invalid_legacy_bindings: legacy.invalid,
@@ -245,6 +252,8 @@ pub(super) fn compile_block_overlay_with_textures(
         builder.override_vanilla_bindings(keys, &legacy);
         builder.bind_vanilla_blocks(keys, &bindings);
     }
+    builder.gaps.unmatched_material_bindings = bindings.unmatched();
+    builder.gaps.unresolved_binding_masks = builder.unresolved_masks.len() as u32;
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
         && builder.overlay.face_overrides.is_empty()
@@ -321,6 +330,8 @@ struct Builder<'a> {
     materials: HashMap<(String, u32, u32, [u32; 3]), u32>,
     /// Mask textures bindings assign to the state being pushed.
     state_masks: bindings::StateMasks,
+    /// Binding mask keys that resolved to no texture, counted once each.
+    unresolved_masks: std::collections::HashSet<Box<str>>,
     visuals: HashMap<String, BlockVisual>,
     gaps: OverlayGaps,
 }
