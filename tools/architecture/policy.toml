@@ -657,6 +657,12 @@ allowed_dependencies = ["update-manifest"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
+name = "material-bin"
+path = "tools/material-bin"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
 name = "cinnabar-cxb"
 path = "tools/cxb"
 allowed_dependencies = ["experience-sdk", "experience-runtime", "protocol", "server-experience", "mod-host"]
