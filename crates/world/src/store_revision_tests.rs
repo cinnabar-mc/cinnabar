@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use hashbrown::HashMap;
 
-use super::ChunkStore;
+use super::{ChunkStore, Revised};
 use crate::{
     BlockUpdate, ChunkCollisionRevision, ChunkKey, CollisionRevisionError, DecodeError,
     DecodedLevelChunk, MutationError, RawBlockIds, SubChunkKey,
@@ -30,9 +30,9 @@ fn rejected_batch_does_not_consume_the_exact_ceiling() {
 fn exhausted_store_rejects_load_before_mutation() {
     let allocator = Arc::new(CollisionRevisionAllocator::with_next(u64::MAX));
     let mut store = ChunkStore {
-        chunks: HashMap::new(),
-        loaded_chunks: BTreeSet::new(),
-        authoritative_sub_chunks: HashMap::new(),
+        chunks: Revised::default(),
+        loaded_chunks: Revised::default(),
+        authoritative_sub_chunks: Revised::default(),
         collision_revisions: HashMap::new(),
         collision_revision_allocator: allocator,
         collision_snapshot: Default::default(),
@@ -71,9 +71,9 @@ fn parallel_stores_share_unique_process_identity_space() {
 
 fn exhausted_loaded_store(key: ChunkKey) -> ChunkStore {
     ChunkStore {
-        chunks: HashMap::new(),
-        loaded_chunks: BTreeSet::from([key]),
-        authoritative_sub_chunks: HashMap::new(),
+        chunks: Revised::default(),
+        loaded_chunks: Revised(BTreeSet::from([key])),
+        authoritative_sub_chunks: Revised::default(),
         collision_revisions: HashMap::from([(
             key,
             ChunkCollisionRevision {
@@ -140,9 +140,9 @@ fn batch_reservation_is_atomic_and_assigns_sorted_columns() {
     let second = SubChunkKey::from_chunk(second_chunk, 0);
     let allocator = Arc::new(CollisionRevisionAllocator::with_next(u64::MAX));
     let mut store = ChunkStore {
-        chunks: HashMap::new(),
-        loaded_chunks: BTreeSet::from([first_chunk, second_chunk]),
-        authoritative_sub_chunks: HashMap::new(),
+        chunks: Revised::default(),
+        loaded_chunks: Revised(BTreeSet::from([first_chunk, second_chunk])),
+        authoritative_sub_chunks: Revised::default(),
         collision_revisions: HashMap::from([
             (
                 first_chunk,
@@ -192,9 +192,9 @@ fn successful_batch_assigns_revisions_in_sorted_column_order() {
     let first = SubChunkKey::from_chunk(first_chunk, 0);
     let second = SubChunkKey::from_chunk(second_chunk, 0);
     let mut store = ChunkStore {
-        chunks: HashMap::new(),
-        loaded_chunks: BTreeSet::from([first_chunk, second_chunk]),
-        authoritative_sub_chunks: HashMap::new(),
+        chunks: Revised::default(),
+        loaded_chunks: Revised(BTreeSet::from([first_chunk, second_chunk])),
+        authoritative_sub_chunks: Revised::default(),
         collision_revisions: HashMap::new(),
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(100)),
         collision_snapshot: Default::default(),

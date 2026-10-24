@@ -87,6 +87,14 @@ pub enum BindingError {
 }
 
 impl ControlSettings {
+    /// The built-in controls, built and validated once; equal to [`Self::default`].
+    #[must_use]
+    pub fn builtin() -> &'static Self {
+        static BUILTIN: std::sync::LazyLock<ControlSettings> =
+            std::sync::LazyLock::new(ControlSettings::default);
+        &BUILTIN
+    }
+
     /// For each binding, the bindings in its context on the same control that need more
     /// modifiers, in binding order; the router consults only these for chord precedence.
     pub(crate) fn more_specific_chords(&self) -> Box<[Box<[usize]>]> {

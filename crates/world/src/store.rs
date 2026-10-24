@@ -103,12 +103,33 @@ fn next_content_revision() -> u64 {
     CONTENT_REVISIONS.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Store contents readable through `Deref` but writable only through [`Self::edit`], which
+/// retires the store's content revision, so no mutation can leave that revision stale.
+#[derive(Debug, Default, Clone)]
+struct Revised<T>(T);
+
+impl<T> std::ops::Deref for Revised<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> Revised<T> {
+    /// Retires `revision`, then opens the contents for writing.
+    fn edit<'a>(&'a mut self, revision: &mut u64) -> &'a mut T {
+        *revision = next_content_revision();
+        &mut self.0
+    }
+}
+
 /// Sparse client-side chunk store.
 #[derive(Debug)]
 pub struct ChunkStore {
-    chunks: HashMap<ChunkKey, Chunk>,
-    loaded_chunks: BTreeSet<ChunkKey>,
-    authoritative_sub_chunks: HashMap<ChunkKey, BTreeSet<i32>>,
+    chunks: Revised<HashMap<ChunkKey, Chunk>>,
+    loaded_chunks: Revised<BTreeSet<ChunkKey>>,
+    authoritative_sub_chunks: Revised<HashMap<ChunkKey, BTreeSet<i32>>>,
     collision_revisions: HashMap<ChunkKey, ChunkCollisionRevision>,
     collision_revision_allocator: Arc<CollisionRevisionAllocator>,
     collision_snapshot: Mutex<Weak<Self>>,
@@ -118,9 +139,9 @@ pub struct ChunkStore {
 impl Default for ChunkStore {
     fn default() -> Self {
         Self {
-            chunks: HashMap::new(),
-            loaded_chunks: BTreeSet::new(),
-            authoritative_sub_chunks: HashMap::new(),
+            chunks: Revised::default(),
+            loaded_chunks: Revised::default(),
+            authoritative_sub_chunks: Revised::default(),
             collision_revisions: HashMap::new(),
             collision_revision_allocator: process_collision_revisions(),
             collision_snapshot: Mutex::default(),
@@ -141,11 +162,6 @@ impl ChunkStore {
     #[must_use]
     pub const fn content_revision(&self) -> u64 {
         self.content_revision
-    }
-
-    /// Retires the current [`Self::content_revision`] before a visible change.
-    fn note_content_change(&mut self) {
-        self.content_revision = next_content_revision();
     }
 
     /// Returns a chunk column, if block data has been received for it.
@@ -200,9 +216,12 @@ impl ChunkStore {
             return Ok(false);
         }
         let revision = self.collision_revision_allocator.allocate()?;
-        self.note_content_change();
-        self.loaded_chunks.insert(key);
-        self.authoritative_sub_chunks.remove(&key);
+        self.loaded_chunks
+            .edit(&mut self.content_revision)
+            .insert(key);
+        self.authoritative_sub_chunks
+            .edit(&mut self.content_revision)
+            .remove(&key);
         self.set_collision_revision(key, revision);
         Ok(true)
     }
@@ -219,8 +238,8 @@ impl ChunkStore {
             return Ok(false);
         }
         let revision = self.collision_revision_allocator.allocate()?;
-        self.note_content_change();
         self.authoritative_sub_chunks
+            .edit(&mut self.content_revision)
             .entry(key.chunk())
             .or_default()
             .insert(key.y);
@@ -303,9 +322,15 @@ impl ChunkStore {
         }
         let revision = self.reserve_loaded_change(key)?;
         self.invalidate_collision_snapshot();
-        self.note_content_change();
-        Arc::make_mut(&mut self.chunks.entry(key.chunk()).or_default().sub_chunks)
-            .insert(key.y, Arc::new(decoded));
+        Arc::make_mut(
+            &mut self
+                .chunks
+                .edit(&mut self.content_revision)
+                .entry(key.chunk())
+                .or_default()
+                .sub_chunks,
+        )
+        .insert(key.y, Arc::new(decoded));
         self.apply_reserved_revision(key.chunk(), revision);
         Ok(Some(key))
     }
@@ -369,8 +394,11 @@ impl ChunkStore {
             replacing.map_or(&crate::ShapeActor::None, |nbt| nbt.shape_actor())
                 != nbt.shape_actor(),
         )?;
-        self.note_content_change();
-        let chunk = self.chunks.entry(key.chunk()).or_default();
+        let chunk = self
+            .chunks
+            .edit(&mut self.content_revision)
+            .entry(key.chunk())
+            .or_default();
         Arc::make_mut(&mut chunk.block_entities).insert(key, Arc::new(nbt));
         chunk.block_entity_bytes = replacement_bytes;
         self.apply_reserved_revision(key.chunk(), actor_revision);
@@ -400,8 +428,11 @@ impl ChunkStore {
         if replacement.is_empty() && !self.chunks.contains_key(&key) {
             return Ok(());
         }
-        self.note_content_change();
-        let chunk = self.chunks.entry(key).or_default();
+        let chunk = self
+            .chunks
+            .edit(&mut self.content_revision)
+            .entry(key)
+            .or_default();
         chunk.block_entity_bytes = replacement
             .values()
             .map(|entity| entity.bytes().len())
@@ -409,7 +440,7 @@ impl ChunkStore {
         chunk.block_entities = Arc::new(replacement);
         if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
         {
-            self.chunks.remove(&key);
+            self.chunks.edit(&mut self.content_revision).remove(&key);
         }
         self.apply_reserved_revision(key, actor_revision);
         Ok(())
@@ -547,6 +578,7 @@ impl ChunkStore {
                     Arc::make_mut(
                         &mut self
                             .chunks
+                            .edit(&mut self.content_revision)
                             .entry(mutation.key.chunk())
                             .or_default()
                             .sub_chunks,
@@ -561,7 +593,6 @@ impl ChunkStore {
         }
         if !changed.is_empty() {
             self.invalidate_collision_snapshot();
-            self.note_content_change();
         }
         for (chunk, revision) in revisions {
             self.set_collision_revision(chunk, revision);
@@ -582,13 +613,24 @@ impl ChunkStore {
         if !keys.is_empty() {
             self.invalidate_collision_snapshot();
         }
-        let mut detached = false;
         for &key in keys {
-            detached |= self.authoritative_sub_chunks.remove(&key).is_some();
-            detached |= self.loaded_chunks.remove(&key);
+            if self.authoritative_sub_chunks.contains_key(&key) {
+                self.authoritative_sub_chunks
+                    .edit(&mut self.content_revision)
+                    .remove(&key);
+            }
+            if self.loaded_chunks.contains(&key) {
+                self.loaded_chunks
+                    .edit(&mut self.content_revision)
+                    .remove(&key);
+            }
             self.collision_revisions.remove(&key);
-            if let Some(chunk) = self.chunks.remove(&key) {
-                detached = true;
+            let chunk = if self.chunks.contains_key(&key) {
+                self.chunks.edit(&mut self.content_revision).remove(&key)
+            } else {
+                None
+            };
+            if let Some(chunk) = chunk {
                 removed.extend(
                     chunk
                         .sub_chunks
@@ -597,9 +639,6 @@ impl ChunkStore {
                 );
                 retired.push(chunk);
             }
-        }
-        if detached {
-            self.note_content_change();
         }
         (removed, retired)
     }
@@ -624,14 +663,18 @@ impl ChunkStore {
     fn remove_sub_chunk_without_revision(&mut self, key: SubChunkKey) -> Option<SubChunkKey> {
         self.invalidate_collision_snapshot();
         let chunk_key = key.chunk();
-        let chunk = self.chunks.get_mut(&chunk_key)?;
-        self.content_revision = next_content_revision();
+        let chunk = self
+            .chunks
+            .edit(&mut self.content_revision)
+            .get_mut(&chunk_key)?;
         let removed = Arc::make_mut(&mut chunk.sub_chunks)
             .remove(&key.y)
             .is_some();
         if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
         {
-            self.chunks.remove(&chunk_key);
+            self.chunks
+                .edit(&mut self.content_revision)
+                .remove(&chunk_key);
         }
         removed.then_some(key)
     }
@@ -695,15 +738,20 @@ impl ChunkStore {
         if replacement.is_empty() && !has_previous {
             return;
         }
-        self.note_content_change();
-        let chunk = self.chunks.entry(key.chunk()).or_default();
+        let chunk = self
+            .chunks
+            .edit(&mut self.content_revision)
+            .entry(key.chunk())
+            .or_default();
         let entities = Arc::make_mut(&mut chunk.block_entities);
         entities.retain(|entity, _| entity.sub_chunk() != key);
         entities.extend(replacement);
         chunk.block_entity_bytes = replacement_bytes;
         if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
         {
-            self.chunks.remove(&key.chunk());
+            self.chunks
+                .edit(&mut self.content_revision)
+                .remove(&key.chunk());
         }
     }
 
@@ -744,10 +792,13 @@ impl ChunkStore {
     }
 
     fn clear_sub_chunk_block_entities(&mut self, key: SubChunkKey) {
-        let Some(chunk) = self.chunks.get_mut(&key.chunk()) else {
+        let Some(chunk) = self
+            .chunks
+            .edit(&mut self.content_revision)
+            .get_mut(&key.chunk())
+        else {
             return;
         };
-        self.content_revision = next_content_revision();
         let mut removed_bytes = 0_usize;
         Arc::make_mut(&mut chunk.block_entities).retain(|entity, nbt| {
             let retain = entity.sub_chunk() != key;
@@ -762,7 +813,9 @@ impl ChunkStore {
             .expect("stored block-entity byte total matches its sparse map");
         if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
         {
-            self.chunks.remove(&key.chunk());
+            self.chunks
+                .edit(&mut self.content_revision)
+                .remove(&key.chunk());
         }
     }
 
@@ -795,8 +848,11 @@ impl ChunkStore {
             .into_iter()
             .map(|y| SubChunkKey::from_chunk(key, y))
             .collect();
-        self.note_content_change();
-        self.chunks.entry(key).or_default().biomes = Some(replacement);
+        self.chunks
+            .edit(&mut self.content_revision)
+            .entry(key)
+            .or_default()
+            .biomes = Some(replacement);
         expand_biome_mesh_dependents(changed)
     }
 
@@ -905,33 +961,39 @@ impl ChunkStore {
             .into_iter()
             .collect();
 
-        self.content_revision = next_content_revision();
-        if sub_chunks.is_empty() && biomes.is_none() && block_entities.is_empty() {
-            self.chunks.remove(&key);
-        } else {
-            self.chunks.insert(
-                key,
-                Chunk {
-                    sub_chunks: if collision_changed {
-                        Arc::new(sub_chunks)
-                    } else {
-                        old.map_or_else(
-                            || Arc::new(sub_chunks),
-                            |chunk| Arc::clone(&chunk.sub_chunks),
-                        )
-                    },
-                    biomes,
-                    block_entity_bytes: block_entities
-                        .values()
-                        .map(|entity| entity.bytes().len())
-                        .sum(),
-                    block_entities: Arc::new(block_entities),
+        let column = (!sub_chunks.is_empty() || biomes.is_some() || !block_entities.is_empty())
+            .then(|| Chunk {
+                sub_chunks: if collision_changed {
+                    Arc::new(sub_chunks)
+                } else {
+                    old.map_or_else(
+                        || Arc::new(sub_chunks),
+                        |chunk| Arc::clone(&chunk.sub_chunks),
+                    )
                 },
-            );
+                biomes,
+                block_entity_bytes: block_entities
+                    .values()
+                    .map(|entity| entity.bytes().len())
+                    .sum(),
+                block_entities: Arc::new(block_entities),
+            });
+        let chunks = self.chunks.edit(&mut self.content_revision);
+        match column {
+            Some(column) => {
+                chunks.insert(key, column);
+            }
+            None => {
+                chunks.remove(&key);
+            }
         }
         if newly_loaded {
-            self.loaded_chunks.insert(key);
-            self.authoritative_sub_chunks.remove(&key);
+            self.loaded_chunks
+                .edit(&mut self.content_revision)
+                .insert(key);
+            self.authoritative_sub_chunks
+                .edit(&mut self.content_revision)
+                .remove(&key);
         }
         self.apply_reserved_revision(key, revision);
         Ok(ApplyLevelChunk {

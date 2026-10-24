@@ -11,21 +11,22 @@ impl ChunkStore {
             return snapshot;
         }
         let snapshot = Arc::new(Self {
-            chunks: self
-                .chunks
-                .iter()
-                .map(|(&key, chunk)| {
-                    (
-                        key,
-                        Chunk {
-                            sub_chunks: Arc::clone(&chunk.sub_chunks),
-                            block_entities: Arc::clone(&chunk.block_entities),
-                            block_entity_bytes: chunk.block_entity_bytes,
-                            ..Chunk::default()
-                        },
-                    )
-                })
-                .collect(),
+            chunks: Revised(
+                self.chunks
+                    .iter()
+                    .map(|(&key, chunk)| {
+                        (
+                            key,
+                            Chunk {
+                                sub_chunks: Arc::clone(&chunk.sub_chunks),
+                                block_entities: Arc::clone(&chunk.block_entities),
+                                block_entity_bytes: chunk.block_entity_bytes,
+                                ..Chunk::default()
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
             loaded_chunks: self.loaded_chunks.clone(),
             authoritative_sub_chunks: self.authoritative_sub_chunks.clone(),
             collision_revisions: self.collision_revisions.clone(),
