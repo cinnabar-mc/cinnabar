@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cinnabar.invalid/schemas/cinnabar-material-bindings-1.0.0.schema.json",
+  "title": "Cinnabar material bindings 1.0.0",
+  "description": "cinnabar/material-bindings.json. The client also rejects a binding naming a material the document does not declare and parameter numbers that are not finite 32-bit floats, and counts name and pattern limits in UTF-8 bytes where this schema counts characters.",
+  "type": "object",
+  "required": ["format_version"],
+  "additionalProperties": false,
+  "properties": {
+    "format_version": { "const": "1.0.0" },
+    "materials": {
+      "type": "object",
+      "maxProperties": 16384,
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/material" }
+    },
+    "bindings": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/entity_binding" },
+          { "$ref": "#/$defs/block_binding" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "optional_name": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "optional_pattern": { "type": ["string", "null"], "minLength": 1, "maxLength": 64 },
+    "resource_path": {
+      "type": "string",
+      "pattern": "^[^/\\\\]+(/[^/\\\\]+)*$",
+      "not": { "pattern": "(^|/)\\.\\.?(/|$)" }
+    },
+    "name_list": { "type": ["array", "null"], "items": { "type": "string" } },
+    "declaration": {
+      "description": "Bedrock .material declaration fields, read with version 1 rules.",
+      "type": "object",
+      "properties": {
+        "states": { "$ref": "#/$defs/name_list" },
+        "+states": { "$ref": "#/$defs/name_list" },
+        "-states": { "$ref": "#/$defs/name_list" },
+        "defines": { "$ref": "#/$defs/name_list" },
+        "+defines": { "$ref": "#/$defs/name_list" },
+        "-defines": { "$ref": "#/$defs/name_list" }
+      }
+    },
+    "number_list": { "type": "array", "items": { "type": "number" } },
+    "parameter": {
+      "oneOf": [
+        {
+          "type": "object", "required": ["scalar"], "additionalProperties": false,
+          "properties": { "scalar": { "type": "number" } }
+        },
+        {
+          "type": "object", "required": ["vector"], "additionalProperties": false,
+          "properties": { "vector": { "$ref": "#/$defs/number_list", "minItems": 2, "maxItems": 4 } }
+        },
+        {
+          "type": "object", "required": ["color"], "additionalProperties": false,
+          "properties": { "color": { "$ref": "#/$defs/number_list", "minItems": 4, "maxItems": 4 } }
+        },
+        {
+          "type": "object", "required": ["boolean"], "additionalProperties": false,
+          "properties": { "boolean": { "type": "boolean" } }
+        }
+      ]
+    },
+    "material": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": { "$ref": "#/$defs/optional_name" },
+        "material": { "$ref": "#/$defs/declaration" },
+        "textures": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "$ref": "#/$defs/resource_path" }
+        },
+        "parameters": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "$ref": "#/$defs/parameter" }
+        }
+      }
+    },
+    "entity_binding": {
+      "type": "object",
+      "required": ["entity", "material"],
+      "additionalProperties": false,
+      "properties": {
+        "material": { "type": "string" },
+        "entity": { "type": "string" },
+        "render_controller": { "$ref": "#/$defs/optional_pattern" },
+        "bone": { "$ref": "#/$defs/optional_pattern" },
+        "block": { "type": "null" },
+        "states": { "type": "null" },
+        "material_instance": { "type": "null" }
+      }
+    },
+    "block_binding": {
+      "type": "object",
+      "required": ["block", "material"],
+      "additionalProperties": false,
+      "properties": {
+        "material": { "type": "string" },
+        "block": { "type": "string" },
+        "states": {
+          "type": ["object", "null"],
+          "additionalProperties": { "type": ["boolean", "number", "string"] }
+        },
+        "material_instance": { "$ref": "#/$defs/optional_pattern" },
+        "entity": { "type": "null" },
+        "render_controller": { "type": "null" },
+        "bone": { "type": "null" }
+      }
+    }
+  }
+}

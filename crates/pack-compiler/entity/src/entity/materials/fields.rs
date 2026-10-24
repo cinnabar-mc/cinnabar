@@ -183,19 +183,22 @@ impl Resolved {
     }
 }
 
+/// The state and define list keys of a declaration.
+pub(super) const LIST_KEYS: [&str; 6] = [
+    "states", "+states", "-states", "defines", "+defines", "-defines",
+];
+
 /// Whether every present state and define list is an array of strings. A malformed list leaves
 /// the material unresolved rather than guessing which entries were meant.
 pub(super) fn lists_are_well_formed(fields: &Map<String, Value>) -> bool {
-    [
-        "states", "+states", "-states", "defines", "+defines", "-defines",
-    ]
-    .into_iter()
-    .filter_map(|key| fields.get(key).filter(|value| !value.is_null()))
-    .all(|value| {
-        value
-            .as_array()
-            .is_some_and(|values| values.iter().all(Value::is_string))
-    })
+    LIST_KEYS
+        .into_iter()
+        .filter_map(|key| fields.get(key).filter(|value| !value.is_null()))
+        .all(|value| {
+            value
+                .as_array()
+                .is_some_and(|values| values.iter().all(Value::is_string))
+        })
 }
 
 /// A number that stays finite once narrowed to `f32`; one that overflows is treated as absent,
