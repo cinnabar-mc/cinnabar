@@ -5,6 +5,9 @@ use resource_pack::LayeredPackView;
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// The largest `variations` array Bedrock accepts without logging an error.
+const LOGGED_VARIATIONS: usize = 255;
+
 /// One path and its normalized positional weight inside a state variant.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Choice {
@@ -109,10 +112,15 @@ pub fn parse_entry(value: &Value) -> Option<Entry> {
 fn parse_variant(value: &Value) -> Option<Vec<Choice>> {
     if let Some(alternatives) = value.get("variations") {
         let alternatives = alternatives.as_array()?;
-        if alternatives.is_empty()
-            || alternatives.len() > assets::material_keys::MAX_TERRAIN_VARIANTS
-        {
+        if alternatives.is_empty() {
             return None;
+        }
+        // Bedrock logs a longer array as an error but still varies over every entry.
+        if alternatives.len() > LOGGED_VARIATIONS {
+            tracing::warn!(
+                count = alternatives.len(),
+                "'variations' array cannot have more than '{LOGGED_VARIATIONS}' textures; keeping all"
+            );
         }
         let mut choices = alternatives
             .iter()
@@ -238,6 +246,17 @@ mod tests {
         }
         let plain = parse_entry(&serde_json::json!({"textures":"textures/a"})).unwrap();
         assert!(!plain.variant(0)[0].overlay_color);
+    }
+
+    #[test]
+    fn variation_arrays_above_255_entries_keep_every_choice() {
+        let variations = (0..300)
+            .map(|index| serde_json::json!({"path": format!("textures/v{index}")}))
+            .collect::<Vec<_>>();
+        let entry =
+            parse_entry(&serde_json::json!({"textures":{"variations":variations}})).unwrap();
+        assert_eq!(entry.variant(0).len(), 300);
+        assert_eq!(entry.variant(0)[299].path, "textures/v299");
     }
 
     #[test]
