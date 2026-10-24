@@ -1,9 +1,6 @@
 use std::{
     collections::BTreeSet,
-    sync::{
-        Arc, Mutex, Weak,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex, Weak},
 };
 
 // Every terrain lookup hashes a column key; seeded foldhash avoids SipHash's cost.
@@ -20,10 +17,12 @@ use crate::{
 mod collision_snapshot;
 mod helpers;
 mod level_chunk;
+mod revised;
 use self::helpers::*;
 pub use self::level_chunk::{
     DecodedLevelChunk, DimensionSlots, InlineDecodeWork, decode_column_tail,
 };
+use self::revised::{Revised, next_content_revision};
 
 /// Monotonic identity for the collision-relevant contents of one loaded column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,35 +91,6 @@ impl PreparedSubChunkMutation {
                 origin[2].wrapping_add(i32::from(z)),
             )
         })
-    }
-}
-
-/// Source of every [`ChunkStore::content_revision`], shared by all stores so no two contents
-/// observed in this process share a value.
-static CONTENT_REVISIONS: AtomicU64 = AtomicU64::new(1);
-
-fn next_content_revision() -> u64 {
-    CONTENT_REVISIONS.fetch_add(1, Ordering::Relaxed)
-}
-
-/// Store contents readable through `Deref` but writable only through [`Self::edit`], which
-/// retires the store's content revision, so no mutation can leave that revision stale.
-#[derive(Debug, Default, Clone)]
-struct Revised<T>(T);
-
-impl<T> std::ops::Deref for Revised<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.0
-    }
-}
-
-impl<T> Revised<T> {
-    /// Retires `revision`, then opens the contents for writing.
-    fn edit<'a>(&'a mut self, revision: &mut u64) -> &'a mut T {
-        *revision = next_content_revision();
-        &mut self.0
     }
 }
 

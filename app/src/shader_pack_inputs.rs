@@ -5,7 +5,7 @@
 use bevy::{
     prelude::{
         App, DetectChanges, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res,
-        ResMut, Resource, Time, Transform, Update, Vec3, With,
+        ResMut, Resource, Time, Transform, Update, With,
     },
     time::Real,
 };
@@ -212,13 +212,11 @@ type PlayerSources<'w> = (
     Res<'w, FrameTimeCounterPin>,
 );
 
-/// The biomes and centre distance sampled around the camera, re-read only when the camera or
-/// its terrain changes.
+/// The biomes sampled around the camera, re-read only when the camera or its terrain changes.
 #[derive(Default)]
 struct CameraSamples {
     feet_biome: chunk_pipeline::TerrainSampleCache<[u32; 3], Option<u32>>,
     sky_biomes: chunk_pipeline::TerrainSampleCache<[u32; 3], [(u32, f32); SKY_BIOME_SLOTS]>,
-    center_distance: chunk_pipeline::TerrainSampleCache<[u32; 7], Option<f32>>,
 }
 
 /// Rebuilds the inputs from defaults and replaces the resource only when a value changed, so
@@ -348,8 +346,8 @@ fn publish_world_inputs(
     next.biome_block_y = feet[1].floor() as i32;
 }
 
-/// Fills the values sampled along and around the rendered camera: the biomes Java blends
-/// the sky and fog colours over, and the distance to the block at the screen's centre.
+/// Fills the values sampled around the rendered camera: the biomes Java blends the sky and
+/// fog colours over.
 fn publish_camera_inputs(
     next: &mut ShaderPackFrameInputs,
     stream: &WorldStream,
@@ -364,15 +362,6 @@ fn publish_camera_inputs(
                 stream.camera_biome_id(block.map(|v| v as f32))
             })
         });
-    let forward = (camera.rotation * Vec3::NEG_Z).to_array();
-    let render_distance = next.render_distance;
-    let [x, y, z] = position.map(f32::to_bits);
-    let [dx, dy, dz] = forward.map(f32::to_bits);
-    next.center_distance = samples.center_distance.sample(
-        stream,
-        [x, y, z, dx, dy, dz, render_distance.to_bits()],
-        |stream, _| stream.first_block_distance(position, forward, render_distance),
-    );
 }
 
 /// The biomes around `position` with Java's Gaussian blend weights, heaviest first and
