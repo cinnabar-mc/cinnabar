@@ -128,12 +128,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   until exact face-coverage behavior is verified separately. Inventory fences draw the
   native two-post shape. Walls now use the custom carried two-post shape, and vanilla
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
-  and fresh integrated-frame acceptance remain unverified. World bamboo fences stretch the
-  native post and slat texture regions; their inventory icon still uses ordinary fence UVs,
-  bamboo fence gates still use ordinary gate UVs instead of native `_trySetFenceGateTexture`
-  regions, and world fence rails still omit the outer end faces native tessellation draws.
-  and fresh integrated-frame acceptance remain unverified; bamboo fence slats are also open, and
-  world fence rails still omit the outer end faces native tessellation draws.
+  and fresh integrated-frame acceptance remain unverified. World bamboo fences and bamboo
+  fence gates stretch their native texture regions over each piece face; the bamboo fence
+  inventory icon still uses ordinary fence UVs instead of the native bamboo GUI shape and
+  slat regions, the down/up quarter-turn direction of turned bamboo rail and slat tops is
+  unverified, and world fence rails still omit the outer end faces native tessellation draws.
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
@@ -309,6 +308,22 @@ Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
 
+The block climber rewrites its contact flags after each movement tick; the descent
+action reads the retained contact before movement. Prediction sync reports those values
+with newer accepted server flag edits, which retained corrections also apply before input
+on replay. Each input frame retains the server edits it consumed and its original live
+entry flags. Replay rebuilds contact without replacing that comparison capture. Per-bit
+edits survive unrelated replays before and after consumption, including unstamped and
+future-stamped edits. Powder snow uses the mover's contextual query,
+including step and sneak-edge checks: snow-standing wearers get the full block, and falls
+over 2.5 blocks get the 0.9 fall-into shape. Replay refreshes historical fall distance
+while preserving the live value through spatial copy-back and snaps. The next input
+retains any restored live value so later replays consume it at the same boundary.
+No-move ticks preserve it unless an action or contact
+clears it. Flight toggles, bubble columns, honey sliding and water entry clear it at their
+movement phases; lava halves the retained distance before the current drop, and slow glide
+uses its entry velocity. The missing touch descend control, first-tick terrain seeding,
+coordinate/query recovery and broader custom geometry remain inherited incomplete work.
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
 independently of simulation admission. Unsupported attribute models leave reporting
@@ -435,7 +450,8 @@ and rendered qualification remain incomplete.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
   sprites; falling blocks retain their world models.
-  Implemented dropped sprite families, including flower beds, use their carried artwork.
+  Implemented dropped sprite families, including flower beds, shaped plants and eggs, use
+  their carried artwork. Spike icon faces and native transforms remain incomplete.
   Other drop classes and native poses remain incomplete. Falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
@@ -446,6 +462,14 @@ and rendered qualification remain incomplete.
   resin clumps, hooks, ladders, lily pads and sea pickles use their carried sprites; falling
   blocks retain their world models.
   Dropped crossed plants, lanterns, chains, ladders, lily pads and sea pickles use their carried sprites; falling blocks retain their world models.
+  Implemented dropped sprite families use their carried artwork; falling blocks retain their world models.
+  Ordinary model-class drops prefer carried geometry from matching terrain, with session
+  artwork taking priority. Final transforms, tinting and animation remain incomplete.
+  Implemented dropped sprite families use their carried artwork; falling blocks retain
+  their world models. Ordinary model-class drops use carried geometry matched to their
+  terrain source. Dedicated dropped block items share prepared held geometry and texture
+  tiles. Admitted session artwork takes priority. Other drop classes, native poses,
+  lighting, tint, animation and per-stack model state remain incomplete.
   Held lecterns reuse the placed stand; their hand pose comparisons remain incomplete.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
@@ -1002,13 +1026,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   fenced throughout. Write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
   incomplete.
-- Local mods and server experiences still need runtime/input isolation, reload/reorder/
+- The Mods settings list starts with compact headers and opens one whole card at a time;
+  actions and permission details remain inside that card.
+  Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
-  Source-driven mod projects generate typed Rust/Go messages, registry confirmation,
+  Source-driven mod projects generate typed Rust/Go messages, direction-checked sends
+  and handlers on both halves, registry confirmation,
   compile-checked asset constants and paired `.cmod` packages through `devtool mod new/build`.
   Typed block/item declarations generate server registration and ordinary packs; installation
   feeds the existing local-server hosts, and `mod run` builds an isolated development loop.
@@ -1046,6 +1073,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Host cancellation retires the interrupted helper without consuming guest strikes or restart attempts;
   only guest budget and protocol failures consume strikes, while transport failures recover separately.
   Leave writes need no live world. Player callbacks retain the world tick captured with each observation.
+  Server WIT 0.9 adds instance simulation ticks and cancellable timers through the existing
+  callback queue, with unload pause, opening fences and counted overflow. Entity registration,
+  replication, riding, steering and mixed-client ship acceptance remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and
@@ -1219,7 +1249,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 
-See [Android](docs/android.md), [mods](docs/modding-spike.md),
+See [Android](docs/android.md), [mods](docs/mods/README.md),
 [server experiences](docs/server-experiences.md) and
 [experience runtime](docs/experience-runtime.md) for existing implementation contracts.
 

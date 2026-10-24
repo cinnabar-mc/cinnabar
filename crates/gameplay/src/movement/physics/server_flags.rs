@@ -58,6 +58,11 @@ impl FlagWord {
         self.has(SPINNING)
     }
 
+    /// Replaces only the item-use bit while retaining the other captured flags.
+    pub(super) fn with_using_item(self, using: bool) -> Self {
+        Self((self.0 & !USING_ITEM) | if using { USING_ITEM } else { 0 })
+    }
+
     /// Whether the captured word carries item use.
     pub(super) fn using_item(self) -> bool {
         self.has(USING_ITEM)
@@ -461,7 +466,7 @@ impl LocalPhysicsController {
                 .iter_mut()
                 .find(|frame| frame.tick == current)
             {
-                frame.flag_correction = frame.flag_correction.then(correction);
+                frame.flags.pose_correction = frame.flags.pose_correction.then(correction);
             }
             // Its flag correction belongs to the completed frame, while the
             // accepted resize follows that frame and any pending dimensions.
@@ -496,11 +501,11 @@ impl LocalPhysicsController {
             return false;
         };
         let frame = &mut self.controller_history[index];
-        let correction = FlagCorrection::against(write, frame.entry_flags);
+        let correction = FlagCorrection::against(write, frame.flags.pose_entry);
         if correction.is_empty() {
             return false;
         }
-        frame.flag_correction = frame.flag_correction.then(correction);
+        frame.flags.pose_correction = frame.flags.pose_correction.then(correction);
         let write = self.correct_live(correction);
         self.controller_history[index]
             .sync_server

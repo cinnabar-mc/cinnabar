@@ -33,6 +33,34 @@ const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 struct Probe;
 
 impl Experience for Probe {
+    /// Exercises the simulation imports only in the clock conformance instance.
+    fn on_tick(
+        ctx: &Callback,
+        step: experience_sdk::server::SimulationStep,
+    ) -> Result<(), GuestError> {
+        if ctx.world().id.value == "probe:clock" {
+            let current = ctx
+                .simulation()
+                .map_err(|e| GuestError::Failed(e.to_string()))?;
+            if current.tick != step.tick || current.duration_nanos != step.duration_nanos {
+                return Err(GuestError::Failed("inconsistent simulation time".into()));
+            }
+            if step.tick == 1 {
+                let _ = ctx.schedule(2, 3);
+            }
+        }
+        Ok(())
+    }
+    /// A repeating callback can cancel itself through its typed handle.
+    fn on_timer(
+        ctx: &Callback,
+        handle: experience_sdk::server::ScheduleHandle,
+        _step: experience_sdk::server::SimulationStep,
+    ) -> Result<(), GuestError> {
+        ctx.cancel_schedule(&handle)
+            .map_err(|e| GuestError::Failed(e.to_string()))
+    }
+
     /// Exercises ordered player observations through the canonical server world.
     fn on_player(
         ctx: &Callback,
@@ -87,21 +115,6 @@ impl Experience for Probe {
         Ok(())
     }
 
-    fn client_message(
-        ctx: &Callback,
-        player: PlayerId,
-        channel: String,
-        schema: u16,
-        payload: Vec<Value>,
-    ) -> Result<(), GuestError> {
-        let access = world_access(ctx);
-        let fields = payload.len();
-        let echo = outcome(ctx.send_client(&player, &channel, schema, &nodes(payload)));
-        let text = format!("client {channel} {schema} {fields} {access} echo {echo}");
-        let _ = ctx.tell(&player, &text);
-        Ok(())
-    }
-
     /// Counts the update in the block's data, as x=0 counts interactions.
     fn on_scheduled_update(ctx: &Callback, pos: BlockPos) -> Result<(), GuestError> {
         log(LogLevel::Info, &format!("scheduled {}", count(ctx, pos)));
@@ -111,8 +124,27 @@ impl Experience for Probe {
     fn epoch(ctx: &Callback, player: PlayerId) -> Result<(), GuestError> {
         let access = world_access(ctx);
         let channel = channels::ITEMS;
-        let send = outcome(ctx.send_client(&player, channel.id, channel.schema, &nodes(items(2))));
+        let send =
+            outcome(raw(ctx).send_client(&player, channel.id, channel.schema, &nodes(items(2))));
         let _ = ctx.tell(&player, &format!("epoch {access} send {send}"));
+        Ok(())
+    }
+}
+
+impl experience_sdk::server::__private::Dispatch for Probe {
+    /// Echoes arbitrary admitted records to exercise the host ABI.
+    fn dispatch(
+        ctx: &Callback,
+        player: PlayerId,
+        channel: String,
+        schema: u16,
+        payload: Vec<Value>,
+    ) -> Result<(), GuestError> {
+        let access = world_access(ctx);
+        let fields = payload.len();
+        let echo = outcome(raw(ctx).send_client(&player, &channel, schema, &nodes(payload)));
+        let text = format!("client {channel} {schema} {fields} {access} echo {echo}");
+        let _ = ctx.tell(&player, &text);
         Ok(())
     }
 }
@@ -185,4 +217,9 @@ fn presence(result: Result<Option<Vec<u8>>, WorldError>) -> &'static str {
         Ok(Some(_)) => "present",
         Err(error) => error.name(),
     }
+}
+
+/// Uses the canonical ABI only for deliberately malformed protocol probes.
+fn raw<'a>(ctx: &'a Callback<'a>) -> &'a experience_sdk::server::__private::RawCallback {
+    experience_sdk::server::__private::raw(ctx)
 }
