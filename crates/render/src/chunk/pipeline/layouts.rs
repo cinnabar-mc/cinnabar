@@ -38,6 +38,15 @@ pub(crate) struct ChunkPipeline {
     pub(in crate::chunk) depth_liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) bind_group_layout: BindGroupLayoutDescriptor,
     pub(in crate::chunk) transparent_bind_group_layout: BindGroupLayoutDescriptor,
+    /// Programmable world material passes over the two-sided cube pipeline, and the Bedrock
+    /// fallback that draws tagged quads while their material is not ready.
+    pub(in crate::chunk) world_variants:
+        Variants<RenderPipeline, crate::chunk::world_materials::WorldTerrainSpecializer>,
+    pub(in crate::chunk) world_ids: std::collections::HashMap<
+        crate::chunk::world_materials::WorldTerrainKey,
+        bevy::render::render_resource::CachedRenderPipelineId,
+    >,
+    pub(in crate::chunk) world_fallback: Variants<RenderPipeline, ChunkPipelineSpecializer>,
 }
 
 impl FromWorld for ChunkPipeline {
@@ -65,6 +74,15 @@ impl FromWorld for ChunkPipeline {
             compact,
             unit_variants,
             unit_supported: false,
+            world_variants: Variants::new(
+                crate::chunk::world_materials::WorldTerrainSpecializer,
+                descriptor.clone(),
+            ),
+            world_ids: Default::default(),
+            world_fallback: Variants::new(
+                ChunkPipelineSpecializer,
+                crate::chunk::world_materials::fallback_descriptor(&descriptor),
+            ),
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             solid_variants: Variants::new(ChunkPipelineSpecializer, solid_descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),

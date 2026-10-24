@@ -751,7 +751,7 @@ fn a_world_material_replaces_the_bedrock_colour_before_host_lighting() {
         0,
     )
     .unwrap();
-    let frame = mod_render::world_material::frame_uniform(0.0, &[1.0]);
+    let frame = mod_render::world_material::frame_uniform(0.0, 1, &[1.0]);
     let defs = ["WORLD_MATERIAL", "WORLD_MATERIAL_OPAQUE"];
     let world =
         actor_raster::raster_world_material(&gpu, &plane, material, &red.library(2), &frame, &defs);
