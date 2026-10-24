@@ -7,7 +7,8 @@ A client part is optional code offered by a server. Build a paired mod with
 
 Execution currently requires `CINNABAR_DEV_SERVER_EXPERIENCES=1`. Production
 restricted launch is unavailable: consent alone does not enable production
-execution. Developer helpers are separate processes, without an OS sandbox.
+execution. Developer helpers are separate processes, without an OS sandbox; the
+[restricted helper](#restricted-helper-linux) is not yet used by the client.
 
 ## Delivery and consent
 
@@ -150,6 +151,30 @@ For full UI fixture code, see
 [`terminal-client`](../examples/experiences/terminal-client).
 The source-driven paired builder generates channels and assets; authoring modal
 manifest entries uses the low-level bundle path below.
+
+## Restricted helper (Linux)
+
+`Helper::spawn_restricted` starts `mod-host restricted-server-helper` contained; other
+platforms refuse it. Between `fork` and `exec` the parent clears the environment, closes every
+descriptor but the three stdio pipes, sets `PR_SET_NO_NEW_PRIVS`, makes the child undumpable and
+killed with its parent, and sets resource limits: 1 GiB of private writable memory and of file
+size (`RLIMIT_DATA`, `RLIMIT_FSIZE`), 64 descriptors, and no core files, locked memory, message
+queues or real-time priority. Before reading the component, the helper audits that it holds no
+other descriptor, no environment and those limits, then denies itself everything else: a
+Landlock ruleset that handles every right the kernel knows and grants none (no file or directory
+can be opened; TCP bind and connect on ABI 4, signals and abstract sockets outside itself on
+ABI 6), and a seccomp filter, on every thread, failing with `EPERM` program execution, process
+creation (threads remain), every socket call, tracing and cross-process memory, namespaces and
+mounts, BPF, performance counters, keys, io_uring, modules and administration calls; a foreign
+architecture or x32 call kills it. A helper that cannot lock down exits before reading the
+component, and a kernel without Landlock refuses. The component compiles after the lockdown, so
+the compiler is contained too, under the same limits and the parent's callback deadline.
+`crates/mod-host/tests/restricted_faults.rs` injects each forbidden operation into a contained
+child, and `tests/helper.rs` runs a real component restricted.
+
+Production stays unavailable: macOS and Windows have no restricted launch, the Linux launch has
+not had the independent security review the gate requires, and the client does not call it.
+Wasmtime and native decoders remain attack surfaces.
 
 ## Bundles and low-level tooling
 

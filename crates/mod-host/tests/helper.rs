@@ -90,13 +90,28 @@ fn spawn(component: Vec<u8>, capabilities: Capabilities) -> Helper {
         component,
         owner,
         capabilities,
-        mod_host::presentation::Context {
-            connection: 1,
-            epoch: 1,
-            ..Default::default()
-        },
+        context(),
     )
     .unwrap()
+}
+
+/// The terminal bundle's owner and its modal-UI capabilities.
+fn principal() -> (Principal, Capabilities) {
+    let owner = Principal {
+        session: "session".into(),
+        bundle: "terminal".into(),
+        generation: 1,
+    };
+    (owner, capabilities())
+}
+
+/// The drawing context a helper starts under: connection 1, epoch 1.
+fn context() -> mod_host::presentation::Context {
+    mod_host::presentation::Context {
+        connection: 1,
+        epoch: 1,
+        ..Default::default()
+    }
 }
 
 /// The helper's next reply, waiting at most 30 seconds (the helper compiles the component).
@@ -104,7 +119,9 @@ fn reply(helper: &mut Helper) -> Reply {
     let since = Instant::now();
     loop {
         if let Some(result) = helper.poll() {
-            return result.unwrap();
+            return result.unwrap_or_else(|error| {
+                panic!("{error:#}; helper stderr: {:?}", helper.drain_log())
+            });
         }
         assert!(since.elapsed() < Duration::from_secs(30), "no reply");
         test_time::idle();
@@ -206,6 +223,46 @@ fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
     assert_eq!(fuel.fuel, Some(CALLBACK_FUEL));
     assert!(fuel.reason.contains("fuel"), "{}", fuel.reason);
     assert_eq!(count(call(&mut helper, "terminal.count")), 1);
+}
+
+/// The restricted helper compiles and runs the component inside its lockdown, without the
+/// developer switch: callbacks commit, and a failed callback's fresh instance starts there too.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restricted_helper_compiles_and_runs_its_component_contained() {
+    let (owner, capabilities) = principal();
+    let mut helper = Helper::spawn_restricted(
+        Path::new(env!("CARGO_BIN_EXE_mod-host")),
+        &terminal_component(),
+        owner,
+        capabilities,
+        context(),
+    )
+    .unwrap();
+    assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
+    assert_eq!(count(call(&mut helper, "terminal.count")), 1);
+    assert_eq!(
+        failure(call(&mut helper, "terminal.panic")).kind,
+        FailureKind::Panic
+    );
+    assert_eq!(count(call(&mut helper, "terminal.count")), 1);
+}
+
+/// Restricted launch is Linux-only; elsewhere it refuses rather than running unrestricted.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn restricted_helpers_are_refused_off_linux() {
+    let (owner, capabilities) = principal();
+    let error = Helper::spawn_restricted(
+        Path::new(env!("CARGO_BIN_EXE_mod-host")),
+        &[],
+        owner,
+        capabilities,
+        context(),
+    )
+    .err()
+    .unwrap();
+    assert!(error.to_string().contains("unavailable"), "{error}");
 }
 
 /// A component that imports what the host does not provide fails to start, and the start's

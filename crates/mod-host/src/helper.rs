@@ -17,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub mod restricted;
 mod supervisor;
 
 const MAX_STARTUP_IPC: usize =
@@ -307,15 +308,34 @@ pub struct Helper {
 }
 
 impl Helper {
-    /// Refuses production remote code until platform restrictions are implemented and verified.
+    /// Returns a pending restricted helper: on Linux the process is contained before `exec`
+    /// and locks itself down before reading the component (see [`restricted`]); other
+    /// platforms refuse. Nothing in the client calls this yet, so production Experiences stay
+    /// closed until restricted launch passes independent review on every platform.
     pub fn spawn_restricted(
-        _executable: &Path,
-        _bytes: &[u8],
-        _owner: Principal,
-        _capabilities: Capabilities,
-        _epoch: u64,
+        executable: &Path,
+        bytes: &[u8],
+        owner: Principal,
+        capabilities: Capabilities,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
-        bail!("restricted server helpers are unavailable on this build")
+        if !cfg!(target_os = "linux") {
+            bail!("restricted server helpers are unavailable on this platform");
+        }
+        drawing.check(drawing.epoch)?;
+        ensure!(bytes.len() <= MAX_COMPONENT_BYTES, "component too large");
+        let component = crypto::hex(bytes);
+        Self::spawn_pending(executable, supervisor::Launch::Restricted, move || {
+            Ok(Start {
+                protocol: HELPER_PROTOCOL,
+                owner,
+                capabilities,
+                epoch: drawing.epoch,
+                drawing,
+                component,
+                assets: Default::default(),
+            })
+        })
     }
 
     /// Returns a pending developer helper; its supervisor prepares and launches the process.
@@ -364,7 +384,7 @@ impl Helper {
             assets.keys().all(|path| capabilities.assets.contains(path)),
             "unowned drawing asset"
         );
-        Self::spawn_pending(executable, move || {
+        Self::spawn_pending(executable, supervisor::Launch::Developer, move || {
             Ok(Start {
                 protocol: HELPER_PROTOCOL,
                 owner,
@@ -380,14 +400,21 @@ impl Helper {
     /// Transfers startup work to supervision and begins the deadline before returning.
     fn spawn_pending(
         executable: &Path,
+        launch: supervisor::Launch,
         prepare: impl FnOnce() -> Result<Start> + Send + 'static,
     ) -> Result<Self> {
         let pending_since = Some(Instant::now());
         let (requests, receiver) = mpsc::sync_channel(1);
         let (sender, responses) = mpsc::sync_channel(1);
         let (lines, log) = mpsc::sync_channel(4 * MAX_LOG_LINES_PER_SECOND);
-        let process =
-            supervisor::Process::start(executable.to_owned(), prepare, receiver, sender, lines)?;
+        let process = supervisor::Process::start(
+            executable.to_owned(),
+            launch,
+            prepare,
+            receiver,
+            sender,
+            lines,
+        )?;
         Ok(Self {
             process,
             requests,
@@ -478,6 +505,19 @@ pub fn serve_developer() -> Result<()> {
         std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
         "developer helper disabled"
     );
+    serve()
+}
+
+/// The restricted helper entry point: locks the process down, then serves. A helper that
+/// cannot lock itself down exits before reading the component.
+pub fn serve_restricted() -> Result<()> {
+    restricted::lock_down()?;
+    serve()
+}
+
+/// Reads the start, instantiates the component and answers dispatches until the client hangs
+/// up.
+fn serve() -> Result<()> {
     let mut input = std::io::stdin().lock();
     let mut output = std::io::stdout().lock();
     let startup: Start = read_frame(&mut input, MAX_STARTUP_IPC)?;

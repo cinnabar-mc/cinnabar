@@ -15,6 +15,15 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// How a helper process starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Launch {
+    /// The developer helper: a cleared environment carrying only the developer switch.
+    Developer,
+    /// The restricted helper: contained before `exec` and locked down before it serves.
+    Restricted,
+}
+
 #[derive(Default)]
 struct State {
     child: Option<Child>,
@@ -29,6 +38,7 @@ impl Process {
     /// The helper's stderr goes to `log`, cut and rate-limited.
     pub(super) fn start(
         executable: PathBuf,
+        launch: Launch,
         prepare: impl FnOnce() -> Result<Start> + Send + 'static,
         requests: mpsc::Receiver<Dispatch>,
         responses: mpsc::SyncSender<(Instant, Result<Reply>)>,
@@ -40,7 +50,7 @@ impl Process {
             .name("experience-ipc".into())
             .spawn(move || {
                 let startup = prepare().and_then(|startup| {
-                    let (mut input, mut output, stderr) = worker.launch(executable)?;
+                    let (mut input, mut output, stderr) = worker.launch(executable, launch)?;
                     std::thread::Builder::new()
                         .name("experience-stderr".into())
                         .spawn(move || forward_stderr(stderr, &log))?;
@@ -73,7 +83,11 @@ impl Process {
     }
 
     /// Publishes a launched child only if cancellation has not revoked the pending helper.
-    fn launch(&self, executable: PathBuf) -> Result<(ChildStdin, ChildStdout, ChildStderr)> {
+    fn launch(
+        &self,
+        executable: PathBuf,
+        launch: Launch,
+    ) -> Result<(ChildStdin, ChildStdout, ChildStderr)> {
         ensure!(!self.0.lock().unwrap().revoked, "helper startup revoked");
         let mut command = Command::new(executable);
         #[cfg(all(windows, not(debug_assertions)))]
@@ -83,14 +97,23 @@ impl Process {
 
             command.creation_flags(CREATE_NO_WINDOW);
         }
-        command
-            .arg("server-helper")
-            .env_clear()
-            .env(DEVELOPER_ENV, "1");
-        // The granted scope may name the developer loopback media origin, which validates only
-        // with its CA variable present.
-        if let Some(ca) = std::env::var_os(server_experience::fetch::DEVELOPER_MEDIA_CA_ENV) {
-            command.env(server_experience::fetch::DEVELOPER_MEDIA_CA_ENV, ca);
+        match launch {
+            Launch::Developer => {
+                command
+                    .arg("server-helper")
+                    .env_clear()
+                    .env(DEVELOPER_ENV, "1");
+                // The granted scope may name the developer loopback media origin, which
+                // validates only with its CA variable present.
+                if let Some(ca) = std::env::var_os(server_experience::fetch::DEVELOPER_MEDIA_CA_ENV)
+                {
+                    command.env(server_experience::fetch::DEVELOPER_MEDIA_CA_ENV, ca);
+                }
+            }
+            Launch::Restricted => {
+                command.arg(super::restricted::RESTRICTED_COMMAND);
+                super::restricted::contain(&mut command);
+            }
         }
         let mut child = command
             .stdin(Stdio::piped())

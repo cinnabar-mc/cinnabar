@@ -5944,6 +5944,7 @@ dependencies = [
  "chrono",
  "criterion",
  "experience-sdk",
+ "libc",
  "mod-api",
  "mod-render",
  "png",
