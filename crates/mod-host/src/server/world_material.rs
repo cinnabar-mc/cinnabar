@@ -6,6 +6,22 @@ use server_experience::world_material::{
     WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget,
 };
 
+impl State {
+    /// Validates the shader within the per-callback compile budget, after the declaration's
+    /// own bounds, so a rejected source still spends an attempt.
+    fn compile_world_material(&mut self, spec: &WorldMaterialSpec) -> Result<(), String> {
+        self.capabilities
+            .world_authority()
+            .validate_material(spec)
+            .map_err(|error| error.to_string())?;
+        if self.world_compiles >= mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK {
+            return Err("world material compile budget exceeded".into());
+        }
+        self.world_compiles += 1;
+        mod_render::world_material::compose(&spec.source, spec.textures.len()).map(|_| ())
+    }
+}
+
 impl wit::Host for State {
     /// Stages material `id` after the shader and its declared resources pass validation.
     fn set_material(&mut self, id: u32, spec: wit::MaterialSpec) -> Result<Result<(), String>> {
@@ -24,6 +40,10 @@ impl wit::Host for State {
                 wit::Blend::Additive => WorldBlend::Additive,
             },
         };
+        if let Err(error) = self.compile_world_material(&spec) {
+            self.charge()?;
+            return Ok(Err(error));
+        }
         self.stage(Command::WorldMaterial {
             id,
             material: Some(spec),
