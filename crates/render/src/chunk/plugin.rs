@@ -88,6 +88,7 @@ impl Plugin for ChunkRenderPlugin {
                     update_chunk_animation_clock,
                 ),
             );
+        super::visibility::install(app);
 
         if app.get_sub_app(RenderApp).is_none() {
             return;

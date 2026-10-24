@@ -1,5 +1,5 @@
 use crate::chunk::*;
-use bevy::prelude::DetectChangesMut;
+use bevy::{camera::visibility::NoCpuCulling, prelude::DetectChangesMut};
 use render_scene::{
     ChunkAnimationClock, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureReload,
     ChunkUploadAcknowledgements, ChunkUploadBudget, RuntimeStageProfiler,
@@ -434,7 +434,6 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let has_transparent_liquid = liquid_quads
             .first()
             .is_some_and(|quad| !quad.is_depth_writing());
-        let bounds = super::bounds::aabb(!model_refs.is_empty());
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from(cube_quads),
@@ -463,17 +462,13 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             {
                 drop(slot.take());
             }
-            commands.entity(entity).insert((instance, bounds));
+            commands.entity(entity).insert(instance);
         } else {
-            // Chunks never move or join a hierarchy, so they carry only the world transform that
-            // culling reads; a `Transform` would add every chunk to Bevy's per-frame sync scan.
+            // `Visibility` carries cave culling; `NoCpuCulling` leaves frustum culling to
+            // `visibility::publish_chunk_visibility`, so nothing maintains the entity's
+            // `ViewVisibility`.
             let entity = commands
-                .spawn((
-                    instance,
-                    Visibility::default(),
-                    GlobalTransform::from_xyz(origin[0] as f32, origin[1] as f32, origin[2] as f32),
-                    bounds,
-                ))
+                .spawn((instance, Visibility::default(), NoCpuCulling))
                 .id();
             entities.0.insert(key, entity);
         }
