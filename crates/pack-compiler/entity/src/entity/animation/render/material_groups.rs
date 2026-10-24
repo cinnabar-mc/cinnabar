@@ -51,23 +51,21 @@ impl Default for Raster {
 
 pub(super) struct Group {
     raster: Raster,
-    hidden: Vec<Box<str>>,
+    hidden: Vec<Hide>,
+    /// A whole-model selector evaluated once per frame in place of `raster`.
     selection: Option<Arc<Selection<Raster>>>,
-    /// Molang that must hold for the group to draw: the material choices of the controller's
-    /// expression rules that produced it. `None` always draws.
-    condition: Option<String>,
 }
 
-/// Most combinations of expression-rule choices one controller expands into; beyond it each
-/// expression keeps the material a default actor selects.
-const MAX_MATERIAL_VARIANTS: usize = 16;
-
-/// One controller material rule: a fixed material, or each material an expression can select
-/// with the Molang condition selecting it.
-enum Rule {
-    Fixed(Raster),
-    Choice(Vec<(Option<String>, Raster)>),
+/// A bone the group's layer hides: always, or whenever `unless` (the material-expression
+/// choices that give the bone this group's material) does not hold.
+struct Hide {
+    pattern: Box<str>,
+    unless: Option<String>,
 }
+
+/// Each material one controller rule can select, with the Molang condition selecting it;
+/// a fixed material is one unconditional choice. Choices are mutually exclusive.
+type Choices = Vec<(Option<String>, Raster)>;
 
 /// The shader kind, shading features and interned definition one controller material selects.
 fn raster(
@@ -123,7 +121,6 @@ pub(super) fn resolve(
             raster: Raster::default(),
             hidden: Vec::new(),
             selection: Some(selection),
-            condition: None,
         }]);
     }
     let selected = selected.into_iter().collect::<Vec<_>>();
@@ -170,7 +167,7 @@ pub(super) fn resolve(
             [(path, target)] if path.is_empty() => {
                 rules.push((
                     pattern,
-                    Rule::Fixed(raster(Some(target), materials, table, provenance)),
+                    vec![(None, raster(Some(target), materials, table, provenance))],
                 ));
             }
             _ => {
@@ -181,7 +178,7 @@ pub(super) fn resolve(
                         raster(Some(target), materials, table, provenance),
                     ));
                 }
-                rules.push((pattern, Rule::Choice(choices)));
+                rules.push((pattern, choices));
             }
         }
     }
@@ -197,104 +194,43 @@ pub(super) fn resolve(
                 required_textures: table.required_textures(definition),
                 uv_anim: materials.extension_applies_uv_anim(material, table),
             };
-            rules.push((pattern.to_owned(), Rule::Fixed(raster)));
+            rules.push((pattern.to_owned(), vec![(None, raster)]));
         }
     }
-    let mut groups = Vec::new();
-    for (condition, rules) in variants(&rules) {
-        for mut group in partition(&rules, geometries, &selected, parents)? {
-            group.condition = condition.clone();
-            groups.push(group);
-        }
-    }
-    Ok(groups)
+    partition(&rules, geometries, &selected, parents)
 }
 
-/// One combination of expression-rule choices: its selecting condition and fixed rules.
-type Variant = (Option<String>, Vec<(String, Raster)>);
-
-/// Every combination of the expression rules' choices, as fixed rules with the condition that
-/// selects the combination. Choices are mutually exclusive, so exactly one combination draws.
-fn variants(rules: &[(String, Rule)]) -> Vec<Variant> {
-    let count = rules
-        .iter()
-        .try_fold(1usize, |count, (_, rule)| match rule {
-            Rule::Fixed(_) => Some(count),
-            Rule::Choice(choices) => count.checked_mul(choices.len()),
-        });
-    let Some(count) = count.filter(|count| *count <= MAX_MATERIAL_VARIANTS) else {
-        // Too many combinations: each expression keeps what a default actor selects.
-        let fixed = rules
-            .iter()
-            .filter_map(|(pattern, rule)| {
-                let raster = match rule {
-                    Rule::Fixed(raster) => *raster,
-                    Rule::Choice(choices) => {
-                        choices
-                            .iter()
-                            .find(|(condition, _)| {
-                                condition.as_deref().is_none_or(|text| {
-                                    MolangCompiler::evaluate_default(text)
-                                        .is_some_and(|value| value != 0.0)
-                                })
-                            })?
-                            .1
-                    }
-                };
-                Some((pattern.clone(), raster))
-            })
-            .collect();
-        return vec![(None, fixed)];
-    };
-    (0..count)
-        .map(|mut index| {
-            let mut conditions = Vec::new();
-            let fixed = rules
-                .iter()
-                .map(|(pattern, rule)| {
-                    let raster = match rule {
-                        Rule::Fixed(raster) => *raster,
-                        Rule::Choice(choices) => {
-                            let (condition, raster) = &choices[index % choices.len()];
-                            index /= choices.len();
-                            conditions.extend(condition.clone());
-                            *raster
-                        }
-                    };
-                    (pattern.clone(), raster)
-                })
-                .collect();
-            let condition = (!conditions.is_empty()).then(|| {
-                conditions
-                    .iter()
-                    .map(|condition| format!("({condition})"))
-                    .collect::<Vec<_>>()
-                    .join(" && ")
-            });
-            (condition, fixed)
-        })
-        .collect()
-}
-
-/// Partitions bones by fixed material rules, the last match winning per bone.
+/// Partitions bones by material, the last matching rule deciding each bone. Every material a
+/// rule can select gets one group; a bone whose material an expression chooses is visible in
+/// each candidate group only while that group's choice holds, so the groups grow with the
+/// number of choices rather than with their combinations.
 fn partition(
-    rules: &[(String, Raster)],
+    rules: &[(String, Choices)],
     geometries: &[EntityGeometry],
     selected: &[u32],
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
+    let unmatched: Choices = vec![(None, Raster::default())];
     let fallback = rules
         .iter()
         .rev()
         .find(|(pattern, _)| pattern == "*")
-        .map_or_else(Raster::default, |(_, raster)| *raster);
-    if rules.iter().all(|(_, raster)| *raster == fallback) {
-        return Ok(vec![Group {
-            raster: fallback,
+        .map_or(&unmatched, |(_, choices)| choices);
+    let single = |raster| {
+        Ok(vec![Group {
+            raster,
             hidden: Vec::new(),
             selection: None,
-            condition: None,
-        }]);
+        }])
+    };
+    let first = fallback[0].1;
+    if rules
+        .iter()
+        .flat_map(|(_, choices)| choices)
+        .chain(fallback)
+        .all(|(_, raster)| *raster == first)
+    {
+        return single(first);
     }
     if parents.is_none() {
         *parents = Some(validate_entity_geometry_inheritance(geometries)?);
@@ -315,48 +251,37 @@ fn partition(
         }
     }
     if names.is_empty() {
-        return Ok(vec![Group {
-            raster: fallback,
-            hidden: Vec::new(),
-            selection: None,
-            condition: None,
-        }]);
+        return single(first);
     }
     let assignments: Vec<_> = names
         .into_iter()
         .map(|name| {
-            let raster = rules
+            let choices = rules
                 .iter()
                 .rev()
                 .find(|(pattern, _)| entity_render_pattern_matches(pattern, &name))
-                .map_or(fallback, |(_, raster)| *raster);
-            (name, raster)
+                .map_or(fallback, |(_, choices)| choices);
+            (name, choices)
         })
         .collect();
-    let mut order = Vec::new();
-    let mut seen = BTreeSet::new();
-    for raster in rules.iter().map(|(_, raster)| *raster).chain([fallback]) {
-        if assignments.iter().any(|(_, assigned)| *assigned == raster)
-            && seen.insert((
-                raster.material.word(raster.state),
-                raster.definition,
-                raster.masks,
-            ))
+    let mut order: Vec<Raster> = Vec::new();
+    for (_, raster) in rules
+        .iter()
+        .flat_map(|(_, choices)| choices)
+        .chain(fallback)
+    {
+        if !order.contains(raster)
+            && assignments
+                .iter()
+                .any(|(_, choices)| choices.iter().any(|(_, assigned)| assigned == raster))
         {
-            order.push(raster);
+            order.push(*raster);
         }
     }
-    if order.len() == 1 {
-        return Ok(vec![Group {
-            raster: order[0],
-            hidden: Vec::new(),
-            selection: None,
-            condition: None,
-        }]);
+    if let [raster] = order.as_slice() {
+        return single(*raster);
     }
-    if order.len() > MAX_ENTITY_RENDER_LAYERS
-        || assignments.len().saturating_mul(order.len() - 1) > MAX_ENTITY_RENDER_VISIBILITY
-    {
+    if order.len() > MAX_ENTITY_RENDER_LAYERS {
         return Err(invalid(
             "entity material bone masks exceed admitted render bounds",
         ));
@@ -369,19 +294,52 @@ fn partition(
             "entity material bone mask exceeds admitted pattern bounds",
         ));
     }
-    Ok(order
+    let mut hidden_total = 0usize;
+    let groups: Vec<_> = order
         .into_iter()
-        .map(|raster| Group {
-            raster,
-            selection: None,
-            hidden: assignments
+        .map(|raster| {
+            let hidden: Vec<_> = assignments
                 .iter()
-                .filter(|(_, assigned)| *assigned != raster)
-                .map(|(name, _)| name.as_str().into())
-                .collect(),
-            condition: None,
+                .filter_map(|(name, choices)| {
+                    let selecting: Vec<_> = choices
+                        .iter()
+                        .filter(|(_, assigned)| *assigned == raster)
+                        .map(|(condition, _)| condition.as_deref())
+                        .collect();
+                    let unless = if selecting.is_empty() {
+                        None
+                    } else if selecting.len() == choices.len() || selecting.contains(&None) {
+                        return None;
+                    } else {
+                        Some(
+                            selecting
+                                .iter()
+                                .flatten()
+                                .map(|condition| format!("({condition})"))
+                                .collect::<Vec<_>>()
+                                .join(" || "),
+                        )
+                    };
+                    Some(Hide {
+                        pattern: name.as_str().into(),
+                        unless,
+                    })
+                })
+                .collect();
+            hidden_total = hidden_total.saturating_add(hidden.len());
+            Group {
+                raster,
+                hidden,
+                selection: None,
+            }
         })
-        .collect())
+        .collect();
+    if hidden_total > MAX_ENTITY_RENDER_VISIBILITY {
+        return Err(invalid(
+            "entity material bone masks exceed admitted render bounds",
+        ));
+    }
+    Ok(groups)
 }
 
 /// Expands a whole-model material selector without rewriting authored part visibility.
@@ -453,9 +411,10 @@ pub(super) struct Records<'a> {
     pub skipped_draws: &'a mut u32,
 }
 
+/// Appends `base` once per material group, each a copy of the controller's layer drawing its
+/// group's bones under the controller's activation.
 pub(super) fn append(
     base: EntityRenderLayer,
-    activation: Option<&str>,
     mut groups: Vec<Group>,
     records: Records<'_>,
     molang: &mut MolangCompiler,
@@ -465,24 +424,6 @@ pub(super) fn append(
     let before = groups.len();
     groups.retain(|group| group.raster.required_textures <= base.slot_count);
     *records.skipped_draws += (before - groups.len()) as u32;
-    // A group selected by a material expression draws only while its choice and the
-    // controller's activation both hold; one whose condition does not compile is not drawn.
-    let groups = groups
-        .into_iter()
-        .filter_map(|group| {
-            let condition = match &group.condition {
-                None => base.condition,
-                Some(choice) => {
-                    let text = activation.map_or_else(
-                        || choice.clone(),
-                        |activation| format!("({activation}) && ({choice})"),
-                    );
-                    Some(molang.compile(&text).ok()?)
-                }
-            };
-            Some((group, condition))
-        })
-        .collect::<Vec<_>>();
     if groups.is_empty() {
         return Ok(());
     }
@@ -500,10 +441,7 @@ pub(super) fn append(
         .iter()
         .map(|slot| usize::from(slot.candidate_count))
         .sum();
-    let added_visibility = groups
-        .iter()
-        .map(|(group, _)| group.hidden.len())
-        .sum::<usize>()
+    let added_visibility = groups.iter().map(|group| group.hidden.len()).sum::<usize>()
         + extra * usize::from(base.visibility_count);
     if layers.len() + groups.len() > MAX_ENTITY_RENDER_LAYERS
         || slots.len() + extra * usize::from(base.slot_count) > MAX_ENTITY_RENDER_SLOTS
@@ -511,7 +449,7 @@ pub(super) fn append(
         || geometries.len() + extra * usize::from(base.geometry_count)
             > MAX_ENTITY_RENDER_CANDIDATES
         || visibility.len() + added_visibility > MAX_ENTITY_RENDER_VISIBILITY
-        || groups.iter().any(|(group, _)| {
+        || groups.iter().any(|group| {
             usize::from(base.visibility_count) + group.hidden.len() > usize::from(u16::MAX)
         })
     {
@@ -519,7 +457,7 @@ pub(super) fn append(
             "entity material groups exceed admitted render bounds",
         ));
     }
-    if let [(group, condition)] = groups.as_slice()
+    if let [group] = groups.as_slice()
         && group.hidden.is_empty()
     {
         layers.push(EntityRenderLayer {
@@ -528,7 +466,6 @@ pub(super) fn append(
             material_definition: group.raster.definition,
             material_masks: group.raster.masks,
             uv_anim: base.uv_anim.filter(|_| group.raster.uv_anim),
-            condition: *condition,
             material_selection: group
                 .selection
                 .clone()
@@ -551,8 +488,8 @@ pub(super) fn append(
         })
         .collect();
     let authored_geometries = geometries[base.first_geometry as usize..].to_vec();
-    for (index, (group, condition)) in groups.into_iter().enumerate() {
-        let mut layer = EntityRenderLayer { condition, ..base };
+    for (index, group) in groups.into_iter().enumerate() {
+        let mut layer = base;
         if index != 0 {
             layer.first_slot = slots.len() as u32;
             for slot in &authored_slots {
@@ -568,16 +505,17 @@ pub(super) fn append(
             layer.first_visibility = visibility.len() as u32;
             visibility.extend_from_slice(&authored_visibility);
         }
-        // Material ownership only hides parts; authored visibility can never be undone.
-        visibility.extend(
-            group
-                .hidden
-                .into_iter()
-                .map(|pattern| EntityRenderVisibility {
-                    pattern,
-                    condition: hidden_condition,
-                }),
-        );
+        // Material ownership only hides parts; authored visibility can never be undone. A
+        // chosen bone hides while its choice does not hold; one whose choice does not compile
+        // stays hidden, as vanilla evaluates it as 0.0.
+        for hide in group.hidden {
+            let choice = hide.unless.and_then(|text| molang.compile(&text).ok());
+            visibility.push(EntityRenderVisibility {
+                pattern: hide.pattern,
+                condition: choice.unwrap_or(hidden_condition),
+                hide_only: choice.is_some(),
+            });
+        }
         layer.visibility_count = (visibility.len() - layer.first_visibility as usize) as u16;
         layer.material = group.raster.material;
         layer.material_state = group.raster.state;
@@ -641,12 +579,12 @@ fn compile_selection(
             masks: raster.masks,
         },
         Selection::Branch(condition, yes, no) => Node::Branch {
-            condition: molang.compile(condition)?,
+            condition: compile_or_zero(molang, condition)?,
             yes: compile_selection(Arc::clone(yes), nodes, molang)?,
             no: compile_selection(Arc::clone(no), nodes, molang)?,
         },
         Selection::Array(index, choices) if !choices.is_empty() => Node::Array {
-            index: molang.compile(index)?,
+            index: compile_or_zero(molang, index)?,
             choices: choices
                 .iter()
                 .map(|choice| compile_selection(Arc::clone(choice), nodes, molang))
@@ -656,6 +594,12 @@ fn compile_selection(
     };
     nodes[root] = node;
     Ok(root as u32)
+}
+
+/// Compiles a selector step; one that does not compile reads 0.0, as vanilla evaluates it, so a
+/// ternary takes its else branch and an array index selects the first element.
+fn compile_or_zero(molang: &mut MolangCompiler, text: &str) -> Result<u32, AssetError> {
+    molang.compile(text).or_else(|_| molang.compile("0.0"))
 }
 
 #[cfg(test)]

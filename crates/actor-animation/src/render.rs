@@ -445,7 +445,11 @@ fn evaluate_layer_into(
             .truthy();
         for (index, name) in bone_names.iter().enumerate() {
             if pattern_matches(&rule.pattern, name) {
-                hidden[index] = !visible;
+                if rule.hide_only {
+                    hidden[index] |= !visible;
+                } else {
+                    hidden[index] = !visible;
+                }
             }
         }
     }

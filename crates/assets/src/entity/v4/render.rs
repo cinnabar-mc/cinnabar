@@ -248,12 +248,16 @@ pub struct EntityRenderCandidate {
 }
 
 /// A `part_visibility` rule: bones matching `pattern` (lowercase, optional trailing `*`) draw
-/// only while `condition` holds; later rules override earlier ones.
+/// only while `condition` holds; later rules override earlier ones. A `hide_only` rule never
+/// reveals a bone: it hides matching bones while `condition` does not hold and otherwise leaves
+/// them as earlier rules set them.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityRenderVisibility {
     pub pattern: Box<str>,
     pub condition: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hide_only: bool,
 }
 
 /// Matches admitted bone-name patterns without allocating; ASCII case is ignored.

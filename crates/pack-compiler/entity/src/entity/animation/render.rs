@@ -328,6 +328,7 @@ pub(super) fn compile_render(
                     visibility.push(EntityRenderVisibility {
                         pattern: pattern.to_ascii_lowercase().into(),
                         condition: index,
+                        hide_only: false,
                     });
                 }
             }
@@ -370,7 +371,6 @@ pub(super) fn compile_render(
             };
             material_groups::append(
                 layer,
-                activation.as_deref(),
                 groups,
                 material_groups::Records {
                     selections: &mut material_selections,

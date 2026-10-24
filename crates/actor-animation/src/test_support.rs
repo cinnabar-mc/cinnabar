@@ -335,6 +335,7 @@ pub fn initialized_pose_compiled() -> assets::CompiledEntityAssets {
     compiled.render.visibility = vec![EntityRenderVisibility {
         pattern: "rightitem".into(),
         condition: visibility,
+        hide_only: false,
     }]
     .into_boxed_slice();
     compiled.render.layers[0].visibility_count = 1;
