@@ -131,7 +131,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   Experience execution stays fail-closed until the restricted-helper launch gate. The signed
   manifest's `namespace` (API 2) limits bindings to that namespace; overriding other namespaces,
   vanilla included, needs a separate permission and consent that do not exist. The consent
-  line's wording is provisional. The `world-material` import (`server-experience@1.4.0`)
+  line reads "Change how this server's own mobs and blocks look (up to N MB GPU memory)". The
+  `world-material` import (`server-experience@1.4.0`)
   declares materials and bindings; bound entities and cube blocks draw with them under
   host-owned depth, blend and pass, charged to the signed memory and GPU limits, and revocation
   restores Bedrock in one publication. Cube and model blocks are both tagged, and translucent
