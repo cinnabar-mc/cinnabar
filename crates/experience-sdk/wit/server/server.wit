@@ -128,6 +128,7 @@ interface types {
     /// An entity identity reserved by the callback; its generation belongs to a world opening.
     record entity-handle { id: u64, generation: u64 }
     record entity-rotation { yaw: f64, pitch: f64 }
+    /// A centered square at the feet; width and height must fit positive f32 values.
     record entity-box { min: position, max: position }
     record entity-seat { position: position, rotation-limit: option<f64>, steers: bool }
     /// Pack-relative assets become validated files in the generated server resource pack.

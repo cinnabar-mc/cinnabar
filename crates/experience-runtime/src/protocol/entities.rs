@@ -182,7 +182,11 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
     let definition = EntityDefinition {
         id: state.kind.clone(),
         collision: EntityBox {
-            min: point(-2.0),
+            min: Position {
+                x: -2.0,
+                y: 0.0,
+                z: -2.0,
+            },
             max: point(2.0),
         },
         appearance: EntityAppearance::Vanilla {

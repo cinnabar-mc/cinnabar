@@ -10,6 +10,22 @@ pub(crate) fn finite(v: p::Position) -> bool {
     v.x.is_finite() && v.y.is_finite() && v.z.is_finite()
 }
 
+/// Admits only boxes preserved by the packet's width and height.
+fn valid_collision(collision: &p::EntityBox) -> bool {
+    let width = (collision.max.x - collision.min.x) as f32;
+    let height = collision.max.y as f32;
+    finite(collision.min)
+        && finite(collision.max)
+        && collision.min.y == 0.0
+        && collision.min.x == -collision.max.x
+        && collision.min.z == collision.min.x
+        && collision.max.z == collision.max.x
+        && width.is_finite()
+        && width > 0.0
+        && height.is_finite()
+        && height > 0.0
+}
+
 /// Checks names, seats, properties and indexed resources before any server registration.
 pub(crate) fn validate(
     dir: &Path,
@@ -34,12 +50,8 @@ pub(crate) fn validate(
             max: d.collision.max.into(),
         };
         ensure!(
-            finite(collision.min)
-                && finite(collision.max)
-                && collision.min.x < collision.max.x
-                && collision.min.y < collision.max.y
-                && collision.min.z < collision.max.z,
-            "invalid entity collision box"
+            valid_collision(&collision),
+            "entity collision must be a centered square at the feet with finite packet dimensions"
         );
         ensure!(
             d.seats.len() <= MAX_ENTITY_SEATS && d.seats.iter().filter(|s| s.steers).count() <= 1,
@@ -140,3 +152,6 @@ pub(crate) fn valid_state(state: &p::EntityState, definition: &p::EntityDefiniti
                     && (property.min..=property.max).contains(&value.value)
             })
 }
+
+#[cfg(test)]
+mod tests;

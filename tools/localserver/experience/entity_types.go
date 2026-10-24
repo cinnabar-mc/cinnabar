@@ -52,7 +52,7 @@ func (r *Registry) EntityRegistry() world.EntityRegistry {
 
 // newModEntityType checks all definitions and files before exposing a type to Dragonfly.
 func newModEntityType(owner string, def EntityDefinition, cache *assetCache) (*modEntityType, error) {
-	if !ownedWorldName(def.ID, owner) || !finitePosition(def.Collision.Min) || !finitePosition(def.Collision.Max) || def.Collision.Min.X >= def.Collision.Max.X || def.Collision.Min.Y >= def.Collision.Max.Y || def.Collision.Min.Z >= def.Collision.Max.Z {
+	if !ownedWorldName(def.ID, owner) || !validEntityCollision(def.Collision) {
 		return nil, errors.New("invalid entity identity or collision box")
 	}
 	if len(def.Seats) > maxEntitySeats || len(def.Properties) > maxEntityProperties {
@@ -89,6 +89,15 @@ func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 // finitePosition checks all coordinates before converting them to framework vectors.
 func finitePosition(p Position) bool { return finite(p.X) && finite(p.Y) && finite(p.Z) }
+
+// validEntityCollision admits only boxes preserved by the packet's width and height.
+func validEntityCollision(box EntityBox) bool {
+	width, height := float32(box.Max.X-box.Min.X), float32(box.Max.Y)
+	return finitePosition(box.Min) && finitePosition(box.Max) &&
+		box.Min.Y == 0 && box.Min.X == -box.Max.X &&
+		box.Min.Z == box.Min.X && box.Max.Z == box.Max.X &&
+		width > 0 && finite(float64(width)) && height > 0 && finite(float64(height))
+}
 
 // buildResources constructs a client identity, optional original art, and its server definition.
 func (t *modEntityType) buildResources(cache *assetCache) error {

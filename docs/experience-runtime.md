@@ -192,6 +192,8 @@ Server WIT 0.10 adds registered entities in the mod's namespace. Definitions sel
 an existing built-in appearance or indexed geometry, PNG and render-controller assets.
 The host validates resources before freezing its world registry and resource packs;
 helper restarts must return the same declarations.
+Collision boxes must be centered squares at the feet, with width and height that
+fit positive packet floats. Offset or rectangular boxes are refused at registration.
 Cinnabar resolves a built-in appearance from the actor's admitted constructor when
 its custom identity has no authored artwork, including server-pack overrides of that
 built-in appearance. Authored custom artwork takes priority.

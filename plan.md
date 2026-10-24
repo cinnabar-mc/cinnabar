@@ -1052,8 +1052,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   independently of entity ticks. Actor and seat state are
   process-local; unload releases their chunk leases. Live removal callbacks retain surviving
   entities; closed openings retain historical observations and scoped private cleanup writes.
-  Historical callbacks cannot spawn actors or change worlds. Built-in appearance lookup has
-  offline rig coverage without replacing custom artwork. The shared-ID ship sample, live seat
+  Historical callbacks cannot spawn actors or change worlds.
+  Collision declarations must fit the packet's centered width and height, with Rust and Go
+  checked against shared cases; replicated scale applies to the dimensions once.
+  Built-in appearance lookup has offline rig coverage without replacing custom artwork.
+  The shared-ID ship sample, live seat
   positions/link acceptance and mixed-client rendering remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.

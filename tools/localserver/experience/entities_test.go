@@ -351,6 +351,31 @@ func TestEntityBuiltinAppearanceRetainsCustomIdentityAndBaseClass(t *testing.T) 
 	}
 }
 
+func TestEntityRegistrationRejectsUnrepresentableCollisionBoxes(t *testing.T) {
+	data, err := os.ReadFile("testdata/entity_collision_cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name      string    `json:"name"`
+		Collision EntityBox `json:"collision"`
+		Valid     bool      `json:"valid"`
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range cases {
+		t.Run(test.Name, func(t *testing.T) {
+			def := entityDefinition()
+			def.Collision = test.Collision
+			_, err := newModEntityType("probe", def, newAssetCache())
+			if (err == nil) != test.Valid {
+				t.Fatalf("collision validity = %v, want %v: %v", err == nil, test.Valid, err)
+			}
+		})
+	}
+}
+
 func TestEntityInvalidBatchPublishesNothing(t *testing.T) {
 	f := newEntityFixture(t)
 	handle := f.spawnEntity()
