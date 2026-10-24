@@ -165,6 +165,9 @@ fn material_words() -> Vec<u32> {
                 0,
                 0,
                 0,
+                assets::NO_MASK,
+                assets::NO_MASK,
+                0,
             ]
         })
         .collect()
