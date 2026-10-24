@@ -107,6 +107,10 @@ impl ActionFilterState {
             || {
                 ActionButtons::new(std::array::from_fn(|i| {
                     let phase = input.phases[i];
+                    // An edge-free sample, as after a device change, starts at its own hold.
+                    if !phase.pressed && !phase.released {
+                        return phase.held;
+                    }
                     FilterAction::from_action(Action::ALL[i])
                         .and_then(|a| {
                             (!physical_lost)

@@ -452,6 +452,29 @@ fn device_change_hold_without_an_edge_is_not_suppressed() {
     }
 }
 
+/// An already-held controller control that resumes without an edge follows its source.
+#[test]
+fn edge_free_controller_hold_after_a_device_change_is_not_suppressed() {
+    for owner in [Some(1), None] {
+        let mut state = ActionFilterState::default();
+        let mut mouse = ordered([false; 2], &[]);
+        state.filter(&mut mouse, owner, 0, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        let held = ActionPhase {
+            held: true,
+            ..Default::default()
+        };
+        for time in 1..3 {
+            let mut controller = frame(held, Default::default());
+            state.filter(&mut controller, owner, time, false, |f| {
+                Some(ActionVerdict::passthrough(f))
+            });
+            assert!(controller.phases[Action::Attack as usize].held);
+        }
+    }
+}
+
 /// A rapid press, release and press from rest keeps its coalesced release.
 #[test]
 fn phase_only_rapid_taps_from_rest_keep_their_release() {
