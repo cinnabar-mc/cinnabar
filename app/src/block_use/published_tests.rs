@@ -263,6 +263,7 @@ fn fixture_with_entity_assets(
         .resource_mut::<Time<Real>>()
         .advance_by(Duration::from_millis(1_000));
     world.init_resource::<Messages<client_audio::audio::LocalBlockCue>>();
+    world.init_resource::<Messages<client_audio::audio::predicted::LocalAttackCue>>();
     world.insert_resource(player);
     world.insert_resource(block_use);
     world.init_resource::<SwingTracker>();

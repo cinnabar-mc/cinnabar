@@ -77,6 +77,13 @@ pub(crate) struct MeleeContext<'w, 's> {
     pub(crate) physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
 }
 
+/// Locally predicted sounds an attack frame voices: mining break cues and actor attacks.
+#[derive(SystemParam)]
+pub(crate) struct LocalCues<'w> {
+    block: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
+    attack: bevy::prelude::MessageWriter<'w, client_audio::audio::predicted::LocalAttackCue>,
+}
+
 /// Publishes frame inputs and resolves presses through the single published-frame pick.
 /// Open screens, spectator mode and an item in use cancel the press.
 pub(crate) fn prepare_melee(
@@ -217,8 +224,7 @@ fn maintain_attacks(
     ),
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
-    mut cues: bevy::prelude::MessageWriter<client_audio::audio::LocalBlockCue>,
-    mut attack_cues: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalAttackCue>,
+    mut cues: LocalCues,
 ) {
     let (mut runtime, mut mining, mut swings, item_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -376,14 +382,14 @@ fn maintain_attacks(
         player.inventory.ledger_mut().cancel_mining_request(request);
     }
     if let Some(hit) = admitted.actor_attack {
-        attack_cues.write(attack_cue(&context, hit.runtime_id));
+        cues.attack.write(attack_cue(&context, hit.runtime_id));
     }
     for cue in mining.take_break_cues() {
         let gameplay::survival_mining::BlockBreakCue::Break {
             position,
             block_runtime_id,
         } = cue;
-        cues.write(client_audio::audio::LocalBlockCue::Break {
+        cues.block.write(client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
         });
