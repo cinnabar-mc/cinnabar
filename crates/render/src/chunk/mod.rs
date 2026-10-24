@@ -235,10 +235,11 @@ use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceM
 #[allow(unused_imports)]
 use transparent::model::{
     TransparentModelAddressIdentity, TransparentModelAllocationIdentity,
-    TransparentModelCandidateCache, TransparentModelSortBatch, TransparentModelSortCandidate,
-    TransparentModelSortKey, TransparentModelSortRuntime, TransparentModelSortWork,
-    TransparentModelStagedSort, TransparentModelWorkerResult, TransparentUploadBudget,
-    clear_active_transparent_metrics, fail_closed_transparent_sort_key_error,
+    TransparentModelCandidateCache, TransparentModelResidentChanges, TransparentModelSortBatch,
+    TransparentModelSortCandidate, TransparentModelSortKey, TransparentModelSortRuntime,
+    TransparentModelSortWork, TransparentModelStagedSort, TransparentModelWorkerResult,
+    TransparentUploadBudget, clear_active_transparent_metrics,
+    fail_closed_transparent_sort_key_error, has_transparent_model_streams,
     prepare_transparent_model_sorts, sort_transparent_model_candidates,
     spawn_transparent_model_sort, take_transparent_model_upload_batches,
     transparent_model_draw_candidate, transparent_model_phase_distance,
@@ -274,7 +275,11 @@ use transparent::sort::{
     transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
     transparent_ref_offset, transparent_snapshot_addresses_are_resident, view_displaces_water,
 };
-use transparent::visible_order::{VisibleWater, VisibleWaterOrder, each_visible_key};
+#[allow(unused_imports)]
+use transparent::visible_order::{
+    ViewVisibility, VisibleModel, VisibleTransparentChunks, VisibleWater, each_visible_key,
+    install_visible_transparent_tracking, track_visible_transparent_chunks,
+};
 #[cfg(test)]
 mod tests;
 
