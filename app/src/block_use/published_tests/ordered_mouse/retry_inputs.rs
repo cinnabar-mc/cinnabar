@@ -300,8 +300,9 @@ fn ordered_mouse_missing_pick_does_not_postpone_the_use_edge() {
                 &InteractionOriginSnapshot::default(),
                 authority,
                 client_interaction::block_use::FrameHits {
-                    ordinary: gameplay::block_use::PickResult::Miss,
-                    liquid: gameplay::block_use::PickResult::Miss,
+                    endpoint: [0.0; 3],
+                    ordinary: Some(gameplay::block_use::PickResult::Miss),
+                    liquid: Some(gameplay::block_use::PickResult::Miss),
                 },
             );
         tap(app.world_mut(), MouseButton::Right);

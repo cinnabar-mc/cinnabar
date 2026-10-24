@@ -71,7 +71,8 @@ fn an_admitted_placement_starts_its_item_category_cooldown() {
         .resource::<MovementTicker>()
         .build_action_state()
         .unwrap()
-        .tick;
+        .tick
+        .saturating_add(1);
     world.run_system_cached(produce_block_use).unwrap();
     assert!(
         captured
@@ -92,7 +93,8 @@ fn a_category_cooldown_blocks_placement_without_blocking_the_transaction() {
         .resource::<MovementTicker>()
         .build_action_state()
         .unwrap()
-        .tick;
+        .tick
+        .saturating_add(1);
     let mut runtime = world.resource_mut::<client_interaction::item_use::ItemUseRuntime>();
     runtime.synchronize(7);
     runtime.start_cooldown(cooldown, tick);
@@ -120,7 +122,8 @@ fn a_refused_placement_leaves_its_item_category_ready() {
         .resource::<MovementTicker>()
         .build_action_state()
         .unwrap()
-        .tick;
+        .tick
+        .saturating_add(1);
     let (network, _guard) = NetworkHandle::<PackApplication>::with_command_capacity(1);
     network
         .send_inventory_packet(protocol::swing_arm_packet(42, protocol::SwingSource::Build))
@@ -157,7 +160,8 @@ fn placing_the_final_item_does_not_start_an_empty_stack_cooldown() {
         .resource::<MovementTicker>()
         .build_action_state()
         .unwrap()
-        .tick;
+        .tick
+        .saturating_add(1);
     {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let mut stack = player.selected_stack().unwrap().clone();
@@ -191,5 +195,57 @@ fn placing_the_final_item_does_not_start_an_empty_stack_cooldown() {
         world
             .resource::<client_interaction::item_use::ItemUseRuntime>()
             .cooldown_ready(cooldown, tick)
+    );
+}
+
+/// Air-use maintenance must not retire a placement timer one completed tick before its deadline.
+#[test]
+fn air_use_maintenance_cannot_expire_a_placement_cooldown_early() {
+    let (mut world, mut captured, cooldown) = fixture();
+    super::frame_picks::warm_physics(&mut world);
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(
+        captured
+            .drain()
+            .iter()
+            .any(|packet| super::frame_picks::successful_placement(packet).is_some())
+    );
+    hold_use(&mut world);
+    for _ in 0..cooldown.ticks - 1 {
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(simulation_clock::TICK_DURATION);
+        world
+            .run_system_cached(crate::movement::advance_local_physics)
+            .unwrap();
+        produce_air_use(&mut world);
+        captured.drain();
+    }
+    let tick = world
+        .resource::<MovementTicker>()
+        .build_action_state()
+        .unwrap()
+        .tick;
+    assert!(
+        !world
+            .resource::<client_interaction::item_use::ItemUseRuntime>()
+            .cooldown_ready(cooldown, tick + 1)
+    );
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    world
+        .run_system_cached(crate::movement::advance_local_physics)
+        .unwrap();
+    produce_air_use(&mut world);
+    let tick = world
+        .resource::<MovementTicker>()
+        .build_action_state()
+        .unwrap()
+        .tick;
+    assert!(
+        world
+            .resource::<client_interaction::item_use::ItemUseRuntime>()
+            .cooldown_ready(cooldown, tick + 1)
     );
 }

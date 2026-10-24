@@ -132,3 +132,63 @@ fn liquid_pick_keeps_flowing_liquids_other_items_and_solid_occluders_distinct() 
         );
     }
 }
+
+/// A streaming gap beyond a loaded source cannot erase the independently available liquid pick.
+#[test]
+fn a_valid_liquid_pick_survives_an_unavailable_ordinary_query() {
+    let (mut world, mut captured) =
+        liquid_fixture(EMPTY_BUCKET_IDENTIFIER, 0, "minecraft:water", 0, false);
+    let eye = [4.5, 2.5, 13.5];
+    {
+        let registry = world.resource::<PhysicsCollisionRegistries>();
+        let client = world.resource::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_ref().unwrap();
+        let source = PaletteWorld::new(
+            stream.collision_store(),
+            registry.registry(stream.network_id_mode()),
+            0,
+            Default::default(),
+        )
+        .primary_runtime_id([4, 2, 6])
+        .unwrap();
+        let _ = (registry, client);
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
+                    dimension: 0,
+                    position: [4, 2, 14],
+                    layer: 0,
+                    network_id: source,
+                }]),
+            )
+            .unwrap();
+        test_time::eventually("stream-boundary liquid source", || {
+            stream.poll(eye, 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
+    {
+        let mut movement = world.resource_mut::<MovementTicker>();
+        movement.reset(7, 100, eye);
+        movement.set_source(gameplay::movement::MovementSource::Physics);
+        let mut sample = gameplay::test_support::survival_mining::completed(101);
+        sample.position = eye;
+        movement.enqueue_completed_physics(sample).unwrap();
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    let origin = frame_origin(
+        &world,
+        Vec3::from_array(eye),
+        Quat::from_rotation_y(std::f32::consts::PI),
+    );
+    world.insert_resource(origin);
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
+    world.run_system_cached(produce_block_use).unwrap();
+    assert_eq!(transaction_targets(&mut captured), [[4, 2, 14]]);
+}

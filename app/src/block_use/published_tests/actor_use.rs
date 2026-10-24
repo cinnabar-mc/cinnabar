@@ -410,9 +410,15 @@ fn native_startup_then_empty_live_registry_still_throws_after_actor_interact() {
 }
 /// Removes the fixture chest so the eye ray reaches actors beyond it.
 pub(super) fn clear_line(world: &mut World) {
-    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
-    let stream = client.stream.as_mut().unwrap();
-    stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
 }
 
 /// The fixture actor's intercept and its distance from the eye along the full mouse pick ray.
@@ -457,5 +463,23 @@ fn actor_use_targets_an_actor_only_within_the_survival_cap() {
         } else {
             assert!(interactions.is_empty(), "{interactions:?}");
         }
+    }
+}
+
+/// Retaining actor geometry must preserve the classifier's strict radius-adjusted use boundary.
+#[test]
+fn a_retained_actor_hit_keeps_the_strict_radius_adjusted_reach_cap() {
+    for (z, accepted) in [(5.15, false), (5.65, true)] {
+        let (mut world, mut captured) = fixture();
+        super::frame_picks::update(&mut world, [4, 2, 6], "minecraft:air");
+        spawn(&mut world, z);
+        world.run_system_cached(produce_block_use).unwrap();
+        let actors = captured
+            .drain()
+            .iter()
+            .filter_map(observe_transaction)
+            .filter(|tx| tx.actor_use().is_some())
+            .count();
+        assert_eq!(actors, usize::from(accepted), "actor z={z}");
     }
 }

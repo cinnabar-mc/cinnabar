@@ -111,6 +111,15 @@ fn all_frame_picks_reach_the_build_action() {
 
 /// Observes the production target without committing packets or modifying the placement line.
 fn target(world: &mut World) -> Option<FrozenBlockObservation> {
+    target_for_mode(world, PlayerInputMode::Mouse, true)
+}
+
+/// Resolves the retained observation with the current input-mode reach.
+fn target_for_mode(
+    world: &mut World,
+    input_mode: PlayerInputMode,
+    survival: bool,
+) -> Option<FrozenBlockObservation> {
     let mut system = bevy::ecs::system::SystemState::<(
         BlockUseContext,
         Res<client_state::PlayerRuntime>,
@@ -123,8 +132,8 @@ fn target(world: &mut World) -> Option<FrozenBlockObservation> {
         &player,
         &context,
         &context.origin,
-        protocol_input_mode(input.input_mode),
-        true,
+        input_mode,
+        survival,
         (input.authority_generation, input.frame_sequence),
         movement.position_authority_identity().1,
         &runtime,
@@ -187,7 +196,7 @@ fn a_locked_line_uses_its_bounded_segment() {
 }
 
 /// Applies changed world geometry without publishing another frame pick.
-fn update(world: &mut World, position: [i32; 3], name: &str) {
+pub(super) fn update(world: &mut World, position: [i32; 3], name: &str) {
     let block = assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
         assets::active_content_registry_protocol(),
@@ -221,11 +230,20 @@ fn update(world: &mut World, position: [i32; 3], name: &str) {
 #[test]
 fn refresh_keeps_the_original_intercept_when_its_block_disappears() {
     let (mut world, _) = fixture();
+    let original = world
+        .resource::<BlockUseRuntime>()
+        .pick(world.resource::<MovementTicker>())
+        .unwrap()
+        .hits
+        .ordinary
+        .unwrap()
+        .point()
+        .unwrap();
     update(&mut world, [4, 2, 6], "minecraft:air");
     update(&mut world, [4, 2, 4], "minecraft:stone");
     let hit = target(&mut world).expect("original block fallback");
     assert_eq!(hit.target.position, [4, 2, 6]);
-    assert_eq!(hit.target.hit_world[2], 7.0);
+    assert_eq!(hit.target.hit_world, original);
 }
 
 /// A new blocker inside the original segment replaces the saved support.
@@ -337,4 +355,20 @@ fn a_placement_line_can_continue_in_front_of_a_picked_actor() {
         gameplay::block_use::placement_cell(placements[0].position, placements[0].face),
         [4, 1, 6]
     );
+}
+
+/// A later longer reach cannot extend the geometry represented by an earlier miss.
+#[test]
+fn a_saved_miss_keeps_its_segment_when_the_current_reach_grows() {
+    let (mut world, _) = bridge_fixture([4.5, 2.620_01, 8.5], Quat::IDENTITY);
+    let pick = world
+        .resource::<BlockUseRuntime>()
+        .pick(world.resource::<MovementTicker>())
+        .unwrap();
+    assert_eq!(
+        pick.hits.ordinary,
+        Some(gameplay::block_use::PickResult::Miss)
+    );
+    update(&mut world, [4, 2, 1], "minecraft:stone");
+    assert!(target_for_mode(&mut world, PlayerInputMode::Touch, false).is_none());
 }

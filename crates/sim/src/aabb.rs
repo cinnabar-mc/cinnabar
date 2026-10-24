@@ -7,6 +7,8 @@ pub const PLAYER_HEIGHT: f64 = 1.8;
 
 /// Face penetrations within this distance count as contact rather than overlap.
 const FACE_CONTACT_TOLERANCE: f32 = 1.0e-6;
+/// Axes below this squared float displacement do not supply a clipping plane.
+const CLIP_AXIS_EPSILON_SQUARED: f32 = 1e-7;
 
 /// Axis-aligned collision box with inclusive contact faces.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -74,6 +76,63 @@ impl Aabb {
             && (self.min.y as f32) < (rhs.max.y as f32)
             && (self.max.z as f32) > (rhs.min.z as f32)
             && (self.min.z as f32) < (rhs.max.z as f32)
+    }
+
+    /// Returns the closest float face intercept, retaining axis order on ties.
+    /// With `include_interior`, a start inside the box is itself a hit; otherwise only faces count.
+    pub fn clip_segment_point(
+        self,
+        origin: Vec3,
+        endpoint: Vec3,
+        include_interior: bool,
+    ) -> Option<Vec3> {
+        let origin = [origin.x as f32, origin.y as f32, origin.z as f32];
+        let end = [endpoint.x as f32, endpoint.y as f32, endpoint.z as f32];
+        let min = [self.min.x as f32, self.min.y as f32, self.min.z as f32];
+        let max = [self.max.x as f32, self.max.y as f32, self.max.z as f32];
+        if !origin
+            .into_iter()
+            .chain(end)
+            .chain(min)
+            .chain(max)
+            .all(f32::is_finite)
+            || (0..3).any(|axis| min[axis] >= max[axis])
+        {
+            return None;
+        }
+        let widen = |point: [f32; 3]| {
+            Vec3::new(
+                f64::from(point[0]),
+                f64::from(point[1]),
+                f64::from(point[2]),
+            )
+        };
+        if include_interior && (0..3).all(|axis| (min[axis]..=max[axis]).contains(&origin[axis])) {
+            return Some(widen(origin));
+        }
+        let delta: [f32; 3] = std::array::from_fn(|axis| end[axis] - origin[axis]);
+        let mut closest: Option<([f32; 3], f32)> = None;
+        for axis in 0..3 {
+            if delta[axis] * delta[axis] < CLIP_AXIS_EPSILON_SQUARED {
+                continue;
+            }
+            for plane in [min[axis], max[axis]] {
+                let fraction = (plane - origin[axis]) / delta[axis];
+                if !(0.0..=1.0).contains(&fraction) {
+                    continue;
+                }
+                let point = std::array::from_fn(|i| origin[i] + delta[i] * fraction);
+                if (0..3).any(|i| i != axis && !(min[i]..=max[i]).contains(&point[i])) {
+                    continue;
+                }
+                let [x, y, z] = std::array::from_fn(|i| point[i] - origin[i]);
+                let distance = z * z + y * y + x * x;
+                if closest.is_none_or(|(_, previous)| distance < previous) {
+                    closest = Some((point, distance));
+                }
+            }
+        }
+        closest.map(|(point, _)| widen(point))
     }
 
     /// Fraction of the closed segment `origin..origin + delta` at which it first touches this box.
@@ -390,5 +449,28 @@ mod tests {
         moving.max.x = f64::from(1.000_002_f32);
         assert!(moving.overlap_minimal_translation(wall).is_some());
         assert!(moving.clip_against(wall, Vec3::ZERO).x < 0.0);
+    }
+    /// Pick containment and native actor refresh use different starts for the same clipped box.
+    #[test]
+    fn surface_clipping_keeps_the_exit_face_when_the_segment_starts_inside() {
+        let bounds = Aabb::new(Vec3::ZERO, Vec3::ONE);
+        let origin = Vec3::new(0.5, 0.5, 0.5);
+        let endpoint = Vec3::new(0.5, 0.5, -1.0);
+        assert_eq!(
+            bounds.clip_segment_point(origin, endpoint, true),
+            Some(origin)
+        );
+        assert_eq!(
+            bounds.clip_segment_point(origin, endpoint, false),
+            Some(Vec3::new(0.5, 0.5, 0.0))
+        );
+        assert_eq!(
+            bounds.clip_segment_point(origin, Vec3::new(0.6, 0.5, 0.5), false),
+            None
+        );
+        assert_eq!(
+            bounds.clip_segment_point(Vec3::new(0.5, 0.5, 0.0), endpoint, false),
+            Some(Vec3::new(0.5, 0.5, 0.0))
+        );
     }
 }

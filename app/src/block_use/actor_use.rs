@@ -46,7 +46,7 @@ pub(super) fn prepare(
     } else {
         creative_reach(input_mode)
     };
-    let refreshed = pick.hits.ordinary;
+    let refreshed = pick.hits.ordinary?;
     let PickResult::Actor { runtime_id, point } = refreshed else {
         return None;
     };
@@ -54,10 +54,18 @@ pub(super) fn prepare(
         .facts
         .game_mode_capabilities()
         .map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
-    if (0..3)
-        .map(|axis| (f64::from(point[axis]) - f64::from(state.position[axis])).powi(2))
-        .sum::<f64>()
-        > cap.min(reach).powi(2)
+    let hit = gameplay::melee::ActorHit {
+        runtime_id,
+        point,
+        distance: f64::from(gameplay::melee::pick_distance(
+            pick.origin.to_array(),
+            point,
+        )),
+    };
+    if !matches!(
+        gameplay::melee::classify(Some(hit), None, cap),
+        gameplay::melee::Crosshair::Actor(_)
+    ) || matches!(refreshed.trimmed(state.position, reach), PickResult::Miss)
     {
         return None;
     }

@@ -46,11 +46,13 @@ pub struct FramePick {
     pub hits: FrameHits,
 }
 
-/// Independent ordinary and liquid-aware picks captured from one presented frame.
+/// Independent frame picks; None means that query was unavailable, not a clear miss.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FrameHits {
-    pub ordinary: gameplay::block_use::PickResult,
-    pub liquid: gameplay::block_use::PickResult,
+    /// Full float segment endpoint captured before choosing or trimming either hit.
+    pub endpoint: [f32; 3],
+    pub ordinary: Option<gameplay::block_use::PickResult>,
+    pub liquid: Option<gameplay::block_use::PickResult>,
 }
 
 impl BlockUseRuntime {

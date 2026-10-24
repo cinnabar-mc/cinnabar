@@ -85,7 +85,7 @@ fn prepare(
         .authority()
         .item_use_profile(observed.selection.item.network_id())
         .cooldown;
-    let ready = cooldown.is_none_or(|cooldown| item_use.cooldown_ready(cooldown, state.tick));
+    let ready = cooldown.is_none_or(|cooldown| item_use.cooldown_ready(cooldown, tick));
     let prepared = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),
@@ -302,7 +302,7 @@ pub(crate) fn advance(
             .is_none_or(|change| !change.to.is_empty())
         && let Some(cooldown) = plan.cooldown
     {
-        item_use.start_cooldown(cooldown, state.tick);
+        item_use.start_cooldown(cooldown, tick);
     }
     if let Some(change) = &plan.change {
         player_runtime

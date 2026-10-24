@@ -53,6 +53,10 @@ pub(crate) fn retain_block_use_pick(
         runtime.clear_picks();
         return;
     }
+    let Some(state) = movement.build_action_state() else {
+        runtime.unavailable_pick();
+        return;
+    };
     let mode = protocol_input_mode(
         context
             .input
@@ -78,6 +82,11 @@ pub(crate) fn retain_block_use_pick(
     );
     let origin = ray.origin().to_array();
     let direction = ray.direction().to_array();
+    let Some(normalized) = sim::normalize_direction(direction) else {
+        runtime.unavailable_pick();
+        return;
+    };
+    let endpoint = std::array::from_fn(|axis| origin[axis] + normalized[axis] * reach as f32);
     let actor = pick_actor(
         stream.authority().remote_actors(),
         context.ui.gameplay_hud().mount_unique_id(),
@@ -102,25 +111,30 @@ pub(crate) fn retain_block_use_pick(
                     runtime_id: actor.runtime_id,
                     point: actor.point,
                 }
-                .trimmed(origin, reach),
+                .trimmed(state.position, reach),
             );
         }
         if let Some(hit) = hit {
             let block = block_pick(&hit, false);
-            return Some(PickResult::Block(block).trimmed(origin, reach));
+            return Some(PickResult::Block(block).trimmed(state.position, reach));
         }
         let indirect = world
             .block_use_miss_support_current(vector(origin), vector(direction))
             .ok()?;
         Some(indirect.map_or(PickResult::Miss, |hit| {
-            PickResult::Block(block_pick(&hit, true)).trimmed(origin, reach)
+            PickResult::Block(block_pick(&hit, true)).trimmed(state.position, reach)
         }))
     };
-    if let (Some(ordinary), Some(liquid)) = (capture(false), capture(true)) {
+    let (ordinary, liquid) = (capture(false), capture(true));
+    if ordinary.is_some() || liquid.is_some() {
         runtime.retain_pick(
             &context.origin,
             movement.position_authority_identity(),
-            FrameHits { ordinary, liquid },
+            FrameHits {
+                endpoint,
+                ordinary,
+                liquid,
+            },
         );
     } else {
         runtime.unavailable_pick();
@@ -135,37 +149,39 @@ pub(super) fn refresh(
     state: &gameplay::movement::UnsentSampleView,
     reach: f64,
     authority: &client_world::WorldAuthority,
-) -> Result<PickResult, sim::WorldQueryError> {
+) -> Result<Option<PickResult>, sim::WorldQueryError> {
     let original = if liquids {
         pick.hits.liquid
     } else {
         pick.hits.ordinary
     };
+    let Some(original) = original else {
+        return Ok(None);
+    };
     let origin = vector(pick.origin.to_array());
     let mut endpoint = original
         .point()
         .map(vector)
-        .unwrap_or(origin + vector(pick.direction.to_array()) * reach);
+        .unwrap_or(vector(pick.hits.endpoint));
     if matches!(original, PickResult::Actor { .. }) {
-        endpoint = origin + vector(pick.direction.to_array()) * reach;
+        endpoint = vector(pick.hits.endpoint);
     }
     let mut actor_alive = false;
     if let PickResult::Actor { runtime_id, .. } = original
         && let Some(actor) = authority.actor(runtime_id)
     {
         actor_alive = true;
-        let delta = vector(pick.direction.to_array()) * reach;
-        if let Some(fraction) = actor.bounding_box().and_then(|(min, max)| {
-            sim::Aabb::new(vector(min), vector(max)).segment_entry(origin, delta)
+        if let Some(point) = actor.bounding_box().and_then(|(min, max)| {
+            sim::Aabb::new(vector(min), vector(max)).clip_segment_point(origin, endpoint, false)
         }) {
-            endpoint = origin + delta * fraction;
+            endpoint = point;
         }
     }
     let hit = world.block_interaction_segment_current(origin, endpoint)?;
-    Ok(original.refreshed(
+    Ok(Some(original.refreshed(
         hit.as_ref().map(|hit| block_pick(hit, false)),
         state.position,
         reach,
         actor_alive,
-    ))
+    )))
 }

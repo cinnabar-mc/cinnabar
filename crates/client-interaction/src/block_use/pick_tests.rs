@@ -82,8 +82,9 @@ fn a_replayed_correction_retires_the_retained_pick() {
         &frame_origin(Vec3::from_array(START)),
         ticker.position_authority_identity(),
         super::FrameHits {
-            ordinary: gameplay::block_use::PickResult::Miss,
-            liquid: gameplay::block_use::PickResult::Miss,
+            endpoint: [0.0; 3],
+            ordinary: Some(gameplay::block_use::PickResult::Miss),
+            liquid: Some(gameplay::block_use::PickResult::Miss),
         },
     );
     assert!(runtime.pick(&ticker).is_some());
@@ -103,8 +104,9 @@ fn frame_picks_are_consumed_once_in_arrival_order() {
     let ticker = ticker_with_ticks(0);
     let mut runtime = BlockUseRuntime::default();
     let hits = super::FrameHits {
-        ordinary: gameplay::block_use::PickResult::Miss,
-        liquid: gameplay::block_use::PickResult::Miss,
+        endpoint: [0.0; 3],
+        ordinary: Some(gameplay::block_use::PickResult::Miss),
+        liquid: Some(gameplay::block_use::PickResult::Miss),
     };
     for x in [0.5, 0.6, 0.7] {
         runtime.retain_pick(
@@ -128,8 +130,9 @@ fn unavailable_frames_preserve_pending_picks_and_tick_retirement_preserves_only_
     let ticker = ticker_with_ticks(0);
     let mut runtime = BlockUseRuntime::default();
     let hits = super::FrameHits {
-        ordinary: gameplay::block_use::PickResult::Miss,
-        liquid: gameplay::block_use::PickResult::Miss,
+        endpoint: [0.0; 3],
+        ordinary: Some(gameplay::block_use::PickResult::Miss),
+        liquid: Some(gameplay::block_use::PickResult::Miss),
     };
     runtime.retain_pick(
         &frame_origin(Vec3::from_array(START)),

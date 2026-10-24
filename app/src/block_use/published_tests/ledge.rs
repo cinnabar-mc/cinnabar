@@ -176,7 +176,7 @@ fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenB
 }
 
 #[test]
-fn indirect_support_starts_use_but_does_not_repeat_without_a_line() {
+fn indirect_support_refresh_reclips_the_downward_segment_as_a_direct_hit() {
     let (mut world, _) = ledge_fixture(-0.9601);
     assert!(observed_target(&mut world, ItemUseTrigger::PlayerInput).is_some());
     world.resource_mut::<BlockUseRuntime>().intention.record(
@@ -187,7 +187,9 @@ fn indirect_support_starts_use_but_does_not_repeat_without_a_line() {
         false,
         [4.5, 1.0, 6.1],
     );
-    assert!(observed_target(&mut world, ItemUseTrigger::SimulationTick).is_none());
+    let refreshed = observed_target(&mut world, ItemUseTrigger::SimulationTick).unwrap();
+    assert_eq!(refreshed.target.position, [4, 0, 6]);
+    assert_eq!(refreshed.target.face, 1);
 }
 
 #[test]

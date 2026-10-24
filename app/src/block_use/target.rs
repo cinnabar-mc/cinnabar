@@ -68,7 +68,7 @@ pub(super) fn observe_use_target(
             let vector = |value: bevy::prelude::Vec3| {
                 sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
             };
-            let (origin, direction) = (vector(pick.origin), vector(pick.direction));
+            let origin = vector(pick.origin);
             let hit = if trigger == ItemUseTrigger::PlayerInput {
                 if liquids {
                     pick.hits.liquid
@@ -78,17 +78,23 @@ pub(super) fn observe_use_target(
             } else {
                 super::pick::refresh(world, pick, liquids, state, reach, stream.authority())?
             };
+            let Some(hit) = hit else {
+                return Ok(None);
+            };
             let block = match hit {
                 PickResult::Block(block) => Some(block),
                 _ => None,
             };
-            let endpoint = hit.point().map_or(origin + direction * reach, |point| {
-                sim::Vec3::new(
-                    f64::from(point[0]),
-                    f64::from(point[1]),
-                    f64::from(point[2]),
-                )
-            });
+            let endpoint = hit.point().map_or_else(
+                || vector(Vec3::from_array(pick.hits.endpoint)),
+                |point| {
+                    sim::Vec3::new(
+                        f64::from(point[0]),
+                        f64::from(point[1]),
+                        f64::from(point[2]),
+                    )
+                },
+            );
             let target = runtime.intention.target(
                 block
                     .filter(|hit| !hit.indirect || trigger == ItemUseTrigger::PlayerInput)
