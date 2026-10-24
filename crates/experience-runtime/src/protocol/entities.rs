@@ -187,7 +187,11 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
                 y: 0.0,
                 z: -2.0,
             },
-            max: point(2.0),
+            max: Position {
+                x: 2.0,
+                y: 2.5,
+                z: 2.0,
+            },
         },
         appearance: EntityAppearance::Vanilla {
             id: "minecraft:boat".into(),
