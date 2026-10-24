@@ -16,6 +16,15 @@ pub fn harness_color(identifier: &str) -> Option<&str> {
         .strip_suffix("_harness")
 }
 
+/// Suffix shared by the retail actor-placer (spawn egg) item identities.
+pub const SPAWN_EGG_SUFFIX: &str = "_spawn_egg";
+
+/// Legacy item names the client's vanilla item registration aliases to a retail identity.
+pub const LEGACY_ITEM_ALIASES: &[(&str, &str)] = &[(
+    "minecraft:fireball",
+    super::VanillaItem::FireCharge.identifier(),
+)];
+
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.
