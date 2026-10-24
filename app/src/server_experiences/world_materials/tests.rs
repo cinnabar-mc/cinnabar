@@ -181,3 +181,21 @@ fn materials_charge_the_signed_memory_limit_and_retired_pipelines_stay_charged()
     assert_eq!(published, 3, "the fourth compile exceeds the GPU limit");
     assert!(churn.diagnostics().any(|line| line.contains("GPU limit")));
 }
+
+#[test]
+fn a_native_compile_failure_is_reported_once_and_keeps_the_material_out_of_the_way() {
+    let textures = Vec::new();
+    let held = world(
+        &[(1, spec(PLAIN, &[]))],
+        &[(0, WorldTarget::Entity("example:moth".into()), 1)],
+    );
+    let mut presenter = WorldMaterialPresenter::default();
+    presenter.rebuild([bundle(&held, &textures, u64::MAX)]);
+    let key = presenter.set().materials[0].key;
+    for _ in 0..3 {
+        presenter.note_compile_failures(|failed| failed == key);
+    }
+    let reports: Vec<_> = presenter.diagnostics().collect();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("failed to compile"));
+}

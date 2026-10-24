@@ -537,8 +537,14 @@ fn present_media(
 fn present_world_materials(
     mut service: ResMut<ExperienceService>,
     scene: Option<ResMut<render_scene::world_material::WorldMaterialScene>>,
+    failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
 ) {
     let service = &mut *service;
+    if let Some(failures) = failures.as_deref() {
+        service
+            .world
+            .note_compile_failures(|key| failures.failed(key));
+    }
     let revision = service
         .live
         .as_ref()
