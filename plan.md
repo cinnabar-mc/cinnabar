@@ -109,6 +109,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   is `implemented` with a named test. The entity material declaration, definition and name
   bounds are unverified implementation limits; past them a material draws without one.
   is `implemented` with a named test.
+- [ ] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+  block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
+  binding conditions are deferred: they would need per-frame evaluation of each bound bone's
+  condition beside the render controller's visibility rules, which adds per-frame cost.
 - [ ] Programmable world materials for server Experiences (a `render_world_material` permission
   binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
   guests have no drawing interface yet, and production Experience execution stays fail-closed

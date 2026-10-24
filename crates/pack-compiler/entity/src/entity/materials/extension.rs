@@ -73,6 +73,9 @@ pub struct ResolvedBlockBinding {
     pub states: Map<String, Value>,
     /// Material-instance name pattern; `None` matches every instance.
     pub material_instance: Option<Box<str>>,
+    /// Molang over the block's named states, read as [`crate::BlockMolang`]; the binding
+    /// applies where it holds, as permutation conditions do. `None` always holds.
+    pub condition: Option<Box<str>>,
     /// The resolved Bedrock material; [`EntityMaterialDefinition::render_state`] lowers it.
     ///
     /// [`EntityMaterialDefinition::render_state`]: assets::entity::material::EntityMaterialDefinition::render_state
@@ -106,6 +109,7 @@ pub(crate) struct BlockBinding {
     pub(crate) block: Box<str>,
     pub(crate) states: Map<String, Value>,
     pub(crate) material_instance: Option<Box<str>>,
+    pub(crate) condition: Option<Box<str>>,
     pub(crate) material: Box<str>,
 }
 
@@ -142,6 +146,7 @@ struct BindingDocument {
     block: Option<String>,
     states: Option<Map<String, Value>>,
     material_instance: Option<String>,
+    condition: Option<String>,
 }
 
 /// Checks a document, or says why the client ignores it.
@@ -215,9 +220,18 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
         {
             return Err("binding pattern is empty or too long".into());
         }
+        if binding
+            .condition
+            .as_deref()
+            .is_some_and(|condition| crate::BlockMolang::parse(condition).is_none())
+        {
+            return Err("binding condition is not a block-state Molang expression".into());
+        }
         match (binding.entity, binding.block) {
             (Some(entity), None)
-                if binding.states.is_none() && binding.material_instance.is_none() =>
+                if binding.states.is_none()
+                    && binding.material_instance.is_none()
+                    && binding.condition.is_none() =>
             {
                 extension.entity_bindings.push(EntityBinding {
                     entity: entity.into(),
@@ -239,6 +253,7 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
                     block: block.into(),
                     states,
                     material_instance: binding.material_instance.map(Into::into),
+                    condition: binding.condition.map(Into::into),
                     material: binding.material.into(),
                 });
             }

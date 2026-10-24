@@ -18,7 +18,7 @@ use parser::{Binary, Expr, Program, Slot, Statement, Unary, parse, parse_with};
 /// Both block-state query spellings resolve the same named state.
 const BLOCK_QUERIES: &[&str] = &["query.block_property", "query.block_state"];
 /// Longest block expression accepted; bounds the depth of its tree, which is walked recursively.
-const MAX_BLOCK_MOLANG_BYTES: usize = 2048;
+pub(crate) const MAX_BLOCK_MOLANG_BYTES: usize = 2048;
 
 /// A block-state query result; integer and boolean states read as numbers.
 #[derive(Clone, Copy, Debug, PartialEq)]

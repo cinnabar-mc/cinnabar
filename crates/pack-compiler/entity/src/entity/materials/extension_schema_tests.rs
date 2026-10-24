@@ -135,6 +135,10 @@ fn schema_fields_variants_and_limits_are_the_parsers() {
         schema["$defs"]["optional_pattern"]["maxLength"],
         MAX_ENTITY_RENDER_PATTERN_BYTES
     );
+    assert_eq!(
+        schema["$defs"]["block_binding"]["properties"]["condition"]["maxLength"],
+        crate::entity::molang::MAX_BLOCK_MOLANG_BYTES
+    );
     let mut lists = properties(&schema, "/$defs/declaration/properties");
     lists.sort_unstable();
     let mut checked = super::super::fields::LIST_KEYS.to_vec();
@@ -250,7 +254,9 @@ fn accepted() -> Vec<Value> {
                  "block": null, "material": "example:glow"},
                 {"block": "example:lamp", "states": {"example:lit": true, "level": 3, "face": "up"},
                  "material_instance": "*", "material": "example:plain"},
-                {"block": "example:lamp", "states": null, "material": "example:glow"}
+                {"block": "example:lamp", "states": null, "material": "example:glow"},
+                {"block": "example:lamp", "condition": "q.block_state('example:level') > 2",
+                 "material": "example:glow"}
             ]
         }),
     ]
@@ -311,6 +317,10 @@ fn rejected() -> Vec<Value> {
         ),
         with(
             json!({}),
+            json!({"entity": "example:moth", "condition": "1.0", "material": "example:glow"}),
+        ),
+        with(
+            json!({}),
             json!({"entity": "example:moth", "bone": "b".repeat(65), "material": "example:glow"}),
         ),
     ]
@@ -337,6 +347,9 @@ fn the_schema_and_the_parser_accept_the_same_documents() {
     let unknown = json!({"format_version": "1.0.0",
         "bindings": [{"entity": "example:moth", "material": "example:missing"}]});
     assert!(validate(&unknown).is_err() && valid(&schema, &schema, &unknown));
+    let unparsable = json!({"format_version": "1.0.0", "materials": {"example:glow": {}},
+        "bindings": [{"block": "example:lamp", "condition": "(((", "material": "example:glow"}]});
+    assert!(validate(&unparsable).is_err() && valid(&schema, &schema, &unparsable));
 }
 
 #[test]
