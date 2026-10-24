@@ -641,3 +641,28 @@ fn a_list_entry_whose_path_is_too_long_loads_nothing() {
         "the file loads only as unlisted"
     );
 }
+
+#[test]
+fn programs_without_an_actor_type_draw_as_plain_actor() {
+    let file = modern(json!({
+        "named": {"fragmentShader": "shaders/entity.fragment", "+defines": ["USE_MULTITEXTURE"]},
+        "pattern": {"fragmentShader": "shaders/pattern.fragment", "+defines": ["USE_MULTITEXTURE"]},
+        "other": {"fragmentShader": "shaders/custom.fragment", "+defines": ["USE_MULTITEXTURE"]},
+        "unnamed": {"+defines": ["USE_MULTITEXTURE"]},
+        "inherited:llama": {},
+        "renamed:llama": {"fragmentShader": "shaders/custom.fragment"}
+    }));
+    let mut states = MaterialStates::default();
+    states.read(&file);
+    for (name, multitexture) in [
+        ("named", true),
+        ("pattern", true),
+        ("other", false),
+        ("unnamed", false),
+        ("inherited", true),
+        ("renamed", false),
+    ] {
+        let (state, _) = states.resolve(name, &mut MaterialTable::default()).unwrap();
+        assert_eq!(state.multitexture, multitexture, "{name}");
+    }
+}
