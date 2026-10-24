@@ -27,7 +27,7 @@ use serde_json::{Value, json};
 
 use client_audio::named_audio::{AudioDevice, CAPTURE_CHANNELS, CaptureMixer};
 
-use crate::hud_tools::{FrameCapture, FrameCaptureSet};
+use crate::hud_tools::{FrameCapture, FrameCaptureSet, sdr};
 
 /// How long a stopping recording waits for in-flight GPU readbacks.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -128,14 +128,16 @@ fn step_fixed_clock(
 
 /// Saves the next rendered frame as a PNG, replying once it is on disk.
 pub(super) fn screenshot(world: &mut World, path: PathBuf, reply: Reply) {
-    world.resource_mut::<FrameCapture>().request(move |image| {
-        let image = image.clone();
-        std::thread::spawn(move || {
-            let outcome =
-                crate::hud_tools::write_png(image, &path).map(|_| json!({ "path": path }));
-            reply.send(outcome);
+    world
+        .resource_mut::<FrameCapture>()
+        .request(move |image, paper_white_nits| {
+            let image = image.clone();
+            std::thread::spawn(move || {
+                let outcome = crate::hud_tools::write_png(image, paper_white_nits, &path)
+                    .map(|_| json!({ "path": path }));
+                reply.send(outcome);
+            });
         });
-    });
 }
 
 pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Value, String> {
@@ -242,10 +244,12 @@ fn capture_frame(world: &mut World, recording: &mut Recording, copies: u64) {
     recording.next_index += copies;
     let pending = InFlight::new(&recording.outstanding);
     let delivery = recording.delivery.clone();
-    world.resource_mut::<FrameCapture>().request(move |image| {
-        delivery.deliver(frame(image, first, copies));
-        drop(pending);
-    });
+    world
+        .resource_mut::<FrameCapture>()
+        .request(move |image, paper_white_nits| {
+            delivery.deliver(frame(image, paper_white_nits, first, copies));
+            drop(pending);
+        });
 }
 
 /// Hands readbacks to the encoder from the shared capture observer without ever waiting.
@@ -340,21 +344,30 @@ impl Drop for InFlight {
 }
 
 /// One capture filling `copies` consecutive video slots; real-time pacing repeats a slow frame
-/// without copying its pixels again.
-fn frame(image: &Image, index: u64, copies: u64) -> Result<Frame, String> {
-    let layout = match image.texture_descriptor.format {
-        TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => PixelLayout::Bgra,
-        TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => PixelLayout::Rgba,
-        other => return Err(format!("cannot record a {other:?} surface")),
-    };
+/// without copying its pixels again. The encoder takes 8-bit frames, so an HDR readback is
+/// decoded with `paper_white_nits` and clipped to SDR like a screenshot.
+fn frame(image: &Image, paper_white_nits: f32, index: u64, copies: u64) -> Result<Frame, String> {
     let size = [image.width(), image.height()];
-    let data = image.data.as_ref().ok_or("the capture has no pixel data")?;
+    let (layout, data) = if let Some(hdr) = sdr::HdrReadback::new(image) {
+        let mut data: Arc<[u8]> = std::iter::repeat_n(0, hdr.pixels() * 4).collect();
+        let pixels = Arc::get_mut(&mut data).expect("a new frame is unshared");
+        hdr.write_sdr::<4>(paper_white_nits, pixels)?;
+        (PixelLayout::Rgba, data)
+    } else {
+        let layout = match image.texture_descriptor.format {
+            TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => PixelLayout::Bgra,
+            TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => PixelLayout::Rgba,
+            other => return Err(format!("cannot record a {other:?} surface")),
+        };
+        let data = image.data.as_ref().ok_or("the capture has no pixel data")?;
+        (layout, Arc::from(data.as_slice()))
+    };
     Ok(Frame {
         index,
         copies,
         size,
         layout,
-        data: Arc::from(data.as_slice()),
+        data,
     })
 }
 
@@ -554,9 +567,41 @@ mod tests {
         )
     }
 
+    fn paper_white_nits() -> f32 {
+        render_api::hdr::HdrOutput::default().paper_white_nits
+    }
+
+    #[test]
+    fn hdr_captures_record_as_opaque_sdr() {
+        let paper_white =
+            half::f16::from_f32(paper_white_nits() / render_api::hdr::SCRGB_REFERENCE_NITS)
+                .to_le_bytes();
+        let texel: Vec<u8> = [
+            paper_white,
+            paper_white,
+            [0; 2],
+            half::f16::ONE.to_le_bytes(),
+        ]
+        .concat();
+        let image = Image::new_fill(
+            bevy::render::render_resource::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+            bevy::render::render_resource::TextureDimension::D2,
+            &texel,
+            TextureFormat::Rgba16Float,
+            default(),
+        );
+        let frame = super::frame(&image, paper_white_nits(), 0, 1).unwrap();
+        assert_eq!(frame.layout, developer_control::recorder::PixelLayout::Rgba);
+        assert_eq!(*frame.data, [255, 255, 0, 255].repeat(4));
+    }
+
     #[test]
     fn a_long_real_time_stall_keeps_one_image() {
-        let frame = super::frame(&red_image(), 7, 100_000).unwrap();
+        let frame = super::frame(&red_image(), paper_white_nits(), 7, 100_000).unwrap();
         assert_eq!((frame.index, frame.copies), (7, 100_000));
         assert_eq!(
             frame.data.len(),
@@ -663,7 +708,7 @@ mod tests {
         )
         .unwrap();
         let mut recording = super::Recording::new(recorder, 10, true, None, Duration::ZERO);
-        let capture = |index| super::frame(&red_image(), index, 1);
+        let capture = |index| super::frame(&red_image(), paper_white_nits(), index, 1);
         // The stalled encoder's queue takes eight captures; the ninth is parked.
         for index in 0..=8 {
             recording.delivery.deliver(capture(index));

@@ -104,6 +104,7 @@ pack-compiler = { path = "../crates/pack-compiler" }
 pack-entity-compiler = { path = "../crates/pack-compiler/entity" }
 crossbeam-channel = "0.5"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
+half = "2"
 far-terrain = { path = "../crates/far-terrain" }
 actor-animation = { path = "../crates/actor-animation" }
 json-ui = { path = "../crates/json-ui" }

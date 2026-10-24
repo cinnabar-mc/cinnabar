@@ -25,9 +25,10 @@ use crossbeam_channel::{Receiver, Sender};
 use client_shell::ui_resources::UiRuntimeResource;
 
 mod offscreen;
+pub(crate) mod sdr;
 
 type SaveResult = Result<String, String>;
-type CaptureConsumer = Box<dyn FnOnce(&Image) + Send + Sync>;
+type CaptureConsumer = Box<dyn FnOnce(&Image, f32) + Send + Sync>;
 
 /// Everything that wants this frame's pixels. Bevy silently drops a second capture of one
 /// window in a frame, so a single readback serves every consumer.
@@ -35,17 +36,21 @@ type CaptureConsumer = Box<dyn FnOnce(&Image) + Send + Sync>;
 pub(crate) struct FrameCapture(Vec<CaptureConsumer>);
 
 impl FrameCapture {
-    /// Queues a consumer of this frame's shared readback.
-    pub(crate) fn request(&mut self, consumer: impl FnOnce(&Image) + Send + Sync + 'static) {
+    /// Queues a consumer of this frame's shared readback. It also receives the player's paper
+    /// white when the capture was requested, the level an HDR readback encodes SDR white at.
+    pub(crate) fn request(&mut self, consumer: impl FnOnce(&Image, f32) + Send + Sync + 'static) {
         self.0.push(Box::new(consumer));
     }
 
     /// Runs image conversion and encoding on the existing I/O task pool after readback.
-    pub(crate) fn request_encoded(&mut self, consumer: impl FnOnce(Image) + Send + Sync + 'static) {
-        self.request(move |image| {
+    pub(crate) fn request_encoded(
+        &mut self,
+        consumer: impl FnOnce(Image, f32) + Send + Sync + 'static,
+    ) {
+        self.request(move |image, paper_white_nits| {
             let image = image.clone();
             bevy::tasks::IoTaskPool::get()
-                .spawn(async move { consumer(image) })
+                .spawn(async move { consumer(image, paper_white_nits) })
                 .detach();
         });
     }
@@ -65,12 +70,17 @@ pub(crate) fn configure_frame_capture(app: &mut App) {
 fn spawn_frame_capture(
     mut capture: ResMut<FrameCapture>,
     target: Res<offscreen::FrameTarget>,
+    settings: Option<Res<client_state::RuntimeSettings>>,
     mut commands: Commands,
 ) {
     if capture.0.is_empty() {
         return;
     }
     let mut consumers = std::mem::take(&mut capture.0);
+    let paper_white_nits = settings.map_or_else(
+        || render_api::hdr::HdrOutput::default().paper_white_nits,
+        |settings| settings.user_settings_update().1.video.hdr.paper_white_nits,
+    );
     let screenshot = target
         .0
         .as_ref()
@@ -81,7 +91,7 @@ fn spawn_frame_capture(
         .spawn(screenshot)
         .observe(move |captured: On<ScreenshotCaptured>| {
             for consumer in consumers.drain(..) {
-                consumer(&captured.image);
+                consumer(&captured.image, paper_white_nits);
             }
         });
 }
@@ -153,8 +163,8 @@ fn capture_from_env(
     }
     let (sender, receiver) = crossbeam_channel::bounded(1);
     let path = capture.path.clone();
-    frames.request_encoded(move |image| {
-        let _ = sender.send(write_png(image, &path));
+    frames.request_encoded(move |image, paper_white_nits| {
+        let _ = sender.send(write_png(image, paper_white_nits, &path));
     });
     capture.done = Some(receiver);
 }
@@ -184,8 +194,8 @@ fn capture_on_key(
         }
     };
     let sender = channel.sender.clone();
-    frames.request_encoded(move |image| {
-        let _ = sender.send(write_reserved_png(image, &path, file));
+    frames.request_encoded(move |image, paper_white_nits| {
+        let _ = sender.send(write_reserved_png(image, paper_white_nits, &path, file));
     });
 }
 
@@ -204,22 +214,20 @@ fn report_saved(
     }
 }
 
-/// Writes the capture as RGB so HDR alpha never reaches the file.
-pub(crate) fn write_png(image: Image, path: &Path) -> SaveResult {
+/// Writes the capture as 8-bit sRGB RGB, decoding an HDR readback with `paper_white_nits`.
+pub(crate) fn write_png(image: Image, paper_white_nits: f32, path: &Path) -> SaveResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let file = File::create(path).map_err(|error| error.to_string())?;
-    write_reserved_png(image, path, file)
+    write_reserved_png(image, paper_white_nits, path, file)
 }
 
 /// Encodes RGB into the reserved file so concurrent captures cannot replace each other.
-fn write_reserved_png(image: Image, path: &Path, file: File) -> SaveResult {
-    let dynamic = image
-        .try_into_dynamic()
-        .map_err(|error| error.to_string())?;
+fn write_reserved_png(image: Image, paper_white_nits: f32, path: &Path, file: File) -> SaveResult {
+    let pixels = sdr::rgb8(image, paper_white_nits)?;
     let mut writer = BufWriter::new(file);
-    image::DynamicImage::ImageRgb8(dynamic.to_rgb8())
+    pixels
         .write_to(&mut writer, image::ImageFormat::Png)
         .map_err(|error| error.to_string())?;
     writer.flush().map_err(|error| error.to_string())?;
@@ -287,8 +295,8 @@ mod tests {
         let observer_thread = std::thread::current().id();
         let (sender, receiver) = crossbeam_channel::bounded(1);
         let mut capture = FrameCapture::default();
-        capture.request_encoded(move |image| {
-            let pixels = image.try_into_dynamic().unwrap().to_rgb8();
+        capture.request_encoded(move |image, paper_white_nits| {
+            let pixels = sdr::rgb8(image, paper_white_nits).unwrap();
             sender
                 .send((std::thread::current().id(), pixels.dimensions()))
                 .unwrap();
@@ -298,7 +306,8 @@ mod tests {
             true,
             Default::default(),
         );
-        capture.0.pop().unwrap()(&frame);
+        let paper_white_nits = render_api::hdr::HdrOutput::default().paper_white_nits;
+        capture.0.pop().unwrap()(&frame, paper_white_nits);
         let mut result = None;
         test_time::eventually("off-thread image encoding", || {
             result = receiver.try_recv().ok();

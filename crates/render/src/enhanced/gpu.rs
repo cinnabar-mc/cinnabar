@@ -515,6 +515,7 @@ pub(crate) fn prepare_enhanced_views(
     mut texture_cache: ResMut<TextureCache>,
     atmosphere: Option<Res<AtmosphereFrame>>,
     time: Res<Time>,
+    hdr: Option<Res<crate::hdr_output::HdrOutputRequest>>,
     views: Query<(
         Entity,
         &ExtractedView,
@@ -537,6 +538,15 @@ pub(crate) fn prepare_enhanced_views(
     for (entity, view, target, depth, settings) in &views {
         let inputs = view_inputs(view, seconds);
         let (mut frame, fits) = build_frame(&inputs, settings, &atmosphere);
+        // Only a view presenting the HDR signal tonemaps into its headroom; captures stay SDR.
+        if let Some(hdr) = hdr.as_deref().filter(|_| {
+            target
+                .out_texture_view_format()
+                .and_then(crate::hdr_output::output_encoding)
+                .is_some()
+        }) {
+            frame.output.x = hdr.0.headroom();
+        }
         let state = state
             .0
             .entry(entity)

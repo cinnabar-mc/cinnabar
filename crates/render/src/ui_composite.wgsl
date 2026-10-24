@@ -62,6 +62,31 @@ fn composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) ve
     return composite_pixel(position, false);
 }
 
+// The sRGB encoding continued above 1.0, so highlights under translucent UI stay unclamped.
+fn linear_to_extended_srgb(linear: vec3<f32>) -> vec3<f32> {
+    let positive = max(linear, vec3<f32>(0.0));
+    let low = positive * 12.92;
+    let high = 1.055 * pow(positive, vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(high, low, positive <= vec3<f32>(0.0031308));
+}
+
+// Composes over an HDR scene whose 1.0 is paper white: empty UI keeps highlights above it and
+// translucent UI blends in sRGB values as vanilla does, with the encoding continued past white.
+@fragment
+fn composite_extended_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let pixel = vec2<i32>(position.xy);
+    let ui = textureLoad(ui_layer, pixel, 0);
+    if ui.a == 1.0 {
+        return vec4<f32>(srgb_to_linear(ui.rgb), 1.0);
+    }
+    let under = textureLoad(scene, pixel, 0);
+    if all(ui == vec4<f32>(0.0)) {
+        return under;
+    }
+    let gamma = ui.rgb + linear_to_extended_srgb(under.rgb) * (1.0 - ui.a);
+    return vec4<f32>(srgb_to_linear(gamma), ui.a + under.a * (1.0 - ui.a));
+}
+
 @fragment
 fn nametag_composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     return composite_pixel(position, true);

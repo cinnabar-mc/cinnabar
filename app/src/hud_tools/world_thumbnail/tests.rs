@@ -170,7 +170,8 @@ fn ultrawide_thumbnail_excludes_the_top_and_bottom_hud() {
         true,
         Default::default(),
     );
-    let jpeg = encode_thumbnail(frame).unwrap();
+    let paper_white_nits = render_api::hdr::HdrOutput::default().paper_white_nits;
+    let jpeg = encode_thumbnail(frame, paper_white_nits).unwrap();
     let decoded = image::load_from_memory(&jpeg).unwrap().to_rgb8();
     assert_eq!(decoded.dimensions(), (THUMBNAIL_SIZE[0], THUMBNAIL_SIZE[1]));
     assert!(

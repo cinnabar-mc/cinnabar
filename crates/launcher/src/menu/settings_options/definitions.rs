@@ -251,6 +251,28 @@ const fn slider(
     option(id, label, SettingKind::Slider, min, max, default)
 }
 
+/// Defines an integral slider whose stops are `step` apart from `min`; the range and default
+/// must fall on a stop.
+const fn stepped_slider(
+    id: SettingId,
+    label: &'static str,
+    min: i32,
+    max: i32,
+    step: i32,
+    default: i32,
+) -> SettingDefinition {
+    assert!(step > 0 && (max - min) % step == 0 && (default - min) % step == 0);
+    SettingDefinition {
+        step,
+        ..slider(id, label, min, max, default)
+    }
+}
+
+/// HDR Peak Brightness stop spacing, in nits.
+const HDR_PEAK_STEP_NITS: i32 = 50;
+/// HDR Paper White stop spacing, in nits.
+const HDR_PAPER_WHITE_STEP_NITS: i32 = 10;
+
 /// Defines a dropdown in its displayed radio-choice order.
 const fn dropdown(
     id: SettingId,
@@ -547,6 +569,14 @@ settings! {
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
         [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
+    HdrOutput => "hdr_output", toggle("HDR", false),
+        [(SettingPanel::VideoGraphics, 14)], [SettingsGroup::Video], None, None;
+    HdrPeakBrightness => "hdr_peak_brightness", stepped_slider("HDR Peak Brightness", render_api::hdr::HDR_PEAK_NITS.0 as i32, render_api::hdr::HDR_PEAK_NITS.1 as i32, HDR_PEAK_STEP_NITS, render_api::hdr::DEFAULT_HDR_PEAK_NITS as i32),
+        [(SettingPanel::VideoGraphics, 15)], [SettingsGroup::Video], None, None;
+    HdrPaperWhite => "hdr_paper_white", stepped_slider("HDR Paper White", render_api::hdr::HDR_PAPER_WHITE_NITS.0 as i32, render_api::hdr::HDR_PAPER_WHITE_NITS.1 as i32, HDR_PAPER_WHITE_STEP_NITS, render_api::hdr::DEFAULT_HDR_PAPER_WHITE_NITS as i32),
+        [(SettingPanel::VideoGraphics, 16)], [SettingsGroup::Video], None, None;
+    HdrHighlightBoost => "hdr_highlight_boost", slider("HDR Highlight Boost", 0, 100, render_api::hdr::DEFAULT_HDR_HIGHLIGHT_BOOST_PERCENT as i32),
+        [(SettingPanel::VideoGraphics, 17)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

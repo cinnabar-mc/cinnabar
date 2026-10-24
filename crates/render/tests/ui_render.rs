@@ -29,6 +29,9 @@ mod gpu_snapshot;
 #[path = "../src/startup_presentation.rs"]
 mod startup_presentation;
 
+#[path = "../src/hdr_output.rs"]
+#[allow(dead_code, reason = "the UI fixture presents SDR output")]
+mod hdr_output;
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
 mod material_shader;

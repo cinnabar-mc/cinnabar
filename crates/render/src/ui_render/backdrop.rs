@@ -396,7 +396,8 @@ pub(crate) fn prepare_ui_backdrops(
         for main in mains {
             pyramid.bind_source(&device, [&filter, &shapes], &sampler, main);
         }
-        let (downsample, copy, apply) = pipeline.specialize(&cache, camera.hdr);
+        let scene_hdr = super::target::ui_scene_hdr(camera.hdr, native);
+        let (downsample, copy, apply) = pipeline.specialize(&cache, scene_hdr);
         store.pipelines.insert(entity, [downsample, copy, apply]);
     }
 }

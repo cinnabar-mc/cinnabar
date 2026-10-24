@@ -339,6 +339,10 @@ pub(crate) fn prepare_ui_layers(
         }
     }
     for (entity, target, camera, native) in &views {
+        let hdr_output = target
+            .out_texture_view_format()
+            .and_then(crate::hdr_output::output_encoding)
+            .is_some();
         let target = UiTarget::new(target, native);
         let size = target.main_texture().size();
         let size = Extent3d {
@@ -368,11 +372,13 @@ pub(crate) fn prepare_ui_layers(
                 }
             )
         });
+        // An HDR output is encoded from the native scene, so the composite never writes it.
         let direct_output = unblended
             && target.out_texture().is_some_and(|output| {
                 writers[&output.id()] == 1
                     && crate::render_bounds::extent(output) == [size.width, size.height]
-            });
+            })
+            && !hdr_output;
         let mut frame = frame_layer(
             layers.last().expect("one scratch layer is always resident"),
             direct_output,
@@ -497,6 +503,8 @@ struct UiCompositeSpecializer;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
 pub(crate) struct UiCompositeKey {
     pub(crate) format: TextureFormat,
+    /// Keeps scene highlights above paper white instead of clamping them, for HDR output.
+    pub(crate) extended: bool,
 }
 
 impl Specializer<RenderPipeline> for UiCompositeSpecializer {
@@ -507,10 +515,11 @@ impl Specializer<RenderPipeline> for UiCompositeSpecializer {
         key: Self::Key,
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
-        let target = descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap();
-        target.format = key.format;
+        let fragment = descriptor.fragment.as_mut().unwrap();
+        if key.extended {
+            fragment.entry_point = Some("composite_extended_fragment".into());
+        }
+        fragment.targets[0].as_mut().unwrap().format = key.format;
         Ok(key)
     }
 }
@@ -567,11 +576,13 @@ impl UiCompositePipeline {
         self.variants.specialize(cache, key).ok()
     }
 
-    /// Composites into an `hdr` view's main texture and into its `output` format, if known.
+    /// Composites into an `hdr` view's main texture and into its `output` format, if known;
+    /// `extended` keeps scene highlights for an HDR output.
     pub(crate) fn view_pipelines(
         &mut self,
         cache: &PipelineCache,
         hdr: bool,
+        extended: bool,
         output: Option<TextureFormat>,
     ) -> Option<CompositePipelines> {
         let format = if hdr {
@@ -579,8 +590,16 @@ impl UiCompositePipeline {
         } else {
             render_scene::SCENE_COLOR_FORMAT
         };
-        let main = self.specialize(cache, UiCompositeKey { format })?;
-        let output = output.and_then(|format| self.specialize(cache, UiCompositeKey { format }));
+        let main = self.specialize(cache, UiCompositeKey { format, extended })?;
+        let output = output.and_then(|format| {
+            self.specialize(
+                cache,
+                UiCompositeKey {
+                    format,
+                    extended: false,
+                },
+            )
+        });
         Some(CompositePipelines { main, output })
     }
 
@@ -609,7 +628,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for UiCompositePipeline {
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
         ids.push(self.clear_pipeline_id(cache));
-        if let Some(pipelines) = self.view_pipelines(cache, view.hdr, view.output) {
+        if let Some(pipelines) = self.view_pipelines(cache, view.hdr, false, view.output) {
             ids.push(pipelines.main);
             ids.extend(pipelines.output);
         }

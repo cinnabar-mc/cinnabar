@@ -99,6 +99,15 @@ If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
 Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
+[HDR output](docs/hdr-output.md) switches the primary window to scRGB, or HDR10 where
+scRGB is not offered, when the player enables HDR and the display reports HDR mode. It
+depends on the `cinnabar-mc/bevy` surface-format patch. Screen UI composes at paper white
+in a float native target; Enhanced tonemaps into the configured peak, and Highlight Boost
+expands Vanilla and shader-pack highlights. HDR captures are converted to SDR. Missing
+evidence: captures on an HDR display (peak, paper white, HDR10, Vulkan and Metal paths),
+frame-cost measurement of the extra world copy, the crosshair's invert blend over
+highlights, and HDR mastering metadata, which wgpu does not set.
+
 ### Terrain, materials and biome acceptance
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh

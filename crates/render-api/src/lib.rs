@@ -6,6 +6,7 @@
 mod actor_lighting;
 pub mod far_terrain;
 mod frame_rate_limit;
+pub mod hdr;
 mod hurt_camera;
 mod legacy_combat;
 mod pose_generation;

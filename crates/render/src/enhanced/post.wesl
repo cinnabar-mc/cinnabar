@@ -80,6 +80,23 @@ fn filmic_shoulder(colour: vec3<f32>) -> vec3<f32> {
     return clamp(numerator / denominator, vec3(0.0), vec3(1.0));
 }
 
+// The SDR fit below a knee at 0.6, then a C1-continuous exponential roll-off toward
+// `headroom`, the output's peak over paper white. Midtones match SDR; highlights the SDR fit
+// compresses into white keep their gradation up to the display's peak.
+fn hdr_shoulder(colour: vec3<f32>, headroom: f32) -> vec3<f32> {
+    if headroom <= 1.0 {
+        return filmic_shoulder(colour);
+    }
+    // filmic_shoulder reaches the knee at input 0.4758022 with slope 0.6974208.
+    let knee = 0.6;
+    let knee_input = 0.4758022;
+    let knee_slope = 0.6974208;
+    let positive = max(colour, vec3(0.0));
+    let range = headroom - knee;
+    let rolled = knee + range * (1.0 - exp(-knee_slope * (positive - knee_input) / range));
+    return select(filmic_shoulder(positive), rolled, positive > vec3(knee_input));
+}
+
 // Warm daylight and cool night balance with mild contrast.
 fn grade(colour: vec3<f32>, warmth: f32) -> vec3<f32> {
     let warm = vec3(1.06, 1.0, 0.9);
@@ -97,7 +114,7 @@ fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     if ((frame.flags.x & FEATURE_SHAFTS) != 0u) {
         colour += textureSampleLevel(shaft_texture, linear_sampler, in.uv, 0.0).rgb;
     }
-    colour = filmic_shoulder(grade(colour * frame.grade.y, frame.grade.x));
+    colour = hdr_shoulder(grade(colour * frame.grade.y, frame.grade.x), frame.output.x);
     let vignette = mix(1.0, (1.0 - smoothstep(0.3, 0.95, length(in.uv - vec2(0.5)))), 0.22);
     let dither = (interleaved_gradient_noise(in.position.xy) - 0.5) / 255.0;
     return vec4(max(colour * vignette + dither, vec3(0.0)), 1.0);

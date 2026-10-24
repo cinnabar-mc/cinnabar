@@ -34,6 +34,14 @@ impl Content<'_, '_> {
             "Sharpen the FSR-upscaled world when Render Resolution is below 100%. Turn off to keep FSR upscaling without sharpening.".to_owned()
         } else if id == SettingId::RenderResolution {
             launcher::menu::settings_options::render_resolution::DESCRIPTION.to_owned()
+        } else if id == SettingId::HdrOutput {
+            "Use your display's HDR mode for brighter highlights. Needs HDR turned on in your system display settings; otherwise the game stays SDR.".to_owned()
+        } else if id == SettingId::HdrPeakBrightness {
+            "The brightest highlights, in nits. Match your display's peak brightness.".to_owned()
+        } else if id == SettingId::HdrPaperWhite {
+            "Brightness of white menus, the HUD and SDR content, in nits.".to_owned()
+        } else if id == SettingId::HdrHighlightBoost {
+            "How far bright parts of Vanilla and shader pack scenes reach toward peak brightness. 0% shows them as SDR.".to_owned()
         } else if id == SettingId::GraphicsApi {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
         } else if id == SettingId::Vrr {
