@@ -285,10 +285,12 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             ),
             EntityEvent::Despawned {} => ("request_callback_entity_despawned", None),
         };
-        let request = Request::Callback {
+        let foreign_vehicle = matches!(&event, EntityEvent::Interact { .. });
+        let mut request = Request::Callback {
             seq: 7,
             info: Info {
                 context: Some(WorldContext {
+                    actor_riding_elsewhere: false,
                     current: world.clone(),
                     player: None,
                     instances: vec![world.clone()],
@@ -315,6 +317,18 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             call: Call::Entity { handle, event },
         };
         out.push((name, serde_json::to_string_pretty(&request).unwrap() + "\n"));
+        if foreign_vehicle {
+            let Request::Callback { info, .. } = &mut request else {
+                unreachable!()
+            };
+            let context = info.context.as_mut().unwrap();
+            context.actor_riding_elsewhere = true;
+            context.entities[0].riders.clear();
+            out.push((
+                "request_callback_entity_foreign_vehicle",
+                serde_json::to_string_pretty(&request).unwrap() + "\n",
+            ));
+        }
     }
     let ops = vec![
         EntityOp::Spawn {

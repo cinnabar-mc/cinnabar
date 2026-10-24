@@ -41,6 +41,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         })
         .collect::<Vec<_>>();
     let context = WorldContext {
+        actor_riding_elsewhere: false,
         entities: Vec::new(),
         current: handle.clone(),
         player: Some(before.clone()),

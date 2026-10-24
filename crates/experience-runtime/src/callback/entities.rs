@@ -313,7 +313,8 @@ impl CallbackRes {
         let Some(def) = self.own.entities.iter().find(|d| d.id == entity.state.kind) else {
             return Ok(Err(WorldError::NotOwned));
         };
-        if seat as usize >= def.seats.len()
+        if context.actor_riding_elsewhere
+            || seat as usize >= def.seats.len()
             || entity.riders.iter().any(|r| r.seat == seat)
             || context
                 .entities

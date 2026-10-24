@@ -16,6 +16,7 @@ fn request(call: Call, actor: Option<String>, entities: Vec<EntitySnapshot>) -> 
         seq: 2,
         info: Info {
             context: Some(WorldContext {
+                actor_riding_elsewhere: false,
                 current: world.clone(),
                 player: None,
                 instances: vec![world],

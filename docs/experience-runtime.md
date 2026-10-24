@@ -199,14 +199,15 @@ helper restarts must return the same declarations.
 | `spawn_entity` | Reserves a generation-bearing identity; unavailable during final leave |
 | `update_entity` | Stages position, rotation, velocity, label, scale, variant and declared properties; teleport selects immediate movement |
 | `despawn_entity` | Removes an owned actor and its occupied seats |
-| `mount_entity`, `dismount_entity` | Current live player only; an occupied or invalid seat is refused |
+| `mount_entity`, `dismount_entity` | Current live player only; occupied/invalid seats and boarding while riding another vehicle are refused |
 | `on_entity` | Interaction/attack hand and held item, rider changes, input and removal; player/world epoch fences still apply |
 
 Velocity supplies interpolation in blocks per tick; guest code owns movement rather
 than a second physics simulation. Teleports retain the requested velocity. Spawn
 identities retain their ordinal across coalesced block writes. Actors keep their
 current chunk resident and retain the prior owning chunk until membership migrates
-on the next framework tick. Actors and seats are process-local: unload and shutdown
+on the next framework tick. Deferred world tasks retry missing destinations even before
+that entity can tick; despawn cancels pending retries. Actors and seats are process-local: unload and shutdown
 release them and their chunk leases, and terrain saves exclude them. Player travel
 leaves actors in their original world and dismounts departing riders.
 

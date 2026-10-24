@@ -13,6 +13,8 @@ import (
 	entitydata "github.com/cinnabar-mc/protocolgen/generated/data/entity"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/entity"
+	"github.com/df-mc/dragonfly/server/entity/networkoffset"
+	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 )
 
@@ -206,6 +208,15 @@ func (t *modEntityType) BaseEntityIdentifier() string {
 		return t.def.Appearance.ID
 	}
 	return ""
+}
+
+// NetworkOffset keeps custom identities in the selected built-in actor's packet coordinates.
+func (t *modEntityType) NetworkOffset() float64 {
+	base := t.BaseEntityIdentifier()
+	if base == player.Type.EncodeEntity() {
+		return networkoffset.Player(networkoffset.PlayerPose{})
+	}
+	return networkoffset.Entity(base)
 }
 
 // Resources returns immutable files consumed by Dragonfly before listening.

@@ -2,9 +2,18 @@ package experience
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/entity/networkoffset"
+	"github.com/df-mc/dragonfly/server/player"
+	"github.com/df-mc/dragonfly/server/session"
+	"github.com/df-mc/dragonfly/server/world/chunk"
+	"log/slog"
 	"math"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -187,5 +196,144 @@ func TestEntityTeleportPreservesRequestedVelocity(t *testing.T) {
 				t.Fatalf("viewer position/motion = %v/%v, want %v/%v", v.position, v.velocity, state.Position.vec(), state.Velocity.vec())
 			}
 		})
+	}
+}
+
+// failedEntityDestination rejects the first asynchronous read of the teleport destination.
+type failedEntityDestination struct {
+	world.NopProvider
+	attempts atomic.Int32
+}
+
+// LoadColumn lets origin reads generate normally and makes one destination read fail.
+func (p *failedEntityDestination) LoadColumn(pos world.ChunkPos, dim world.Dimension) (*chunk.Column, error) {
+	if pos == (world.ChunkPos{2, 0}) && p.attempts.Add(1) == 1 {
+		return nil, errors.New("destination temporarily unavailable")
+	}
+	return p.NopProvider.LoadColumn(pos, dim)
+}
+
+func TestEntityTeleportRetriesWithoutDestinationTicks(t *testing.T) {
+	f := newEntityFixture(t)
+	synctest.Test(t, func(t *testing.T) {
+		provider := &failedEntityDestination{}
+		w := world.Config{Provider: provider, ChunkLoadWorkers: 1, Log: slog.New(slog.DiscardHandler)}.New()
+		w.SetPaused(true)
+		defer w.Close()
+		binding, err := f.h.BindWorld("probe:retry", w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := f.h.UnbindWorld(t.Context(), binding); err != nil {
+				t.Error(err)
+			}
+		}()
+		instance, _ := f.h.worlds.of(w)
+		state := EntityState{Handle: EntityHandle{1, binding.Generation}, Kind: "probe:ship", Position: Position{Y: 70}, Scale: 1}
+		handle := world.EntitySpawnOpts{Position: state.Position.vec()}.New(f.h.reg.entityTypes[state.Kind], entityConfig{state: state, instance: instance})
+		f.do(w, func(tx *world.Tx) { tx.AddEntity(handle).(*modEntity).pin() })
+		state.Position.X = 32
+		f.do(w, func(tx *world.Tx) { e, _ := handle.Entity(tx); e.(*modEntity).update(state, true) })
+		synctest.Wait()
+		w.AdvanceTick()
+		<-time.After(2 * tickDuration)
+		synctest.Wait()
+		f.do(w, func(tx *world.Tx) {
+			if _, loaded := tx.BlockLoaded(cube.Pos{32, 70, 0}); !loaded {
+				t.Error("one-shot teleport did not retry the missing destination")
+			}
+			if _, loaded := tx.BlockLoaded(cube.Pos{0, 70, 0}); !loaded {
+				t.Error("retry released the owning chunk before membership migrated")
+			}
+		})
+		w.AdvanceTick()
+		f.do(w, func(tx *world.Tx) {
+			e, ok := handle.Entity(tx)
+			if !ok || e.Position() != state.Position.vec() {
+				t.Error("retried actor lost its authoritative position")
+			}
+		})
+	})
+}
+
+func TestEntityAppearancePreservesNetworkCoordinates(t *testing.T) {
+	def := entityDefinition()
+	typ, err := newModEntityType("probe", def, newAssetCache())
+	if err != nil {
+		t.Fatal(err)
+	}
+	offset, ok := any(typ).(session.OffsetEntity)
+	if !ok {
+		t.Fatal("entity type does not provide its selected base's packet offset")
+	}
+	position := mgl64.Vec3{3, 70, 4}
+	encoded := position.Add(mgl64.Vec3{0, offset.NetworkOffset(), 0})
+	decoded := encoded.Sub(mgl64.Vec3{0, networkoffset.Entity(def.Appearance.ID), 0})
+	if decoded != position {
+		t.Fatalf("base-actor coordinate round trip: %v, want %v", decoded, position)
+	}
+}
+
+func TestEntitySnapshotRetainsForeignVehicleOccupancy(t *testing.T) {
+	f := newEntityFixture(t)
+	f.spawnEntity()
+	def := renamed(Loaded{ID: "probe", Entities: []EntityDefinition{entityDefinition()}}, "other").Entities[0]
+	typ, err := newModEntityType("other", def, newAssetCache())
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ.host = f.h
+	instance, _ := f.h.worlds.of(f.source)
+	state := EntityState{Handle: EntityHandle{1, instance.handle.Generation}, Kind: def.ID, Position: Position{Y: 70}, Scale: 1}
+	vehicle := world.EntitySpawnOpts{Position: state.Position.vec()}.New(typ, entityConfig{state: state, instance: instance})
+	f.do(f.source, func(tx *world.Tx) {
+		p, _ := f.actor.Entity(tx)
+		e := tx.AddEntity(vehicle).(*modEntity)
+		e.pin()
+		if !tx.Mount(p, e, 0) {
+			t.Fatal("foreign vehicle mount failed")
+		}
+		f.h.reconcilePlayer(p.(*player.Player), true)
+	})
+	var observed *event
+	for len(f.d.events) != 0 {
+		ev := <-f.d.events
+		if ev.call.Player != nil {
+			observed = &ev
+		}
+	}
+	if observed == nil {
+		t.Fatal("foreign rider movement was not observed")
+	}
+	historical, err := f.h.snapshot(t.Context(), f.d, observed)
+	if err != nil || !historical.req.Info.Context.ActorRidingElsewhere {
+		t.Fatalf("player observation lost foreign occupancy: %v", err)
+	}
+	_, snap := f.request()
+	if !snap.req.Info.Context.ActorRidingElsewhere || len(snap.req.Info.Context.Entities) != 1 {
+		t.Fatalf("snapshot lost global occupancy or exposed a foreign vehicle: %+v", snap.req.Info.Context)
+	}
+}
+
+func TestForeignVehicleFixtureRetainsAdmissionStatus(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("testdata", "protocol", "request_callback_entity_foreign_vehicle.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request Request
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatal(err)
+	}
+	ctx := request.Callback.Info.Context
+	if ctx == nil || !ctx.ActorRidingElsewhere {
+		t.Fatal("cross-language fixture lost foreign riding status")
+	}
+	for _, e := range ctx.Entities {
+		for _, rider := range e.Riders {
+			if request.Callback.Actor != nil && rider.Player == *request.Callback.Actor {
+				t.Fatal("foreign vehicle leaked into the mod's entity snapshot")
+			}
+		}
 	}
 }

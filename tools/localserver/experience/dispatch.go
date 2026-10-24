@@ -127,6 +127,8 @@ type event struct {
 	slots     []item.Stack
 	// entities retain owned actors from the same transaction as a player observation.
 	entities []EntitySnapshot
+	// ridingElsewhere retains occupancy outside this mod's actor snapshot.
+	ridingElsewhere bool
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and

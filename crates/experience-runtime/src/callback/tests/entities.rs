@@ -7,6 +7,7 @@ use crate::protocol as p;
 fn callback() -> CallbackRes {
     let mut res = Fixture::new().res();
     res.context = Some(p::WorldContext {
+        actor_riding_elsewhere: false,
         current: p::WorldHandle {
             id: "probe:planet".into(),
             generation: 3,
@@ -187,4 +188,27 @@ fn leave_cannot_spawn_entities_or_discard_private_state() {
     assert!(res.ops.iter().all(|op| matches!(op, Op::StoreWrite { .. })));
     assert_eq!(res.ops.len(), 1);
     assert!(res.entities().unwrap().is_empty());
+}
+
+#[test]
+fn foreign_vehicle_refuses_boarding_before_staging() {
+    let mut res = callback();
+    let handle = spawn(&mut res);
+    res.ops.clear();
+    res.context.as_mut().unwrap().actor_riding_elsewhere = true;
+    res.store_write(
+        wit::StoreKey {
+            scope: wit::StoreScope::Mod,
+            schema: 1,
+        },
+        Some(vec![1]),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(matches!(
+        res.mount_entity(handle, 0).unwrap(),
+        Err(WorldError::Unavailable)
+    ));
+    assert_eq!(res.ops.len(), 1);
+    assert!(res.ops.iter().all(|op| matches!(op, Op::StoreWrite { .. })));
 }

@@ -19,6 +19,7 @@ type modEntityData struct {
 	loader         *world.Loader
 	leaseChunk     world.ChunkPos
 	previousLoader *world.Loader
+	retry          *world.Task
 	closed         bool
 }
 
@@ -152,6 +153,9 @@ func (e *modEntity) Tick(tx *world.Tx, _ int64) {
 // pin retains the destination and the last tick's owning chunk until membership migrates.
 func (e *modEntity) pin() {
 	d := e.stateData()
+	if d.closed {
+		return
+	}
 	position := e.Position()
 	chunk := world.ChunkPos{int32(math.Floor(position.X())) >> 4, int32(math.Floor(position.Z())) >> 4}
 	if d.loader != nil && chunk != d.leaseChunk {
@@ -169,6 +173,25 @@ func (e *modEntity) pin() {
 	}
 	d.loader.Move(e.tx, e.Position())
 	d.loader.Load(e.tx, 1)
+
+	if _, ready := d.loader.Chunk(chunk); ready {
+		if d.retry != nil {
+			d.retry.Cancel()
+			d.retry = nil
+		}
+	} else if d.retry == nil {
+		// The destination can be absent, so its entity tick cannot own the retry.
+		handle := e.h
+		d.retry = e.tx.World().DoAfter(tickDuration, func(tx *world.Tx) {
+			actor, ok := handle.Entity(tx)
+			if !ok {
+				return
+			}
+			current := actor.(*modEntity)
+			current.stateData().retry = nil
+			current.pin()
+		})
+	}
 }
 
 // update publishes motion and metadata through Dragonfly before moving its riders.
@@ -198,6 +221,10 @@ func (e *modEntity) Close() error {
 		return nil
 	}
 	d.closed = true
+	if d.retry != nil {
+		d.retry.Cancel()
+		d.retry = nil
+	}
 	if d.previousLoader != nil {
 		d.previousLoader.Close(e.tx)
 		d.previousLoader = nil
@@ -275,4 +302,19 @@ func (h *Host) entityDespawnSnapshot(d *dispatcher, ev event) snapshot {
 	info := newInfo(h.worldID, ev.instance.id, ev.tick, d.seq)
 	info.Context = context
 	return snapshot{req: CallbackRequest{Info: info, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
+}
+
+// ridingOutsideSnapshot reports occupancy without exposing another mod's vehicle identity.
+func ridingOutsideSnapshot(tx *world.Tx, owner string, actor world.Entity, owned []EntitySnapshot) bool {
+	vehicle, _, riding := world.Riding(actor)
+	if !riding {
+		return false
+	}
+	if native, ok := vehicle.Entity(tx); ok {
+		if e, ok := native.(*modEntity); ok && e.typ.owner == owner {
+			handle := e.stateData().state.Handle
+			return !slices.ContainsFunc(owned, func(s EntitySnapshot) bool { return s.State.Handle == handle })
+		}
+	}
+	return true
 }
