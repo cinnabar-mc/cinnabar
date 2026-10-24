@@ -143,7 +143,7 @@ fn observe_presentation(
         crate::device_poll::on_frame_complete(&queue, move || {
             timing.record_offscreen_content(web_time::Instant::now());
             timing.seal_samples();
-            admission.admit();
+            admission.menu_presented();
         });
     }
     let presented_window = probe
@@ -167,7 +167,7 @@ fn observe_presentation(
             feedback.record_content_frame(epoch, web_time::Instant::now());
             if feedback.has_presented_content() {
                 if let Some(timing) = render_scene::startup_timing::current() { timing.seal_samples(); }
-                admission.admit();
+                admission.menu_presented();
             }
         });
     }

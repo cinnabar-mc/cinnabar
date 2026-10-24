@@ -234,6 +234,17 @@ fn install_guard(app: &mut App, guard: StartupGuard) {
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
 }
 
+/// Cancels this app's pending presentation marker after an orderly pre-loop failure.
+pub(super) fn cancel_startup(app: &mut App) {
+    if let Some(mut guard) = app.world_mut().get_resource_mut::<RendererGuard>()
+        && let Err(error) = guard.0.cancel()
+    {
+        log(format_args!(
+            "Renderer could not cancel startup sentinel: {error:#}"
+        ));
+    }
+}
+
 /// Leaves crash recovery untouched when the application requests an orderly shutdown.
 fn cancel_on_exit(mut exits: MessageReader<AppExit>, mut guard: ResMut<RendererGuard>) {
     if exits.read().next().is_some()

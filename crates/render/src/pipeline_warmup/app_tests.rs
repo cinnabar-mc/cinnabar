@@ -300,7 +300,8 @@ fn menu_pipeline_set_contains_only_the_drawn_menu_variants() {
             aspect: 1.0,
             tint: [0.0; 4],
         }));
-    for _ in 0..4 {
+    admission.menu_presented();
+    for _ in 0..10 {
         app.update();
     }
     let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
@@ -338,10 +339,26 @@ fn menu_pipeline_set_contains_only_the_drawn_menu_variants() {
         ]
     );
     let before = labels.len();
-    admission.admit();
+    assert_eq!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<crate::ChunkTextureUploadStats>()
+            .upload_count,
+        0,
+        "completed menu frames must not upload a world atlas"
+    );
+    admission.request_world();
     for _ in 0..4 {
         app.update();
     }
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<crate::ChunkTextureUploadStats>()
+            .upload_count
+            > 0,
+        "a requested world must upload its atlas"
+    );
     assert!(
         app.sub_app(RenderApp)
             .world()
