@@ -113,15 +113,16 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
   bindings take none: the schema rejects one, and the client binds unconditionally and counts the
   ignored condition in its aggregate entity material diagnostics.
-- [ ] Material robustness under device loss is untested: the renderer has no device-loss path or
-  test seam, so recovery of material pipelines, bind groups and Enhanced maps after a lost device
-  is a gap. Malformed or removed packs, back-to-back generations and adapters that cannot represent
-  a material are covered by tests.
-- [ ] Offline material previews are deferred. `ui-snapshot` rasterizes UI meshes on the CPU and
-  owns no actor or terrain pipeline, so it cannot show how a define-driven entity material or a
-  bound custom block draws. Until an offline GPU scene tool exists, the actor fragment's readback
-  tests in `crates/render/tests/it/actor_colour.rs` pin those draws, and the developer-control
-  snapshot's `materials` section explains a live session's choices.
+- [ ] Stencil state stays partial: entity materials carry the complete stencil fields, but scene
+  depth (Bevy's `CORE_3D_DEPTH_FORMAT`) has no stencil aspect, so stencil tests and writes are not
+  rendered. The stencil rows close only with a stencil-capable scene depth target.
+- [x] Material robustness covers malformed or removed packs, back-to-back generations and
+  adapters that cannot represent a material. Device loss is an app-wide gap tracked under
+  acceptance and release qualification, not a material one.
+- [x] Offline material previews are not planned. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline; the developer-control snapshot's `materials` section explains
+  a live session's choices, and the actor fragment's readback tests in
+  `crates/render/tests/it/actor_colour.rs` pin define-driven draws.
 - [ ] Programmable world materials for server Experiences (a `render_world_material` permission
   binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
   guests have no drawing interface yet, and production Experience execution stays fail-closed
@@ -1719,6 +1720,9 @@ remain incomplete.
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
 frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
 screens with a free cursor still receive every raw report.
+- [ ] GPU device loss is an app-wide gap: the renderer has no device-loss path or test seam, so no
+  subsystem recovers a lost device. Pipelines, bind groups and uploaded textures, materials and
+  Enhanced maps included, are lost with it.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

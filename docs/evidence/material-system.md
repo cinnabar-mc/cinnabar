@@ -52,7 +52,8 @@ Confirmed gaps against the current client:
   parents and variants, into the carrier's material table. Actor draws use a material's
   `skinning` variant, as Bedrock does, with its culling, depth function, depth writes, blend
   factors, colour and alpha writes and alpha to coverage. Stencil state is carried but not
-  rendered because scene depth has no stencil aspect. Depth bias, MSAA support and sampler states
+  rendered because scene depth has no stencil aspect; its rows stay partial until scene depth
+  gains one. Depth bias, MSAA support and sampler states
   are carried but not applied: no actor-path consumer of the first two was found, and the backend
   meaning of the sampler bits is unknown. Primitive mode does not affect actors on
   Bedrock either; their topology comes from the mesh.
