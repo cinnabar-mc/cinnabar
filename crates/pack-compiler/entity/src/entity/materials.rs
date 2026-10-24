@@ -70,6 +70,10 @@ struct Resolved {
     /// Shared until a declaration changes the list, so links that inherit variants unchanged
     /// hold one allocation.
     variants: Arc<Vec<(Box<str>, Resolved)>>,
+    /// Whether an absent `fragmentShader` stands for the native entity program: true for the
+    /// native bases the client declares itself, whose shipped programs it cannot see, and for
+    /// extension materials without a base.
+    assumes_entity_program: bool,
 }
 
 /// Interns resolved definitions, including variants, into one carrier table. One table serves
@@ -375,7 +379,7 @@ impl MaterialStates {
             .resolve_with(name, &builtin, &mut table.chains)
             .and_then(|resolved| {
                 let drawn = resolved.actor_variant();
-                Some((shading(drawn), table.intern(drawn)?))
+                Some((actor_shading(drawn), table.intern(drawn)?))
             });
         table.resolved.insert(name.into(), resolved);
         resolved
@@ -402,7 +406,8 @@ impl MaterialStates {
             .block_bindings
             .iter()
             .filter_map(|binding| {
-                let (shading, index, _) = states.resolve_extension(&binding.material, &mut table)?;
+                let (shading, index, _) =
+                    states.resolve_extension(&binding.material, false, &mut table)?;
                 Some(extension::ResolvedBlockBinding {
                     block: binding.block.clone(),
                     states: binding.states.clone(),
@@ -428,16 +433,23 @@ impl MaterialStates {
     }
 
     /// Resolves extension material `name` over its base, interns it and returns its shading
-    /// features with the definition's table index and its interned masks, if any.
+    /// features with the definition's table index and its interned masks, if any. `actor`
+    /// selects the shading of an actor draw, which follows the actor material type.
     pub(super) fn resolve_extension(
         &self,
         name: &str,
+        actor: bool,
         table: &mut MaterialTable,
     ) -> Option<(EntityRenderMaterialState, u32, Option<u32>)> {
         let material = self.extension.as_ref()?.materials.get(name)?;
         let mut resolved = match &material.base {
             Some(base) => self.resolve_with(material_name(base), &builtin, &mut table.chains)?,
-            None => Resolved::default(),
+            // Without a base the constructor defaults name no program; the extension draws
+            // such a material with the entity program.
+            None => Resolved {
+                assumes_entity_program: true,
+                ..Resolved::default()
+            },
         };
         resolved.version = 1;
         resolved.apply(&material.fields);
@@ -445,7 +457,12 @@ impl MaterialStates {
             .masks(|path| self.textures.get(path).copied())
             .and_then(|masks| table.intern_masks(masks));
         let drawn = resolved.actor_variant();
-        Some((shading(drawn), table.intern(drawn)?, masks))
+        let shading = if actor {
+            actor_shading(drawn)
+        } else {
+            shading(drawn)
+        };
+        Some((shading, table.intern(drawn)?, masks))
     }
 
     /// Adds the root defines of `file`'s list entry to a material starting from that root.
@@ -670,6 +687,7 @@ fn builtin(name: &str) -> Option<Resolved> {
     Some(Resolved {
         states: Arc::new(states.iter().copied().collect()),
         defines: Arc::new(defines.iter().map(|&define| Box::from(define)).collect()),
+        assumes_entity_program: true,
         ..Resolved::default()
     })
 }
@@ -690,6 +708,17 @@ fn color_mask_base(name: &str) -> Option<Resolved> {
         }
         _ => builtin(name),
     }
+}
+
+/// The shading features an actor draw reads: [`shading`] for the material's actor material
+/// type. A material whose program has no actor type draws as plain `Actor`, whose name the
+/// multitexture define no longer selects.
+fn actor_shading(resolved: &Resolved) -> EntityRenderMaterialState {
+    let mut state = shading(resolved);
+    if actor_type::of(resolved) == actor_type::ActorMaterialType::Other {
+        state.multitexture = false;
+    }
+    state
 }
 
 /// The shading features the actor shader reads from a definition's defines.
@@ -764,3 +793,6 @@ pub(crate) mod extension;
 
 #[path = "materials/list.rs"]
 pub(crate) mod list;
+
+#[path = "materials/actor_type.rs"]
+mod actor_type;

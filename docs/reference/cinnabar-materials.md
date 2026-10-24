@@ -25,7 +25,9 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
 - `material` takes the fields of a Bedrock `.material` declaration, read with version 1 rules
   over `base` (a Bedrock material the pack or client defines) or the constructor defaults. The same
   resolver and lowering as `.material` files apply, so every state, define and blend factor the
-  client renders for Bedrock materials renders here.
+  client renders for Bedrock materials renders here. On entities a `fragmentShader` whose stem
+  is not `entity` or `pattern` draws as plain `Actor`, as on Bedrock; a material with neither
+  `base` nor `fragmentShader` draws with the entity program.
 - `textures` maps names to pack-relative paths inside the pack. `parameters` are `scalar`,
   `vector` (two to four numbers), `color` (RGBA) or `boolean`.
 - Two texture names draw masks on the base texture's coordinates, scaled by the `strength`
