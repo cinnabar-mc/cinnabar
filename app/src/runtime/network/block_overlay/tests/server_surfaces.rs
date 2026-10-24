@@ -123,3 +123,62 @@ fn colour_only_sets_and_unreadable_surfaces_keep_only_their_colour() {
     assert!(downgraded.overlay.enhanced.is_none());
     assert_eq!(downgraded.gaps.downgraded_texture_sets, 1);
 }
+
+#[test]
+fn surface_layers_join_the_block_fingerprint_and_unchanged_reloads_reuse_their_maps() {
+    use pack_runtime::reload_diff::{Changes, Dependencies, Subscriber, compile};
+    use resource_pack::PackAdmission;
+    let set = json!({"format_version": "1.16.100", "minecraft:texture_set": {
+        "color": "gen_color", "normal": "gen_normal"
+    }})
+    .to_string();
+    let terrain = json!({"texture_data":{"gen":{"textures":"textures/blocks/gen"}}}).to_string();
+    let (color, normal) = (color(), png(16, 16, |_, y| [128, 128 + y as u8, 255, 255]));
+    let files = |normal: &[u8], extra: Option<(&'static str, &'static [u8])>| {
+        let mut files: Vec<(&str, Vec<u8>)> = vec![
+            (
+                "textures/terrain_texture.json",
+                terrain.clone().into_bytes(),
+            ),
+            ("models/blocks/gen.geo.json", GEOMETRY.as_bytes().to_vec()),
+            (
+                "textures/blocks/gen.texture_set.json",
+                set.clone().into_bytes(),
+            ),
+            ("textures/blocks/gen_color.png", color.clone()),
+            ("textures/blocks/gen_normal.png", normal.to_vec()),
+        ];
+        files.extend(extra.map(|(path, bytes)| (path, bytes.to_vec())));
+        files
+    };
+    let stack = |files: &[(&str, Vec<u8>)]| {
+        let borrowed = files
+            .iter()
+            .map(|(path, bytes)| (*path, bytes.as_slice()))
+            .collect::<Vec<_>>();
+        crate::runtime::network::pack_reload_tests::stack(&borrowed)
+    };
+    let before = stack(&files(&normal, None));
+    let mut dependencies = Dependencies::default();
+    let first = compile(Subscriber::Blocks, &before, &mut dependencies, |view| {
+        compiled(view)
+    });
+    assert!(first.overlay.enhanced.is_some());
+    let previous = (PackAdmission::Validated(before.clone()), dependencies);
+    let changed = |next: &std::sync::Arc<resource_pack::ValidatedPackStack>| {
+        Changes::between(next, Some((&previous.0, &previous.1))).blocks
+    };
+    assert!(
+        !changed(&before),
+        "an unchanged stack does not decode its surfaces again"
+    );
+    assert!(!changed(&stack(&files(
+        &normal,
+        Some(("textures/unrelated.png", b"x"))
+    ))));
+    let edited = png(16, 16, |x, _| [128 + x as u8, 128, 255, 255]);
+    assert!(
+        changed(&stack(&files(&edited, None))),
+        "a changed normal map recompiles the overlay"
+    );
+}
