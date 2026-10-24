@@ -8,6 +8,7 @@ mod scheduling;
 mod shift;
 mod worker;
 mod world;
+mod world_materials;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
 use server_experience::{

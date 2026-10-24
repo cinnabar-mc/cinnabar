@@ -400,7 +400,62 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use mod_render::world_material::compose;
+
+    /// A scene publishing one plain material with a texture, bound to one entity.
+    fn scene() -> WorldMaterialScene {
+        let mut scene = WorldMaterialScene::with_bound_entities(&["example:moth"]);
+        let set = std::sync::Arc::make_mut(&mut scene.set);
+        set.materials[0].textures = std::sync::Arc::from([abi::publication::Texture {
+            width: 2,
+            height: 2,
+            rgba: std::sync::Arc::from([255_u8; 16]),
+        }]);
+        scene
+    }
+
+    #[test]
+    fn revocation_removes_every_renderers_modules() {
+        let mut shaders = bevy::asset::Assets::<Shader>::default();
+        let mut registered = BTreeSet::new();
+        let families = [
+            crate::actor_render::world_materials::family(),
+            crate::chunk::world_materials::family(),
+        ];
+        let published = scene();
+        register_shaders(&families, &published, &mut shaders, &mut registered);
+        let key = published.set.materials[0].key;
+        for family in &families {
+            assert!(shaders.get(shader(family.namespace, key).id()).is_some());
+        }
+        register_shaders(
+            &families,
+            &WorldMaterialScene::default(),
+            &mut shaders,
+            &mut registered,
+        );
+        for family in &families {
+            assert!(shaders.get(shader(family.namespace, key).id()).is_none());
+        }
+        assert!(registered.is_empty());
+    }
+
+    #[test]
+    fn revocation_retains_no_gpu_resources() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        world.init_resource::<WorldMaterialGpu>();
+        world.insert_resource(scene());
+        world.run_system_once(prepare).unwrap();
+        let gpu = world.resource::<WorldMaterialGpu>();
+        assert!(gpu.has_materials() && gpu.slot(0).is_some());
+        world.insert_resource(WorldMaterialScene::default());
+        world.run_system_once(prepare).unwrap();
+        let gpu = world.resource::<WorldMaterialGpu>();
+        assert!(!gpu.has_materials() && gpu.slot(0).is_none());
+    }
 
     /// The production actor and cube modules compose and validate with a world material
     /// library in every blend class, as Bevy's WESL composition builds them.
