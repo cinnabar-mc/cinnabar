@@ -102,3 +102,28 @@ fn vanilla_bindings_for_other_blocks_states_or_instances_change_nothing() {
         assert!(rebound(binding).is_empty());
     }
 }
+
+#[test]
+fn vanilla_block_bindings_give_their_faces_glow_masks() {
+    let record = first_record();
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"example:lamp": {
+            "textures": {"glow_mask": "state"},
+            "parameters": {"strength": {"scalar": 0.5}}
+        }},
+        "bindings": [{"block": record.name.as_ref(), "material": "example:lamp"}]
+    });
+    let compiled = compile(&bound_stack(&document), &base(), &keys());
+    let (_, faces) = compiled
+        .overlay
+        .face_overrides
+        .iter()
+        .find(|(visual, _)| *visual == 0)
+        .expect("the bound visual is rebound");
+    for &material in faces.iter().flatten() {
+        let material = compiled.overlay.materials[material as usize];
+        assert_ne!(material.glow_mask, assets::NO_MASK);
+        assert_eq!(f32::from_bits(material.mask_strength), 0.5);
+    }
+}

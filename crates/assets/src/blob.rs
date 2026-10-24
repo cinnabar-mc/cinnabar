@@ -29,7 +29,7 @@ use crate::{
 // their native upper-left crop. Model texture arrays require explicit state selectors, and
 // texture references carry three page bits so a session palette can shard across several
 // device-limited arrays; reject earlier carriers.
-pub const BLOB_VERSION: u32 = 19;
+pub const BLOB_VERSION: u32 = 20;
 pub const BLOB_MAGIC: [u8; 8] = {
     let mut magic = *b"MCBEAS00";
     magic[6] += (BLOB_VERSION / 10) as u8;
@@ -177,6 +177,9 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         push_u32(&mut bytes, material.variation_start);
         push_u32(&mut bytes, material.variation_count);
         push_u32(&mut bytes, material.variation_weight);
+        push_u32(&mut bytes, material.glow_mask);
+        push_u32(&mut bytes, material.emissive_mask);
+        push_u32(&mut bytes, material.mask_strength);
     }
     for template in &compiled.model_templates {
         push_u32(&mut bytes, template.quad_start);

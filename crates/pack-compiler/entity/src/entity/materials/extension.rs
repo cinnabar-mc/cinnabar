@@ -78,6 +78,17 @@ pub struct ResolvedBlockBinding {
     /// [`EntityMaterialDefinition::render_state`]: assets::entity::material::EntityMaterialDefinition::render_state
     pub definition: assets::entity::material::EntityMaterialDefinition,
     pub shading: assets::EntityRenderMaterialState,
+    /// The material's glow and emissive masks as terrain texture keys, and their strength.
+    pub masks: BlockMaskPaths,
+}
+
+/// A block material's mask textures, named as `terrain_texture.json` keys as block material
+/// instances name their textures.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BlockMaskPaths {
+    pub glow: Option<Box<str>>,
+    pub emissive: Option<Box<str>>,
+    pub strength: f32,
 }
 
 /// Resolves a pack's block bindings against its `.material` documents (in path order).
@@ -239,6 +250,18 @@ const EMISSIVE_MASK: &str = "emissive_mask";
 const STRENGTH: &str = "strength";
 
 impl Material {
+    /// The mask textures a block draw samples, as terrain texture keys.
+    pub(crate) fn mask_paths(&self) -> BlockMaskPaths {
+        BlockMaskPaths {
+            glow: self.textures.get(GLOW_MASK).cloned(),
+            emissive: self.textures.get(EMISSIVE_MASK).cloned(),
+            strength: match self.parameters.get(STRENGTH) {
+                Some(Parameter::Scalar(strength)) => *strength,
+                _ => 1.0,
+            },
+        }
+    }
+
     /// The masks this material draws, with `source` mapping a resource path to its entity
     /// source; `None` without any mask. A mask whose texture is not loaded is omitted.
     pub(crate) fn masks(

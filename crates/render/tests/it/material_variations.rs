@@ -58,25 +58,35 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
         multiview_mask: None,
         cache: None,
     });
-    let words: [u32; 18] = [
+    let no_masks = [assets::NO_MASK, assets::NO_MASK, 0];
+    let words: [u32; 27] = [
         1,
         0,
         u32::MAX,
         1,
         2,
         0,
+        no_masks[0],
+        no_masks[1],
+        no_masks[2],
         1,
         0,
         u32::MAX,
         0,
         0,
         0.25_f32.to_bits(),
+        no_masks[0],
+        no_masks[1],
+        no_masks[2],
         2,
         0,
         u32::MAX,
         0,
         0,
         0.75_f32.to_bits(),
+        no_masks[0],
+        no_masks[1],
+        no_masks[2],
     ];
     let materials = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,

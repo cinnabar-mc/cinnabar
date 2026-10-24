@@ -7,7 +7,10 @@ fn bound_view(bindings: Value) -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000001";
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
-    let terrain = json!({"texture_data":{"gen":{"textures":"textures/blocks/gen"}}});
+    let terrain = json!({"texture_data":{
+        "gen":{"textures":"textures/blocks/gen"},
+        "gen_glow":{"textures":"textures/blocks/gen_glow"}
+    }});
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (path, bytes) in [
         ("manifest.json", manifest.to_string().into_bytes()),
@@ -16,6 +19,10 @@ fn bound_view(bindings: Value) -> LayeredPackView {
             terrain.to_string().into_bytes(),
         ),
         ("textures/blocks/gen.png", png(2, 2, |_, _| [9, 9, 9, 255])),
+        (
+            "textures/blocks/gen_glow.png",
+            png(2, 2, |_, _| [250, 200, 40, 255]),
+        ),
         ("models/blocks/gen.geo.json", GEOMETRY.as_bytes().to_vec()),
         (
             pack_entity_compiler::MATERIAL_BINDINGS_PATH,
@@ -99,4 +106,43 @@ fn block_bindings_for_other_blocks_states_or_instances_change_nothing() {
     ] {
         assert_eq!(generator_coverage(glass(binding)), [0]);
     }
+}
+
+#[test]
+fn block_bindings_give_matching_faces_their_glow_mask() {
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"example:lamp": {
+            "textures": {"glow_mask": "gen_glow"},
+            "parameters": {"strength": {"scalar": 2.0}}
+        }},
+        "bindings": [{
+            "block": "test:generator",
+            "states": {"minecraft:cardinal_direction": "west"},
+            "material": "example:lamp"
+        }]
+    });
+    let blocks = CustomBlocks {
+        blocks: vec![generator()].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&bound_view(document), &blocks, false, None).unwrap();
+    let masked: Vec<_> = compiled.overlay.materials[1..]
+        .iter()
+        .filter(|material| material.glow_mask != assets::NO_MASK)
+        .collect();
+    assert_eq!(
+        masked.len(),
+        1,
+        "only the bound state's material carries the mask"
+    );
+    assert_eq!(f32::from_bits(masked[0].mask_strength), 2.0);
+    assert_eq!(masked[0].emissive_mask, assets::NO_MASK);
+    assert!(
+        compiled.overlay.materials[1..]
+            .iter()
+            .any(|material| material.glow_mask == assets::NO_MASK),
+        "other states keep the unmasked material"
+    );
 }

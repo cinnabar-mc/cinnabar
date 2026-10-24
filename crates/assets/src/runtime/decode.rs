@@ -728,6 +728,9 @@ fn decode_materials(bytes: &[u8]) -> Result<Box<[Material]>, AssetError> {
                 variation_start: u32_at(r, 12),
                 variation_count: u32_at(r, 16),
                 variation_weight: u32_at(r, 20),
+                glow_mask: u32_at(r, 24),
+                emissive_mask: u32_at(r, 28),
+                mask_strength: u32_at(r, 32),
             })
         })
         .collect::<Result<Vec<_>, _>>()

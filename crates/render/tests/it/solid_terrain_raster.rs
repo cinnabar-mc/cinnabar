@@ -145,7 +145,26 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
     );
     let no_animation = u32::MAX;
     let materials = gpu.words(
-        &[0, 0, no_animation, 0, 0, 0, 1, 0, no_animation, 0, 0, 0],
+        &[
+            0,
+            0,
+            no_animation,
+            0,
+            0,
+            0,
+            assets::NO_MASK,
+            assets::NO_MASK,
+            0,
+            1,
+            0,
+            no_animation,
+            0,
+            0,
+            0,
+            assets::NO_MASK,
+            assets::NO_MASK,
+            0,
+        ],
         storage,
     );
     let animations = gpu.words(&[0; 8], storage);

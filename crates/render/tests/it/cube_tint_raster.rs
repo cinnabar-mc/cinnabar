@@ -378,6 +378,9 @@ fn render_fixture(cache_admission: bool) {
                 0,
                 0,
                 0,
+                assets::NO_MASK,
+                assets::NO_MASK,
+                0,
             ]
         })
         .collect::<Vec<_>>();

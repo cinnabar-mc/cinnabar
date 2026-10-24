@@ -309,6 +309,20 @@ impl RuntimeAssets {
             ))
         };
 
+        // A mask references a base-carrier layer on page zero or an overlay page.
+        let mask_ref = |raw: u32| -> Result<u32, AssetError> {
+            if raw == crate::NO_MASK {
+                return Ok(raw);
+            }
+            let texture = TextureRef::from_raw(raw)?;
+            if texture.page() == 0 {
+                if texture.layer() >= base_layers {
+                    return Err(invalid("overlay mask base reference is invalid"));
+                }
+                return Ok(raw);
+            }
+            Ok(page_ref(texture)?.raw())
+        };
         let mut materials = self.materials.to_vec();
         crate::material_variations::validate(&overlay.materials)?;
         for material in &overlay.materials {
@@ -327,6 +341,13 @@ impl RuntimeAssets {
                 },
                 variation_count: material.variation_count,
                 variation_weight: material.variation_weight,
+                glow_mask: mask_ref(material.glow_mask)?,
+                emissive_mask: mask_ref(material.emissive_mask)?,
+                mask_strength: if f32::from_bits(material.mask_strength).is_finite() {
+                    material.mask_strength
+                } else {
+                    return Err(invalid("overlay mask strength is not finite"));
+                },
             });
         }
         for replacement in &overlay.material_overrides {
