@@ -307,15 +307,21 @@ fn an_empty_live_registry_uses_only_the_effective_builtin_throwable_record() {
     );
 }
 
-/// User data whose `ench` list holds `count` entries ending with `last`.
+/// User data whose `ench` list holds `count` level-1 entries ending with `last`.
 fn enchanted_extra(count: i16, last: i16) -> Vec<u8> {
+    leveled_extra(count, last, 1)
+}
+
+/// User data whose `ench` list holds `count` entries ending with `last` at `level`.
+fn leveled_extra(count: i16, last: i16, level: i16) -> Vec<u8> {
     let mut nbt = vec![10, 0, 0, 9, 4, 0];
     nbt.extend(b"ench");
     nbt.push(10);
     nbt.extend(i32::from(count).to_le_bytes());
     for index in 0..count {
         let id = if index + 1 == count { last } else { 0 };
-        for (key, value) in [("id", id), ("lvl", 1)] {
+        let lvl = if index + 1 == count { level } else { 1 };
+        for (key, value) in [("id", id), ("lvl", lvl)] {
             nbt.push(2);
             nbt.extend((key.len() as u16).to_le_bytes());
             nbt.extend(key.as_bytes());
@@ -340,4 +346,28 @@ fn equipment_enchantments_include_entries_past_the_tooltip_prefix() {
     cut.truncate(late.len() - 12);
     assert_eq!(crate::equipment_enchantments([Some(&cut[..])]), None);
     assert_eq!(crate::equipment_enchantments([Some(&[][..]), None]), None);
+}
+
+#[test]
+fn a_level_zero_enchantment_entry_cannot_satisfy_a_negated_enchantment_filter_falsely() {
+    let fire_aspect = protocol_ids::Enchantment::Fireaspect.wire_value();
+    let definition = EntityUseAdmission::Components {
+        source: 0,
+        offerings: Box::from([ComponentUse {
+            selector: UseSelector::Base,
+            component: "minecraft:interact".into(),
+            condition: UseCondition::Not(Box::new(UseCondition::EquipmentEnchantment {
+                enchantment: fire_aspect,
+            })),
+        }]),
+    };
+    let store = fixture("minecraft:zombie", definition);
+    let unleveled = leveled_extra(1, i16::from(fire_aspect), 0);
+    let mut held = equipment(&stack("minecraft:bow"));
+    held.enchantments = crate::equipment_enchantments([Some(&unleveled[..])]);
+    assert_eq!(held.enchantments, Some(0));
+    assert_eq!(
+        store.offered_use(store.get(8).unwrap(), &held),
+        OfferedUse::Unresolved
+    );
 }

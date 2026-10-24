@@ -224,10 +224,11 @@ fn read_enchantments(mut list: &[u8], display: &mut ItemDisplay) {
     })();
 }
 
-/// Every enchantment id in a stack's root `ench` list as bits of a mask, at any level and
-/// without the tooltip cap. `None` when the user data, root compound or list cannot be read
-/// in full, or an id falls outside the mask, so a clear bit always means that enchantment is
-/// absent.
+/// The enchantments a stack holds as bits of a mask, read from its whole root `ench` list
+/// without the tooltip cap. As vanilla's enchantment check does, an id counts only when its
+/// first entry has a positive level. `None` when the user data, root compound or list cannot
+/// be read in full, an entry lacks its id or level, or an id falls outside the mask, so a
+/// clear bit always means that enchantment is absent.
 #[must_use]
 pub fn item_enchantment_mask(extra_data: &[u8]) -> Option<u64> {
     let Some(header) = extra_data.get(..2) else {
@@ -260,7 +261,7 @@ pub fn item_enchantment_mask(extra_data: &[u8]) -> Option<u64> {
     }
 }
 
-/// Folds every entry's `id`; an empty list of any element type holds no enchantment.
+/// Folds each id's first entry by its level; an empty list of any element type holds none.
 fn enchantment_list_mask(mut list: &[u8]) -> Option<u64> {
     let element = read_u8(&mut list)?;
     let count = read_i32_le(&mut list)?;
@@ -270,8 +271,9 @@ fn enchantment_list_mask(mut list: &[u8]) -> Option<u64> {
     if element != TAG_COMPOUND {
         return None;
     }
-    let mut mask = 0_u64;
+    let (mut seen, mut mask) = (0_u64, 0_u64);
     for _ in 0..count {
+        let (mut id, mut level) = (None, None);
         loop {
             let tag = read_u8(&mut list)?;
             if tag == 0 {
@@ -280,12 +282,17 @@ fn enchantment_list_mask(mut list: &[u8]) -> Option<u64> {
             let name_len = usize::from(read_u16_le(&mut list)?);
             let name = list.get(..name_len)?;
             list = list.get(name_len..)?;
-            if tag == TAG_SHORT && name == b"id" {
-                let id = i16::from_le_bytes(list.get(..2)?.try_into().ok()?);
-                mask |= 1_u64.checked_shl(u32::try_from(id).ok()?)?;
+            if tag == TAG_SHORT && (name == b"id" || name == b"lvl") {
+                let value = i16::from_le_bytes(list.get(..2)?.try_into().ok()?);
+                *if name == b"id" { &mut id } else { &mut level } = Some(value);
             }
             skip_le_payload(&mut list, tag, 1)?;
         }
+        let bit = 1_u64.checked_shl(u32::try_from(id?).ok()?)?;
+        if seen & bit == 0 && level? > 0 {
+            mask |= bit;
+        }
+        seen |= bit;
     }
     Some(mask)
 }
@@ -454,9 +461,14 @@ mod tests {
         assert_eq!(item_display(&[]), ItemDisplay::default());
     }
 
-    /// Appends one `ench` entry holding only its id and level.
+    /// Appends one `ench` entry holding only its id and level 1.
     fn enchantment_entry(nbt: &mut Vec<u8>, id: i16) {
-        for (key, value) in [("id", id), ("lvl", 1)] {
+        leveled_entry(nbt, id, 1);
+    }
+
+    /// Appends one `ench` entry holding only its id and level.
+    fn leveled_entry(nbt: &mut Vec<u8>, id: i16, level: i16) {
+        for (key, value) in [("id", id), ("lvl", level)] {
             nbt.push(TAG_SHORT);
             nbt.extend((key.len() as u16).to_le_bytes());
             nbt.extend(key.as_bytes());
@@ -515,5 +527,28 @@ mod tests {
         });
         assert_eq!(item_enchantment_mask(&out_of_range), None);
         assert_eq!(item_enchantment_mask(&5_i16.to_le_bytes()), None);
+    }
+
+    #[test]
+    fn an_enchantment_counts_only_when_its_first_entry_has_a_positive_level() {
+        let list = |entries: &[(i16, i16)]| {
+            extra(|nbt| {
+                nbt.push(TAG_LIST);
+                nbt.extend(4_u16.to_le_bytes());
+                nbt.extend(b"ench");
+                nbt.push(TAG_COMPOUND);
+                nbt.extend((entries.len() as i32).to_le_bytes());
+                for (id, level) in entries {
+                    leveled_entry(nbt, *id, *level);
+                }
+            })
+        };
+        assert_eq!(item_enchantment_mask(&list(&[(13, 0)])), Some(0));
+        assert_eq!(item_enchantment_mask(&list(&[(13, -1)])), Some(0));
+        assert_eq!(item_enchantment_mask(&list(&[(13, 0), (13, 2)])), Some(0));
+        assert_eq!(
+            item_enchantment_mask(&list(&[(13, 2), (13, 0)])),
+            Some(1 << 13)
+        );
     }
 }
