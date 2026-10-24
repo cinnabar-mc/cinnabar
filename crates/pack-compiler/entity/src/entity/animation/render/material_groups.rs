@@ -95,7 +95,9 @@ pub(super) fn resolve(
         .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
         .collect::<Vec<_>>();
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
-        if let Some((state, definition, masks)) = materials.resolve_extension(material, table) {
+        if let Some((state, definition, masks)) =
+            materials.resolve_extension(material, true, table)
+        {
             let raster = Raster {
                 material: EntityRenderMaterial::Default,
                 state: Some(state),

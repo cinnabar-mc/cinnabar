@@ -51,6 +51,10 @@ Confirmed gaps against the current client:
   (16,384 declarations, 16,384 definitions, 256-byte names) that are not verified against the
   native client, which shows none. A material past them stays unresolved, is counted in the
   server pack's skip report and draws as a layer without a material.
+- A material's `fragmentShader` stem selects its actor material type. A program that is not
+  `entity`, `pattern` or an elided third stem draws as plain `Actor`, so the client
+  drops its three-sampler draw; the absent variant flags' defaults and the per-type material
+  tables are unknown, so `pattern` draws as `entity`.
 - Colour masking and three-sampler draws follow `USE_COLOR_MASK` and `USE_MULTITEXTURE`. The
   vanilla pack does not define the native `sheep`, `wolf` and `llama` materials, so the client's
   built-in bases declare them; packs cannot derive from `entity_change_color` or
