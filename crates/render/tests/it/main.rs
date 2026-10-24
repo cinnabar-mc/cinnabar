@@ -10,6 +10,7 @@ mod chunk_constants;
 mod gpu_snapshot;
 #[path = "../../src/hand_rig_render/bindings.rs"]
 mod hand_rig_bindings;
+mod material_fx;
 #[path = "support/material_records.rs"]
 mod material_records;
 #[path = "../../src/material_shader.rs"]

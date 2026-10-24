@@ -5,8 +5,9 @@
 //! [`export_client_part!`](crate::export_client_part). Paired projects use `#[entry::client]`
 //! and one `#[on_message]` method per reply. [`send`] accepts only to-server messages.
 //! Dispatch silently drops unknown channels and records that fail to decode.
-//! The host's imports include [`ui`], [`input`], [`scene`], [`media`], [`items`],
-//! [`drawing`], [`render`] and [`environment`]; each checks the bundle's grants.
+//! The host's imports include [`ui`], [`input`], [`messaging`], [`scene`], [`media`],
+//! [`world_material`], [`items`], [`drawing`], [`render`] and [`environment`]; each checks the
+//! bundle's grants.
 
 /// Bindings generated from `../mod-api/wit/client.wit`.
 pub mod bindings {
@@ -19,12 +20,13 @@ pub mod bindings {
 }
 
 pub use bindings::cinnabar::extension::{environment, render};
-pub use bindings::cinnabar::server_experience::{input, media, scene, ui};
+pub use bindings::cinnabar::server_experience::{
+    input, media, messaging, scene, ui, world_material,
+};
 pub use bindings::cinnabar::session::items;
 pub use bindings::cinnabar::world_draw::{assets, drawing, masks};
 
 use crate::Value;
-use bindings::cinnabar::server_experience::messaging;
 
 /// ABI adapters for generated entry points and low-level protocol fixtures.
 #[doc(hidden)]
