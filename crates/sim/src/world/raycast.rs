@@ -225,7 +225,15 @@ impl PaletteWorld<'_> {
             f64::from(block[1]),
             f64::from(block[2]),
         );
-        for runtime_id in self.layers_at(block, section)?.iter() {
+        // Bedrock's ordinary pick reads only the cell's primary block; extra
+        // blocks join only a liquid pick. A plant left in the extra layer under
+        // air therefore stays untargetable, and the ray reaches what is behind.
+        let layers = if self.pick_context.liquids {
+            usize::MAX
+        } else {
+            1
+        };
+        for runtime_id in self.layers_at(block, section)?.iter().take(layers) {
             let physics = self
                 .registry
                 .physics(runtime_id)
