@@ -345,6 +345,31 @@ impl ModHosts {
         (0..self.host_count()).map(|index| self.host(index).render())
     }
 
+    /// Presented touch buttons with their owning host index, in load order. A button id an
+    /// earlier mod already uses is skipped, and the set is bounded across all mods.
+    pub fn touch_buttons(&self) -> Vec<(usize, &ui::mod_touch::TouchButton)> {
+        let mut buttons: Vec<(usize, &ui::mod_touch::TouchButton)> = Vec::new();
+        for index in 0..self.host_count() {
+            for button in self.host(index).touch_buttons() {
+                if buttons.len() < ui::mod_touch::MAX_PRESENTED_TOUCH_BUTTONS
+                    && !buttons.iter().any(|(_, other)| other.id == button.id)
+                {
+                    buttons.push((index, button));
+                }
+            }
+        }
+        buttons
+    }
+
+    /// Queues a completed tap for the mod presenting button `id`; false when none does.
+    pub fn queue_touch_press(&mut self, id: &str) -> bool {
+        let owner = self
+            .touch_buttons()
+            .into_iter()
+            .find_map(|(index, button)| (button.id == id).then_some(index));
+        owner.is_some_and(|index| self.host_mut(index).queue_touch_press(id))
+    }
+
     /// Collects the distinct physical keys reserved by all loaded components.
     pub fn reserved_keys(&self) -> Vec<String> {
         let mut keys: Vec<_> = (0..self.host_count())

@@ -129,6 +129,7 @@ pub(super) fn drive_mod(
                 pitch: delta.pitch,
             });
         gameplay.apply_native_controls(effects.as_ref(), delta, &ui);
+        clear_touch_buttons(&mut presentation);
         return;
     };
     if extension.suspended {
@@ -150,7 +151,12 @@ pub(super) fn drive_mod(
             camera.set_hurt_camera_style(None);
             native_camera::apply(camera, gameplay.view.as_deref_mut(), user_freelook, None);
         }
+        clear_touch_buttons(&mut presentation);
         return;
+    }
+    // Taps completed this frame reach their owners before frame callbacks read them.
+    for id in presentation.take_mod_touch_taps() {
+        extension.hosts.queue_touch_press(&id);
     }
     drawing_policy::bind(&mut extension.hosts, &gameplay);
     anchors::reconcile(&mut extension.hosts, &gameplay);
@@ -404,6 +410,13 @@ pub(super) fn drive_mod(
             .mod_ui_mut()
             .set_mod_panel_open(extension.hosts.host(owner).panel_open());
     }
+    presentation.set_mod_touch_buttons(
+        extension
+            .hosts
+            .touch_buttons()
+            .into_iter()
+            .map(|(_, button)| button),
+    );
     let editor_session = gameplay.hud_editor_session(&ui);
     hud_editor::publish(
         &mut extension,
@@ -416,4 +429,10 @@ pub(super) fn drive_mod(
     } else {
         presentation.set_mod_screens(None);
     }
+}
+
+/// Removes mod touch buttons and drops their taps while no mod can receive them.
+fn clear_touch_buttons(presentation: &mut UiPresentationResource) {
+    presentation.take_mod_touch_taps();
+    presentation.set_mod_touch_buttons(std::iter::empty());
 }

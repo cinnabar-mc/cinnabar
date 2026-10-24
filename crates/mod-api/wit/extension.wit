@@ -540,6 +540,33 @@ interface terrain {
     read-region: func(query: region-query, after: option<stamp>) -> result<read-result, read-error>;
 }
 
+/// Mod-owned on-screen buttons drawn in the built-in touch control style while touch controls
+/// are shown. Players move them in the touch layout editor. Requires controls authority.
+interface touch {
+    use hud.{anchor, point};
+    record button {
+        /// 1–32 bytes of lowercase ASCII letters, digits, `_` and `-`. A player's saved
+        /// placement is keyed by it, so prefix it with the mod's name; when two mods use one
+        /// id, only the earlier mod's button is shown.
+        id: string,
+        /// One line of 1–24 bytes, drawn centred; it may not begin with `#`, `$` or `@`.
+        label: string,
+        /// Default placement, in GUI pixels inward from the anchored edges or right/down from
+        /// centred axes, each at most 1024.
+        anchor: anchor,
+        offset: point,
+        /// Width and height in GUI pixels, each 18 through 96.
+        size: point,
+    }
+    /// Replaces this instance's retained buttons, at most 4; an empty list removes them.
+    /// Committed after a successful callback; quarantine, unload and revocation remove them.
+    set-buttons: func(buttons: list<button>) -> result<_, string>;
+    /// IDs of this instance's buttons tapped since its previous frame callback, oldest first.
+    /// A tap completes when the finger lifts inside the button. Empty outside `frame`; a
+    /// deferred frame keeps the taps for the next one.
+    read-presses: func() -> result<list<string>, string>;
+}
+
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
     import cinnabar:world-draw/masks@0.1.0;
@@ -550,6 +577,7 @@ world extension {
     import camera;
     import hud;
     import input;
+    import touch;
     import environment;
     import gameplay;
     import events;
