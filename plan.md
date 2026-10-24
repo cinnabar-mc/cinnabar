@@ -978,7 +978,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   option menus, profiles and option files, evaluates custom uniforms and translates programs
   to validated naga modules, with calls ordered after forward declarations and generated
   helpers. Compatibility rewriting accepts empty top-level declarations, defers square roots
-  of negative float literals and separates shared-memory array declarations. Missing vertex
+  of negative float literals, separates shared-memory array declarations, sizes unsized
+  arrays from their constructors and folds typed scalar constants in array bounds. Missing vertex
   varying locations receive zero outputs. Unresolved vertex variables receive numeric
   declarations from used fragment inputs, with zero initialization at user main entry.
   Iris preprocessing recovers empty expanded conditions, malformed conditional macro
@@ -1007,7 +1008,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   which keep the native scene copy; legacy leather colour masks, dissolve pairs, beacon
   beams and additive rays, which keep native composition; autofocus on cutout
   pixels, liquids and entities; complete Iris type checking and target-dependent return
-  overloads; constant folding for half-float packing and bit casts. Java sky and fog time
+  overloads; array-bound folding of aggregate values and built-in calls; constant folding
+  for half-float packing and bit casts. Java sky and fog time
   curves and sunrise colours remain provisional. Shared loose uniforms still need
   stage-local type and constant resolution, equivalent array declaration matching and
   isolation from unrelated stage globals. Whole boolean uniform arrays and partially
