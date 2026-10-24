@@ -58,6 +58,9 @@ impl ActorMaterial {
             light_color_multiplier: _,
             // Masks are instance data; they reach neither the word nor the raster.
             masks: _,
+            // A world material tags only its own draw, whose pipeline the frame's world draws
+            // request; the Bedrock word and raster never carry it.
+            world: _,
         } = self;
         [kind, assets::EntityRenderMaterial::Glint]
             .into_iter()

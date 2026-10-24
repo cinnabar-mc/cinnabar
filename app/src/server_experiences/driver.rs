@@ -84,6 +84,7 @@ pub(crate) fn configure(app: &mut App) {
     let menu = app.world().resource::<MenuRuntime>();
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
+    app.init_resource::<render_scene::world_material::WorldMaterialScene>();
     app.insert_resource(ExperienceService {
         settings_path,
         cache_root,
@@ -106,6 +107,7 @@ pub(crate) fn configure(app: &mut App) {
             modal_hotbar.before(client_state::ExperienceInputSet),
             present_media.after(client_state::ExperienceInputSet),
             present_world_materials.after(client_state::ExperienceInputSet),
+            super::world_blocks::tag_world_material_blocks,
         )
             .chain()
             .before(ClientFrameSet::SemanticSample)
