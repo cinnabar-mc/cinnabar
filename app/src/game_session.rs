@@ -43,8 +43,15 @@ pub(crate) struct SessionWorld<'w> {
 impl SessionWorld<'_> {
     /// Fences old gameplay and presentation before any replacement session can publish.
     pub(crate) fn retire(&mut self, generation: u64) {
+        let leave = bridge::leave_profile::LeaveProfile::current();
+        let _section = leave.section("world_detach");
+        let _span = bevy::log::info_span!("session.retire_world").entered();
         self.resource_packs.begin_generation(generation);
-        begin_session(&mut self.runtime, &mut self.player_runtime, generation);
+        {
+            let _section = leave.section("ui_reset");
+            begin_session(&mut self.runtime, &mut self.player_runtime, generation);
+        }
+        let release = leave.section("world_release");
         release_off_frame((
             self.client_world.stream.take(),
             self.client_world.pack_entities.take(),
@@ -52,6 +59,7 @@ impl SessionWorld<'_> {
             self.client_world.session_items.take(),
             self.client_world.pending_digger_registry.take(),
             std::mem::take(&mut self.client_world.digger_filters),
+            release,
         ));
         self.client_world.pending_surface_spawn = None;
         self.fatal_error.0 = None;

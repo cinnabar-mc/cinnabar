@@ -818,6 +818,11 @@ acceptance still covers authenticated
 server/Realm/friend-world joins, transfers, reconnect/disconnect, account switching,
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
+Leaving closes old ingress immediately and releases buffered session payloads off the
+menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
+are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
+retirement. Regression coverage fences immediate reconnect attempts; displayed-frame and
+reference-hardware leave latency remain unqualified.
 Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
