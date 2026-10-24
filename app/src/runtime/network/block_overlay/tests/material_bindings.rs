@@ -146,3 +146,25 @@ fn block_bindings_give_matching_faces_their_glow_mask() {
         "other states keep the unmasked material"
     );
 }
+
+#[test]
+fn a_block_binding_condition_selects_states_like_a_permutation_condition() {
+    let bound = |condition: &str| {
+        generator_coverage(glass(json!({
+            "block": "test:generator",
+            "condition": condition,
+            "material": "example:glass"
+        })))
+    };
+    assert_eq!(
+        bound("q.block_state('minecraft:cardinal_direction') == 'west'"),
+        [0, assets::MATERIAL_FLAG_ALPHA_BLEND]
+    );
+    assert_eq!(bound("1.0"), [assets::MATERIAL_FLAG_ALPHA_BLEND]);
+    assert_eq!(bound("0.0"), [0]);
+    assert_eq!(
+        bound("q.block_state('unknown:state') == 1"),
+        [0],
+        "a condition that cannot evaluate does not apply"
+    );
+}

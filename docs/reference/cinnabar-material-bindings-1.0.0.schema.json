@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cinnabar.invalid/schemas/cinnabar-material-bindings-1.0.0.schema.json",
   "title": "Cinnabar material bindings 1.0.0",
-  "description": "cinnabar/material-bindings.json. The client also rejects a binding naming a material the document does not declare and parameter numbers that are not finite 32-bit floats, and counts name and pattern limits in UTF-8 bytes where this schema counts characters.",
+  "description": "cinnabar/material-bindings.json. The client also rejects a binding naming a material the document does not declare, a condition that is not block-state Molang, and parameter numbers that are not finite 32-bit floats, and counts name and pattern limits in UTF-8 bytes where this schema counts characters.",
   "type": "object",
   "required": ["format_version"],
   "additionalProperties": false,
@@ -96,7 +96,8 @@
         "bone": { "$ref": "#/$defs/optional_pattern" },
         "block": { "type": "null" },
         "states": { "type": "null" },
-        "material_instance": { "type": "null" }
+        "material_instance": { "type": "null" },
+        "condition": { "type": "null" }
       }
     },
     "block_binding": {
@@ -111,6 +112,11 @@
           "additionalProperties": { "type": ["boolean", "number", "string"] }
         },
         "material_instance": { "$ref": "#/$defs/optional_pattern" },
+        "condition": {
+          "description": "Molang over the block's named states (query.block_state); the binding applies where it rounds to a nonzero value.",
+          "type": ["string", "null"],
+          "maxLength": 2048
+        },
         "entity": { "type": "null" },
         "render_controller": { "type": "null" },
         "bone": { "type": "null" }

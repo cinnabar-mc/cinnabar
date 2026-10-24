@@ -22,8 +22,25 @@ struct Binding {
     block: Box<str>,
     states: serde_json::Map<String, Value>,
     instance: Option<Box<str>>,
+    /// Evaluated once per block state, as permutation conditions are.
+    condition: Option<pack_entity_compiler::BlockMolang>,
     method: BlockRenderMethod,
     masks: pack_entity_compiler::BlockMaskPaths,
+}
+
+impl Binding {
+    /// Whether the binding's condition holds where `block_state` reads the state's values; one
+    /// that cannot evaluate does not apply.
+    fn holds<'a>(
+        &self,
+        block_state: &dyn Fn(&str) -> Option<pack_entity_compiler::BlockStateValue<'a>>,
+    ) -> bool {
+        self.condition.as_ref().is_none_or(|condition| {
+            condition
+                .evaluate(block_state)
+                .is_some_and(pack_entity_compiler::BlockMolang::holds)
+        })
+    }
 }
 
 /// Mask textures matching bindings assign to one block state's material instances.
@@ -68,6 +85,10 @@ impl MaterialBindings {
                         block: binding.block,
                         states: binding.states,
                         instance: binding.material_instance,
+                        condition: binding
+                            .condition
+                            .as_deref()
+                            .and_then(pack_entity_compiler::BlockMolang::parse),
                         method,
                         masks: binding.masks,
                     }
@@ -346,51 +367,87 @@ impl Builder<'_> {
     }
 }
 
-/// Whether a vanilla block state has every value the binding names.
+/// Whether a vanilla block state has every value the binding names and its condition holds.
 fn vanilla_states_match(binding: &Binding, record: &assets::RegistryRecord) -> bool {
-    binding.states.iter().all(|(name, expected)| {
-        let Some(value) = assets::facts::BlockProperty::from_name(name)
-            .and_then(|property| record.property(property))
-        else {
-            return false;
-        };
-        match (value, expected) {
-            (assets::facts::StateValue::String(value), Value::String(expected)) => {
-                value.as_ref() == expected
+    let block_state = |name: &str| {
+        let value = assets::facts::BlockProperty::from_name(name)
+            .and_then(|property| record.property(property))?;
+        Some(match value {
+            assets::facts::StateValue::String(value) => {
+                pack_entity_compiler::BlockStateValue::String(value)
             }
-            (assets::facts::StateValue::Int(value), Value::Number(expected)) => {
-                expected.as_i64() == Some(i64::from(*value))
+            assets::facts::StateValue::Int(value) => {
+                pack_entity_compiler::BlockStateValue::Number(*value as f32)
             }
-            (assets::facts::StateValue::Bool(value), Value::Bool(expected)) => value == expected,
-            _ => false,
-        }
-    })
+            assets::facts::StateValue::Bool(value) => {
+                pack_entity_compiler::BlockStateValue::Number(f32::from(u8::from(*value)))
+            }
+        })
+    };
+    binding.holds(&block_state)
+        && binding.states.iter().all(|(name, expected)| {
+            let Some(value) = assets::facts::BlockProperty::from_name(name)
+                .and_then(|property| record.property(property))
+            else {
+                return false;
+            };
+            match (value, expected) {
+                (assets::facts::StateValue::String(value), Value::String(expected)) => {
+                    value.as_ref() == expected
+                }
+                (assets::facts::StateValue::Int(value), Value::Number(expected)) => {
+                    expected.as_i64() == Some(i64::from(*value))
+                }
+                (assets::facts::StateValue::Bool(value), Value::Bool(expected)) => {
+                    value == expected
+                }
+                _ => false,
+            }
+        })
 }
 
-/// Whether the state has every value the binding names; unknown state names never match.
+/// Whether the state has every value the binding names and its condition holds; unknown
+/// state names never match.
 fn states_match(
     binding: &Binding,
     block: &CustomBlock,
     values: Option<&[CustomStateValue]>,
 ) -> bool {
-    binding.states.iter().all(|(name, expected)| {
-        let Some(axis) = block
+    let block_state = |name: &str| {
+        let axis = block
             .visual
             .state_axes
             .iter()
-            .position(|axis| axis.name.as_ref() == name)
-        else {
-            return false;
-        };
-        match (values.and_then(|values| values.get(axis)), expected) {
-            (Some(CustomStateValue::String(value)), Value::String(expected)) => {
-                value.as_ref() == expected
+            .position(|axis| axis.name.as_ref() == name)?;
+        Some(match values?.get(axis)? {
+            CustomStateValue::String(value) => pack_entity_compiler::BlockStateValue::String(value),
+            CustomStateValue::Int(value) => {
+                pack_entity_compiler::BlockStateValue::Number(*value as f32)
             }
-            (Some(CustomStateValue::Int(value)), Value::Number(expected)) => {
-                expected.as_i64() == Some(*value)
+            CustomStateValue::Bool(value) => {
+                pack_entity_compiler::BlockStateValue::Number(f32::from(u8::from(*value)))
             }
-            (Some(CustomStateValue::Bool(value)), Value::Bool(expected)) => value == expected,
-            _ => false,
-        }
-    })
+        })
+    };
+    binding.holds(&block_state)
+        && binding.states.iter().all(|(name, expected)| {
+            let Some(axis) = block
+                .visual
+                .state_axes
+                .iter()
+                .position(|axis| axis.name.as_ref() == name)
+            else {
+                return false;
+            };
+            match (values.and_then(|values| values.get(axis)), expected) {
+                (Some(CustomStateValue::String(value)), Value::String(expected)) => {
+                    value.as_ref() == expected
+                }
+                (Some(CustomStateValue::Int(value)), Value::Number(expected)) => {
+                    expected.as_i64() == Some(*value)
+                }
+                (Some(CustomStateValue::Bool(value)), Value::Bool(expected)) => value == expected,
+                _ => false,
+            }
+        })
 }
