@@ -118,14 +118,12 @@ pub const MATERIAL_FLAG_DISABLE_FACE_DIMMING: u32 = 1 << 26;
 pub const MATERIAL_FLAG_CAULDRON_WATER: u32 = 1 << 27;
 /// Packed vertex colour used by ordinary cauldron water, including its translucency.
 pub const CAULDRON_WATER_COLOUR: [u8; 4] = [52, 81, 89, 191];
-/// Compact authored AO exponent in hundredths. Zero selects the native omitted default (1).
-pub const MATERIAL_LEAF_AO_EXPONENT_SHIFT: u32 = 17;
-pub const MATERIAL_LEAF_AO_EXPONENT_MAX: u32 = u8::MAX as u32;
-pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
-    MATERIAL_LEAF_AO_EXPONENT_MAX << MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-pub const MATERIAL_LEAF_AO_EXPONENT_SCALE: u32 = 100;
-pub const MATERIAL_LEAF_METADATA_MASK: u32 =
-    MATERIAL_FLAG_ISOTROPIC | MATERIAL_LEAF_AO_EXPONENT_MASK;
+/// Unassigned flag bits; valid materials leave them clear.
+pub const MATERIAL_FLAGS_RESERVED: u32 = 0xff << 17;
+/// Pack-authored leaf metadata carried in the flags word.
+pub const MATERIAL_LEAF_METADATA_MASK: u32 = MATERIAL_FLAG_ISOTROPIC;
+/// The AO exponent of a material that names none, as vanilla terrain draws.
+pub const DEFAULT_AO_EXPONENT: f32 = 1.0;
 
 /// Coverage flags one block render method selects: blend, cutout, or neither for opaque layers.
 /// Two-sidedness depends on the caller's geometry; see [`protocol_ids::BlockRenderMethod::two_sided`].
@@ -171,17 +169,6 @@ pub fn block_render_method_for(
     (method, exact)
 }
 
-/// Decodes admitted pack-authored hundredths, without changing the native default.
-#[must_use]
-pub fn material_leaf_ao_exponent(flags: u32) -> f32 {
-    let value = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    if value == 0 {
-        1.0
-    } else {
-        value as f32 / MATERIAL_LEAF_AO_EXPONENT_SCALE as f32
-    }
-}
-
 pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | MATERIAL_FLAG_TINT_MASK
     | MATERIAL_FLAG_OVERLAY_MASK
@@ -200,11 +187,13 @@ pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | crate::stem::MATERIAL_FLAG
     | crate::stem::GROWTH_MASK;
 
-// Every flag bit is assigned, so validity depends only on the combination rules below.
-const _: () = assert!(MATERIAL_FLAGS_MASK == u32::MAX);
+// Every flag bit is assigned or reserved, so validity depends only on the rules below.
+const _: () = assert!(MATERIAL_FLAGS_MASK | MATERIAL_FLAGS_RESERVED == u32::MAX);
+const _: () = assert!(MATERIAL_FLAGS_MASK & MATERIAL_FLAGS_RESERVED == 0);
 
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
-    (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
+    flags & MATERIAL_FLAGS_RESERVED == 0
+        && (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
         && (flags & crate::stem::MATERIAL_FLAG == 0
             || flags
                 & (MATERIAL_FLAG_TINT_MASK
@@ -251,6 +240,9 @@ pub struct Material {
     pub emissive_mask: u32,
     /// f32 bits of the strength scaling both masks.
     pub mask_strength: u32,
+    /// f32 bits of the exponent raising this material's ambient occlusion; any finite value, as
+    /// Bedrock carries the authored float unchanged. [`DEFAULT_AO_EXPONENT`] draws vanilla AO.
+    pub ao_exponent: u32,
 }
 
 /// A material texture-reference slot that names no mask.
@@ -269,11 +261,12 @@ impl Material {
             glow_mask: NO_MASK,
             emissive_mask: NO_MASK,
             mask_strength: 0,
+            ao_exponent: DEFAULT_AO_EXPONENT.to_bits(),
         }
     }
 }
 
-const _: () = assert!(std::mem::size_of::<Material>() == 36);
+const _: () = assert!(std::mem::size_of::<Material>() == 40);
 
 /// Per-face material IDs and registry facts for one sequential block ID.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]

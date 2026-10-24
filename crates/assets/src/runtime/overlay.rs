@@ -352,6 +352,11 @@ impl RuntimeAssets {
                 } else {
                     return Err(invalid("overlay mask strength is not finite"));
                 },
+                ao_exponent: if f32::from_bits(material.ao_exponent).is_finite() {
+                    material.ao_exponent
+                } else {
+                    return Err(invalid("overlay AO exponent is not finite"));
+                },
             });
         }
         for replacement in &overlay.material_overrides {

@@ -267,17 +267,7 @@ impl Fixture {
         let frame = render_scene::AtmosphereFrame::default();
         Some(Self {
             materials: gpu.words(
-                &[
-                    0,
-                    0,
-                    assets::NO_ANIMATION,
-                    0,
-                    0,
-                    0,
-                    assets::NO_MASK,
-                    assets::NO_MASK,
-                    0,
-                ],
+                &crate::material_records::plain_material(0, 0, assets::NO_ANIMATION),
                 storage,
             ),
             zeros: gpu.words(&UNUSED, storage),

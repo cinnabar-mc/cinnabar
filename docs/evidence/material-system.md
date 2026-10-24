@@ -28,7 +28,8 @@ Confirmed gaps against the current client:
   the grass-side overlay composition (alpha weights the tint, the face stays opaque); the Bedrock
   shader formula is unknown, so this is provisional. Packed bit 4 is retained but not
   rendered; its constant is unknown.
-- AO exponents above 2.55 or finer than hundredths keep the default exponent.
+- Block AO exponents reach the material as the exact authored f32, as Bedrock carries them; the
+  shading consumer is unknown, so raising vertex AO to the exponent is provisional.
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
 - Server texture sets contribute only their colour layer.

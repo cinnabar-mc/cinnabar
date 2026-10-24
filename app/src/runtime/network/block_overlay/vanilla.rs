@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// AO exponent bits of a material that names none.
+const DEFAULT_AO: u32 = assets::DEFAULT_AO_EXPONENT.to_bits();
+
 impl Builder<'_> {
     /// Replaces selectors only for new catalog entries; raster-only packs replace their leaves.
     pub(super) fn override_vanilla_materials(&mut self, keys: &MaterialKeys) {
@@ -32,7 +35,9 @@ impl Builder<'_> {
                     continue;
                 }
                 let flags = base.map_or(0, |material| material.flags);
-                if let Some(replacement) = self.terrain_material(Some(keys), key, variant, flags) {
+                if let Some(replacement) =
+                    self.terrain_material(Some(keys), key, variant, (flags, DEFAULT_AO))
+                {
                     let replacement = self.overlay.materials[replacement as usize];
                     claimed.insert(id);
                     self.overlay.material_overrides.push(MaterialOverride {
@@ -186,7 +191,8 @@ impl Builder<'_> {
                     .material_source(material)
                     .map_or(0, |source| source.variant);
                 if let Some((key, flags)) = world_bindings[index] {
-                    faces[index] = self.terrain_material(Some(keys), key, variant, flags);
+                    let ao = base.material(material).ao_exponent;
+                    faces[index] = self.terrain_material(Some(keys), key, variant, (flags, ao));
                 }
             }
             if faces.iter().any(Option::is_some) {
@@ -199,8 +205,10 @@ impl Builder<'_> {
                 let variant = keys
                     .material_source(material)
                     .map_or(0, |source| source.variant);
-                let flags = base.material(material).flags & !assets::MATERIAL_FLAG_ROTATE_UV;
-                self.terrain_material(Some(keys), carried_keys[index]?, variant, flags)
+                let material = base.material(material);
+                let flags = material.flags & !assets::MATERIAL_FLAG_ROTATE_UV;
+                let raster = (flags, material.ao_exponent);
+                self.terrain_material(Some(keys), carried_keys[index]?, variant, raster)
             });
             if carried.iter().all(Option::is_some) {
                 self.vanilla_carried.push(CarriedBlock {
@@ -235,17 +243,18 @@ impl Builder<'_> {
         changed
     }
 
-    /// Builds one state selector with independent, normalized positional alternatives. `keys`
-    /// lets carrier rasters donate missing art; pack-only keys pass `None`.
+    /// Builds one state selector with independent, normalized positional alternatives, drawn
+    /// with `(flags, AO exponent bits)`. `keys` lets carrier rasters donate missing art;
+    /// pack-only keys pass `None`.
     pub(super) fn terrain_material(
         &mut self,
         keys: Option<&MaterialKeys>,
         key: &str,
         variant: u32,
-        flags: u32,
+        (flags, ao_exponent): (u32, u32),
     ) -> Option<u32> {
         let variant = self.catalog.resolved_variant(key, variant)?;
-        let cache_key = (key.to_owned(), variant, flags);
+        let cache_key = (key.to_owned(), variant, flags, ao_exponent);
         if let Some(&id) = self.terrain_materials.get(&cache_key) {
             return Some(id);
         }
@@ -270,6 +279,7 @@ impl Builder<'_> {
                 Some(Material {
                     texture: TextureRef::new(slot.page, slot.layer).expect("bounded layer"),
                     flags,
+                    ao_exponent,
                     animation: slot.animation,
                     variation_weight: if choices.len() == 1 {
                         0

@@ -34,11 +34,18 @@ impl Builder<'_> {
         if chosen.alpha_masked_tint() && tint != 0 {
             flags |= assets::MATERIAL_FLAG_OVERLAY_MASK;
         }
-        match ao_exponent_flags(chosen.ambient_occlusion) {
-            Some(ao) => flags |= ao,
-            // Exponents outside the compact hundredths field keep the default exponent.
-            None => self.gaps.approximated_materials += 1,
+        let ao_exponent = match ao_exponent(chosen.ambient_occlusion) {
+            Some(exponent) => exponent,
+            // The shader cannot raise AO to a non-finite power; draw the default exponent.
+            None => {
+                self.gaps.approximated_materials += 1;
+                assets::DEFAULT_AO_EXPONENT
+            }
+        };
+        if ao_exponent == 0.0 {
+            flags |= MATERIAL_FLAG_DISABLE_AO;
         }
+        let ao_exponent = ao_exponent.to_bits();
         if !chosen.face_dimming() {
             flags |= MATERIAL_FLAG_DISABLE_FACE_DIMMING;
         }
@@ -53,13 +60,16 @@ impl Builder<'_> {
                 .choices(&texture, 0)
                 .is_some_and(|choices| choices.len() > 1)
         {
-            return match self.terrain_material(self.base_keys, &texture, 0, flags) {
+            return match self.terrain_material(self.base_keys, &texture, 0, (flags, ao_exponent)) {
                 Some(material) => (material, alpha_flags, two_sided),
                 None => (DIAGNOSTIC_MATERIAL, 0, two_sided),
             };
         }
         let masks = self.face_masks(&chosen.name);
-        if let Some(&material) = self.materials.get(&(texture.clone(), flags, masks)) {
+        if let Some(&material) = self
+            .materials
+            .get(&(texture.clone(), flags, ao_exponent, masks))
+        {
             return (material, alpha_flags, two_sided);
         }
         if !self.can_admit_materials(1) {
@@ -76,9 +86,11 @@ impl Builder<'_> {
             glow_mask: masks[0],
             emissive_mask: masks[1],
             mask_strength: masks[2],
+            ao_exponent,
             ..assets::Material::unvaried()
         });
-        self.materials.insert((texture, flags, masks), material);
+        self.materials
+            .insert((texture, flags, ao_exponent, masks), material);
         (material, alpha_flags, two_sided)
     }
 
@@ -101,21 +113,11 @@ impl Builder<'_> {
     }
 }
 
-/// Encodes an authored AO exponent: 0 disables AO, 1 is the default, and other values use the
-/// compact hundredths field. `None` when the field cannot represent the value exactly.
-fn ao_exponent_flags(exponent: f32) -> Option<u32> {
-    if exponent == 0.0 {
-        return Some(MATERIAL_FLAG_DISABLE_AO);
-    }
-    if exponent == 1.0 {
-        return Some(0);
-    }
-    let encoded = (exponent * assets::MATERIAL_LEAF_AO_EXPONENT_SCALE as f32).round();
-    if !(1.0..=assets::MATERIAL_LEAF_AO_EXPONENT_MAX as f32).contains(&encoded) {
-        return None;
-    }
-    let flags = (encoded as u32) << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    (assets::material_leaf_ao_exponent(flags) == exponent).then_some(flags)
+/// The exponent a material instance's `ambient_occlusion` draws with: the network float
+/// unchanged, as Bedrock carries it, with 0 drawing faces unshaded. `None` for non-finite values,
+/// which no exponent draws.
+fn ao_exponent(exponent: f32) -> Option<f32> {
+    exponent.is_finite().then_some(exponent)
 }
 
 /// Resolves a face's material instance: an explicit geometry name, then the face, then `side`

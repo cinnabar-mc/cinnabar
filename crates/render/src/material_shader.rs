@@ -224,18 +224,6 @@ pub(crate) fn source(source: &str) -> String {
             &format!("{}u", assets::MATERIAL_FLAG_ISOTROPIC),
         )
         .replace(
-            "MATERIAL_LEAF_AO_EXPONENT_MASK",
-            &format!("{}u", assets::MATERIAL_LEAF_AO_EXPONENT_MASK),
-        )
-        .replace(
-            "MATERIAL_LEAF_AO_EXPONENT_SHIFT",
-            &format!("{}u", assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT),
-        )
-        .replace(
-            "MATERIAL_LEAF_AO_EXPONENT_SCALE",
-            &format!("{}.0", assets::MATERIAL_LEAF_AO_EXPONENT_SCALE),
-        )
-        .replace(
             "NATIVE_LEAF_TEXTURE_BINDING_0",
             &NATIVE_LEAF_TEXTURE_BINDINGS[0].to_string(),
         )

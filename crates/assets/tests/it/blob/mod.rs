@@ -148,7 +148,7 @@ fn world_carrier_exact_bytes() {
     .into_boxed_slice();
 
     let bytes = encode_blob(&fixture).expect("encode every world carrier table");
-    assert_eq!(bytes.len(), 1_576_376);
+    assert_eq!(bytes.len(), 1_576_384);
     assert_eq!(
         &bytes[..8],
         &BLOB_MAGIC,
@@ -156,7 +156,7 @@ fn world_carrier_exact_bytes() {
     );
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "19974f4dc07e9d036f60b431ebcfb7fe73ae08700de5b9cec73b8e202fe370da",
+        "67a9577a5b21337c4a24214fad24395f3bab74c319bd258830cda2282a7770ad",
         "the complete every-table fixture is the byte-exact world carrier golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);

@@ -239,6 +239,7 @@ pub(crate) fn render_at(
                     m.glow_mask,
                     m.emissive_mask,
                     m.mask_strength,
+                    m.ao_exponent,
                 ]
             })
             .collect::<Vec<_>>(),

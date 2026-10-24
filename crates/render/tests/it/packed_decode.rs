@@ -22,18 +22,15 @@ fn source(shader: &str, witness: &str) -> String {
 }
 
 /// Packs one untextured, unanimated, unmasked GPU material record with the given variation range.
-fn unanimated_material(variation_start: u32, variation_count: u32) -> [u32; 9] {
-    [
-        0,
-        0,
-        assets::NO_ANIMATION,
+fn unanimated_material(
+    variation_start: u32,
+    variation_count: u32,
+) -> [u32; crate::material_records::MATERIAL_WORDS] {
+    crate::material_records::material_words(assets::Material {
         variation_start,
         variation_count,
-        0,
-        assets::NO_MASK,
-        assets::NO_MASK,
-        0,
-    ]
+        ..assets::Material::unvaried()
+    })
 }
 
 #[test]
@@ -276,7 +273,7 @@ fn detail_quads_take_the_shade_face_their_light_carries() {
         geometry.extend([sample | (sample << 16); 2]);
     }
     let origins = gpu.words(&[0; 8], storage);
-    let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage);
+    let materials = gpu.words(&unanimated_material(0, 0), storage);
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 8], storage);
     let clock = gpu.words(&[0; 4], uniform);

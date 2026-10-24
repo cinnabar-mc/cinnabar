@@ -29,7 +29,7 @@ use crate::{
 // their native upper-left crop. Model texture arrays require explicit state selectors, and
 // texture references carry three page bits so a session palette can shard across several
 // device-limited arrays; reject earlier carriers.
-pub const BLOB_VERSION: u32 = 20;
+pub const BLOB_VERSION: u32 = 21;
 pub const BLOB_MAGIC: [u8; 8] = {
     let mut magic = *b"MCBEAS00";
     magic[6] += (BLOB_VERSION / 10) as u8;
@@ -180,6 +180,7 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         push_u32(&mut bytes, material.glow_mask);
         push_u32(&mut bytes, material.emissive_mask);
         push_u32(&mut bytes, material.mask_strength);
+        push_u32(&mut bytes, material.ao_exponent);
     }
     for template in &compiled.model_templates {
         push_u32(&mut bytes, template.quad_start);
@@ -324,6 +325,11 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         validate_texture_ref(material.texture, &compiled.texture_pages, "material")?;
         if !material_flags_are_valid(material.flags) {
             return Err(invalid(format!("material {index} has unsupported flags")));
+        }
+        if !f32::from_bits(material.ao_exponent).is_finite() {
+            return Err(invalid(format!(
+                "material {index} has a non-finite AO exponent"
+            )));
         }
         optional_id(
             material.animation,
