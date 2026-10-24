@@ -20,7 +20,7 @@ use super::{
 const MAX_SLOTS_PER_LAYER: usize = 16;
 
 mod material_groups;
-use super::super::materials;
+use super::super::materials::{self, diagnostics::EntityMaterialDiagnostics};
 
 pub(super) struct RenderSources<'a> {
     pub root: &'a Path,
@@ -105,12 +105,13 @@ fn compile_uv_anim(molang: &mut MolangCompiler, value: Option<&Value>) -> Option
     Some(components)
 }
 
-/// Compiles the render controllers, returning the render payload and the number of material
-/// declarations and definitions left unresolved past their bounds.
+/// Compiles the render layers of every rig, returning the render payload, the number of
+/// material declarations and definitions left unresolved past their bounds, and the pack's
+/// entity material counts.
 pub(super) fn compile_render(
     input: RenderSources<'_>,
     molang: &mut MolangCompiler,
-) -> Result<(EntityRenderData, u32), AssetError> {
+) -> Result<(EntityRenderData, u32, EntityMaterialDiagnostics), AssetError> {
     let RenderSources {
         root,
         payloads,
@@ -137,6 +138,7 @@ pub(super) fn compile_render(
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut layer_geometries = Vec::new();
     let mut material_selections = Vec::new();
+    let mut skipped_draws = 0;
     let mut geometry_parents = None;
     let geometry_indices = unique_geometry_indices(geometries)?;
     for (rig_index, rig) in rigs.iter().enumerate() {
@@ -363,24 +365,32 @@ pub(super) fn compile_render(
                     candidates: &mut candidates,
                     visibility: &mut visibility,
                     geometries: &mut layer_geometries,
+                    skipped_draws: &mut skipped_draws,
                 },
                 molang,
             )?;
         }
     }
     let unresolved = materials.unadmitted() + material_table.unresolved();
-    let (definitions, material_masks) = material_table.into_parts();
-    let render = EntityRenderData {
-        material_selections: material_selections.into_boxed_slice(),
-        layers: layers.into_boxed_slice(),
-        slots: slots.into_boxed_slice(),
-        candidates: candidates.into_boxed_slice(),
-        visibility: visibility.into_boxed_slice(),
-        geometries: layer_geometries.into_boxed_slice(),
-        materials: definitions,
-        material_masks,
+    let diagnostics = EntityMaterialDiagnostics {
+        skipped_draws,
+        ..materials.diagnostics()
     };
-    Ok((render, unresolved))
+    let (materials, material_masks) = material_table.into_parts();
+    Ok((
+        EntityRenderData {
+            material_selections: material_selections.into_boxed_slice(),
+            layers: layers.into_boxed_slice(),
+            slots: slots.into_boxed_slice(),
+            candidates: candidates.into_boxed_slice(),
+            visibility: visibility.into_boxed_slice(),
+            geometries: layer_geometries.into_boxed_slice(),
+            materials,
+            material_masks,
+        },
+        unresolved,
+        diagnostics,
+    ))
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition
