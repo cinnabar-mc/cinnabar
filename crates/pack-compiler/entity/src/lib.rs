@@ -22,7 +22,8 @@ pub use entity::materials::extension::{
 };
 pub use entity::materials::list::{
     ENTITY_MATERIAL_LIST_PATH, MAX_MATERIAL_LIST_PATH_BYTES, MaterialListEntry,
-    material_list_document, resolve_material_lists,
+    SIMPLE_ENTITY_MATERIAL_LIST_PATH, entity_material_list_source, material_list_document,
+    resolve_material_lists,
 };
 pub use entity::{
     BlockMolang, BlockStateValue, CompileReferenceOutcome, EntityAssetCompilation,

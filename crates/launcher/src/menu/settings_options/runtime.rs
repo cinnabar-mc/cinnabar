@@ -62,6 +62,8 @@ impl SettingsOptions {
         settings.video.view_bobbing =
             ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
+        // The Graphics Mode choices are Simple, then Fancy.
+        settings.video.fancy_graphics = self.value(SettingId::GraphicsMode) != 0;
         settings.video.show_custom_item_models = self.value(SettingId::ShowCustomItemModels) != 0;
         settings.video.show_other_player_cosmetics =
             self.value(SettingId::ShowOtherPlayerCosmetics) != 0;
@@ -110,6 +112,15 @@ mod tests {
         assert!(!restored.user_settings().video.chunk_occlusion_culling);
         restored.reset_group(super::super::SettingsGroup::Video);
         assert!(restored.user_settings().video.chunk_occlusion_culling);
+    }
+
+    #[test]
+    fn fancy_graphics_defaults_on_and_follows_the_graphics_mode() {
+        let mut options = SettingsOptions::default();
+        assert!(options.user_settings().video.fancy_graphics);
+        assert!(options.set(SettingId::GraphicsMode.index(), 0));
+        let restored = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        assert!(!restored.user_settings().video.fancy_graphics);
     }
 
     /// Touch sensitivity survives a save and changes only the touch look multiplier.

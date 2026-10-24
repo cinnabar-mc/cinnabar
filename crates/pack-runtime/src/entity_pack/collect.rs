@@ -141,6 +141,22 @@ pub fn collect_files_reporting(
     vanilla: Option<&VanillaEntityRefs>,
     vanilla_pack_dir: Option<&Path>,
 ) -> (CollectedFiles, assets::EntityMaterialDiagnostics) {
+    collect_files_for_graphics(
+        view,
+        vanilla,
+        vanilla_pack_dir,
+        crate::graphics::fancy_graphics(),
+    )
+}
+
+/// [`collect_files_reporting`] with the entity material list of Fancy Graphics or of Simple
+/// graphics, as `fancy_graphics` selects.
+pub fn collect_files_for_graphics(
+    view: &LayeredPackView,
+    vanilla: Option<&VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&Path>,
+    fancy_graphics: bool,
+) -> (CollectedFiles, assets::EntityMaterialDiagnostics) {
     let mut report = assets::EntityMaterialDiagnostics::default();
     let mut files = Vec::new();
     let CollectedEntities {
@@ -162,7 +178,7 @@ pub fn collect_files_reporting(
     for (_, _, definitions) in &definitions {
         overrides.extend(definitions.keys().cloned());
     }
-    let (materials, list_report) = material_files(view);
+    let (materials, list_report) = material_files(view, fancy_graphics);
     report.list = list_report;
     let material_documents = materials
         .iter()
@@ -405,10 +421,11 @@ pub fn material_bindings_document(view: &LayeredPackView) -> Option<Value> {
     parse_pack_json(&view.read(pack_entity_compiler::MATERIAL_BINDINGS_PATH)?)
 }
 
-/// The stack's material documents keyed by pack path, as entity compilation reads them:
-/// the resolved entity material list and the files it names, then unlisted `.material` files.
-pub fn material_documents(view: &LayeredPackView) -> Vec<(String, Value)> {
-    material_files(view)
+/// The stack's material documents keyed by pack path, as entity compilation reads them under
+/// the graphics mode `fancy_graphics`: the resolved entity material list and the files it names,
+/// then unlisted `.material` files.
+pub fn material_documents(view: &LayeredPackView, fancy_graphics: bool) -> Vec<(String, Value)> {
+    material_files(view, fancy_graphics)
         .0
         .into_iter()
         .filter_map(|(path, bytes)| Some((path, parse_pack_json(&bytes)?)))
@@ -418,14 +435,20 @@ pub fn material_documents(view: &LayeredPackView) -> Vec<(String, Value)> {
 /// Material files merged per path across the stack, lowest precedence first, as the client
 /// patches same-path copies. Each file keeps its own version wrapper and declaration order.
 ///
-/// Every pack's copy of the entity material list is read, highest precedence first, and
-/// resolved into one list written at its own path; the files it names are kept whatever their
+/// Every pack's copy of the entity material list of the graphics mode (`materials/fancy.json`
+/// with Fancy Graphics, `materials/sad.json` without) is read, highest precedence first, and
+/// resolved into one list written where compilation reads it; the files it names are kept whatever their
 /// path, those outside `materials/*.material` under a key compilation admits. Unlisted
 /// `materials/*.material` files are kept too, standing in for the vanilla lists the client does
 /// not ship.
-fn material_files(view: &LayeredPackView) -> (Vec<(String, Vec<u8>)>, assets::MaterialListReport) {
+fn material_files(
+    view: &LayeredPackView,
+    fancy_graphics: bool,
+) -> (Vec<(String, Vec<u8>)>, assets::MaterialListReport) {
     let list_path = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
-    let copies = view.read_layers(list_path);
+    let copies = view.read_layers(pack_entity_compiler::entity_material_list_source(
+        fancy_graphics,
+    ));
     let parsed = copies
         .iter()
         .rev()

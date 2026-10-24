@@ -109,6 +109,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   is `implemented` with a named test. The entity material declaration, definition and name
   bounds are unverified implementation limits; past them a material draws without one.
   is `implemented` with a named test.
+  is `implemented` with a named test. The Graphics Mode video option (Fancy by default) selects
+  server packs' entity material list, `materials/fancy.json` or `materials/sad.json`; a change
+  applies from the next pack application, not to the packs already loaded.
 - [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
   block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
   bindings take none: the schema rejects one, and the client binds unconditionally and counts the

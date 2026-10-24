@@ -114,10 +114,13 @@ pub(super) fn compile_block_overlay(
         max_texture_array_layers,
         base_assets,
         None,
+        pack_runtime::graphics::fancy_graphics(),
     )
 }
 
-/// Compiles world or inventory visuals using the same parsed terrain tables when available.
+/// Compiles world or inventory visuals using the same parsed terrain tables when available;
+/// material bindings resolve their bases through graphics mode `fancy_graphics`'s list.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compile_block_overlay_with_textures(
     view: &LayeredPackView,
     blocks: &CustomBlocks,
@@ -126,6 +129,7 @@ pub(super) fn compile_block_overlay_with_textures(
     max_texture_array_layers: u32,
     base_assets: Option<&assets::RuntimeAssets>,
     shared: Option<&SharedTextures>,
+    fancy_graphics: bool,
 ) -> Option<CompiledBlockOverlay> {
     if max_texture_array_layers == 0
         || base_assets.is_some_and(|base| base.texture_pages().len() >= assets::MAX_TEXTURE_PAGES)
@@ -185,7 +189,7 @@ pub(super) fn compile_block_overlay_with_textures(
             ..OverlayGaps::default()
         },
     };
-    let bindings = bindings::MaterialBindings::new(view, &mut builder.gaps);
+    let bindings = bindings::MaterialBindings::new(view, fancy_graphics, &mut builder.gaps);
     builder.sources.push((Source::Diagnostic, 0));
     builder.overlay.materials.push(Material {
         texture: TextureRef::new(builder.overlay.base_texture_pages, 0).expect("layer zero"),
