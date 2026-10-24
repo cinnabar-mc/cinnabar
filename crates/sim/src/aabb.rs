@@ -473,4 +473,34 @@ mod tests {
             Some(Vec3::new(0.5, 0.5, 0.0))
         );
     }
+
+    /// A nearly parallel axis does not supply a segment-clipping face.
+    #[test]
+    fn shallow_axis_does_not_supply_a_pick_face() {
+        let bounds = Aabb::new(Vec3::new(0.000015, 0.0, 1.0), Vec3::new(1.0, 2.0, 1.6));
+        let hit = bounds
+            .clip_segment_point(Vec3::new(0.0, 1.0, 0.0), Vec3::new(0.00003, 1.0, 3.0), true)
+            .unwrap();
+        assert_eq!((hit.z as f32).to_bits(), 0x3fcc_ccce);
+        assert!(hit.x >= f64::from(0.000015_f32));
+    }
+
+    /// Surface contacts include closed endpoints and optional interior origins.
+    #[test]
+    fn segment_hits_include_endpoints_and_inside_origins() {
+        let bounds = Aabb::new(Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 2.0, 2.0));
+        let origin = Vec3::new(0.0, 1.0, 1.0);
+        assert_eq!(
+            bounds.clip_segment_point(origin, Vec3::ONE, true),
+            Some(Vec3::ONE)
+        );
+        assert_eq!(
+            bounds.clip_segment_point(Vec3::ONE, Vec3::new(3.0, 3.0, 3.0), true),
+            Some(Vec3::ONE)
+        );
+        assert_eq!(
+            bounds.clip_segment_point(origin, Vec3::new(0.9, 1.0, 1.0), true),
+            None
+        );
+    }
 }

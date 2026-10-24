@@ -360,7 +360,7 @@ fn a_placement_line_can_continue_in_front_of_a_picked_actor() {
 /// A later longer reach cannot extend the geometry represented by an earlier miss.
 #[test]
 fn a_saved_miss_keeps_its_segment_when_the_current_reach_grows() {
-    let (mut world, _) = bridge_fixture([4.5, 2.620_01, 8.5], Quat::IDENTITY);
+    let (mut world, _) = bridge_fixture([4.5, 2.620_01, 14.0], Quat::IDENTITY);
     let pick = world
         .resource::<BlockUseRuntime>()
         .pick(world.resource::<MovementTicker>())
@@ -369,6 +369,26 @@ fn a_saved_miss_keeps_its_segment_when_the_current_reach_grows() {
         pick.hits.ordinary,
         Some(gameplay::block_use::PickResult::Miss)
     );
-    update(&mut world, [4, 2, 1], "minecraft:stone");
+    update(&mut world, [4, 2, 6], "minecraft:stone");
+    {
+        let client = world.resource::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_ref().unwrap();
+        let collisions = world.resource::<PhysicsCollisionRegistries>();
+        let palette = PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            0,
+            Default::default(),
+        );
+        let extended = palette
+            .block_interaction_ray_current(
+                sim::Vec3::new(4.5, 2.620_01_f32.into(), 14.0),
+                sim::Vec3::new(0.0, 0.0, -1.0),
+                gameplay::mining::creative_reach(PlayerInputMode::Touch),
+            )
+            .expect("extended ray stays in loaded terrain")
+            .expect("extended ray reaches the added block");
+        assert_eq!(extended.block_pos, [4, 2, 6]);
+    }
     assert!(target_for_mode(&mut world, PlayerInputMode::Touch, false).is_none());
 }
