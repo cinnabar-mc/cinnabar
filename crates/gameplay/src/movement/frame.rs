@@ -229,8 +229,7 @@ impl LocomotionState {
             }
             input.immobile = facts.immobile;
             input.vertical_physics = facts.vertical_physics;
-            movement_speed.set_sprinting(input.sprinting);
-            input.movement_speed = movement_speed.prediction_speed();
+            input.movement_speed = movement_speed.requested_prediction_speed(input.sprinting);
             let liquid = movement_speed.liquid();
             input.underwater_movement_speed = liquid.underwater;
             input.lava_movement_speed = liquid.lava;
@@ -278,8 +277,16 @@ impl LocomotionState {
                         sneak: processed_sneak,
                         sprint_down: controlled.sprint_down,
                         sneak_down: input.sneaking,
+                        // A gamepad's sneak control is vanilla's toggle-sneak
+                        // control under either sneak setting.
+                        sneak_toggle_down: (frame.toggle_sneak
+                            || input_mode == protocol::PlayerInputMode::GamePad)
+                            && processed_sneak.held,
                         server_sprinting: server.and_then(|flags| flags.sprinting),
                         server_sneaking: server.and_then(|flags| flags.sneaking),
+                        server_mode: None,
+                        server_pose_flags: None,
+                        server_spinning: None,
                     },
                 },
                 world,

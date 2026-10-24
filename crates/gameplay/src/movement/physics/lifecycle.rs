@@ -3,7 +3,7 @@
 use super::*;
 
 impl LocalPhysicsController {
-    /// Clears session-owned prediction, accepted sync state and pending correction work.
+    /// Clears session-owned prediction, accepted sync state and pending corrections.
     pub fn deactivate(&mut self) {
         self.prediction_sync.clear();
         self.sync_state.reset();
@@ -24,6 +24,8 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.live_climber = None;
+        self.pending_climber = Default::default();
         self.motion_ticks.clear();
         self.motion_anchor = self
             .state
@@ -34,6 +36,7 @@ impl LocalPhysicsController {
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
+        self.server_flags = Default::default();
         self.riptide_pending = None;
         self.boosts.clear();
         self.modes.reset();
@@ -91,12 +94,15 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.live_climber = None;
+        self.pending_climber = Default::default();
         self.motion_ticks.clear();
         self.motion_anchor = self
             .state
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.server_flags.reset_history();
         self.actor_position_pending = None;
         self.deferred_corrections = Default::default();
         self.modes.reset();
