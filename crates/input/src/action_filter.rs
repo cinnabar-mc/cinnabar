@@ -73,6 +73,9 @@ pub struct ActionFilterState {
     generation: Option<crate::identity::InputAuthorityGeneration>,
     epoch: u64,
     interrupted: bool,
+    /// An external reset also loses the sampled physical state; owner changes and failed
+    /// callbacks keep it.
+    physical_lost: bool,
     /// Physical holds the projection withheld, which stay withheld until physical release.
     suppressed: [bool; 2],
 }
@@ -80,6 +83,7 @@ impl ActionFilterState {
     /// Invalidates continuity; the next sample completes retained releases before its edges.
     pub fn reset(&mut self) {
         self.interrupted = true;
+        self.physical_lost = true;
     }
 
     /// Calls one owner only when edges or retained holds need decisions, then atomically
@@ -94,18 +98,18 @@ impl ActionFilterState {
         repeat: bool,
         mut decide: impl FnMut(&ActionFilterFrame) -> Option<ActionVerdict>,
     ) -> bool {
-        let interrupted = self.interrupted
-            || self.owner != owner
+        let physical_lost = self.physical_lost
             || self.generation != Some(input.authority_generation)
             || input.authority_released
             || input.ordered.as_ref().is_some_and(|o| o.overflowed());
+        let interrupted = physical_lost || self.interrupted || self.owner != owner;
         let initial = input.ordered.as_ref().map_or_else(
             || {
                 ActionButtons::new(std::array::from_fn(|i| {
                     let phase = input.phases[i];
                     FilterAction::from_action(Action::ALL[i])
                         .and_then(|a| {
-                            (!interrupted)
+                            (!physical_lost)
                                 .then_some(self.physical)
                                 .flatten()
                                 .map(|p| p[a.index()])
@@ -137,6 +141,7 @@ impl ActionFilterState {
         self.owner = owner;
         self.generation = Some(input.authority_generation);
         self.interrupted = false;
+        self.physical_lost = false;
         let mut events = input
             .ordered
             .as_ref()

@@ -479,3 +479,50 @@ fn phase_only_rapid_taps_from_rest_keep_their_release() {
     });
     assert_eq!(input.phases[Action::Attack as usize], tapped);
 }
+
+/// A mouse hold kept through a neutral controller sample still follows its source on return.
+#[test]
+fn mouse_hold_survives_a_neutral_controller_sample() {
+    for owner in [Some(1), None] {
+        let mut state = ActionFilterState::default();
+        let passthrough = |f: &ActionFilterFrame| Some(ActionVerdict::passthrough(f));
+        let mut mouse = ordered([false; 2], &[(Action::Attack, true)]);
+        state.filter(&mut mouse, owner, 0, false, passthrough);
+        assert!(mouse.phases[Action::Attack as usize].held);
+        let mut controller = frame(Default::default(), Default::default());
+        state.filter(&mut controller, owner, 1, false, passthrough);
+        let mut controller = frame(Default::default(), Default::default());
+        state.filter(&mut controller, owner, 2, false, passthrough);
+        let mut back = ordered([true, false], &[]);
+        state.filter(&mut back, owner, 3, false, passthrough);
+        assert!(back.phases[Action::Attack as usize].held);
+        assert!(back.ordered.unwrap().initial_buttons.held(Action::Attack));
+    }
+}
+
+/// An owner change keeps known controller holds, so a second binding cannot restart a
+/// suppressed gesture.
+#[test]
+fn owner_change_keeps_a_suppressed_phase_only_hold_blocked() {
+    for next in [Some(2), None] {
+        let mut state = ActionFilterState::default();
+        let press = ActionPhase {
+            pressed: true,
+            held: true,
+            ..Default::default()
+        };
+        let mut first = frame(press, Default::default());
+        state.filter(&mut first, Some(1), 0, false, |_| {
+            decide(&[false], [false; 2])
+        });
+        assert!(!first.phases[Action::Attack as usize].held);
+        let mut second = frame(press, Default::default());
+        state.filter(&mut second, next, 1, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        assert_eq!(
+            second.phases[Action::Attack as usize],
+            ActionPhase::default()
+        );
+    }
+}
