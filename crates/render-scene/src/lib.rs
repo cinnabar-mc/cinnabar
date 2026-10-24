@@ -45,6 +45,7 @@ pub mod ui_glint;
 pub mod viewmodel;
 pub mod visibility_diagnostics;
 pub mod weather;
+pub mod world_material;
 pub use actor::pipeline_readiness::ActorPipelineReadiness;
 pub use actor::presentation::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
