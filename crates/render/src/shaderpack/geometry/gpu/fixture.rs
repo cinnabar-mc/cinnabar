@@ -13,6 +13,7 @@ impl ShaderpackGeometry {
             biome_tints: BufferId::new(),
             biome_tint_table: ChunkBiomeTintIdentity::new(0, 0),
             atlas_generation: 0,
+            world_sprites: 0,
             attribute_key: AttributeKey {
                 assets: 0,
                 revision: 0,
