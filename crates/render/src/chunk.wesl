@@ -358,6 +358,22 @@ fn cube_light_sample(lighting_record_index: u32, corner: u32) -> u32 {
 /// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
 /// vertex_index / 4 selects its origin, and instance_index selects the packed quad.
 fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
+    // Quads tagged for a programmable world material draw only in that material's pass, or in
+    // the fallback pass that draws every tagged quad while its material is not ready.
+    // Enhanced terrain has no world material pass, so it draws tagged quads as Bedrock.
+    let world_tag = quads[instance_index].geometry >> 26u;
+    var world_hidden = false;
+    @if(!ENHANCED)
+    { world_hidden = world_tag != 0u; }
+    @if(WORLD_MATERIAL)
+    { world_hidden = world_tag != world_material_tag(); }
+    @if(WORLD_MATERIAL_FALLBACK)
+    { world_hidden = world_tag == 0u; }
+    if (world_hidden) {
+        var hidden: VertexOutput;
+        hidden.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
+        return hidden;
+    }
     let cube = cube_quad(instance_index, vertex_index / 4u);
     let local_origin = cube.local_origin;
     let face = cube.face;
@@ -832,13 +848,38 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     @if(ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
     @if(!ENHANCED)
-    let tint_gamma = ordinary_cube_tint_gamma(in);
+    var tint_gamma = ordinary_cube_tint_gamma(in);
     @if(!ENHANCED)
-    let masks = cube_masks(in);
+    var masks = cube_masks(in);
+    @if(!ENHANCED)
+    var texture = sampled;
+    @if(!ENHANCED)
+    var flags = in.material_flags;
+    // A programmable world material replaces the tinted Bedrock colour before the host's
+    // lightmap, face shade and fog; its emission adds after lighting like a glow mask.
+    @if(!ENHANCED && WORLD_MATERIAL)
+    {
+        let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+        let light = terrain_light_colour(in.native_light_levels) * in.native_ao_face;
+        let surface = world_material_resolve(WorldMaterialInput(
+            in.uv, in.world_position, vec4(sampled.rgb * tint_gamma, sampled.a),
+            vec4(light, in.native_ao_face),
+            vec4(fog_gamma, distance_fog_amount(in.world_position)),
+            vec4(0.0), world_material_phase()));
+        @if(WORLD_MATERIAL_CUTOUT)
+        if (surface.coverage < 0.5) { discard; }
+        texture = vec4(surface.color, surface.coverage);
+        @if(WORLD_MATERIAL_OPAQUE || WORLD_MATERIAL_CUTOUT)
+        { texture.a = 1.0; }
+        tint_gamma = vec3(1.0);
+        // The Bedrock overlay mask and leaf colour rules no longer apply to the guest colour.
+        flags = 0u;
+        masks.glow += surface.emission;
+    }
     @if(!ENHANCED)
     let native_colour = native_masked_cube_colour(
-        sampled,
-        in.material_flags,
+        texture,
+        flags,
         tint_gamma,
         in.native_ao_face,
         terrain_light_colour(in.native_light_levels),
@@ -846,7 +887,10 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         distance_fog_amount(in.world_position),
         masks,
     );
-    @if(!ENHANCED)
+    // Premultiplied and additive world material classes blend with a source factor of one.
+    @if(!ENHANCED && WORLD_MATERIAL_PREMULTIPLY)
+    return vec4(native_colour.rgb * native_colour.a, native_colour.a);
+    @if(!ENHANCED && !WORLD_MATERIAL_PREMULTIPLY)
     return native_colour;
 }
 

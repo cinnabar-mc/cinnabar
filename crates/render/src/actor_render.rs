@@ -138,22 +138,7 @@ fn install_actor_render(app: &mut App) {
         .resource::<render_scene::ActorPipelineReadiness>()
         .clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
-    app.init_resource::<render_scene::world_material::WorldMaterialScene>()
-        .init_resource::<world_materials::WorldMaterialPhase>()
-        .add_plugins((
-            ExtractResourcePlugin::<render_scene::world_material::WorldMaterialScene>::default(),
-            ExtractResourcePlugin::<world_materials::WorldMaterialPhase>::default(),
-        ));
-    // Renderer-only test apps install no main schedules.
-    if app.get_schedule(bevy::prelude::PostUpdate).is_some() {
-        app.add_systems(
-            bevy::prelude::PostUpdate,
-            (
-                world_materials::advance_phase,
-                world_materials::register_shaders,
-            ),
-        );
-    }
+    crate::world_material::install(app);
     load_rig_shader(app);
     load_internal_asset!(
         app,
@@ -175,7 +160,6 @@ fn install_actor_render(app: &mut App) {
         .insert_resource(pipeline_readiness)
         .init_gpu_resource::<ActorPipeline>()
         .init_resource::<ActorDrawTracker>()
-        .init_resource::<world_materials::WorldMaterialGpu>()
         .add_render_command::<Opaque3d, DrawActorCommands>()
         .add_render_command::<Transparent3d, DrawTransparentActorCommands>()
         .add_systems(RenderStartup, init_actor_gpu)
@@ -186,7 +170,6 @@ fn install_actor_render(app: &mut App) {
                     .in_set(RenderSystems::Queue)
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                world_materials::prepare.in_set(RenderSystems::PrepareResources),
                 queue_actors
                     .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),

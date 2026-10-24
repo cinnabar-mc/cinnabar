@@ -31,11 +31,13 @@ pub struct WorldMaterial {
 /// parameters.
 pub const FRAME_UNIFORM_BYTES: usize = 5 * 16;
 
-/// The uniform a host binds at binding 0: the animation phase in `[0, 1)`, then the
-/// declaration's parameters, missing ones zero.
-pub fn frame_uniform(phase: f32, params: &[f32]) -> [f32; FRAME_UNIFORM_BYTES / 4] {
+/// The uniform a host binds at binding 0: the animation phase in `[0, 1)` and the quad tag
+/// its terrain draws keep (one more than the material's slot), then the declaration's
+/// parameters, missing ones zero.
+pub fn frame_uniform(phase: f32, tag: u8, params: &[f32]) -> [f32; FRAME_UNIFORM_BYTES / 4] {
     let mut words = [0.0; FRAME_UNIFORM_BYTES / 4];
     words[0] = if phase.is_finite() { phase } else { 0.0 };
+    words[1] = f32::from(tag);
     for (word, value) in words[4..].iter_mut().zip(params) {
         *word = if value.is_finite() { *value } else { 0.0 };
     }
@@ -46,7 +48,8 @@ impl WorldMaterial {
     /// The WGSL a host appends to its fragment module: the guest source, its input and
     /// surface types, `param`, `texture` and `world_material_resolve`, over the frame uniform
     /// at binding 0 of `group`, the declared textures from binding 1 and the sampler after
-    /// them. `world_material_phase()` reads the phase for the host's input.
+    /// them. `world_material_phase()` reads the phase for the host's input and
+    /// `world_material_tag()` the quad tag a terrain draw keeps.
     pub fn library(&self, group: u32) -> String {
         library(group, self.textures, &self.source)
     }
@@ -65,6 +68,7 @@ fn library(group: u32, textures: usize, source: &str) -> String {
         "struct WorldMaterialFrame {{ phase: vec4<f32>, params: array<vec4<f32>, 4> }}
 @group({group}) @binding(0) var<uniform> {FRAME}: WorldMaterialFrame;
 fn world_material_phase() -> f32 {{ return {FRAME}.phase.x; }}
+fn world_material_tag() -> u32 {{ return u32({FRAME}.phase.y); }}
 fn param(input: WorldMaterialInput, index: u32) -> f32 {{
     let clamped = min(index, 15u);
     return {FRAME}.params[clamped / 4u][clamped % 4u];
