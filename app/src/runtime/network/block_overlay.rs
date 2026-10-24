@@ -248,6 +248,7 @@ pub(super) fn compile_block_overlay_with_textures(
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
         && builder.overlay.face_overrides.is_empty()
+        && builder.overlay.template_overrides.is_empty()
         && builder.vanilla_carried.is_empty()
     {
         builder.catalog.emit_diagnostics();
