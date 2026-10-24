@@ -12,6 +12,7 @@ mod geometry_inputs;
 use pack_compiler::block_geometry as geometry;
 mod legacy;
 mod materials;
+mod pbr;
 use materials::cube_blends;
 mod storage;
 mod texture_admission;
@@ -70,6 +71,10 @@ pub(crate) struct OverlayGaps {
     /// Distinct Cinnabar binding mask texture keys no terrain texture resolves.
     #[serde(default)]
     pub(crate) unresolved_binding_masks: u32,
+    /// Server texture sets whose surface layers did not decode or fit the terrain budget; they
+    /// keep only their colour.
+    #[serde(default)]
+    pub(crate) downgraded_texture_sets: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -173,6 +178,7 @@ pub(super) fn compile_block_overlay_with_textures(
         materials: HashMap::new(),
         state_masks: bindings::StateMasks::default(),
         unresolved_masks: Default::default(),
+        pbr: Default::default(),
         visuals: HashMap::new(),
         gaps: OverlayGaps {
             invalid_legacy_bindings: legacy.invalid,
@@ -265,6 +271,7 @@ pub(super) fn compile_block_overlay_with_textures(
     }
     builder.catalog.emit_diagnostics();
     let _zone = bevy::log::info_span!("pack.blocks.finish").entered();
+    builder.build_server_surfaces(view);
     builder.finish()
 }
 
@@ -332,6 +339,8 @@ struct Builder<'a> {
     state_masks: bindings::StateMasks,
     /// Binding mask keys that resolved to no texture, counted once each.
     unresolved_masks: std::collections::HashSet<Box<str>>,
+    /// Textures whose colour came from a server texture set, for their surface layers.
+    pbr: pbr::PbrCandidates,
     visuals: HashMap<String, BlockVisual>,
     gaps: OverlayGaps,
 }

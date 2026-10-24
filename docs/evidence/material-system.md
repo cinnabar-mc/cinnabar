@@ -32,7 +32,11 @@ Confirmed gaps against the current client:
   shading consumer is unknown, so raising vertex AO to the exponent is provisional.
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
-- Server texture sets contribute only their colour layer.
+- Server block texture sets keep their normal or height and MER or MERS layers in sparse Enhanced
+  pages keyed by the overlay texture their colour occupies, charged to the terrain byte budget.
+  Server-authored slots win over local Enhanced maps. Only builds that can draw Enhanced decode
+  them, and the Enhanced renderer is disabled, so non-Enhanced draws use colour only, as Bedrock
+  does outside Vibrant Visuals. A set that does not decode or fit keeps its colour and is counted.
 - Entity material files load through the entity material list, `materials/fancy.json` (the
   client draws with fancy graphics): every pack's copy is read, each entry's defines seed the
   root of the file it names and `tag` is ignored. The vanilla lists are not shipped to the
