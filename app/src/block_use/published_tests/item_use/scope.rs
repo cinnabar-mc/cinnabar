@@ -370,6 +370,50 @@ fn a_server_clear_survives_expired_use_edges_and_backpressure() {
     }));
 }
 
+/// A real unordered button-up reaches maintenance before a same-frame server stop.
+#[test]
+fn an_unordered_release_precedes_a_same_frame_server_clear() {
+    let (mut world, mut captured) = server_using_bow(true);
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(false),
+                ..Default::default()
+            },
+        );
+    let snapshot = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame::default()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(snapshot.ordered.is_none());
+    assert!(snapshot.phases[Action::Use as usize].released);
+    world.insert_resource(SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
+    assert!(!world.resource::<ItemUseRuntime>().is_using());
+    assert_eq!(
+        captured
+            .drain()
+            .iter()
+            .filter_map(protocol::test_support::transactions::observe_transaction)
+            .filter(|transaction| transaction.release().is_some())
+            .count(),
+        1
+    );
+}
+
 /// A later server stop retires local writes from the old use before its following start.
 #[test]
 fn a_server_control_retires_older_local_item_use_writes() {

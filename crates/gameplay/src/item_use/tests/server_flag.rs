@@ -703,3 +703,25 @@ fn an_admitted_repress_supersedes_a_stop_after_its_refused_release() {
     assert!(!runtime.has_pending_release());
     assert!(!runtime.has_server_using_item());
 }
+
+/// A real button-up survives both the final drain and another button observation.
+#[test]
+fn an_observed_release_precedes_a_repress_without_an_earlier_admission_attempt() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_use_button(true);
+    runtime.adopt_server_using_item(Some(true));
+    runtime.resolve_server_using_item(&frame(10, true));
+    runtime.adopt_server_using_item(Some(false));
+    runtime.observe_ordered_use_buttons(false, []);
+    runtime.resolve_server_using_item(&frame(11, false));
+    runtime.finish_ordered_use_buttons();
+    assert!(runtime.is_using());
+    assert!(runtime.has_pending_release());
+    assert!(runtime.has_server_using_item());
+    runtime.observe_use_button(true);
+    runtime.observe_press(true);
+    assert_eq!(kinds(&runtime.step(&frame(20, true))), ["release", "use"]);
+    assert_eq!(runtime.active_timing().unwrap().0, 20);
+    assert!(!runtime.has_pending_release());
+    assert!(!runtime.has_server_using_item());
+}

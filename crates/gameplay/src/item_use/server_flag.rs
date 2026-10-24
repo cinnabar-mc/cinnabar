@@ -21,12 +21,12 @@ pub(super) enum ServerUseState {
 }
 
 impl ItemUseRuntime {
-    /// Notes the use button outside tick-gated maintenance: holding it lets
-    /// button-up release a use the server started.
+    /// Notes real button ownership and retains an owned button-up until release admission.
     pub fn observe_use_button(&mut self, held: bool) {
         self.button_held = held;
-        if held && let Some(active) = self.active.as_mut() {
-            active.button_owned = true;
+        if let Some(active) = self.active.as_mut() {
+            self.button_release_observed |= active.button_owned && !held;
+            active.button_owned |= held;
         }
     }
 
@@ -42,9 +42,9 @@ impl ItemUseRuntime {
             .active
             .as_ref()
             .is_some_and(|active| active.button_owned);
-        self.deferred_button_release = owned && !held;
+        self.deferred_button_release = false;
         for held in later {
-            if self.deferred_button_release {
+            if self.button_release_observed || self.deferred_button_release {
                 break;
             }
             owned |= held && self.active.is_some();
@@ -53,10 +53,13 @@ impl ItemUseRuntime {
     }
 
     /// Finishes or expires the queued edges; an unfulfilled projection cannot erase a stop.
-    /// A release already awaiting transaction admission remains owned until it succeeds.
+    /// A real observed release remains owned until its transaction is admitted.
     pub fn finish_ordered_use_buttons(&mut self) {
-        self.deferred_button_release = false;
-        if self.server_using == ServerUseState::StopAfterInput && !self.release_pending {
+        let projected_release = std::mem::take(&mut self.deferred_button_release);
+        if projected_release
+            && self.server_using == ServerUseState::StopAfterInput
+            && !self.has_pending_release()
+        {
             self.apply_server_use_stop();
         }
     }
@@ -94,12 +97,7 @@ impl ItemUseRuntime {
         ) {
             // A release observed already, or in this frame's input, ends the use
             // with its transaction, as vanilla's input precedes its tick.
-            let releasing = self.deferred_button_release
-                || self.release_pending
-                || self
-                    .active
-                    .as_ref()
-                    .is_some_and(|active| active.button_owned && !self.button_held);
+            let releasing = self.deferred_button_release || self.is_releasing(self.button_held);
             if releasing {
                 self.server_using = ServerUseState::StopAfterInput;
             } else {

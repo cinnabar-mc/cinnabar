@@ -10,51 +10,58 @@ struct Model {
     server: Option<bool>,
     stop_ticked: bool,
     release_owed: bool,
+    release_seen: bool,
+    projected_release: bool,
+    repeat_armed: bool,
 }
 
 impl Model {
     /// A real held-button observation can take ownership of an existing use.
     fn observe(&mut self, held: bool) {
-        if held && let Some(owned) = self.owned.as_mut() {
-            *owned = true;
+        if let Some(owned) = self.owned.as_mut() {
+            self.release_seen |= *owned && !held;
+            *owned |= held;
         }
     }
 
     /// Input runs before tick reconciliation; queue refusal retains only an accepted release.
     fn input(&mut self, held: bool, pressed: bool, full: bool) {
         self.observe(held);
-        let release = self.release_owed || self.owned == Some(true) && !held;
-        let start = pressed && (self.owned.is_none() || release);
+        let release = self.release_owed || self.release_seen;
+        let armed = pressed || self.repeat_armed;
+        let start = (pressed || held && armed) && (self.owned.is_none() || release);
         if full && (release || start) {
             self.release_owed |= release;
             return;
         }
+        self.repeat_armed = held && armed;
         if release || start {
             self.owned = start.then_some(true);
             self.server = None;
             self.stop_ticked = false;
             self.release_owed = false;
+            self.release_seen = false;
+            self.projected_release = false;
         }
     }
 
     /// Only the latest server write matters at a tick; earlier unresolved releases run first.
     fn tick(&mut self, held: bool, edges: &VecDeque<bool>) {
         self.observe(held);
+        let mut owned = self.owned == Some(true);
+        self.projected_release = !self.release_seen
+            && edges.iter().copied().any(|held| {
+                let released = owned && !held;
+                owned |= held && self.owned.is_some();
+                released
+            });
         match self.server {
             Some(true) => {
                 self.owned.get_or_insert(held);
                 self.server = None;
             }
             Some(false) => {
-                let mut owned = self.owned == Some(true);
-                let releases = std::iter::once(held)
-                    .chain(edges.iter().copied())
-                    .any(|held| {
-                        let released = owned && !held;
-                        owned |= held && self.owned.is_some();
-                        released
-                    });
-                if releases || self.release_owed {
+                if self.projected_release || self.release_seen || self.release_owed {
                     self.stop_ticked = true;
                 } else {
                     self.owned = None;
@@ -68,11 +75,12 @@ impl Model {
 
     /// Expired gestures cannot replace a ticked stop; admitted releases retain their priority.
     fn finish(&mut self) {
-        if self.stop_ticked && !self.release_owed {
+        if self.projected_release && self.stop_ticked && !self.release_owed && !self.release_seen {
             self.owned = None;
             self.server = None;
             self.stop_ticked = false;
         }
+        self.projected_release = false;
     }
 }
 
@@ -117,7 +125,8 @@ impl Trial {
 
     /// Drains one edge unless an older accepted release or selection blocks it.
     fn drain_one(&mut self) {
-        if self.model.release_owed || self.full && self.selection_barrier {
+        if self.model.release_owed || self.model.release_seen || self.full && self.selection_barrier
+        {
             return;
         }
         if let Some(held) = self.edges.pop_front() {
@@ -144,7 +153,7 @@ impl Trial {
         );
         assert_eq!(
             self.runtime.has_pending_release(),
-            self.model.release_owed,
+            self.model.release_owed || self.model.release_seen,
             "{context}"
         );
         assert_eq!(
@@ -195,6 +204,7 @@ fn seeded_item_use_authority_matches_the_reference_interpreter() {
                     while !trial.edges.is_empty() {
                         let remaining = trial.edges.len();
                         trial.drain_one();
+                        trial.check(seed, step, event % 9);
                         if trial.edges.len() == remaining {
                             break;
                         }
@@ -210,6 +220,7 @@ fn seeded_item_use_authority_matches_the_reference_interpreter() {
         }
         trial.full = false;
         trial.finish();
+        trial.check(seed, 512, 9);
         trial.input(trial.held, false);
         trial.check(seed, 512, 9);
     }
