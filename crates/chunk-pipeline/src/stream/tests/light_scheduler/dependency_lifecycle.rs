@@ -40,6 +40,7 @@ fn removing_waiter_target_has_face_bounded_work_and_exact_graph_effect() {
                 .insert(unrelated_waiter);
         }
         let before = stream.lighting.waiters.clone();
+        stream.lighting.exclusion_waiters = before.clone();
 
         let probes = stream.lighting.remove_waiter_target(target);
 
@@ -53,6 +54,7 @@ fn removing_waiter_target_has_face_bounded_work_and_exact_graph_effect() {
             }
         }
         assert_eq!(stream.lighting.waiters, expected);
+        assert_eq!(stream.lighting.exclusion_waiters, expected);
     }
 
     let mut stream = lit_stream(0);
@@ -65,8 +67,10 @@ fn removing_waiter_target_has_face_bounded_work_and_exact_graph_effect() {
             .or_default()
             .insert(target);
     }
+    stream.lighting.exclusion_waiters = stream.lighting.waiters.clone();
     assert!(stream.lighting.remove_waiter_target(target) <= 6);
     assert!(stream.lighting.waiters.is_empty());
+    assert!(stream.lighting.exclusion_waiters.is_empty());
 }
 
 #[test]

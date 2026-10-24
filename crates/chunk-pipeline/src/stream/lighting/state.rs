@@ -25,6 +25,8 @@ pub(in crate::stream) struct Lighting {
     pub(in crate::stream) in_flight_batches: HashMap<u64, usize>,
     pub(in crate::stream) last_dispatched_batch: HashMap<SubChunkKey, u64>,
     pub(in crate::stream) waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
+    /// Pending jobs excluded by an adjacent solve, without declaring their light inputs changed.
+    pub(in crate::stream) exclusion_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     /// Cells changed since a key's current light was solved, when only block changes since then
     /// queued its relight; any other reason solves the whole key.
     pub(in crate::stream) changed_cells: HashMap<SubChunkKey, Vec<BlockPos>>,
@@ -52,6 +54,7 @@ impl Lighting {
             last_dispatched_batch: HashMap::new(),
             changed_cells: HashMap::new(),
             waiters: HashMap::new(),
+            exclusion_waiters: HashMap::new(),
         }
     }
 
@@ -76,6 +79,7 @@ impl Lighting {
             in_flight_batches,
             last_dispatched_batch,
             waiters,
+            exclusion_waiters,
             changed_cells,
         } = self;
         changed_cells.clear();
@@ -91,6 +95,7 @@ impl Lighting {
             std::mem::take(in_flight_batches),
             std::mem::take(last_dispatched_batch),
             std::mem::take(waiters),
+            std::mem::take(exclusion_waiters),
         );
         workers::retire(move || drop(retired));
     }
@@ -117,6 +122,7 @@ impl Lighting {
         self.jobs.clear_queued();
         self.priority_wakeups.clear();
         self.waiters.clear();
+        self.exclusion_waiters.clear();
     }
 
     pub(in crate::stream) fn remove_in_flight(
@@ -145,6 +151,7 @@ impl Lighting {
 
     pub(in crate::stream) fn remove_waiters_for(&mut self, key: SubChunkKey) {
         self.waiters.remove(&key);
+        self.exclusion_waiters.remove(&key);
         self.remove_waiter_target(key);
     }
 
@@ -154,10 +161,12 @@ impl Lighting {
         let mut probes = 0;
         for source in key.mesh_dependents().filter(|source| *source != key) {
             probes += 1;
-            if let hashbrown::hash_map::Entry::Occupied(mut entry) = self.waiters.entry(source) {
-                entry.get_mut().remove(&key);
-                if entry.get().is_empty() {
-                    entry.remove();
+            for waiters in [&mut self.waiters, &mut self.exclusion_waiters] {
+                if let hashbrown::hash_map::Entry::Occupied(mut entry) = waiters.entry(source) {
+                    entry.get_mut().remove(&key);
+                    if entry.get().is_empty() {
+                        entry.remove();
+                    }
                 }
             }
         }
