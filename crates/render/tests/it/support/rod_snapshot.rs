@@ -236,6 +236,9 @@ pub(crate) fn render_at(
                     m.variation_start,
                     m.variation_count,
                     m.variation_weight,
+                    m.glow_mask,
+                    m.emissive_mask,
+                    m.mask_strength,
                 ]
             })
             .collect::<Vec<_>>(),

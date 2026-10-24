@@ -5,7 +5,7 @@ import render::chunk_bindings::{
     model_sampler, animations, animation_frames,
     clock, model_templates, model_templates_length, geometry_streams, atmosphere,
 };
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale, material_ao_shade, material_uses_overlay_mask};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale, material_ao_shade, material_uses_overlay_mask, material_mask_varyings, material_mask_reference};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import render::world_projection::{section_camera_offset, camera_offset_clip};
@@ -31,7 +31,9 @@ struct VertexOutput {
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
-    @location(8) @interpolate(flat) visibility: vec2<u32>,
+    // x: visibility flags, with the f16 mask strength in the upper half; y: two-sided; zw:
+    // inverted Cinnabar glow and emissive mask references (zero names none).
+    @location(8) @interpolate(flat) visibility: vec4<u32>,
     @location(9) lighting: vec3<f32>,
     @if(ENHANCED)
     @location(11) sky_light: f32,
@@ -419,6 +421,14 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.visibility.x = MODEL_VISIBLE
         | select(0u, MODEL_BOUNDED_TILE, is_bamboo)
         | select(0u, MODEL_UNIT_TILE, model_quad_within_tile(quad));
+    @if(!ENHANCED)
+    let masks = material_mask_varyings(material);
+    @if(!ENHANCED)
+    out.visibility.x |= (pack2x16float(vec2(bitcast<f32>(masks.z), 0.0)) & 0xffffu) << 16u;
+    @if(!ENHANCED)
+    out.visibility.z = masks.x;
+    @if(!ENHANCED)
+    out.visibility.w = masks.y;
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
@@ -713,7 +723,21 @@ sampled_gamma: vec4<f32>) -> vec4<f32> {
     // Alpha-masked tint: alpha weights the tint and the face stays opaque, as on cube faces.
     let overlay = material_uses_overlay_mask(in.material_flags);
     let tint_gamma = select(in.tint_gamma, mix(vec3(1.0), in.tint_gamma, sampled_gamma.a), overlay);
-    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
+    // Cinnabar masks: emissive texels skip shade and lightmap; glow adds before fog.
+    let dx = dpdx(in.uv);
+    let dy = dpdy(in.uv);
+    let strength = unpack2x16float(in.visibility.x >> 16u).x;
+    var glow = vec3(0.0);
+    var unlit = 0.0;
+    if (in.visibility.z != 0u) {
+        let mask = sample_model_ref(in, material_mask_reference(in.visibility.z), dx, dy);
+        glow = mask.rgb * mask.a * strength;
+    }
+    if (in.visibility.w != 0u) {
+        unlit = clamp(sample_model_ref(in, material_mask_reference(in.visibility.w), dx, dy).a * strength, 0.0, 1.0);
+    }
+    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * mix(in.native_ao_face, 1.0, unlit))
+        * mix(terrain_light_colour(in.native_light_levels), vec3(1.0), unlit) + glow;
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
     return vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), select(sampled_gamma.a, 1.0, overlay));
 }

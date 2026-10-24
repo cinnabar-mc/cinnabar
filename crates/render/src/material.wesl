@@ -9,6 +9,10 @@ struct MaterialGpu {
     variation_start: u32,
     variation_count: u32,
     variation_weight: u32,
+    // Cinnabar mask texture references and the f32 bits of their strength.
+    glow_mask: u32,
+    emissive_mask: u32,
+    mask_strength: u32,
 }
 
 @if(!PACKED_TERRAIN)
@@ -28,6 +32,17 @@ fn materials(index: u32) -> MaterialGpu {
 fn materials_length() -> u32 {
     @if(!PACKED_TERRAIN) return arrayLength(&materials_data);
     @if(PACKED_TERRAIN) return terrain_length(3u) / 6u;
+}
+
+const NO_MASK: u32 = MATERIAL_NO_MASK;
+
+// Mask references travel bit-inverted so a zeroed varying names no mask.
+fn material_mask_varyings(material: MaterialGpu) -> vec3<u32> {
+    return vec3(~material.glow_mask, ~material.emissive_mask, material.mask_strength);
+}
+
+fn material_mask_reference(inverted: u32) -> u32 {
+    return ~inverted;
 }
 
 const TWO_SIDED: u32 = MATERIAL_TWO_SIDED_FLAG;

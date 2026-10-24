@@ -58,7 +58,8 @@ impl Builder<'_> {
                 None => (DIAGNOSTIC_MATERIAL, 0, two_sided),
             };
         }
-        if let Some(&material) = self.materials.get(&(texture.clone(), flags)) {
+        let masks = self.face_masks(&chosen.name);
+        if let Some(&material) = self.materials.get(&(texture.clone(), flags, masks)) {
             return (material, alpha_flags, two_sided);
         }
         if !self.can_admit_materials(1) {
@@ -72,10 +73,31 @@ impl Builder<'_> {
             texture: TextureRef::new(slot.page, slot.layer).expect("bounded layer"),
             flags,
             animation: slot.animation,
+            glow_mask: masks[0],
+            emissive_mask: masks[1],
+            mask_strength: masks[2],
             ..assets::Material::unvaried()
         });
-        self.materials.insert((texture, flags), material);
+        self.materials.insert((texture, flags, masks), material);
         (material, alpha_flags, two_sided)
+    }
+
+    /// Raw glow and emissive mask references and strength bits that bindings give material
+    /// instance `name` in the current state; an unresolvable mask texture is left out.
+    fn face_masks(&mut self, name: &str) -> [u32; 3] {
+        let Some(masks) = self.state_masks.for_instance(name).cloned() else {
+            return [assets::NO_MASK, assets::NO_MASK, 0];
+        };
+        let mut reference = |key: Option<&str>| {
+            key.and_then(|key| self.texture_slot(key))
+                .and_then(|slot| TextureRef::new(slot.page, slot.layer).ok())
+                .map_or(assets::NO_MASK, TextureRef::raw)
+        };
+        [
+            reference(masks.glow.as_deref()),
+            reference(masks.emissive.as_deref()),
+            masks.strength.to_bits(),
+        ]
     }
 }
 

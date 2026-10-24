@@ -57,6 +57,10 @@ pub(in crate::chunk) struct MaterialGpu {
     pub(in crate::chunk) variation_start: u32,
     pub(in crate::chunk) variation_count: u32,
     pub(in crate::chunk) variation_weight: u32,
+    /// GPU texture references of Cinnabar masks; [`assets::NO_MASK`] names none.
+    pub(in crate::chunk) glow_mask: u32,
+    pub(in crate::chunk) emissive_mask: u32,
+    pub(in crate::chunk) mask_strength: u32,
 }
 
 const _: () = assert!(std::mem::size_of::<MaterialGpu>() == assets::MATERIAL_BYTES);

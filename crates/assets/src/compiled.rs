@@ -245,7 +245,16 @@ pub struct Material {
     pub variation_count: u32,
     /// Normalized f32 weight bits; zero for ordinary materials.
     pub variation_weight: u32,
+    /// Raw [`TextureRef`] of a Cinnabar glow mask, added after lighting; [`NO_MASK`] for none.
+    pub glow_mask: u32,
+    /// Raw [`TextureRef`] of a Cinnabar emissive mask, drawn unlit; [`NO_MASK`] for none.
+    pub emissive_mask: u32,
+    /// f32 bits of the strength scaling both masks.
+    pub mask_strength: u32,
 }
+
+/// A material texture-reference slot that names no mask.
+pub const NO_MASK: u32 = u32::MAX;
 
 impl Material {
     /// Returns an ordinary diagnostic material with no positional alternatives.
@@ -257,11 +266,14 @@ impl Material {
             variation_start: 0,
             variation_count: 0,
             variation_weight: 0,
+            glow_mask: NO_MASK,
+            emissive_mask: NO_MASK,
+            mask_strength: 0,
         }
     }
 }
 
-const _: () = assert!(std::mem::size_of::<Material>() == 24);
+const _: () = assert!(std::mem::size_of::<Material>() == 36);
 
 /// Per-face material IDs and registry facts for one sequential block ID.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]

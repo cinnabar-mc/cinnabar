@@ -1,6 +1,6 @@
 import render::chunk_records::{chunk_origins, animations, animation_frames, clock};
 
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_ao_shade};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_ao_shade, material_mask_varyings, material_mask_reference};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
@@ -100,6 +100,9 @@ struct VertexOutput {
     @location(11) native_ao_face: f32,
     @if(!ENHANCED)
     @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
+    // Cinnabar masks: inverted glow and emissive references (zero names none) and strength bits.
+    @if(!ENHANCED)
+    @location(13) @interpolate(flat) masks: vec3<u32>,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -400,6 +403,8 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.quad_shape = pack_quad_shape(face, width, height, uv_flags);
     out.current_texture = animation_sample.current_texture;
     out.material_flags = material.flags;
+    @if(!ENHANCED)
+    out.masks = material_mask_varyings(material);
     out.local_position = local_position;
     out.biome_record = u32(cube.chunk_origin.w);
     out.next_texture = animation_sample.next_texture;
@@ -625,10 +630,46 @@ fn native_leaf_colour(
     return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
 }
 
+// Cinnabar material masks of a face: glow RGB added after lighting, and the weight with which
+// the face draws unlit.
+struct CubeMasks {
+    glow: vec3<f32>,
+    unlit: f32,
+}
+
+@if(!ENHANCED)
+fn cube_masks(@if(!ENHANCED)
+in: VertexOutput) -> CubeMasks {
+    let uv_dx = dpdx(in.uv);
+    let uv_dy = dpdy(in.uv);
+    var masks = CubeMasks(vec3(0.0), 0.0);
+    let strength = bitcast<f32>(in.masks.z);
+    let uv = clamp(in.uv, vec2(0.0), quad_shape_uv_limit(in.quad_shape));
+    // Explicit gradients keep these samples valid inside the branches.
+    if (in.masks.x != 0u) {
+        let glow = sample_material_texture_ref(material_mask_reference(in.masks.x), uv, uv_dx, uv_dy, 0u);
+        masks.glow = glow.rgb * glow.a * strength;
+    }
+    if (in.masks.y != 0u) {
+        let emissive = sample_material_texture_ref(material_mask_reference(in.masks.y), uv, uv_dx, uv_dy, 0u);
+        masks.unlit = clamp(emissive.a * strength, 0.0, 1.0);
+    }
+    return masks;
+}
+
 // Terrain lighting operates on encoded RGB before the framebuffer conversion.
 fn native_cube_colour(
     texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
     ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,
+) -> vec4<f32> {
+    return native_masked_cube_colour(texture, flags, tint_gamma, ao_face, lightmap_gamma, fog_linear, fog_amount, CubeMasks(vec3(0.0), 0.0));
+}
+
+// `native_cube_colour` with a face's Cinnabar masks applied.
+fn native_masked_cube_colour(
+    texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
+    ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,
+    masks: CubeMasks,
 ) -> vec4<f32> {
     let texture_gamma = texture.rgb;
     // Current atlas overlay and installed near-version opaque
@@ -636,7 +677,11 @@ fn native_cube_colour(
     // Apply this in the same gamma domain as the native terrain product.
     let overlay = material_uses_overlay_mask(flags);
     let masked_tint = select(tint_gamma, mix(vec3(1.0), tint_gamma, texture.a), overlay);
-    let colour = native_leaf_colour(texture_gamma, masked_tint, ao_face, lightmap_gamma, fog_linear, fog_amount);
+    let fog_gamma = tint_to_gamma(vec4(fog_linear, 1.0)).rgb;
+    // Emissive texels skip the face shade and lightmap; glow adds after lighting, before fog.
+    let lit_gamma = ((texture_gamma * masked_tint) * mix(ao_face, 1.0, masks.unlit))
+        * mix(lightmap_gamma, vec3(1.0), masks.unlit) + masks.glow;
+    let colour = tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
     let alpha = select(texture.a, 1.0, overlay || material_uses_native_leaf_colour(flags));
     return vec4(colour, alpha);
 }
@@ -811,7 +856,9 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     @if(!ENHANCED)
     let tint_gamma = ordinary_cube_tint_gamma(in);
     @if(!ENHANCED)
-    let native_colour = native_cube_colour(
+    let masks = cube_masks(in);
+    @if(!ENHANCED)
+    let native_colour = native_masked_cube_colour(
         sampled,
         in.material_flags,
         tint_gamma,
@@ -819,6 +866,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         terrain_light_colour(in.native_light_levels),
         atmosphere.fog_color_start.rgb,
         distance_fog_amount(in.world_position),
+        masks,
     );
     @if(!ENHANCED)
     return native_colour;

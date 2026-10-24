@@ -165,6 +165,7 @@ pub(super) fn compile_block_overlay_with_textures(
         max_layers,
         slots: TextureSlots::default(),
         materials: HashMap::new(),
+        state_masks: bindings::StateMasks::default(),
         visuals: HashMap::new(),
         gaps: OverlayGaps {
             invalid_legacy_bindings: legacy.invalid,
@@ -202,6 +203,7 @@ pub(super) fn compile_block_overlay_with_textures(
                 visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
                 bindings.apply(block, Some(&state.values), &mut visual.components);
+                builder.state_masks = bindings.state_masks(block, Some(&state.values));
                 builder.push_state(
                     &visual,
                     &geometries,
@@ -222,6 +224,7 @@ pub(super) fn compile_block_overlay_with_textures(
             visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
             bindings.apply(block, values.as_deref(), &mut visual.components);
+            builder.state_masks = bindings.state_masks(block, values.as_deref());
             builder.push_state(
                 &visual,
                 &geometries,
@@ -313,7 +316,10 @@ struct Builder<'a> {
     texture_policy: TexturePolicy,
     max_layers: usize,
     slots: TextureSlots,
-    materials: HashMap<(String, u32), u32>,
+    /// Admitted materials by texture key, flags and raw mask references.
+    materials: HashMap<(String, u32, [u32; 3]), u32>,
+    /// Mask textures bindings assign to the state being pushed.
+    state_masks: bindings::StateMasks,
     visuals: HashMap<String, BlockVisual>,
     gaps: OverlayGaps,
 }

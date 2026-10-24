@@ -20,6 +20,26 @@ struct Binding {
     states: serde_json::Map<String, Value>,
     instance: Option<Box<str>>,
     method: BlockRenderMethod,
+    masks: pack_entity_compiler::BlockMaskPaths,
+}
+
+/// Mask textures matching bindings assign to one block state's material instances.
+#[derive(Default)]
+pub(super) struct StateMasks(Vec<(Option<Box<str>>, pack_entity_compiler::BlockMaskPaths)>);
+
+impl StateMasks {
+    /// The masks the last matching binding gives material instance `name`.
+    pub(super) fn for_instance(&self, name: &str) -> Option<&pack_entity_compiler::BlockMaskPaths> {
+        self.0
+            .iter()
+            .rev()
+            .find(|(pattern, _)| {
+                pattern
+                    .as_deref()
+                    .is_none_or(|pattern| assets::entity_render_pattern_matches(pattern, name))
+            })
+            .map(|(_, masks)| masks)
+    }
 }
 
 impl MaterialBindings {
@@ -46,10 +66,30 @@ impl MaterialBindings {
                         states: binding.states,
                         instance: binding.material_instance,
                         method,
+                        masks: binding.masks,
                     }
                 })
                 .collect();
         Self { bindings }
+    }
+
+    /// The masks of the bindings matching `block` in the state with `values`.
+    pub(super) fn state_masks(
+        &self,
+        block: &CustomBlock,
+        values: Option<&[CustomStateValue]>,
+    ) -> StateMasks {
+        StateMasks(
+            self.bindings
+                .iter()
+                .filter(|binding| {
+                    (binding.masks.glow.is_some() || binding.masks.emissive.is_some())
+                        && binding.block.as_ref() == block.name.as_ref()
+                        && states_match(binding, block, values)
+                })
+                .map(|binding| (binding.instance.clone(), binding.masks.clone()))
+                .collect(),
+        )
     }
 
     /// Applies the bindings matching `block` in the state with `values`, in document order.
@@ -101,22 +141,27 @@ impl Builder<'_> {
             let Some(record) = records.get(source.visual as usize) else {
                 continue;
             };
-            let Some(method) = bindings
-                .bindings
-                .iter()
-                .filter(|binding| {
-                    binding.block.as_ref() == record.name.as_ref()
-                        && binding
-                            .instance
-                            .as_deref()
-                            .is_none_or(|pattern| pattern == "*")
-                        && vanilla_states_match(binding, record)
-                })
-                .last()
-                .map(|binding| binding.method)
-            else {
+            let Some(binding) = bindings.bindings.iter().rfind(|binding| {
+                binding.block.as_ref() == record.name.as_ref()
+                    && binding
+                        .instance
+                        .as_deref()
+                        .is_none_or(|pattern| pattern == "*")
+                    && vanilla_states_match(binding, record)
+            }) else {
                 continue;
             };
+            let method = binding.method;
+            let masks = [
+                binding.masks.glow.as_deref(),
+                binding.masks.emissive.as_deref(),
+            ]
+            .map(|key| {
+                key.and_then(|key| self.texture_slot(key))
+                    .and_then(|slot| assets::TextureRef::new(slot.page, slot.layer).ok())
+                    .map_or(assets::NO_MASK, assets::TextureRef::raw)
+            });
+            let strength = binding.masks.strength.to_bits();
             let block = base.resolve(assets::NetworkIdMode::Sequential, source.visual);
             if !block.is_known()
                 || block.kind() != assets::VisualKind::Cube
@@ -140,8 +185,9 @@ impl Builder<'_> {
                 let flags = (material.flags
                     & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT))
                     | assets::block_render_method_flags(method);
-                faces[face as usize] =
-                    self.terrain_material(Some(keys), &texture.key, texture.variant, flags);
+                faces[face as usize] = self
+                    .terrain_material(Some(keys), &texture.key, texture.variant, flags)
+                    .map(|id| self.masked_material(id, masks, strength));
             }
             if faces.iter().all(Option::is_none) {
                 continue;
@@ -162,6 +208,27 @@ impl Builder<'_> {
                 None => self.overlay.face_overrides.push((source.visual, faces)),
             }
         }
+    }
+}
+
+impl Builder<'_> {
+    /// A copy of overlay material `id` with `masks`, or `id` itself without masks. Positional
+    /// selectors keep their leaves unmasked.
+    fn masked_material(&mut self, id: u32, masks: [u32; 2], strength: u32) -> u32 {
+        let material = self.overlay.materials[id as usize];
+        if masks == [assets::NO_MASK; 2]
+            || material.variation_count != 0
+            || !self.can_admit_materials(1)
+        {
+            return id;
+        }
+        self.overlay.materials.push(assets::Material {
+            glow_mask: masks[0],
+            emissive_mask: masks[1],
+            mask_strength: strength,
+            ..material
+        });
+        self.overlay.materials.len() as u32 - 1
     }
 }
 
