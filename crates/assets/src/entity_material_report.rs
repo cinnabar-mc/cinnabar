@@ -2,7 +2,9 @@
 //! generation. Entity compilation fills these counts; reports and diagnostics read them.
 
 /// Counted list entries the client loads nothing from or reads only in part.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct MaterialListReport {
     /// Entries carrying `tag`, which Bedrock logs as no longer supported and ignores.
     pub ignored_tags: u32,
@@ -25,7 +27,9 @@ impl MaterialListReport {
 }
 
 /// One compiled pack's entity material counts.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct EntityMaterialDiagnostics {
     /// Distinct state names no Bedrock state matches. Bedrock asserts on them; the client
     /// ignores them.
