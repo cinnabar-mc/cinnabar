@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// The canonical list and per-component status protocol version.
-pub(super) const VERSION: u32 = 2;
+pub(in crate::modding) const VERSION: u32 = 2;
 
 /// One installed component's retained authority and reload request.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]

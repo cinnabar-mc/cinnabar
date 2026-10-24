@@ -11,7 +11,61 @@ use protocol::session_wire::{
     encode_core_message,
 };
 use std::io::{Cursor, Write};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+/// Checks the exact terrain bodies that reach the real guest on both relay paths.
+struct ChunkRelay {
+    guest: Arc<dyn protocol::PacketRelay>,
+    seen: Mutex<[usize; 2]>,
+}
+
+impl ChunkRelay {
+    /// Rejects cache references while counting the complete terrain fixtures received by the guest.
+    fn observe(&self, body: &[u8], startup: bool) {
+        let mut batch = vec![0xfe];
+        batch.extend_from_slice(body);
+        let expected = protocol::test_support::packets::terrain_cache_packets(false);
+        for packet in protocol::decode_batch(batch.into()).unwrap() {
+            if let Some(expected) = expected
+                .iter()
+                .find(|expected| expected.kind() == packet.kind())
+            {
+                assert_eq!(&packet, expected, "packet mods need inline chunk bodies");
+                self.seen.lock().unwrap()[usize::from(!startup)] += 1;
+            }
+        }
+    }
+}
+
+impl protocol::PacketRelay for ChunkRelay {
+    fn start(
+        &self,
+        identity: &SessionIdentity,
+        client_data: &str,
+        startup: &[u8],
+    ) -> Vec<protocol::RelayPack> {
+        self.observe(startup, true);
+        self.guest.start(identity, client_data, startup)
+    }
+    fn inbound_startup(&self, body: &[u8]) -> Option<Vec<u8>> {
+        self.observe(body, true);
+        self.guest.inbound_startup(body)
+    }
+    fn inbound(&self, body: &[u8]) -> Option<Vec<u8>> {
+        self.observe(body, false);
+        self.guest.inbound(body)
+    }
+    fn outbound(&self, body: &[u8]) -> Option<Vec<u8>> {
+        self.guest.outbound(body)
+    }
+    fn tick(&self) -> protocol::RelayOutput {
+        self.guest.tick()
+    }
+    fn stop(&self) {
+        self.guest.stop();
+    }
+}
 
 /// An original minimal pack makes successful reactor startup observable to preparation.
 fn fixture_pack() -> Vec<u8> {
@@ -120,10 +174,35 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
         relay = app
             .world()
             .get_resource::<PacketMods>()
-            .and_then(PacketMods::session_relay);
+            .and_then(|mods| mods.session_relay(false));
         relay.is_some()
     });
-    let relay = relay.unwrap();
+    let owner = client_runtime::blob_cache::ClientBlobCacheOwner::default();
+    let cache = PacketMods::connection_cache(
+        &owner,
+        app.world().get_resource::<PacketMods>(),
+        app.world().resource::<Watcher>().active_grants(),
+    );
+    let layout = launcher::test_support::scratch("packet-mod-cache-mode");
+    let core_command = launcher_host::core_process::core_command_for_address(
+        &layout,
+        std::path::Path::new("core"),
+        root.path(),
+        "fixture.invalid",
+        None,
+        cache.enables_upstream_client_cache(),
+    );
+    let upstream_cache = core_command
+        .get_args()
+        .any(|arg| arg == "-upstream-client-cache");
+    assert!(
+        !upstream_cache,
+        "packet authority must disable the core's upstream cache"
+    );
+    let relay = Arc::new(ChunkRelay {
+        guest: relay.unwrap(),
+        seen: Mutex::default(),
+    });
     let (client, mut peer) = tokio::io::duplex(8192);
     let (read, write) = tokio::io::split(client);
     let (reader, frames, writer) =
@@ -133,7 +212,11 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
         let length = peer.read_u32().await.unwrap();
         let mut connect = vec![0; length as usize];
         peer.read_exact(&mut connect).await.unwrap();
-        protocol::session_wire::decode_connect(&connect).unwrap();
+        let connect = protocol::session_wire::decode_connect(&connect).unwrap();
+        assert_eq!(
+            connect.client_cache, upstream_cache,
+            "both login legs must agree"
+        );
         let fixture = include_bytes!("../../../../../crates/protocol/fixtures/start_game.bin");
         let CoreMessage::Batch(startup) =
             decode_core_message(batch_frame_from_bedrock(fixture).unwrap()).unwrap()
@@ -148,15 +231,24 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
                     ..Default::default()
                 },
                 startup,
+                client_cache: upstream_cache,
                 ..Default::default()
             }),
         )
         .await;
-        for packet in [
-            protocol::test_support::packets::item_registry_packet(),
-            protocol::test_support::packets::chunk_radius_updated_packet(8),
-            protocol::test_support::packets::player_spawn_packet(),
-        ] {
+        for packet in [protocol::test_support::packets::item_registry_packet()]
+            .into_iter()
+            .chain(protocol::test_support::packets::terrain_cache_packets(
+                upstream_cache,
+            ))
+            .chain([
+                protocol::test_support::packets::chunk_radius_updated_packet(8),
+                protocol::test_support::packets::player_spawn_packet(),
+            ])
+            .chain(protocol::test_support::packets::terrain_cache_packets(
+                upstream_cache,
+            ))
+        {
             let message = decode_core_message(
                 batch_frame_from_bedrock(&protocol::encode(&packet).unwrap()).unwrap(),
             )
@@ -175,11 +267,11 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
         protocol::SessionLogin {
             display_name: "Fixture",
             client_random_id: protocol::ClientRandomId::new(1).unwrap(),
-            cache: None,
+            cache: cache.cache(),
             skin: None,
             settings: &settings,
             tap: None,
-            relay: Some(relay),
+            relay: Some(relay.clone()),
             target: None,
         },
         &protocol::NativeJoinPreparation,
@@ -196,6 +288,15 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
     let (joined, _peer) = tokio::join!(join, core);
     let (mut session, _) = joined.expect("the normally imported reactor permits a complete spawn");
     session.finish_loading().await.unwrap();
+    assert!(!session.blob_cache_enabled());
+    while relay.seen.lock().unwrap()[1] < 2 {
+        session.recv().await.unwrap();
+    }
+    assert_eq!(
+        *relay.seen.lock().unwrap(),
+        [2, 2],
+        "both terrain packets reach startup and play"
+    );
     action(Action::Disable(id));
     test_time::eventually("Settings disable removes the session selection", || {
         app.update();
@@ -208,7 +309,7 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
     assert!(
         app.world()
             .resource::<PacketMods>()
-            .session_relay()
+            .session_relay(false)
             .is_none()
     );
     drop(session);
