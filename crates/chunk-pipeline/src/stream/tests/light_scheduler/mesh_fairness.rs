@@ -443,3 +443,43 @@ fn repeated_far_retry_publications_keep_storage_bounded_by_live_work() {
         stream.mark_dirty_exact(visible, Instant::now());
     }
 }
+
+/// An incomplete halo must not consume the dispatch opportunity of an independent ready mesh.
+#[test]
+fn partial_light_halo_does_not_delay_ready_geometry() {
+    for retry in [false, true] {
+        let (mut stream, view, visible, backlog) = deferred_mesh_stream();
+        stream.mesh_jobs.retries.clear();
+        if retry {
+            stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                .ready
+                .remove(&backlog);
+            let revision = stream.mesh_jobs.pending[&backlog].revision;
+            stream.mesh_jobs.retries.enqueue(backlog, revision);
+        }
+        let pending = stream.mesh_jobs.pending[&visible];
+        let first = SubChunkKey::new(1, visible.x + 1, 1, 1);
+        let second = SubChunkKey::new(1, visible.x - 1, 1, 1);
+        for key in [first, second] {
+            install_current_light(&mut stream, key, 0, 0, false);
+            stream.mark_light_dirty_exact(key).unwrap();
+        }
+        install_current_light(&mut stream, first, 0, 0, false);
+        let direct = stream.lighting.direct_sky[&first].clone();
+        stream.finish_accepted_light_completion(first, 0, &direct, [false; 6], false);
+        assert!(stream.mesh_light_halo(visible).is_none());
+        assert!(stream.mesh_light_halo(backlog).is_some());
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].revision,
+            pending.revision
+        );
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].queued_at,
+            pending.queued_at
+        );
+        stream.poll_deadline = Some(Instant::now());
+        assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+        let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(completion.key, backlog);
+    }
+}

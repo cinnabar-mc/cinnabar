@@ -219,8 +219,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   queue wait, worker time, upload, submission and present latency independently.
   Ordinary meshing now rechecks higher-priority deferred revisions within a bounded
   poll budget, with backoff while neighbours or light remain unavailable. Completed light
-  members return queued mesh dependents to ready across camera queue refreshes, including
-  distant geometry outside direct camera probes. Hardware dirty-to-visible latency
+  members return queued mesh dependents to ready across camera queue refreshes once their
+  known halo is current and owed neighbours have arrived, including distant geometry
+  outside direct camera probes. Hardware dirty-to-visible latency
   qualification remains open. Empty-section evidence and
   withdrawals use their separate allowance without spending geometry credits;
   both still share the frame operation cap. Ready air and withdrawals bypass geometry

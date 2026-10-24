@@ -274,25 +274,32 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         }
     }
 
+    /// Finds current work waiting in this lane or the previous camera generation.
+    pub(super) fn deferred_candidate(
+        &self,
+        lane: usize,
+        key: SubChunkKey,
+    ) -> Option<PendingSchedulerCandidate> {
+        let pending = self.pending.get(&key)?;
+        self.lanes[lane]
+            .deferred
+            .get(&key)
+            .or_else(|| self.refresh.previous[lane].ready.get(&key))
+            .or_else(|| self.refresh.previous[lane].deferred.get(&key))
+            .filter(|candidate| candidate.revision == pending.revision())
+            .copied()
+    }
+
     /// Returns one queued job to ready across camera generations, preserving
     /// its pending age and ordinary retry history. Unrouted work keeps its existing ingress.
     pub(super) fn wake_deferred(&mut self, lane: usize, key: SubChunkKey) {
-        let Some(pending) = self.pending.get(&key).copied() else {
-            return;
-        };
-        let Some(mut candidate) = self.lanes[lane]
-            .deferred
-            .remove(&key)
-            .or_else(|| self.refresh.previous[lane].ready.remove(&key))
-            .or_else(|| self.refresh.previous[lane].deferred.remove(&key))
-            .filter(|candidate| candidate.revision == pending.revision())
-        else {
+        let Some(mut candidate) = self.deferred_candidate(lane, key) else {
             return;
         };
         if let Some(view) = self.refresh.view {
             candidate.refresh_rank(view);
         }
-        candidate.urgent |= pending.urgent();
+        candidate.urgent |= self.pending[&key].urgent();
         self.retire_lane_ownership(&key);
         self.lanes[lane].ready.push(candidate);
     }
