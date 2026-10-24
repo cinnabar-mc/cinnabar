@@ -555,7 +555,9 @@
       {"type": "error", "error": "refused"},
       {"type": "ping", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120},
       {"type": "account", "account": {"state": "signed_out"}},
-      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 512, "total_bytes": 1024}}
+      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 512, "total_bytes": 1024}},
+      {"version": 2, "channel": "control", "channels": ["control", "play"], "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+      {"version": 2, "channel": "control", "channels": ["control", "play"], "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "apple_mobile": true}
     ]
   }
 }

@@ -6,6 +6,8 @@ use futures::task::noop_waker;
 
 use super::*;
 
+mod requested_blobs;
+
 /// Ready cached terrain and later ordinary ingress do not wait for status socket writes.
 #[tokio::test]
 async fn cache_status_aggregation_does_not_hold_ready_ingress_for_writes() {

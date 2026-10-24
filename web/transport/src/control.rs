@@ -16,6 +16,10 @@ pub(crate) struct Hello {
     pub generation: u64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub join: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub user_agent: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub apple_mobile: bool,
 }
 impl Hello {
     /// Builds the channel declaration from the authoritative bridge contract.
@@ -36,8 +40,39 @@ impl Hello {
                 Channel::Control => 0,
                 Channel::Play { join } => join,
             },
+            user_agent: browser_user_agent(),
+            apple_mobile: browser_apple_mobile(),
         }
     }
+}
+
+/// Keeps desktop-mode iPadOS distinguishable from macOS in the framed handshake.
+fn browser_apple_mobile() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::browser::apple_mobile()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// Omits absent browser capability hints from the handshake.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// Reports browser identity in the framed handshake, including on transports without HTTP headers.
+#[cfg(target_arch = "wasm32")]
+fn browser_user_agent() -> String {
+    crate::browser::user_agent()
+}
+
+/// Leaves browser metadata absent for native transport tests and non-browser callers.
+#[cfg(not(target_arch = "wasm32"))]
+fn browser_user_agent() -> String {
+    String::new()
 }
 
 /// A rotated capability and its control generation, observed after a bounded frame arrives.

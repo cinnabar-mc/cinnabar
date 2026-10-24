@@ -74,6 +74,12 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.
+Login device claims report the native core's OS and detected hardware model, keeping a stable
+install ID and migrating old fabricated profiles. Browser sessions use the browser-reported
+OS through the framed control handshake, omit unavailable hardware models and keep their
+device ID through account changes, including when HTTP transport headers are absent. Xbox sign-in still uses the Android OAuth
+registration; native Windows device authentication and other platform registrations remain
+incomplete. Live acceptance of native device claims across platforms remains open.
 
 ## Phase 2 — World rendering
 
@@ -244,7 +250,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   same publication limits and poll deadline. Staged worker completions receive a bounded
   share first, so fresh removals cannot starve staged empty or geometry results.
   Late blob replies for retired transactions no longer discard valid, still-needed
-  blobs in the same response. Sustained high-speed hardware qualification remains open.
+  blobs in the same response. Verified requested bodies arriving after ordinary-lane
+  retirement can warm the cache for recovery. Sustained high-speed hardware qualification
+  remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
@@ -304,9 +312,14 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
-Keep raw, analogue and processed input semantics distinct. Mounted controls need
-attributable vehicle mapping, constants, state and actual prediction before claiming
-client-predicted vehicle behavior. Riding alone does not establish that capability.
+Keep raw, analogue and processed input semantics distinct. A boat steered from its
+controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
+constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
+rotation turns the rider's view with its vehicle and holds it within the seat's range.
+Incomplete: vanilla rewinds a vehicle correction and replays the recorded inputs, while
+Cinnabar restarts prediction from the corrected state and snaps the rider like a teleport.
+Server motion of a predicted boat replaces its predicted motion; vanilla's handling is
+unverified. Horse prediction and boat-to-boat collision remain open.
 
 The block climber rewrites its contact flags after each movement tick; the descent
 action reads the retained contact before movement. Prediction sync reports those values
@@ -340,6 +353,17 @@ Received local spawns, removals and dimension resets publish complete replacemen
 authority through the same ordered controls. Synthetic creation keeps that lifetime
 and its already accepted updates and effects. Replacement retires cached flags, pose
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
+actor and controller writes independently of the replaced actor state.
+Passenger order follows vanilla's `Actor::addPassenger` and `ActorLinkSystem::_tick`: links
+apply in arrival order, a player boarding behind a non-player takes the front seat, and a
+rider whose actor is missing never holds back later riders. A rider spawning in its link's
+tick keeps its place; one spawning later boards behind. The controller is the player in the
+controlling seat of a boat or a saddled, tamed horse. Deviation: vanilla drops a link whose
+actor is missing at its tick and relies on spawn-embedded links; Cinnabar keeps it until
+either actor is removed, so a server that never re-links still seats the rider.
+Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
+block-climber flags, custom collision definitions, transition-tick packet ordering
+and broader live-server qualification remain incomplete.
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
 Server-driven item-use gameplay starts, block-climber flags, custom collision
@@ -508,6 +532,12 @@ and rendered qualification remain incomplete.
   Heavy-core inventory previews use their carried scale and screen offset.
   Shelf inventory previews use their carried scale and position.
   Azalea previews keep separate stems and open-bottom canopies.
+- [ ] Inherit every base-game image that server `item_texture.json` entries name without
+  shipping it. Session icons fall back to the world carrier's terrain layer only when that
+  layer is an exact copy of the source image: an untinted image of exactly one 16x16 tile.
+  Larger and animated block images, carried-only textures such as `textures/blocks/barrier`
+  and the `*_carried` leaves, and UI images still draw no icon; they need base images kept
+  at source resolution by path.
 - [ ] Draw an inventory icon for structure voids, the remaining pinned registry item
   without one. Copper golem statue previews use the standing pack geometry, oxidation
   artwork and eye layer; item pose metadata remains incomplete. Variant indices of

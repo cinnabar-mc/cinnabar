@@ -70,7 +70,7 @@ func TestCertificateReloadPublishesToBothListenersAndRetainsSessions(t *testing.
 	}
 	relay := New(Config{})
 	defer relay.Close()
-	controller, detach, err := relay.openControl(netip.MustParseAddr("203.0.113.1"), "", now)
+	controller, detach, err := relay.openControl(netip.MustParseAddr("203.0.113.1"), "", now, testBrowserUserAgent, false)
 	if err != nil {
 		t.Fatal(err)
 	}
