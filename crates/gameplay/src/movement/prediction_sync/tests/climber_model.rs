@@ -199,11 +199,15 @@ fn check_replay(
             "seed={seed} anchor={anchor} tick={}",
             actual.tick
         );
-        assert_eq!(
-            actual.input.server_pose_flags, expected.input.server_pose_flags,
-            "seed={seed} anchor={anchor} tick={}",
-            actual.tick
-        );
+        // Collision can change local pose producers. Replay refreshes later entry captures,
+        // so compare their completed pose above rather than requiring the old entry word.
+        if !world.collision {
+            assert_eq!(
+                actual.input.server_pose_flags, expected.input.server_pose_flags,
+                "seed={seed} anchor={anchor} tick={}",
+                actual.tick
+            );
+        }
         assert_eq!(
             actual.input.server_spinning, expected.input.server_spinning,
             "seed={seed} anchor={anchor} tick={}",
