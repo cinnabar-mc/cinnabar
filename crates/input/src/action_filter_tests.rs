@@ -475,6 +475,39 @@ fn edge_free_controller_hold_after_a_device_change_is_not_suppressed() {
     }
 }
 
+/// A controller hold kept while desktop input is briefly selected resumes without an edge.
+#[test]
+fn controller_hold_resumes_after_a_neutral_desktop_frame() {
+    for owner in [Some(1), None] {
+        let mut state = ActionFilterState::default();
+        let pressed = ActionPhase {
+            pressed: true,
+            held: true,
+            ..Default::default()
+        };
+        let mut controller = frame(pressed, Default::default());
+        state.filter(&mut controller, owner, 0, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        assert!(controller.phases[Action::Attack as usize].held);
+        let mut desktop = ordered([false; 2], &[]);
+        state.filter(&mut desktop, owner, 1, false, |f| {
+            Some(ActionVerdict::passthrough(f))
+        });
+        let held = ActionPhase {
+            held: true,
+            ..Default::default()
+        };
+        for time in 2..4 {
+            let mut controller = frame(held, Default::default());
+            state.filter(&mut controller, owner, time, false, |f| {
+                Some(ActionVerdict::passthrough(f))
+            });
+            assert!(controller.phases[Action::Attack as usize].held);
+        }
+    }
+}
+
 /// A rapid press, release and press from rest keeps its coalesced release.
 #[test]
 fn phase_only_rapid_taps_from_rest_keep_their_release() {
