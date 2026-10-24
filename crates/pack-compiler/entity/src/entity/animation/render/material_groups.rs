@@ -269,6 +269,8 @@ pub(super) struct Records<'a> {
     pub candidates: &'a mut Vec<EntityRenderCandidate>,
     pub visibility: &'a mut Vec<EntityRenderVisibility>,
     pub geometries: &'a mut Vec<EntityRenderGeometry>,
+    /// Material draws dropped because the controller supplies too few textures.
+    pub skipped_draws: &'a mut u32,
 }
 
 pub(super) fn append(
@@ -279,7 +281,9 @@ pub(super) fn append(
 ) -> Result<(), AssetError> {
     // A material whose controller supplies too few textures is not drawn, as on Bedrock; its
     // bones stay hidden in the other groups.
+    let before = groups.len();
     groups.retain(|group| group.raster.required_textures <= base.slot_count);
+    *records.skipped_draws += (before - groups.len()) as u32;
     if groups.is_empty() {
         return Ok(());
     }
@@ -290,6 +294,7 @@ pub(super) fn append(
         candidates,
         visibility,
         geometries,
+        skipped_draws: _,
     } = records;
     let extra = groups.len().saturating_sub(1);
     let candidate_count: usize = slots[base.first_slot as usize..]

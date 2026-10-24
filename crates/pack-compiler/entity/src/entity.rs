@@ -27,6 +27,7 @@ mod item_bindings;
 mod legacy_block_geometry;
 mod legacy_icons;
 pub(crate) mod materials;
+pub use materials::diagnostics::EntityMaterialDiagnostics;
 mod molang;
 mod mount;
 mod native_bind_pose;
@@ -81,6 +82,8 @@ pub struct EntityAssetCompilation {
     pub equipment_bindings: Box<[EquipmentBinding]>,
     /// Materials left unresolved past their bounds; they draw as layers without one.
     pub unresolved_materials: u32,
+    /// Entity material counts the pack compile reports once.
+    pub material_diagnostics: EntityMaterialDiagnostics,
 }
 
 const MAX_ENTITY_SOURCE_DIRECTORY_DEPTH: usize = 32;
@@ -540,6 +543,7 @@ fn assemble(
     };
     let reference_outcomes = animation.outcomes;
     let unresolved_materials = animation.unresolved_materials;
+    let material_diagnostics = animation.material_diagnostics;
     let mut interaction_traits = assets::interactions::compile(&symbols);
     let mut offered_uses = offered_use::compile(&symbols, &sources, source_payloads)?;
     for entry in &mut interaction_traits {
@@ -586,6 +590,7 @@ fn assemble(
         reference_outcomes,
         equipment_bindings,
         unresolved_materials,
+        material_diagnostics,
     })
 }
 

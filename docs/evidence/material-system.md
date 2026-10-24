@@ -63,6 +63,13 @@ Confirmed gaps against the current client:
   controller supplies is not drawn; whether the native check applies to every material is
   unresolved.
 
+Each server pack's entity compilation counts, and logs once, the material behaviour the client
+does not draw exactly: unknown state names (Bedrock asserts), define names without an actor flag
+(ignored silently, as Bedrock does), sampler entries at index 8 or above (skipped, as Bedrock
+does), materials that fail to resolve, programs without an actor type, stencil, polygon-offset or
+depth-bias state, carried-but-undrawn actor defines, draws dropped for missing textures, unlisted
+material files and partly read list entries.
+
 Texture variations have no client version gate, only the network bit. The
 separate `metalness`/`emissive`/`roughness` texture-set form merges when all three layers are
 present.

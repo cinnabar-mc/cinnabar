@@ -144,3 +144,26 @@ fn glint_and_tint_materials_draw_only_with_their_required_textures() {
         assert_eq!(bones[1].1.len(), 1, "other bones keep drawing: {defines}");
     }
 }
+
+#[test]
+fn draws_dropped_for_missing_textures_are_counted_once_per_compilation() {
+    for (defines, skipped) in [(json!(["GLINT"]), 1), (json!(["USE_EMISSIVE"]), 0)] {
+        let fixture = per_bone_pack(json!([{"*":"Material.default"}]), false);
+        let mut document = glowing_glass(json!({
+            "entity": "minecraft:example", "bone": "magnifying*", "material": "example:glow"
+        }));
+        document["materials"]["example:glow"]["material"] = json!({"+defines": defines});
+        write(
+            fixture.path(),
+            pack_entity_compiler::MATERIAL_BINDINGS_PATH,
+            &serde_json::to_vec(&document).unwrap(),
+        );
+        let compiled =
+            pack_entity_compiler::compile_entity_assets_with_report(fixture.path(), MANIFEST)
+                .unwrap();
+        assert_eq!(
+            compiled.material_diagnostics.skipped_draws, skipped,
+            "{defines}"
+        );
+    }
+}

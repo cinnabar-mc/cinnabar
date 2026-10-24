@@ -666,3 +666,25 @@ fn programs_without_an_actor_type_draw_as_plain_actor() {
         assert_eq!(state.multitexture, multitexture, "{name}");
     }
 }
+
+#[test]
+fn applied_defines_are_exactly_the_actor_defines_shading_reads() {
+    let state = |defines: &[&str]| {
+        let mut resolved = Resolved {
+            assumes_entity_program: true,
+            ..Resolved::default()
+        };
+        resolved
+            .defines
+            .extend(defines.iter().map(|&define| Box::from(define)));
+        actor_shading(&resolved)
+    };
+    let plain = state(&[]);
+    for define in assets::entity::material::ACTOR_DEFINE_FLAGS {
+        assert_eq!(
+            state(&[define]) != plain,
+            APPLIED_DEFINES.contains(&define),
+            "{define}"
+        );
+    }
+}

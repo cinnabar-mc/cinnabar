@@ -52,6 +52,8 @@ pub(super) struct MaterialStates {
     unadmitted: u32,
     /// The defines each admitted file's root material holds, by file index.
     file_defines: Vec<BTreeSet<Box<str>>>,
+    /// Names and entries noticed while admitting declarations, for [`Self::diagnostics`].
+    notes: diagnostics::DeclarationNotes,
 }
 
 /// One material during resolution, before its variants are interned into a carrier table.
@@ -221,11 +223,12 @@ impl MaterialStates {
         documents: impl IntoIterator<Item = (&'a str, &'a Value)>,
     ) -> Self {
         let documents = documents.into_iter().collect::<BTreeMap<_, _>>();
-        let (entries, _) = documents
+        let (entries, list_report) = documents
             .get(list::ENTITY_MATERIAL_LIST_PATH)
             .map(|list| list::resolve_material_lists([*list]))
             .unwrap_or_default();
         let mut states = Self::default();
+        states.notes.list = list_report;
         let mut listed = BTreeSet::new();
         for entry in entries {
             if let Some(document) = documents.get(entry.path.as_ref()) {
@@ -235,6 +238,7 @@ impl MaterialStates {
         }
         for (path, document) in documents {
             if is_material_file(path) && !listed.contains(path) {
+                states.notes.unlisted_files += 1;
                 states.read(document);
             }
         }
@@ -252,6 +256,7 @@ impl MaterialStates {
         let file = self.files;
         self.files += 1;
         self.file_defines.push(defines.clone());
+        self.notes.defines(defines.iter().map(AsRef::as_ref));
         let (entries, version) = match file_entries(value) {
             Some(entries) => entries,
             None => return,
@@ -260,6 +265,7 @@ impl MaterialStates {
             let Some(fields) = value.as_object() else {
                 continue;
             };
+            self.notes.declaration(fields);
             let (declaration, modify) = match declaration.strip_prefix('+') {
                 Some(declaration) => (declaration, true),
                 None => (declaration.as_str(), false),
@@ -318,6 +324,7 @@ impl MaterialStates {
         self.files += upper.files;
         self.unadmitted += upper.unadmitted;
         self.file_defines.extend(upper.file_defines);
+        self.notes.extend(upper.notes);
         names
     }
 
@@ -652,6 +659,9 @@ const ALPHA_TEST: &str = "ALPHA_TEST";
 const EMISSIVE: &str = "USE_EMISSIVE";
 const COLOR_MASK: &str = "USE_COLOR_MASK";
 const MULTITEXTURE: &str = "USE_MULTITEXTURE";
+/// The actor defines [`shading`] draws; the client carries every other actor define without
+/// drawing it.
+const APPLIED_DEFINES: [&str; 5] = [ALPHA_TEST, EMISSIVE, OVERLAY, COLOR_MASK, MULTITEXTURE];
 
 /// Native material bases the client ships outside resource packs, as the states, defines and
 /// colour blend pair each declares. The generated native table wins over the base names below.
@@ -796,3 +806,6 @@ pub(crate) mod list;
 
 #[path = "materials/actor_type.rs"]
 mod actor_type;
+
+#[path = "materials/diagnostics.rs"]
+pub(crate) mod diagnostics;
