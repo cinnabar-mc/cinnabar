@@ -464,7 +464,16 @@ fn evaluate_layer_into(
         .filter(|(_, hidden)| **hidden)
         .map(|(index, _)| index as u32)
         .collect();
-    let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
+    // Only colour-mask materials and multitextures dyeing their third texture read the actor's
+    // change colour; other layers start white.
+    let default_tint = if material_state
+        .is_some_and(|state| state.color_mask || (state.multitexture && state.color_second_texture))
+    {
+        actor_color
+    } else {
+        [1.0; 4]
+    };
+    let tint = color(evaluator, variables, layer.color, default_tint, budget)?;
     let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
     let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
     let uv_anim = color(

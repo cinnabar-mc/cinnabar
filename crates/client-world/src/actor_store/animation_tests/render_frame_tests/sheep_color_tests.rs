@@ -13,11 +13,16 @@ const COLOR_KEY: u32 = protocol_ids::ActorDataKey::ColorIndex.wire_value();
 const NAME_KEY: u32 = protocol_ids::ActorDataKey::Name.wire_value();
 const RED: [f32; 4] = [176.0 / 255.0, 46.0 / 255.0, 38.0 / 255.0, 0.0];
 
-/// Spawns a sheep with a controller that inherits the actor's color, as vanilla's does.
+/// Spawns a sheep with a colour-mask controller that inherits the actor's color, as vanilla's
+/// does.
 fn sheep(metadata: Vec<ActorMetadata>) -> ActorStore {
     let identifier = NativeEntityClass::Sheep.identifier().unwrap();
     let mut compiled = test_support::counting_random_compiled(identifier);
     compiled.render.layers[0].color = None;
+    compiled.render.layers[0].material_state = Some(assets::EntityRenderMaterialState {
+        color_mask: true,
+        ..Default::default()
+    });
     let assets = Arc::new(
         RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     );
