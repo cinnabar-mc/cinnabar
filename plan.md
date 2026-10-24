@@ -129,8 +129,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Programmable world materials for server Experiences (`render_world_material`, guest
   `shade` fragments bound to the bundle's own entities and blocks) are developer-only: production
   Experience execution stays fail-closed until the restricted-helper launch gate. The signed
-  manifest's `namespace` (API 2) limits bindings to that namespace; overriding other namespaces,
-  vanilla included, needs a separate permission and consent that do not exist. The consent
+  manifest's `namespace` (API 2) limits bindings to that namespace; binding other namespaces,
+  vanilla included, needs the separate `render_world_material_override` (API 3), denied by
+  default, with its own consent line. The consent
   line reads "Change how this server's own mobs and blocks look (up to N MB GPU memory)". The
   `world-material` import (`server-experience@1.4.0`)
   declares materials and bindings; bound entities and cube blocks draw with them under

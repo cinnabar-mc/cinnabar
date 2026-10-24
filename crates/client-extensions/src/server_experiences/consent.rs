@@ -61,18 +61,27 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
 }
 
 /// What approving `render_world_material` allows, as one plain permission line with the GPU
-/// memory that bounds it, in whole megabytes rounded up; empty when the offer does not ask.
+/// memory that bounds it, in whole megabytes rounded up, and a line of its own for
+/// `render_world_material_override`; empty when the offer asks for neither.
 pub fn world_material_notice(scope: &server_experience::manifest::Scope) -> String {
-    if !scope
-        .permissions
-        .contains(&server_experience::manifest::Permission::RenderWorldMaterial)
-    {
-        return String::new();
+    use server_experience::manifest::Permission;
+    let mut notice = String::new();
+    if scope.permissions.contains(&Permission::RenderWorldMaterial) {
+        notice.push_str(&format!(
+            "Change how this server's own mobs and blocks look (up to {} MB GPU memory)\n",
+            gpu_megabytes(scope)
+        ));
     }
-    format!(
-        "Change how this server's own mobs and blocks look (up to {} MB GPU memory)\n",
-        gpu_megabytes(scope)
-    )
+    if scope
+        .permissions
+        .contains(&Permission::RenderWorldMaterialOverride)
+    {
+        notice.push_str(&format!(
+            "Change how any mob or block looks, including vanilla ones (up to {} MB GPU memory)\n",
+            gpu_megabytes(scope)
+        ));
+    }
+    notice
 }
 
 /// The offer's GPU limit, as the host enforces it, in whole megabytes rounded up.
@@ -123,6 +132,15 @@ mod status_tests {
         );
         scope.gpu_bytes = 32 << 20;
         assert!(world_material_notice(&scope).contains("(up to 32 MB GPU memory)"));
+        scope
+            .permissions
+            .insert(server_experience::manifest::Permission::RenderWorldMaterialOverride);
+        assert!(
+            world_material_notice(&scope).ends_with(
+                "\nChange how any mob or block looks, including vanilla ones (up to 32 MB GPU memory)\n"
+            ),
+            "the override has its own line"
+        );
         // A scope past the host's ceiling is stated at the ceiling the host enforces.
         scope.gpu_bytes = u64::MAX;
         let ceiling = server_experience::policy::MAX_GPU_BYTES >> 20;

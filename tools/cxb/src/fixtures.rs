@@ -595,6 +595,7 @@ fn enums() -> Enums {
             RenderMaterial,
             RenderWorldMaterial,
             RenderPost,
+            RenderWorldMaterialOverride,
         )),
         implemented_permissions: implemented_permissions(),
         directions: all_variants!(Direction: ToClient, ToServer).to_vec(),

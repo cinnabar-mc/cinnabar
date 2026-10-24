@@ -40,7 +40,7 @@
       "module": "policy",
       "name": "API_VERSION",
       "type": "u16",
-      "value": "2",
+      "value": "3",
       "go": "APIVersion"
     },
     {
@@ -1289,6 +1289,12 @@
           "go": "PermissionRenderPost",
           "json": "render_post",
           "implemented": true
+        },
+        {
+          "rust": "RenderWorldMaterialOverride",
+          "go": "PermissionRenderWorldMaterialOverride",
+          "json": "render_world_material_override",
+          "implemented": false
         }
       ]
     },
