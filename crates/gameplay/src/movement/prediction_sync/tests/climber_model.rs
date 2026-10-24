@@ -20,11 +20,8 @@ struct ContactWorld {
 }
 
 impl ContactWorld {
-    /// Keeps the teleport column filled and seeds contact in the surrounding terrain.
+    /// Selects scaffolding from the cell identity, independently of collision queries.
     fn scaffolding(&self, block: [i32; 3]) -> bool {
-        if self.collision && block[0] == 0 && block[2] == 0 {
-            return true;
-        }
         let mut hash = self.seed;
         for coordinate in block {
             hash = hash
