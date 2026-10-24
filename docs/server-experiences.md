@@ -138,8 +138,9 @@ and entities look, and states the GPU limit (wording provisional).
 `param(input, index)`), a depth (`test`, or `always`, which also needs `render_through_walls`)
 and a blend class (`opaque`, `cutout`, `premultiplied`, `additive`). `shade` receives the UV, world
 position, Bedrock material colour (texture times tint), the light the host applies, the fog colour
-and amount, the actor overlay (zero for blocks) and the animation phase; it returns colour,
-coverage and emission. The host validates it with the drawing-material sandbox (no resources,
+and amount, the actor overlay (zero for blocks), the animation phase, the unit surface normal
+and the unit direction from the surface to the camera; it returns colour, coverage and
+emission. The host validates it with the drawing-material sandbox (no resources,
 module state, overrides, entry points, loops, recursion or storage writes; bounded expressions and
 texture reads per pixel), in the helper within four compiles per callback and again in the
 client. `bind(id, target, material)` binds `entity(identifier)` or `block(identifier)`, which

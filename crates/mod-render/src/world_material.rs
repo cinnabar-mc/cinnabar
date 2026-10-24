@@ -137,8 +137,9 @@ fn module(material: &WorldMaterial) -> String {
         "{}
 @fragment fn {VALIDATION_ENTRY}(@location(0) uv: vec2<f32>, @location(1) world: vec3<f32>,
     @location(2) base: vec4<f32>, @location(3) light: vec4<f32>, @location(4) fog: vec4<f32>,
-    @location(5) overlay: vec4<f32>, @location(6) phase: f32) -> @location(0) vec4<f32> {{
-    let surface = world_material_resolve(WorldMaterialInput(uv, world, base, light, fog, overlay, world_material_phase() + phase));
+    @location(5) overlay: vec4<f32>, @location(6) phase: f32, @location(7) normal: vec3<f32>,
+    @location(8) view: vec3<f32>) -> @location(0) vec4<f32> {{
+    let surface = world_material_resolve(WorldMaterialInput(uv, world, base, light, fog, overlay, world_material_phase() + phase, normal, view));
     return vec4<f32>(surface.color + surface.emission, surface.coverage);
 }}
 ",
