@@ -797,7 +797,7 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         <[u8; 32]>::from(Sha256::digest(binding_bytes))
     );
     let report: serde_json::Value = serde_json::from_slice(&first_report).unwrap();
-    assert_eq!(report["schema"], 5);
+    assert_eq!(report["schema"], 6);
     assert_eq!(report["counts"]["sources"], decoded.sources().len());
     assert_eq!(report["counts"]["symbols"], decoded.symbols().len());
     assert_eq!(report["counts"]["geometries"], 1);
@@ -835,6 +835,22 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         );
     }
     assert!(report["reference_outcomes"].is_array());
+    let allay = report["material_provenance"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|material| material["name"] == "allay")
+        .expect("the drawn material has provenance");
+    assert_eq!(allay["source"], "materials/entity.material");
+    assert_eq!(
+        allay["chain"],
+        serde_json::json!(["allay", "entity_alphatest (client base)"])
+    );
+    assert_eq!(allay["carried_defines"], serde_json::json!(["ALLAY_GLOW"]));
+    assert!(
+        allay["reason"].is_null(),
+        "an unknown define is ignored, not approximated"
+    );
     assert!(!report["materials"].as_array().unwrap().is_empty());
     assert_eq!(
         report["materials"],
