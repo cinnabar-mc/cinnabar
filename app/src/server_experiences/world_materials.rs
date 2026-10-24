@@ -189,6 +189,22 @@ impl WorldMaterialPresenter {
         true
     }
 
+    /// Reports, once each, the published materials whose native pipelines `failed` to compile;
+    /// their draws keep the Bedrock material.
+    pub(super) fn note_compile_failures(&mut self, failed: impl Fn(u64) -> bool) {
+        let failures: Vec<(String, u32, u64)> = self
+            .cache
+            .iter()
+            .filter_map(|((bundle, id), cached)| {
+                let published = cached.outcome.as_ref().ok()?;
+                failed(published.key).then(|| (bundle.clone(), *id, cached.attempt))
+            })
+            .collect();
+        for (bundle, id, attempt) in failures {
+            self.report(&bundle, id, attempt, "failed to compile on this GPU");
+        }
+    }
+
     /// Charges a replaced or removed material's pipelines to `bundle` for the session.
     fn retire(&mut self, bundle: &str) {
         let retired = self.retired.entry(bundle.to_owned()).or_default();

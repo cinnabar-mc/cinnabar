@@ -372,7 +372,10 @@ pub(super) fn prepare_actor_pipelines(
     )>,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
     adapter: Option<Res<bevy::render::renderer::RenderAdapter>>,
-    world: Option<Res<crate::world_material::WorldMaterialGpu>>,
+    (world, failures): (
+        Option<Res<crate::world_material::WorldMaterialGpu>>,
+        Option<Res<render_scene::world_material::WorldMaterialFailures>>,
+    ),
 ) {
     if let Some(adapter) = adapter
         && !pipeline.targets.has_features()
@@ -442,6 +445,16 @@ pub(super) fn prepare_actor_pipelines(
                 }
             }
         }
+    }
+    if let Some(failures) = failures.as_deref() {
+        crate::world_material::record_failures(
+            &cache,
+            pipeline
+                .world_ids
+                .iter()
+                .map(|((_, variant), id)| (variant.key, *id)),
+            failures,
+        );
     }
     readiness.publish(has_view && ready);
     readiness.publish_material_fallbacks(

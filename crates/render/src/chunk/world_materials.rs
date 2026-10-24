@@ -144,6 +144,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
     views: Query<super::draw::ChunkViewQuery>,
     instances: Query<&ChunkRenderInstance>,
     pack: render_scene::shaderpack::ShaderPackDrawnViews,
+    failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
 ) {
     let sections = &mut *sections;
     sections.views.clear();
@@ -224,6 +225,16 @@ pub(in crate::chunk) fn queue_world_material_chunks(
             BinnedRenderPhaseType::NonMesh,
         );
         sections.views.insert(view_entity, draws);
+    }
+    if let Some(failures) = failures.as_deref() {
+        crate::world_material::record_failures(
+            &pipeline_cache,
+            pipeline
+                .world_ids
+                .iter()
+                .map(|(key, id)| (key.world.key, *id)),
+            failures,
+        );
     }
     // Despawned sections leave no stale masks behind.
     sections

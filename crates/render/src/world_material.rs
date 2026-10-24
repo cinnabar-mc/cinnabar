@@ -176,6 +176,23 @@ pub(crate) fn register_shaders(
     });
 }
 
+/// Records each world material pipeline that failed to compile, once; its draws keep the base or
+/// fallback pipeline, and the main world reports the failure to the session.
+pub(crate) fn record_failures(
+    cache: &PipelineCache,
+    pipelines: impl IntoIterator<Item = (u64, bevy::render::render_resource::CachedRenderPipelineId)>,
+    failures: &render_scene::world_material::WorldMaterialFailures,
+) {
+    for (key, id) in pipelines {
+        if matches!(
+            cache.get_render_pipeline_state(id),
+            bevy::render::render_resource::CachedPipelineState::Err(_)
+        ) {
+            failures.record(key);
+        }
+    }
+}
+
 /// Main-world system registering both renderers' modules when the published set changes.
 pub(crate) fn register_all_shaders(
     scene: Option<Res<WorldMaterialScene>>,
@@ -379,6 +396,7 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
     }
     app.init_resource::<WorldMaterialScene>()
         .init_resource::<WorldMaterialPhase>()
+        .init_resource::<render_scene::world_material::WorldMaterialFailures>()
         .add_plugins((
             ExtractResourcePlugin::<WorldMaterialScene>::default(),
             ExtractResourcePlugin::<WorldMaterialPhase>::default(),
@@ -390,11 +408,18 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
             (advance_phase, register_all_shaders),
         );
     }
+    let failures = app
+        .world()
+        .resource::<render_scene::world_material::WorldMaterialFailures>()
+        .clone();
     if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
-        render_app.init_resource::<WorldMaterialGpu>().add_systems(
-            bevy::render::Render,
-            prepare.in_set(bevy::render::RenderSystems::PrepareResources),
-        );
+        render_app
+            .init_resource::<WorldMaterialGpu>()
+            .insert_resource(failures)
+            .add_systems(
+                bevy::render::Render,
+                prepare.in_set(bevy::render::RenderSystems::PrepareResources),
+            );
     }
 }
 
