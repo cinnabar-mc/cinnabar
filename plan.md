@@ -110,7 +110,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no
-  such capture with the `-material-showcase` local-server fixture exists yet. CI assertions cover
+  such capture with the `-material-showcase` local-server fixture exists yet. A non-reference
+  headless run of that fixture qualifies nothing: the
+  host was swapping throughout, with multi-second main-thread stalls, and chunk request to
+  render-ready latency is not logged. M3 Pro, low-end and Windows/macOS native witnesses remain
+  unqualified. CI assertions cover
   the deterministic part: unchanged reloads create no pipelines, compiles or uploads, and one
   material change rebuilds only its dependents once.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
