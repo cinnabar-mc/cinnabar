@@ -57,6 +57,7 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | Entity masks | [Mask reference](../mod-entity-masks.md) |
 | Nearby terrain | [Terrain reference](../mod-terrain-api.md) |
 | Block highlights and fullbright | `render` highlights and `environment.set-fullbright`; local retained presentation |
+| Attack/use filtering | Opt-in `filter-actions` export through `mod_api::filtered_player_mod`; `controls` |
 
 Callbacks publish only after success. Session changes, reload, revocation and traps
 invalidate scoped handles and outputs. Check typed errors rather than silently
@@ -64,6 +65,20 @@ assuming an import succeeded. Shared values and ceilings live in
 [`mod-api`](../../crates/mod-api/src/lib.rs),
 [drawing limits](../../crates/mod-api/src/drawing.rs) and
 [host limits](../../crates/mod-host/src/lib.rs).
+
+## Action filtering
+
+A player mod opts into `filter-actions(action-frame) -> action-verdict` with
+`mod_api::filtered_player_mod` and the `controls` grant; ordinary `PlayerMod`
+exports claim nothing. Only the earliest active, granted exporter runs, after
+ordinary frames and before gameplay, with its own fuel and no host imports. It sees
+resolved Attack/Use transitions, physical and logical holds, a continuity epoch and
+monotonic microseconds, and returns one accept/suppress decision per transition.
+Suppressing a release retains the hold; suppressing a fresh press blocks that
+gesture until physical release. Traps, invalid verdicts, owner changes, absorbing
+UI, suspension and session changes clear continuity and change the epoch. The host
+owns projection and lifecycle only; the module owns every filtering rule.
+`input.set-click-limits` remains a frozen legacy cap.
 
 ## Touch buttons
 

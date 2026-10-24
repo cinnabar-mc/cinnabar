@@ -70,7 +70,8 @@ pub fn cube(def: BlockDef) -> BlockType {
 /// Implement [`Experience::registration`], or [`Experience::register`] for plain cube blocks
 /// alone; the callbacks default to `Ok(())`, which accepts the event without staging anything.
 pub trait Experience {
-    /// Receives one admitted fixed-step callback for each live world instance.
+    /// Receives one admitted fixed-step callback for each live world instance. A world queues no
+    /// further tick while one is pending, so a busy Experience skips steps and gets the latest.
     fn on_tick(_ctx: &Callback, _step: SimulationStep) -> Result<(), GuestError> {
         Ok(())
     }

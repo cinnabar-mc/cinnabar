@@ -470,6 +470,17 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) (err error
 			}
 		}()
 	}
+	if ev.call.Tick != nil {
+		if !h.claimTick(d.id, &ev) {
+			return nil
+		}
+		handle := ev.instance.handle
+		defer func() {
+			if err == nil || ctx.Err() == nil {
+				h.finishTick(d.id, handle)
+			}
+		}()
+	}
 	if d.sup.Quarantined() {
 		h.log.Debug("event of a quarantined experience dropped", "experience", d.id)
 		return errQuarantined

@@ -26,6 +26,7 @@ pub use actor_store::{
     RideSeat, RopeKind, RopeView, SLEEPING_PLAYER_NETWORK_OFFSET, SeatViewLock, VehicleRevision,
     dropped_item_copy_count, seat_world_offset, tnt_presentation,
 };
+pub use actor_store::{HandStack, UseEquipment, equipment_enchantments};
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,
     adjudicate_block_entity_visual,

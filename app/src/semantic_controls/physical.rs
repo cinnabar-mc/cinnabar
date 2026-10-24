@@ -142,6 +142,22 @@ struct InputSourceGates {
     controllers_and_touch: bool,
 }
 
+/// Whether gameplay admits input from `mode`'s devices: focus admits controllers and touch,
+/// while keyboard and mouse also need cursor capture.
+pub(crate) const fn admits_input_mode(
+    mode: semantic_input::InputMode,
+    window_focused: bool,
+    cursor_captured: bool,
+) -> bool {
+    let gates = input_source_gates(window_focused, cursor_captured);
+    match mode {
+        semantic_input::InputMode::KeyboardMouse => gates.keyboard_mouse,
+        semantic_input::InputMode::GamePad | semantic_input::InputMode::Touch => {
+            gates.controllers_and_touch
+        }
+    }
+}
+
 const fn input_source_gates(window_focused: bool, cursor_captured: bool) -> InputSourceGates {
     InputSourceGates {
         keyboard_mouse: window_focused && cursor_captured,
@@ -348,8 +364,8 @@ fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, collect_raw_input, input_source_gates,
-        keyboard_usage, mouse_button_code, select_lowest_by_key,
+        PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, admits_input_mode, collect_raw_input,
+        input_source_gates, keyboard_usage, mouse_button_code, select_lowest_by_key,
     };
     use bevy::prelude::{KeyCode, MouseButton};
     use bevy::{
@@ -692,6 +708,18 @@ mod tests {
         let unfocused = input_source_gates(false, true);
         assert!(!unfocused.keyboard_mouse);
         assert!(!unfocused.controllers_and_touch);
+    }
+
+    /// Controller and touch modes stay admitted without cursor capture; desktop input needs it.
+    #[test]
+    fn input_modes_follow_their_source_gates() {
+        use semantic_input::InputMode;
+        for mode in [InputMode::GamePad, InputMode::Touch] {
+            assert!(admits_input_mode(mode, true, false));
+            assert!(!admits_input_mode(mode, false, true));
+        }
+        assert!(!admits_input_mode(InputMode::KeyboardMouse, true, false));
+        assert!(admits_input_mode(InputMode::KeyboardMouse, true, true));
     }
 
     #[test]

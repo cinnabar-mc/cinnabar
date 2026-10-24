@@ -317,7 +317,7 @@ impl PackRules {
         self.egg_aliases
             .get(actor)
             .cloned()
-            .unwrap_or_else(|| format!("{actor}_spawn_egg"))
+            .unwrap_or_else(|| format!("{actor}{}", super::SPAWN_EGG_SUFFIX))
     }
     /// Returns the newer actor definition that supersedes a compatibility egg.
     pub fn superseding_egg(&self, actor: &str) -> Option<&str> {

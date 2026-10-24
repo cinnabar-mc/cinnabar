@@ -2,9 +2,9 @@
 
 Release installers ship the client, the Go core, the dragonfly local-world server and its
 `cinnabar-cxb` verifier beside it, the Cinnangles Sans font and a prep kit, never Mojang-derived
-carriers. A packaged launch whose carriers are
-missing or stale runs `crates/first-run`: a setup window (a `--first-run-setup` child process, or
-native dialogs if no window opens) asks consent, downloads the pinned `bedrock-samples` pack
+carriers. A packaged launch whose carriers are missing or stale runs
+`crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
+window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
 carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). `prepared.json`
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current

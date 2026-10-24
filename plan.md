@@ -590,6 +590,8 @@ qualification remains open.
 Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
+Video customization can hide other players' catalog cosmetics, companions and effects
+while keeping the local player's cosmetics visible.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height.
@@ -747,13 +749,16 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
-  Actor-use transactions precede throwable use when verified component and held-item
-  facts rule out every possible offering. Unresolved native resolvers, behavior sources,
-  component groups, unclassified components and callback state retain conservative
-  interaction handling.
-  Complete native resolver coverage, filter/property and item-tag conditions, dynamic
-  group activation, ride eligibility metadata and matched in-world interaction acceptance
-  remain incomplete; this scoped throwable correction closes no interaction gate.
+  Actor-use transactions precede held item use when component, held-item, offhand and
+  equipment-enchantment facts rule out every possible offering of an unmodified retail
+  item; only components the client maps to interactions can offer one. Actors with a
+  native interaction override (piglin, villager_v2, leash knot) or native component
+  (tripod camera), modified
+  items, missing behavior sources and unresolved filters, ride, trade, container, leash,
+  balloon, sit and trust callbacks retain conservative interaction handling.
+  Game-rule and property filters, item-tag conditions, dynamic group activation, ride
+  eligibility metadata, leash/balloon state and matched in-world interaction acceptance
+  remain incomplete; this correction closes no interaction gate.
   Block-item purchases await an authoritative result preview to retain its block identity.
   Adventure mining and placement follow the held item's CanDestroy/CanPlaceOn list, or
   PrivilegedBuilder with an empty hand, before the Build/Mine grant. Denied block presses
@@ -1075,6 +1080,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Generic resolved action filtering exposes synchronous module verdicts, retained
+  releases and lifecycle reconciliation; timing and rates belong to modules. Legacy
+  native click caps remain frozen for compatibility. Local weather overrides retain
+  transactional host APIs. These contracts have offline behavior coverage; populated-world interaction and rendering acceptance
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.

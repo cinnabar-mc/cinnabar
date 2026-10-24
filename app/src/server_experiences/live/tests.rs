@@ -225,6 +225,16 @@ fn modal_presses_reach_only_declared_actions_of_the_open_screen() {
     assert!(!live.press("bundle0.pick", None));
 }
 
+/// Developer state lists the running client part's open screen and whether it holds focus; a
+/// closed screen is not listed.
+#[test]
+fn open_screens_list_the_open_template_and_its_focus() {
+    let mut live = opened();
+    assert_eq!(live.open_screens(), [("bundle0", SCREEN, true)]);
+    live.close_modal();
+    assert!(live.open_screens().is_empty());
+}
+
 /// A guest granted `items` gets the session's items with its first dispatch and again only when
 /// their revision changes; one without the grant never does.
 #[test]

@@ -89,7 +89,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.BoolVar(&s.holograms, "holograms", false, fmt.Sprintf("spawn %d formatted floating labels; /holograms, /holograms freeze, /holograms clear", hologramCount))
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
-	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")
+	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer; the last offered revision is kept beside it")
 	flags.StringVar(&s.extensionAudience, "extension-audience", "", "host:port that players join by, as the client canonicalizes it")
 	flags.StringVar(&s.extensionCXB, "extension-cxb", "", "directory of client part bundles (.cxb) to offer")
 	flags.StringVar(&s.extensionMedia, "extension-media", "", "directory of client part media served over loopback HTTPS; needs the -extension flags")

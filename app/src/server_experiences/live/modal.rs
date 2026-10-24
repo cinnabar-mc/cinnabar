@@ -211,6 +211,25 @@ impl<H: Worker> Live<H> {
         self.enqueue(&bundle, event, self.epoch)
     }
 
+    /// Each running client part's open screen: its bundle, its template, and whether it holds the
+    /// focus that the drawn modal takes.
+    #[cfg(any(test, feature = "developer-control"))]
+    pub(in crate::server_experiences) fn open_screens(&self) -> Vec<(&str, &str, bool)> {
+        let focused = self.open_bundle();
+        self.instances
+            .iter()
+            .filter(|(_, instance)| instance.stopped.is_none())
+            .filter_map(|(bundle, instance)| {
+                let template = instance.contributions.modal.template.as_deref()?;
+                Some((
+                    bundle.as_str(),
+                    template,
+                    focused.as_deref() == Some(bundle.as_str()),
+                ))
+            })
+            .collect()
+    }
+
     /// Identifies the recipient whose modal currently owns input focus.
     fn open_bundle(&self) -> Option<String> {
         Some(
