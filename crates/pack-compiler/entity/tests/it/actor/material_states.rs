@@ -653,7 +653,12 @@ fn material_expressions_draw_each_selectable_material_under_its_condition() {
     };
     // A queried choice: one layer per material, each drawing the bones only while its own
     // choice holds, so a pack prewarms both and a switch needs no new pipeline.
-    let queried = materials(json!([{"*":"query.is_baby ? Material.glass : Material.default"}]));
+    // A second whole-model rule keeps the per-choice expansion; one rule alone is a whole-model
+    // selection evaluated at draw time.
+    let queried = materials(json!([
+        {"*":"Material.default"},
+        {"*":"query.is_baby ? Material.glass : Material.default"}
+    ]));
     assert_eq!(queried.render.layers.len(), 2);
     let definitions = queried
         .render
@@ -668,8 +673,10 @@ fn material_expressions_draw_each_selectable_material_under_its_condition() {
     );
     // The selection follows the expression's value.
     for (selector, drawn) in [("1.0", "glass"), ("0.0", "default")] {
-        let compiled =
-            materials(json!([{ "*": format!("{selector} ? Material.glass : Material.default") }]));
+        let compiled = materials(json!([
+            {"*": "Material.default"},
+            {"*": format!("{selector} ? Material.glass : Material.default")}
+        ]));
         let active = compiled
             .render
             .layers
@@ -689,7 +696,10 @@ fn material_expressions_draw_each_selectable_material_under_its_condition() {
         );
     }
     // An array selection draws each element under its index.
-    let fixture = per_bone_pack(json!([{"*":"Array.looks[query.variant]"}]), false);
+    let fixture = per_bone_pack(
+        json!([{"*":"Material.default"}, {"*":"Array.looks[query.variant]"}]),
+        false,
+    );
     write(
         fixture.path(),
         "render_controllers/example.json",
@@ -697,7 +707,7 @@ fn material_expressions_draw_each_selectable_material_under_its_condition() {
             "controller.render.example":{
                 "arrays":{"materials":{"Array.looks":["Material.default","Material.glass"]}},
                 "geometry":"Geometry.default",
-                "materials":[{"*":"Array.looks[query.variant]"}],
+                "materials":[{"*":"Material.default"},{"*":"Array.looks[query.variant]"}],
                 "textures":["Texture.default"]
             }
         }}))
@@ -711,6 +721,34 @@ fn material_expressions_draw_each_selectable_material_under_its_condition() {
             .iter()
             .any(|rule| rule.hide_only)
     }));
+}
+
+#[test]
+fn a_material_choice_whose_condition_does_not_compile_reads_zero_and_draws_the_else_branch() {
+    let fixture = per_bone_pack(
+        // A second whole-model rule keeps the per-choice expansion; one rule alone is a
+        // whole-model selection.
+        json!([{"*":"Material.default"}, {"*":"query.not_a_query ? Material.glass : Material.default"}]),
+        false,
+    );
+    let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    let drawn = compiled
+        .render
+        .layers
+        .iter()
+        .filter(|layer| {
+            ["magnifyingGlass", "handle"]
+                .iter()
+                .any(|bone| visible(&compiled, layer, bone))
+        })
+        .map(|layer| summary(&compiled.render, layer))
+        .collect::<Vec<_>>();
+    let expected = per_bone_pack(json!([{"*":"Material.default"}]), false);
+    let expected = pack_entity_compiler::compile_entity_assets(expected.path(), MANIFEST).unwrap();
+    assert_eq!(
+        drawn,
+        vec![summary(&expected.render, &expected.render.layers[0])]
+    );
 }
 
 #[test]

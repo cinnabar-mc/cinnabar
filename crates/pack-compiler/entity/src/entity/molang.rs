@@ -331,6 +331,12 @@ impl MolangCompiler {
         }
     }
 
+    /// Whether `source` compiles. Compilation depends only on the source, so this needs no
+    /// compiler state and adds no program.
+    pub fn compiles(source: &str) -> bool {
+        parse(source).is_ok_and(|program| Codegen::program(&program).is_ok())
+    }
+
     /// Evaluates a constant reading with every query and variable at zero.
     pub fn evaluate_default(source: &str) -> Option<f32> {
         match parse(source).ok()? {
