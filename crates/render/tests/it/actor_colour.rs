@@ -266,26 +266,39 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
         } else {
             unpack(case.tint)
         };
-        let mut second = TEXELS[2].map(|byte| f32::from(byte) / 255.0);
-        if flag(assets::EntityRenderMaterialState::TEXTURE_TINT) {
+        // The shipped programs' second and third texture composition (ActorTint,
+        // Actor and ActorMultiTexture material.bin, Opaque pass).
+        let second = TEXELS[2].map(|byte| f32::from(byte) / 255.0);
+        let third = TEXELS[3].map(|byte| f32::from(byte) / 255.0);
+        let over = |color: &mut [f32; 4], layer: [f32; 4]| {
             for i in 0..3 {
-                color[i] *= 1.0 + (multiplier[i] - 1.0) * second[3];
+                color[i] = color[i] * (1.0 - layer[3]) + layer[i] * layer[3];
             }
+        };
+        if flag(assets::EntityRenderMaterialState::TEXTURE_TINT) {
+            let tinted = [0, 1, 2, 3].map(|i| {
+                if i < 3 {
+                    second[i] * multiplier[i]
+                } else {
+                    second[3]
+                }
+            });
+            over(&mut color, tinted);
         } else if flag(assets::EntityRenderMaterialState::TEXTURE_MASK) {
-            for i in 0..3 {
-                color[i] = color[i] * (1.0 - second[3]) + second[i] * second[3];
+            if (second[0] + second[1] + second[2]) * (1.0 - second[3]) <= 0.0 {
+                color = second;
             }
         } else {
+            over(&mut color, second);
+            // Any non-zero 8-bit alpha exceeds the programs' 1e-5 epsilon.
             if flag(assets::EntityRenderMaterialState::COLOR_SECOND_TEXTURE) {
-                for i in 0..3 {
-                    second[i] *= multiplier[i];
+                if third[3] > 0.0 {
+                    for i in 0..3 {
+                        color[i] = third[i] * (1.0 + (multiplier[i] - 1.0) * third[3]);
+                    }
                 }
-            }
-            let third = TEXELS[3].map(|byte| f32::from(byte) / 255.0);
-            for overlay in [second, third] {
-                for i in 0..3 {
-                    color[i] = color[i] * (1.0 - overlay[3]) + overlay[i] * overlay[3];
-                }
+            } else {
+                over(&mut color, third);
             }
         }
     }
@@ -396,7 +409,7 @@ fn cinnabar_glow_masks_add_after_light_and_emissive_masks_draw_unlit() {
 }
 
 #[test]
-fn define_selected_second_textures_and_glint_follow_their_provisional_formulas() {
+fn define_selected_second_textures_and_glint_follow_the_shipped_formulas() {
     let Some(gpu) = Gpu::for_fixture("define-selected actor material shader") else {
         return;
     };
@@ -407,19 +420,19 @@ fn define_selected_second_textures_and_glint_follow_their_provisional_formulas()
         .flat_map(|light| {
             [
                 Case {
-                    name: "MULTIPLICATIVE_TINT weights the colour by the second alpha",
+                    name: "MULTIPLICATIVE_TINT lays the tinted second texture over the base",
                     material_word: authored(assets::EntityRenderMaterialState::TEXTURE_TINT),
                     tint,
                     ..Default::default()
                 },
                 Case {
-                    name: "MASKED_MULTITEXTURE lays the second texture over the base",
+                    name: "MASKED_MULTITEXTURE keeps the base under a translucent second texture",
                     material_word: authored(assets::EntityRenderMaterialState::TEXTURE_MASK),
                     tint,
                     ..Default::default()
                 },
                 Case {
-                    name: "COLOR_SECOND_TEXTURE tints the second of three samplers",
+                    name: "COLOR_SECOND_TEXTURE draws the dyed third texture where visible",
                     material_word: authored(
                         assets::EntityRenderMaterialState::COLOR_SECOND_TEXTURE,
                     ),
@@ -427,7 +440,7 @@ fn define_selected_second_textures_and_glint_follow_their_provisional_formulas()
                     ..Default::default()
                 },
                 Case {
-                    name: "COLOR_SECOND_TEXTURE without a colour is plain multitexture",
+                    name: "COLOR_SECOND_TEXTURE without a colour draws the third texture undyed",
                     material_word: authored(
                         assets::EntityRenderMaterialState::COLOR_SECOND_TEXTURE,
                     ),

@@ -689,9 +689,6 @@ fn native_multitexture_mixes_rgb_once_without_using_base_alpha_as_coverage() {
     assert!(
         ACTOR_SHADER_SOURCE.contains("material_class.z != 0u && all(input.multitexture_layers")
     );
-    assert!(
-        ACTOR_SHADER_SOURCE.contains("mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a)")
-    );
     assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
     assert_eq!(
         std::mem::offset_of!(render_model::ActorGpuInstance, multitexture_layers) / 4,

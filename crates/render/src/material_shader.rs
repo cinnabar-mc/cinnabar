@@ -14,6 +14,9 @@ pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
 // Admitted source sizes are powers of two up to MAX_TILE_SIZE. Four bits store
 // log2(size) + 1; zero means the physical page size. Grid occupies five more bits.
 // They sit below the page field, which a reference's own width separates.
+/// The actor programs' `ActorFPEpsilon` default (ActorMultiTexture.material.bin):
+/// `COLOR_SECOND_TEXTURE` draws the third texture where its alpha exceeds it.
+const ACTOR_FP_EPSILON: f32 = 1.0e-5;
 const TEXTURE_SIZE_BITS: u32 = 4;
 const TEXTURE_WIDTH_SHIFT: u32 = assets::TEXTURE_LAYER_MASK.count_ones();
 const TEXTURE_HEIGHT_SHIFT: u32 = TEXTURE_WIDTH_SHIFT + TEXTURE_SIZE_BITS;
@@ -169,6 +172,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG", &format!("{}u", assets::EntityRenderMaterialState::DISABLE_OVERLAY))
         .replace("ACTOR_CHART_COORDINATE_BITS", &format!("{}u", u16::BITS))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))
+        .replace("ACTOR_FP_EPSILON", &format!("{ACTOR_FP_EPSILON:?}"))
         .replace("MODEL_RANDOM_OFFSET_FLAG", &format!("{}u", meshing::MODEL_REF_FLAG_RANDOM_OFFSET))
         .replace("MODEL_SHADE_FACE_SHIFT", &format!("{}u", meshing::LIGHT_SAMPLE_SHADE_FACE_SHIFT))
         .replace("MODEL_BAMBOO_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_BAMBOO))

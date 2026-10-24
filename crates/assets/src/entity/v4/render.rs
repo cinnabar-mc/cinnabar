@@ -53,11 +53,12 @@ pub struct EntityRenderMaterialState {
     /// `MULTIPLICATIVE_TINT`: a second texture's alpha weights the colour multiplier.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub texture_tint: bool,
-    /// `MASKED_MULTITEXTURE`: a second texture is laid over the base by its alpha.
+    /// `MASKED_MULTITEXTURE`: a second texture replaces the base, alpha included, where it is
+    /// opaque or black (`(r + g + b) * (1 - a) <= 0`); elsewhere the base shows.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub texture_mask: bool,
-    /// `COLOR_SECOND_TEXTURE` with `USE_MULTITEXTURE`: the colour multiplier tints the
-    /// second texture.
+    /// `COLOR_SECOND_TEXTURE` with `USE_MULTITEXTURE`: a visible third texture replaces the
+    /// mix, dyed by the actor's change colour by its own alpha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub color_second_texture: bool,
 }
