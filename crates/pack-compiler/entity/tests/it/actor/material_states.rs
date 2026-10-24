@@ -714,3 +714,28 @@ fn material_expressions_draw_each_selectable_material_under_its_condition() {
             .all(|layer| layer.condition.is_some())
     );
 }
+
+#[test]
+fn controllers_draw_with_at_most_their_first_three_texture_expressions() {
+    let fixture = per_bone_pack(json!([{"*":"Material.default"}]), false);
+    write(
+        fixture.path(),
+        "render_controllers/example.json",
+        &serde_json::to_vec(&json!({"format_version":"1.8.0","render_controllers":{
+            "controller.render.example":{
+                "geometry":"Geometry.default",
+                "materials":[{"*":"Material.default"}],
+                "textures":["Texture.default","Texture.default","Texture.default","Texture.default"]
+            }
+        }}))
+        .unwrap(),
+    );
+    let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    assert!(!compiled.render.layers.is_empty());
+    for layer in compiled.render.layers.iter() {
+        assert_eq!(
+            layer.slot_count, 3,
+            "Bedrock never evaluates a fourth texture"
+        );
+    }
+}
