@@ -34,7 +34,7 @@ fn session_pack(assets: Arc<assets::RuntimeEntityAssets>) -> Arc<SessionEntityPa
         textures: Arc::from([]),
         bindings: Arc::from([]),
         equipment: None,
-        material_diagnostics: None,
+        material_report: None,
     })
 }
 

@@ -63,7 +63,7 @@ fn fixture(item: &str, mapped: &str) -> assets::SessionEntityPack {
             )
             .unwrap(),
         )),
-        material_diagnostics: None,
+        material_report: None,
     }
 }
 
@@ -252,7 +252,7 @@ fn selection_consumers_held_previews_draw_the_selected_definition_in_both_orders
                         )
                         .unwrap(),
                     )),
-                    material_diagnostics: None,
+                    material_report: None,
                 };
                 ui.set_preview_pack_equipment(replacement.equipment.clone());
                 ui.set_player_preview_gear_with_owner(

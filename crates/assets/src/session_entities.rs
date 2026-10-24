@@ -18,7 +18,8 @@ pub struct SessionEntityPack {
     pub equipment: Option<Arc<crate::RuntimeEquipmentCatalog>>,
     /// The compile's entity material counts, kept with the pack through the disk cache; `None`
     /// only for packs built without a compile, such as test fixtures.
-    pub material_diagnostics: Option<crate::EntityMaterialDiagnostics>,
+    pub material_report:
+        Option<std::sync::Arc<crate::entity_material_report::EntityMaterialReport>>,
 }
 
 impl SessionEntityPack {
@@ -59,11 +60,12 @@ impl SessionEntityPack {
         &'a self,
         entity_blob: &'a [u8],
     ) -> Result<SessionEntityEncoding<'a>, AssetError> {
-        let diagnostics = serde_json::to_vec(&self.material_diagnostics).map_err(|error| {
-            AssetError::InvalidCompiledAssets {
-                detail: format!("session entity diagnostics: {error}").into(),
-            }
-        })?;
+        let diagnostics =
+            serde_json::to_vec(&self.material_report.as_deref()).map_err(|error| {
+                AssetError::InvalidCompiledAssets {
+                    detail: format!("session entity diagnostics: {error}").into(),
+                }
+            })?;
         let equipment = self
             .equipment
             .as_deref()
@@ -108,12 +110,12 @@ impl SessionEntityPack {
                 detail: "session entity artwork is malformed".into(),
             })?;
         let diagnostics = encoded.next()?.ok_or_else(missing)?;
-        let material_diagnostics =
-            serde_json::from_slice(&encoded.read(diagnostics)?).map_err(|_| {
-                AssetError::InvalidCompiledAssets {
-                    detail: "session entity diagnostics are malformed".into(),
-                }
-            })?;
+        let material_report = serde_json::from_slice::<
+            Option<crate::entity_material_report::EntityMaterialReport>,
+        >(&encoded.read(diagnostics)?)
+        .map_err(|_| AssetError::InvalidCompiledAssets {
+            detail: "session entity diagnostics are malformed".into(),
+        })?;
         let equipment = match encoded.next()? {
             None => None,
             Some(length) => {
@@ -136,7 +138,7 @@ impl SessionEntityPack {
             textures: textures.into(),
             bindings: bindings.into(),
             equipment,
-            material_diagnostics,
+            material_report: material_report.map(std::sync::Arc::new),
         })
     }
 }

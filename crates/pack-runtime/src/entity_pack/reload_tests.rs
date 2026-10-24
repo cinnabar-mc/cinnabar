@@ -122,9 +122,9 @@ fn artwork_only_layers_do_not_create_attachable_rigs() {
     assert!(pack.equipment.as_ref().unwrap().bindings().is_empty());
     let encoded = pack.encode(&pack.assets.encode().unwrap()).unwrap();
     let restored = SessionEntityPack::decode(&encoded).unwrap();
-    assert!(pack.material_diagnostics.is_some());
+    assert!(pack.material_report.is_some());
     assert_eq!(
-        restored.material_diagnostics, pack.material_diagnostics,
+        restored.material_report, pack.material_report,
         "a cache-restored pack reports its compile's counts"
     );
     assert!(restored.assets.rig_bindings().is_empty());

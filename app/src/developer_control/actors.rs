@@ -67,7 +67,9 @@ fn material_report(world: &World) -> Value {
         .and_then(|client| client.pack_entities.as_ref());
     json!({
         "server_pack": pack.is_some(),
-        "entity_materials": pack.and_then(|pack| pack.material_diagnostics),
+        "entity_materials": pack.and_then(|pack| pack.material_report.as_ref()).map(|report| report.diagnostics),
+        "entity": super::materials::entity_materials(world),
+        "blocks": super::materials::block_materials(world),
         "pipeline_fallbacks": world
             .get_resource::<render_scene::ActorPipelineReadiness>()
             .map(render_scene::ActorPipelineReadiness::material_fallbacks),

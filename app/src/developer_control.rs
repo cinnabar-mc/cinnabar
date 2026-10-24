@@ -9,6 +9,7 @@ mod cursor_isolation;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;
+mod materials;
 mod scoreboards;
 mod state;
 mod surface;

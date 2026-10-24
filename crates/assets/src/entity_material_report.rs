@@ -71,3 +71,33 @@ impl EntityMaterialDiagnostics {
         *self == Self::default()
     }
 }
+
+/// Where one client-entity material an actor draws came from, and how it draws.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EntityMaterialProvenance {
+    /// The material name a client-entity definition or Cinnabar binding names.
+    pub name: Box<str>,
+    /// The carrier material-table index the actor draws with.
+    pub definition: u32,
+    /// The pack-relative file declaring it, `cinnabar/material-bindings.json` for an extension
+    /// material, or `client base` for a base the client declares itself.
+    pub source: Box<str>,
+    /// The material, then each parent it derives from; a client-declared base ends the chain.
+    pub chain: Box<[Box<str>]>,
+    /// `skinning` when the draw uses the material's skinning variant, else `base`.
+    pub variant: Box<str>,
+    /// Actor defines the client draws.
+    pub applied_defines: Box<[Box<str>]>,
+    /// Defines the client carries without drawing.
+    pub carried_defines: Box<[Box<str>]>,
+    /// Why the draw is approximate or falls back, when it is.
+    pub reason: Option<Box<str>>,
+}
+
+/// One compiled pack's entity material counts and per-material provenance.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EntityMaterialReport {
+    pub diagnostics: EntityMaterialDiagnostics,
+    /// Materials actors draw, sorted by name.
+    pub materials: Box<[EntityMaterialProvenance]>,
+}
