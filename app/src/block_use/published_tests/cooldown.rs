@@ -202,6 +202,8 @@ fn placing_the_final_item_does_not_start_an_empty_stack_cooldown() {
 #[test]
 fn air_use_maintenance_cannot_expire_a_placement_cooldown_early() {
     let (mut world, mut captured, cooldown) = fixture();
+    world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
+    world.init_resource::<client_presentation::camera::ServerCameraView>();
     super::frame_picks::warm_physics(&mut world);
     world.run_system_cached(produce_block_use).unwrap();
     assert!(

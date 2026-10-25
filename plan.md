@@ -785,7 +785,11 @@ eligible original-hit fallback, and may retry later observations while the uncha
 native deadline remains due. Locked-line support does not receive a second centre-distance
 filter. Ordinary and liquid queries retain their availability independently. Refreshed
 indirect support can become a direct top-face hit. Placement shares the same upcoming-tick
-item category cooldowns with air use and starts them only after transport admission. Fresh conformance and headless acceptance verification remain pending.
+item category cooldowns with air use and starts them only after transport admission.
+Regression coverage includes buffered aims, bounded float segments, same-tick retries,
+category expiry and actor lifetime/streaming boundaries. The focused app and domain
+suites pass. A headless local-server bridge comparison reproduces the old fall and keeps
+the fixed player supported; live native-client and wider placement acceptance remain open.
 Direction/face/intercept retention, repeat timing and reset behavior across slot/item
 changes, unavailable selection and deferred presses still need confirmation. Empty hands
 and non-block items repeat a block's own interaction; bucket repeats and item-specific

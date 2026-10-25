@@ -138,7 +138,7 @@ fn liquid_pick_keeps_flowing_liquids_other_items_and_solid_occluders_distinct() 
 fn a_valid_liquid_pick_survives_an_unavailable_ordinary_query() {
     let (mut world, mut captured) =
         liquid_fixture(EMPTY_BUCKET_IDENTIFIER, 0, "minecraft:water", 0, false);
-    let eye = [4.5, 2.5, 13.5];
+    let eye = [4.5, 2.5, 11.5];
     {
         let registry = world.resource::<PhysicsCollisionRegistries>();
         let client = world.resource::<crate::runtime::world::ClientWorld>();
@@ -160,7 +160,7 @@ fn a_valid_liquid_pick_survives_an_unavailable_ordinary_query() {
                 sequence,
                 protocol::WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
                     dimension: 0,
-                    position: [4, 2, 14],
+                    position: [4, 2, 12],
                     layer: 0,
                     network_id: source,
                 }]),
@@ -185,10 +185,47 @@ fn a_valid_liquid_pick_survives_an_unavailable_ordinary_query() {
         Vec3::from_array(eye),
         Quat::from_rotation_y(std::f32::consts::PI),
     );
+    {
+        let client = world.resource::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_ref().unwrap();
+        let registry = world.resource::<PhysicsCollisionRegistries>();
+        let ray = origin.outbound_ray().unwrap();
+        let vector = |v: Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
+        for liquids in [false, true] {
+            let query = PaletteWorld::new(
+                stream.collision_store(),
+                registry.registry(stream.network_id_mode()),
+                0,
+                assets::block_shapes::PickContext {
+                    liquids,
+                    ..Default::default()
+                },
+            )
+            .block_interaction_ray_current(
+                vector(ray.origin()),
+                vector(ray.direction()),
+                gameplay::mining::survival_reach(PlayerInputMode::Mouse),
+            );
+            if liquids {
+                assert_eq!(
+                    query
+                        .expect("liquid source is fully known")
+                        .unwrap()
+                        .block_pos,
+                    [4, 2, 12]
+                );
+            } else {
+                assert!(
+                    query.is_err(),
+                    "ordinary ray must encounter the later streaming gap"
+                );
+            }
+        }
+    }
     world.insert_resource(origin);
     world
         .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
     world.run_system_cached(produce_block_use).unwrap();
-    assert_eq!(transaction_targets(&mut captured), [[4, 2, 14]]);
+    assert_eq!(transaction_targets(&mut captured), [[4, 2, 12]]);
 }
