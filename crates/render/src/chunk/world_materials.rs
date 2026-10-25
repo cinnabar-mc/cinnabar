@@ -23,7 +23,7 @@ mod translucent;
 pub(in crate::chunk) use draw::{
     DrawWorldMaterialTerrainCommands, WorldTerrainSections, queue_world_material_chunks,
 };
-pub(crate) use effects::draw as draw_effects;
+pub(crate) use effects::{draw as draw_effects, gather_particles};
 pub(in crate::chunk) use translucent::{DrawInterleavedTerrainCommands, InterleavedTerrain};
 
 /// The bind group a world material terrain pipeline reads its frame, textures and sampler from.

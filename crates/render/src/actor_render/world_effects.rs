@@ -100,3 +100,43 @@ pub(crate) fn draw<'w>(
     }
     drew
 }
+
+/// Gathers every bound actor of a material with particles, at its feet, for the particle
+/// pass.
+pub(crate) fn gather_particles(
+    gpu: Option<Res<ActorGpu>>,
+    materials: Option<Res<WorldMaterialGpu>>,
+    mut targets: ResMut<crate::world_material::particles::ParticleTargets>,
+) {
+    targets.actors.clear();
+    let (Some(gpu), Some(materials)) = (gpu, materials) else {
+        return;
+    };
+    if !materials.has_particles() {
+        return;
+    }
+    for span in &gpu.spans {
+        let Some(slot) = render_model::actor::frame::actor_world_material(span.material)
+            .filter(|slot| materials.particles(*slot).is_some())
+        else {
+            continue;
+        };
+        let instances = gpu
+            .instances
+            .get(span.first as usize..(span.first + span.count) as usize)
+            .unwrap_or_default();
+        targets
+            .actors
+            .entry(slot)
+            .or_default()
+            .extend(instances.iter().map(|instance| {
+                let [x, y, z] = instance.world_from_actor.map(|row| row[3]);
+                [x, y, z, 1.0]
+            }));
+    }
+    // One draw per actor, not per layer: the body and its controller layers share a position.
+    for origins in targets.actors.values_mut() {
+        origins.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        origins.dedup();
+    }
+}

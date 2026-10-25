@@ -237,8 +237,11 @@ material's do. Ending the runtime clears the withdrawals.
   `fn outline(input: WorldMaterialInput) -> vec3<f32>`. Two fullscreen passes then blur the
   emission (strength at most 4, radius at most 16 pixels) and grow an outline at most 8 pixels
   wide around what can be seen of each target, never over it, and blend both over the scene.
-  `particles` draws at most 4 096 pixel squares per bound target within at most 4 blocks of it,
-  placed and coloured by `fn particle(input: WorldParticleInput) -> WorldParticle`.
+  `particles` draws at most 4 096 camera-facing pixel squares per bound target within at most 4
+  blocks of it (an entity's feet or a block's centre), placed and coloured by
+  `fn particle(input: WorldParticleInput) -> WorldParticle`, as solid emissive squares
+  depth-tested against the scene after the translucent pass; a view draws at most 65 536 a frame
+  and the targets past that wait.
   `set-compute` declares at most 65 536 cells of four numbers the host owns for the bundle; each
   frame `fn step(input: WorldCellInput) -> vec4<f32>` returns each cell's next value from the
   previous frame's cells, and a material naming the compute in `cells` reads them with

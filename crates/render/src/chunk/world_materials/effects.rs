@@ -78,3 +78,59 @@ pub(crate) fn draw<'w>(
     }
     drew
 }
+
+/// Gathers, for each view, the blocks of its visible sections bound to a material with
+/// particles, at their centres, for the particle pass. A bound block's faces stay one block
+/// wide, so each tagged cube quad names its own block.
+pub(crate) fn gather_particles(
+    sections: Option<Res<WorldTerrainSections>>,
+    instances: Query<&ChunkRenderInstance>,
+    materials: Option<Res<WorldMaterialGpu>>,
+    mut targets: ResMut<crate::world_material::particles::ParticleTargets>,
+) {
+    targets.blocks.clear();
+    let (Some(sections), Some(materials)) = (sections, materials) else {
+        return;
+    };
+    if !materials.has_particles() {
+        return;
+    }
+    let particle_slots = (0..64u16)
+        .filter(|slot| materials.particles(*slot).is_some())
+        .fold(0_u64, |mask, slot| mask | 1 << slot);
+    for (view, draws) in sections.all_views() {
+        let mut blocks: std::collections::BTreeMap<u16, std::collections::BTreeSet<[i32; 3]>> =
+            Default::default();
+        for (entity, mask) in draws {
+            if mask & particle_slots == 0 {
+                continue;
+            }
+            let Ok(instance) = instances.get(*entity) else {
+                continue;
+            };
+            for quad in instance.cube_quads.iter() {
+                let tag = quad.world_material();
+                if tag == 0 || particle_slots & (1 << (tag - 1)) == 0 {
+                    continue;
+                }
+                let local = quad.origin().map(i32::from);
+                let block = std::array::from_fn(|axis| instance.origin[axis] + local[axis]);
+                blocks.entry(u16::from(tag - 1)).or_default().insert(block);
+            }
+        }
+        if blocks.is_empty() {
+            continue;
+        }
+        let gathered = blocks
+            .into_iter()
+            .map(|(slot, cells)| {
+                let origins = cells
+                    .into_iter()
+                    .map(|[x, y, z]| [x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5, 1.0])
+                    .collect();
+                (slot, origins)
+            })
+            .collect();
+        targets.blocks.insert(view, gathered);
+    }
+}
