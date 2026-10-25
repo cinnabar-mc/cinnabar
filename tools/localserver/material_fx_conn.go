@@ -130,10 +130,7 @@ func (c *materialFxConn) ReadPacket() (packet.Packet, error) {
 	for {
 		pk, err := c.Conn.ReadPacket()
 		if err != nil {
-			c.closing.Do(func() {
-				close(c.done)
-				c.everyone.set(c.id, mgl32.Vec3{}, true)
-			})
+			c.close()
 			return pk, err
 		}
 		switch pk := pk.(type) {
@@ -149,6 +146,7 @@ func (c *materialFxConn) ReadPacket() (packet.Packet, error) {
 			fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(pk.CommandLine), "/"))
 			if len(fields) > 0 && fields[0] == "materialfx" {
 				if err := c.run(parseMaterialFx(fields[1:])); err != nil {
+					c.close()
 					return nil, err
 				}
 				continue
@@ -156,6 +154,14 @@ func (c *materialFxConn) ReadPacket() (packet.Packet, error) {
 		}
 		return pk, nil
 	}
+}
+
+// close stops the radar and forgets the player's position, once, when the connection ends.
+func (c *materialFxConn) close() {
+	c.closing.Do(func() {
+		close(c.done)
+		c.everyone.set(c.id, mgl32.Vec3{}, true)
+	})
 }
 
 // send hands `records` to the client part. When it is not running, the player is told once
