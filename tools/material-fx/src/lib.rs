@@ -5,5 +5,6 @@ pub mod art;
 pub mod artifact;
 pub mod command;
 pub mod diorama;
+pub mod permission;
 pub mod pictures;
 pub mod world;
