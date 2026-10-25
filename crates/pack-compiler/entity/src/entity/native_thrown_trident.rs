@@ -3,12 +3,10 @@
 //! presentation places the model along the actor's flight rotation as the native renderer does.
 use super::painting::{encode_document, replace_with_documents, unused_source_path};
 use super::*;
-use assets::facts::entity::NativeEntityClass;
+use assets::facts::{entity::NativeEntityClass, pack::ALPHA_TEST_MATERIAL};
 use serde_json::json;
 
 const CONTROLLER: &str = "controller.render.cinnabar.thrown_trident";
-/// The material used when the client entity names none.
-const MATERIAL: &str = "entity_alphatest";
 
 /// Gives a client thrown trident that names no render controller one that draws its default
 /// geometry with its default texture. Authored controllers are kept as they are.
@@ -52,7 +50,7 @@ pub(super) fn complete_bindings(
     }
     description
         .entry("materials")
-        .or_insert_with(|| json!({ "default": MATERIAL }));
+        .or_insert_with(|| json!({ "default": ALPHA_TEST_MATERIAL }));
     description.insert("render_controllers".into(), json!([CONTROLLER]));
     let documents = vec![
         encode_document(

@@ -112,6 +112,9 @@ pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
 /// Material used by the missing harness attachables supplied by the compiler.
 pub const HARNESS_MATERIAL: &str = "harness";
 
+/// The alpha-tested entity material that compiler-completed bindings draw with.
+pub const ALPHA_TEST_MATERIAL: &str = "entity_alphatest";
+
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum MaterialKind {
@@ -361,7 +364,7 @@ fn material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
 /// Normalizes skinning variants and the material used by synthesized harness bindings.
 fn material_name(name: &str) -> &str {
     match name.strip_suffix(".skinning").unwrap_or(name) {
-        HARNESS_MATERIAL => "entity_alphatest",
+        HARNESS_MATERIAL => ALPHA_TEST_MATERIAL,
         name => name,
     }
 }
