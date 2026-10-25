@@ -135,3 +135,125 @@ fn server_updates_change_how_fast_the_portal_and_heartbeat_go_but_never_jump_the
         );
     }
 }
+
+/// The host's form of a client part effects declaration.
+fn host_effects(
+    effects: &experience_sdk::client::world_material_effects::Effects,
+) -> server_experience::world_material::WorldEffects {
+    use server_experience::world_material::{WorldBloom, WorldOutline, WorldParticles};
+    server_experience::world_material::WorldEffects {
+        displacement_blocks: effects.displacement_blocks,
+        scene: effects.scene,
+        outline: effects.outline.map(|outline| WorldOutline {
+            width_pixels: outline.width_pixels,
+        }),
+        bloom: effects.bloom.map(|bloom| WorldBloom {
+            strength: bloom.strength,
+            radius_pixels: bloom.radius_pixels,
+        }),
+        particles: effects.particles.map(|particles| WorldParticles {
+            count: particles.count,
+            radius_blocks: particles.radius_blocks,
+        }),
+        cells: effects.cells,
+    }
+}
+
+/// The host's form of a client part material declaration with `effects`.
+fn host_spec(
+    spec: &experience_sdk::client::world_material::MaterialSpec,
+    effects: server_experience::world_material::WorldEffects,
+) -> server_experience::world_material::WorldMaterialSpec {
+    use experience_sdk::client::world_material::{Blend, Depth};
+    use server_experience::world_material::{WorldBlend, WorldDepth};
+    server_experience::world_material::WorldMaterialSpec {
+        source: spec.source.clone(),
+        textures: spec.textures.clone(),
+        params: spec.params.clone(),
+        depth: match spec.depth {
+            Depth::Test => WorldDepth::Test,
+            Depth::Always => WorldDepth::Always,
+        },
+        blend: match spec.blend {
+            Blend::Opaque => WorldBlend::Opaque,
+            Blend::Cutout => WorldBlend::Cutout,
+            Blend::Premultiplied => WorldBlend::Premultiplied,
+            Blend::Additive => WorldBlend::Additive,
+        },
+        effects,
+    }
+}
+
+/// The showcase's per-frame work budget for its effects, well inside the host's caps so the
+/// whole wing costs a small, fixed share of a frame: compute cells stepped, and particles
+/// drawn with each material bound to at most `PARTICLE_TARGETS` blocks or entities.
+const BUDGET_CELLS_PER_FRAME: u32 = 8_192;
+const BUDGET_PARTICLES_PER_FRAME: u32 = 4_096;
+const PARTICLE_TARGETS: u32 = 1;
+
+#[test]
+fn every_rich_form_is_granted_with_its_permissions_refused_without_and_fits_the_frame_budget() {
+    use server_experience::manifest::{Permission, WORLD_MATERIAL_EXTENSIONS};
+    use server_experience::world_material::WorldAuthority;
+    let assets: std::collections::BTreeSet<String> = material_fx::artifact::client_textures()
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect();
+    let all: std::collections::BTreeSet<Permission> = [Permission::RenderWorldMaterial]
+        .into_iter()
+        .chain(WORLD_MATERIAL_EXTENSIONS.iter().map(|e| e.permission))
+        .collect();
+    let plain = std::collections::BTreeSet::from([Permission::RenderWorldMaterial]);
+    let authority = |permissions| WorldAuthority {
+        permissions,
+        namespace: Some(ID),
+        assets: &assets,
+    };
+    for state in [effects::State::default(), {
+        let mut off = effects::State::default();
+        off.outline = false;
+        off.bloom = false;
+        off
+    }] {
+        let mut particles = 0;
+        for id in 0..effects::EFFECTS.len() as u32 {
+            let plain_spec = host_spec(&effects::spec(id, &state), Default::default());
+            authority(&plain)
+                .validate_material(&plain_spec)
+                .unwrap_or_else(|error| panic!("material {id}'s plain form: {error}"));
+            let Some((spec, wanted)) = effects::rich_spec(id, &state) else {
+                continue;
+            };
+            let rich = host_spec(&spec, host_effects(&wanted));
+            authority(&all)
+                .validate_material(&rich)
+                .unwrap_or_else(|error| panic!("material {id}'s rich form: {error}"));
+            if !rich.effects.is_none() {
+                assert!(
+                    authority(&plain).validate_material(&rich).is_err(),
+                    "material {id}'s effects need their permissions"
+                );
+            }
+            particles += rich.effects.particles.map_or(0, |p| p.count) * PARTICLE_TARGETS;
+        }
+        let cells: u32 = effects::COMPUTES
+            .iter()
+            .map(|&id| {
+                let spec = effects::compute(id, &state);
+                let host = server_experience::world_material::WorldComputeSpec {
+                    source: spec.source,
+                    cells: spec.cells,
+                    params: spec.params,
+                };
+                authority(&all).validate_compute(&host).unwrap();
+                assert!(authority(&plain).validate_compute(&host).is_err());
+                host.cells
+            })
+            .sum();
+        assert!(cells <= BUDGET_CELLS_PER_FRAME, "{cells} cells a frame");
+        assert!(
+            particles <= BUDGET_PARTICLES_PER_FRAME,
+            "{particles} particles a frame"
+        );
+    }
+}

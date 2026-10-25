@@ -15,16 +15,26 @@ use std::{process::Command as Process, sync::Once, time::Duration};
 const ID: &str = "materialfx";
 const CONTROL: &str = "materialfx.control";
 /// The mobs the showcase restyles.
-const ENTITIES: [&str; 5] = [
+const ENTITIES: [&str; 8] = [
     "materialfx:wraith",
     "materialfx:hologram",
     "materialfx:voidwalker",
     "materialfx:lenticular",
     "materialfx:metal",
+    "materialfx:jelly",
+    "materialfx:shatter",
+    "materialfx:boss",
 ];
+/// The mobs thermal vision recolours: the gallery's five.
+const THERMAL_MOBS: usize = 5;
 /// The client part's materials, and the targets bound by default (all but thermal vision).
-const MATERIALS: usize = 20;
-const BOUND: usize = 19;
+const MATERIALS: usize = 30;
+const BOUND: usize = 29;
+/// The client part's compute declarations: the storm's and the fire's.
+const COMPUTES: usize = 2;
+/// The GPU memory the local server's offer signs for one bundle with world material effects:
+/// `WorldMaterialGPUBytes` plus `WorldMaterialEffectsGPUBytes` in its extension package.
+const GPU_BYTES: u64 = (32 + 32) << 20;
 /// The arena material, its shockwave start parameter, and thermal vision.
 const ARENA: u32 = 9;
 const BOOM_START: usize = 2;
@@ -131,7 +141,7 @@ fn showcase() -> Live<Helper> {
     let mut live = fixture_with::<Helper>(&[ID.into()], helper(), component, |caps| {
         caps.scope.permissions = manifest.permissions.clone();
         caps.scope.memory_bytes = MAX_GUEST_MEMORY;
-        caps.scope.gpu_bytes = 32 << 20;
+        caps.scope.gpu_bytes = GPU_BYTES;
         caps.namespace = manifest.namespace.clone();
         caps.assets = files
             .textures
@@ -156,6 +166,9 @@ impl Driver {
         test_time::eventually_within(Duration::from_secs(120), what, || {
             self.now_ms += CALLBACK_INTERVAL_MS;
             self.live
+                .bind_drawing(&context(self.live.epoch), |_| true)
+                .unwrap();
+            self.live
                 .poll(self.live.epoch, self.now_ms, true, |_| true)
                 .unwrap();
             done(&self.live)
@@ -173,7 +186,7 @@ impl Driver {
             bundle: ID.into(),
             generation: INITIAL_BUNDLE_GENERATION,
             channel: CONTROL.into(),
-            schema: 2,
+            schema: 3,
             sequence: self.sequence,
             world_epoch: self.live.epoch,
             payload: std::iter::once(Scalar::Choice(op))
@@ -208,19 +221,32 @@ fn the_showcase_client_part_binds_updates_revokes_and_restores_its_world_materia
         now_ms: 0,
         sequence: 0,
     };
-    // `init` declares as many materials as one callback's compile budget allows and binds them.
+    // `init` declares its computes and as many materials as one callback's compile budget
+    // allows, and binds them.
     let budget = mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK as usize;
     driver.until("the client part initializes", |live| {
-        live.ready && live.instances[ID].contributions.world.materials().len() == budget
+        let world = &live.instances[ID].contributions.world;
+        live.ready && world.computes().len() == COMPUTES && !world.materials().is_empty()
     });
-    // The spawn's bind pulses declare the rest, a callback's budget at a time.
-    for _ in 0..MATERIALS.div_ceil(budget) {
+    // The spawn's bind pulses declare the rest, a callback's budget at a time; a material in
+    // its rich form may take two compiles when the first is refused.
+    for _ in 0..(2 * MATERIALS + COMPUTES).div_ceil(budget) {
         driver.command(0, [0; 4]);
     }
     driver.until("every material is declared and bound", |live| {
         let world = &live.instances[ID].contributions.world;
-        world.materials().len() == MATERIALS && world.bindings().len() == BOUND
+        world.materials().len() == MATERIALS
+            && world.bindings().len() == BOUND
+            && world.computes().len() == COMPUTES
     });
+    // Granted every effect permission, the wing's materials keep their effects.
+    let effects = driver
+        .world()
+        .materials()
+        .values()
+        .filter(|material| !material.effects.is_none())
+        .count();
+    assert!(effects >= 10, "{effects} materials with effects");
     let mut presenter = WorldMaterialPresenter::inline();
     assert!(driver.present(&mut presenter));
     assert_eq!(
@@ -269,7 +295,7 @@ fn the_showcase_client_part_binds_updates_revokes_and_restores_its_world_materia
             .values()
             .filter(|binding| binding.material == THERMAL)
             .count()
-            == ENTITIES.len()
+            == THERMAL_MOBS
     });
     driver.command(6, [0; 4]);
     driver.until("the mobs return to their materials", |live| {

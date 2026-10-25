@@ -27,7 +27,7 @@ const (
 	materialFxID      = "materialfx"
 	materialFxChannel = "materialfx.control"
 	// materialFxSchema is the control channel's schema, as experience.toml declares it.
-	materialFxSchema  = 2
+	materialFxSchema  = 3
 	materialFxFirstID = 9400000
 	materialFxTexture = "textures/entity/materialfx_"
 	materialFxControl = "controller.render.materialfx"
@@ -54,6 +54,16 @@ const (
 	materialFxFacing
 	materialFxRadar
 	materialFxPortalDistance
+	materialFxWind
+	materialFxJellyHit
+	materialFxShatter
+	materialFxHeat
+	materialFxRefract
+	materialFxPulse
+	materialFxOutline
+	materialFxBloom
+	materialFxStorm
+	materialFxFire
 )
 
 // The layout pieces whose centres the client part needs, by the layout operation's piece index.
@@ -63,44 +73,70 @@ const (
 	materialFxPaintingPiece
 	materialFxScreenPiece
 	materialFxPortalPiece
+	materialFxFlagPiece
+	materialFxFirePiece
+	materialFxFieldPiece
+	materialFxGrassPiece
+	materialFxPieceCount
 )
 
-// materialFxEntity is one showcase entity and its generated skin.
+// materialFxEntity is one showcase entity, where it stands (blocks across and ahead, as
+// materialFxBlocks counts them) and its generated skin.
 type materialFxEntity struct {
-	id    string
-	pixel func(x, y int) color.NRGBA
+	id          string
+	side, ahead float32
+	pixel       func(x, y int) color.NRGBA
 }
 
-// materialFxMetal is the liquid metal mob, the one hits are aimed at.
-const materialFxMetal = "materialfx:metal"
+// The mobs hits are aimed at: the liquid metal target, the jelly and the shattering mob.
+const (
+	materialFxMetal      = "materialfx:metal"
+	materialFxJelly      = "materialfx:jelly"
+	materialFxShatterMob = "materialfx:shatter"
+)
 
-// materialFxEntities are spawned in a row from the player's right to their left: the dissolving
-// wraith, the hologram, the void walker, the lenticular mob and the liquid metal target.
+// materialFxEntities are the gallery's dissolving wraith, hologram, void walker, lenticular
+// mob and liquid metal target, in a row from the player's right to their left, then the effects
+// wing's jelly, shattering mob and outlined boss.
 var materialFxEntities = []materialFxEntity{
-	{"materialfx:wraith", func(x, y int) color.NRGBA {
+	{"materialfx:wraith", -4, 4, func(x, y int) color.NRGBA {
 		// Pale robe cloth with darker folds.
 		fold := uint8(20 * math.Abs(math.Sin(float64(x)*0.7+float64(y)*0.15)))
 		return color.NRGBA{R: 170 - fold, G: 180 - fold, B: 200 - fold, A: 255}
 	}},
-	{"materialfx:hologram", func(x, y int) color.NRGBA {
+	{"materialfx:hologram", -2, 4, func(x, y int) color.NRGBA {
 		// A bright figure with a grid, which the hologram turns into its own light.
 		if x%8 == 0 || y%8 == 0 {
 			return color.NRGBA{R: 240, G: 250, B: 255, A: 255}
 		}
 		return color.NRGBA{R: 120, G: 140, B: 160, A: 255}
 	}},
-	{"materialfx:voidwalker", func(x, y int) color.NRGBA {
+	{"materialfx:voidwalker", 0, 4, func(x, y int) color.NRGBA {
 		// A dark figure; its world material shows space through it.
 		return color.NRGBA{R: 30, G: 20, B: 45, A: 255}
 	}},
-	{"materialfx:lenticular", func(x, y int) color.NRGBA {
+	{"materialfx:lenticular", 2, 4, func(x, y int) color.NRGBA {
 		// A plain figure; its world material picks one of three faces by angle.
 		return color.NRGBA{R: 200, G: 170, B: 120, A: 255}
 	}},
-	{materialFxMetal, func(x, y int) color.NRGBA {
+	{materialFxMetal, 4, 4, func(x, y int) color.NRGBA {
 		// Brushed steel.
 		level := uint8(150 + (x+y*3)%7*6)
 		return color.NRGBA{R: level, G: level, B: level + 10, A: 255}
+	}},
+	{materialFxJelly, 12, 7, func(x, y int) color.NRGBA {
+		// Green slime; its world material makes it translucent jelly.
+		return color.NRGBA{R: 70, G: 190, B: 90, A: 255}
+	}},
+	{materialFxShatterMob, 15, 7, func(x, y int) color.NRGBA {
+		// A patchwork of coloured squares, so its scattered pixels show.
+		palette := []color.NRGBA{{200, 80, 60, 255}, {60, 140, 200, 255}, {230, 200, 70, 255}, {90, 170, 90, 255}}
+		return palette[(x/4+y/4)%len(palette)]
+	}},
+	{"materialfx:boss", 18, 7, func(x, y int) color.NRGBA {
+		// Dark plate armour.
+		level := uint8(40 + (x*7+y*3)%5*4)
+		return color.NRGBA{R: level, G: level, B: level + 8, A: 255}
 	}},
 }
 
@@ -221,10 +257,21 @@ type materialFxCommand struct {
 	corrupt, cleanse bool
 	// heartbeat sets the heartbeat's boss health in thousandths now, or -1 stops it.
 	heartbeat *int64
+	// timed are operations sent with the session clock now as their first argument: the
+	// shatter, the force field pulse, the storm burst and the fire's ignition.
+	timed []uint16
+	// jelly shakes the jelly as if hit; outline and bloom toggle those effects.
+	jelly, outline, bloom bool
 }
 
 // materialFxUsage lists the /materialfx commands.
-const materialFxUsage = "usage: /materialfx [spawn|revoke|restore|boom|heartbeat <0-100|off>|thermal|corrupt|cleanse|cut <0-100|sweep>]"
+const materialFxUsage = "usage: /materialfx [spawn|revoke|restore|boom|heartbeat <0-100|off>|thermal|corrupt|cleanse|cut <0-100|sweep>|wind <0-100>|jelly|shatter|heat <0-100>|refract <0-100>|pulse|outline|bloom|storm|ignite|extinguish]"
+
+// materialFxLevels are the commands that set a level from 0 to 100, by their operation.
+var materialFxLevels = map[string]uint16{"wind": materialFxWind, "heat": materialFxHeat, "refract": materialFxRefract}
+
+// materialFxTimed are the commands that start something now, by their operation.
+var materialFxTimed = map[string]uint16{"shatter": materialFxShatter, "pulse": materialFxPulse, "storm": materialFxStorm, "ignite": materialFxFire}
 
 // parseMaterialFx reads the arguments of /materialfx.
 func parseMaterialFx(args []string) materialFxCommand {
@@ -248,6 +295,20 @@ func parseMaterialFx(args []string) materialFxCommand {
 		return materialFxCommand{corrupt: true}
 	case args[0] == "cleanse" && len(args) == 1:
 		return materialFxCommand{cleanse: true}
+	case args[0] == "jelly" && len(args) == 1:
+		return materialFxCommand{jelly: true}
+	case args[0] == "outline" && len(args) == 1:
+		return materialFxCommand{outline: true}
+	case args[0] == "bloom" && len(args) == 1:
+		return materialFxCommand{bloom: true}
+	case args[0] == "extinguish" && len(args) == 1:
+		return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxFire, -1)}}
+	case materialFxTimed[args[0]] != 0 && len(args) == 1:
+		return materialFxCommand{timed: []uint16{materialFxTimed[args[0]]}}
+	case materialFxLevels[args[0]] != 0 && len(args) == 2:
+		if level, ok := number(args[1]); ok {
+			return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxLevels[args[0]], level*10)}}
+		}
 	case args[0] == "heartbeat" && len(args) == 2:
 		if args[1] == "off" {
 			off := int64(-1)

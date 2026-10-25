@@ -25,7 +25,7 @@ fn block(id: &str, display_name: &str, texture: &str) -> BlockDef {
 
 /// The showcase's blocks: identifier suffix and display name. Each one's Bedrock texture is
 /// `<suffix>.png`, which the `material-fx` tool generates.
-pub const BLOCKS: [(&str, &str); 14] = [
+pub const BLOCKS: [(&str, &str); 21] = [
     ("bottle", "Ship in a Bottle"),
     ("aquarium", "Hollow Aquarium"),
     ("mineshaft", "Hollow Mineshaft"),
@@ -40,11 +40,25 @@ pub const BLOCKS: [(&str, &str); 14] = [
     ("screen", "Screen"),
     ("rune", "Carved Rune"),
     ("vortex", "Star Portal"),
+    ("wavegrass", "Waving Grass"),
+    ("flag", "Flag Cloth"),
+    ("lens", "Lens Glass"),
+    ("haze", "Heat Haze"),
+    ("forcefield", "Force Field"),
+    ("storm", "Storm Core"),
+    ("firewall", "Fire Wall"),
 ];
 
 /// The blocks whose world materials blend: glass the world behind shows through, so their
 /// Bedrock looks blend too and hide none of their neighbours' faces.
-pub const BLENDED: [&str; 3] = ["bottle", "snowglobe", "blackhole"];
+pub const BLENDED: [&str; 6] = [
+    "bottle",
+    "snowglobe",
+    "blackhole",
+    "lens",
+    "haze",
+    "forcefield",
+];
 
 /// The block type of showcase block `name`: a plain cube, or for a [`BLENDED`] block a full
 /// cube whose one material blends.
