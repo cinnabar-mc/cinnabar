@@ -87,9 +87,11 @@ type pauseState struct {
 	settings settings
 }
 
-// WorldOpened applies gameplay settings and inherits the current pause before admission.
+// WorldOpened applies gameplay settings, the attacker-excluding attack sounds and the current
+// pause before admission. Default and Experience-created worlds all open through it.
 func (p *pauseState) WorldOpened(w *world.World) {
 	p.settings.applyTo(w)
+	installAttackSounds(w)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.worlds == nil {

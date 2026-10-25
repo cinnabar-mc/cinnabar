@@ -181,18 +181,21 @@ func restartStep(t *testing.T) time.Duration {
 	return step
 }
 
-// The real runtime loads the probe, and an interaction with x=0 commits its data write and its
-// tell.
+// The real runtime loads the probe, its blocks and its overlays, and an interaction with x=0
+// commits its data write and its tell.
 func TestProbeCallbackRoundTrip(t *testing.T) {
 	log, _ := testLog(t)
 	s, loaded := startProbe(t, log)
 	if loaded.Protocol != protocolVersion {
 		t.Fatalf("loaded protocol %d, want %d", loaded.Protocol, protocolVersion)
 	}
-	if len(loaded.Blocks) != 3 || loaded.Blocks[0].ID != probeCounter || loaded.Blocks[1].ID != probeLamp ||
-		loaded.Blocks[2].ID != probeNode || !loaded.Blocks[2].Network {
-		t.Fatalf("loaded blocks %s, want %s, %s and the network member %s", jsonOf(loaded.Blocks),
+	if len(loaded.Blocks) != 4 || loaded.Blocks[0].ID != probeCounter || loaded.Blocks[1].ID != probeLamp ||
+		loaded.Blocks[2].ID != probeNode || !loaded.Blocks[2].Network || loaded.Blocks[3].ID != "probe:bus" {
+		t.Fatalf("loaded blocks %s, want %s, %s, the network member %s and probe:bus", jsonOf(loaded.Blocks),
 			probeCounter, probeLamp, probeNode)
+	}
+	if o := loaded.Overlays; o == nil || !slices.Equal(o.Hosts, []string{"probe:bus"}) || len(o.Types) != 1 || o.Types[0].ID != "probe:plate" {
+		t.Fatalf("loaded overlays %s, want probe:bus carrying probe:plate", jsonOf(loaded.Overlays))
 	}
 	got, err := s.Call(probeInteract(probeCount))
 	if err != nil {

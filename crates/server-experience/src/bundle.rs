@@ -58,8 +58,11 @@ impl VerifiedBundle {
             .get(MANIFEST_PATH)
             .ok_or_else(|| anyhow::anyhow!("manifest missing"))?
             .size;
+        // The payload, which hex doubles in the signed document, holds MAX_ACTIONS actions at the
+        // longest identifier and MAX_FILES index entries at the longest safe path, so those
+        // limits bind before the manifest's size does. It is parsed once per admission.
         ensure!(
-            manifest_size <= MAX_MARKER_BYTES as u64,
+            manifest_size <= MAX_MANIFEST_BYTES as u64,
             "manifest too large"
         );
         let signed = read_entry(&entries, MANIFEST_PATH, manifest_size, &mut remaining)?;
@@ -67,7 +70,7 @@ impl VerifiedBundle {
         let (manifest, _): (Manifest, _) = signed.verify(
             &offer.publisher_key,
             crypto::MANIFEST_DOMAIN,
-            MAX_MARKER_BYTES / 2,
+            MAX_MANIFEST_BYTES / 2,
         )?;
         ensure!(
             manifest.version == WIRE_VERSION && manifest.api == API_VERSION,

@@ -103,6 +103,8 @@ pub struct ActorStatus {
     pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
+    /// A thrown trident's ticks with its return flag set, which lengthen its loyalty rope.
+    pub(super) loyalty_return_ticks: u32,
     pub(super) fire: super::fire::FireAnimation,
     /// Runtime ID and spawn revision of the dragon's last selected healing crystal.
     pub(crate) healing_crystal: Option<(u64, u64)>,

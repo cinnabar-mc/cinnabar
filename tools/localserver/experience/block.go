@@ -49,6 +49,12 @@ type blockType struct {
 	visual *visualType
 	// network is set for a network member, whose callbacks have the network around it.
 	network bool
+	// overlays is what an overlay host may carry, nil for a block that carries none; its
+	// blocks in a world are HostBlocks.
+	overlays *overlaySet
+	// overlay is set for an overlay type: a hidden block that only overlays draw, never in a
+	// world, without an item or creative entry.
+	overlay bool
 }
 
 // Block is an Experience block, in a world or as an item: its type and its state, an index of

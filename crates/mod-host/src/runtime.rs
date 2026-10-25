@@ -1,3 +1,4 @@
+mod action_filter;
 mod input_host;
 mod output_lifecycle;
 mod presentation;
@@ -22,7 +23,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/player-mod@0.1.0",
+    world: "cinnabar:extension/filtered-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
 });
@@ -56,6 +57,8 @@ mod player_state;
 mod render;
 #[path = "terrain_host.rs"]
 mod terrain_host;
+#[path = "touch.rs"]
+mod touch;
 
 /// What a package declares that the host checks guest output and events against.
 #[derive(Clone, Debug, Default)]
@@ -108,6 +111,7 @@ pub(crate) struct State {
     block_highlights: block_highlights::HighlightState,
     inventory: inventory::InventoryRequests,
     events: player_mod::EventContext,
+    touch: touch::TouchState,
 }
 
 impl State {
@@ -169,6 +173,7 @@ impl State {
             block_highlights: block_highlights::HighlightState::default(),
             inventory: Default::default(),
             events: Default::default(),
+            touch: Default::default(),
         }
     }
 }
@@ -288,6 +293,7 @@ pub(super) struct Instance {
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
+    filter_identity: u64,
 }
 
 impl Instance {
@@ -429,6 +435,7 @@ impl Instance {
             return Ok(());
         }
         self.store.data_mut().controls.begin_text_frame();
+        self.store.data_mut().touch.begin_frame();
         let result = match delivery {
             CallbackOutcome::Executed => {
                 self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
@@ -438,10 +445,10 @@ impl Instance {
         if matches!(&result, Ok(CallbackOutcome::Deferred)) {
             hud::sources::refresh(self.store.data_mut());
         }
-        self.store
-            .data_mut()
-            .controls
-            .finish_text_frame(matches!(&result, Ok(CallbackOutcome::Deferred)));
+        let deferred = matches!(&result, Ok(CallbackOutcome::Deferred));
+        let state = self.store.data_mut();
+        state.controls.finish_text_frame(deferred);
+        state.touch.finish_frame(deferred);
         if result.is_ok() {
             hud::bounds::update(self.store.data_mut());
         }
@@ -501,6 +508,7 @@ impl Instance {
         state.pending_screens = None;
         state.inventory.begin();
         state.render.begin_callback();
+        state.touch.begin_callback();
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
@@ -616,6 +624,7 @@ impl Instance {
         state.pending_screens = None;
         state.screens = ModScreens::default();
         state.inventory.revoke();
+        state.touch.revoke();
     }
 
     pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
@@ -900,6 +909,7 @@ fn commit_event(store: &mut Store<State>) {
         }
     }
     state.controls.commit();
+    state.touch.commit();
     state.inventory.commit();
     state.environment.commit();
     if let Some(text) = state.pending.take() {

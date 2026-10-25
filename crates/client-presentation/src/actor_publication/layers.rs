@@ -126,6 +126,11 @@ pub(super) fn attach(
         artwork,
         layer_poses,
     );
+    for body in &mut batch.submissions {
+        if body.material.glint.texture == render_model::GlintTexture::Item {
+            equipment_layers::animate_glint(body, partial_tick, glint_settings);
+        }
+    }
     if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {
         if !scene.contains_geometry(cape.geometry.id) {
             let _ = scene.insert_geometry(cape.geometry.clone());

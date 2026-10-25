@@ -6,9 +6,10 @@ mod block_type;
 pub(crate) mod entities;
 mod geometry;
 mod items;
+mod overlays;
 pub(crate) mod worlds;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
@@ -42,8 +43,8 @@ const ALL_FACES: &str = "*";
 const FACES: [&str; 6] = ["up", "down", "north", "south", "east", "west"];
 
 /// What an Experience's callbacks may name: its blocks with their state axes ([`axes`] of their
-/// states), its items with the most one stack of each holds, and the server's items, which the
-/// adapter lists when it loads the Experience.
+/// states), its items with the most one stack of each holds, the server's items, which the
+/// adapter lists when it loads the Experience, and its overlay hosts and types.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Catalog {
     pub entities: Vec<protocol::EntityDefinition>,
@@ -53,6 +54,10 @@ pub(crate) struct Catalog {
     /// The server's crafting-table recipes, in the order it tries them.
     pub recipes: Vec<protocol::Recipe>,
     pub worlds: protocol::WorldRegistration,
+    /// The blocks that may carry overlays.
+    pub overlay_hosts: HashSet<String>,
+    /// The overlay types by id.
+    pub overlays: HashMap<String, protocol::OverlayDef>,
 }
 
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
@@ -69,6 +74,8 @@ pub struct Loaded {
     /// Whether the world of its `api` takes its player's focus in client messages and epochs.
     pub focus: bool,
     pub worlds: Option<protocol::WorldRegistration>,
+    /// Asset paths are absolute; none for a world before 0.10.
+    pub overlays: Option<protocol::OverlayRegistration>,
     pub(crate) pre: Pre,
 }
 
@@ -144,7 +151,14 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     let pre = link(engine, &module, api)
         .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
     let registration = register(engine, &pre, &manifest.id)?;
-    let (blocks, items) = validate_registration(dir, &manifest, registration)?;
+    let root = std::path::absolute(dir).context("resolving the artifact directory")?;
+    let mut assets = block_type::Assets {
+        root: &root,
+        files: &manifest.files,
+        id: &manifest.id,
+        geometries: HashMap::new(),
+    };
+    let (blocks, items) = validate_registration(&mut assets, registration)?;
     let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
     let declared = match &pre {
         Pre::V0_8(component) => Some(
@@ -162,6 +176,11 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
                 .instantiate(&mut store)?
                 .call_world_definitions(&mut store)?,
         ),
+        Pre::V0_11(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
         _ => None,
     };
     let worlds = declared
@@ -172,7 +191,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             )
         })
         .transpose()?;
-    let entities = if let Pre::V0_10(component) = &pre {
+    let entities = if let Pre::V0_11(component) = &pre {
         let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
         let definitions = component
             .instantiate(&mut store)?
@@ -182,6 +201,36 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     } else {
         Vec::new()
     };
+    let declared = match &pre {
+        Pre::V0_10(component) => {
+            let mut store =
+                HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+            Some(
+                component
+                    .instantiate(&mut store)?
+                    .call_overlays(&mut store)?,
+            )
+        }
+        Pre::V0_11(component) => {
+            let mut store =
+                HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+            Some(
+                component
+                    .instantiate(&mut store)?
+                    .call_overlays(&mut store)?,
+            )
+        }
+        _ => None,
+    };
+    let overlays = declared
+        .map(|result| {
+            overlays::validate(
+                &mut assets,
+                &blocks,
+                result.map_err(|error| anyhow!("overlays failed: {error:?}"))?,
+            )
+        })
+        .transpose()?;
     let catalog = Catalog {
         entities: entities.clone(),
         blocks: blocks
@@ -195,6 +244,15 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         server: HashMap::new(),
         recipes: Vec::new(),
         worlds: worlds.clone().unwrap_or_default(),
+        overlay_hosts: overlays
+            .iter()
+            .flat_map(|overlays| overlays.hosts.iter().cloned())
+            .collect(),
+        overlays: overlays
+            .iter()
+            .flat_map(|overlays| &overlays.types)
+            .map(|overlay| (overlay.id.clone(), overlay.clone()))
+            .collect(),
     };
     Ok(Loaded {
         entities,
@@ -204,6 +262,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         catalog: Arc::new(catalog),
         focus: api.focus(),
         worlds,
+        overlays,
         pre,
     })
 }
@@ -297,16 +356,14 @@ impl Loaded {
 /// Checks what `register` declared, its blocks and then its items; asset paths become absolute
 /// under the artifact directory.
 fn validate_registration(
-    dir: &Path,
-    manifest: &Manifest,
+    assets: &mut block_type::Assets<'_>,
     registration: wit::Registration,
 ) -> Result<(Vec<protocol::BlockDef>, Vec<protocol::ItemDef>)> {
-    let blocks = validate_blocks(dir, manifest, registration.blocks)?;
-    let root = std::path::absolute(dir).context("resolving the artifact directory")?;
+    let blocks = validate_blocks(assets, registration.blocks)?;
     let items = items::validate_items(
-        &root,
-        &manifest.files,
-        &manifest.id,
+        assets.root,
+        assets.files,
+        assets.id,
         &blocks,
         registration.items,
     )?;
@@ -315,8 +372,7 @@ fn validate_registration(
 
 /// Checks every declared block; asset paths become absolute under the artifact directory.
 fn validate_blocks(
-    dir: &Path,
-    manifest: &Manifest,
+    assets: &mut block_type::Assets<'_>,
     types: Vec<wit::BlockType>,
 ) -> Result<Vec<protocol::BlockDef>> {
     ensure!(
@@ -324,14 +380,7 @@ fn validate_blocks(
         "register declared {} blocks; the limit is {MAX_BLOCKS}",
         types.len()
     );
-    let root = std::path::absolute(dir).context("resolving the artifact directory")?;
-    let namespace = format!("{}:", manifest.id);
-    let mut assets = block_type::Assets {
-        root: &root,
-        files: &manifest.files,
-        id: &manifest.id,
-        geometries: HashMap::new(),
-    };
+    let namespace = format!("{}:", assets.id);
     let mut blocks: Vec<protocol::BlockDef> = Vec::with_capacity(types.len());
     for block in types {
         let id = &block.def.id;
@@ -348,7 +397,7 @@ fn validate_blocks(
             "block \"{id}\" is declared twice"
         );
         let context = format!("block \"{id}\"");
-        blocks.push(validate_block(&mut assets, block).context(context)?);
+        blocks.push(validate_block(assets, block).context(context)?);
     }
     Ok(blocks)
 }

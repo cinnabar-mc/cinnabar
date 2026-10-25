@@ -116,7 +116,7 @@ fn repeated_inserts_build_once_and_keep_actor_variables_roots_and_poses_private(
         assert_eq!(store.layout.plans.rig_builds.load(Ordering::Relaxed), 1);
         let template = store.layout.rig_plan(&assets, 0, 0).unwrap();
         let lifetime = store.runtime_to_lifetime[&1];
-        let slot = store.layout.named_slot(&assets, "variable.charge_amount");
+        let slot = store.layout.named_slot(&assets, "variable.counter");
         let first = store.rigs.get_mut(&lifetime).unwrap();
         first.variables.set(slot, 99.0);
         first.current[0].translation_scale[0] = 99.0;
@@ -167,7 +167,7 @@ fn selected_candidate_and_preview_restore_do_not_mutate_shared_templates() {
     );
     state
         .variables
-        .set(layout.named_slot(&assets, "variable.charge_amount"), 1.0);
+        .set(layout.named_slot(&assets, "variable.counter"), 1.0);
     state.history.push_back(ActorTickInput::default());
     let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
     let mut budget = EvalBudget {

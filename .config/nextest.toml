@@ -1,3 +1,12 @@
+# A hung test fails by name instead of holding the job until its timeout.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 15 }
+
+# Bundle builds compile whole guest projects; Windows runners take about ten minutes.
+[[profile.default.overrides]]
+filter = 'package(cinnabar-cxb)'
+slow-timeout = { period = "60s", terminate-after = 30 }
+
 # Streaming tests that assert progress within a deadline run alone, so concurrent test processes
 # can't starve their workers.
 [[profile.default.overrides]]

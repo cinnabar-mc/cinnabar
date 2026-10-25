@@ -36,10 +36,12 @@ pub fn java_swing_duration(effects: MiningEffects) -> i32 {
 }
 
 mod admission;
+mod attack_sound;
 mod queue;
 pub use admission::{
     AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame, admit_attack_press,
 };
+pub use attack_sound::{AttackSound, AttackerState, PLAYER_ATTACK_DAMAGE, attack_sound, is_mob};
 
 mod swing;
 pub use swing::SwingTracker;

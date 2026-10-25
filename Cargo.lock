@@ -3981,6 +3981,7 @@ name = "experience-runtime"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "block-transform",
  "experience-sdk",
  "serde",
  "serde_json",
@@ -4113,6 +4114,7 @@ dependencies = [
  "tempfile",
  "test-time",
  "tokio",
+ "tracing",
  "ui",
  "winit",
  "zip",
@@ -5725,6 +5727,7 @@ name = "meshing"
 version = "0.1.28"
 dependencies = [
  "assets",
+ "block-transform",
  "bytemuck",
  "criterion",
  "image",
@@ -6063,7 +6066,7 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
- "pp-rs",
+ "pp-rs 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hash 1.1.0",
  "serde",
  "spirv",
@@ -7119,9 +7122,19 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 [[package]]
 name = "pp-rs"
 version = "0.2.1"
-source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=abbb47f83d69b8790c1a26c96ce68bc9d001664c#abbb47f83d69b8790c1a26c96ce68bc9d001664c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
 dependencies = [
  "unicode-xid",
+]
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=949f1178cd660d3bcd1ec70181a10cf70e4b95b6#949f1178cd660d3bcd1ec70181a10cf70e4b95b6"
+dependencies = [
+ "hashbrown 0.15.5",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -8366,7 +8379,7 @@ dependencies = [
  "ciborium",
  "libc",
  "naga",
- "pp-rs",
+ "pp-rs 0.2.1 (git+https://github.com/cinnabar-mc/glslpp-rs?rev=949f1178cd660d3bcd1ec70181a10cf70e4b95b6)",
  "rayon",
  "serde",
  "serde_json",
@@ -11270,6 +11283,7 @@ version = "0.1.28"
 name = "world"
 version = "0.1.28"
 dependencies = [
+ "block-transform",
  "criterion",
  "hashbrown 0.16.1",
  "mimalloc",

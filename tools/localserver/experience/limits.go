@@ -33,7 +33,7 @@ const shutdownGrace = time.Second
 
 // maxFrameBytes is the largest frame body. It must equal the Rust runtime's MAX_FRAME_BYTES,
 // which TestFrameLimitMatchesRust checks against the limits fixture.
-const maxFrameBytes = 4 << 20
+const maxFrameBytes = 16 << 20
 
 // stderrLineBytes is the longest helper stderr line that is logged; the rest of a longer line is
 // dropped.
@@ -85,6 +85,8 @@ const (
 // Registration checks a block type by the runtime's bounds again. Each must equal its Rust
 // constant, which TestCommitLimitsMatchRust checks against the limits fixture.
 const (
+	// maxBlocks is the most blocks one Experience registers: Rust's MAX_BLOCKS.
+	maxBlocks = 256
 	// maxNameBytes is the most bytes in a state's name after "<id>:", a string state value, a
 	// material instance and a geometry's name: Rust's MAX_NAME_BYTES.
 	maxNameBytes = 64
@@ -128,7 +130,7 @@ const (
 	// hotbarSlots is the slots of the hotbar, of which one is selected: Rust's HOTBAR_SLOTS.
 	hotbarSlots = 9
 	// maxItems is the most items one Experience registers: Rust's MAX_ITEMS.
-	maxItems = 64
+	maxItems = 512
 	// maxStackSize is the most one stack of an Experience's item holds: Rust's MAX_STACK_SIZE.
 	maxStackSize = 64
 	// maxItemDataBytes is the most data of an Experience's own on one stack: Rust's
@@ -148,4 +150,21 @@ const (
 	// maxScheduledUpdates is the most updates one result schedules: Rust's
 	// MAX_SCHEDULED_UPDATES.
 	maxScheduledUpdates = 64
+)
+
+// The overlay bounds, which registration and the commit check enforce again. Each must equal
+// its Rust constant, which TestCommitLimitsMatchRust checks against the limits fixture.
+const (
+	// maxOverlayTypes is the most overlay types one Experience declares: Rust's
+	// MAX_OVERLAY_TYPES.
+	maxOverlayTypes = 128
+	// maxCellOverlays is the most overlays one cell carries, in slots 0 to maxCellOverlays-1:
+	// Rust's MAX_CELL_OVERLAYS.
+	maxCellOverlays = 12
+	// maxOverlayItemSize is the widest an item overlay is, in pixels: Rust's
+	// MAX_OVERLAY_ITEM_SIZE.
+	maxOverlayItemSize = 16.0
+	// maxOverlayItemOffset is how far an item overlay's centre is from its face's centre on
+	// each axis, in pixels: Rust's MAX_OVERLAY_ITEM_OFFSET.
+	maxOverlayItemOffset = 8.0
 )

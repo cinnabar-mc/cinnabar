@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/png"
@@ -105,9 +106,8 @@ func registerTestExperiences() (*Registry, *server.Server, *resource.Pack, error
 	return reg, srv, pack, nil
 }
 
-// renamed is loaded as the Experience id, its blocks, their states and its items moved into that
-// namespace.
-// It renames no state in a visual, so blocks must have no visual and entities must use built-in appearances.
+// renamed moves blocks, states, items, overlay hosts and types, and entities into a namespace.
+// Visuals are not rewritten, so blocks must have none and entities must use built-in appearances.
 func renamed(loaded Loaded, id string) Loaded {
 	out := loaded
 	out.ID = id
@@ -123,6 +123,21 @@ func renamed(loaded Loaded, id string) Loaded {
 			def.States[i].Name = move(def.States[i].Name)
 		}
 		out.Blocks = append(out.Blocks, def)
+	}
+	if loaded.Overlays != nil {
+		overlays := OverlayRegistration{}
+		for _, host := range loaded.Overlays.Hosts {
+			overlays.Hosts = append(overlays.Hosts, move(host))
+		}
+		for _, def := range loaded.Overlays.Types {
+			def.ID = move(def.ID)
+			def.States = slices.Clone(def.States)
+			for i := range def.States {
+				def.States[i].Name = move(def.States[i].Name)
+			}
+			overlays.Types = append(overlays.Types, def)
+		}
+		out.Overlays = &overlays
 	}
 	out.Items = nil
 	for _, def := range loaded.Items {
@@ -274,6 +289,36 @@ func TestReservedNamespaceFails(t *testing.T) {
 		t.Fatalf(`Register: %v; want an error saying that Experience id "minecraft" is reserved`, err)
 	}
 	assertNothingRegistered(t, loaded)
+}
+
+// An Experience may register at most maxBlocks blocks and maxItems items, as the runtime
+// admits; more fail before anything is registered, naming the Experience and the limit.
+func TestDeclarationCountsAreBounded(t *testing.T) {
+	path := writeTexture(t, "block.png", 1, 1)
+	blocks := make([]BlockDef, maxBlocks+1)
+	for i := range blocks {
+		blocks[i] = testBlock(fmt.Sprintf("many:block%d", i), path)
+	}
+	items := make([]ItemDef, maxItems+1)
+	for i := range items {
+		items[i] = ItemDef{ID: fmt.Sprintf("many:item%d", i), DisplayName: "Item", Icon: path, MaxStack: 64}
+	}
+	for _, tc := range []struct {
+		name   string
+		loaded Loaded
+		want   string
+	}{
+		{"blocks", Loaded{ID: "many", Blocks: blocks}, fmt.Sprintf(`"many" declares %d blocks; the limit is %d`, maxBlocks+1, maxBlocks)},
+		{"items", Loaded{ID: "many", Items: items}, fmt.Sprintf(`"many" declares %d items; the limit is %d`, maxItems+1, maxItems)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Register([]Loaded{tc.loaded})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Register: %v; want an error containing %s", err, tc.want)
+			}
+			assertNothingRegistered(t, []Loaded{tc.loaded})
+		})
+	}
 }
 
 // Breakable mining keeps its hardness and breaks as fast by hand as with any tool, which is the

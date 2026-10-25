@@ -33,6 +33,7 @@ type fixtureLimits struct {
 	MaxClientSendBytes  int    `json:"max_client_send_bytes"`
 	MaxValueDepth       int    `json:"max_value_depth"`
 	// The bounds on a block type, which the adapter checks again at registration.
+	MaxBlocks         int `json:"max_blocks"`
 	MaxNameBytes      int `json:"max_name_bytes"`
 	MaxStateValues    int `json:"max_state_values"`
 	MaxStateBits      int `json:"max_state_bits"`
@@ -56,6 +57,12 @@ type fixtureLimits struct {
 	MaxRecipeInputs  int `json:"max_recipe_input_items"`
 	MaxScheduleTicks int `json:"max_schedule_ticks"`
 	MaxScheduled     int `json:"max_scheduled_updates"`
+	// The overlay bounds, which registration and the commit check keep.
+	MaxOverlayTypes int `json:"max_overlay_types"`
+	MaxCellOverlays int `json:"max_cell_overlays"`
+	// The item overlay bounds are floats Rust writes as "16.0"; json.Number keeps them so.
+	MaxOverlayItemSize   json.Number `json:"max_overlay_item_size"`
+	MaxOverlayItemOffset json.Number `json:"max_overlay_item_offset"`
 }
 
 // rustLimits reads the limits fixture.
@@ -420,6 +427,7 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxTells", maxTells, rust.MaxTells},
 		{"maxTellBytes", maxTellBytes, rust.MaxTellBytes},
 		{"maxClientSends", maxClientSends, rust.MaxClientSends},
+		{"maxBlocks", maxBlocks, rust.MaxBlocks},
 		{"maxNameBytes", maxNameBytes, rust.MaxNameBytes},
 		{"maxStateValues", maxStateValues, rust.MaxStateValues},
 		{"maxStateBits", maxStateBits, rust.MaxStateBits},
@@ -445,10 +453,18 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxEntitySeats", maxEntitySeats, rust.MaxEntitySeats},
 		{"maxEntityProperties", maxEntityProperties, rust.MaxEntityProperties},
 		{"maxEntities", maxEntities, rust.MaxEntities},
+		{"maxOverlayTypes", maxOverlayTypes, rust.MaxOverlayTypes},
+		{"maxCellOverlays", maxCellOverlays, rust.MaxCellOverlays},
 	} {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)
 		}
+	}
+	size, sizeErr := rust.MaxOverlayItemSize.Float64()
+	offset, offsetErr := rust.MaxOverlayItemOffset.Float64()
+	if sizeErr != nil || offsetErr != nil || maxOverlayItemSize != size || maxOverlayItemOffset != offset {
+		t.Errorf("item overlay bounds %v and %v, Rust has %v and %v", maxOverlayItemSize,
+			maxOverlayItemOffset, rust.MaxOverlayItemSize, rust.MaxOverlayItemOffset)
 	}
 }
 

@@ -49,6 +49,7 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | Read-only inventory/effects, poses and physics | `player-state` and `gameplay` in extension WIT; unavailable data is optional, not inferred |
 | Camera, item use, movement and attack requests | WIT `gameplay`; frame-local policies expire even when a callback is deferred |
 | Controls, settings and personal panels | WIT `input`, `settings`, `panel`; settings use a bounded companion file |
+| Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
 | HUD cards and crosshair | WIT `hud`; retained output clears on quarantine/reload/unload |
 | Time/weather and local menu branding | WIT `environment`; changes presentation, not server state |
 | World primitives and post passes | WIT `render`; [render example](../../examples/mods/render-sample) |
@@ -56,6 +57,7 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | Entity masks | [Mask reference](../mod-entity-masks.md) |
 | Nearby terrain | [Terrain reference](../mod-terrain-api.md) |
 | Block highlights and fullbright | `render` highlights and `environment.set-fullbright`; local retained presentation |
+| Attack/use filtering | Opt-in `filter-actions` export through `mod_api::filtered_player_mod`; `controls` |
 
 Callbacks publish only after success. Session changes, reload, revocation and traps
 invalidate scoped handles and outputs. Check typed errors rather than silently
@@ -63,6 +65,31 @@ assuming an import succeeded. Shared values and ceilings live in
 [`mod-api`](../../crates/mod-api/src/lib.rs),
 [drawing limits](../../crates/mod-api/src/drawing.rs) and
 [host limits](../../crates/mod-host/src/lib.rs).
+
+## Action filtering
+
+A player mod opts into `filter-actions(action-frame) -> action-verdict` with
+`mod_api::filtered_player_mod` and the `controls` grant; ordinary `PlayerMod`
+exports claim nothing. Only the earliest active, granted exporter runs, after
+ordinary frames and before gameplay, with its own fuel and no host imports. It sees
+resolved Attack/Use transitions, physical and logical holds, a continuity epoch and
+monotonic microseconds, and returns one accept/suppress decision per transition.
+Suppressing a release retains the hold; suppressing a fresh press blocks that
+gesture until physical release. Traps, invalid verdicts, owner changes, absorbing
+UI, suspension and session changes clear continuity and change the epoch. The host
+owns projection and lifecycle only; the module owns every filtering rule.
+`input.set-click-limits` remains a frozen legacy cap.
+
+## Touch buttons
+
+With the `controls` grant, `touch.set-buttons` retains up to four labelled buttons,
+drawn in the built-in touch style while touch controls are shown. Each has a default
+anchor, inward offset and size; players move it in the touch layout editor, and the
+placement is saved under the button id, so prefix ids with the mod's name. Across mods
+the earliest use of an id wins and at most sixteen buttons are shown. A tap completes
+when the finger lifts inside the button without interrupting other fingers, and
+`touch.read-presses` returns it during the owner's next `frame`. A mod can then open
+its panel with `panel.set-open(true)` or take any other action it is granted.
 
 ## Packages and screens
 

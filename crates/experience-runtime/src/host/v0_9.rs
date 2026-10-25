@@ -41,29 +41,26 @@ impl world_access::HostCallback for HostState {
         Current::info(self, ctx)
     }
 
-    /// Reads the instance simulation time from the callback snapshot.
     fn simulation(
         &mut self,
         ctx: Resource<CallbackRes>,
     ) -> Result<Result<wit::SimulationStep, WorldError>> {
-        self.table.get_mut(&ctx)?.simulation()
+        Current::simulation(self, ctx)
     }
-    /// Stages a callback without running guest work on a world thread.
     fn schedule(
         &mut self,
         ctx: Resource<CallbackRes>,
         after: u32,
         period: u32,
     ) -> Result<Result<wit::ScheduleHandle, WorldError>> {
-        self.table.get_mut(&ctx)?.schedule(after, period)
+        Current::schedule(self, ctx, after, period)
     }
-    /// Cancels a handle belonging to the current instance opening.
     fn cancel_schedule(
         &mut self,
         ctx: Resource<CallbackRes>,
         handle: wit::ScheduleHandle,
     ) -> Result<Result<(), WorldError>> {
-        self.table.get_mut(&ctx)?.cancel_schedule(handle)
+        Current::cancel_schedule(self, ctx, handle)
     }
 
     fn world(&mut self, ctx: Resource<CallbackRes>) -> Result<wit::WorldHandle> {

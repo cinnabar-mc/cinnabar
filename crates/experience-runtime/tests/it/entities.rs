@@ -187,21 +187,22 @@ fn guest_entities_register_spawn_move_mount_and_steer() {
 }
 
 #[test]
-fn frozen_v0_9_artifact_keeps_its_export_contract() {
-    let dir = common::v0_9_dir();
-    let (engine, _ticker) = engine().unwrap();
-    let loaded = load(&engine, dir.path()).unwrap();
-    assert!(loaded.entities.is_empty());
-    let step = SimulationStep {
-        tick: 1,
-        duration_nanos: experience_runtime::limits::SIMULATION_STEP_NANOS,
-    };
-    assert_eq!(
-        run(
-            &engine,
-            &loaded,
-            &request(Call::Tick { step }, None, Vec::new())
-        ),
-        Outcome::Committed { ops: Vec::new() }
-    );
+fn frozen_artifacts_keep_their_export_contracts() {
+    for dir in [common::v0_9_dir(), common::v0_10_dir()] {
+        let (engine, _ticker) = engine().unwrap();
+        let loaded = load(&engine, dir.path()).unwrap();
+        assert!(loaded.entities.is_empty());
+        let step = SimulationStep {
+            tick: 1,
+            duration_nanos: experience_runtime::limits::SIMULATION_STEP_NANOS,
+        };
+        assert_eq!(
+            run(
+                &engine,
+                &loaded,
+                &request(Call::Tick { step }, None, Vec::new())
+            ),
+            Outcome::Committed { ops: Vec::new() }
+        );
+    }
 }

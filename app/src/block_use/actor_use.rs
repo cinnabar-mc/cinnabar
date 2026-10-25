@@ -54,6 +54,7 @@ pub(super) fn prepare(
         pick.direction.to_array(),
         reach,
     );
+    let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
     let world = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),
@@ -64,7 +65,8 @@ pub(super) fn prepare(
             game_mode,
             Some(selection.item.block_runtime_id()),
         ),
-    );
+    )
+    .with_cell_overlays(&overlay_ids);
     let vector =
         |v: bevy::prelude::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
     let obstruction = world
