@@ -361,6 +361,7 @@ impl ParticleSystem {
     }
 
     /// Stops client-owned emission and retires its particles only when none can draw.
+    /// Call after simulation and drawing so motion into this frame's view is preserved.
     /// Missing or invalid visibility information retains the ordinary particle lifetime.
     pub fn discard_hidden(&mut self, id: u64, view: Option<&crate::ParticleView>) {
         self.stop(id);

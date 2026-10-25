@@ -58,7 +58,6 @@ impl CosmeticEmitters {
         &mut self,
         system: &mut ParticleSystem,
         placements: &[CosmeticEmitterPlacement],
-        view: Option<&particles::ParticleView>,
     ) {
         if self.instance != Some(system.instance()) {
             self.instance = Some(system.instance());
@@ -66,12 +65,7 @@ impl CosmeticEmitters {
             self.draining.clear();
             self.rejected.clear();
         }
-        self.draining.retain(|(key, id)| {
-            if !placements.iter().any(|placement| placement.key == *key) {
-                system.discard_hidden(*id, view);
-            }
-            system.contains_emitter(*id)
-        });
+        self.draining.retain(|(_, id)| system.contains_emitter(*id));
         self.pass = self.pass.wrapping_add(1);
         let pass = self.pass;
         for placement in placements {
@@ -90,9 +84,6 @@ impl CosmeticEmitters {
                 return true;
             }
             system.stop(live.id);
-            if !placements.iter().any(|placement| placement.key == *key) {
-                system.discard_hidden(live.id, view);
-            }
             if system.contains_emitter(live.id) {
                 draining.push((*key, live.id));
             }
@@ -126,6 +117,21 @@ impl CosmeticEmitters {
                 self.live.insert(key, Live { id, seen: pass });
             }
         }
+    }
+
+    /// Retires orphaned trails only after this frame's simulation and draw publication.
+    pub(super) fn retire_hidden(
+        &mut self,
+        system: &mut ParticleSystem,
+        placements: &[CosmeticEmitterPlacement],
+        view: &particles::ParticleView,
+    ) {
+        self.draining.retain(|(key, id)| {
+            if !placements.iter().any(|placement| placement.key == *key) {
+                system.discard_hidden(*id, Some(view));
+            }
+            system.contains_emitter(*id)
+        });
     }
 
     /// Registers a placement's effect once per system, quietly skipping effects it rejects.

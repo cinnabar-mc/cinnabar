@@ -47,7 +47,6 @@ impl GroundEffects {
         wearers: &[GroundEffectWearer],
         dt: f32,
         alpha: f32,
-        view: Option<&particles::ParticleView>,
     ) {
         let physics = local_source.map(|(physics, _)| physics);
         let identity = (
@@ -61,12 +60,7 @@ impl GroundEffects {
                 ..Default::default()
             };
         }
-        self.draining.retain(|(wearer, id)| {
-            if !wearers.contains(wearer) {
-                system.discard_hidden(*id, view);
-            }
-            system.contains_emitter(*id)
-        });
+        self.draining.retain(|(_, id)| system.contains_emitter(*id));
         self.tracks.retain(|key, _| wearers.contains(key));
         for &wearer in wearers {
             let Some(actor) = stream
@@ -171,6 +165,20 @@ impl GroundEffects {
                 );
             }
         }
+    }
+    /// Retires abandoned ground particles after simulation, preserving trails still in view.
+    pub(super) fn retire_hidden(
+        &mut self,
+        system: &mut ParticleSystem,
+        wearers: &[GroundEffectWearer],
+        view: &particles::ParticleView,
+    ) {
+        self.draining.retain(|(wearer, id)| {
+            if !wearers.contains(wearer) {
+                system.discard_hidden(*id, Some(view));
+            }
+            system.contains_emitter(*id)
+        });
     }
 }
 
