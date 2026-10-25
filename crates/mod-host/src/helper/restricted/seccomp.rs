@@ -499,7 +499,18 @@ mod tests {
     /// by path or by descriptor.
     #[test]
     fn file_attribute_changes_are_refused() {
-        let mut calls = vec![
+        #[cfg(target_arch = "x86_64")]
+        let legacy: &[libc::c_long] = &[
+            libc::SYS_chmod,
+            libc::SYS_chown,
+            libc::SYS_lchown,
+            libc::SYS_utime,
+            libc::SYS_utimes,
+            libc::SYS_futimesat,
+        ];
+        #[cfg(not(target_arch = "x86_64"))]
+        let legacy: &[libc::c_long] = &[];
+        let calls = [
             libc::SYS_fchmod,
             libc::SYS_fchmodat,
             SYS_FCHMODAT2,
@@ -517,16 +528,7 @@ mod tests {
             libc::SYS_truncate,
             libc::SYS_ftruncate,
         ];
-        #[cfg(target_arch = "x86_64")]
-        calls.extend([
-            libc::SYS_chmod,
-            libc::SYS_chown,
-            libc::SYS_lchown,
-            libc::SYS_utime,
-            libc::SYS_utimes,
-            libc::SYS_futimesat,
-        ]);
-        for call in calls {
+        for &call in calls.iter().chain(legacy) {
             assert_eq!(helper(call, &[0, 0, 0]), EPERM, "{call}");
         }
     }
