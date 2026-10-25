@@ -15,7 +15,6 @@ import (
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
-	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -203,15 +202,16 @@ func parseMaterialFx(args []string) materialFxCommand {
 // full white at once, then fading out.
 var materialFxFlashSteps = []int64{1000, 700, 450, 250, 100, 0}
 
-// materialFxActors spawns the showcase entities in a row four blocks ahead of `origin`.
-func materialFxActors(origin mgl32.Vec3) []packet.Packet {
+// materialFxActors spawns the showcase entities at foot level in a row four blocks in front of
+// the player, facing them.
+func materialFxActors(view showcaseViewpoint) []packet.Packet {
 	packets := make([]packet.Packet, 0, len(materialFxEntities))
 	for index, entity := range materialFxEntities {
 		id := int64(materialFxFirstID + index)
 		packets = append(packets, &packet.AddActor{
 			EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: entity.id,
-			Position: origin.Add(mgl32.Vec3{float32(index*2) - float32(len(materialFxEntities)-1), 0, 4}),
-			Yaw:      180, HeadYaw: 180, BodyYaw: 180,
+			Position: view.at(float32(index*2-(len(materialFxEntities)-1)), 4),
+			Yaw:      view.facingBack(), HeadYaw: view.facingBack(), BodyYaw: view.facingBack(),
 			EntityMetadata: actorBurstMetadata(),
 		})
 	}
@@ -227,19 +227,19 @@ func materialFxClear() []packet.Packet {
 	return packets
 }
 
-// materialFxBlocks are the showcase's block placements relative to the block below the
-// player: a 3×2 wall of energy conduits on the left and a 2×3 star portal on the right, six
-// blocks ahead.
-func materialFxBlocks(base cube.Pos) map[cube.Pos]string {
+// materialFxBlocks are the showcase's block placements in front of the player: a 3×2 wall of
+// energy conduits on their right and a 2×3 star portal on their left, six blocks ahead,
+// standing on the player's ground level.
+func materialFxBlocks(view showcaseViewpoint) map[cube.Pos]string {
 	placed := map[cube.Pos]string{}
-	for x := -4; x <= -2; x++ {
-		for y := 1; y <= 2; y++ {
-			placed[base.Add(cube.Pos{x, y, 6})] = materialFxEnergy
+	for side := -4; side <= -2; side++ {
+		for up := 1; up <= 2; up++ {
+			placed[view.block(side, up, 6)] = materialFxEnergy
 		}
 	}
-	for x := 2; x <= 3; x++ {
-		for y := 1; y <= 3; y++ {
-			placed[base.Add(cube.Pos{x, y, 6})] = materialFxPortal
+	for side := 2; side <= 3; side++ {
+		for up := 1; up <= 3; up++ {
+			placed[view.block(side, up, 6)] = materialFxPortal
 		}
 	}
 	return placed
@@ -287,11 +287,11 @@ func (l *materialFxPacketListener) Disconnect(conn session.Conn, reason string) 
 
 type materialFxConn struct {
 	session.Conn
-	players  func(uuid.UUID) (*world.EntityHandle, bool)
-	ext      *experienceSender
-	id       uuid.UUID
-	position mgl32.Vec3
-	spawned  bool
+	players func(uuid.UUID) (*world.EntityHandle, bool)
+	ext     *experienceSender
+	id      uuid.UUID
+	view    showcaseViewpoint
+	spawned bool
 }
 
 // ReadPacket runs /materialfx: it spawns the showcase entities, places the blocks in the world
@@ -303,7 +303,7 @@ func (c *materialFxConn) ReadPacket() (packet.Packet, error) {
 			return pk, err
 		}
 		if movement, ok := pk.(*packet.PlayerAuthInput); ok {
-			c.position = movement.Position
+			c.view = viewpointOf(movement)
 		}
 		request, ok := pk.(*packet.CommandRequest)
 		if !ok {
@@ -330,7 +330,7 @@ func (c *materialFxConn) run(command materialFxCommand) error {
 		if c.spawned {
 			packets = materialFxClear()
 		}
-		for _, fixture := range append(packets, materialFxActors(c.position)...) {
+		for _, fixture := range append(packets, materialFxActors(c.view)...) {
 			if err := c.Conn.WritePacket(fixture); err != nil {
 				return err
 			}
@@ -376,10 +376,8 @@ func (c *materialFxConn) tell(text string) {
 // placeBlocks places the Experience's blocks ahead of the player, when it registered them,
 // and says so when it did not.
 func (c *materialFxConn) placeBlocks() {
-	feet := c.position.Sub(mgl32.Vec3{0, 1.62, 0})
-	base := cube.Pos{int(math.Floor(float64(feet[0]))), int(math.Floor(float64(feet[1]))) - 1, int(math.Floor(float64(feet[2])))}
 	c.do(func(tx *world.Tx, p *player.Player) {
-		for pos, name := range materialFxBlocks(base) {
+		for pos, name := range materialFxBlocks(c.view) {
 			b, ok := world.BlockByName(name, nil)
 			if !ok {
 				p.Message("materialfx: the Experience's blocks are not registered (start the server with -experiences)")
