@@ -14,7 +14,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // World material showcase: the `materialfx` Experience's entities and blocks, which its client
@@ -171,14 +171,14 @@ func materialFxPack() (*resource.Pack, error) {
 }
 
 // materialFxRecord builds one control record of operation `op` with up to four arguments.
-func materialFxRecord(op uint16, args ...int64) []experience.Scalar {
-	record := []experience.Scalar{{Choice: &op}}
+func materialFxRecord(op uint16, args ...int64) []cinnabarext.Scalar {
+	record := []cinnabarext.Scalar{{Choice: &op}}
 	for index := range 4 {
 		var value int64
 		if index < len(args) {
 			value = args[index]
 		}
-		record = append(record, experience.Scalar{Integer: &value})
+		record = append(record, cinnabarext.Scalar{Integer: &value})
 	}
 	return record
 }
@@ -199,7 +199,7 @@ type materialFxCommand struct {
 	// spawn builds the gallery in front of the player.
 	spawn bool
 	// controls go to the client part as they are.
-	controls [][]experience.Scalar
+	controls [][]cinnabarext.Scalar
 	// boom starts a shockwave at the arena's centre now.
 	boom bool
 	// thermal toggles thermal vision.
@@ -222,9 +222,9 @@ func parseMaterialFx(args []string) materialFxCommand {
 	case len(args) == 0 || (args[0] == "spawn" && len(args) == 1):
 		return materialFxCommand{spawn: true}
 	case args[0] == "revoke" && len(args) == 1:
-		return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxUnbind)}}
+		return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxUnbind)}}
 	case args[0] == "restore" && len(args) == 1:
-		return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxBind)}}
+		return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxBind)}}
 	case args[0] == "boom" && len(args) == 1:
 		return materialFxCommand{boom: true}
 	case args[0] == "thermal" && len(args) == 1:
@@ -235,17 +235,17 @@ func parseMaterialFx(args []string) materialFxCommand {
 		return materialFxCommand{cleanse: true}
 	case args[0] == "heartbeat" && len(args) == 2:
 		if args[1] == "off" {
-			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxHeartbeat, -1)}}
+			return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxHeartbeat, -1)}}
 		}
 		if health, ok := number(args[1]); ok {
-			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxHeartbeat, health*10)}}
+			return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxHeartbeat, health*10)}}
 		}
 	case args[0] == "cut" && len(args) == 2:
 		if args[1] == "sweep" {
-			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxCut, -1)}}
+			return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxCut, -1)}}
 		}
 		if percent, ok := number(args[1]); ok {
-			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxCut, percent*10)}}
+			return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxCut, percent*10)}}
 		}
 	}
 	return materialFxCommand{usage: materialFxUsage}

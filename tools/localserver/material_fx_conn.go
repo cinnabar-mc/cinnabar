@@ -14,7 +14,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // materialFxBindPulses is how many bind records a spawn sends, materialFxBindGap apart: the
@@ -75,7 +75,7 @@ func materialFxListener(inner func(server.Config) (server.Listener, error), play
 
 // experienceSender is the client part channel the commands drive; nil without -extension flags.
 type experienceSender struct {
-	send func(player uuid.UUID, exp, channel string, schema uint16, payload []experience.Scalar) bool
+	send func(player uuid.UUID, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool
 }
 
 type materialFxPacketListener struct {
@@ -156,7 +156,7 @@ func (c *materialFxConn) ReadPacket() (packet.Packet, error) {
 }
 
 // send hands `records` to the client part, saying so once when it is not running.
-func (c *materialFxConn) send(records ...[]experience.Scalar) {
+func (c *materialFxConn) send(records ...[]cinnabarext.Scalar) {
 	for _, record := range records {
 		if c.ext == nil || !c.ext.send(c.id, materialFxID, materialFxChannel, materialFxSchema, record) {
 			c.tell("materialfx: no active client part (run the client with CINNABAR_DEV_SERVER_EXPERIENCES=1)")
