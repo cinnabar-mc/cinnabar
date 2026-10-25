@@ -202,6 +202,10 @@ pub struct PanelPatch {
     /// Changes the retained animation preference without replacing the panel schema.
     #[serde(default)]
     motion: Option<bool>,
+    /// Changes whether the gameplay HUD, mods' HUD surfaces included, stays drawn under the
+    /// open panel, until changed again or until new content replaces the panel.
+    #[serde(default)]
+    show_gameplay_hud: Option<bool>,
     /// Replaces the popup widget colours; `{}` restores the built-in palette.
     #[serde(default)]
     widget_colors: Option<WidgetColors>,
@@ -326,6 +330,9 @@ impl PanelPatch {
         }
         if let Some(motion) = self.motion {
             panel.motion = motion;
+        }
+        if let Some(shown) = self.show_gameplay_hud {
+            panel.show_gameplay_hud = shown;
         }
         if let Some(colors) = self.widget_colors {
             colors.validate()?;

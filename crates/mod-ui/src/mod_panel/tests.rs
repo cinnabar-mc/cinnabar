@@ -773,6 +773,27 @@ fn gameplay_hud_policy_updates_without_replacing_panel_or_capture() {
     );
 }
 
+/// A packet menu output changing only the gameplay HUD flag stays on its prepared route and
+/// keeps a captured gesture.
+#[test]
+fn packet_menu_gameplay_hud_policy_updates_on_the_prepared_route() {
+    let ([mut settings, _], prepared) = prepared_panels("Packet HUD");
+    let owner = prepared::PanelUiOwner::PacketSession(1);
+    let mut ui = ModUi::default();
+    ui.set_prepared_mod_panel(owner, Arc::clone(&prepared), &settings)
+        .unwrap();
+    ui.set_mod_panel_open(true);
+    ui.mod_panel.as_mut().unwrap().drag = Some(1);
+    for visible in [true, false, true] {
+        settings.show_gameplay_hud = visible;
+        ui.set_prepared_mod_panel(owner, Arc::clone(&prepared), &settings)
+            .unwrap();
+        assert_eq!(ui.mod_panel_shows_gameplay_hud(), visible);
+        assert!(ui.mod_panel.as_ref().unwrap().prepared.is_some());
+        assert_eq!(ui.mod_panel.as_ref().unwrap().drag, Some(1));
+    }
+}
+
 /// Packet publication rejects unadmitted documents and schemas.
 #[test]
 fn packet_prepared_updates_accept_route_schemas_and_reject_changed_documents() {

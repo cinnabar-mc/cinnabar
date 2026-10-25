@@ -66,14 +66,20 @@ screen:"extent.root".into(),
     }
 }
 
-/// Each route admits its own bounded controls before any sparse changes are applied.
-#[test]
-fn route_schemas_switch_atomically_and_keep_repeated_values() {
+/// A bundle of two routes on one document: `main` with the slider schema of [`panel`] and
+/// `options` with one toggle.
+fn route_bundle() -> PanelBundle {
     let surface = serde_json::json!({"screen":"local.page","document":
         serde_json::json!({"namespace":"local","page":{"type":"button","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.control:0"}]}}).to_string()});
     let bundle = serde_json::json!({"panel":panel(),"surfaces":{"main":surface,"options":surface},
         "control_schemas":{"options":[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]}});
-    let bundle = PanelBundle::parse(&bundle.to_string()).unwrap();
+    PanelBundle::parse(&bundle.to_string()).unwrap()
+}
+
+/// Each route admits its own bounded controls before any sparse changes are applied.
+#[test]
+fn route_schemas_switch_atomically_and_keep_repeated_values() {
+    let bundle = route_bundle();
     let changed =
         PanelPatch::parse(r#"{"surface":"options","controls":[{"id":"enabled","value":true}]}"#)
             .unwrap()
@@ -117,6 +123,55 @@ fn route_schemas_switch_atomically_and_keep_repeated_values() {
         .unwrap()
         .resize(super::MAX_PANEL_CONTROLS + 1, changed.controls[0].clone());
     assert!(invalid.validate().is_err());
+}
+
+/// A patch naming `show_gameplay_hud` changes it; patches without it, route switches
+/// included, keep it, and a rejected patch changes nothing.
+#[test]
+fn patches_change_the_gameplay_hud_flag_until_changed_again() {
+    let bundle = route_bundle();
+    let patch = |json: &str, current: &Panel| {
+        PanelPatch::parse(json).and_then(|patch| patch.apply_bundle(current, &bundle))
+    };
+    let shown = patch(
+        r#"{"surface":"options","show_gameplay_hud":true}"#,
+        &bundle.panel,
+    )
+    .unwrap();
+    assert!(shown.show_gameplay_hud);
+    let switched = patch(
+        r#"{"surface":"main","controls":[{"id":"distance","value":4}]}"#,
+        &shown,
+    )
+    .unwrap();
+    assert!(switched.show_gameplay_hud, "a route switch keeps the flag");
+    assert!(
+        patch(
+            r#"{"show_gameplay_hud":false,"surface":"missing"}"#,
+            &switched
+        )
+        .is_err(),
+        "a rejected patch keeps the flag"
+    );
+    let hidden = patch(r#"{"show_gameplay_hud":false}"#, &switched).unwrap();
+    assert!(!hidden.show_gameplay_hud);
+    assert_eq!(
+        hidden,
+        Panel {
+            show_gameplay_hud: false,
+            ..switched.clone()
+        },
+        "nothing else changes"
+    );
+    let plain = PanelPatch::parse(r#"{"show_gameplay_hud":true}"#)
+        .unwrap()
+        .apply(&panel(), &Default::default())
+        .unwrap();
+    assert!(
+        plain.show_gameplay_hud,
+        "panels without a bundle change it too"
+    );
+    assert!(PanelPatch::parse(r#"{"show_gameplay_hud":1}"#).is_err());
 }
 
 /// Selecting or repeating a route preserves capture until a patch explicitly changes it.

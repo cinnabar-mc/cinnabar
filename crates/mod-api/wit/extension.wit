@@ -307,6 +307,9 @@ interface panel {
     /// The JSON record optionally accepts collection_reveal: {collection: string, item: u32}.
     /// The item is its immutable published index, resolved through the accepted collection_order.
     /// Each request is consumed once; a filtered-out item is ignored.
+    /// Optional show_gameplay_hud: bool changes whether the gameplay HUD and mods' HUD
+    /// surfaces stay drawn under the open panel; it lasts until changed again or until
+    /// set-content replaces the panel.
     update-content: func(json: string) -> result<_, string>;
     /// Where this mod's panel lies over the HUD root as last laid out: the panel root's
     /// `width` and `height` in panel units, `scale`, the HUD GUI units one panel unit spans,

@@ -98,6 +98,11 @@ named controls in the document stay embeddable. The layer hides with the gamepla
 HUD, under F1, screens and panels that hide it; it stays under a panel that sets
 `show_gameplay_hud`. Several mods' layers draw in load order.
 
+`panel.set-content` sets a panel's `show_gameplay_hud`, and a `panel.update-content`
+patch `{"show_gameplay_hud":true}` changes it, so one panel can show the HUD on
+only some of its routes. The flag lasts until another patch changes it or
+`set-content` replaces the panel.
+
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
 itself, a `stack_panel` root or sizes measured from children or siblings keep the

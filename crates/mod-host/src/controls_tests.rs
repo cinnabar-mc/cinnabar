@@ -320,6 +320,33 @@ fn panel_patch_obeys_transaction_boundaries() {
     assert!(state.controls.panel.is_none());
 }
 
+/// A panel patch naming `show_gameplay_hud` changes the retained flag until another patch
+/// changes it or new content replaces the panel.
+#[test]
+fn panel_patches_change_the_gameplay_hud_flag_until_new_content() {
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    let shown = |state: &State| state.controls.panel.as_ref().unwrap().show_gameplay_hud;
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!shown(&state));
+    for (patch, expected) in [
+        (r#"{"show_gameplay_hud":true}"#, true),
+        (r#"{"controls":[{"id":"enabled","value":true}]}"#, true),
+        (r#"{"show_gameplay_hud":false}"#, false),
+        (r#"{"show_gameplay_hud":true}"#, true),
+    ] {
+        state.update_content(patch.into()).unwrap().unwrap();
+        state.controls.commit();
+        assert_eq!(shown(&state), expected, "{patch}");
+    }
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!shown(&state), "new content replaces the flag");
+}
+
 /// A legacy replacement cannot select routes validated against a different control schema.
 #[test]
 fn registered_panel_routes_reject_a_replaced_schema() {
