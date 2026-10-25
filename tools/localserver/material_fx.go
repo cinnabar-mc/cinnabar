@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +34,9 @@ const (
 	// materialFxClockMs is the session clock's wrap: world materials animate on the wall clock
 	// modulo 4096 s, so the server times effects on the same clock.
 	materialFxClockMs = 4096000
+	// materialFxArgLimit bounds every integer argument of a control record, as experience.toml
+	// declares it: positions in thousandths reach ±100,000 blocks.
+	materialFxArgLimit = 100_000_000
 )
 
 // The client part's control operations, numbered as experience.toml's `# op` lines number them
@@ -169,6 +173,14 @@ func materialFxPack() (*resource.Pack, error) {
 		return nil, err
 	}
 	return resource.ReadBytes(archive.Bytes())
+}
+
+// materialFxCarried reports whether every argument of `record` lies within the control
+// channel's ±materialFxArgLimit, so the client part can accept it.
+func materialFxCarried(record []cinnabarext.Scalar) bool {
+	return !slices.ContainsFunc(record, func(value cinnabarext.Scalar) bool {
+		return value.Integer != nil && (*value.Integer < -materialFxArgLimit || *value.Integer > materialFxArgLimit)
+	})
 }
 
 // materialFxRecord builds one control record of operation `op` with up to four arguments.
