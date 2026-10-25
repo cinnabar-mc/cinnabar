@@ -119,8 +119,8 @@ fn capture_world_thumbnail(
         return;
     };
     let encoded = Arc::clone(&state.encoded);
-    capture.request_encoded(move |frame| {
-        if let Some(image) = encode_thumbnail(frame) {
+    capture.request_encoded(move |frame, paper_white_nits| {
+        if let Some(image) = encode_thumbnail(frame, paper_white_nits) {
             encoded
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
@@ -130,9 +130,9 @@ fn capture_world_thumbnail(
 }
 
 /// The frame cropped to a 16:9 view around its centre, a little above it, shrunk to
-/// [`THUMBNAIL_SIZE`] and encoded as JPEG.
-fn encode_thumbnail(frame: Image) -> Option<Vec<u8>> {
-    let pixels = frame.try_into_dynamic().ok()?.to_rgb8();
+/// [`THUMBNAIL_SIZE`] and encoded as JPEG. An HDR frame is decoded with `paper_white_nits`.
+fn encode_thumbnail(frame: Image, paper_white_nits: f32) -> Option<Vec<u8>> {
+    let pixels = super::screenshot::sdr::rgb8(frame, paper_white_nits).ok()?;
     let (width, height) = pixels.dimensions();
     let [x, y, crop_width, crop_height] = thumbnail_crop(width, height)?;
     let view = image::imageops::crop_imm(&pixels, x, y, crop_width, crop_height).to_image();

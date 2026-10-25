@@ -18,6 +18,7 @@ pub(crate) mod aim_assist;
 pub(crate) mod aim_highlight;
 mod facts;
 mod focus;
+mod hdr_output;
 mod presentation;
 mod render_scale;
 
@@ -54,6 +55,7 @@ impl Plugin for FlyCameraPlugin {
         focus::install(app);
         app.add_plugins(client_interaction::camera::CameraInputPlugin);
         render_scale::install(app);
+        hdr_output::install(app);
         app.add_plugins(CameraPresentationPlugin {
             auto_fly: self.auto_fly,
             capture_on_start: self.capture_on_start,

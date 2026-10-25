@@ -60,6 +60,8 @@ pub(crate) struct EnhancedFrameGpu {
     pub(crate) flags: UVec4,
     /// x reverse-Z near plane (view distance = near / depth).
     pub(crate) projection: Vec4,
+    /// x highlight headroom over paper white of the view's output; 1 for SDR.
+    pub(crate) output: Vec4,
 }
 
 /// Light-space box used to cull shadow casters for one cascade.
@@ -326,6 +328,7 @@ pub(crate) fn build_frame(
         grade: Vec4::new(light.warmth, 1.0, 0.08, 0.35),
         flags: UVec4::new(features, cascades, resolution, 0),
         projection: Vec4::new(view.near, 0.0, 0.0, 0.0),
+        output: Vec4::new(1.0, 0.0, 0.0, 0.0),
     };
     (frame, fits)
 }

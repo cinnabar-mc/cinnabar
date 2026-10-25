@@ -544,6 +544,9 @@ impl Content<'_, '_> {
                         })
                     }
                     SettingId::Msaa => value.to_string(),
+                    SettingId::HdrPeakBrightness | SettingId::HdrPaperWhite => {
+                        format!("{value} nits")
+                    }
                     SettingId::ChatFontSize => format!("{}%", value * 10),
                     _ => format!("{value}%"),
                 };

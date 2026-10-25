@@ -55,7 +55,7 @@ fn capture(app: &mut App) -> Image {
     let received = result.clone();
     app.world_mut()
         .resource_mut::<super::FrameCapture>()
-        .request(move |image| {
+        .request(move |image, _| {
             *received.lock().unwrap() = Some(image.clone());
         });
     test_time::eventually("hidden camera pixel readback", || {

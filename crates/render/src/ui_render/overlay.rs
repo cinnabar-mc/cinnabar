@@ -178,6 +178,7 @@ type UiOverlayView = (
     Option<&'static ViewDepthStencilTexture>,
     Option<&'static super::composite::UiLayerTexture>,
     Option<&'static ViewTarget>,
+    Option<&'static NativeUiTarget>,
 );
 
 #[allow(clippy::too_many_arguments)] // Independent Bevy render resources and view query.
@@ -227,12 +228,14 @@ pub(super) fn queue_ui_overlay(
     if !needs_model_depth {
         model_depths.views.clear();
     }
-    for (view_entity, _view, camera, msaa, depth, layer, target) in &views {
+    for (view_entity, _view, camera, msaa, depth, layer, target, native) in &views {
+        // Screen UI draws into the native target when one is in use; world UI keeps the world's.
+        let scene_hdr = super::target::ui_scene_hdr(camera.hdr, native);
         let Ok(pipeline_id) = pipeline.variants.specialize(
             &pipeline_cache,
             UiPipelineKey {
                 msaa: *msaa,
-                hdr: camera.hdr,
+                hdr: scene_hdr,
                 invert_blend: false,
                 layer: true,
                 depth_test: false,
@@ -247,7 +250,7 @@ pub(super) fn queue_ui_overlay(
         let invert_pipeline_id = if needs_invert {
             let Ok(id) = pipeline
                 .variants
-                .specialize(&pipeline_cache, hud_invert_pipeline_key(camera.hdr))
+                .specialize(&pipeline_cache, hud_invert_pipeline_key(scene_hdr))
             else {
                 gpu.view_pipelines.remove(&view_entity);
                 continue;
@@ -263,7 +266,8 @@ pub(super) fn queue_ui_overlay(
         );
         match composite.view_pipelines(
             &pipeline_cache,
-            camera.hdr,
+            scene_hdr,
+            super::target::ui_extended_range(native),
             target.and_then(ViewTarget::out_texture_view_format),
         ) {
             Some(pipelines) => {
@@ -289,7 +293,7 @@ pub(super) fn queue_ui_overlay(
                 }
                 let key = UiPipelineKey {
                     msaa: *msaa,
-                    hdr: camera.hdr,
+                    hdr: scene_hdr,
                     invert_blend: false,
                     layer: true,
                     depth_test,
@@ -458,10 +462,16 @@ pub(crate) fn ui_overlay(
         context,
         world,
     );
+    let keyed_hdr = super::target::ui_scene_hdr(camera.hdr, native);
     // Keep screen UI reachable in the reduced view if native composition is unavailable.
     let native = native.filter(|native| {
         UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
     });
+    // Pipelines were prepared for the native scene's format; drawing into the world instead
+    // would mismatch their colour target, so this frame's screen UI is skipped.
+    if keyed_hdr != super::target::ui_scene_hdr(camera.hdr, native) {
+        return Ok(());
+    }
     let target = UiTarget::new(target, native);
     let output_extent = if target.is_native() {
         None

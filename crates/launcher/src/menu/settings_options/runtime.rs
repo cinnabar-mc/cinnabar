@@ -54,6 +54,12 @@ impl SettingsOptions {
         settings.video.anti_aliasing_samples = self.value(SettingId::Msaa) as u32;
         settings.video.render_scale_percent = self.value(SettingId::RenderResolution) as u8;
         settings.video.render_scale_sharpen = self.value(SettingId::RenderScaleSharpen) != 0;
+        settings.video.hdr = render_api::hdr::HdrOutput {
+            enabled: self.value(SettingId::HdrOutput) != 0,
+            peak_nits: self.value(SettingId::HdrPeakBrightness) as f32,
+            paper_white_nits: self.value(SettingId::HdrPaperWhite) as f32,
+            highlight_boost: self.value(SettingId::HdrHighlightBoost) as f32 / 100.0,
+        };
         settings.video.motion_blur =
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));
@@ -110,6 +116,33 @@ mod tests {
         assert!(!restored.user_settings().video.chunk_occlusion_culling);
         restored.reset_group(super::super::SettingsGroup::Video);
         assert!(restored.user_settings().video.chunk_occlusion_culling);
+    }
+
+    /// Saved HDR rows decode into the renderer's request, with the boost stored as a percent;
+    /// files without them and a Video reset request the render API's defaults.
+    #[test]
+    fn hdr_rows_survive_save_and_reset_as_the_hdr_request() {
+        use render_api::hdr::HdrOutput;
+        let mut options = SettingsOptions::default();
+        assert_eq!(options.user_settings().video.hdr, HdrOutput::default());
+        let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+        assert_eq!(legacy.user_settings().video.hdr, HdrOutput::default());
+        assert!(options.set(SettingId::HdrOutput.index(), 1));
+        assert!(options.set(SettingId::HdrPeakBrightness.index(), 1400));
+        assert!(options.set(SettingId::HdrPaperWhite.index(), 240));
+        assert!(options.set(SettingId::HdrHighlightBoost.index(), 25));
+        let mut restored = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        assert_eq!(
+            restored.user_settings().video.hdr,
+            HdrOutput {
+                enabled: true,
+                peak_nits: 1400.0,
+                paper_white_nits: 240.0,
+                highlight_boost: 0.25,
+            }
+        );
+        restored.reset_group(super::super::SettingsGroup::Video);
+        assert_eq!(restored.user_settings().video.hdr, HdrOutput::default());
     }
 
     /// Touch sensitivity survives a save and changes only the touch look multiplier.

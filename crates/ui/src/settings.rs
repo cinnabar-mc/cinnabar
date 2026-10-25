@@ -201,6 +201,8 @@ pub struct VideoSettings {
     pub render_scale_percent: u8,
     /// Applies RCAS sharpening after FSR1 world upscaling.
     pub render_scale_sharpen: bool,
+    /// HDR display output: whether to request an HDR swapchain and its brightness levels.
+    pub hdr: render_api::hdr::HdrOutput,
     pub motion_blur: MotionBlurQuality,
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
@@ -245,6 +247,7 @@ impl Default for VideoSettings {
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             render_scale_percent: DEFAULT_RENDER_SCALE_PERCENT,
             render_scale_sharpen: DEFAULT_RENDER_SCALE_SHARPEN,
+            hdr: render_api::hdr::HdrOutput::default(),
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,

@@ -1,7 +1,11 @@
-//! Native-resolution UI composition after the reduced world has finished rendering.
+//! Native-resolution UI composition after the world has finished rendering: for a reduced world
+//! view, and for every view presenting an HDR signal, whose UI must stay at paper white.
 
 use super::upscale::{FsrConstants, UpscalePass, UpscalePipeline, UpscalePipelines};
 use crate::gpu_allocation::{self, FailedRequests};
+use crate::hdr_output::{
+    HdrOutputRequest, HdrStage, HdrStageConstants, HdrStageKey, HdrStagePipeline, output_encoding,
+};
 use bevy::{
     core_pipeline::blit::{BlitPipeline, BlitPipelineKey},
     prelude::*,
@@ -16,7 +20,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-/// An output-sized scene pair used only by screen-space UI on a reduced world view.
+/// An output-sized scene pair used only by screen-space UI.
 #[derive(Component)]
 pub(crate) struct NativeUiTarget {
     device: wgpu::Device,
@@ -29,9 +33,38 @@ pub(crate) struct NativeUiTarget {
     output_format: TextureFormat,
     sampler: Sampler,
     seed_pipelines: UpscalePipelines,
-    present_pipeline: CachedRenderPipelineId,
     seed_bindings: Mutex<Vec<(TextureViewId, u32, BindGroup)>>,
-    present_bindings: [BindGroup; 2],
+    presentation: Presentation,
+}
+
+/// How the completed native scene reaches the output.
+enum Presentation {
+    /// A plain copy into an SDR output.
+    Blit {
+        pipeline: CachedRenderPipelineId,
+        bindings: [BindGroup; 2],
+    },
+    /// SDR highlights expand into the float scene before UI, then the frame is encoded.
+    Hdr {
+        expand: CachedRenderPipelineId,
+        encode: CachedRenderPipelineId,
+        /// Bound by source view and constants; retired views are released every seed.
+        bindings: Mutex<Vec<(TextureViewId, [u32; 3], BindGroup)>>,
+    },
+}
+
+/// The native scene format: float for HDR outputs, which carry highlights above paper white,
+/// otherwise the world's own format.
+fn native_scene_format(target: &ViewTarget) -> TextureFormat {
+    if target
+        .out_texture_view_format()
+        .and_then(output_encoding)
+        .is_some()
+    {
+        render_scene::SCENE_HDR_FORMAT
+    } else {
+        target.main_texture_format()
+    }
 }
 
 impl NativeUiTarget {
@@ -40,7 +73,7 @@ impl NativeUiTarget {
         device: &RenderDevice,
         extent: [u32; 2],
         formats: [TextureFormat; 2],
-        pipelines: (UpscalePipelines, CachedRenderPipelineId),
+        pipelines: (UpscalePipelines, NativePresentPipelines),
         blit: &BlitPipeline,
         cache: &PipelineCache,
     ) -> Option<Self> {
@@ -70,9 +103,19 @@ impl NativeUiTarget {
         let views = textures
             .each_ref()
             .map(|texture| texture.create_view(&default()));
-        let present_bindings = views
-            .each_ref()
-            .map(|view| blit.create_bind_group(device, view, cache));
+        let presentation = match pipelines.1 {
+            NativePresentPipelines::Blit(pipeline) => Presentation::Blit {
+                pipeline,
+                bindings: views
+                    .each_ref()
+                    .map(|view| blit.create_bind_group(device, view, cache)),
+            },
+            NativePresentPipelines::Hdr { expand, encode } => Presentation::Hdr {
+                expand,
+                encode,
+                bindings: Mutex::new(Vec::with_capacity(4)),
+            },
+        };
         Some(Self {
             device: device.wgpu_device().clone(),
             textures,
@@ -89,22 +132,46 @@ impl NativeUiTarget {
                 ..default()
             }),
             seed_pipelines: pipelines.0,
-            present_pipeline: pipelines.1,
             seed_bindings: Mutex::new(Vec::with_capacity(3)),
-            present_bindings,
+            presentation,
         })
     }
 
     /// Keeps only this frame's native scene and presentation observations.
     fn begin_frame(&self, cache: &PipelineCache, sharpen: bool) {
+        let presentable = match &self.presentation {
+            Presentation::Blit { pipeline, .. } => cache.get_render_pipeline(*pipeline).is_some(),
+            Presentation::Hdr { expand, encode, .. } => {
+                cache.get_render_pipeline(*expand).is_some()
+                    && cache.get_render_pipeline(*encode).is_some()
+            }
+        };
         self.available.store(
-            self.seed_pipelines.ready_pass(cache, sharpen).is_some()
-                && cache.get_render_pipeline(self.present_pipeline).is_some(),
+            self.seed_pipelines.ready_pass(cache, sharpen).is_some() && presentable,
             Ordering::Relaxed,
         );
         self.current.store(0, Ordering::Relaxed);
         self.ready.store(false, Ordering::Relaxed);
         self.presented.store(false, Ordering::Relaxed);
+    }
+
+    /// Whether this target expands and encodes for an HDR output.
+    fn presents_hdr(&self) -> bool {
+        matches!(self.presentation, Presentation::Hdr { .. })
+    }
+
+    /// The format screen UI draws into.
+    fn scene_format(&self) -> TextureFormat {
+        self.textures[0].format()
+    }
+
+    /// The pipelines presentation waits for, for readiness checks.
+    #[cfg(test)]
+    pub(super) fn present_pipelines(&self) -> Vec<CachedRenderPipelineId> {
+        match &self.presentation {
+            Presentation::Blit { pipeline, .. } => vec![*pipeline],
+            Presentation::Hdr { expand, encode, .. } => vec![*expand, *encode],
+        }
     }
 
     /// Keeps preparation and drawing on the same target while pipelines compile.
@@ -137,12 +204,14 @@ impl NativeUiTarget {
     /// Refuses stale dimensions, output formats, or resources from a replaced render device.
     fn matches(&self, device: &RenderDevice, target: &ViewTarget, extent: [u32; 2]) -> bool {
         &self.device == device.wgpu_device()
-            && self.textures[0].format() == target.main_texture_format()
+            && self.scene_format() == native_scene_format(target)
             && self.extent() == extent
             && target.out_texture_view_format() == Some(self.output_format)
     }
 
     /// Upscales the completed world once, before any native HUD or menu batches are encoded.
+    /// For an HDR output the world is copied into the float scene, and SDR-tonemapped worlds have
+    /// their highlights expanded, in the same pass when the world is not reduced.
     pub(crate) fn seed(
         &self,
         world: &World,
@@ -160,10 +229,81 @@ impl NativeUiTarget {
         if self.is_ready() {
             return true;
         }
-        let (Some(cache), Some(upscale)) = (
-            world.get_resource::<PipelineCache>(),
-            world.get_resource::<UpscalePipeline>(),
-        ) else {
+        let Some(cache) = world.get_resource::<PipelineCache>() else {
+            return false;
+        };
+        let source = target.main_texture_view();
+        let sdr_world = target.main_texture_format() != render_scene::SCENE_HDR_FORMAT;
+        if let Presentation::Hdr { expand, .. } = &self.presentation
+            && crate::render_bounds::extent(source) == self.extent()
+        {
+            let (Some(constants), Some(pipeline)) = (
+                hdr_constants(world, sdr_world),
+                cache.get_render_pipeline(*expand),
+            ) else {
+                return false;
+            };
+            let Some(binding) =
+                self.hdr_binding(world, context.render_device(), target, source, constants)
+            else {
+                return false;
+            };
+            encode_blit(
+                world,
+                context,
+                &self.views[0],
+                pipeline,
+                &binding,
+                "HDR world expansion",
+            );
+            self.current.store(0, Ordering::Relaxed);
+            self.ready.store(true, Ordering::Relaxed);
+            return true;
+        }
+        if !self.upscale_world(world, context, target, cache) {
+            return false;
+        }
+        if let Presentation::Hdr { expand, .. } = &self.presentation
+            && sdr_world
+        {
+            let (Some(constants), Some(pipeline)) = (
+                hdr_constants(world, true),
+                cache.get_render_pipeline(*expand),
+            ) else {
+                return false;
+            };
+            let Some(binding) = self.hdr_binding(
+                world,
+                context.render_device(),
+                target,
+                &self.views[0],
+                constants,
+            ) else {
+                return false;
+            };
+            encode_blit(
+                world,
+                context,
+                &self.views[1],
+                pipeline,
+                &binding,
+                "HDR world expansion",
+            );
+            self.current.store(1, Ordering::Relaxed);
+        }
+        self.ready.store(true, Ordering::Relaxed);
+        true
+    }
+
+    /// Reconstructs the reduced world into the first native scene with FSR1 or its fallback.
+    fn upscale_world(
+        &self,
+        world: &World,
+        context: &mut RenderContext,
+        target: &ViewTarget,
+        cache: &PipelineCache,
+    ) -> bool {
+        let Some(upscale) = world.get_resource::<UpscalePipeline>() else {
             return false;
         };
         let sharpness = world
@@ -252,8 +392,48 @@ impl NativeUiTarget {
                 },
             );
         }
-        self.ready.store(true, Ordering::Relaxed);
         true
+    }
+
+    /// Binds `source` to an HDR stage, keeping only bindings of live scene views and of the
+    /// current expansion and encoding constants.
+    fn hdr_binding(
+        &self,
+        world: &World,
+        device: &RenderDevice,
+        target: &ViewTarget,
+        source: &TextureView,
+        constants: HdrStageConstants,
+    ) -> Option<BindGroup> {
+        let Presentation::Hdr { bindings, .. } = &self.presentation else {
+            return None;
+        };
+        let (Some(cache), Some(stages), Some(request)) = (
+            world.get_resource::<PipelineCache>(),
+            world.get_resource::<HdrStagePipeline>(),
+            world.get_resource::<HdrOutputRequest>(),
+        ) else {
+            return None;
+        };
+        let live = [
+            target.main_texture_view().id(),
+            target.main_texture_other_view().id(),
+            self.views[0].id(),
+            self.views[1].id(),
+        ];
+        let current = [true, false].map(|expand| HdrStageConstants::new(request.0, expand).key());
+        let key = constants.key();
+        let mut bindings = bindings.lock().expect("HDR stage bindings lock");
+        bindings.retain(|(id, held, _)| live.contains(id) && current.contains(held));
+        if let Some((_, _, binding)) = bindings
+            .iter()
+            .find(|(id, held, _)| *id == source.id() && *held == key)
+        {
+            return Some(binding.clone());
+        }
+        let binding = stages.binding(device, cache, source, constants);
+        bindings.push((source.id(), key, binding.clone()));
+        Some(binding)
     }
 
     /// Presents even when no final alpha layer exists, including empty and invert-only HUDs.
@@ -272,25 +452,38 @@ impl NativeUiTarget {
         {
             return false;
         }
-        let Some(pipeline) = world
-            .get_resource::<PipelineCache>()
-            .and_then(|cache| cache.get_render_pipeline(self.present_pipeline))
-        else {
+        let Some(cache) = world.get_resource::<PipelineCache>() else {
+            return false;
+        };
+        let index = self.current.load(Ordering::Relaxed);
+        let (pipeline, binding, label) = match &self.presentation {
+            Presentation::Blit { pipeline, bindings } => (
+                cache.get_render_pipeline(*pipeline),
+                Some(bindings[index].clone()),
+                "native UI output",
+            ),
+            Presentation::Hdr { encode, .. } => (
+                cache.get_render_pipeline(*encode),
+                hdr_constants(world, false).and_then(|constants| {
+                    self.hdr_binding(
+                        world,
+                        context.render_device(),
+                        target,
+                        &self.views[index],
+                        constants,
+                    )
+                }),
+                "HDR native UI output",
+            ),
+        };
+        let (Some(pipeline), Some(binding)) = (pipeline, binding) else {
             return false;
         };
         // Obtaining the attachment also records usage for Bevy's surface presentation gate.
         let Some(output) = target.out_texture_color_attachment(None) else {
             return false;
         };
-        let index = self.current.load(Ordering::Relaxed);
-        encode_blit(
-            world,
-            context,
-            output.view,
-            pipeline,
-            &self.present_bindings[index],
-            "native UI output",
-        );
+        encode_blit(world, context, output.view, pipeline, &binding, label);
         self.mark_presented();
         true
     }
@@ -306,6 +499,28 @@ impl NativeUiTarget {
             destination_texture: &self.textures[destination],
         }
     }
+}
+
+/// The player's current HDR constants; `expand` lifts SDR highlights toward the peak.
+fn hdr_constants(world: &World, expand: bool) -> Option<HdrStageConstants> {
+    world
+        .get_resource::<HdrOutputRequest>()
+        .map(|request| HdrStageConstants::new(request.0, expand))
+}
+
+/// Whether screen UI draws into a float scene: the native target when one is in use this frame,
+/// otherwise the world's own main texture.
+pub(crate) fn ui_scene_hdr(camera_hdr: bool, native: Option<&NativeUiTarget>) -> bool {
+    native
+        .filter(|native| native.is_available())
+        .map_or(camera_hdr, |native| {
+            native.scene_format() == render_scene::SCENE_HDR_FORMAT
+        })
+}
+
+/// Whether screen UI composites over highlights above paper white this frame.
+pub(crate) fn ui_extended_range(native: Option<&NativeUiTarget>) -> bool {
+    native.is_some_and(|native| native.is_available() && native.presents_hdr())
 }
 
 /// Encodes a full-coverage blit without sampling the output attachment itself.
@@ -345,8 +560,33 @@ fn encode_blit(
 /// Includes device, extent and both formats so changed allocation requests retry immediately.
 type NativeUiRequest = (wgpu::Device, [u32; 2], TextureFormat, TextureFormat);
 
-/// Allocates only for an admitted scaled view whose real output still matches its marker.
-#[allow(clippy::too_many_arguments)] // View admission and the two pipeline owners share one allocation boundary.
+/// How a new native target presents, chosen from its output format.
+#[derive(Clone, Copy)]
+enum NativePresentPipelines {
+    Blit(CachedRenderPipelineId),
+    Hdr {
+        expand: CachedRenderPipelineId,
+        encode: CachedRenderPipelineId,
+    },
+}
+
+/// The output extent a view's screen UI composes at: a reduced view's marker, or the full
+/// output of a view presenting HDR, whose UI must not share the world's tonemapped range.
+fn native_extent(
+    target: &ViewTarget,
+    scaled: Option<&crate::render_scale::RenderScaleOutput>,
+) -> Option<[u32; 2]> {
+    scaled.map(|output| output.0.to_array()).or_else(|| {
+        target
+            .out_texture_view_format()
+            .and_then(output_encoding)
+            .and(target.out_texture())
+            .map(|output| crate::render_bounds::extent(output))
+    })
+}
+
+/// Allocates only for an admitted reduced or HDR view whose real output still matches it.
+#[allow(clippy::too_many_arguments)] // View admission and the pipeline owners share one allocation boundary.
 pub(crate) fn prepare_native_ui_targets(
     mut commands: Commands,
     device: Res<RenderDevice>,
@@ -354,6 +594,7 @@ pub(crate) fn prepare_native_ui_targets(
     blit: Option<Res<BlitPipeline>>,
     mut pipelines: Option<ResMut<SpecializedRenderPipelines<BlitPipeline>>>,
     mut upscale: Option<ResMut<UpscalePipeline>>,
+    mut hdr: Option<ResMut<HdrStagePipeline>>,
     mut failed: Local<FailedRequests<NativeUiRequest>>,
     sharpen: Option<Res<crate::render_scale::RenderScaleSharpen>>,
     views: Query<(
@@ -367,13 +608,13 @@ pub(crate) fn prepare_native_ui_targets(
     failed.retain(|entity| {
         views
             .get(entity)
-            .is_ok_and(|(_, _, scaled, _)| scaled.is_some())
+            .is_ok_and(|(_, target, scaled, _)| native_extent(target, scaled).is_some())
     });
     for entity in &removed {
         commands.entity(entity).remove::<NativeUiTarget>();
     }
     for (entity, target, scaled, previous) in &views {
-        let extent = scaled.map(|output| output.0.to_array());
+        let extent = native_extent(target, scaled);
         let admitted = extent.filter(|extent| {
             !extent.contains(&0)
                 && extent
@@ -416,18 +657,42 @@ pub(crate) fn prepare_native_ui_targets(
             }
             continue;
         };
-        let scene_format = target.main_texture_format();
-        let seeds = upscale.stages(&cache, scene_format);
-        let present = pipelines.specialize(
-            &cache,
-            blit,
-            BlitPipelineKey {
-                target_format: output_format,
-                blend_state: None,
-                samples: 1,
-                source_space: None,
+        let scene_format = native_scene_format(target);
+        let present = match (output_encoding(output_format), hdr.as_deref_mut()) {
+            (Some(encoding), Some(hdr)) => NativePresentPipelines::Hdr {
+                expand: hdr.specialize(
+                    &cache,
+                    HdrStageKey {
+                        stage: HdrStage::Expand,
+                        format: scene_format,
+                    },
+                ),
+                encode: hdr.specialize(
+                    &cache,
+                    HdrStageKey {
+                        stage: HdrStage::Encode(encoding),
+                        format: output_format,
+                    },
+                ),
             },
-        );
+            (Some(_), None) => {
+                if previous.is_some() {
+                    commands.entity(entity).remove::<NativeUiTarget>();
+                }
+                continue;
+            }
+            (None, _) => NativePresentPipelines::Blit(pipelines.specialize(
+                &cache,
+                blit,
+                BlitPipelineKey {
+                    target_format: output_format,
+                    blend_state: None,
+                    samples: 1,
+                    source_space: None,
+                },
+            )),
+        };
+        let seeds = upscale.stages(&cache, scene_format);
         let request = (
             device.wgpu_device().clone(),
             extent,

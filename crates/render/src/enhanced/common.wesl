@@ -14,6 +14,8 @@ struct EnhancedFrame {
     grade: vec4<f32>,
     flags: vec4<u32>,
     projection: vec4<f32>,
+    // x highlight headroom over paper white of the view's output; 1 for SDR.
+    output: vec4<f32>,
 }
 
 const FEATURE_SHADOWS: u32 = 1u;

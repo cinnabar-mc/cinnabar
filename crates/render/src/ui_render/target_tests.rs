@@ -35,6 +35,7 @@ fn fixture(render: RenderPlugin) -> App {
             CorePipelinePlugin,
         ));
     super::super::upscale::install(&mut app);
+    crate::hdr_output::install(&mut app);
     app.finish();
     app.cleanup();
     app.update();
@@ -101,6 +102,16 @@ fn view(world: &mut World, output: [u32; 2], internal: [u32; 2]) -> Entity {
 
 /// Builds the world/output pair without requesting any upscale pipeline.
 fn view_target(world: &mut World, output: [u32; 2], internal: [u32; 2]) -> Entity {
+    view_target_into(world, output, internal, render_scene::SCENE_COLOR_FORMAT)
+}
+
+/// Builds the world/output pair with an output of `output_format`.
+fn view_target_into(
+    world: &mut World,
+    output: [u32; 2],
+    internal: [u32; 2],
+    output_format: TextureFormat,
+) -> Entity {
     let entity = world.spawn_empty().id();
     let target = RenderTarget::Window(bevy::window::WindowRef::Entity(entity))
         .normalize(None)
@@ -116,7 +127,7 @@ fn view_target(world: &mut World, output: [u32; 2], internal: [u32; 2]) -> Entit
         mip_level_count: 1,
         sample_count: 1,
         dimension: TextureDimension::D2,
-        format: render_scene::SCENE_COLOR_FORMAT,
+        format: output_format,
         // Deliberately not sampleable: the production path must never read its output.
         usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
         view_formats: &[],
@@ -710,6 +721,196 @@ fn native_ui_supports_scaled_hdr_views() {
     }
 }
 
+/// An SDR world presented to an scRGB output keeps colour below the expansion knee, lifts its
+/// brightest channel toward the boosted white without changing hue, and scales paper white
+/// to its scRGB level; a reduced world gets the same result after reconstruction.
+#[test]
+fn hdr_output_expands_sdr_highlights_and_encodes_paper_white_as_scrgb() {
+    let Some(mut app) = raster_fixture() else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(crate::hdr_output::HdrOutputRequest(
+        render_api::hdr::HdrOutput {
+            enabled: true,
+            peak_nits: 1000.0,
+            paper_white_nits: 200.0,
+            highlight_boost: 0.5,
+        },
+    ));
+    // Sdr white 3.0 (half of the 5x headroom); scRGB places paper white at 200 / 80.
+    let scale = 200.0 / 80.0;
+    for internal in [[4, 4], [2, 2]] {
+        let entity = view_target_into(world, [4, 4], internal, TextureFormat::Rgba16Float);
+        if internal == [4, 4] {
+            world
+                .entity_mut(entity)
+                .remove::<crate::render_scale::RenderScaleOutput>();
+        }
+        prepare(world);
+        let native = world.get::<NativeUiTarget>(entity).unwrap();
+        assert!(native.presents_hdr());
+        assert_eq!(native.scene_format(), render_scene::SCENE_HDR_FORMAT);
+        ready_pipelines(world);
+        world.run_system_once(prepare_native_ui_targets).unwrap();
+        for (world_colour, expected) in [
+            ([0.25, 1.0, 0.0], [0.75, 3.0, 0.0]),
+            ([0.25, 0.25, 0.25], [0.25, 0.25, 0.25]),
+        ] {
+            let device = world.resource::<RenderDevice>().clone();
+            let (_, commands) =
+                crate::render_test_support::record(world, &device, |world, context| {
+                    let target = world.get::<ViewTarget>(entity).unwrap();
+                    let native = world.get::<NativeUiTarget>(entity).unwrap();
+                    native.begin_frame(world.resource::<PipelineCache>(), false);
+                    clear(context, target.main_texture_view(), world_colour);
+                    assert!(native.seed(world, context, target));
+                    assert!(native.present(world, context, target));
+                });
+            world.resource::<RenderQueue>().submit(commands);
+            for pixel in float_pixels(world, entity) {
+                for (actual, expected) in pixel.iter().zip(expected) {
+                    assert!(
+                        (actual - expected * scale).abs() <= 0.02 * scale.max(*actual),
+                        "{world_colour:?} at {internal:?}: {pixel:?}, expected {expected:?}"
+                    );
+                }
+            }
+        }
+        world.despawn(entity);
+    }
+}
+
+/// An HDR10 output carries the world as absolute PQ luminance relative to paper white, and
+/// without Highlight Boost an SDR world keeps its levels.
+#[test]
+fn hdr10_output_encodes_paper_white_luminance_as_pq() {
+    let Some(mut app) = raster_fixture() else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(crate::hdr_output::HdrOutputRequest(
+        render_api::hdr::HdrOutput {
+            enabled: true,
+            peak_nits: 1000.0,
+            paper_white_nits: 200.0,
+            highlight_boost: 0.0,
+        },
+    ));
+    let entity = view_target_into(world, [4, 4], [4, 4], TextureFormat::Rgb10a2Unorm);
+    world
+        .entity_mut(entity)
+        .remove::<crate::render_scale::RenderScaleOutput>();
+    prepare(world);
+    ready_pipelines(world);
+    world.run_system_once(prepare_native_ui_targets).unwrap();
+    let device = world.resource::<RenderDevice>().clone();
+    let (_, commands) = crate::render_test_support::record(world, &device, |world, context| {
+        let target = world.get::<ViewTarget>(entity).unwrap();
+        let native = world.get::<NativeUiTarget>(entity).unwrap();
+        clear(context, target.main_texture_view(), [1.0, 0.5, 0.0]);
+        assert!(native.seed(world, context, target));
+        assert!(native.present(world, context, target));
+    });
+    world.resource::<RenderQueue>().submit(commands);
+    for pixel in pixels(world, entity) {
+        let packed = u32::from_le_bytes(pixel);
+        let signal = [0, 10, 20].map(|shift| ((packed >> shift) & 0x3ff) as f32 / 1023.0);
+        let decoded = render_api::hdr::HdrEncoding::Pq.decode(signal, 200.0);
+        for (actual, expected) in decoded.iter().zip([1.0, 0.5, 0.0]) {
+            assert!((actual - expected).abs() <= 0.02, "{decoded:?}");
+        }
+    }
+}
+
+/// Clears `view` to a linear colour.
+fn clear(context: &mut RenderContext, view: &TextureView, [r, g, b]: [f64; 3]) {
+    let attachments = [Some(wgpu::RenderPassColorAttachment {
+        view,
+        depth_slice: None,
+        resolve_target: None,
+        ops: wgpu::Operations {
+            load: wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a: 1.0 }),
+            store: wgpu::StoreOp::Store,
+        },
+    })];
+    context
+        .command_encoder()
+        .begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("HDR world witness"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+}
+
+/// Reads an `Rgba16Float` output's colour channels.
+fn float_pixels(world: &World, entity: Entity) -> Vec<[f32; 3]> {
+    let device = world.resource::<RenderDevice>();
+    let target = world.get::<ViewTarget>(entity).unwrap();
+    let output = target.out_texture().unwrap().texture();
+    let row_bytes = (output.width() * 8).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("HDR output readback"),
+        size: u64::from(row_bytes) * u64::from(output.height()),
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&default());
+    encoder.copy_texture_to_buffer(
+        output.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row_bytes),
+                rows_per_image: Some(output.height()),
+            },
+        },
+        output.size(),
+    );
+    world.resource::<RenderQueue>().submit([encoder.finish()]);
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    buffer
+        .slice(..)
+        .get_mapped_range()
+        .unwrap()
+        .chunks_exact(row_bytes as usize)
+        .flat_map(|row| {
+            row[..output.width() as usize * 8]
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|texel| {
+                    std::array::from_fn(|channel| {
+                        half_to_f32(u16::from_le_bytes([
+                            texel[2 * channel],
+                            texel[2 * channel + 1],
+                        ]))
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Decodes a finite IEEE binary16 value.
+fn half_to_f32(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+    let exponent = i32::from((bits >> 10) & 0x1f);
+    let mantissa = f32::from(bits & 0x3ff);
+    sign * if exponent == 0 {
+        mantissa * 2f32.powi(-24)
+    } else {
+        (1.0 + mantissa / 1024.0) * 2f32.powi(exponent - 15)
+    }
+}
+
 /// Renders the production reconstruction path or a direct bilinear control into the same output.
 fn reconstruct(world: &mut World, entity: Entity, bilinear: bool) -> Vec<[u8; 4]> {
     world.run_system_once(prepare_native_ui_targets).unwrap();
@@ -881,12 +1082,14 @@ fn a_failed_fsr_shader_still_reconstructs_with_the_independent_bilinear_fallback
     let present = world
         .get::<NativeUiTarget>(entity)
         .unwrap()
-        .present_pipeline;
+        .present_pipelines();
     test_time::eventually("failed FSR with a ready bilinear fallback", || {
         let mut cache = world.resource_mut::<PipelineCache>();
         cache.process_queue();
         cache.get_render_pipeline(stages.bilinear).is_some()
-            && cache.get_render_pipeline(present).is_some()
+            && present
+                .iter()
+                .all(|&id| cache.get_render_pipeline(id).is_some())
             && [stages.easu, stages.rcas].iter().all(|&id| {
                 matches!(
                     cache.get_render_pipeline_state(id),
@@ -937,7 +1140,7 @@ fn ready_pipelines(world: &mut World) {
                 .seed_pipelines
                 .ids()
                 .into_iter()
-                .chain([native.present_pipeline])
+                .chain(native.present_pipelines())
         })
         .collect();
     test_time::eventually("native UI reconstruction pipelines", || {

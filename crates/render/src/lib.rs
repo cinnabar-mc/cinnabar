@@ -85,6 +85,8 @@ mod pipeline_warmup;
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;
 
+mod hdr_output;
+pub use hdr_output::{HdrOutputRequest, output_encoding};
 mod post_process;
 mod present_mode;
 pub use post_process::ClientPostProcessPlugin;

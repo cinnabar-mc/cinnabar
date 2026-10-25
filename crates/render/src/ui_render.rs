@@ -147,6 +147,7 @@ fn install_ui_render(app: &mut App) {
         ExtractResourcePlugin::<UiItemGlintTexture>::default(),
     ));
     upscale::install(app);
+    crate::hdr_output::install(app);
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
     load_internal_asset!(
         app,
