@@ -193,6 +193,12 @@ the compiler is contained too, under the same limits and the parent's callback d
 child, and `tests/helper.rs` runs a real component restricted; both skip, naming what is missing,
 on a kernel without Landlock or without a delegated memory controller.
 
+Known gap: the helper can still learn metadata the lockdown does not hide. Path-based `stat`,
+`statx`, `access` and `readlink` report whether files exist and their sizes, owners and times
+(Landlock does not cover reading metadata), `inotify` watches can observe activity on paths, and
+`get_robust_list` reads the robust futex list address of another process of the user, which can
+reveal its memory layout. None of these reads file contents or changes anything.
+
 Production stays unavailable: macOS and Windows have no restricted launch, the Linux launch has
 not had the independent security review the gate requires, and the client does not call it.
 Wasmtime and native decoders remain attack surfaces.

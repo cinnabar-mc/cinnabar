@@ -1218,7 +1218,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   removal, consent, custom screen transitions and media qualification. Server Experience
   helpers have a restricted launch on Linux only (Landlock, seccomp, a delegated cgroup memory
   limit, resource limits, descriptor audit, contained compilation, fault-injection tests);
-  macOS and Windows refuse it, Linux without a delegated memory controller refuses it, the Linux launch
+  macOS and Windows refuse it, Linux without a delegated memory controller refuses it, path
+  metadata, inotify and robust-list reads remain a known information leak, the Linux launch
   awaits independent security review, and the client does not call it, so production execution
   stays closed. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
