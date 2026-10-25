@@ -371,7 +371,7 @@ fn measure_pages(
     dir: &Path,
     textures: &[assets::ActorTexture],
     bindings: &[assets::ActorArtworkBinding],
-    multitexture: &std::collections::BTreeSet<u32>,
+    multitexture: &assets::ActorMultitextureSources,
 ) {
     let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
     let entity_bytes = read("vanilla-v1.mcbeent");

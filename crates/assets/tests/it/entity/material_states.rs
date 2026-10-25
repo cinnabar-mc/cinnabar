@@ -97,3 +97,41 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
     );
     assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_ref());
 }
+
+#[test]
+fn material_choices_share_the_multitexture_page_when_any_choice_multitextures() {
+    use assets::{EntityRenderMaterial, EntityRenderMaterialSelection as Node};
+    let mut compiled = carrier_v4_fixture();
+    let source = compiled.render.candidates[0].source;
+    compiled.render.layers[0].material_state = None;
+    compiled.render.layers[0].material_selection = Some(0);
+    compiled.render.material_selections = vec![
+        Node::Branch {
+            condition: 0,
+            yes: 1,
+            no: 2,
+        },
+        Node::Raster {
+            material: EntityRenderMaterial::Default,
+            state: None,
+            definition: None,
+        },
+        Node::Raster {
+            material: EntityRenderMaterial::Default,
+            state: Some(EntityRenderMaterialState {
+                multitexture: true,
+                ..Default::default()
+            }),
+            definition: None,
+        },
+    ]
+    .into();
+    assert!(assets::actor_multitexture_sources(&compiled.render).contains(&source));
+    compiled.render.material_selections = vec![Node::Raster {
+        material: EntityRenderMaterial::Default,
+        state: None,
+        definition: None,
+    }]
+    .into();
+    assert!(!assets::actor_multitexture_sources(&compiled.render).contains(&source));
+}

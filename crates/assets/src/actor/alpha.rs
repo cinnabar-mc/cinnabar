@@ -47,15 +47,54 @@ pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
     keep
 }
 
-/// Sources a `USE_MULTITEXTURE` material samples; they share one array page so the draw can
-/// read all three.
-pub fn actor_multitexture_sources(render: &EntityRenderData) -> BTreeSet<u32> {
-    render
-        .layers
-        .iter()
-        .filter(|layer| layer.material_state.is_some_and(|state| state.multitexture))
-        .flat_map(|layer| layer_sources(render, layer))
-        .collect()
+/// Sources any possible `USE_MULTITEXTURE` material of a layer samples, including Molang
+/// material choices; they share one array page so the draw can read all three.
+pub fn actor_multitexture_sources(render: &EntityRenderData) -> ActorMultitextureSources {
+    ActorMultitextureSources::from_draws(
+        render
+            .layers
+            .iter()
+            .filter(|layer| {
+                render
+                    .materials(layer)
+                    .any(|(_, state, _)| state.is_some_and(|state| state.multitexture))
+            })
+            .map(|layer| layer_sources(render, layer)),
+    )
+}
+
+/// The sources `USE_MULTITEXTURE` draws sample, kept per draw so that every source one draw
+/// samples can be placed on the same page.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ActorMultitextureSources {
+    /// Each draw's distinct sources, ascending.
+    draws: Box<[Box<[u32]>]>,
+    sources: BTreeSet<u32>,
+}
+
+impl ActorMultitextureSources {
+    /// Collects the sources of each draw; a draw without sources is dropped.
+    pub fn from_draws<D: IntoIterator<Item = u32>>(draws: impl IntoIterator<Item = D>) -> Self {
+        let draws: Box<[Box<[u32]>]> = draws
+            .into_iter()
+            .map(|draw| draw.into_iter().collect::<BTreeSet<_>>())
+            .filter(|draw| !draw.is_empty())
+            .map(|draw| draw.into_iter().collect())
+            .collect();
+        let sources = draws.iter().flat_map(|draw| draw.iter().copied()).collect();
+        Self { draws, sources }
+    }
+
+    /// Whether any draw samples `source`.
+    #[must_use]
+    pub fn contains(&self, source: &u32) -> bool {
+        self.sources.contains(source)
+    }
+
+    /// The distinct sources of each draw, ascending.
+    pub fn draws(&self) -> impl Iterator<Item = &[u32]> {
+        self.draws.iter().map(AsRef::as_ref)
+    }
 }
 
 fn layer_sources<'a>(
