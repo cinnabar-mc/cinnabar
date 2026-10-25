@@ -1,10 +1,10 @@
 # World material showcase
 
 The `materialfx` Experience shows what programmable world materials can do inside the host's
-rules. Its client part (`examples/experiences/material-fx/client`) declares five guest `shade`
-materials and binds them to the Experience's own entities and blocks; its server half
-(`examples/experiences/material-fx/server`) registers the blocks; this local server fixture
-(`-material-fx`) offers the entities and adds `/materialfx`. All art is original and generated in
+rules. Its client part (`examples/experiences/material-fx/client`) declares one guest `shade`
+material per effect in `effects::EFFECTS` and binds them to the Experience's own entities and
+blocks; its server half (`examples/experiences/material-fx/server`) registers the blocks; this
+local server fixture (`-material-fx`) offers the entities and adds `/materialfx`. All art is original and generated in
 code: nothing under `textures/` is committed.
 
 World materials are developer-only: the client runs them only with
