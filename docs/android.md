@@ -39,6 +39,21 @@ Android CI workflow builds a test APK for pull requests that change `packaging/a
 release workflow, every six hours and on manual runs, and attaches it to the run. Each run uses its own key, so
 uninstall an earlier build (which clears its data) before installing a newer one.
 
+## Local terrain checks
+
+Run the headless terrain pixel tests on a development machine with a native graphics adapter:
+
+```sh
+cargo test --locked -p render --lib terrain_pixels_ -- --nocapture --test-threads=1
+```
+
+The tests upload diagnostic chunks through the production renderer and read back completed
+frames. They compare terrain coverage across direct and indirect draws and the full and
+compact storage layouts, then check occlusion toggles and chunk removal and reupload.
+They need no phone, game assets or server. Missing adapters or required capabilities produce
+a named missing-fixture message; those cases remain unverified. These checks exercise client
+rendering logic on the host's driver and do not establish Android GPU-driver compatibility.
+
 ## Controls
 
 The stick moves, dragging elsewhere turns, and separate fingers hold jump, sneak, sprint,

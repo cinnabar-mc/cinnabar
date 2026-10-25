@@ -1095,6 +1095,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
+  Headless native-GPU fixtures compare completed terrain coverage across direct and indirect
+  draws and both storage layouts, including occlusion toggles and removal/reupload controls.
+  These fixtures exercise the host driver; Android GPU-driver compatibility still needs devices.
   Physical-device rendering and fallback
   performance acceptance remain incomplete.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library

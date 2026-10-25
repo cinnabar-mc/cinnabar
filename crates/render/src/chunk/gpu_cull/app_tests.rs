@@ -29,7 +29,7 @@ pub(in crate::chunk) fn render_plugin(
 }
 
 /// Creates a renderer with explicit limits so startup tests exercise device-dependent layouts.
-fn render_plugin_with_limits(
+pub(super) fn render_plugin_with_limits(
     backends: wgpu::Backends,
     required_features: WgpuFeatures,
     limits: Option<wgpu::Limits>,
@@ -46,9 +46,13 @@ fn render_plugin_with_limits(
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let adapter =
-        bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .ok()?;
+    let adapter = match bevy::tasks::block_on(
+        instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
+    ) {
+        Ok(adapter) => adapter,
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => return None,
+        Err(error) => panic!("terrain fixture adapter request failed: {error}"),
+    };
     if !adapter.features().contains(required_features) {
         return None;
     }
@@ -65,6 +69,9 @@ fn render_plugin_with_limits(
         required_limits: limits.unwrap_or(required_limits),
         ..Default::default()
     };
+    if !descriptor.required_limits.check_limits(&adapter.limits()) {
+        return None;
+    }
     let adapter_info = adapter.get_info();
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&descriptor)).unwrap();
     Some(RenderPlugin {
