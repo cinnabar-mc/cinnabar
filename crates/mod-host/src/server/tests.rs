@@ -12,7 +12,7 @@ pub(super) fn drawing_context(epoch: u64) -> crate::presentation::Context {
 }
 
 /// Creates the host import state with worst-case serialized identity and epoch fields.
-fn state() -> State {
+pub(super) fn state() -> State {
     let mut state = State {
         scene: Default::default(),
         scene_revision: mod_render::next_owner(),

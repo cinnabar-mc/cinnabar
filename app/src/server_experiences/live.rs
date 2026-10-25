@@ -617,25 +617,30 @@ impl<H: Worker> Live<H> {
 
     /// Each running client part's world material declarations, in bundle order, with its share
     /// of the signed GPU limit, what its share of the signed memory limit leaves once the
-    /// declarations themselves are charged, and its signed files. A stopped part declares
-    /// nothing.
-    pub(super) fn world_bundles(
-        &self,
-    ) -> impl Iterator<Item = super::world_materials::BundleWorld<'_>> {
+    /// declarations themselves are charged, its signed files and its granted permissions, less
+    /// those in `withdrawn`. A stopped part declares nothing.
+    pub(super) fn world_bundles<'a>(
+        &'a self,
+        withdrawn: &'a BTreeSet<server_experience::manifest::Permission>,
+    ) -> impl Iterator<Item = super::world_materials::BundleWorld<'a>> {
         self.instances
             .iter()
             .filter(|(_, instance)| instance.stopped.is_none())
-            .map(|(bundle, instance)| super::world_materials::BundleWorld {
-                bundle,
-                world: &instance.contributions.world,
-                gpu_bytes: instance.capabilities.scope.gpu_bytes,
-                memory_bytes: instance
-                    .capabilities
-                    .scope
-                    .memory_bytes
-                    .saturating_sub(instance.contributions.world.charge()),
-                files: &instance.files,
-            })
+            .map(
+                move |(bundle, instance)| super::world_materials::BundleWorld {
+                    bundle,
+                    world: &instance.contributions.world,
+                    gpu_bytes: instance.capabilities.scope.gpu_bytes,
+                    memory_bytes: instance
+                        .capabilities
+                        .scope
+                        .memory_bytes
+                        .saturating_sub(instance.contributions.world.charge()),
+                    files: &instance.files,
+                    permissions: &instance.capabilities.scope.permissions,
+                    withdrawn,
+                },
+            )
     }
 
     /// Takes the materials whose parameters alone changed since the last call, with their

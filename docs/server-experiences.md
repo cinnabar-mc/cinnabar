@@ -54,6 +54,7 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
 | `render_world_material` | Guest `shade` materials bound to the bundle's own entities and blocks (`world-material`, server-experience 1.6.0); developer client only |
 | `render_world_material_override` | With `render_world_material`, bind any entity or block identifier, vanilla included (API 3); the developer client offers it only with `CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE=1` |
+| `render_world_material_vertex`, `render_world_material_scene`, `render_world_material_passes` | With `render_world_material`: vertex displacement, reading the view's opaque scene, and outlines, bloom, particles and compute (`world-material-effects`, server-experience 1.7.0, API 4); see [World material effects](#world-material-effects) |
 
 A bundle asking for `render_world_material` signs a manifest `namespace` (API 2 and later): the
 identifier namespace whose entities and blocks its world materials may bind. It holds
@@ -183,6 +184,61 @@ first render, and after revocation, the block keeps its Bedrock sprite.
 
 Not yet: Enhanced terrain draws bound blocks as Bedrock. Identifiers outside the signed
 namespace, vanilla included, take `render_world_material_override`.
+
+## World material effects
+
+Three permissions extend `render_world_material`, each its own consent line, each denied by
+default (the developer client offers one only when its `CINNABAR_DEV_WORLD_MATERIAL_*`
+variable is `1`; production clients implement none of them), and each needs
+`render_world_material` in the same manifest. `world-material-effects.set-material-with-effects`
+declares a material with an `effects` record; the helper and the client both refuse an effect
+whose permission is missing or whose numbers lie outside the host's ranges. Every effect draws
+only the targets its material is bound to, and its pipelines, targets and cells are charged to
+the bundle's share of the signed GPU limit, its declarations to the memory limit.
+
+Any of the three can be withdrawn for the rest of the session without a reconnect (the
+developer client's developer-control command `experience_permission` with `withdrawn`; there
+is no in-game control yet): one publication drops exactly that permission's effects from every
+material (a withdrawn
+displacement draws undisplaced, a withdrawn scene reads no colour and infinitely far depth, a
+withdrawn passes permission stops the bundle's outlines, bloom, particles and computes, and
+cells read zero), and giving it back restores them. The material's declarations stay, so the
+guest is not told. Pipelines compiled for a withdrawn form stay charged, as every replaced
+material's do. Ending the runtime clears the withdrawals.
+
+- **Vertex displacement** (`render_world_material_vertex`): the material's source also defines
+  `fn displace(input: WorldVertexInput) -> vec3<f32>` (world position, normal, UV, phase), an
+  offset in blocks that the host clamps on each axis to the declared `displacement-blocks`
+  (at most 2). Culling bounds of bound entities and of terrain sections holding bound blocks
+  grow by the bound. It cannot move hit boxes, collision, selection, positions, nametags,
+  entity shadows or anything gameplay reads; shader packs draw bound blocks undisplaced (their
+  atlas sprite has no geometry); the entity blob shadow stays under the entity's real position.
+- **Scene read** (`render_world_material_scene`): `scene_color(offset)` and
+  `scene_depth(offset)` read the view's opaque colour and linear depth in blocks, already drawn
+  this frame, `offset` pixels from the fragment and clamped to the screen, and
+  `fragment_depth()` the fragment's own depth, for refraction, heat haze and soft intersections.
+  Only premultiplied and additive classes may read it, since they draw after the opaque pass.
+  It cannot read anything not on that view's screen: no other view, no translucent or later
+  pass, no UI, no previous frame, and nothing it reads ever reaches the guest, which has no GPU
+  readback.
+- **Extra passes and compute** (`render_world_material_passes`): an `outline` draws each bound
+  target again pushed out along its normals by at most 4 texels and seen from behind, in the
+  colour of `fn outline(input: WorldMaterialInput) -> vec3<f32>`; a `bloom` blurs what the
+  bound targets emit (strength at most 4, radius at most 16 pixels) and adds it over the frame;
+  `particles` draws at most 4 096 pixel squares per bound target within at most 4 blocks of it,
+  placed and coloured by `fn particle(input: WorldParticleInput) -> WorldParticle`.
+  `set-compute` declares at most 65 536 cells of four numbers the host owns for the bundle; each
+  frame `fn step(input: WorldCellInput) -> vec4<f32>` returns each cell's next value from the
+  previous frame's cells, and a material naming the compute in `cells` reads them with
+  `cell(index)`. A bundle's computes update at most 262 144 cells a frame. Compute cannot write
+  any other cell, read textures, host buffers or the scene, and nothing reads its cells back
+  to the guest. The guest functions keep the sandbox's per-pixel, per-vertex or per-cell bound
+  (no loops, bounded expressions and texture reads).
+
+Ranges and charges are provisional: displacement at most 2 blocks, outlines 4 texels, bloom
+strength 4 and radius 16 pixels, 4 096 particles within 4 blocks, 65 536 cells per compute and
+262 144 per bundle a frame; a bundle reading the scene pays 16 MiB once and one blooming 8 MiB
+once, each extra pass and compute 256 KiB of pipelines, and each cell 32 bytes.
 
 ## Modal screens
 

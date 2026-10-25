@@ -22,6 +22,7 @@ fn spec(source: &str, textures: &[&str]) -> WorldMaterialSpec {
         params: vec![0.5, 2.0],
         depth: WorldDepth::Test,
         blend: WorldBlend::Cutout,
+        effects: Default::default(),
     }
 }
 
@@ -66,8 +67,13 @@ fn bundle<'a>(world: &'a WorldMaterials, files: &'a Arc<Files>, gpu_bytes: u64) 
         gpu_bytes,
         memory_bytes: u64::MAX,
         files,
+        permissions: &NONE,
+        withdrawn: &NONE,
     }
 }
+
+/// No permissions beyond `render_world_material` itself, and none withdrawn.
+static NONE: BTreeSet<Permission> = BTreeSet::new();
 
 #[test]
 fn declarations_publish_textures_params_and_bindings_and_keep_unchanged_keys() {

@@ -39,6 +39,11 @@ const MediaGPUBytes = 16 << 20
 // materials: room for their textures and the pipelines the client charges each one.
 const WorldMaterialGPUBytes = 32 << 20
 
+// WorldMaterialEffectsGPUBytes is the GPU memory an offer adds when a bundle may read the
+// scene or draw extra passes: the client's shared scene (16 MiB) and bloom (8 MiB) charges,
+// with room for the extra pipelines and compute cells.
+const WorldMaterialEffectsGPUBytes = 32 << 20
+
 // nonceBytes is the size of the Accept's server challenge and session, as the client checks them.
 const nonceBytes = 32
 
@@ -212,6 +217,9 @@ func (s *Server) newOffer(cfg Config) (Offer, error) {
 	// The client splits the GPU limit evenly between the offer's bundles.
 	if offer.Scope.Permissions.Has(PermissionRenderWorldMaterial) {
 		offer.Scope.GPUBytes = min(MaxGPUBytes, offer.Scope.GPUBytes+uint64(len(cfg.Bundles))*WorldMaterialGPUBytes)
+	}
+	if offer.Scope.Permissions.Has(PermissionRenderWorldMaterialScene) || offer.Scope.Permissions.Has(PermissionRenderWorldMaterialPasses) {
+		offer.Scope.GPUBytes = min(MaxGPUBytes, offer.Scope.GPUBytes+uint64(len(cfg.Bundles))*WorldMaterialEffectsGPUBytes)
 	}
 	if total > MaxExpandedBytes {
 		return Offer{}, fmt.Errorf("bundles of %d bytes together, over the client's %d", total, MaxExpandedBytes)

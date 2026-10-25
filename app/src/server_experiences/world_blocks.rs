@@ -123,6 +123,7 @@ mod tests {
         let material = Arc::new(WorldMaterial {
             source: "".into(),
             textures: 0,
+            features: Default::default(),
         });
         WorldMaterialSet {
             revision: 1,
@@ -136,6 +137,7 @@ mod tests {
                         textures: Arc::from([]),
                         depth: Depth::Test,
                         blend: *blend,
+                        effects: Default::default(),
                     })
                 })
                 .collect(),
@@ -144,6 +146,7 @@ mod tests {
                 .iter()
                 .map(|(name, slot)| ((*name).into(), *slot))
                 .collect(),
+            computes: Vec::new(),
         }
     }
 

@@ -2,14 +2,14 @@
 //! sizes, then, once its charge fits, decoding its textures. Each step runs on the async
 //! compute pool and the presenter picks up its result on a later frame.
 
-use super::MAX_TEXTURE_EXTENT;
+use super::{MAX_TEXTURE_EXTENT, PIPELINE_CHARGE_BYTES};
 use mod_render::world_material::{
     self as abi,
     publication::{Blend, Depth, Published, Texture},
 };
 use server_experience::{
     screen::Files,
-    world_material::{WorldBlend, WorldDepth, WorldMaterialSpec},
+    world_material::{WorldBlend, WorldDepth, WorldEffects, WorldMaterialSpec},
 };
 use std::{
     io::Cursor,
@@ -178,8 +178,22 @@ pub(super) struct Charge {
     pub memory: u64,
 }
 
-/// What a material's pipelines are compiled for: Bevy keeps one set per distinct identity.
-pub(super) type Pipelines = (u128, Blend, Depth);
+/// What a material's pipelines are compiled for: its program, blend, depth and the extra
+/// passes it draws ([`passes`]). Bevy keeps one set per distinct identity.
+pub(super) type Pipelines = (u128, Blend, Depth, u8);
+
+/// The extra passes `effects` draw, one bit each: outline, bloom and particles.
+pub(super) fn passes(effects: &WorldEffects) -> u8 {
+    u8::from(effects.outline.is_some())
+        | u8::from(effects.bloom.is_some()) << 1
+        | u8::from(effects.particles.is_some()) << 2
+}
+
+/// GPU bytes a set of pipelines holds: one pipeline charge for its shade pass and one per
+/// extra pass.
+pub(super) fn set_bytes(identity: &Pipelines) -> u64 {
+    PIPELINE_CHARGE_BYTES * (1 + u64::from((identity.3 & 0b111).count_ones()))
+}
 
 /// How fitting a material against its bundle's shares went.
 pub(super) enum Fit {
@@ -222,6 +236,14 @@ impl Cached {
         }
     }
 
+    /// An admission attempt of `spec` refused for `reason` before any work.
+    pub(super) fn refused(spec: &WorldMaterialSpec, attempt: u64, reason: String) -> Self {
+        Self {
+            outcome: Outcome::Refused(reason),
+            ..Self::new(spec, attempt)
+        }
+    }
+
     /// Whether a job of this attempt is running.
     pub(super) fn running(&self) -> bool {
         matches!(self.outcome, Outcome::Measuring(_) | Outcome::Decoding(..))
@@ -250,8 +272,9 @@ impl Cached {
             self.spec.textures.clone(),
             Arc::clone(files),
         );
+        let features = mod_host::server::world_material::features(&self.spec.effects);
         self.outcome = Outcome::Measuring(executor.spawn(
-            move |cancel| measure(&source, &textures, &files, cancel),
+            move |cancel| measure(&source, (&textures, features), &files, cancel),
             done,
         ));
         self.settle();
@@ -321,6 +344,7 @@ impl Cached {
             material.program(),
             blend(self.spec.blend),
             depth(self.spec.depth),
+            passes(&self.spec.effects),
         ))
     }
 
@@ -379,6 +403,8 @@ impl Cached {
                     textures,
                     depth: depth(self.spec.depth),
                     blend: blend(self.spec.blend),
+                    // The presenter resolves them against each rebuild's computes.
+                    effects: Default::default(),
                 }),
                 Some(Err(reason)) => Outcome::Refused(reason),
                 None => return,
@@ -420,18 +446,19 @@ fn depth(depth: WorldDepth) -> Depth {
     }
 }
 
-/// Validates the shader again and reads the declared textures' sizes from their headers,
-/// decoding nothing; the helper's validation is not trusted.
+/// Validates the shader, with the functions its effects call, again and reads the declared
+/// textures' sizes from their headers, decoding nothing; the helper's validation is not
+/// trusted.
 fn measure(
     source: &str,
-    textures: &[String],
+    (textures, features): (&[String], abi::Features),
     files: &Files,
     cancel: &AtomicBool,
 ) -> Result<Measured, String> {
     if cancel.load(Ordering::Acquire) {
         return Err(SUPERSEDED.into());
     }
-    let material = abi::compose(source, textures.len())?;
+    let material = abi::compose_with(source, textures.len(), features)?;
     let mut texels = 0_u64;
     for path in textures {
         let (width, height) = dimensions(signed(path, files)?)

@@ -81,8 +81,9 @@ pub(crate) fn configure(app: &mut App) {
     let menu = app.world().resource::<MenuRuntime>();
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
-    app.init_resource::<render_scene::world_material::WorldMaterialScene>();
-    app.init_resource::<render_scene::world_material::WorldMaterialParamScene>();
+    app.init_resource::<render_scene::world_material::WorldMaterialScene>()
+        .init_resource::<render_scene::world_material::WorldMaterialParamScene>()
+        .init_resource::<WorldMaterialWithdrawals>();
     app.insert_resource(ExperienceService {
         settings_path,
         cache_root,
@@ -529,12 +530,23 @@ fn present_media(
     }
 }
 
-/// Publishes the client parts' world materials when their world declarations change, and
-/// their parameters alone when only those change. Ending the runtime (F9, a stop or a
-/// disconnect) ends the presenter's session and publishes an empty set, which restores every
-/// Bedrock material without a reconnect, and forgets the session's compile failures.
+/// Permissions the user withdrew from the running client parts in this session. Withdrawing
+/// one drops every effect it allows from every material in one publication, without a
+/// reconnect; the declarations are kept, so giving it back restores them. Ending the runtime
+/// clears the set.
+#[derive(bevy::prelude::Resource, Default)]
+pub(crate) struct WorldMaterialWithdrawals {
+    pub(crate) permissions: std::collections::BTreeSet<server_experience::manifest::Permission>,
+}
+
+/// Publishes the client parts' world materials when their world declarations or the withdrawn
+/// permissions change, and their parameters alone when only those change. Ending the runtime
+/// (F9, a stop or a disconnect) ends the presenter's session and publishes an empty set, which
+/// restores every Bedrock material without a reconnect, and forgets the session's compile
+/// failures.
 fn present_world_materials(
     mut service: ResMut<ExperienceService>,
+    mut withdrawals: ResMut<WorldMaterialWithdrawals>,
     scene: Option<ResMut<render_scene::world_material::WorldMaterialScene>>,
     params: Option<ResMut<render_scene::world_material::WorldMaterialParamScene>>,
     (failures, carried): (
@@ -549,6 +561,9 @@ fn present_world_materials(
             .world
             .note_compile_failures(|key| failures.failed(key));
     }
+    if service.live.is_none() && !withdrawals.permissions.is_empty() {
+        withdrawals.permissions.clear();
+    }
     let run = service.world.run();
     // A slot the stream's applied tags still name stays carried: meshes built from them may
     // carry it however few resident meshes do now.
@@ -560,7 +575,10 @@ fn present_world_materials(
         .as_deref()
         .map_or((0, u64::MAX), |carried| carried.get());
     let carried = (carried.0, carried.1 | table);
-    if !service.world.follow(service.live.as_mut(), carried) {
+    if !service
+        .world
+        .follow(service.live.as_mut(), carried, &withdrawals.permissions)
+    {
         return;
     }
     if service.world.run() != run

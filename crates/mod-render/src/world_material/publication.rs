@@ -1,7 +1,7 @@
 //! The world materials a session draws: admitted shaders with their decoded textures and
 //! parameters, and the entity and block identifiers bound to them.
 
-use super::WorldMaterial;
+use super::{WorldMaterial, compute::WorldCompute};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Slots a block binding can name: block quads carry one more than the slot in six bits.
@@ -42,6 +42,61 @@ impl Texture {
     }
 }
 
+/// A bloom of a material's emission.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bloom {
+    pub strength: f32,
+    pub radius_pixels: f32,
+}
+
+/// Pixel particles around each bound target.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Particles {
+    pub count: u32,
+    pub radius_blocks: f32,
+}
+
+/// What a published material draws beyond its `shade` pass; its material's
+/// [`super::Features`] provide the functions each part calls.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Effects {
+    /// The displacement limit in blocks on each axis, by which culling bounds grow.
+    pub displacement_blocks: Option<f32>,
+    /// Whether `shade` reads the view's opaque colour and depth.
+    pub scene: bool,
+    /// The outline width in texels of the target.
+    pub outline_texels: Option<f32>,
+    pub bloom: Option<Bloom>,
+    pub particles: Option<Particles>,
+    /// The index in [`WorldMaterialSet::computes`] of the cells its functions read.
+    pub cells: Option<u16>,
+}
+
+impl Effects {
+    /// The effects row of the material's frame uniform: the displacement limit, the outline
+    /// width and the particle radius in blocks, and the particle count.
+    pub fn row(&self) -> [f32; 4] {
+        [
+            self.displacement_blocks.unwrap_or(0.0),
+            self.outline_texels.unwrap_or(0.0) / 16.0,
+            self.particles
+                .map_or(0.0, |particles| particles.radius_blocks),
+            self.particles
+                .map_or(0.0, |particles| particles.count as f32),
+        ]
+    }
+
+    /// How far, in blocks, what the material draws may reach past its target's own bounds.
+    pub fn reach_blocks(&self) -> f32 {
+        let displacement = self.displacement_blocks.unwrap_or(0.0);
+        let outline = self.outline_texels.unwrap_or(0.0) / 16.0;
+        let particles = self
+            .particles
+            .map_or(0.0, |particles| particles.radius_blocks + 0.25);
+        displacement.max(outline + displacement).max(particles)
+    }
+}
+
 /// One material ready to draw.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Published {
@@ -52,6 +107,18 @@ pub struct Published {
     pub textures: Arc<[Texture]>,
     pub depth: Depth,
     pub blend: Blend,
+    pub effects: Effects,
+}
+
+/// One compute program ready to run: `cells` cells it updates each frame from the previous
+/// frame's, which materials read.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PublishedCompute {
+    /// Unique for the session: a new key means new cells and a new pipeline.
+    pub key: u64,
+    pub compute: Arc<WorldCompute>,
+    pub cells: u32,
+    pub params: [f32; 16],
 }
 
 /// Every drawable world material and what binds to it. Slots index `materials`; an empty slot
@@ -65,6 +132,8 @@ pub struct WorldMaterialSet {
     pub entities: BTreeMap<Box<str>, u16>,
     /// Block identifier to the slot its every state draws with.
     pub blocks: BTreeMap<Box<str>, u16>,
+    /// The compute programs materials read cells from, in the order the host runs them.
+    pub computes: Vec<PublishedCompute>,
 }
 
 impl WorldMaterialSet {

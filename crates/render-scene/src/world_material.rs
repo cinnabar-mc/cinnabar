@@ -100,6 +100,7 @@ impl WorldMaterialScene {
             source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }"
                 .into(),
             textures: 0,
+            features: Default::default(),
         });
         let mut set = WorldMaterialSet {
             revision: 1,
@@ -112,6 +113,7 @@ impl WorldMaterialScene {
                 textures: Arc::from([]),
                 depth: Depth::Test,
                 blend: Blend::Opaque,
+                effects: Default::default(),
             }));
             set.entities.insert((*entity).into(), slot as u16);
         }

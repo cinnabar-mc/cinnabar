@@ -82,6 +82,9 @@ pub enum Permission {
     RenderWorldMaterial,
     RenderPost,
     RenderWorldMaterialOverride,
+    RenderWorldMaterialVertex,
+    RenderWorldMaterialScene,
+    RenderWorldMaterialPasses,
 }
 
 /// Restricts identifiers to the shared portable namespace.
@@ -253,13 +256,14 @@ impl Manifest {
                 || !self.permissions.contains(&Permission::RenderWorldMaterial),
             "render_world_material needs a namespace"
         );
-        ensure!(
-            self.permissions.contains(&Permission::RenderWorldMaterial)
-                || !self
-                    .permissions
-                    .contains(&Permission::RenderWorldMaterialOverride),
-            "render_world_material_override needs render_world_material"
-        );
+        for extension in WORLD_MATERIAL_EXTENSIONS {
+            ensure!(
+                self.permissions.contains(&Permission::RenderWorldMaterial)
+                    || !self.permissions.contains(&extension.permission),
+                "{} needs render_world_material",
+                extension.name
+            );
+        }
         Ok(())
     }
 }
@@ -286,21 +290,57 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(|c| c.is_control() || c == '§')
 }
 
-/// Lets the developer client advertise `render_world_material_override` when set to `1`; it is
-/// denied otherwise.
-pub const WORLD_MATERIAL_OVERRIDE_ENV: &str = "CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE";
-
-/// What the developer client advertises: the above plus media playback onto scene quads,
-/// reading the session's items and programmable world materials, and restyling identifiers
-/// outside a bundle's namespace only when [`WORLD_MATERIAL_OVERRIDE_ENV`] opts in.
-pub fn developer_permissions() -> BTreeSet<Permission> {
-    developer_permissions_with(
-        std::env::var_os(WORLD_MATERIAL_OVERRIDE_ENV).is_some_and(|value| value == "1"),
-    )
+/// A permission that extends `render_world_material`, which a bundle asking for it must hold
+/// too. Each is denied by default: the developer client offers it only when its variable is
+/// set to `1`, and production clients implement none of them.
+#[derive(Clone, Copy, Debug)]
+pub struct WorldMaterialExtension {
+    pub permission: Permission,
+    /// The permission's manifest name.
+    pub name: &'static str,
+    /// The variable that lets the developer client offer it.
+    pub env: &'static str,
 }
 
-/// [`developer_permissions`], with the world material override opted in or not.
-pub fn developer_permissions_with(world_material_override: bool) -> BTreeSet<Permission> {
+/// Every permission that extends `render_world_material`; a test checks that it lists each
+/// `render_world_material_*` permission.
+pub const WORLD_MATERIAL_EXTENSIONS: [WorldMaterialExtension; 4] = [
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialOverride,
+        name: "render_world_material_override",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE",
+    },
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialVertex,
+        name: "render_world_material_vertex",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_VERTEX",
+    },
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialScene,
+        name: "render_world_material_scene",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_SCENE",
+    },
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialPasses,
+        name: "render_world_material_passes",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_PASSES",
+    },
+];
+
+/// What the developer client advertises: the above plus media playback onto scene quads,
+/// reading the session's items and programmable world materials, and each
+/// [`WORLD_MATERIAL_EXTENSIONS`] permission whose variable opts in.
+pub fn developer_permissions() -> BTreeSet<Permission> {
+    developer_permissions_with(|extension| {
+        std::env::var_os(extension.env).is_some_and(|value| value == "1")
+    })
+}
+
+/// [`developer_permissions`], with each world material extension offered when `opted_in`
+/// says so.
+pub fn developer_permissions_with(
+    opted_in: impl Fn(&WorldMaterialExtension) -> bool,
+) -> BTreeSet<Permission> {
     let mut permissions = implemented_permissions();
     permissions.extend([
         Permission::Scene,
@@ -308,9 +348,12 @@ pub fn developer_permissions_with(world_material_override: bool) -> BTreeSet<Per
         Permission::Items,
         Permission::RenderWorldMaterial,
     ]);
-    if world_material_override {
-        permissions.insert(Permission::RenderWorldMaterialOverride);
-    }
+    permissions.extend(
+        WORLD_MATERIAL_EXTENSIONS
+            .iter()
+            .filter(|extension| opted_in(extension))
+            .map(|extension| extension.permission),
+    );
     permissions
 }
 

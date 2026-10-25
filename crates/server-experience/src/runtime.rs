@@ -86,6 +86,11 @@ pub enum Command {
         id: u32,
         binding: Option<crate::world_material::WorldBinding>,
     },
+    /// Declares or replaces world compute `id`; `None` removes it.
+    WorldCompute {
+        id: u32,
+        compute: Option<crate::world_material::WorldComputeSpec>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -173,7 +178,10 @@ impl Capabilities {
                 | Permission::RenderThroughWalls
                 | Permission::RenderMaterial
                 | Permission::RenderWorldMaterial
-                | Permission::RenderWorldMaterialOverride => false,
+                | Permission::RenderWorldMaterialOverride
+                | Permission::RenderWorldMaterialVertex
+                | Permission::RenderWorldMaterialScene
+                | Permission::RenderWorldMaterialPasses => false,
             })
     }
 
@@ -316,6 +324,12 @@ impl Capabilities {
                 }
                 Permission::RenderWorldMaterial
             }
+            Command::WorldCompute { compute, .. } => {
+                if let Some(compute) = compute {
+                    self.world_authority().validate_compute(compute)?;
+                }
+                Permission::RenderWorldMaterialPasses
+            }
         };
         ensure!(
             self.scope.permissions.contains(&permission),
@@ -387,6 +401,10 @@ impl Contributions {
                     Command::WorldBinding { id, binding } => {
                         let previous = self.world.set_binding(*id, binding.as_ref())?;
                         undo.push(WorldUndo::Binding(*id, previous));
+                    }
+                    Command::WorldCompute { id, compute } => {
+                        let previous = self.world.set_compute(*id, compute.as_ref())?;
+                        undo.push(WorldUndo::Compute(*id, previous));
                     }
                     Command::Send { .. } | Command::Media { .. } => {}
                 }

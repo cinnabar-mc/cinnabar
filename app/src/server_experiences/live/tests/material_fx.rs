@@ -197,7 +197,7 @@ impl Driver {
 
     /// Republishes the client's drawn set; returns whether it changed.
     fn present(&self, presenter: &mut WorldMaterialPresenter) -> bool {
-        presenter.rebuild(self.live.world_bundles())
+        presenter.rebuild(self.live.world_bundles(&std::collections::BTreeSet::new()))
     }
 }
 
