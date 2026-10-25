@@ -274,13 +274,33 @@ impl WorldStream {
                     return;
                 }
                 match decoded {
-                    Ok(nbt) => match self.authority.commit_block_entity_update(key, nbt) {
-                        Ok(true) => self.refresh_block_entity_visual(key),
-                        Ok(false) => {}
-                        Err(_) => {
-                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                    Ok(nbt) => {
+                        // The mesh draws an overlay host's block-state overlays, so a change to
+                        // its block entity, or a host's taking another one, remeshes the cell.
+                        let remesh = nbt.cell_overlays().is_some()
+                            || self
+                                .authority
+                                .terrain()
+                                .block_entity(key)
+                                .is_some_and(|previous| previous.cell_overlays().is_some());
+                        match self.authority.commit_block_entity_update(key, nbt) {
+                            Ok(true) => {
+                                self.refresh_block_entity_visual(key);
+                                if remesh {
+                                    self.mark_dirty_exact_with_priority(
+                                        key.sub_chunk(),
+                                        Instant::now(),
+                                        true,
+                                    );
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(_) => {
+                                self.stats.decode_errors =
+                                    self.stats.decode_errors.saturating_add(1);
+                            }
                         }
-                    },
+                    }
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
                 }
             }

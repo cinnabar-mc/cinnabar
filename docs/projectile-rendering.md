@@ -73,3 +73,38 @@ compiled local assets. This work does not write the owner's `.local` directory.
   billboard exposes the correctly textured front. Exact backside behavior is open.
 
 No live server connection was used and no parity gate was marked complete.
+
+## Thrown trident
+
+Vanilla's client entity for `minecraft:thrown_trident` names only its textures and
+geometry; a native renderer draws it. The renderer loads the model's `pole` bone,
+translates to the actor's interpolated render position, turns by `yaw - 90` degrees about
+Y and then by `pitch + 90` degrees about Z, and draws at the actor's scale over 16.
+Native model parts load authored heights as `24 - y`, so the head of the pack's pole
+leads along the projectile rotation (`yaw = atan2(x, z)`, `pitch = atan2(y, horizontal)`).
+An enchanted trident (actor flag `Enchanted`, set from the thrown item's foil) adds the
+item glint at UV scale 0.5.
+
+The pack compiler gives a controllerless thrown trident a controller that selects its
+default geometry and texture. Client presentation places that rig with the native
+transform, keeps rotation-invariant culling bounds and applies the item foil. The
+trident is lit at the actor's position, which it turns about, rather than at the rig
+origin trailing 1.5 blocks behind it; an upright trident would otherwise sample the block
+below and draw black.
+
+Open checks:
+
+- The loyalty rope strip drawn back to the owner (textures `loyalty_rope`) is not drawn.
+- The native material behind the model is unverified; the generated binding uses
+  `entity_alphatest` when the entity names none. Every authored bone draws, not only `pole`.
+- Abstract-arrow motion seeding (`lerpMotion`) applies to tridents too; Cinnabar seeds
+  only the arrow class.
+- The native renderer's light sample point is unverified.
+
+The charge pose is native too. The pack's third-person player state plays
+`brandish_spear`, gated on `variable.is_brandishing_spear` and posed by
+`variable.charge_amount`, which no pack script assigns. Vanilla's mob-variable update
+sets them every tick: an actor using a main-hand item with the spear use animation (the
+trident's) brandishes with `charge_amount = clamp(elapsed use ticks / 10, 0, 1)`, and a
+non-player mob holding a trident it is not using brandishes while its synched target id
+is not 0. The paper doll and first-person states do not play `brandish_spear`.

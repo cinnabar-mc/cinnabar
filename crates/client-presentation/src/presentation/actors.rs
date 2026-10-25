@@ -23,11 +23,16 @@ mod locator;
 pub use locator::actor_emitter_transform;
 mod admission;
 mod boat;
+mod model_frame;
+mod thrown_trident;
 pub use admission::within_actor_candidate_cube;
 pub(crate) use admission::{
     actor_is_render_candidate, admit_frame_bounds, rig_may_replace_geometry, sample_candidate_scale,
 };
 use boat::boat_hurt_tilted;
+pub use model_frame::ModelFrame;
+pub(crate) use model_frame::RigPlacement;
+use thrown_trident::present_thrown_trident;
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
@@ -44,6 +49,9 @@ pub struct ActorRigPresentation {
     pub world_yaw_degrees: f32,
     /// Head yaw minus the rendered body yaw, in degrees.
     pub head_over_body: f32,
+    /// How the submission's model sits relative to its actor; converts selected geometry
+    /// bounds into its culling box.
+    pub model_frame: ModelFrame,
 }
 
 #[derive(Debug)]
@@ -114,11 +122,28 @@ pub fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
-    let bounds = rig.culling_bounds();
-    if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
+    // Culling places the model frame's box at the model origin, as the drawn submission does.
+    let (origin, bounds) = sampled_rig_placement(
+        rig,
+        actor,
+        partial_tick,
+        [
+            rig.scale,
+            rig.axis_scale[0],
+            rig.axis_scale[1],
+            rig.axis_scale[2],
+        ],
+    )
+    .map_or((feet, rig.culling_bounds()), |placement| {
+        (
+            placement.model_origin(),
+            placement.frame.culling_bounds(rig.culling_bounds()),
+        )
+    });
+    if !actor_bounds_are_visible(origin, scale, bounds, Some(view)) {
         return false;
     }
-    let (low, high) = bounds.at(feet, scale);
+    let (low, high) = bounds.at(origin, scale);
     !occluded(low, high)
         || frame.map_or_else(
             || {
@@ -323,6 +348,7 @@ fn tick_presentation(
             authored_scale: rig.scale,
             world_yaw_degrees: 0.0,
             head_over_body: 0.0,
+            model_frame: ModelFrame::Upright,
         },
     })
 }
@@ -335,7 +361,7 @@ fn place(
     partial_tick: f32,
 ) -> Option<ActorRigPresentation> {
     let alpha = partial_tick.clamp(0.0, 1.0);
-    let (world_from_actor, yaw) = sampled_rig_placement(
+    let placement = sampled_rig_placement(
         rig,
         actor,
         alpha,
@@ -355,22 +381,27 @@ fn place(
     if !identity.is_exact() {
         return None;
     }
-    submission.world_from_actor = world_from_actor;
+    submission.world_from_actor = placement.world_from_model;
+    submission.culling_bounds = placement.frame.culling_bounds(submission.culling_bounds);
     submission.overlay_rgba8 =
         crate::presentation::combat::overlay(actor, render_api::DEFAULT_COMBAT_VISUALS);
-    presentation.world_yaw_degrees = yaw;
-    presentation.head_over_body =
-        wrap_degrees(lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw);
+    present_thrown_trident(submission, actor);
+    presentation.model_frame = placement.frame;
+    presentation.world_yaw_degrees = placement.yaw;
+    presentation.head_over_body = wrap_degrees(
+        lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - placement.yaw,
+    );
     Some(presentation)
 }
 
-/// Places authored frame scales with the actor's metadata scale, feet, facing and tilts.
+/// Places authored frame scales with the actor's metadata scale, feet, facing and tilts in
+/// the actor class's model frame.
 pub(crate) fn sampled_rig_placement(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     alpha: f32,
     authored: [f32; 4],
-) -> Option<([[f32; 4]; 3], f32)> {
+) -> Option<RigPlacement> {
     let alpha = alpha.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
     let yaw = if rig.placement_frame.placement() == Some(assets::placement::ActorYawFrame::Absolute)
@@ -390,17 +421,27 @@ pub(crate) fn sampled_rig_placement(
     {
         return None;
     }
-    let rows = glide_tilted(
+    let frame = ModelFrame::of(actor);
+    let world_from_model = glide_tilted(
         death_tilted(
             scaled_axes(
-                boat_hurt_tilted(rig_world_from_actor(position, yaw, scale), actor, alpha),
+                boat_hurt_tilted(
+                    frame.world_from_model(actor, alpha, position, yaw, scale, authored[2]),
+                    actor,
+                    alpha,
+                ),
                 [authored[1], authored[2], authored[3]],
             ),
             actor.death_rotation_progress(alpha),
         ),
         spin_rotation(actor, alpha).or_else(|| glide_rotation(actor, alpha)),
     );
-    Some((rows, yaw))
+    Some(RigPlacement {
+        world_from_model,
+        position,
+        yaw,
+        frame,
+    })
 }
 
 pub fn local_diagnostic_presentation(
@@ -472,6 +513,7 @@ pub fn local_diagnostic_presentation(
         authored_scale: 1.0,
         world_yaw_degrees: yaw_degrees,
         head_over_body: 0.0,
+        model_frame: ModelFrame::Upright,
     })
 }
 
@@ -641,7 +683,11 @@ pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline:
             .actor(submission.input.identity.runtime_id)
             .map_or_else(
                 || stream.solved_light_at(feet),
-                |actor| stream.actor_light_at(actor, feet),
+                |actor| {
+                    let position =
+                        ModelFrame::of(actor).actor_position(&submission.world_from_actor);
+                    stream.actor_light_at(actor, position)
+                },
             );
         if let Some((block, sky)) = light {
             submission.light = render_model::pack_actor_light(block, sky);
@@ -834,71 +880,7 @@ mod selection_tests;
 mod sampled_scale_tests;
 
 #[cfg(test)]
-mod death_tests {
-    use super::*;
-
-    const IDENTITY: [[f32; 4]; 3] = [
-        [1.0, 0.0, 0.0, 5.0],
-        [0.0, 1.0, 0.0, 6.0],
-        [0.0, 0.0, 1.0, 7.0],
-    ];
-
-    #[test]
-    fn alive_is_untouched_and_finished_death_lies_on_its_side() {
-        assert_eq!(death_tilted(IDENTITY, None), IDENTITY);
-        let lying = death_tilted(IDENTITY, Some(1.0));
-        // The local up axis now points along world +/-X while the feet pivot stays fixed.
-        assert!(lying[0][1].abs() > 0.999 && lying[1][1].abs() < 1e-6);
-        assert_eq!([lying[0][3], lying[1][3], lying[2][3]], [5.0, 6.0, 7.0]);
-    }
-    #[test]
-    fn review_render_local_placement_keeps_axis_scaling_and_death_tilt() {
-        let old_feet = [1.0, 2.0, 3.0];
-        let new_feet = [4.0, 64.0, 2.0];
-        let axes = [2.0, 3.0, 4.0];
-        let mut canonical = local_diagnostic_presentation(
-            7,
-            0,
-            7,
-            render_api::PoseGeneration::new(5),
-            old_feet,
-            30.0,
-            0.0,
-        )
-        .unwrap();
-        canonical.head_over_body = 10.0;
-        canonical.submission.world_from_actor = death_tilted(
-            scaled_axes(canonical.submission.world_from_actor, axes),
-            Some(0.4),
-        );
-        let diagnostic = local_diagnostic_presentation(
-            7,
-            0,
-            7,
-            render_api::PoseGeneration::new(5),
-            new_feet,
-            90.0,
-            0.0,
-        )
-        .unwrap();
-        let local =
-            local_actor_presentation_for_visibility(7, 7, Some(canonical), Some(diagnostic), 90.0)
-                .unwrap();
-        let expected = death_tilted(
-            scaled_axes(rig_world_from_actor(new_feet, 80.0, 1.0), axes),
-            Some(0.4),
-        );
-        for (actual, expected) in local
-            .submission
-            .world_from_actor
-            .into_iter()
-            .flatten()
-            .zip(expected.into_iter().flatten())
-        {
-            assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
-        }
-    }
-}
+mod death_tests;
 
 #[cfg(test)]
 mod skin_dedupe_tests {

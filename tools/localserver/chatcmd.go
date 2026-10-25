@@ -33,6 +33,7 @@ func registerChatCommands() {
 	cmd.Register(cmd.New("fixture_items", "Fills both hands and the hotbar from a filtered item registry", nil, itemFixture{}))
 	cmd.Register(cmd.New("fixture_totem", "Applies server damage while holding a protective totem", nil, totemFixture{}))
 	cmd.Register(cmd.New("fixture_dummy", "Spawns a player to attack two blocks ahead", nil, targetDummy{}))
+	cmd.Register(cmd.New("fixture_effect", "Gives you a lasting effect by ID: seconds (0 is infinite) and amplifier", nil, effectFixture{}))
 	cmd.Register(cmd.New("weather", "Sets the weather: clear, rain or thunder", nil, weatherSet{}))
 }
 

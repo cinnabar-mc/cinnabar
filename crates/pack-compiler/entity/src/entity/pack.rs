@@ -363,7 +363,22 @@ fn compile_selected(
         budget.count.saturating_sub(sources.len()),
         remaining_budget.1.saturating_sub(painting),
     );
-    if let Err(error) = super::native_boat::complete_bindings(
+    let boat = match super::native_boat::complete_bindings(
+        Path::new(""),
+        &mut sources,
+        &mut payloads,
+        &mut symbols,
+        &mut geometries,
+        Some(remaining_budget),
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => return Some(Err(error)),
+    };
+    let remaining_budget = (
+        budget.count.saturating_sub(sources.len()),
+        remaining_budget.1.saturating_sub(boat),
+    );
+    if let Err(error) = super::native_thrown_trident::complete_bindings(
         Path::new(""),
         &mut sources,
         &mut payloads,

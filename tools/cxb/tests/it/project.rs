@@ -39,7 +39,7 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
     let server_source = root.join("src/server.rs");
     fs::write(&server_source, fs::read_to_string(&server_source).unwrap().replace("impl Experience for Server {}", r#"impl Experience for Server {
     /// Exercises a server-only asset in a callable server entry point.
-    fn on_interact(_ctx: &experience_sdk::server::Callback, _player: String, _pos: experience_sdk::server::BlockPos, _face: experience_sdk::server::Face) -> Result<(), experience_sdk::server::GuestError> {
+    fn on_interact(_ctx: &experience_sdk::server::Callback, _player: String, _pos: experience_sdk::server::BlockPos, _face: experience_sdk::server::Face, _hit: Option<experience_sdk::server::Pixel>, _target: Option<u8>) -> Result<(), experience_sdk::server::GuestError> {
         experience_sdk::server::log(experience_sdk::server::LogLevel::Info, include_str!("../assets/server/secret.txt"));
         Ok(())
     }

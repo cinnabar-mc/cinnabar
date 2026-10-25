@@ -77,6 +77,7 @@ mod query;
 mod render;
 mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
+mod brandish;
 mod replay;
 mod server_animation;
 mod shulker;

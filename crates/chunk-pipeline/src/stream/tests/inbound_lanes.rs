@@ -409,9 +409,17 @@ fn deferred_barrier_behind_full_terrain_drains_after_light_admission_fills() {
     assert_eq!(stream.committed_sequence(), last);
 }
 
-/// Any admissible interleaving drains completely once workers finish.
+/// Any admissible interleaving drains completely once workers finish, however much of
+/// the commit budget the host's speed leaves for each frame.
 #[test]
 fn randomized_ingress_always_drains() {
+    for budget in [Duration::ZERO, Duration::from_secs(3_600)] {
+        randomized_ingress_drains_with_commit_budget(budget);
+    }
+}
+
+/// Submits a seeded interleaving whenever the stream reports headroom, with a fixed commit budget.
+fn randomized_ingress_drains_with_commit_budget(budget: Duration) {
     let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
     let mut next = move |bound: u64| {
         seed ^= seed << 13;
@@ -421,6 +429,7 @@ fn randomized_ingress_always_drains() {
     };
     for _ in 0..40 {
         let mut stream = block_entity_visual_stream();
+        stream.poll_budget = budget;
         let total = 160 + next(320);
         let mut sequence = 0;
         let mut stalled = 0;

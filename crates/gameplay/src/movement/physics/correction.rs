@@ -266,6 +266,8 @@ impl LocalPhysicsController {
             || anchor_controller.input.riptide.is_some();
         // Each replayed tick's action baseline: the pose and spin it starts with.
         let mut baselines = Vec::new();
+        // The item-use bit the last replayed word carries.
+        let mut replayed_using: Option<bool> = None;
         let boosts = self.boosts.clone();
         let pending_climber = self.pending_climber.clone();
         let mut effective_climber = anchor_controller.climber;
@@ -320,14 +322,19 @@ impl LocalPhysicsController {
                         .sync_server
                         .iter()
                         .any(|write| matches!(write, posture::ServerWrite::Replacement(..)));
+                    let restore = frame.tick == tick + 1 || replacement;
+                    if !restore && let Some(using) = replayed_using {
+                        frame.flags.pose_entry = frame.flags.pose_entry.with_using_item(using);
+                    }
                     frame.flags.replay(
                         &mut modes,
                         state,
-                        frame.tick == tick + 1 || replacement,
+                        restore,
                         spun,
                         pending_climber.for_replay(next_tick),
                         &mut effective_climber,
                     );
+                    replayed_using = Some(frame.flags.pose_word().using_item());
                     // Accepted pose changes resize before local producers can end them.
                     // Replay them with dimensions in their original arrival order.
                     sync_state.replay_server(&frame.sync_server);
@@ -507,11 +514,11 @@ impl LocalPhysicsController {
             }
         }
         // Vanilla copies every client-owned flag of the replayed word back to
-        // the live actor, so the replayed pose and spin stand. The spin and
-        // glide counters and the swim blend live in their own components,
-        // which copy-back leaves live; a spin the live state lacked counts
-        // from zero, and one copy-back clears keeps its counter until a tick
-        // processes the clear.
+        // the live actor, so the replayed pose, spin and item use stand. The
+        // spin and glide counters and the swim blend live in their own
+        // components, which copy-back leaves live; a spin the live state
+        // lacked counts from zero, and one copy-back clears keeps its counter
+        // until a tick processes the clear.
         if let Some(state) = self.state.as_mut() {
             if state.spin_attack_ticks.is_none()
                 && let Some(ticks) = live_spin
@@ -528,6 +535,9 @@ impl LocalPhysicsController {
             posture::replay_actor_modes(&self.sync_pending, &mut modes);
         }
         self.modes = modes;
+        if !keep_live_flags && let Some(using) = replayed_using {
+            self.adopt_replayed_using_item(using);
+        }
         // Vanilla's replay ticks the eye offset only on its temporary replay
         // entity and copy-back leaves the live one, so the live eye blend
         // stands; retained frames keep their replayed eye.

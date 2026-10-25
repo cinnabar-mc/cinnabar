@@ -28,3 +28,4 @@ include!("mesh/core.rs");
 include!("mesh/variations.rs");
 include!("mesh/cube_layout.rs");
 include!("mesh/mesh_inputs.rs");
+include!("mesh/overlays.rs");

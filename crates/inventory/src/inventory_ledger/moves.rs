@@ -27,11 +27,35 @@ impl PlayerInventoryLedger {
         &mut self,
         requested: Option<u8>,
     ) -> Result<i32, InventoryGestureError> {
-        let personal_generation = self.gesture_preflight(true)?;
-        self.check_surfaces([Cell::Cursor])?;
-        let held = self
-            .named(self.view().get(Cell::Cursor).cloned())?
-            .ok_or(InventoryGestureError::EmptyGesture)?;
+        self.destroy_from(DropSource::Cursor, requested)
+    }
+
+    /// Deletes the whole stack in `target`, as a creative hotbar slot does on an
+    /// auto-place press.
+    pub fn begin_destroy_target(
+        &mut self,
+        target: InventoryTarget,
+    ) -> Result<i32, InventoryGestureError> {
+        self.destroy_from(DropSource::Target(target), None)
+    }
+
+    /// Builds one Destroy action for `requested` items of `source`, or its whole stack.
+    fn destroy_from(
+        &mut self,
+        source: DropSource,
+        requested: Option<u8>,
+    ) -> Result<i32, InventoryGestureError> {
+        let cell = match source {
+            DropSource::Target(target) => target.cell(),
+            DropSource::Cursor => Cell::Cursor,
+        };
+        let personal_generation = self.gesture_preflight(!matches!(cell, Cell::Storage(_)))?;
+        self.check_surfaces([cell])?;
+        let held = match cell {
+            Cell::Cursor => self.named(self.view().get(Cell::Cursor).cloned())?,
+            cell => self.movable(cell)?,
+        }
+        .ok_or(InventoryGestureError::EmptyGesture)?;
         let amount = u8::try_from(held.stack.count)
             .ok()
             .filter(|amount| *amount != 0)
@@ -44,10 +68,10 @@ impl PlayerInventoryLedger {
         let built = Built {
             action: StackRequestAction::Destroy {
                 amount,
-                source: request_slot(Cell::Cursor, id, None)?,
+                source: request_slot(cell, id, self.window_address())?,
             },
             group: DeltaGroup::Shrink {
-                source: Cell::Cursor,
+                source: cell,
                 amount: u16::from(amount),
                 source_id: id,
             },

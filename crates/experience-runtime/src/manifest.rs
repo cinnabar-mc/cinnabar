@@ -1,6 +1,7 @@
-//! `experience.toml`: an artifact's identity and the index that every other file must match.
+//! `experience.toml`, an artifact's identity, and `files.toml`, the generated index that every
+//! other file must match.
 //!
-//! The same file declares the Experience's client part in its `[client]` table, which the
+//! The manifest also declares the Experience's client part in its `[client]` table, which the
 //! runtime ignores whatever it holds: `cinnabar-cxb build --experience` checks it with the
 //! client's own verifier and signs it into the `.cxb`, and the server half of client parts routes
 //! by that signed manifest, never by this file. Every other key is the manifest's.
@@ -16,16 +17,18 @@ use sha2::{Digest, Sha256};
 
 use crate::hex;
 use crate::host::Api;
-use crate::limits::{MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
+use crate::limits::{MAX_ARTIFACT_ENTRIES, MAX_INDEX_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 
-use experience_sdk::artifact::{DATA_SCHEMA, MANIFEST_FILE};
+use experience_sdk::artifact::{DATA_SCHEMA, INDEX_FILE, MANIFEST_FILE};
 
 /// The table that declares the client part, which the runtime ignores.
 pub const CLIENT_TABLE: &str = "client";
+/// The manifest's table that held the index before it moved to [`INDEX_FILE`].
+const INLINE_INDEX: &str = "files";
 const MAX_ID_BYTES: usize = 32;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+/// An artifact's identity, from its manifest, and its index.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     /// Matches `^[a-z][a-z0-9_]{0,31}$` and owns the block namespace `<id>:`.
     pub id: String,
@@ -33,75 +36,106 @@ pub struct Manifest {
     /// The server WIT's `major.minor`, one of those the runtime implements.
     pub api: String,
     pub data_schema: u32,
-    /// `/`-separated relative path → lowercase hex SHA-256.
+    /// `/`-separated relative path → lowercase hex SHA-256, as [`INDEX_FILE`] lists them.
     pub files: BTreeMap<String, String>,
 }
 
-/// Reads and verifies `dir/experience.toml`: its size, the id, version, api and data schema, then
-/// the index. Every file except the manifest must be indexed under a relative `/`-separated path
-/// with its hash, and the artifact may hold nothing but regular files and directories.
+/// The manifest's keys outside `[client]`.
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+struct Identity {
+    id: String,
+    version: String,
+    api: String,
+    data_schema: u32,
+}
+
+/// Reads and verifies the artifact in `dir`: `experience.toml`'s size, the id, version, api and
+/// data schema, then `files.toml`, the index. Every file except those two must be indexed under a
+/// relative `/`-separated path with its hash, and the artifact may hold nothing but regular files
+/// and directories, at most [`MAX_ARTIFACT_ENTRIES`] of them.
 pub fn read_manifest(dir: &Path) -> Result<Manifest> {
     let found = artifact_files(dir)?;
-    let mut bytes = Vec::new();
-    File::open(dir.join(MANIFEST_FILE))
-        .and_then(|file| {
-            file.take(MAX_MANIFEST_BYTES as u64 + 1)
-                .read_to_end(&mut bytes)
-        })
-        .with_context(|| format!("reading {MANIFEST_FILE}"))?;
-    ensure!(
-        bytes.len() <= MAX_MANIFEST_BYTES,
-        "{MANIFEST_FILE} exceeds {MAX_MANIFEST_BYTES} bytes"
-    );
-    let text = String::from_utf8(bytes).with_context(|| format!("{MANIFEST_FILE} is not UTF-8"))?;
+    let text = read_text(dir, MANIFEST_FILE, MAX_MANIFEST_BYTES)?;
     let parsing = || format!("parsing {MANIFEST_FILE}");
     let mut document: toml::Table = toml::from_str(&text).with_context(parsing)?;
     document.remove(CLIENT_TABLE);
-    let manifest = Manifest::deserialize(document).with_context(parsing)?;
     ensure!(
-        is_id(&manifest.id),
-        "invalid id \"{}\": ids match ^[a-z][a-z0-9_]{{0,31}}$",
-        manifest.id
+        !document.contains_key(INLINE_INDEX),
+        "{MANIFEST_FILE} holds [files]: the index is {INDEX_FILE} beside it, which lists the \
+         same \"<path>\" = \"<sha256>\" entries without the table header"
+    );
+    let Identity {
+        id,
+        version,
+        api,
+        data_schema,
+    } = Identity::deserialize(document).with_context(parsing)?;
+    ensure!(
+        is_id(&id),
+        "invalid id \"{id}\": ids match ^[a-z][a-z0-9_]{{0,31}}$"
     );
     ensure!(
-        is_version(&manifest.version),
+        is_version(&version),
         "invalid version: a version has 1 to {MAX_VERSION_BYTES} bytes and no control characters"
     );
-    if Api::of(&manifest.api).is_none() {
+    if Api::of(&api).is_none() {
         let supported: Vec<&str> = Api::ALL.into_iter().map(Api::api).collect();
-        bail!(
-            "unsupported api \"{}\"; this runtime implements {supported:?}",
-            manifest.api
-        );
+        bail!("unsupported api \"{api}\"; this runtime implements {supported:?}");
     }
     ensure!(
-        manifest.data_schema == DATA_SCHEMA,
-        "unsupported data-schema {}; this runtime implements {DATA_SCHEMA}",
-        manifest.data_schema
+        data_schema == DATA_SCHEMA,
+        "unsupported data-schema {data_schema}; this runtime implements {DATA_SCHEMA}"
     );
-    for path in manifest.files.keys() {
+    let files = read_index(dir, &found)?;
+    Ok(Manifest {
+        id,
+        version,
+        api,
+        data_schema,
+        files,
+    })
+}
+
+/// Reads `dir/files.toml` and checks it against `found`, the artifact's files: it names every
+/// file but the manifest and itself, under a path inside the artifact, with that file's hash.
+fn read_index(dir: &Path, found: &BTreeSet<String>) -> Result<BTreeMap<String, String>> {
+    let text = read_text(dir, INDEX_FILE, MAX_INDEX_BYTES)?;
+    let files: BTreeMap<String, String> =
+        toml::from_str(&text).with_context(|| format!("parsing {INDEX_FILE}"))?;
+    for path in files.keys() {
         ensure!(
-            is_index_path(path) && path != MANIFEST_FILE,
-            "invalid path \"{path}\" in [files]: paths are relative, use '/', stay inside the \
-             artifact and exclude {MANIFEST_FILE}"
+            is_index_path(path) && path != MANIFEST_FILE && path != INDEX_FILE,
+            "invalid path \"{path}\" in {INDEX_FILE}: paths are relative, use '/', stay inside \
+             the artifact and exclude {MANIFEST_FILE} and {INDEX_FILE}"
         );
     }
     if let Some(path) = found
         .iter()
-        .find(|path| *path != MANIFEST_FILE && !manifest.files.contains_key(*path))
+        .find(|path| *path != MANIFEST_FILE && *path != INDEX_FILE && !files.contains_key(*path))
     {
         bail!("unindexed file {path}");
     }
-    for (path, hash) in &manifest.files {
+    for (path, hash) in &files {
         ensure!(found.contains(path), "indexed file {path} is missing");
         let actual = sha256(&resolve(dir, path)).with_context(|| format!("hashing {path}"))?;
         let actual = hex::encode(&actual);
         ensure!(
             actual == *hash,
-            "hash mismatch for {path}: [files] has {hash}, the file hashes to {actual}"
+            "hash mismatch for {path}: {INDEX_FILE} has {hash}, the file hashes to {actual}"
         );
     }
-    Ok(manifest)
+    Ok(files)
+}
+
+/// `dir/name` as UTF-8, refusing more than `limit` bytes before reading them.
+fn read_text(dir: &Path, name: &str, limit: usize) -> Result<String> {
+    let mut bytes = Vec::new();
+    File::open(dir.join(name))
+        .and_then(|file| file.take(limit as u64 + 1).read_to_end(&mut bytes))
+        .with_context(|| format!("reading {name}"))?;
+    ensure!(bytes.len() <= limit, "{name} exceeds {limit} bytes");
+    String::from_utf8(bytes).with_context(|| format!("{name} is not UTF-8"))
 }
 
 /// Joins a `/`-separated index path onto `dir` with the platform's separator.
@@ -139,14 +173,21 @@ fn is_index_path(path: &str) -> bool {
         .all(|part| !matches!(part, "" | "." | "..") && !part.contains(['\\', ':']))
 }
 
-/// Every file below `dir` as a `/`-separated relative path. Symlinks, non-UTF-8 names and
-/// anything but regular files and directories are refused.
+/// Every file below `dir` as a `/`-separated relative path. Symlinks, non-UTF-8 names, anything
+/// but regular files and directories, and more than [`MAX_ARTIFACT_ENTRIES`] of those are refused;
+/// the walk stops at the first entry over that bound.
 fn artifact_files(dir: &Path) -> Result<BTreeSet<String>> {
     let mut files = BTreeSet::new();
+    let mut entries = 0;
     let mut pending = vec![(dir.to_owned(), String::new())];
     while let Some((path, prefix)) = pending.pop() {
-        let entries = fs::read_dir(&path).with_context(|| format!("listing {}", path.display()))?;
-        for entry in entries {
+        let listing = fs::read_dir(&path).with_context(|| format!("listing {}", path.display()))?;
+        for entry in listing {
+            entries += 1;
+            ensure!(
+                entries <= MAX_ARTIFACT_ENTRIES,
+                "the artifact holds more than {MAX_ARTIFACT_ENTRIES} files and directories"
+            );
             let entry = entry.with_context(|| format!("listing {}", path.display()))?;
             let name = entry
                 .file_name()

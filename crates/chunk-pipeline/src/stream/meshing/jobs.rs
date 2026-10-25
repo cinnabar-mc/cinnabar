@@ -238,10 +238,12 @@ impl WorldStream {
                 }
                 continue;
             };
+            let overlays = self.overlay_hosts(key);
             let Some(mut output_permit) = self.mesh_memory.try_admit(
                 &center,
                 self.authority.runtime_assets(),
                 self.authority.network_id_mode(),
+                overlays.count(),
             ) else {
                 self.mesh_jobs.retries.block(key, pending.revision);
                 if origin == MeshCandidateOrigin::Queued {
@@ -251,7 +253,7 @@ impl WorldStream {
                 }
                 continue;
             };
-            let snapshot = self.mesh_snapshot(key, center, light_halo);
+            let snapshot = self.mesh_snapshot_with_overlays(key, center, light_halo, overlays);
             self.mesh_jobs.remove_pending(&key);
             self.mesh_jobs.in_flight.insert(key, pending.revision);
             if pending.urgent {
@@ -382,6 +384,16 @@ impl WorldStream {
         center: Arc<SubChunk>,
         light_halo: MeshLightHalo,
     ) -> MeshSnapshot {
+        self.mesh_snapshot_with_overlays(key, center, light_halo, self.overlay_hosts(key))
+    }
+    /// [`Self::mesh_snapshot`] with the sub-chunk's overlay hosts already captured.
+    pub(in crate::stream) fn mesh_snapshot_with_overlays(
+        &self,
+        key: SubChunkKey,
+        center: Arc<SubChunk>,
+        light_halo: MeshLightHalo,
+        overlays: super::overlays::OverlayHosts,
+    ) -> MeshSnapshot {
         let mut adjacent = std::array::from_fn(|_| None);
         for offset @ [dx, dy, dz] in MeshNeighbourhood::adjacent_offsets() {
             let neighbour = key
@@ -409,6 +421,7 @@ impl WorldStream {
             center_y: key.y,
             light_halo,
             java_meshing: self.java_meshing.clone(),
+            overlays,
         }
     }
     pub(in crate::stream) fn biome_neighbourhood(&self, key: SubChunkKey) -> BiomeNeighbourhood {

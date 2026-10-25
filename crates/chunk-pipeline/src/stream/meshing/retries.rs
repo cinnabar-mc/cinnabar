@@ -78,6 +78,7 @@ impl WorldStream {
                                 &source,
                                 self.authority.runtime_assets(),
                                 self.authority.network_id_mode(),
+                                self.overlay_hosts(retry.key).count(),
                             )
                             .is_some()
                     });

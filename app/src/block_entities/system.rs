@@ -25,7 +25,7 @@ use super::{
     books,
     containers::{ContainerKind, ContainerLids, cue_is_open},
     cracks::{CrackLayers, crack_instances, with_second_parts},
-    describe::{HeldItem, Template, describe},
+    describe::{HeldItem, Template, describe, overlay_items},
     sign_text,
     state::BlockState,
 };
@@ -58,7 +58,7 @@ mod culling;
 mod dragon_death;
 mod placement;
 mod portals;
-use placement::held_placement;
+use placement::{held_placement, overlay_item_placements};
 
 #[cfg(test)]
 mod beacon_tint_tests;
@@ -523,6 +523,13 @@ pub(crate) fn update_block_entity_scene(
                         chunk,
                         previous,
                         |id, runtime_id, nbt, position| {
+                            if let Some(overlays) = nbt.cell_overlays() {
+                                return overlay_items(
+                                    overlays,
+                                    &stream.authority().decode_ids(dimension),
+                                    runtime_id,
+                                );
+                            }
                             block_info(runtime, &collisions, mode, runtime_id)
                                 .zip(nbt.parse())
                                 .and_then(|(info, root)| {
@@ -965,6 +972,12 @@ fn resolve(
                     back,
                 },
             ))
+        }
+        Template::OverlayItems(items) => {
+            if !hidden {
+                held.extend(overlay_item_placements(items, position, stream));
+            }
+            None
         }
     }
 }

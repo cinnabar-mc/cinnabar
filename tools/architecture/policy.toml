@@ -128,7 +128,7 @@ test_support_features = ["test-support"]
 name = "world"
 path = "crates/world"
 test_support_features = ["runtime-profile", "benchmark-mimalloc"]
-allowed_dependencies = []
+allowed_dependencies = ["block-transform"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
@@ -155,7 +155,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 name = "meshing"
 path = "crates/meshing"
 test_support_features = ["benchmark-mimalloc"]
-allowed_dependencies = ["assets", "world"]
+allowed_dependencies = ["assets", "block-transform", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -509,7 +509,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "experience-runtime"
 path = "crates/experience-runtime"
-allowed_dependencies = ["experience-sdk", "test-time"]
+allowed_dependencies = ["block-transform", "experience-sdk", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]

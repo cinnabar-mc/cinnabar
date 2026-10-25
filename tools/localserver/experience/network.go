@@ -101,7 +101,11 @@ func appendNetwork(snap *snapshot, members []member, truncated bool) {
 		cell Cell
 		size int
 	}
-	cache := make(map[Block]cachedCell)
+	type look struct {
+		block    Block
+		overlays *overlayList
+	}
+	cache := make(map[look]cachedCell)
 	for _, m := range members {
 		pos := blockPos(m.st.pos)
 		encodedPos, _ := json.Marshal(pos)
@@ -111,16 +115,20 @@ func appendNetwork(snap *snapshot, members []member, truncated bool) {
 		}
 		var cell Cell
 		if !held[m.st.pos] {
-			cached, ok := cache[m.st.block]
+			key := look{m.st.block, m.st.overlays}
+			cached, ok := cache[key]
 			if !ok {
-				cached.cell = Cell{Loaded: true, ID: m.st.id, Owned: true, States: m.st.block.states()}
+				cached.cell = Cell{
+					Loaded: true, ID: m.st.id, Owned: true, States: m.st.block.states(),
+					Overlays: m.st.overlays.list(),
+				}
 				encoded, err := json.Marshal(cached.cell)
 				if err != nil {
 					truncated = true
 					break
 				}
 				cached.size = len(encoded)
-				cache[m.st.block] = cached
+				cache[key] = cached
 			}
 			cell = cached.cell
 			cell.Pos = pos

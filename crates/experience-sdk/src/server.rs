@@ -16,6 +16,11 @@
 //! Server WIT 0.6 adds the server's crafting recipes, [`Callback::crafting_result`], and
 //! scheduled updates: [`Callback::schedule_update`] stages one, and
 //! [`Experience::on_scheduled_update`] runs when it is due.
+//!
+//! Server WIT 0.10 adds cell overlays: [`Experience::overlays`] declares the blocks that carry
+//! them and the overlay types, [`Callback::overlays`] and [`Callback::set_overlays`] read and
+//! stage a cell's, and [`Experience::on_interact`] gets the click position and the overlay it
+//! picks.
 
 /// Bindings generated from `wit/server/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
@@ -35,6 +40,7 @@ pub use bindings::cinnabar::experience_server::{
         BlockChange, BlockDef, BlockPos, BlockState, BlockType, BoneVisibility, CallbackInfo,
         ChangeCause, Condition, Crafted, DimensionType, Face, Flipbook, Generator, GuestError,
         Inventory, ItemDef, ItemKey, ItemStack, LogLevel, Material, Mining, Network, NewStack,
+        Overlay, OverlayItem, OverlayLook, OverlayRegistration, OverlayType, OverlayVisual,
         Permutation, Pixel, PixelBox, PlacementStates, PlayerEvent, PlayerId, PlayerLocation,
         PlayerTransition, Position, QuarterTurns, Registration, RenderMethod, Scalar,
         ScheduleHandle, SimulationStep, StateDef, StateTest, StateValue, StateValues, StoreKey,
@@ -120,6 +126,15 @@ pub trait Experience {
         })
     }
 
+    /// Declares the blocks that may carry overlays and this Experience's overlay types. It runs
+    /// once, at startup, after [`Experience::registration`]; by default it declares none.
+    fn overlays() -> Result<OverlayRegistration, GuestError> {
+        Ok(OverlayRegistration {
+            hosts: Vec::new(),
+            types: Vec::new(),
+        })
+    }
+
     /// Handles `on-place` for one of this Experience's blocks.
     fn on_place(_ctx: &Callback, _change: BlockChange) -> Result<(), GuestError> {
         Ok(())
@@ -130,12 +145,16 @@ pub trait Experience {
         Ok(())
     }
 
-    /// Handles `on-interact`: `player` used the block at `pos`.
+    /// Handles `on-interact`: `player` used the block at `pos`, clicking `clicked_face`. `hit`
+    /// is where the click met the block, in pixels, when the client sent one within the cell,
+    /// and `target` the slot of the block's overlay that `hit` picks.
     fn on_interact(
         _ctx: &Callback,
         _player: PlayerId,
         _pos: BlockPos,
         _clicked_face: Face,
+        _hit: Option<Pixel>,
+        _target: Option<u8>,
     ) -> Result<(), GuestError> {
         Ok(())
     }
@@ -180,6 +199,9 @@ macro_rules! export_experience {
             fn world_definitions() -> ::core::result::Result<$crate::server::WorldRegistration, $crate::server::GuestError> {
                 <$ty as $crate::server::Experience>::world_definitions()
             }
+            fn overlays() -> ::core::result::Result<$crate::server::OverlayRegistration, $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::overlays()
+            }
             fn on_player(ctx: &$crate::server::__private::RawCallback, player: $crate::server::PlayerId, event: $crate::server::PlayerEvent) -> ::core::result::Result<(), $crate::server::GuestError> {
                 <$ty as $crate::server::Experience>::on_player(&$crate::server::Callback::from_raw(ctx), player, event)
             }
@@ -210,8 +232,10 @@ macro_rules! export_experience {
                 player: $crate::server::PlayerId,
                 pos: $crate::server::BlockPos,
                 clicked_face: $crate::server::Face,
+                hit: ::core::option::Option<$crate::server::Pixel>,
+                target: ::core::option::Option<u8>,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_interact(&$crate::server::Callback::from_raw(ctx), player, pos, clicked_face)
+                <$ty as $crate::server::Experience>::on_interact(&$crate::server::Callback::from_raw(ctx), player, pos, clicked_face, hit, target)
             }
 
             fn on_neighbor_changed(
