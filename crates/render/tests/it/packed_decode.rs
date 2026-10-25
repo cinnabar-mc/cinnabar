@@ -535,7 +535,11 @@ const MODEL_WITNESS: &str = r#"
     }
     for (var corner = 0u; corner < 4u; corner++) {
         let vertex = model_vertex(corner, query.x);
-        if (quad.valid) { results[3u + corner] = vec4(vertex.visibility.xy, vertex.biome_record, 0u); }
+        if (quad.valid) {
+            let flags = vertex.visibility.x;
+            let two_sided = select(0u, 1u, (flags & MODEL_TWO_SIDED) != 0u);
+            results[3u + corner] = vec4(flags & ~MODEL_TWO_SIDED, two_sided, vertex.biome_record, 0u);
+        }
         else { results[3u + corner] = bitcast<vec4<u32>>(vertex.clip_position); }
     }
 }
