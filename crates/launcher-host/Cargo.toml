@@ -43,6 +43,7 @@ tokio.workspace = true
 tracing.workspace = true
 update-installer = { path = "../update-installer" }
 update-manifest = { path = "../update-manifest" }
+ui = { path = "../ui" }
 url = "2"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

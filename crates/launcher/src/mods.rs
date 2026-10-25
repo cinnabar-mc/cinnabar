@@ -140,7 +140,7 @@ pub struct AvailableUpdate {
     pub release_url: String,
 }
 
-/// Directory contents and the ordered Active list, published off-frame by the app.
+/// Directory contents and the ordered Active list, published by the library service.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Library {
     /// Live update operations, retained through the runtime reload acknowledgement.
