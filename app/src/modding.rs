@@ -190,8 +190,8 @@ pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
                 "movement_granted": host.grants().movement,
                 "refused_outputs": host.refused_outputs(),
                 "last_fuel_used": host.last_fuel_used(),
-                "hud_cards": host.hud().map_or(0, |hud| hud.cards.len()),
-                "hud": host.hud(),
+                "hud_surface_revision": host.hud_surface().map(|(_, revision)| revision),
+                "hud_surface": host.hud_surface().map(|(surface, _)| surface.as_ref()),
                 "panel": host.panel(),
             })
         })
