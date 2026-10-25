@@ -103,32 +103,37 @@ fn cloned_ui_preserves_evidence_fifo_deduplication_and_full_quota() {
     push(&mut player_runtime, &mut original, 2, slot(37));
     let mut snapshot_player = player_runtime.clone();
     let mut snapshot = original.clone();
-    let evidence = &snapshot.use_on_identity_evidence;
+    let evidence = &snapshot.session.use_on_identity_evidence;
     assert!(evidence.enabled);
     assert_eq!(evidence.session, 7);
     assert_eq!(evidence.last_sequence, Some(2));
     assert_eq!(
         evidence.registry,
-        original.use_on_identity_evidence.registry
+        original.session.use_on_identity_evidence.registry
     );
     assert_eq!(
         evidence.stack_sources,
-        original.use_on_identity_evidence.stack_sources
+        original.session.use_on_identity_evidence.stack_sources
     );
     assert_eq!(
         serde_json::to_value(&evidence.rows).unwrap(),
-        serde_json::to_value(&original.use_on_identity_evidence.rows).unwrap()
+        serde_json::to_value(&original.session.use_on_identity_evidence.rows).unwrap()
     );
-    assert!(!snapshot.use_on_identity_evidence.admit_sequence(7, 2));
+    assert!(
+        !snapshot
+            .session
+            .use_on_identity_evidence
+            .admit_sequence(7, 2)
+    );
     push(&mut snapshot_player, &mut snapshot, 3, slot(37));
     assert_eq!(
-        snapshot.use_on_identity_evidence.rows.len(),
+        snapshot.session.use_on_identity_evidence.rows.len(),
         1,
         "clone must not log an already observed identity again"
     );
     push(&mut snapshot_player, &mut snapshot, 4, slot(36));
-    assert_eq!(snapshot.use_on_identity_evidence.rows.len(), 2);
-    assert_eq!(original.use_on_identity_evidence.rows.len(), 1);
+    assert_eq!(snapshot.session.use_on_identity_evidence.rows.len(), 2);
+    assert_eq!(original.session.use_on_identity_evidence.rows.len(), 1);
     for count in 1..=12 {
         push(
             &mut player_runtime,
@@ -138,16 +143,19 @@ fn cloned_ui_preserves_evidence_fifo_deduplication_and_full_quota() {
         );
     }
     let mut full = original.clone();
-    assert_eq!(full.use_on_identity_evidence.rows.len(), MAX_ROWS);
+    assert_eq!(full.session.use_on_identity_evidence.rows.len(), MAX_ROWS);
     assert_eq!(
-        full.use_on_identity_evidence.last_sequence,
-        original.use_on_identity_evidence.last_sequence
+        full.session.use_on_identity_evidence.last_sequence,
+        original.session.use_on_identity_evidence.last_sequence
     );
-    assert!(!full.use_on_identity_evidence.admit_sequence(7, 100));
+    assert!(!full.session.use_on_identity_evidence.admit_sequence(7, 100));
     player_runtime.begin_session(8);
     full.begin_session(8);
-    assert!(full.use_on_identity_evidence.rows.is_empty());
-    assert_eq!(original.use_on_identity_evidence.rows.len(), MAX_ROWS);
+    assert!(full.session.use_on_identity_evidence.rows.is_empty());
+    assert_eq!(
+        original.session.use_on_identity_evidence.rows.len(),
+        MAX_ROWS
+    );
 }
 
 #[test]
