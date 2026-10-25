@@ -41,7 +41,7 @@ fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     let font = fixture_font();
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);

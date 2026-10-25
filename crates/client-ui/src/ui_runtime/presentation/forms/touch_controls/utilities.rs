@@ -96,13 +96,16 @@ pub(super) fn place_controls(
                 .unwrap()
                 .strip_prefix("cinnabar.touch.")
                 .unwrap();
+            let Some(name) = mod_buttons::placement_name(&state.mod_buttons, name) else {
+                continue;
+            };
             let desired = if let Some(editor) = &state.editor {
                 editor
                     .rectangles()
                     .find(|(id, _)| *id == name)
                     .map(|(_, r)| [r[0], r[1]])
             } else {
-                saved.position(name).map(|position| {
+                saved.position(&name).map(|position| {
                     [
                         f64::from(position[0]) * (f64::from(content[0] / px) - hit.rect.w).max(0.),
                         f64::from(position[1]) * (f64::from(content[1] / px) - hit.rect.h).max(0.),

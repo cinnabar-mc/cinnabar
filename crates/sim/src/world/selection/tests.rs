@@ -9,6 +9,7 @@ use world::{
 };
 
 mod contextual;
+mod overlays;
 mod rays;
 mod seams;
 

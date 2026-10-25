@@ -24,6 +24,8 @@ fn network_config_call_sites_share_the_process_blob_cache() {
     };
     let hash = first
         .client_blob_cache
+        .as_ref()
+        .unwrap()
         .insert(b"verified-across-session")
         .expect("seed verified blob before replacement");
     let replacement = NetworkConfig {
@@ -41,7 +43,7 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         record_session: false,
     };
 
-    assert!(replacement.client_blob_cache.contains(hash));
+    assert!(replacement.client_blob_cache.unwrap().contains(hash));
 }
 
 #[test]
@@ -67,5 +69,16 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
         result.is_ok(),
         "production Update schedule: {:?}",
         result.err()
+    );
+}
+
+/// Every host shares the world wiring, so each one follows the vehicle with the rider's view.
+#[test]
+fn shared_world_wiring_installs_vehicle_look_following() {
+    let mut app = App::new();
+    crate::game_frame::configure_world(&mut app);
+    assert!(
+        app.world()
+            .contains_resource::<client_presentation::camera::VehicleLookFollow>()
     );
 }

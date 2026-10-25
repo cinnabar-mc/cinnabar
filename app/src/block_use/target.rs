@@ -170,6 +170,9 @@ pub(super) fn observe_use_target(
                     |actor| actor.distance,
                 ),
                 identity: primary.identity,
+                overlay: block
+                    .filter(|hit| hit.block_pos == target.position)
+                    .and_then(|hit| hit.overlay),
             }))
         },
     )

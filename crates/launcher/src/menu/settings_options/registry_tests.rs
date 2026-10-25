@@ -450,6 +450,23 @@ fn retired_chat_typeface_is_ignored_without_losing_font_size() {
     }
 }
 
+/// Vanilla lists Mob Effects in keyboard Controls under its own language key, defaulting to Z.
+#[test]
+fn mob_effects_defaults_to_z_under_its_vanilla_name() {
+    let z = semantic_input::PhysicalControl::KeyboardUsage(0x1d);
+    let mut options = SettingsOptions::default();
+    assert_eq!(BindingId::MobEffects.name(), "key.mobEffects");
+    assert_eq!(super::custom_key_label(BindingId::MobEffects.name()), None);
+    assert_eq!(options.named_key_control(BindingId::MobEffects), Some(z));
+    let row = BindingId::MobEffects
+        .row(false)
+        .expect("keyboard Controls row");
+    let tab = semantic_input::PhysicalControl::KeyboardUsage(0x2b);
+    assert!(options.remap(row, tab));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(reloaded.named_key_control(BindingId::MobEffects), Some(tab));
+}
+
 /// Iris's reload key defaults to R and remaps like other client controls, in builds that
 /// compile shader packs; other builds offer no row for it.
 #[test]

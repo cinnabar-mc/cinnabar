@@ -81,6 +81,7 @@ pub(super) fn finish_tick(
     result.environment.climber_unsampled = true;
     if input.spectator {
         state.climber = None;
+        state.on_climbable = false;
         return Ok(());
     }
     // The climber reads the resolved collision faces, not a box rebuilt
@@ -94,11 +95,12 @@ pub(super) fn finish_tick(
     )?;
     if input.immobile {
         result.environment.descending_through_block = start
-            .or(measured)
+            .or(measured.map(|(contact, _)| contact))
             .is_some_and(|contact| contact.descends(input));
     }
-    if let Some(contact) = measured {
+    if let Some((contact, feet_climbable)) = measured {
         state.climber = Some(contact);
+        state.on_climbable = feet_climbable;
     }
     if let Some(contact) = state.climber {
         contact.publish(&mut result.environment);
@@ -110,27 +112,34 @@ pub(super) fn finish_tick(
     Ok(())
 }
 
-/// Measures climber contact at `feet`, merging the reads into `identity`.
-/// Unreadable terrain leaves contact unmeasured; identity conflicts propagate.
+/// Measures climber contact and feet-cell climbability at `feet`, merging the
+/// reads into `identity`. Unreadable terrain leaves both unmeasured; identity
+/// conflicts propagate.
 fn measure(
     world: &(impl CollisionWorld + ?Sized),
     feet: crate::Vec3,
     player: Aabb,
     input: &MovementInput,
     identity: &mut crate::WorldCollisionIdentity,
-) -> Result<Option<ClimberContact>, WorldQueryError> {
+) -> Result<Option<(ClimberContact, bool)>, WorldQueryError> {
     let mut sampled = SampledEnvironment::unsampled(identity.clone());
     let measured = match world.ensure_movement_origin(feet) {
         Ok(())
         | Err(WorldQueryError::UnloadedChunk(_) | WorldQueryError::UnknownRuntimeId { .. }) => {
-            sample_climber(world, player, input.can_stand_on_snow, &mut sampled)
+            sample_climber(world, player, input.can_stand_on_snow, &mut sampled).and_then(
+                |contact| {
+                    let feet_climbable =
+                        feet_climbable(world, feet, player, input.can_stand_on_snow, &mut sampled)?;
+                    Ok((contact, feet_climbable))
+                },
+            )
         }
         Err(error) => Err(error),
     };
     match measured {
-        Ok(contact) => {
+        Ok(measured) => {
             *identity = sampled.identity;
-            Ok(Some(contact))
+            Ok(Some(measured))
         }
         Err(
             error @ (WorldQueryError::RegistryIdentityMismatch
@@ -138,6 +147,22 @@ fn measure(
         ) => Err(error),
         Err(_) => Ok(None),
     }
+}
+
+/// Whether the single cell at the feet is climbable, as vanilla's
+/// `Actor::onClimbableBlock` reads it: the column under the actor's position
+/// at the box's feet height. A cell without usable facts is not climbable.
+fn feet_climbable(
+    world: &(impl CollisionWorld + ?Sized),
+    feet: crate::Vec3,
+    player: Aabb,
+    can_stand_on_snow: bool,
+    sampled: &mut SampledEnvironment,
+) -> Result<bool, WorldQueryError> {
+    let floor = |value: f64| (value as f32).floor() as i32;
+    let cell = [floor(feet.x), layers(player).0, floor(feet.z)];
+    Ok(readable(primary(world, sampled, cell))?
+        .is_some_and(|facts| facts.flags.climbable_for(can_stand_on_snow)))
 }
 
 /// Scaffolding and climbable-block facts of one footprint layer.
@@ -274,17 +299,50 @@ fn rests_on_support(
     Ok(!air && !water)
 }
 
+/// The contextual collision a player's next move resolves against when its
+/// `player` box starts where it is now: the same scaffolding and powder-snow
+/// rules as the tick's own move. The descent action reads the retained climber
+/// contact, or a fresh measurement of `player` when none is retained, and
+/// powder snow reads the retained fall distance, which a descent clears.
+/// Vanilla's closest-space push reads the mover's contextual shapes the same
+/// way, so a body inside scaffolding or sinking powder snow overlaps nothing.
+pub fn mover_collision_boxes_with_provenance(
+    world: &(impl CollisionWorld + ?Sized),
+    state: &PlayerState,
+    input: &MovementInput,
+    player: Aabb,
+    query: Aabb,
+) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+    let mut identity = crate::WorldCollisionIdentity::new(world.registry_identity(), [])?;
+    let contact = match state.climber {
+        Some(contact) => contact,
+        None => {
+            let mut sampled = SampledEnvironment::unsampled(identity);
+            let contact = sample_climber(world, player, input.can_stand_on_snow, &mut sampled)?;
+            identity = sampled.identity;
+            contact
+        }
+    };
+    let descending = contact.descends(input);
+    let fall_distance = if descending { 0.0 } else { state.fall_distance };
+    let mut colliders = ScaffoldingView::new(world, player, descending)
+        .with_powder_snow(fall_distance, input.can_stand_on_snow)
+        .collision_boxes_with_provenance(query)?;
+    colliders.identity = identity.merge(&colliders.identity)?;
+    Ok(colliders)
+}
+
 /// A mover's contextual collision: scaffolding is solid only under the feet
 /// of a player not descending through it, and powder snow collides as
 /// [`super::powder_snow::collision_shape`] decides.
-pub(super) struct ScaffoldingView<'a, W> {
+pub(super) struct ScaffoldingView<'a, W: ?Sized> {
     inner: &'a W,
     player: Aabb,
     descending: bool,
     powder_snow: super::powder_snow::PowderSnowStance,
 }
 
-impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
+impl<'a, W: CollisionWorld + ?Sized> ScaffoldingView<'a, W> {
     /// Retains the pre-move box used by the native contextual collision query.
     /// Powder snow stays passable until [`Self::with_powder_snow`] supplies
     /// the mover's fall distance and snow-standing capability.
@@ -314,7 +372,7 @@ impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
     }
 }
 
-impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
+impl<W: CollisionWorld + ?Sized> CollisionWorld for ScaffoldingView<'_, W> {
     fn registry_identity(&self) -> crate::CollisionRegistryIdentity {
         self.inner.registry_identity()
     }

@@ -13,6 +13,7 @@ reads = [
 ]
 
 [dependencies]
+block-transform = { path = "../block-transform" }
 experience-sdk = { path = "../experience-sdk", default-features = false }
 anyhow.workspace = true
 serde = { version = "1", features = ["derive"] }

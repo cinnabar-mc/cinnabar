@@ -24,11 +24,12 @@ pub mod weather;
 
 pub use biome::{BiomeIds, BiomeStorage, DecodedBiomeColumn, RawBiomeIds};
 pub use block_entity::{
-    BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockEntityNbtError, DecodedBlockEntities,
+    BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockEntityNbtError,
+    CELL_OVERLAYS_BLOCK_ENTITY_ID, CellOverlay, CellOverlays, DecodedBlockEntities,
     DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITIES_PER_SUB_CHUNK,
     MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MAX_BLOCK_ENTITY_NBT_BYTES, MAX_BLOCK_ENTITY_TAIL_BYTES,
-    MAX_NBT_COLLECTION_LENGTH, MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES, MAX_NBT_TAGS,
-    RootByteCandidate, ShapeActor,
+    MAX_NBT_COLLECTION_LENGTH, MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES, MAX_NBT_TAGS, OverlayItem,
+    OverlayLook, ResolvedCellOverlays, RootByteCandidate, ShapeActor,
 };
 pub use block_highlights::BlockHighlightScan;
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};

@@ -24,6 +24,8 @@ static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
 
 mod persistence;
 pub use persistence::{BlobCacheStore, WeakClientBlobCache};
+mod requested_hashes;
+use requested_hashes::RequestedBlobHashes;
 
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
@@ -360,6 +362,13 @@ struct PendingTransaction {
     accounted_bytes: usize,
 }
 
+/// Live dependents of one missing body and whether an earlier status still owns its fetch.
+#[derive(Debug, Default)]
+struct PendingBlob {
+    transactions: HashSet<u64>,
+    status_outstanding: bool,
+}
+
 #[derive(Debug)]
 struct ReadyTransaction {
     value: ResolverReady,
@@ -476,9 +485,12 @@ impl RecoveryReady {
 #[derive(Debug)]
 pub struct BlobCacheResolver {
     cache: ClientBlobCache,
+    requested_hashes: RequestedBlobHashes,
     pending: HashMap<u64, PendingTransaction>,
     pending_order: BTreeSet<u64>,
-    pending_by_hash: HashMap<u64, HashSet<u64>>,
+    /// Only SubChunk replies can be fetched again through exact scheduler recovery.
+    retryable_pending: BTreeSet<u64>,
+    pending_by_hash: HashMap<u64, PendingBlob>,
     resolved_pending: BTreeSet<u64>,
     ready: BTreeMap<u64, ReadyTransaction>,
     immediate_ready: BTreeMap<u64, ImmediateReady>,

@@ -134,8 +134,11 @@ bindings! {
         None, false, None;
     DebugOverlay => "key.debugOverlay", None, Some(DeviceRow::Extra(8, Some(PhysicalControl::KeyboardUsage(0x3c)))), None,
         None, false, Some("Debug Overlay");
+    // Vanilla's keyboard default (`_populateKeyboardDefaults`) puts Mob Effects on Z.
+    MobEffects => "key.mobEffects", None, Some(DeviceRow::Extra(9, Some(PhysicalControl::KeyboardUsage(0x1d)))), None,
+        None, false, None;
     // Iris's "Reload Shaders" on R; only builds that compile shader packs offer the row.
-    ReloadShaders => "key.reloadShaders", None, if SHADER_PACK_BINDINGS { Some(DeviceRow::Extra(9, Some(PhysicalControl::KeyboardUsage(0x15)))) } else { None }, None,
+    ReloadShaders => "key.reloadShaders", None, if SHADER_PACK_BINDINGS { Some(DeviceRow::Extra(10, Some(PhysicalControl::KeyboardUsage(0x15)))) } else { None }, None,
         None, false, Some("Reload Shaders");
     CycleItemLeft => "key.cycleItemLeft", Some(Action::HotbarPrevious), None, Some(DeviceRow::Action(6)),
         None, false, None;

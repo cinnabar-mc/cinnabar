@@ -20,6 +20,7 @@ struct Limits {
     max_client_sends: usize,
     max_client_send_bytes: usize,
     max_value_depth: usize,
+    max_blocks: usize,
     max_name_bytes: usize,
     max_state_values: usize,
     max_state_bits: u32,
@@ -41,6 +42,10 @@ struct Limits {
     max_recipe_input_items: usize,
     max_schedule_ticks: u32,
     max_scheduled_updates: usize,
+    max_overlay_types: usize,
+    max_cell_overlays: usize,
+    max_overlay_item_size: f32,
+    max_overlay_item_offset: f32,
 }
 
 /// A placement trait's state and its values, in the client's order.
@@ -121,6 +126,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     ),
                     state("benergistics:powered", StateValue::Bool(true)),
                 ],
+                overlays: Vec::new(),
             },
             Cell {
                 pos: neighbor,
@@ -129,6 +135,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 owned: false,
                 data: None,
                 states: Vec::new(),
+                overlays: Vec::new(),
             },
             Cell {
                 pos: BlockPos {
@@ -141,6 +148,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 owned: false,
                 data: None,
                 states: Vec::new(),
+                overlays: Vec::new(),
             },
         ],
         network: None,
@@ -174,6 +182,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             player: player.to_owned(),
             pos: controller,
             face: Face::Up,
+            hit: None,
         },
     );
     if let Request::Callback {
@@ -344,6 +353,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     player: player.to_owned(),
                     pos: controller,
                     face: Face::North,
+                    hit: None,
                 },
             )),
         ),
@@ -476,12 +486,13 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 }],
                 focus: true,
                 worlds: None,
+                overlays: None,
             }),
         ),
         (
             "response_load_failed",
             pretty(&Response::LoadFailed {
-                reason: "server.wasm: SHA-256 does not match experience.toml".to_owned(),
+                reason: "server.wasm: SHA-256 does not match files.toml".to_owned(),
             }),
         ),
         (
@@ -583,6 +594,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 max_client_sends: MAX_CLIENT_SENDS,
                 max_client_send_bytes: MAX_CLIENT_SEND_BYTES,
                 max_value_depth: MAX_VALUE_DEPTH,
+                max_blocks: crate::limits::MAX_BLOCKS,
                 max_name_bytes: MAX_NAME_BYTES,
                 max_state_values: MAX_STATE_VALUES,
                 max_state_bits: MAX_STATE_BITS,
@@ -604,6 +616,10 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 max_recipe_input_items: MAX_RECIPE_INPUT_ITEMS,
                 max_schedule_ticks: MAX_SCHEDULE_TICKS,
                 max_scheduled_updates: MAX_SCHEDULED_UPDATES,
+                max_overlay_types: crate::limits::MAX_OVERLAY_TYPES,
+                max_cell_overlays: block_transform::overlay_face::MAX_CELL_OVERLAYS,
+                max_overlay_item_size: block_transform::overlay_face::MAX_OVERLAY_ITEM_SIZE,
+                max_overlay_item_offset: block_transform::overlay_face::MAX_OVERLAY_ITEM_OFFSET,
             }),
         ),
         (
@@ -642,6 +658,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         ),
     ];
     fixtures.extend(super::fixtures_worlds::fixtures());
+    fixtures.extend(super::fixtures_overlays::fixtures());
     fixtures.extend(super::simulation::fixtures());
     fixtures
 }

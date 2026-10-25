@@ -25,6 +25,8 @@ struct TouchFrame {
     lifted: Vec<TouchContact>,
     /// Controls a finger newly captured, even if it lifted again in the same frame.
     pressed: Vec<u16>,
+    /// Mod buttons whose finger lifted inside them, in completion order.
+    mod_taps: Vec<u16>,
 }
 
 /// Dropdown choices retain their contact for pressed feedback until a completed tap.
@@ -33,6 +35,25 @@ fn utility_choice(hit_id: u16) -> bool {
         hit_id,
         touch::EMOTE | touch::DEBUG_OVERLAY | touch::PLAYER_LIST
     )
+}
+
+/// Mod buttons, like dropdown choices, hold their finger for pressed art and complete on release;
+/// they never reach the gameplay router.
+fn completes_on_release(hit_id: u16) -> bool {
+    utility_choice(hit_id) || touch::mod_button_slot(hit_id).is_some()
+}
+
+/// Cancels fingers held on mod buttons, so a lift after the buttons change cannot complete a
+/// tap on a different button.
+fn cancel_mod_button_contacts(state: &mut TouchControlState) {
+    for contact in state.sample() {
+        if contact
+            .hit_id
+            .is_some_and(|id| touch::mod_button_slot(id).is_some())
+        {
+            state.release(contact.contact_id);
+        }
+    }
 }
 
 /// Applies touch events in arrival order, so an id Android reuses after a lift starts a fresh
@@ -61,7 +82,7 @@ fn apply_touch_events(
                 }
                 if state.begin(id, position, 0, region)
                     && let Some(region) = region
-                    && !utility_choice(region.hit_id)
+                    && !completes_on_release(region.hit_id)
                 {
                     frame.pressed.push(region.hit_id);
                 }
@@ -75,6 +96,15 @@ fn apply_touch_events(
                     if let Some(hit_id) = sample.hit_id.filter(|id| utility_choice(*id)) {
                         if region(position).map(|hit| hit.hit_id) == Some(hit_id) {
                             return Err(hit_id);
+                        }
+                        continue;
+                    }
+                    if let Some(hit_id) = sample
+                        .hit_id
+                        .filter(|id| touch::mod_button_slot(*id).is_some())
+                    {
+                        if region(position).map(|hit| hit.hit_id) == Some(hit_id) {
+                            frame.mod_taps.push(hit_id);
                         }
                         continue;
                     }
@@ -106,6 +136,7 @@ pub(crate) fn drive_gameplay_touch_targets(
     presentation: Option<ResMut<UiPresentationResource>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut state: Local<TouchControlState>,
+    mut mod_button_epoch: Local<u64>,
     world: Option<Res<crate::runtime::world::ClientWorld>>,
 ) {
     targets.release_all();
@@ -131,6 +162,17 @@ pub(crate) fn drive_gameplay_touch_targets(
         presentation.close_touch_utilities();
         return;
     };
+    // Panels and modals over the world own touches, so mod buttons beneath them never fire.
+    let mod_buttons_covered = client_shell::screen_policy::absorbs_input(
+        &player,
+        Some(&ui),
+        menu.as_deref(),
+        Some(&presentation),
+    );
+    if *mod_button_epoch != presentation.mod_touch_epoch() {
+        *mod_button_epoch = presentation.mod_touch_epoch();
+        cancel_mod_button_contacts(&mut state);
+    }
     let size = [window.width().max(1.0), window.height().max(1.0)];
     let events = events.iter().map(|event| {
         let position = [
@@ -139,7 +181,11 @@ pub(crate) fn drive_gameplay_touch_targets(
         ];
         (event.id, event.phase, position)
     });
-    let TouchFrame { lifted, pressed } = match apply_touch_events(&mut state, events, |position| {
+    let TouchFrame {
+        lifted,
+        pressed,
+        mod_taps,
+    } = match apply_touch_events(&mut state, events, |position| {
         presentation.gameplay_touch_region(position, size)
     }) {
         Ok(frame) => frame,
@@ -191,6 +237,13 @@ pub(crate) fn drive_gameplay_touch_targets(
     for hit_id in pressed {
         targets.press(hit_id);
     }
+    if mod_buttons_covered {
+        cancel_mod_button_contacts(&mut state);
+    } else {
+        for hit_id in mod_taps {
+            presentation.complete_mod_touch_tap(hit_id);
+        }
+    }
     let held = state.sample();
     presentation.set_touch_contacts(held.clone());
     let look_scaled = |sample: TouchContact| {
@@ -208,7 +261,7 @@ pub(crate) fn drive_gameplay_touch_targets(
     };
     for sample in held
         .iter()
-        .filter(|sample| !sample.hit_id.is_some_and(utility_choice))
+        .filter(|sample| !sample.hit_id.is_some_and(completes_on_release))
         .cloned()
         .map(look_scaled)
     {
@@ -433,5 +486,89 @@ mod tests {
                     .is_empty()
             );
         }
+    }
+
+    /// A mod button completes on release inside it without interrupting other fingers, and
+    /// never becomes a gameplay press.
+    #[test]
+    fn mod_buttons_tap_on_release_inside_and_keep_other_fingers() {
+        let button = touch::mod_button(0).unwrap();
+        let controls = |position: [f32; 2]| {
+            let (hit_id, min, max) = if position[0] < 0.5 {
+                (touch::JOYSTICK, [0.0, 0.0], [0.5, 1.0])
+            } else if position[1] < 0.5 {
+                (button, [0.5, 0.0], [1.0, 0.5])
+            } else {
+                return None;
+            };
+            Some(TouchControlRegion {
+                hit_id,
+                bounds: TouchBounds { min, max },
+            })
+        };
+        let stick = [0.25, 0.5];
+        let inside = [0.75, 0.25];
+        let mut state = TouchControlState::default();
+        let frame = apply_touch_events(
+            &mut state,
+            [
+                (1, TouchPhase::Started, stick),
+                (2, TouchPhase::Started, inside),
+            ],
+            controls,
+        )
+        .unwrap();
+        // The stick is a gameplay press; the mod button is not.
+        assert_eq!(frame.pressed, [touch::JOYSTICK]);
+        assert!(frame.mod_taps.is_empty());
+        assert!(state.sample().iter().any(|c| c.hit_id == Some(button)));
+        let frame =
+            apply_touch_events(&mut state, [(2, TouchPhase::Ended, inside)], controls).unwrap();
+        assert_eq!(frame.mod_taps, [button]);
+        assert!(frame.lifted.is_empty());
+        assert_eq!(state.sample().len(), 1);
+        assert_eq!(state.sample()[0].hit_id, Some(touch::JOYSTICK));
+
+        apply_touch_events(&mut state, [(3, TouchPhase::Started, inside)], controls).unwrap();
+        let outside =
+            apply_touch_events(&mut state, [(3, TouchPhase::Ended, [0.75, 0.75])], controls)
+                .unwrap();
+        assert!(outside.mod_taps.is_empty() && outside.lifted.is_empty());
+    }
+
+    /// A finger held on a mod button is cancelled when the buttons change, while other fingers
+    /// keep their controls.
+    #[test]
+    fn changed_mod_buttons_cancel_their_held_fingers() {
+        let button = touch::mod_button(0).unwrap();
+        let controls = |position: [f32; 2]| {
+            let (hit_id, min, max) = if position[0] < 0.5 {
+                (touch::JOYSTICK, [0.0, 0.0], [0.5, 1.0])
+            } else {
+                (button, [0.5, 0.0], [1.0, 1.0])
+            };
+            Some(TouchControlRegion {
+                hit_id,
+                bounds: TouchBounds { min, max },
+            })
+        };
+        let inside = [0.75, 0.5];
+        let mut state = TouchControlState::default();
+        apply_touch_events(
+            &mut state,
+            [
+                (1, TouchPhase::Started, [0.25, 0.5]),
+                (2, TouchPhase::Started, inside),
+            ],
+            controls,
+        )
+        .unwrap();
+        cancel_mod_button_contacts(&mut state);
+        let held = state.sample();
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].hit_id, Some(touch::JOYSTICK));
+        let lifted =
+            apply_touch_events(&mut state, [(2, TouchPhase::Ended, inside)], controls).unwrap();
+        assert!(lifted.mod_taps.is_empty());
     }
 }

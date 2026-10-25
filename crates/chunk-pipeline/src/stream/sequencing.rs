@@ -274,13 +274,33 @@ impl WorldStream {
                     return;
                 }
                 match decoded {
-                    Ok(nbt) => match self.authority.commit_block_entity_update(key, nbt) {
-                        Ok(true) => self.refresh_block_entity_visual(key),
-                        Ok(false) => {}
-                        Err(_) => {
-                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                    Ok(nbt) => {
+                        // The mesh draws an overlay host's block-state overlays, so a change to
+                        // its block entity, or a host's taking another one, remeshes the cell.
+                        let remesh = nbt.cell_overlays().is_some()
+                            || self
+                                .authority
+                                .terrain()
+                                .block_entity(key)
+                                .is_some_and(|previous| previous.cell_overlays().is_some());
+                        match self.authority.commit_block_entity_update(key, nbt) {
+                            Ok(true) => {
+                                self.refresh_block_entity_visual(key);
+                                if remesh {
+                                    self.mark_dirty_exact_with_priority(
+                                        key.sub_chunk(),
+                                        Instant::now(),
+                                        true,
+                                    );
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(_) => {
+                                self.stats.decode_errors =
+                                    self.stats.decode_errors.saturating_add(1);
+                            }
                         }
-                    },
+                    }
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
                 }
             }
@@ -605,15 +625,18 @@ impl WorldStream {
                     });
             }
             WorldEvent::PlayerMovementCorrection(correction) => {
-                // Vehicle rewind subjects have no local-player consumer yet;
-                // skipping here keeps them out of resolution, retention, and
-                // the correction-tick guard until riding rewind handling
-                // exists. The protocol record itself is retained upstream.
+                let sequence =
+                    sequence.expect("sequenced movement corrections commit through submit");
+                // A vehicle correction names the predicted vehicle's position, so it stays out
+                // of the player's position resolution, retention and correction-tick guard.
+                if correction.subject.is_vehicle() {
+                    self.authority
+                        .commit_vehicle_correction(sequence, correction);
+                    return;
+                }
                 if !correction.subject.is_player() {
                     return;
                 }
-                let sequence =
-                    sequence.expect("sequenced movement corrections commit through submit");
                 if !self
                     .authority
                     .accept_movement_correction_tick(correction.tick)

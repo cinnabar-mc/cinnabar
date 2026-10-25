@@ -199,8 +199,8 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership and deferred-mesh promotion are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
-| Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Full publication qualification is pending. |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership, deferred-mesh promotion and stalled cached-terrain recovery are implemented; broader publication acceptance remains open. See `plan.md`. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Controlled cache deadlines cover idle input, cancellation, full-column payload retention, shared-hash retries, ordering and resets. Full publication qualification is pending. |
 | Review commit | Independent review is pending. |
 | Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
 | Performance/resource witness | Live join, streaming and hardware budgets remain open. |
@@ -702,7 +702,13 @@ group. Extent checks use conservative box and sphere bounds without revisiting v
 Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
 renderer is connected; actor root attachment uses the renderer publication and exact spawn
 references. Bone attachment, native output captures and hardware budgets remain incomplete
-and do not close any completion requirement.
+and do not close any completion requirement. Client parts reuse these imports and their
+host, with signed asset access, optional frames and session-scoped resource ownership.
+Epoch callbacks keep their native actor context, including actor-only retained snapshots.
+One bundle allocation ledger covers drawing, per-view instance capacity, masks and media;
+charges follow resident storage through its last GPU use. Celestial camera anchoring retains the geometry and byte budgets. Headless planet / star-cube
+rendering and F9 teardown cover the developer path; hardware qualification remains open in
+`plan.md`.
 
 Bounded procedural materials and SDK presets use a session animation phase.
 Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover

@@ -7,6 +7,7 @@ use {
 };
 
 mod item_use;
+pub(super) use item_use::main_hand_elapsed_ticks;
 pub(super) mod potion;
 pub(super) mod tint;
 pub(super) mod wolf;

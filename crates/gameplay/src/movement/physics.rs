@@ -18,6 +18,7 @@ mod controller_frame;
 mod correction;
 mod dimension_wait;
 mod prediction_corrections;
+mod riding;
 mod riptide;
 mod server_flags;
 mod sprint_retention;
@@ -308,6 +309,8 @@ pub struct LocalPhysicsController {
     last_environment: sim::MovementEnvironment,
     dimension_waiting: bool,
     pub(super) prediction_sync: super::prediction_sync::PredictionSyncCountdown,
+    /// The steered boat's prediction.
+    vehicle: super::vehicle::VehiclePrediction,
 }
 
 impl Default for LocalPhysicsController {
@@ -355,6 +358,7 @@ impl Default for LocalPhysicsController {
             last_environment: sim::MovementEnvironment::default(),
             dimension_waiting: false,
             prediction_sync: Default::default(),
+            vehicle: Default::default(),
         }
     }
 }

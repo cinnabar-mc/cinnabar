@@ -25,6 +25,20 @@ func (h *localPlayerHandler) HandleTeleport(ctx *player.Context, pos mgl64.Vec3)
 	}
 }
 
+// HandleAttackEntity keeps the attacker's own attack sound from being sent back to it and
+// keeps target dummies in place.
+func (h *localPlayerHandler) HandleAttackEntity(ctx *player.Context, e world.Entity, force, height *float64, _ *bool) {
+	markAttacker(ctx.Tx, ctx.Player().Addr())
+	if isTargetDummy(e) {
+		*force, *height = 0, 0
+	}
+}
+
+// HandlePunchAir keeps the attacker's own missed-swing sound from being sent back to it.
+func (h *localPlayerHandler) HandlePunchAir(ctx *player.Context) {
+	markAttacker(ctx.Tx, ctx.Player().Addr())
+}
+
 // HandleQuit forgets this player's focus when the server hosts Experiences.
 func (h *localPlayerHandler) HandleQuit(p *player.Player) {
 	if h.host != nil {

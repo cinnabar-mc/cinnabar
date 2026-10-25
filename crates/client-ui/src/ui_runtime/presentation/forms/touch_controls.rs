@@ -16,6 +16,7 @@ use super::super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::UiRuntime;
 
 mod editor;
+mod mod_buttons;
 mod utilities;
 
 const SCREEN: &str = "cinnabar_touch.screen";
@@ -66,6 +67,16 @@ pub(in super::super) struct TouchControls {
     knob: Option<(String, [f64; 2])>,
     /// Held contacts, which press their controls and move the stick's knob.
     contacts: Vec<TouchContact>,
+    /// Presented mod buttons in load order; a button's index is its slot.
+    mod_buttons: Vec<ui::mod_touch::TouchButton>,
+    /// Owner token of each presented slot.
+    mod_owners: Vec<u64>,
+    /// The newest set received while the editor fixed the controls.
+    deferred_mod_buttons: Option<Vec<(u64, ui::mod_touch::TouchButton)>>,
+    /// Completed mod button taps, with their owner tokens, until the app delivers them.
+    mod_taps: Vec<(u64, String)>,
+    /// Advances whenever a slot's button identity changes.
+    mod_button_epoch: u64,
 }
 
 impl TouchControls {
@@ -170,7 +181,9 @@ impl UiPresentationRuntime {
         let catalog = match &state.catalog {
             Some(catalog) => Arc::clone(catalog),
             None => {
-                let catalog = Arc::new(layout_catalog().expect("built-in touch layout parses"));
+                let catalog = Arc::new(
+                    layout_catalog(&state.mod_buttons).expect("built-in touch layout parses"),
+                );
                 state.catalog = Some(Arc::clone(&catalog));
                 catalog
             }
@@ -211,6 +224,15 @@ impl UiPresentationRuntime {
                 .iter()
                 .any(|contact| contact.hit_id == Some(id));
             data.set_global(format!("#touch_{name}_pressed"), Scalar::Bool(held));
+        }
+        for (slot, button) in state.mod_buttons.iter().enumerate() {
+            data.set_global(
+                mod_buttons::label_binding(slot),
+                Scalar::Text(button.label.clone()),
+            );
+            let id = touch::mod_button(slot);
+            let held = id.is_some() && state.contacts.iter().any(|c| c.hit_id == id);
+            data.set_global(format!("#touch_mod_{slot}_pressed"), Scalar::Bool(held));
         }
         let translate = |key: &str| runtime.translation(key);
         let language = runtime.text_generation();
@@ -292,9 +314,18 @@ impl UiPresentationRuntime {
     }
 }
 
-fn layout_catalog() -> Result<Catalog, json_ui::LoadError> {
+/// The authored layout plus presented mod buttons, all placeable, and the editor captions.
+fn layout_catalog(
+    mod_buttons: &[ui::mod_touch::TouchButton],
+) -> Result<Catalog, json_ui::LoadError> {
     let mut layout: serde_json::Value =
         serde_json::from_slice(LAYOUT).expect("built-in touch layout parses");
+    mod_buttons::append_nodes(
+        layout["screen"]["controls"]
+            .as_array_mut()
+            .expect("touch controls array"),
+        mod_buttons,
+    );
     editor::enable_placement(&mut layout);
     let controls = layout["screen"]["controls"]
         .as_array_mut()
@@ -353,9 +384,10 @@ fn region_bounds(
     })
 }
 
-/// Only permanent controls participate in saved placement and the layout editor.
+/// Only permanent controls and mod buttons participate in saved placement and the editor.
 fn placeable_control(id: u16) -> bool {
-    id != touch::LOOK_SURFACE && CONTROLS.iter().any(|&(_, control)| control == id)
+    (id != touch::LOOK_SURFACE && CONTROLS.iter().any(|&(_, control)| control == id))
+        || touch::mod_button_slot(id).is_some()
 }
 
 fn control_id(pressed: Option<&str>) -> Option<u16> {
@@ -364,6 +396,7 @@ fn control_id(pressed: Option<&str>) -> Option<u16> {
         .iter()
         .chain(UTILITY_ACTIONS)
         .find_map(|&(control, id)| (control == name).then_some(id))
+        .or_else(|| mod_buttons::slot(name).and_then(touch::mod_button))
 }
 
 #[cfg(test)]

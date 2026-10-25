@@ -13,9 +13,9 @@ fn recovery_messages_publish_without_input_and_stop_at_the_strike_limit() {
     for strike in 1..=MAX_GUEST_STRIKES {
         let now = strike as u64 * CALLBACK_INTERVAL_MS;
         receive(&mut live, "bundle0", strike as u64);
-        live.poll(1, now).unwrap();
+        live.poll_ready(1, now).unwrap();
         complete(&mut live, "bundle0");
-        let packets = live.poll(1, now).unwrap();
+        let packets = live.poll_ready(1, now).unwrap();
         let instance = &live.instances["bundle0"];
         assert_eq!(instance.strikes.len(), strike);
         if strike == MAX_GUEST_STRIKES {

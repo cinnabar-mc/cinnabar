@@ -7,6 +7,7 @@ use super::*;
 pub(super) struct ModObservation<'w, 's> {
     weather: Option<ResMut<'w, crate::environment::VisualWeatherOverride>>,
     click_limiter: Local<'s, semantic_input::ClickLimiter>,
+    action_filter: Local<'s, semantic_input::action_filter::ActionFilterState>,
     click_scope: Local<'s, Option<(u64, i32)>>,
     packets: Option<Res<'w, packets::PacketMods>>,
     watcher: Option<Res<'w, registration::Watcher>>,
@@ -49,6 +50,7 @@ pub(super) fn drive_mod(
     let ModObservation {
         mut weather,
         mut click_limiter,
+        mut action_filter,
         mut click_scope,
         packets,
         watcher,
@@ -94,6 +96,11 @@ pub(super) fn drive_mod(
         (extension, time_override, interaction)
     else {
         click_limiter.reset();
+        action_filter::inactive(
+            &mut action_filter,
+            gameplay.input.as_deref_mut(),
+            time.elapsed().as_micros(),
+        );
         *click_scope = None;
         let effects = packets
             .as_ref()
@@ -129,11 +136,17 @@ pub(super) fn drive_mod(
                 pitch: delta.pitch,
             });
         gameplay.apply_native_controls(effects.as_ref(), delta, &ui);
+        clear_touch_buttons(&mut presentation);
         return;
     };
     if extension.suspended {
         time_override.0 = None;
         click_limiter.reset();
+        action_filter::inactive(
+            &mut action_filter,
+            gameplay.input.as_deref_mut(),
+            time.elapsed().as_micros(),
+        );
         *click_scope = None;
         gameplay.apply_native_input(None, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
@@ -150,7 +163,12 @@ pub(super) fn drive_mod(
             camera.set_hurt_camera_style(None);
             native_camera::apply(camera, gameplay.view.as_deref_mut(), user_freelook, None);
         }
+        clear_touch_buttons(&mut presentation);
         return;
+    }
+    // Taps completed this frame reach their owners before frame callbacks read them.
+    for (owner, id) in presentation.take_mod_touch_taps() {
+        extension.hosts.queue_touch_press(owner, &id);
     }
     drawing_policy::bind(&mut extension.hosts, &gameplay);
     anchors::reconcile(&mut extension.hosts, &gameplay);
@@ -212,7 +230,7 @@ pub(super) fn drive_mod(
         });
     terrain.refresh(&mut extension.hosts, &gameplay, world_observation.as_ref());
     let mut callback_failed = false;
-    let merged = multi::run_frame(
+    multi::run_frame_callbacks(
         &mut extension.hosts,
         multi::FrameInput {
             pressed,
@@ -241,6 +259,8 @@ pub(super) fn drive_mod(
             warn!("Cinnabar extension callback failed: {error}");
         },
     );
+    // A tapped mod that opened its panel shows it, as its toggle key would.
+    extension.hosts.select_panels_opened_by_taps();
     for index in 0..extension.hosts.host_count() {
         for message in extension.hosts.host_mut(index).take_local_messages() {
             ui.push_local_chat_line(
@@ -253,6 +273,49 @@ pub(super) fn drive_mod(
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(Some(&extension));
     }
+    let scope = world_observation
+        .as_ref()
+        .map(|world| (world.session, world.dimension));
+    // Controller and touch gestures reach gameplay without cursor capture, so they are
+    // filtered under the same source gates.
+    let source_admitted = gameplay
+        .input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| {
+            crate::semantic_controls::physical::admits_input_mode(
+                input.input_mode,
+                focused,
+                captured,
+            )
+        });
+    if *click_scope != scope || !source_admitted || absorbed {
+        action_filter.reset();
+    }
+    let enabled = source_admitted && !absorbed && scope.is_some();
+    let pulse_requested = extension
+        .hosts
+        .iter_mut()
+        .any(|host| host.attack_pulse_requested());
+    let (pulse, filter_error) = action_filter::apply(
+        &mut action_filter,
+        gameplay.input.as_deref_mut(),
+        &mut extension.hosts,
+        enabled,
+        time.elapsed().as_micros(),
+        pulse_requested,
+    );
+    interaction.attack_pulse = pulse;
+    if let Some((index, error)) = filter_error {
+        callback_failed = true;
+        if let Some(registered) = &registrations[index]
+            && let Some(watcher) = watcher.as_ref()
+        {
+            watcher.quarantine(&registered.entry, error.clone());
+        }
+        warn!("Cinnabar action filter failed: {error}");
+    }
+    let merged = multi::collect_frame_outputs(&mut extension.hosts);
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);
     }
@@ -262,7 +325,6 @@ pub(super) fn drive_mod(
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
-    interaction.attack_pulse = merged.attack_pulse && gameplay.pulse_attack();
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
@@ -404,6 +466,13 @@ pub(super) fn drive_mod(
             .mod_ui_mut()
             .set_mod_panel_open(extension.hosts.host(owner).panel_open());
     }
+    let hosts = &extension.hosts;
+    presentation.set_mod_touch_buttons(
+        hosts
+            .touch_buttons()
+            .into_iter()
+            .map(|(index, button)| (hosts.host(index).touch_owner(), button)),
+    );
     let editor_session = gameplay.hud_editor_session(&ui);
     hud_editor::publish(
         &mut extension,
@@ -416,4 +485,10 @@ pub(super) fn drive_mod(
     } else {
         presentation.set_mod_screens(None);
     }
+}
+
+/// Removes mod touch buttons and drops their taps while no mod can receive them.
+fn clear_touch_buttons(presentation: &mut UiPresentationResource) {
+    presentation.take_mod_touch_taps();
+    presentation.set_mod_touch_buttons(std::iter::empty());
 }

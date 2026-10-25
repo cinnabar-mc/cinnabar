@@ -86,12 +86,13 @@ pub const LEAF_PLANE_INSET: f32 = 0.01;
 pub const POSITIVE_X_LEAF_QUAD: u32 = crate::BlockFace::ALL.len() as u32;
 pub const POSITIVE_Z_LEAF_QUAD: u32 = POSITIVE_X_LEAF_QUAD + 2;
 
-/// Resolves the packed variant shared by terrain and position-dependent overlays.
+/// Resolves the packed variant shared by terrain and position-dependent overlays. Outside bamboo
+/// that is the variant's quarter turns about y; its higher semantic bits are no model turn.
 pub fn transform_for_template(flags: u32, variant: u32, position: [i32; 3]) -> u32 {
     if flags & crate::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
         block_transform::bamboo::column_transform(position[0], position[2])
     } else {
-        variant
+        variant & 3
     }
 }
 

@@ -69,6 +69,84 @@ fn rollback_and_revoke_never_recycle_tokens_or_publish_partial_output() {
 }
 
 #[test]
+fn caller_instance_ceiling_is_atomic_and_expired_groups_release_their_allowance() {
+    let mut store = Store::default();
+    store.limit_instances(2);
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let instance = drawing(geometry);
+    store
+        .replace_group(
+            "frame".into(),
+            vec![instance.clone(); 2],
+            DrawingPermissions::ALL,
+        )
+        .unwrap();
+    assert_eq!(store.instance_count(), 2);
+    assert_eq!(
+        store
+            .create(instance.clone(), DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
+    store.commit();
+    assert_eq!(store.snapshot().instances.len(), 2);
+    store.begin();
+    assert_eq!(store.instance_count(), 0);
+    store.limit_instances(1);
+    assert_eq!(
+        store
+            .replace_group(
+                "frame".into(),
+                vec![instance.clone(); 2],
+                DrawingPermissions::ALL
+            )
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
+    store.create(instance, DrawingPermissions::ALL).unwrap();
+    store.commit();
+    assert_eq!(store.snapshot().instances.len(), 1);
+}
+
+#[test]
+fn despawned_group_members_do_not_subtract_from_retained_placement_admission() {
+    let mut store = Store::default();
+    store.bind_session(1, 0);
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let target = store.observe_entities().unwrap()[0].0;
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let instance = drawing(geometry);
+    store
+        .create(instance.clone(), DrawingPermissions::ALL)
+        .unwrap();
+    let mut attached = instance.clone();
+    attached.anchor = Anchor::Entity(EntityAnchor {
+        entity: target,
+        body_rotation: false,
+    });
+    store
+        .replace_group("frame".into(), vec![attached; 2], DrawingPermissions::ALL)
+        .unwrap();
+    store.commit();
+    store.reconcile_entities(Vec::new(), &[actor(1)]).unwrap();
+    store.begin();
+    assert_eq!(store.instance_count(), 1);
+    store.limit_instances(2);
+    store
+        .create(instance.clone(), DrawingPermissions::ALL)
+        .unwrap();
+    assert_eq!(
+        store
+            .create(instance, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
+}
+
+#[test]
 fn instances_share_meshes_and_motion_changes_only_instance_revision() {
     let mut store = Store::default();
     let geometry = store.create_geometry(mesh()).unwrap();
@@ -565,7 +643,9 @@ fn expanded_line(positions: &[[f32; 3]], closed: bool) -> Vec<super::mesh::GpuVe
         closed,
     })
     .unwrap();
-    super::mesh::build(&geometry)
+    let expanded = super::mesh::build(&geometry);
+    assert_eq!(expanded.len(), geometry.mesh_vertices());
+    expanded
 }
 
 #[test]
@@ -829,4 +909,46 @@ fn entity_reference_release_commits_without_geometry_or_instance_edits() {
     );
     store.begin();
     assert_ne!(store.observe_entities().unwrap()[0].0, observed[0].0);
+}
+
+#[test]
+fn celestial_camera_geometry_keeps_topology_budgets_without_local_extent_limits() {
+    let mut store = Store::default();
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let mut planet = drawing(geometry);
+    planet.transform.translation = [0., 0., -20_000.];
+    planet.transform.scale = [6000.; 3];
+    assert!(
+        store
+            .create(planet.clone(), DrawingPermissions::ALL)
+            .is_err()
+    );
+    planet.anchor = Anchor::Camera;
+    store.create(planet, DrawingPermissions::ALL).unwrap();
+    store.commit();
+    assert_eq!(store.snapshot().instances.len(), 1);
+    assert_eq!(store.snapshot().geometry.len(), 1);
+}
+
+/// Cached GPU cost matches emitted vertices even when all or some line segments disappear.
+#[test]
+fn cached_mesh_vertex_counts_match_emitted_topology() {
+    let a = [0.; 3];
+    let b = [1., 0., 0.];
+    let c = [1., 1., 0.];
+    for points in [
+        vec![a, a],
+        vec![a, b],
+        vec![a, b, c],
+        vec![a, a, b, b, c, a],
+    ] {
+        for closed in [false, true] {
+            expanded_line(&points, closed);
+        }
+    }
+    let geometry = super::validation::geometry(mesh()).unwrap();
+    assert_eq!(
+        super::mesh::build(&geometry).len(),
+        geometry.mesh_vertices()
+    );
 }
