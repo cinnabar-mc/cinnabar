@@ -120,33 +120,65 @@ impl ObservationCache {
 /// File identity plus content and metadata change times; access times are deliberately excluded.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Identity {
+    file: (u64, u64), // volume and file number; Windows tunnels a replaced name's creation time
     created: Option<std::time::SystemTime>,
     modified: Option<std::time::SystemTime>,
+    changed: Option<(i64, i64)>, // metadata change time
     len: u64,
-    #[cfg(unix)]
-    values: (u64, u64, i64, i64),
 }
 
 impl Identity {
     /// Captures best-effort change metadata; the deadline covers writes it cannot distinguish.
     pub(crate) fn of(file: &File) -> io::Result<Self> {
         let metadata = file.metadata()?;
+        #[cfg(unix)]
+        let (file, changed) = {
+            use std::os::unix::fs::MetadataExt;
+            (
+                (metadata.dev(), metadata.ino()),
+                Some((metadata.ctime(), metadata.ctime_nsec())),
+            )
+        };
+        #[cfg(windows)]
+        let (file, changed) = windows_identity(file)?;
+        #[cfg(not(any(unix, windows)))]
+        let (file, changed) = ((0, 0), None);
         Ok(Self {
+            file,
             created: metadata.created().ok(),
             modified: metadata.modified().ok(),
+            changed,
             len: metadata.len(),
-            #[cfg(unix)]
-            values: {
-                use std::os::unix::fs::MetadataExt;
-                (
-                    metadata.dev(),
-                    metadata.ino(),
-                    metadata.ctime(),
-                    metadata.ctime_nsec(),
-                )
-            },
         })
     }
+}
+
+/// Returns the volume and file number, plus the change time when the file system reports one.
+#[cfg(windows)]
+fn windows_identity(file: &File) -> io::Result<((u64, u64), Option<(i64, i64)>)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
+    };
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle stays open for this call, which writes only the provided struct.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    let mut basic = FILE_BASIC_INFO::default();
+    // SAFETY: the buffer is a FILE_BASIC_INFO of the size passed, as FileBasicInfo requires.
+    let changed = (unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileBasicInfo,
+            (&raw mut basic).cast(),
+            size_of::<FILE_BASIC_INFO>() as u32,
+        )
+    } != 0)
+        .then_some((basic.ChangeTime, 0));
+    Ok(((u64::from(info.dwVolumeSerialNumber), index), changed))
 }
 
 #[cfg(test)]
