@@ -12,6 +12,8 @@ mod eligibility;
 use bone_arena::PoseMatrixCache;
 #[path = "frame/catalog.rs"]
 mod catalog;
+#[path = "frame/material.rs"]
+mod material;
 #[path = "frame/pack.rs"]
 mod pack;
 use crate::{
@@ -22,6 +24,7 @@ use crate::{
 };
 use catalog::GeometryCatalog;
 pub use catalog::{ActorRigVertexSegments, share_identical_vertices};
+pub use material::ActorMaterial;
 
 use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 
@@ -114,67 +117,6 @@ pub struct ActorRigSubmission {
     pub uv_anim: [f32; 4],
     /// World light or white illumination with face shading; 0 draws without shading.
     pub light: u32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ActorMaterial {
-    /// Alpha weights leather dye independently of the page's other materials.
-    pub color_mask: bool,
-    /// Animated glint factors. Item glint overlays preserve the base material's coverage.
-    pub glint: super::ActorGlint,
-    pub kind: assets::EntityRenderMaterial,
-    /// Shading features of the authored material; `None` when the layer names none.
-    pub state: Option<assets::EntityRenderMaterialState>,
-    /// Raster state of the authored material; `None` draws as a layer without one.
-    pub render_state: Option<render_api::render_state::RenderState>,
-    /// Suppresses overlays without changing whether raster state was authored.
-    pub suppress_overlay: bool,
-    /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
-    pub dissolve_multiplier: f32,
-    /// RGB illumination multiplier; applies to lit and unlit draws without clamping.
-    pub light_color_multiplier: f32,
-    /// Cinnabar material masks on the draw's artwork page.
-    pub masks: super::ActorMaterialMasks,
-    /// One more than the slot of the programmable world material that shades this draw; zero
-    /// draws the Bedrock material alone.
-    pub world: u8,
-}
-
-impl ActorMaterial {
-    /// Whether color overlays may affect this material's fragment color and vertex lighting.
-    /// Dissolve alpha belongs only to its coverage parameter; authored suppression also wins.
-    #[must_use]
-    pub fn allows_overlay(self) -> bool {
-        if self.suppress_overlay {
-            return false;
-        }
-        match self.kind {
-            assets::EntityRenderMaterial::Default
-            | assets::EntityRenderMaterial::Dragon
-            | assets::EntityRenderMaterial::Glint => {
-                self.state.is_none_or(|state| !state.disable_overlay)
-            }
-            assets::EntityRenderMaterial::DissolveDepth
-            | assets::EntityRenderMaterial::DissolveColor => false,
-        }
-    }
-}
-
-impl Default for ActorMaterial {
-    fn default() -> Self {
-        Self {
-            color_mask: false,
-            glint: Default::default(),
-            kind: Default::default(),
-            state: None,
-            render_state: None,
-            suppress_overlay: false,
-            dissolve_multiplier: 1.0,
-            light_color_multiplier: 1.0,
-            masks: super::ActorMaterialMasks::NONE,
-            world: 0,
-        }
-    }
 }
 
 /// Packs independent block/sky nibbles and the lit-material bit; time belongs to the shared table.
@@ -299,10 +241,26 @@ pub struct ActorRigRenderFrame {
     pub geometry_vertices: ActorRigVertexSegments,
     pub geometry_spans: Arc<[ActorRigGeometrySpan]>,
     pub manifest: Arc<[ActorDrawManifestEntry]>,
-    /// Distinct raster states this frame draws, indexed by [`ActorGpuInstance::raster`].
+    /// Distinct raster states this frame draws, indexed by [`ActorGpuInstance::raster`] and
+    /// [`ActorWorldDraw::raster`].
     pub rasters: Arc<[render_api::render_state::RenderState]>,
+    /// The instances bound to a programmable world material, in instance order, with how each
+    /// draws once that material's pipeline is ready. Until then they draw as their instance
+    /// says, which is how Bedrock draws them.
+    pub world_draws: Arc<[ActorWorldDraw]>,
     pub maximum_vertex_count: u32,
     pub rejects: ActorRigRejects,
+}
+
+/// How an instance bound to a programmable world material draws once its pipeline is ready.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActorWorldDraw {
+    /// The instance's index in [`ActorRigRenderFrame::instances`].
+    pub instance: u32,
+    /// Its instance word with the cull and blend bits of the host's raster.
+    pub material: u32,
+    /// The host's raster, indexing [`ActorRigRenderFrame::rasters`].
+    pub raster: u32,
 }
 
 impl Default for ActorRigRenderFrame {
@@ -317,6 +275,7 @@ impl Default for ActorRigRenderFrame {
             geometry_spans: Arc::from([]),
             manifest: Arc::from([]),
             rasters: Arc::from([]),
+            world_draws: Arc::from([]),
             maximum_vertex_count: 0,
             rejects: ActorRigRejects::default(),
         }
@@ -330,6 +289,9 @@ pub struct ActorRigFrameBuilder {
     frame_generation: u64,
     matrices: PoseMatrixCache,
     scratch: BuildScratch,
+    /// The world draws the last frame published, which a frame with equal ones shares, so a
+    /// steady frame allocates nothing for them.
+    published_world_draws: Arc<[ActorWorldDraw]>,
 }
 
 /// Buffers a build fills, kept so steady frames reuse their capacity.
@@ -348,6 +310,7 @@ struct BuildScratch {
     current_bones: Vec<[[f32; 4]; 3]>,
     manifest: Vec<ActorDrawManifestEntry>,
     rasters: Vec<render_api::render_state::RenderState>,
+    world_draws: Vec<ActorWorldDraw>,
 }
 
 /// Where one admitted submission draws: by layer, texture page and geometry, then in identity
@@ -422,6 +385,7 @@ impl ActorRigFrameBuilder {
             frame_generation: 0,
             matrices: PoseMatrixCache::default(),
             scratch: BuildScratch::default(),
+            published_world_draws: Arc::from([]),
         })
     }
 
@@ -629,12 +593,14 @@ impl ActorRigFrameBuilder {
         let mut current_bones = std::mem::take(&mut scratch.current_bones);
         let mut manifest = std::mem::take(&mut scratch.manifest);
         let mut rasters = std::mem::take(&mut scratch.rasters);
+        let mut world_draws = std::mem::take(&mut scratch.world_draws);
         let mut instance_locations = std::mem::take(&mut scratch.instance_locations);
         instances.clear();
         previous_bones.clear();
         current_bones.clear();
         manifest.clear();
         rasters.clear();
+        world_draws.clear();
         let mut maximum_vertex_count = 0;
         let mut rejects = ActorRigRejects::default();
 
@@ -727,15 +693,14 @@ impl ActorRigFrameBuilder {
                 continue;
             };
             let instance_index = instances.len() as u32;
-            let raster = submission.material.raster();
-            // A frame draws few distinct states, so a linear search beats hashing.
-            let raster = match rasters.iter().position(|existing| *existing == raster) {
-                Some(index) => index as u32,
-                None => {
-                    rasters.push(raster);
-                    rasters.len() as u32 - 1
-                }
-            };
+            let raster = intern_raster(&mut rasters, submission.material.raster());
+            if let Some((material, world_raster)) = submission.material.world_draw() {
+                world_draws.push(ActorWorldDraw {
+                    instance: instance_index,
+                    material,
+                    raster: intern_raster(&mut rasters, world_raster),
+                });
+            }
             instances.push(ActorGpuInstance {
                 world_from_actor: submission.world_from_actor,
                 previous_bone_base,
@@ -803,6 +768,12 @@ impl ActorRigFrameBuilder {
             geometry_spans: Arc::clone(&self.catalog.published_spans),
             manifest: Arc::from(manifest.as_slice()),
             rasters: Arc::from(rasters.as_slice()),
+            world_draws: if *self.published_world_draws == *world_draws {
+                Arc::clone(&self.published_world_draws)
+            } else {
+                self.published_world_draws = Arc::from(world_draws.as_slice());
+                Arc::clone(&self.published_world_draws)
+            },
             maximum_vertex_count,
             rejects,
         };
@@ -817,6 +788,7 @@ impl ActorRigFrameBuilder {
             current_bones,
             manifest,
             rasters,
+            world_draws,
         };
         frame
     }
@@ -824,6 +796,21 @@ impl ActorRigFrameBuilder {
     /// The artwork location of each instance the last build drew, in instance order.
     pub fn instance_locations(&self) -> &[Option<ActorArtworkLocation>] {
         &self.scratch.instance_locations
+    }
+}
+
+/// The index of `raster` in a frame's raster table, adding it when new. A frame draws few
+/// distinct states, so a linear search beats hashing.
+fn intern_raster(
+    rasters: &mut Vec<render_api::render_state::RenderState>,
+    raster: render_api::render_state::RenderState,
+) -> u32 {
+    match rasters.iter().position(|existing| *existing == raster) {
+        Some(index) => index as u32,
+        None => {
+            rasters.push(raster);
+            rasters.len() as u32 - 1
+        }
     }
 }
 
@@ -959,50 +946,3 @@ mod material_tests;
 #[cfg(test)]
 #[path = "frame/culling_tests.rs"]
 mod culling_tests;
-
-impl ActorMaterial {
-    /// The raster state this material draws with.
-    #[must_use]
-    pub fn raster(self) -> render_api::render_state::RenderState {
-        self.render_state
-            .unwrap_or(assets::entity::material::UNAUTHORED_RENDER_STATE)
-    }
-
-    /// Shader kind and shading flags in the shared instance word. An authored material's cull
-    /// and blend bits, which the shader reads, follow its raster state.
-    pub fn gpu_word(self) -> u32 {
-        let raster = self.raster();
-        let flag = |enabled: bool, flag: u32| {
-            if enabled && self.state.is_some() {
-                flag
-            } else {
-                0
-            }
-        };
-        self.kind.word(self.state)
-            | (u32::from(self.world) << ACTOR_WORLD_MATERIAL_SHIFT)
-            | flag(
-                raster.cull == render_api::render_state::CullMode::Back,
-                assets::EntityRenderMaterialState::CULL,
-            )
-            | flag(
-                raster.blend.is_some(),
-                assets::EntityRenderMaterialState::BLEND,
-            )
-            | if self.suppress_overlay {
-                assets::EntityRenderMaterialState::DISABLE_OVERLAY
-            } else {
-                0
-            }
-            | if self.color_mask {
-                super::glint::ACTOR_COLOR_MASK_MATERIAL_FLAG
-            } else {
-                0
-            }
-            | if self.glint.profile == render_api::CombatVisuals::Legacy112 {
-                super::glint::LEGACY_COMBAT_MATERIAL_FLAG
-            } else {
-                0
-            }
-    }
-}

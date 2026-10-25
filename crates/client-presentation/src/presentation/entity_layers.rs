@@ -227,6 +227,7 @@ fn resolve_layer(
             light_color_multiplier: layer.light_color_multiplier,
             masks,
             world: 0,
+            world_raster: None,
         },
         model,
         ignore_lighting: layer.ignore_lighting,

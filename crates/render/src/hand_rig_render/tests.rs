@@ -179,6 +179,7 @@ fn single_instance_frame() -> ActorRigRenderFrame {
             vertex_count: 1,
         }]),
         manifest: Arc::from([]),
+        world_draws: Arc::from([]),
         maximum_vertex_count: 36,
         rejects: render_model::ActorRigRejects::default(),
     }

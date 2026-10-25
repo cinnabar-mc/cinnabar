@@ -477,3 +477,46 @@ fn intern_raster(
         }
     }
 }
+
+#[test]
+fn a_world_material_draw_keeps_the_bedrock_instance_and_lists_its_switch() {
+    use render_api::render_state::{BlendState, CullMode, RenderState};
+    let bedrock = RenderState {
+        cull: CullMode::Back,
+        blend: Some(BlendState::ALPHA),
+        ..Default::default()
+    };
+    let host = RenderState {
+        cull: CullMode::None,
+        ..Default::default()
+    };
+    let material = crate::ActorMaterial {
+        state: Some(assets::EntityRenderMaterialState::default()),
+        render_state: Some(bedrock),
+        world: 2,
+        world_raster: Some(host),
+        ..Default::default()
+    };
+    let bones = pose(5, bone_count(3));
+    let mut builder = ActorRigFrameBuilder::new(geometries()).unwrap();
+    let frame = builder.build(
+        0.5,
+        None,
+        [ActorRigSubmission {
+            material,
+            ..submission(9, 0, 3, [Arc::clone(&bones), bones])
+        }],
+    );
+    // The instance draws as Bedrock until the renderer finds the material's pipeline ready.
+    let instance = frame.instances[0];
+    assert_eq!(instance.material, material.gpu_word());
+    assert_eq!(actor_world_material(instance.material), None);
+    assert_eq!(frame.rasters[instance.raster as usize], bedrock);
+    let (world_word, _) = material.world_draw().unwrap();
+    let &[draw] = &frame.world_draws[..] else {
+        panic!("one world draw: {:?}", frame.world_draws);
+    };
+    assert_eq!((draw.instance, draw.material), (0, world_word));
+    assert_eq!(actor_world_material(draw.material), Some(1));
+    assert_eq!(frame.rasters[draw.raster as usize], host);
+}
