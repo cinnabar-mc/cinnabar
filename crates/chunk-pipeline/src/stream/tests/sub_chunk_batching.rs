@@ -23,6 +23,134 @@ fn positions(batch: &SubChunkRequestBatch) -> Vec<[i32; 3]> {
         .collect()
 }
 
+/// Checks prepared membership through the real packet encoder and decoder.
+fn assert_encoded_positions(batch: &SubChunkRequestBatch, expected: &[[i32; 3]]) {
+    assert_eq!(positions(batch), expected);
+    let packet = protocol::request_sub_chunks(
+        batch.receipt.dimension,
+        batch.center,
+        batch.receipt.members.iter().map(|member| member.position),
+    )
+    .unwrap();
+    let expected_packet = protocol::request_sub_chunks(
+        batch.receipt.dimension,
+        batch.center,
+        expected.iter().copied(),
+    )
+    .unwrap();
+    let decoded = protocol::decode_batch(protocol::encode(&packet).unwrap()).unwrap();
+    assert_eq!(decoded, [expected_packet]);
+}
+
+#[test]
+fn distant_current_dimension_demands_survive_packet_offset_limits() {
+    let mut stream = request_stream();
+    let chunk = ChunkKey::new(0, 255, -255);
+    stream.enqueue_request(chunk, -4, 2, None);
+
+    let batch = stream
+        .prepare_sub_chunk_request([0; 3], 1)
+        .expect("current terrain demand must remain dispatchable");
+
+    assert_encoded_positions(&batch, &[[255, -4, -255], [255, -3, -255]]);
+    assert_eq!(batch.center, [255, -4, -255]);
+    assert_eq!(stream.outstanding_sub_chunk_count(), 2);
+    assert!(stream.requests.collision_failures.is_empty());
+    assert!(stream.requests.unencodable.is_empty());
+}
+
+#[test]
+fn recentering_encodes_integer_boundaries_without_wrapping_positions() {
+    for position in [[i32::MIN; 3], [i32::MAX; 3], [-128; 3], [128; 3]] {
+        let mut stream = request_stream();
+        stream.enqueue_request(
+            ChunkKey::new(0, position[0], position[2]),
+            position[1],
+            1,
+            None,
+        );
+        let batch = stream.prepare_sub_chunk_request([0; 3], 1).unwrap();
+        assert_encoded_positions(&batch, &[position]);
+        assert_eq!(stream.outstanding_sub_chunk_count(), 1);
+        assert!(stream.requests.collision_failures.is_empty());
+    }
+}
+
+#[test]
+fn split_packet_rollback_preserves_demands_after_the_preferred_center_moves() {
+    let mut stream = request_stream();
+    for x in [-255, 255, 254] {
+        stream.enqueue_request(ChunkKey::new(0, x, 0), -4, 1, None);
+    }
+    let demands: Vec<_> = [-255, 255, 254]
+        .map(|x| stream.requests.requested[&ChunkKey::new(0, x, 0)][&-4].demand)
+        .into_iter()
+        .collect();
+    let unsent = stream.prepare_sub_chunk_request([0; 3], 3).unwrap();
+    assert_encoded_positions(&unsent, &[[-255, -4, 0]]);
+    let unsent_receipt = unsent.receipt.clone();
+    assert_eq!(stream.pending_request_count(), 2);
+    stream.retry_sub_chunk_request_front(unsent).unwrap();
+    assert_eq!(stream.pending_request_count(), 3);
+    assert!(stream.requests.transport.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
+
+    let first = stream.prepare_sub_chunk_request([255, 0, 0], 3).unwrap();
+    assert_encoded_positions(&first, &[[-255, -4, 0]]);
+    assert_eq!(first.receipt.members[0].demand, demands[0]);
+    stream.record_sub_chunk_request_transport_pending(&first);
+    let now = Instant::now();
+    stream.acknowledge_sub_chunk_request_sent(&unsent_receipt, now);
+    assert!(stream.requests.deadlines.is_empty());
+    stream.acknowledge_sub_chunk_request_sent(&first.receipt, now);
+    assert_eq!(stream.requests.deadlines.len(), 1);
+
+    let second = stream.prepare_sub_chunk_request([-255, 0, 0], 3).unwrap();
+    assert_encoded_positions(&second, &[[255, -4, 0], [254, -4, 0]]);
+    assert_eq!(
+        second
+            .receipt
+            .members
+            .iter()
+            .map(|member| member.demand)
+            .collect::<Vec<_>>(),
+        demands[1..]
+    );
+    stream.record_sub_chunk_request_transport_pending(&second);
+    stream.acknowledge_sub_chunk_request_sent(&second.receipt, now);
+    assert_eq!(stream.requests.deadlines.len(), 3);
+    assert_eq!(stream.pending_request_count(), 0);
+    assert_eq!(stream.outstanding_sub_chunk_count(), 3);
+}
+
+#[test]
+fn splitting_a_full_queue_leaves_capacity_for_the_unsent_packet() {
+    let mut stream = request_stream();
+    for x in 0..OUTBOUND_REQUEST_CAPACITY as i32 {
+        stream.enqueue_request(
+            ChunkKey::new(0, x * 255, 0),
+            0,
+            MAX_SUB_CHUNK_COLUMN_HEIGHT,
+            None,
+        );
+    }
+    let batch = stream
+        .prepare_sub_chunk_request([0; 3], usize::MAX)
+        .unwrap();
+    assert_eq!(batch.receipt.members.len(), MAX_SUB_CHUNK_COLUMN_HEIGHT);
+    assert_eq!(
+        stream.pending_request_work_count(),
+        OUTBOUND_REQUEST_CAPACITY - 1
+    );
+    stream.retry_sub_chunk_request_front(batch).unwrap();
+    assert_eq!(
+        stream.pending_request_work_count(),
+        OUTBOUND_REQUEST_CAPACITY
+    );
+    assert_eq!(stream.outstanding_sub_chunk_count(), MAX_SUB_CHUNK_REQUESTS);
+    assert!(stream.requests.deadlines.is_empty());
+}
+
 #[test]
 fn grouped_sparse_members_keep_column_order_and_stop_before_reservation() {
     let mut stream = request_stream();
@@ -138,103 +266,99 @@ fn restoration_keeps_surviving_sparse_demands_ahead_of_new_work() {
 }
 
 #[test]
-fn unencodable_slots_retire_without_terrain_success_and_do_not_block_later_members() {
+fn packet_splits_preserve_distant_columns_and_retire_other_dimensions() {
     let mut stream = request_stream();
-    let rejected = [
-        ChunkKey::new(0, -128, 0),
-        ChunkKey::new(0, 128, 0),
-        ChunkKey::new(1, 0, 0),
-    ];
-    for chunk in rejected {
-        stream.enqueue_request(chunk, -4, 1, None);
-    }
-    let accepted = ChunkKey::new(0, 127, -127);
-    stream.enqueue_request(accepted, -128, 2, None);
-    let batch = stream.prepare_sub_chunk_request([0; 3], 8).unwrap();
-    assert_eq!(positions(&batch), [[127, -127, -127]]);
-    assert_eq!(stream.outstanding_sub_chunk_count(), 1);
+    let near = ChunkKey::new(0, -128, 0);
+    let far = ChunkKey::new(0, 128, 0);
+    let other_dimension = ChunkKey::new(1, 0, 0);
+    stream.enqueue_request(near, -4, 1, None);
+    stream.enqueue_request(far, -4, 1, None);
+    stream.enqueue_request(other_dimension, -4, 1, None);
+    let tall = ChunkKey::new(0, 127, -127);
+    stream.enqueue_request(tall, -128, 2, None);
+
+    let first = stream.prepare_sub_chunk_request([0; 3], 8).unwrap();
+    assert_encoded_positions(&first, &[[near.x, -4, near.z]]);
+    assert_eq!(stream.pending_request_count(), 3);
+    stream.record_sub_chunk_request_transport_pending(&first);
+    let second = stream.prepare_sub_chunk_request([0; 3], 8).unwrap();
+    assert_encoded_positions(
+        &second,
+        &[[128, -4, 0], [127, -128, -127], [127, -127, -127]],
+    );
+    assert_eq!(stream.outstanding_sub_chunk_count(), 4);
+    assert_eq!(stream.pending_request_count(), 0);
+    assert!(!stream.requests.requested.contains_key(&other_dimension));
     assert!(stream.loaded_columns.is_empty());
     assert!(stream.known_air.is_empty());
     assert!(stream.resident.is_empty());
     assert!(stream.requests.recoveries.is_empty());
-    assert!(
-        rejected
-            .iter()
-            .all(|chunk| !stream.requests.requested.contains_key(chunk))
-    );
-    assert!(
-        !stream
-            .requests
-            .is_expected(SubChunkKey::from_chunk(accepted, -128))
-    );
+    assert!(!stream.requests.unencodable.contains_key(&near));
+    assert!(!stream.requests.unencodable.contains_key(&far));
+    assert!(!stream.requests.unencodable.contains_key(&tall));
 }
 
 #[test]
-fn unencodable_members_keep_columns_incomplete_after_surviving_replies() {
+fn recentered_partial_replies_leave_the_missing_height_pending() {
     let mut stream = request_stream();
     let chunk = ChunkKey::new(0, 0, 0);
-    let rejected = SubChunkKey::from_chunk(chunk, -4);
-    let accepted = SubChunkKey::from_chunk(chunk, -3);
-    stream.enqueue_request(chunk, rejected.y, 2, None);
+    let missing = SubChunkKey::from_chunk(chunk, -4);
+    let answered = SubChunkKey::from_chunk(chunk, -3);
+    stream.enqueue_request(chunk, missing.y, 2, None);
     let batch = stream.prepare_sub_chunk_request([0, 124, 0], 1).unwrap();
-    assert_eq!(positions(&batch), [[accepted.x, accepted.y, accepted.z]]);
+    assert_encoded_positions(&batch, &[[0, -4, 0], [0, -3, 0]]);
+    stream.record_sub_chunk_request_transport_pending(&batch);
+    let now = Instant::now();
+    stream.acknowledge_sub_chunk_request_sent(&batch.receipt, now);
+    apply_sub_chunk_result(&mut stream, answered, super::PreparedSubChunkResult::AllAir);
 
-    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
-
-    assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+    assert_eq!(stream.outstanding_sub_chunk_count(), 1);
     assert!(!stream.loaded_columns.contains(&chunk));
     assert!(!stream.authority.terrain().is_chunk_loaded(chunk));
-    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
-    assert!(stream.authority.terrain().is_sub_chunk_loaded(accepted));
-    assert!(!stream.known_air.contains(&rejected));
+    assert!(!stream.authority.terrain().is_sub_chunk_loaded(missing));
+    assert!(stream.authority.terrain().is_sub_chunk_loaded(answered));
+    assert!(!stream.known_air.contains(&missing));
     assert!(stream.requests.recoveries.is_empty());
+    assert_eq!(stream.requests.deadlines.len(), 1);
+    assert_eq!(stream.requests.deadlines.first().unwrap().1, missing);
 
-    stream.enqueue_request(chunk, accepted.y, 0, None);
-    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
-    stream.enqueue_request(chunk, accepted.y, 1, None);
-    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
-    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
-
-    stream.evict_column(chunk);
-    stream.enqueue_request(chunk, accepted.y, 1, None);
-    let fresh = stream.prepare_sub_chunk_request([0; 3], 1).unwrap();
-    assert_eq!(positions(&fresh), [[accepted.x, accepted.y, accepted.z]]);
-    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
+    stream.expire_sub_chunk_deadlines(now + SUB_CHUNK_RESPONSE_TIMEOUT);
+    let retry = stream.prepare_sub_chunk_request([0, -200, 0], 1).unwrap();
+    assert_encoded_positions(&retry, &[[0, -4, 0]]);
+    assert_eq!(
+        retry.receipt.members[0].demand,
+        batch.receipt.members[0].demand
+    );
+    apply_sub_chunk_result(&mut stream, missing, super::PreparedSubChunkResult::AllAir);
     assert!(stream.loaded_columns.contains(&chunk));
     assert!(stream.authority.terrain().is_chunk_loaded(chunk));
 }
 
 #[test]
-fn recovering_surviving_members_does_not_complete_unencodable_heights() {
+fn recentered_recovery_does_not_complete_an_unanswered_height() {
     let mut stream = request_stream();
     let chunk = ChunkKey::new(0, 0, 0);
-    let rejected = SubChunkKey::from_chunk(chunk, -4);
-    let accepted = SubChunkKey::from_chunk(chunk, -3);
-    stream.enqueue_request(chunk, rejected.y, 2, None);
+    let missing = SubChunkKey::from_chunk(chunk, -4);
+    let answered = SubChunkKey::from_chunk(chunk, -3);
+    stream.enqueue_request(chunk, missing.y, 2, None);
     let batch = stream.prepare_sub_chunk_request([0, 124, 0], 1).unwrap();
-    assert_eq!(positions(&batch), [[accepted.x, accepted.y, accepted.z]]);
-    stream.complete_requested_sub_chunk(accepted, false);
+    assert_encoded_positions(&batch, &[[0, -4, 0], [0, -3, 0]]);
+    stream.complete_requested_sub_chunk(answered, false);
     let range = stream.authority.dimension_range(chunk.dimension).unwrap();
-    stream.enqueue_exact_recovery_requests(chunk, range, &[accepted.y], None);
+    stream.enqueue_exact_recovery_requests(chunk, range, &[answered.y], None);
     let retry = stream.prepare_sub_chunk_request([0, 124, 0], 1).unwrap();
-    assert_eq!(positions(&retry), [[accepted.x, accepted.y, accepted.z]]);
+    assert_encoded_positions(&retry, &[[0, -3, 0]]);
 
-    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
+    apply_sub_chunk_result(&mut stream, answered, super::PreparedSubChunkResult::AllAir);
 
     assert!(stream.requests.recoveries.is_empty());
-    assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+    assert_eq!(stream.outstanding_sub_chunk_count(), 1);
     assert!(!stream.loaded_columns.contains(&chunk));
     assert!(!stream.authority.terrain().is_chunk_loaded(chunk));
-    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
-    assert!(stream.authority.terrain().is_sub_chunk_loaded(accepted));
+    assert!(!stream.authority.terrain().is_sub_chunk_loaded(missing));
+    assert!(stream.authority.terrain().is_sub_chunk_loaded(answered));
 
-    stream.enqueue_exact_recovery_requests(chunk, range, &[rejected.y], None);
-    let recovered = stream.prepare_sub_chunk_request([0; 3], 1).unwrap();
-    assert_eq!(
-        positions(&recovered),
-        [[rejected.x, rejected.y, rejected.z]]
-    );
-    apply_sub_chunk_result(&mut stream, rejected, super::PreparedSubChunkResult::AllAir);
+    apply_sub_chunk_result(&mut stream, missing, super::PreparedSubChunkResult::AllAir);
     assert!(stream.loaded_columns.contains(&chunk));
     assert!(stream.authority.terrain().is_chunk_loaded(chunk));
 }
