@@ -126,3 +126,21 @@ fn mask_textures_reach_the_mask_table_and_keep_their_alpha() {
         .unwrap();
     assert_eq!(handle.material_masks, None);
 }
+
+#[test]
+fn glint_and_tint_materials_draw_only_with_their_required_textures() {
+    for (defines, drawn) in [
+        (json!(["GLINT"]), false),
+        (json!(["MULTIPLICATIVE_TINT"]), false),
+        (json!(["USE_EMISSIVE"]), true),
+    ] {
+        let mut document = glowing_glass(json!({
+            "entity": "minecraft:example", "bone": "magnifying*", "material": "example:glow"
+        }));
+        document["materials"]["example:glow"]["material"] = json!({"+defines": defines});
+        let bones = bone_materials(Some(document));
+        // The fixture controller supplies one texture.
+        assert_eq!(!bones[0].1.is_empty(), drawn, "{defines}");
+        assert_eq!(bones[1].1.len(), 1, "other bones keep drawing: {defines}");
+    }
+}

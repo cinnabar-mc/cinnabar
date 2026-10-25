@@ -101,6 +101,24 @@ impl MaterialTable {
         )
     }
 
+    /// Textures a draw with definition `index` needs, as Bedrock validates them before drawing:
+    /// `GLINT` needs a second texture, and with `MULTIPLICATIVE_TINT` or `MASKED_MULTITEXTURE`
+    /// a third; either of those alone needs a second. Other materials need none here, so layers
+    /// with unresolved textures keep their artwork fallback.
+    pub(super) fn required_textures(&self, index: u32) -> u16 {
+        let Some(definition) = self.definitions.get(index as usize) else {
+            return 0;
+        };
+        let glint = definition.has_define("GLINT");
+        let tint = definition.has_define("MULTIPLICATIVE_TINT")
+            || definition.has_define("MASKED_MULTITEXTURE");
+        match (glint, tint) {
+            (true, true) => 3,
+            (true, false) | (false, true) => 2,
+            (false, false) => 0,
+        }
+    }
+
     /// Interns `masks`, reusing an equal existing entry. Masks past the carrier bound stay
     /// unresolved and are counted; their material draws without them.
     fn intern_masks(&mut self, masks: assets::EntityMaterialMasks) -> Option<u32> {
