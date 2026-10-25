@@ -91,6 +91,38 @@ fn roles(view: &ResolvedControl) -> Roles {
     found
 }
 
+/// Adds to `pinned` every control under `root` whose layout follows a scroll view's state:
+/// each control on the path from a view to a control it names in a role, and the whole
+/// subtree of a role that does not enclose the scrolled content (track, box, bar panel).
+/// Read from the tree alone, so neither culling nor scroll state can hide one.
+pub(super) fn pin(root: &ResolvedControl, pinned: &mut measure::Memo<usize, ()>) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.control_type.as_deref() == Some("scroll_view") {
+            let paths = roles(node);
+            let content = paths[CONTENT].as_deref();
+            for path in paths.iter().flatten() {
+                let mut at = Some(node);
+                for &index in path {
+                    at = at.and_then(|parent| parent.children.get(index));
+                    if let Some(control) = at {
+                        pinned.insert(address(control), ());
+                    }
+                }
+                let encloses_content = content.is_some_and(|content| content.starts_with(path));
+                if let Some(role) = at.filter(|_| !encloses_content) {
+                    let mut below = vec![role];
+                    while let Some(control) = below.pop() {
+                        pinned.insert(address(control), ());
+                        below.extend(&control.children);
+                    }
+                }
+            }
+        }
+        stack.extend(&node.children);
+    }
+}
+
 /// Forget only the moved root; descendant allocations remain stable.
 pub(super) fn forget(address: usize) {
     ROLES.with(|memo| {
@@ -161,8 +193,11 @@ fn role_key(view: &ResolvedControl, root_key: &str, path: &[usize]) -> String {
 }
 
 /// A live scroll view: its solved geometry, applied as its descendants are placed.
+#[derive(Debug)]
 pub(crate) struct ScrollFrame {
     pub key: String,
+    /// A hash of everything else in the frame, from [`Self::seal`].
+    applied: u64,
     /// Every control the view names in a role, in `ROLE_KEYS` order.
     roles: [Option<usize>; 5],
     content: Option<usize>,
@@ -211,6 +246,7 @@ impl ScrollFrame {
             [VIEWPORT, CONTENT, TRACK, BOX, PANEL].map(|role| located[role]);
         let mut frame = Self {
             key: key.to_owned(),
+            applied: 0,
             roles: located.map(|role| role.map(|(control, _, _)| address(control))),
             content: content.map(|(control, _, _)| address(control)),
             bar_box: bar_box.map(|(control, _, _)| address(control)),
@@ -390,10 +426,20 @@ impl ScrollFrame {
         self.roles
     }
 
-    /// Whether `control` fills one of this view's roles, so its placement, visibility or
-    /// report follows the view's scroll state rather than its own placement inputs.
-    pub(super) fn governs(&self, control: &ResolvedControl) -> bool {
-        self.roles.contains(&Some(address(control)))
+    /// The frame with [`Self::applied`] set from every field it applies to descendants.
+    pub(super) fn seal(mut self) -> Self {
+        use std::hash::{Hash, Hasher};
+        self.applied = 0;
+        let mut hasher = std::hash::DefaultHasher::new();
+        format!("{self:?}").hash(&mut hasher);
+        self.applied = hasher.finish();
+        self
+    }
+
+    /// A hash of the whole solved frame (offset, extents, box placement and fade, bar
+    /// visibility, metrics), so placements under it match only under the same scroll state.
+    pub(super) fn applied(&self) -> u64 {
+        self.applied
     }
 
     /// The bar panel's address, when the view names one.

@@ -36,6 +36,8 @@ pub(super) struct Inputs {
     pub(super) hits: Arc<HitScope>,
     /// Whether a culling layout drops this subtree's scroll content outside the viewport.
     pub(super) culls: bool,
+    /// The enclosing scroll views' whole solved state ([`super::scroll::ScrollFrame::applied`]).
+    pub(super) scroll: u64,
 }
 
 impl Inputs {
@@ -51,6 +53,7 @@ impl Inputs {
             && self.enabled == other.enabled
             && self.emitting == other.emitting
             && self.culls == other.culls
+            && self.scroll == other.scroll
             && self.inherited.same(&other.inherited)
             && (Arc::ptr_eq(&self.hits, &other.hits) || self.hits == other.hits)
     }
@@ -100,6 +103,9 @@ pub(super) struct Placements {
     view: Option<(ViewState, bool, crate::LayoutCacheKey)>,
     /// Controls the last layout placed rather than spliced.
     placed: usize,
+    /// Controls that follow a scroll view's state ([`super::scroll::pin`]), once found for
+    /// the current tree.
+    pinned: Option<Memo<usize, ()>>,
     /// Each scroll view's role controls when a layout last opened it, by record key.
     scroll_roles: Memo<usize, [Option<usize>; 5]>,
     /// The last output's draws and hit regions, shared with it.
@@ -249,6 +255,28 @@ impl Placements {
     /// Controls the last layout placed rather than spliced.
     pub(super) fn placed_count(&self) -> usize {
         self.placed
+    }
+
+    /// Finds the controls under `root` that follow a scroll view's state, unless known for
+    /// this tree. Needs the live role memo of a layout of `root`.
+    pub(super) fn pin(&mut self, root: &super::ResolvedControl) {
+        if self.pinned.is_none() {
+            let mut pinned = Memo::default();
+            super::scroll::pin(root, &mut pinned);
+            self.pinned = Some(pinned);
+        }
+    }
+
+    /// The tree changed: its pinned controls must be found again.
+    pub(super) fn unpin(&mut self) {
+        self.pinned = None;
+    }
+
+    /// Whether `control` follows a scroll view's state, so it is placed every layout.
+    pub(super) fn pinned(&self, control: usize) -> bool {
+        self.pinned
+            .as_ref()
+            .is_none_or(|pinned| pinned.contains_key(&control))
     }
 
     /// Notes the role controls of the scroll view keyed `view`; whether they differ from

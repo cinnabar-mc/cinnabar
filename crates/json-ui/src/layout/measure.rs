@@ -279,6 +279,7 @@ impl MeasureCache {
             return;
         }
         self.restarted = false;
+        self.placements.unpin();
         self.children.retain(|key, _| !dirty.contains(&key.0));
         self.natural.retain(|key, _| !dirty.contains(&key.0));
         self.sizes.retain(|key, _| !dirty.contains(&key.0));

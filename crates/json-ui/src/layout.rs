@@ -242,6 +242,9 @@ pub(crate) fn layout_reusing(
         crate::LayoutCacheKey::new(root_size, 1.0, env),
         records,
     );
+    if records {
+        cache.placements.pin(root);
+    }
     let (laid, report) = lay_out(
         root,
         root_size,
@@ -422,8 +425,8 @@ fn place_subtree<'a>(
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
     // Only context a control's inputs capture lets a later layout splice it. Scroll content
-    // may splice: the view's offset and fade belong to the layout's view state, the controls
-    // it names in roles taint below, and whether it culls is an input.
+    // may splice: the enclosing views' solved state and whether they cull are inputs, and
+    // the controls a view's state moves or hides beyond that are pinned.
     let free = ctx.sliders.is_empty()
         && ctx.overrides.is_empty()
         && ctx.hidden_names.is_empty()
@@ -433,7 +436,10 @@ fn place_subtree<'a>(
         .last()
         .map_or(parent_clip, |(_, parent, _)| *parent);
     let enabled_above = ctx.disabled == 0;
-    let governed = ctx.scrolls.iter().any(|frame| frame.governs(control));
+    let pinned = ctx
+        .reuse
+        .as_ref()
+        .is_some_and(|reuse| reuse.placements.pinned(std::ptr::from_ref(control).addr()));
     let entry = ctx.reuse.as_mut().map(|reuse| {
         let address = reuse
             .address
@@ -458,15 +464,19 @@ fn place_subtree<'a>(
                     .scrolls
                     .last()
                     .is_some_and(|frame| frame.metrics.is_some()),
+            scroll: ctx
+                .scrolls
+                .iter()
+                .fold(0, |hash, frame| hash.rotate_left(17) ^ frame.applied()),
         };
         let reused = old
-            .filter(|_| free && !governed && !reuse.roles_moved)
+            .filter(|_| free && !pinned && !reuse.roles_moved)
             .and_then(|old| reuse.placements.reuse(address, old, &inputs));
         (address, old, inputs, reuse.taint, reused)
     });
-    // A scroll view moves, sizes, fades, hides or reports the controls it names in roles from
-    // its own state, so neither they nor anything enclosing them can splice.
-    if governed {
+    // A scroll view moves, sizes, fades, hides or reports its role controls and what their
+    // paths and bars enclose from its own state, so none of them splices.
+    if pinned {
         ctx.taint();
     }
     let (entry, reused) = match entry {
@@ -562,6 +572,10 @@ fn place_subtree<'a>(
         && measure::suppress(panel, frame.panel_hidden)
     {
         scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
+    }
+    // Placements under the view record its whole solved state as an input.
+    if ctx.reuse.is_some() {
+        scroll = scroll.map(ScrollFrame::seal);
     }
     // A scroll view whose roles moved to other controls splices nothing for the rest of the
     // layout: an unchanged record may enclose a control that only now follows its state.
