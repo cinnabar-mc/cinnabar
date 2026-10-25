@@ -155,7 +155,9 @@ impl Driver {
     fn until(&mut self, what: &str, mut done: impl FnMut(&Live<Helper>) -> bool) {
         test_time::eventually_within(Duration::from_secs(120), what, || {
             self.now_ms += CALLBACK_INTERVAL_MS;
-            self.live.poll(self.live.epoch, self.now_ms).unwrap();
+            self.live
+                .poll(self.live.epoch, self.now_ms, true, |_| true)
+                .unwrap();
             done(&self.live)
         });
     }
@@ -179,8 +181,13 @@ impl Driver {
                 .collect(),
         };
         self.now_ms += CALLBACK_INTERVAL_MS;
+        let epoch = self.live.epoch;
         self.live
-            .receive(&serde_json::to_vec(&message).unwrap(), self.now_ms)
+            .receive(
+                &ExperienceMessage::new(serde_json::to_vec(&message).unwrap()),
+                self.now_ms,
+                epoch,
+            )
             .unwrap();
     }
 

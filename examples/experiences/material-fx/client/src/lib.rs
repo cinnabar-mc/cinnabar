@@ -92,13 +92,16 @@ impl ClientPart for MaterialFx {
     fn init() {
         bind_all();
     }
+}
 
-    fn dispatch(channel: String, record: Vec<Value>) {
+impl experience_sdk::client::__private::Dispatch for MaterialFx {
+    /// Applies one showcase control record from the server half.
+    fn dispatch(channel: String, record: Vec<Value>) -> Result<(), String> {
         if channel != experience::channels::CONTROL.id {
-            return;
+            return Ok(());
         }
         let Some(Value::Choice(op)) = record.first() else {
-            return;
+            return Ok(());
         };
         let argument = |index: usize| match record.get(index) {
             Some(Value::Integer(value)) => *value,
@@ -117,6 +120,7 @@ impl ClientPart for MaterialFx {
                 refresh(changed);
             }
         }
+        Ok(())
     }
 }
 
