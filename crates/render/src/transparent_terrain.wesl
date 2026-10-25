@@ -73,7 +73,6 @@ fn vertex(
     out.textures.x = model.current_texture;
     out.textures.y = model.next_texture;
     out.frame_face.x = model.frame_blend;
-    out.routing.y = model.visibility.y;
     out.world_position = model.world_position;
     out.lighting = model.lighting;
     out.normal = model.normal;
@@ -148,7 +147,6 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     @if(!ENHANCED)
     model.tint_gamma = in.tint_gamma;
     model.world_origin = in.world_origin;
-    model.visibility.y = in.routing.y;
     model.world_position = in.world_position;
     return model;
 }

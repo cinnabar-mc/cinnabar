@@ -31,8 +31,8 @@ struct VertexOutput {
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
-    // x: visibility flags, with the f16 mask strength in the upper half; y: two-sided; zw:
-    // inverted Cinnabar glow and emissive mask references (zero names none).
+    // x: visibility and sidedness flags; y: the exact f32 bits of the Cinnabar mask strength;
+    // zw: inverted Cinnabar glow and emissive mask references (zero names none).
     @location(8) @interpolate(flat) visibility: vec4<u32>,
     @location(9) lighting: vec3<f32>,
     @if(ENHANCED)
@@ -57,6 +57,19 @@ const MODEL_VISIBLE: u32 = 1u;
 const MODEL_BOUNDED_TILE: u32 = 2u;
 // Every UV stays inside one tile, so cutout coverage must not borrow texels across its edges.
 const MODEL_UNIT_TILE: u32 = 4u;
+// Back faces draw too.
+const MODEL_TWO_SIDED: u32 = 8u;
+
+/// The flat visibility varying: `flags` in x and a material's mask varyings
+/// (`material_mask_varyings`) in yzw, keeping the strength's full f32 bits as cube faces do.
+fn model_visibility(flags: u32, masks: vec3<u32>) -> vec4<u32> {
+    return vec4(flags, masks.z, masks.x, masks.y);
+}
+
+/// The Cinnabar mask strength `model_visibility` carries.
+fn model_mask_strength(visibility: vec4<u32>) -> f32 {
+    return bitcast<f32>(visibility.y);
+}
 
 fn invisible_vertex() -> VertexOutput {
     var invisible: VertexOutput;
@@ -418,17 +431,17 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.biome_record = u32(quad.chunk_origin.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
-    out.visibility.x = MODEL_VISIBLE
-        | select(0u, MODEL_BOUNDED_TILE, is_bamboo)
-        | select(0u, MODEL_UNIT_TILE, model_quad_within_tile(quad));
     @if(!ENHANCED)
     let masks = material_mask_varyings(material);
-    @if(!ENHANCED)
-    out.visibility.x |= (pack2x16float(vec2(bitcast<f32>(masks.z), 0.0)) & 0xffffu) << 16u;
-    @if(!ENHANCED)
-    out.visibility.z = masks.x;
-    @if(!ENHANCED)
-    out.visibility.w = masks.y;
+    @if(ENHANCED)
+    let masks = vec3(0u);
+    out.visibility = model_visibility(
+        MODEL_VISIBLE
+            | select(0u, MODEL_BOUNDED_TILE, is_bamboo)
+            | select(0u, MODEL_UNIT_TILE, model_quad_within_tile(quad))
+            | select(0u, MODEL_TWO_SIDED, (quad_flags & 8u) != 0u),
+        masks,
+    );
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
@@ -444,7 +457,6 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.native_light_levels = terrain_light_levels(light_sample);
     @if(!ENHANCED)
     out.native_ao_face = terrain_shade;
-    out.visibility.y = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     out.world_origin = vec3<f32>(quad.chunk_origin.xyz);
     @if(!ENHANCED)
@@ -726,7 +738,7 @@ sampled_gamma: vec4<f32>) -> vec4<f32> {
     // Cinnabar masks: emissive texels skip shade and lightmap; glow adds before fog.
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    let strength = unpack2x16float(in.visibility.x >> 16u).x;
+    let strength = model_mask_strength(in.visibility);
     var glow = vec3(0.0);
     var unlit = 0.0;
     if (in.visibility.z != 0u) {
@@ -755,7 +767,7 @@ fn fragment(
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
     if (in.visibility.x == 0u) { discard; }
-    if (!front_facing && in.visibility.y == 0u) { discard; }
+    if (!front_facing && (in.visibility.x & MODEL_TWO_SIDED) == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     // Both views already hold the working colour space, so frames blend before the alpha test.
@@ -811,7 +823,7 @@ fn fragment_blend(
 // uniform control flow.
 fn shade_blend(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     if (in.visibility.x == 0u) { discard; }
-    if (!front_facing && in.visibility.y == 0u) { discard; }
+    if (!front_facing && (in.visibility.x & MODEL_TWO_SIDED) == 0u) { discard; }
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
