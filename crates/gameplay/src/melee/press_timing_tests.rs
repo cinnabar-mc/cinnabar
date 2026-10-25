@@ -266,3 +266,76 @@ fn refused_ordered_press_does_not_survive_publication() {
         |_| panic!("a fresh press cannot reuse another press's published tick"),
     );
 }
+
+/// Admits one fresh press, returning its admission and the packets that reached the FIFO.
+fn admit_fresh_press(
+    press: &PressContext,
+    crosshair: Crosshair,
+    full: bool,
+) -> (AttackAdmission, Vec<protocol::Packet>) {
+    let mut runtime = MeleeRuntime::default();
+    let mut mining = crate::survival_mining::SurvivalMiningRuntime::default();
+    let mut movement = crate::test_support::survival_mining::ticker_with_ticks(3);
+    runtime.observe_input(true, false);
+    let mut sent = Vec::new();
+    let admission = admit_attack_press(
+        &mut runtime,
+        &mut mining,
+        &mut SwingTracker::default(),
+        &mut movement,
+        AttackFrame {
+            attack: Some((crosshair, press.clone())),
+            mining_target: None,
+            allow_mining_start: true,
+            attack_held: false,
+            authority: crate::survival_mining::BlockBreakingAuthority::Server,
+            now_millis: 1_000,
+            local_runtime_id: press.local_runtime_id,
+        },
+        AttackEffects {
+            send: |packets| {
+                if full {
+                    return Err(BatchSendError::Full);
+                }
+                sent.extend(packets);
+                Ok(())
+            },
+            swing_duration: |_| press.swing_duration,
+            request_id: |_, _| None,
+            predict_break: |_| panic!("an attack press without a mining target cannot break"),
+        },
+    );
+    (admission, sent)
+}
+
+#[test]
+fn an_actor_attack_is_reported_for_its_sound_in_the_frame_it_is_sent() {
+    let hit = ActorHit {
+        runtime_id: 7,
+        distance: 2.0,
+        point: [0.0, 1.62, -2.0],
+    };
+    let (admission, sent) = admit_fresh_press(&press(101), Crosshair::Actor(hit), false);
+    assert!(admission.admitted.is_some());
+    assert!(sent.iter().any(protocol::is_aim_assist_rotation_action));
+    assert_eq!(admission.actor_attack, Some(hit));
+
+    let (refused, _) = admit_fresh_press(&press(101), Crosshair::Actor(hit), true);
+    assert_eq!(
+        refused.actor_attack, None,
+        "a refused press has not attacked"
+    );
+    let (missed, _) = admit_fresh_press(&press(101), Crosshair::Miss, false);
+    assert!(missed.admitted.is_some());
+    assert_eq!(missed.actor_attack, None);
+
+    // Piercing weapons attack through the server, which voices them itself.
+    let mut piercing = press(101);
+    piercing.item_attack = Some(ItemAttackPress {
+        direction: [0.0, 0.0, -1.0],
+        cooldown: None,
+    });
+    let (item, sent) = admit_fresh_press(&piercing, Crosshair::Actor(hit), false);
+    assert!(item.admitted.is_some() && !sent.is_empty());
+    assert_eq!(item.actor_attack, None);
+}

@@ -341,7 +341,8 @@ fn native_lines_reconcile_retained_output_and_revoke_both() {
     render.begin_callback();
     render.retained.remove(material).unwrap();
     render.commit_retained();
-    assert!(render.output().retained.is_empty());
+    assert!(render.output().retained[0].materials.is_empty());
+    assert!(render.output().retained[0].entities.contains_key(&entity));
     let material = render
         .retained
         .create_material(
@@ -361,4 +362,81 @@ fn native_lines_reconcile_retained_output_and_revoke_both() {
     assert_eq!(render.output().primitives.ribbons.len(), 1);
     render.revoke();
     assert_eq!(render.output(), &RenderOutput::default());
+}
+
+#[test]
+fn bundle_and_personal_pass_revisions_share_one_namespace() {
+    use crate::presentation::{Context, Output, Pass, Receiver};
+
+    let mut state = state();
+    for index in 0..4 {
+        let before = mod_render::next_owner();
+        state.render.begin_frame();
+        state
+            .register_render_pass(
+                wit::PassSpec {
+                    name: "personal".into(),
+                    order: 0,
+                    depth: false,
+                    source: format!(
+                        "fn effect(uv: vec2<f32>) -> vec3<f32> {{ return scene(uv) * {index}.0; }}"
+                    ),
+                },
+                Vec::new(),
+            )
+            .unwrap()
+            .unwrap();
+        state.render.commit();
+        let personal = state.render.output().passes[0].revision;
+        let mut receiver = Receiver::default();
+        receiver
+            .apply(
+                Output {
+                    passes: vec![Pass {
+                        name: "bundle".into(),
+                        order: 0,
+                        source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }"
+                            .into(),
+                        enabled: true,
+                        params: [0.; mod_api::MAX_PASS_PARAMS],
+                        masks: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+                mod_api::drawing::DrawingPermissions::ALL,
+                &Context {
+                    connection: 7,
+                    ..Default::default()
+                },
+                u64::MAX,
+                |_| true,
+            )
+            .unwrap();
+        let bundle = receiver.output().0.passes[0].revision;
+        let after = mod_render::next_owner();
+        assert!(before < personal && personal < bundle && bundle < after);
+    }
+}
+
+#[test]
+fn entity_only_changes_publish_and_keep_live_handles_outside_candidates() {
+    let mut render = RenderState::new();
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 7,
+        spawn_revision: 1,
+    };
+    render.retained.bind_session(1, 0);
+    render.update_entities(vec![actor], &[]).unwrap();
+    let before = render.generation();
+    render.begin_callback();
+    let entity = render.retained.observe_entities().unwrap()[0].0;
+    render.commit_retained();
+    assert_ne!(render.generation(), before);
+    assert_eq!(render.output().retained[0].entities[&entity], actor);
+    render.update_entities(Vec::new(), &[]).unwrap();
+    assert_eq!(render.output().retained[0].entities[&entity], actor);
+    render.update_entities(Vec::new(), &[actor]).unwrap();
+    assert!(render.output().retained.is_empty());
 }

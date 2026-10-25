@@ -19,7 +19,8 @@ use std::{
 
 mod supervisor;
 
-const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
+const MAX_STARTUP_IPC: usize =
+    MAX_COMPONENT_BYTES * 2 + MAX_SESSION_MEMORY as usize * 4 + MAX_HOST_OUTPUT;
 /// A dispatch's session items, which a dispatch carries only when they changed.
 const MAX_ITEMS_IPC: usize = 8 << 20;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
@@ -30,11 +31,10 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The helper IPC protocol. A client and its helper ship together; a helper of another version
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
-/// the helper exiting; 3 the session items a dispatch carries; 4 carries initialization messages
-/// from a restarted guest alongside the failed callback's diagnostic; 5 reports terminal
-/// callback queue overflow separately from recoverable callback failures; 6 reports callbacks
-/// that must remain queued until registry confirmation; 7 reports terminal registry mismatches.
-const HELPER_PROTOCOL: u32 = 7;
+/// the helper exiting; 3 the session items a dispatch carries; 4 restart initialization output;
+/// 5 terminal queue overflow; 6 registry confirmation; 7 terminal registry mismatches;
+/// 8 verified drawing assets, native context, held actor references and shared scene snapshots.
+const HELPER_PROTOCOL: u32 = 8;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -89,6 +89,8 @@ struct Start {
     capabilities: Capabilities,
     epoch: u64,
     component: String,
+    assets: std::collections::BTreeMap<String, Vec<u8>>,
+    drawing: crate::presentation::Context,
 }
 
 /// What one callback delivers to the guest.
@@ -101,6 +103,8 @@ pub enum Event {
     Action { id: String, index: Option<u32> },
     /// The world epoch changed, to `epoch`; the guest and its state live on.
     Epoch,
+    /// A coalesced host presentation callback.
+    Frame,
     /// A secondary press fired a declared action from the focused modal, to `secondary-action`,
     /// with its collection row.
     SecondaryAction { id: String, index: Option<u32> },
@@ -130,7 +134,7 @@ impl Event {
             Event::Action { id, .. } | Event::SecondaryAction { id, .. } => {
                 server_experience::manifest::identifier(id)
             }
-            Event::Epoch => true,
+            Event::Epoch | Event::Frame => true,
             Event::Resized { size } => size.valid(),
             Event::Text { control, text } => {
                 server_experience::manifest::identifier(control) && screen::edit_text(text)
@@ -152,6 +156,7 @@ impl Event {
             Event::Message { .. } => "dispatch",
             Event::Action { .. } => "action",
             Event::Epoch => "epoch",
+            Event::Frame => "frame",
             Event::SecondaryAction { .. } => "secondary-action",
             Event::Resized { .. } => "modal-resized",
             Event::Text { .. } => "text-changed",
@@ -167,7 +172,13 @@ impl Event {
 pub enum Reply {
     /// The callback returned; its output, to publish whole, and the fuel it consumed of its
     /// `CALLBACK_FUEL`.
-    Committed { transaction: Transaction, fuel: u64 },
+    Committed {
+        transaction: Transaction,
+        fuel: u64,
+        references: Vec<mod_render::retained::EntityKey>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        presentation: Option<Box<crate::presentation::Chunk>>,
+    },
     /// The event did not run. Keep it queued; only this confirmation channel may run yet.
     NotReady {
         transaction: Transaction,
@@ -175,12 +186,16 @@ pub enum Reply {
     },
     /// The callback failed and published nothing. Recoverable dispatch failures start a fresh
     /// guest. A failed start exits.
-    Failed(CallFailure),
+    Failed {
+        failure: CallFailure,
+        references: Vec<mod_render::retained::EntityKey>,
+    },
     /// The callback failed, but a fresh guest initialized successfully. Publish only its
     /// initialization messages, unless this failure stops the part.
     Recovered {
         failure: CallFailure,
         transaction: Transaction,
+        references: Vec<mod_render::retained::EntityKey>,
         /// The fresh guest's confirmation channel, if it requires registry negotiation.
         confirmation: Option<String>,
     },
@@ -201,6 +216,8 @@ pub enum FailureKind {
     Refused,
     /// The component could not be compiled, linked or initialized.
     Startup,
+    /// The helper or its output cannot be used safely; this bundle must stop.
+    Unavailable,
     /// The server's shared definitions differ from this client part's definitions.
     RegistryMismatch,
 }
@@ -238,8 +255,13 @@ impl CallFailure {
     }
 
     /// A start of `bundle` that failed with `error`.
-    fn startup(bundle: &str, error: &anyhow::Error) -> Self {
+    pub fn startup(bundle: &str, error: &anyhow::Error) -> Self {
         Self::new(bundle, "init", FailureKind::Startup, error)
+    }
+
+    /// Reports a fatal host-side rejection using the same bounded callback diagnostics.
+    pub fn unavailable(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
+        Self::new(bundle, callback, FailureKind::Unavailable, error)
     }
 
     fn new(bundle: &str, callback: &str, kind: FailureKind, error: &anyhow::Error) -> Self {
@@ -270,12 +292,14 @@ pub struct Dispatch {
     /// since the last dispatch that carried them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<SessionItems>,
+    /// Native drawing identities for this callback, never values supplied by the guest.
+    pub drawing: crate::presentation::Context,
 }
 
 pub struct Helper {
     process: supervisor::Process,
     requests: mpsc::SyncSender<Dispatch>,
-    responses: Mutex<mpsc::Receiver<Result<Reply>>>,
+    responses: Mutex<mpsc::Receiver<(Instant, Result<Reply>)>>,
     /// The helper's stderr lines, cut and rate-limited.
     log: Mutex<mpsc::Receiver<String>>,
     pending_since: Option<Instant>,
@@ -300,20 +324,55 @@ impl Helper {
         bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
-        epoch: u64,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         ensure!(
             std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
             "developer helper disabled"
         );
         ensure!(bytes.len() <= MAX_COMPONENT_BYTES, "component too large");
+        Self::spawn_developer_with_assets(
+            executable,
+            bytes,
+            owner,
+            capabilities,
+            drawing,
+            Default::default(),
+        )
+    }
+
+    /// Transfers only verified package files to the developer helper before initialization.
+    pub fn spawn_developer_with_assets(
+        executable: &Path,
+        bytes: Vec<u8>,
+        owner: Principal,
+        capabilities: Capabilities,
+        drawing: crate::presentation::Context,
+        assets: std::collections::BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self> {
+        ensure!(
+            std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
+            "developer helper disabled"
+        );
+        drawing.check(drawing.epoch)?;
+        ensure!(bytes.len() <= MAX_COMPONENT_BYTES, "component too large");
+        ensure!(
+            assets.values().map(Vec::len).sum::<usize>() as u64 <= capabilities.scope.memory_bytes,
+            "drawing asset memory budget exceeded"
+        );
+        ensure!(
+            assets.keys().all(|path| capabilities.assets.contains(path)),
+            "unowned drawing asset"
+        );
         Self::spawn_pending(executable, move || {
             Ok(Start {
                 protocol: HELPER_PROTOCOL,
                 owner,
                 capabilities,
-                epoch,
+                epoch: drawing.epoch,
+                drawing,
                 component: crypto::hex(&bytes),
+                assets,
             })
         })
     }
@@ -346,6 +405,7 @@ impl Helper {
             "helper busy or quarantined"
         );
         request.event.check()?;
+        request.drawing.check(request.epoch)?;
         serialize_frame(&request, MAX_DISPATCH_IPC)?;
         self.requests.try_send(request)?;
         self.pending_since = Some(Instant::now());
@@ -356,19 +416,25 @@ impl Helper {
     /// callback is an `Ok` failure reply and the helper runs on; an `Err` means the helper is
     /// gone.
     pub fn poll(&mut self) -> Option<Result<Reply>> {
+        self.poll_at(Instant::now())
+    }
+
+    /// Uses completion time for queued replies and caller time only for unfinished work.
+    fn poll_at(&mut self, now: Instant) -> Option<Result<Reply>> {
         if self.quarantined {
             return None;
         }
+        let response = self.responses.lock().ok()?.try_recv();
+        let finished = response.as_ref().map_or(now, |(at, _)| *at);
         if self
             .pending_since
-            .is_some_and(|since| since.elapsed() >= HELPER_DEADLINE)
+            .is_some_and(|since| finished.saturating_duration_since(since) >= HELPER_DEADLINE)
         {
             self.kill();
             return Some(Err(anyhow::anyhow!("helper deadline exceeded")));
         }
-        let response = self.responses.lock().ok()?.try_recv();
         match response {
-            Ok(result) => {
+            Ok((_, result)) => {
                 self.pending_since = None;
                 if result.is_err() {
                     self.kill();
@@ -426,30 +492,37 @@ pub fn serve_developer() -> Result<()> {
             startup.component.len() <= MAX_COMPONENT_BYTES * 2,
             "component too large"
         );
-        BundleHost::instantiate(
+        BundleHost::instantiate_with_assets(
             &crypto::unhex(&startup.component)?,
             startup.owner,
             startup.capabilities,
             startup.epoch,
+            startup.assets,
+            startup.drawing,
         )
     })();
     let mut host = match started {
         Ok(host) => host,
         Err(error) => {
             let failure = CallFailure::startup(&bundle, &error);
-            write_frame(&mut output, &Reply::Failed(failure), MAX_REPLY_IPC)?;
+            write_frame(
+                &mut output,
+                &Reply::Failed {
+                    failure,
+                    references: Vec::new(),
+                },
+                MAX_REPLY_IPC,
+            )?;
             return Err(error);
         }
     };
+    let transaction = host.take_transaction();
     let init = match host.waiting_for().map(str::to_owned) {
         Some(confirmation) => Reply::NotReady {
-            transaction: host.take_transaction(),
+            transaction,
             confirmation,
         },
-        None => Reply::Committed {
-            transaction: host.take_transaction(),
-            fuel: host.last_fuel_used(),
-        },
+        None => committed(&mut host, transaction, &bundle, "init"),
     };
     answer(&mut output, init, &bundle, "init")?;
     loop {
@@ -459,11 +532,10 @@ pub fn serve_developer() -> Result<()> {
         if let Some(items) = request.items {
             host.set_session(std::sync::Arc::new(items.into()));
         }
-        let reply = match host.dispatch(&request.event, request.epoch) {
-            Ok(DispatchResult::Committed(transaction)) => Reply::Committed {
-                transaction,
-                fuel: host.last_fuel_used(),
-            },
+        let reply = match host.dispatch(&request.event, request.epoch, &request.drawing) {
+            Ok(DispatchResult::Committed(transaction)) => {
+                committed(&mut host, transaction, &bundle, callback)
+            }
             Ok(DispatchResult::NotReady(transaction)) => Reply::NotReady {
                 transaction,
                 confirmation: host.waiting_for().expect("negotiation pending").to_owned(),
@@ -474,12 +546,17 @@ pub fn serve_developer() -> Result<()> {
                     ..CallFailure::of(&bundle, callback, &error)
                 };
                 let transaction = host.take_transaction();
+                let references = host.drawing_references();
                 if transaction.commands.is_empty() {
-                    Reply::Failed(failure)
+                    Reply::Failed {
+                        failure,
+                        references,
+                    }
                 } else {
                     Reply::Recovered {
                         failure,
                         transaction,
+                        references,
                         confirmation: host.waiting_for().map(str::to_owned),
                     }
                 }
@@ -489,13 +566,63 @@ pub fn serve_developer() -> Result<()> {
     }
 }
 
+/// Fits a presentation piece beside the callback's ordinary transaction.
+fn committed(
+    host: &mut BundleHost,
+    transaction: Transaction,
+    bundle: &str,
+    callback: &str,
+) -> Reply {
+    let fuel = host.last_fuel_used();
+    let mut reply = Reply::Committed {
+        transaction,
+        fuel,
+        references: host.drawing_references(),
+        presentation: None,
+    };
+    let presentation = serde_json::to_vec(&reply)
+        .map_err(anyhow::Error::from)
+        .and_then(|bytes| {
+            let allowance =
+                MAX_HOST_OUTPUT.saturating_sub(bytes.len() + MAX_FAILURE_REASON_BYTES) / 4;
+            host.take_presentation(allowance)
+        });
+    match presentation {
+        Ok(chunk) => {
+            if let Reply::Committed { presentation, .. } = &mut reply {
+                *presentation = chunk;
+            }
+            reply
+        }
+        Err(error) => Reply::Failed {
+            failure: CallFailure {
+                fuel: Some(fuel),
+                ..CallFailure::of(bundle, callback, &error)
+            },
+            references: host.drawing_references(),
+        },
+    }
+}
+
 /// Writes `reply`, or a failure in its place when it does not fit a reply frame.
 fn answer(output: &mut impl Write, reply: Reply, bundle: &str, callback: &str) -> Result<()> {
     let bytes = match serialize_frame(&reply, MAX_REPLY_IPC) {
         Ok(bytes) => bytes,
         Err(error) => {
             let failure = CallFailure::new(bundle, callback, FailureKind::Refused, &error);
-            serialize_frame(&Reply::Failed(failure), MAX_REPLY_IPC)?
+            let references = match reply {
+                Reply::Committed { references, .. }
+                | Reply::Failed { references, .. }
+                | Reply::Recovered { references, .. } => references,
+                Reply::NotReady { .. } => Vec::new(),
+            };
+            serialize_frame(
+                &Reply::Failed {
+                    failure,
+                    references,
+                },
+                MAX_REPLY_IPC,
+            )?
         }
     };
     output.write_all(&(bytes.len() as u32).to_le_bytes())?;
@@ -532,7 +659,7 @@ pub(crate) fn write_frame(
 }
 
 /// Stops serialization as soon as another byte would exceed the frame budget.
-fn serialize_frame(value: &impl Serialize, limit: usize) -> Result<Vec<u8>> {
+pub(crate) fn serialize_frame(value: &impl Serialize, limit: usize) -> Result<Vec<u8>> {
     let mut writer = BoundedBytes {
         bytes: Vec::new(),
         limit,

@@ -110,6 +110,7 @@ impl WorldStream {
                             &source,
                             self.authority.runtime_assets(),
                             self.authority.network_id_mode(),
+                            self.overlay_hosts(key).count(),
                         )
                         .is_some()
                 })

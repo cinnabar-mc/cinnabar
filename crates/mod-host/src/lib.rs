@@ -11,9 +11,14 @@ pub use declarations::{
 };
 pub mod helper;
 pub use grants::{Capability, ModGrants};
+mod action_filter;
 mod callback_budget;
 mod callbacks;
 pub use callback_budget::{CallbackBudget, CallbackOutcome};
+pub use runtime::cinnabar::extension::action_filter::{
+    ActionFrame, ActionVerdict, FilteredAction, Held as ActionHeld, Transition as ActionTransition,
+    TransitionKind,
+};
 mod exclusive;
 pub use exclusive::HudClaims;
 mod component_assets;
@@ -24,6 +29,7 @@ pub mod module_observations;
 mod outputs;
 pub mod package;
 pub mod packet_mod;
+pub mod presentation;
 mod runtime;
 mod screens;
 pub mod server;

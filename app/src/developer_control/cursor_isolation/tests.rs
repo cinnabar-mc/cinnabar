@@ -279,8 +279,8 @@ fn desktop_cursor_requests_and_real_pointer_survive_control_handoff() {
 fn emote_open_and_close_keep_synthetic_input_inside_the_application() {
     use crate::ui_runtime::emotes::drive_emote_input;
     use client_shell::ui_resources::UiRuntimeResource;
-    use client_state::EmoteInputConsumed;
     use client_state::PlayerRuntime;
+    use client_state::ScreenInputConsumed;
 
     let (mut app, entity) = harness();
     let mut runtime = client_ui::ui_runtime::UiRuntime::new(1);
@@ -289,7 +289,7 @@ fn emote_open_and_close_keep_synthetic_input_inside_the_application() {
         .publish_local_runtime_id(&mut player, 1, 42)
         .unwrap();
     app.init_resource::<Time<Real>>()
-        .init_resource::<EmoteInputConsumed>()
+        .init_resource::<ScreenInputConsumed>()
         .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player)
         .add_systems(Update, drive_emote_input);
@@ -311,7 +311,7 @@ fn emote_open_and_close_keep_synthetic_input_inside_the_application() {
                 .is_open(),
             open
         );
-        assert!(app.world().resource::<EmoteInputConsumed>().0);
+        assert!(app.world().resource::<ScreenInputConsumed>().0);
         assert_eq!(app.world().resource::<NativeFacing>().cursor_updates, 0);
         assert_eq!(
             app.world().get::<Window>(entity).unwrap().cursor_position(),

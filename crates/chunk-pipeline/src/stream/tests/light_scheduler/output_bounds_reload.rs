@@ -15,7 +15,12 @@ fn resource_reload_refreshes_output_bounds_without_releasing_retained_meshes() {
     ) + completion_bytes;
     let mut old_permit = stream
         .mesh_memory
-        .try_admit(&source, stream.runtime_assets(), stream.network_id_mode())
+        .try_admit(
+            &source,
+            stream.runtime_assets(),
+            stream.network_id_mode(),
+            0,
+        )
         .unwrap();
     let old_mesh = mesh_sub_chunk(
         &stream.classifier,
@@ -52,7 +57,12 @@ fn resource_reload_refreshes_output_bounds_without_releasing_retained_meshes() {
     ) + completion_bytes;
     let mut permit = stream
         .mesh_memory
-        .try_admit(&source, stream.runtime_assets(), stream.network_id_mode())
+        .try_admit(
+            &source,
+            stream.runtime_assets(),
+            stream.network_id_mode(),
+            0,
+        )
         .unwrap();
     assert_eq!(
         retained.load(Ordering::Acquire),

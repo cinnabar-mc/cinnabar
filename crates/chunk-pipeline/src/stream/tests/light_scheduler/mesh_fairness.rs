@@ -470,6 +470,7 @@ fn assert_memory_blocked_retry_progress(blocked: usize, wake: bool) {
                 source,
                 stream.authority.runtime_assets(),
                 stream.authority.network_id_mode(),
+                0,
             )
             .unwrap()
     };
@@ -488,7 +489,8 @@ fn assert_memory_blocked_retry_progress(blocked: usize, wake: bool) {
             .try_admit(
                 &source,
                 stream.authority.runtime_assets(),
-                stream.authority.network_id_mode()
+                stream.authority.network_id_mode(),
+                0,
             )
             .is_none()
     );

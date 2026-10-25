@@ -13,8 +13,8 @@ use {
         manifest::{Manifest, Offer, implemented_permissions},
         negotiation::{Accept, Grant, Limits, Marker, VerifiedOffer, Wire},
         policy::{
-            INITIAL_BUNDLE_GENERATION, MAX_EXPANDED_BYTES, MAX_MARKER_BYTES, MAX_PAYLOAD_BYTES,
-            MAX_WIRE_VERSION, WIRE_VERSION,
+            INITIAL_BUNDLE_GENERATION, MAX_EXPANDED_BYTES, MAX_MANIFEST_BYTES, MAX_MARKER_BYTES,
+            MAX_PAYLOAD_BYTES, MAX_WIRE_VERSION, WIRE_VERSION,
         },
         runtime::Capabilities,
         session::Control,
@@ -255,7 +255,7 @@ fn fixtures_pass_the_client_verifiers() {
         .verify(
             &package.publisher_key,
             crypto::MANIFEST_DOMAIN,
-            MAX_MARKER_BYTES / 2,
+            MAX_MANIFEST_BYTES / 2,
         )
         .unwrap();
     assert_eq!(digest, digests["manifest_payload.json"]);

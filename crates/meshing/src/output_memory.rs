@@ -91,6 +91,12 @@ impl MeshOutputBounds {
         plain_bound()
             + BLOCKS_PER_SUB_CHUNK as u64 * MAX_SELECTED_MODEL_TEMPLATES as u64 * model_bytes
     }
+
+    /// What `overlays` cell overlays can add to a sub-chunk's mesh: each draws one model.
+    #[must_use]
+    pub const fn for_overlays(&self, overlays: usize) -> u64 {
+        overlays as u64 * self.fallback_model
+    }
 }
 
 /// Counts owned packed streams and biome words, including empty mesh allocations.

@@ -75,6 +75,8 @@ pub struct ActorTickContext {
     pub main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
     /// The selected item declares the native spear animation tag.
     pub main_hand_is_spear: bool,
+    /// The main-hand item's use animation: its declared component, else its native one.
+    pub main_hand_use_animation: Option<assets::facts::ItemUseAnimationFact>,
     /// Selected melee component swing duration, in seconds.
     pub main_hand_swing_seconds: Option<f32>,
     /// Namespaced identifier of the actor being ridden.
@@ -836,6 +838,9 @@ pub(super) fn apply_engine_variables(
         truth(!query::wearing_elytra(context)),
     );
     variables.set(engine.is_blocking, flag(ActorFlag::Blocking.wire_value()));
+    let (brandishing, charge) = super::brandish::brandish_spear(actor, context, input);
+    variables.set(engine.is_brandishing_spear, truth(brandishing));
+    variables.set(engine.charge_amount, charge);
     variables.set(
         engine.damage_nearby_mobs,
         flag(ActorFlag::DamageNearbyMobs.wire_value()),

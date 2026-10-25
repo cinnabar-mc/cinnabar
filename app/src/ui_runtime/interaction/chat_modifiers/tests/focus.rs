@@ -22,12 +22,12 @@ fn inventory_modifiers_follow_edges_while_another_screen_owns_the_keyboard() {
     let mut h = Harness::new();
     h.press(KeyCode::ShiftLeft, None);
     h.app
-        .insert_resource(client_state::EmoteInputConsumed(true));
+        .insert_resource(client_state::ScreenInputConsumed(true));
     h.release(KeyCode::ShiftLeft);
     h.press(KeyCode::ControlLeft, None);
     h.app
         .world_mut()
-        .remove_resource::<client_state::EmoteInputConsumed>();
+        .remove_resource::<client_state::ScreenInputConsumed>();
     h.app.update();
     assert_eq!(h.inventory_modifiers(), (false, true));
 }

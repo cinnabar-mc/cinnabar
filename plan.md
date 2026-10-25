@@ -340,6 +340,10 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
+A fresh jump press ends a glide after its first ten ticks unless the player has
+Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
+input push, on live ticks and correction replay. Whether that push reads the glide
+flag before or after the same tick's stop check is unverified.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -394,7 +398,7 @@ block-climber flags, custom collision definitions, transition-tick packet orderi
 and broader live-server qualification remain incomplete.
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
-Server-driven item-use gameplay starts, block-climber flags, custom collision
+Block-climber flags, custom collision
 definitions, transition-tick packet ordering and broader live-server qualification
 remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
@@ -409,12 +413,20 @@ capture and requests replay when that following frame is retained. Current stamp
 wait for the next frame; a future stamp joins the current frame without immediate replay.
 Replay keeps the starting frame's capture, refreshes later ones and copies the replayed
 word back to the live state, keeping the live spin and glide counters, swim blend and
-camera eye blend. Glide, swim and crawl retain independent bits beside flight;
+camera eye blend. Item use reconciles with the word's item-use bit only on movement ticks:
+a set bit starts the selected item's use and reports `StartUsingItem` (an item without a held
+use completes on the next tick, and whether vanilla slows that tick is unverified; an empty
+hand keeps the flag set), a clear bit stops the use without a release transaction, and a
+spectator game-mode change stops it in packet order. Queued releases retain a pending server stop
+until their actions resolve; expiring the edges applies the stop without a release transaction.
+Queued local presses keep their normal transaction admission before a server start occupies the use. Each tick refreshes the in-use stack,
+count included; release validation compares the whole stack. Two further stack properties,
+including charged-item state, remain unmapped in the retained item data. Replayed ticks
+keep the slowdown their live tick recorded. Glide, swim and crawl retain independent bits beside flight;
 their own trigger transitions produce actions, and their combined state feeds
 the compact body, swim blend and eye offset. Replay preserves the pending swim-blend
 input across immobile pose transitions; only changed swim or crawl corrections replace it.
-Still incomplete: reconciling server `UsingItem` writes with local-use gameplay;
-the Riptide spin's entity-hit end, which
+Still incomplete: the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
 player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
 live-server evidence for these adoptions.
@@ -426,6 +438,13 @@ Remote player presentation interpolates received positions along straight segmen
 which can cross a block corner between clear endpoints. Teleports discard that
 segment immediately. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
+
+The anchor probe after teleports and replayed corrections reads the mover's contextual
+collision, so scaffolding and powder snow the player's own move passes through never push
+the anchor. Its instantaneous, bounded push-out from real solids remains a provisional
+recovery policy: vanilla runs no separate push-out after a teleport, and its closest-space
+push instead nudges horizontal velocity toward free space by at most 0.1 block per tick
+for actors with the push-towards-closest-space flag, which is not modelled.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
@@ -534,6 +553,17 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
+  Framed cube items retain their authored carried faces and three-dimensional geometry.
+  Framed, dropped and held items try session block sheets, session icons, startup carried
+  geometry and startup sprites in order, continuing when construction, extrusion or device
+  atlas and mesh admission fails. Selection and upload share the same physical budgets.
+  Framed and dropped items compare complete cube-preferred and sprite-only preparations
+  using borrowed source costs before constructing artwork. Only selected models copy pixels
+  and retain their result. They choose the plan that draws more items, keeping cubes on a tie,
+  and count and log omissions. Capacity rejections reuse their decision until the budget
+  changes; invalid meshes stay rejected until their artwork generation changes.
+  Cache-pressure captures, frame pose comparisons and matched shaped and special-model
+  comparisons remain incomplete.
   Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand;
   dropped eyeblossoms and pitcher plants remain incomplete.
   Shulker previews apply each face brightness once.
@@ -560,6 +590,12 @@ and rendered qualification remain incomplete.
   Heavy-core inventory previews use their carried scale and screen offset.
   Shelf inventory previews use their carried scale and position.
   Azalea previews keep separate stems and open-bottom canopies.
+- [ ] Inherit every base-game image that server `item_texture.json` entries name without
+  shipping it. Session icons fall back to the world carrier's terrain layer only when that
+  layer is an exact copy of the source image: an untinted image of exactly one 16x16 tile.
+  Larger and animated block images, carried-only textures such as `textures/blocks/barrier`
+  and the `*_carried` leaves, and UI images still draw no icon; they need base images kept
+  at source resolution by path.
 - [ ] Draw an inventory icon for structure voids, the remaining pinned registry item
   without one. Copper golem statue previews use the standing pack geometry, oxidation
   artwork and eye layer; item pose metadata remains incomplete. Variant indices of
@@ -594,6 +630,8 @@ qualification remains open.
 Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
+Video customization can hide other players' catalog cosmetics, companions and effects
+while keeping the local player's cosmetics visible.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height.
@@ -640,6 +678,15 @@ camera-driven choices live between ticks. Dynamic per-bone material rules, selec
 admission and in-world qualification remain incomplete. The samples omit the iron
 golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
+Thrown tridents draw their pack model placed by the native flight rotation, with the
+item foil when enchanted. A trident with a present owner draws vanilla's loyalty rope
+strips, growing two segments for each tick it returns. Actors publish the native
+`variable.is_brandishing_spear` and `variable.charge_amount`: an item with the spear use
+animation brandishes while used and charges over ten ticks, and a non-player mob holding
+a trident brandishes it while it has a target, so the pack's third-person
+`brandish_spear` raises the arm. The rope's native material, a pack-renamed
+`loyalty_rope` texture, the native trident material and light sample point, pole-only
+bone selection and abstract-arrow motion seeding for tridents remain incomplete.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -699,6 +746,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   The HUD paper doll keeps its own animated mesh while a screen shows another player renderer.
   The inventory's live player renderer still draws the static preview model turned toward
   the pointer; native renders the animated actor there, so that remains incomplete.
+  The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
+  the local player has an effect, listing iconed effects in id order with potency and
+  `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and
+  damage closes it. Vanilla's controller View-button and touch actions, which share the
+  press with toast interaction, the opening guard's unidentified player check, close-button
+  hover and list scrolling acceptance remain incomplete.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.
@@ -751,13 +804,16 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
-  Actor-use transactions precede throwable use when verified component and held-item
-  facts rule out every possible offering. Unresolved native resolvers, behavior sources,
-  component groups, unclassified components and callback state retain conservative
-  interaction handling.
-  Complete native resolver coverage, filter/property and item-tag conditions, dynamic
-  group activation, ride eligibility metadata and matched in-world interaction acceptance
-  remain incomplete; this scoped throwable correction closes no interaction gate.
+  Actor-use transactions precede held item use when component, held-item, offhand and
+  equipment-enchantment facts rule out every possible offering of an unmodified retail
+  item; only components the client maps to interactions can offer one. Actors with a
+  native interaction override (piglin, villager_v2, leash knot) or native component
+  (tripod camera), modified
+  items, missing behavior sources and unresolved filters, ride, trade, container, leash,
+  balloon, sit and trust callbacks retain conservative interaction handling.
+  Game-rule and property filters, item-tag conditions, dynamic group activation, ride
+  eligibility metadata, leash/balloon state and matched in-world interaction acceptance
+  remain incomplete; this correction closes no interaction gate.
   Block-item purchases await an authoritative result preview to retain its block identity.
   Adventure mining and placement follow the held item's CanDestroy/CanPlaceOn list, or
   PrivilegedBuilder with an empty hand, before the Build/Mine grant. Denied block presses
@@ -804,6 +860,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
   Recipe-book projections validate each occupied ingredient source once across the catalog.
+  A container screen's data change splices the controls it left unchanged from the last
+  layout, so a drag-split step on the creative catalog places only the changed slots; a
+  screen whose scroll content fits (bar panel suppressed) still lays out in full on each
+  change, and hardware frame captures of drag splits remain open.
   First-open and repeated-open inventory timing and combined-screen acceptance remain open.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
@@ -959,6 +1019,11 @@ native switch timing and live Bluetooth/platform acceptance remain incomplete.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.
+Actor attacks voice the player's no-damage, critical or strong attack sound on the frame
+they are sent, and the local server sends that sound only to other players. Damage
+prediction counts the held item and its enchantments as zero, so Weakness II or stronger
+with a weapon is incomplete. Custom `minecraft:swing_sounds` overrides and critical hits
+on non-mob ordinary actors such as leash knots remain incomplete.
 
 Block sound materials resolve from pack entries, then base server components, then a
 stone fallback. Per-permutation sound components and matched native fallback
@@ -1044,7 +1109,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   cache publication use a no-overwrite rename instead of hard links; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. Mods with the controls grant add up to four labelled buttons each (sixteen shown) in the dropdown's button style; taps complete on release inside the button, reach only the owning mod's next frame, and placements persist by button id in the same editor. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
   Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
@@ -1079,6 +1144,39 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Generic resolved action filtering exposes synchronous module verdicts, retained
+  releases and lifecycle reconciliation; timing and rates belong to modules. Legacy
+  native click caps remain frozen for compatibility. Local weather overrides retain
+  transactional host APIs. These contracts have offline behavior coverage; populated-world interaction and rendering acceptance
+  Client parts now share personal-mod retained drawing, procedural materials, immediate
+  primitives and local environment imports, with signed asset reads and an optional frame
+  callback. Camera anchors admit celestial-scale scenes without terrain residency.
+  Drawing authority and current actor identities bind together before initialization or any
+  callback; unbound and stale contexts are refused. Session teardown, epoch actor
+  context, actor-only snapshots, staggered initialization,
+  fair frame callbacks and expanded triangle limits have regression coverage. Bundle
+  admission and helper failures revoke only their producer; paused dispatch continues
+  completion polling, and temporary culling preserves retained mask selections. Actor
+  references stay live during callbacks and partial snapshot transfers. Native actor
+  liveness admits references and mask selections independently of culling or prior
+  publication; only confirmed despawns or world rebinds revoke them. Completion
+  discards and counts stale actor references and their dependent draws without
+  stopping the bundle. Declared bundle files are packaged once across screen,
+  texture and drawing asset lists. Guest
+  drawing imports share the receiver's per-bundle draw ceiling. Legacy scene objects,
+  retained placements and immediate primitives share one immutable presentation
+  snapshot and combined draw and triangle limits. Scene-only changes stream through
+  that same atomic publication boundary. Immediate
+  primitives share one admitted list whose allocation ranges survive layer merging.
+  One frame publisher rebuilds anchor availability from all current contributors,
+  including server-only configurations. One allocation ledger per bundle
+  covers drawing, every view's resident instance capacity, masks and media textures;
+  retired storage releases charges without new guest snapshots. Immediate and retained
+  buffers defer growth until old storage retires when both allocations cannot fit together.
+  Atmosphere and shader packs share time-override precedence:
+  capture pin, personal mod, client part, then authoritative server time. Headless planet /
+  star-cube rendering and F9 teardown are captured; hardware performance qualification
+  remains incomplete.
   Source-driven mod projects generate typed Rust/Go messages, direction-checked sends
   and handlers on both halves, registry confirmation,
   compile-checked asset constants and paired `.cmod` packages through `devtool mod new/build`.
@@ -1123,6 +1221,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   replication, riding, steering and mixed-client ship acceptance remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
+- Server WIT 0.10 adds cell overlays: Experience-registered overlay types, turned to a face, and
+  item overlays drawn flat on a face, up to 12 per host cell, saved in the host's
+  `CinnabarOverlays` block entity. Cinnabar meshes them with terrain, draws their items with
+  block entities and picks them with the interaction ray; `on-interact` reports the click
+  position and the picked overlay. Text overlays (AE2's monitor amounts) are not implemented.
+  `meshing/overlays` measures a mixed section at 0.51 ms alone and 1.21 ms with 896 six-quad
+  overlays (16-core development PC), about 0.8 µs per overlay on mesh workers. Headless captures
+  of overlays on the developer client and vanilla-client
+  confirmation that the unknown block entity and hidden palette entries leave the host drawn alone
+  remain outstanding.
+- The local server's Dragonfly fork (`cinnabar-mc/dragonfly`, pinned in `tools/localserver/go.mod`)
+  requires unique network block hashes only when block ids are hashes; there, a colliding custom
+  block takes the smallest hidden `dragonfly:network_hash_salt` state that makes its hashes unique,
+  and clients learn the salted states with its definition.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.

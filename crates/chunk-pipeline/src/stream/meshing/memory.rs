@@ -22,16 +22,18 @@ impl MeshMemoryBudget {
         self.bounds = ::meshing::MeshOutputBounds::new(assets);
     }
 
-    /// Admits without blocking a worker or discarding a completed current mesh.
+    /// Admits terrain and cell-overlay output without blocking a worker or discarding a current mesh.
     pub(in crate::stream) fn try_admit(
         &self,
         source: &SubChunk,
         assets: &RuntimeAssets,
         mode: NetworkIdMode,
+        overlays: usize,
     ) -> Option<MeshMemoryPermit> {
         MeshMemoryPermit::reserve(
             &self.retained,
             self.bounds.for_sub_chunk(source, assets, mode)
+                + self.bounds.for_overlays(overlays)
                 + std::mem::size_of::<MeshCompletion>() as u64,
         )
     }

@@ -115,14 +115,23 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	if err != nil {
 		return nil, err
 	}
-	for _, op := range ops {
+	for i, op := range ops {
 		if op.SetBlockState != nil {
 			pos := op.SetBlockState.Pos.cube()
-			b := tx.Block(pos).(Block)
+			b, overlays, _ := ownBlock(tx.Block(pos))
 			// validate checked the block and its states.
 			if changed, _ := b.withStates(op.SetBlockState.States); changed != b {
-				tx.SetBlock(pos, changed, nil)
+				tx.SetBlock(pos, changed.inWorld(overlays), nil)
 			}
+			continue
+		}
+		if op.SetOverlays != nil {
+			pos := op.SetOverlays.Pos.cube()
+			b, _, _ := ownBlock(tx.Block(pos))
+			// validate checked the host and its overlays; they change nothing else.
+			tx.SetBlock(pos, b.inWorld(plan.overlays[i]), &world.SetOpts{
+				DisableBlockUpdates: true, DisableLiquidDisplacement: true,
+			})
 			continue
 		}
 		if op.SetBlock == nil {
@@ -135,7 +144,7 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 			continue
 		}
 		b, _ := h.reg.Lookup(op.SetBlock.ID)
-		tx.SetBlock(pos, b, nil)
+		tx.SetBlock(pos, b.inWorld(nil), nil)
 		h.store.Place(exp, ev.instance.storeKey(pos))
 	}
 	for _, grow := range []bool{false, true} {
@@ -169,7 +178,7 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	for _, update := range plan.updates {
 		pos := update.Pos.cube()
 		// A later op of the result may have replaced the block; only its own block is updated.
-		if b, ok := tx.Block(pos).(Block); ok && b.t.exp == exp {
+		if b, _, ok := ownBlock(tx.Block(pos)); ok && b.t.exp == exp {
 			tx.ScheduleBlockUpdate(pos, b, time.Duration(update.Ticks)*tickDuration)
 		}
 	}
@@ -208,7 +217,7 @@ func (h *Host) currentWorld(tx *world.Tx, exp string, ev event, snap snapshot) (
 	for _, was := range snap.cells {
 		now := h.cellState(tx, exp, ev.instance, was.pos)
 		if now.loaded != was.loaded || now.id != was.id || now.block != was.block ||
-			now.hasToken != was.hasToken || now.token != was.token {
+			now.overlays != was.overlays || now.hasToken != was.hasToken || now.token != was.token {
 			return nil, fmt.Errorf("%w: the cell at %v changed", errStale, was.pos)
 		}
 	}
@@ -251,13 +260,15 @@ type itemDrop struct {
 	stack item.Stack
 }
 
-// commitPlan is what validate found the ops to write, in their order.
+// commitPlan is what validate found the ops to write, in their order. overlays holds the
+// checked overlay list of each set_overlays op, by the op's index.
 type commitPlan struct {
-	writes  []dataWrite
-	slots   []slotWrite
-	drops   []itemDrop
-	updates []*ScheduleUpdateOp
-	states  []stateWrite
+	writes   []dataWrite
+	slots    []slotWrite
+	drops    []itemDrop
+	updates  []*ScheduleUpdateOp
+	states   []stateWrite
+	overlays map[int]*overlayList
 }
 
 // tickDuration is one game tick, which a scheduled update counts in.
@@ -470,6 +481,24 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 				return commitPlan{}, fmt.Errorf("%w: more than %d scheduled updates", errInvalid, maxScheduledUpdates)
 			}
 			plan.updates = append(plan.updates, op.ScheduleUpdate)
+		case op.SetOverlays != nil:
+			c, err := writable(i, op.SetOverlays.Pos, true)
+			if err != nil {
+				return commitPlan{}, err
+			}
+			b, ok := h.reg.Lookup(c.id)
+			if !c.owned || !ok || b.t.exp != exp {
+				return commitPlan{}, fmt.Errorf("%w: op %d sets the overlays of %s, which is not its own block",
+					errInvalid, i, c.id)
+			}
+			list, err := b.t.overlays.check(op.SetOverlays.Overlays)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d: %v", errInvalid, i, err)
+			}
+			if plan.overlays == nil {
+				plan.overlays = make(map[int]*overlayList)
+			}
+			plan.overlays[i] = list
 		default:
 			return commitPlan{}, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}

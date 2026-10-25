@@ -385,8 +385,10 @@ fn banners_are_pickable_without_movement_colliders() {
     }
 }
 
+/// Bedrock's ordinary pick reads only a cell's primary block, so covered snow and foliage are
+/// selected through whichever block holds the primary layer, in either layer order.
 #[test]
-fn covered_snow_and_foliage_keep_separate_selection_bounds_in_both_layer_orders() {
+fn covered_snow_and_foliage_pick_only_the_primary_layer() {
     let fixture = fixture();
     let snow = fixture
         .records
@@ -412,18 +414,16 @@ fn covered_snow_and_foliage_keep_separate_selection_bounds_in_both_layer_orders(
                 )
                 .unwrap();
             let world = PaletteWorld::new(&store, registry, 0, Default::default());
-            for (x, z, target) in [(8.5, 8.5, grass), (8.01, 8.01, snow)] {
-                let hit = world
-                    .block_interaction_ray_current(
-                        Vec3::new(x, 10.0, z),
-                        Vec3::new(0.0, -1.0, 0.0),
-                        4.0,
-                    )
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(hit.runtime_id, runtime_id(target, mode));
-                assert_eq!(hit.block_pos, [8, 8, 8]);
-            }
+            let hit = world
+                .block_interaction_ray_current(
+                    Vec3::new(8.5, 10.0, 8.5),
+                    Vec3::new(0.0, -1.0, 0.0),
+                    4.0,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(hit.runtime_id, runtime_id(primary, mode));
+            assert_eq!(hit.block_pos, [8, 8, 8]);
         }
     }
 }
