@@ -1,13 +1,19 @@
 package main
 
 import (
+	"io"
+	"slices"
+	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/block/model"
 	"github.com/df-mc/dragonfly/server/entity"
 	"github.com/df-mc/dragonfly/server/player"
+	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/go-gl/mathgl/mgl64"
@@ -111,4 +117,75 @@ func TestMaterialFxRespawnClearsThePreviousGallery(t *testing.T) {
 	}).Err(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// materialFxTestConn replays `packets` and accepts every write.
+type materialFxTestConn struct {
+	session.Conn
+	packets []packet.Packet
+}
+
+// ReadPacket returns the next queued packet, then io.EOF.
+func (c *materialFxTestConn) ReadPacket() (packet.Packet, error) {
+	if len(c.packets) == 0 {
+		return nil, io.EOF
+	}
+	pk := c.packets[0]
+	c.packets = c.packets[1:]
+	return pk, nil
+}
+
+// WritePacket drops `pk`.
+func (c *materialFxTestConn) WritePacket(packet.Packet) error { return nil }
+
+// Portal distances reach the client part in the order the player moved, even when sending an
+// earlier one is held up, so the last distance delivered is the player's current one.
+func TestMaterialFxPortalDistancesKeepTheirOrder(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gallery := showcaseViewpoint{}
+		portal := materialFxPieces(gallery)[materialFxPortalPiece]
+		var inputs []packet.Packet
+		var want []int64
+		for _, x := range []float32{0, 20, 40} {
+			eye := mgl32.Vec3{x, 64 + actorBurstEyeHeight, 0}
+			inputs = append(inputs, &packet.PlayerAuthInput{Position: eye})
+			want = append(want, milli(portal.Sub(eye).Len()))
+		}
+		var mu sync.Mutex
+		var sent []int64
+		ext := &experienceSender{send: func(_ uuid.UUID, _, _ string, _ uint16, record []cinnabarext.Scalar) bool {
+			distance := *record[1].Integer
+			if distance == want[0] {
+				// Hold the first update as a contended client part connection would.
+				held := make(chan struct{})
+				time.AfterFunc(time.Second, func() { close(held) })
+				<-held
+			}
+			mu.Lock()
+			sent = append(sent, distance)
+			mu.Unlock()
+			return true
+		}}
+		c := &materialFxConn{
+			Conn:     &materialFxTestConn{packets: inputs},
+			ext:      ext,
+			everyone: &materialFxPlayers{positions: map[uuid.UUID]mgl32.Vec3{}},
+			done:     make(chan struct{}),
+			gallery:  &gallery,
+		}
+		for range inputs {
+			if _, err := c.ReadPacket(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		settled := make(chan struct{})
+		time.AfterFunc(2*time.Second, func() { close(settled) })
+		<-settled
+		synctest.Wait()
+		mu.Lock()
+		defer mu.Unlock()
+		if !slices.Equal(sent, want) {
+			t.Fatalf("sent distances %v, want %v in order", sent, want)
+		}
+	})
 }
