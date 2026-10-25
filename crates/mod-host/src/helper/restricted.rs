@@ -1,7 +1,7 @@
-//! The restricted helper launch, on Linux. The parent clears the environment and, between
-//! `fork` and `exec`, has every descriptor but the three stdio pipes closed by `exec`, sets resource limits
-//! and forbids privilege gain; the helper then makes itself undumpable, audits what it
-//! inherited and, before it reads the component, denies itself the filesystem and the network
+//! The restricted helper launch, on Linux. The parent clears the environment, creates a
+//! memory-limited cgroup for the helper and, between `fork` and `exec`, moves the child into it,
+//! has `exec` close every descriptor but the three stdio pipes, sets resource limits and forbids
+//! privilege gain; the helper then makes itself undumpable, audits what it inherited and, before it reads the component, denies itself the filesystem and the network
 //! with Landlock and process creation, executables, sockets and kernel attack surface with a
 //! seccomp filter. Compilation of the component happens after this, so the compiler runs
 //! contained too. Other platforms have no restricted launch and refuse it.
@@ -9,6 +9,8 @@
 use anyhow::{Context, Result, ensure};
 use std::process::Command;
 
+#[cfg(target_os = "linux")]
+mod cgroup;
 #[cfg(target_os = "linux")]
 mod landlock;
 #[cfg(target_os = "linux")]
@@ -19,6 +21,10 @@ pub const RESTRICTED_COMMAND: &str = "restricted-server-helper";
 /// The helper's private writable memory (`RLIMIT_DATA`): the guest's linear memory, the
 /// compiler's working set and the runtime, with headroom.
 pub const DATA_LIMIT_BYTES: u64 = 1 << 30;
+/// All the memory the helper may be charged for, its cgroup's `memory.max`: the private
+/// memory of [`DATA_LIMIT_BYTES`] and room for the shared memory files of linear memory
+/// images, its executable's page cache and kernel memory. Swap is closed.
+pub const MEMORY_LIMIT_BYTES: u64 = DATA_LIMIT_BYTES + (1 << 29);
 /// Descriptors the helper may hold (`RLIMIT_NOFILE`): stdio and the runtime's own.
 pub const DESCRIPTOR_LIMIT: u64 = 64;
 
@@ -34,30 +40,59 @@ pub struct Lockdown {
     pub scoped: bool,
 }
 
-/// Makes `command` launch contained: no environment, the root as working directory, only the stdio descriptors, the
-/// helper's resource limits, no privilege gain, and death with the parent. The kernel sends
-/// the death signal when the thread that spawns the command exits, so that thread must outlive
-/// the helper's use; the supervisor spawns from the thread that owns the helper's pipes.
-#[cfg(target_os = "linux")]
-pub fn contain(command: &mut Command) {
-    contain_expecting(command, std::process::id() as libc::pid_t);
+/// What a contained launch holds until its helper has exited: on Linux, the helper's cgroup,
+/// which dropping removes.
+#[derive(Debug)]
+pub struct Containment {
+    #[cfg(target_os = "linux")]
+    cgroup: cgroup::Cgroup,
 }
 
-/// [`contain`], with the child refusing to run unless its parent is still process `parent`
+#[cfg(target_os = "linux")]
+impl Containment {
+    /// The directory of the helper's cgroup.
+    pub fn cgroup(&self) -> &std::path::Path {
+        self.cgroup.path()
+    }
+}
+
+/// Makes `command` launch contained: no environment, the root as working directory, its own
+/// cgroup limited to [`MEMORY_LIMIT_BYTES`] without swap, only the stdio descriptors, the
+/// helper's resource limits, no privilege gain, and death with the parent. The kernel sends
+/// the death signal when the thread that spawns the command exits, so that thread must outlive
+/// the helper's use; the supervisor spawns from the thread that owns the helper's pipes. The
+/// returned containment must outlive the helper's process. Fails, so the launch fails closed,
+/// when no delegated cgroup can limit the helper's memory.
+#[cfg(target_os = "linux")]
+pub fn contain(command: &mut Command) -> Result<Containment> {
+    let cgroup = cgroup::Cgroup::create().context("the helper cannot be memory-limited")?;
+    let procs = cgroup
+        .procs()
+        .context("the helper cannot be memory-limited")?;
+    contain_expecting(command, std::process::id() as libc::pid_t, Some(procs));
+    Ok(Containment { cgroup })
+}
+
+/// [`contain`] without its cgroup, with the child joining the cgroup whose `cgroup.procs` is
+/// open as `procs`, if any, and refusing to run unless its parent is still process `parent`
 /// once its death signal is armed: a parent that died before then would never send it.
 #[cfg(target_os = "linux")]
-fn contain_expecting(command: &mut Command, parent: libc::pid_t) {
-    use std::os::unix::process::CommandExt;
+fn contain_expecting(command: &mut Command, parent: libc::pid_t, procs: Option<std::fs::File>) {
+    use std::os::{fd::AsRawFd, unix::process::CommandExt};
     command.env_clear().current_dir("/");
-    // SAFETY: the closure makes only async-signal-safe raw system calls.
-    unsafe { command.pre_exec(move || prepare_child(parent)) };
+    // SAFETY: the closure makes only async-signal-safe raw system calls, on a descriptor it
+    // owns.
+    unsafe {
+        command.pre_exec(move || prepare_child(parent, procs.as_ref().map(AsRawFd::as_raw_fd)))
+    };
 }
 
 /// Restricted launch is Linux-only; elsewhere the command is left as is and
 /// [`lock_down`] refuses.
 #[cfg(not(target_os = "linux"))]
-pub fn contain(command: &mut Command) {
+pub fn contain(command: &mut Command) -> Result<Containment> {
     command.env_clear();
+    Ok(Containment {})
 }
 
 /// The resource limits a contained helper runs under.
@@ -74,10 +109,11 @@ pub const LIMITS: [(libc::__rlimit_resource_t, u64); 7] = [
     (libc::RLIMIT_RTPRIO, 0),
 ];
 
-/// Runs in the child between `fork` and `exec`: only raw system calls, no allocation. Fails
-/// with `ESRCH` when the child's parent is no longer `parent`.
+/// Runs in the child between `fork` and `exec`: only raw system calls, no allocation. Moves
+/// the child into the cgroup whose `cgroup.procs` is open as `procs`, if any. Fails with
+/// `ESRCH` when the child's parent is no longer `parent`.
 #[cfg(target_os = "linux")]
-fn prepare_child(parent: libc::pid_t) -> std::io::Result<()> {
+fn prepare_child(parent: libc::pid_t, procs: Option<libc::c_int>) -> std::io::Result<()> {
     let check = |status: libc::c_int| {
         if status == 0 {
             Ok(())
@@ -95,6 +131,12 @@ fn prepare_child(parent: libc::pid_t) -> std::io::Result<()> {
         // Covers the copy of the parent's memory until `exec`, which resets the flag for an
         // ordinary executable; [`lock_down`] sets it again in the helper.
         check(libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0))?;
+        // Writing 0 to a cgroup's process list moves the writer, before it runs any helper code.
+        if let Some(procs) = procs
+            && libc::write(procs, b"0".as_ptr().cast(), 1) != 1
+        {
+            return Err(std::io::Error::last_os_error());
+        }
         // Every descriptor above stdio becomes close-on-exec rather than closed at once, so the
         // pipe through which `spawn` learns of a failure below stays open until `exec`.
         if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, CLOSE_RANGE_CLOEXEC) != 0 {
@@ -157,13 +199,16 @@ pub fn inherited_descriptors() -> Result<Vec<i32>> {
         .collect())
 }
 
-/// The kernel feature that restricted helpers need and this system lacks, named with the
+/// The kernel feature or delegation that restricted helpers need and this system lacks, named with the
 /// reason, or none. A lockdown fails without it; tests that lock a helper down skip with it.
 #[cfg(target_os = "linux")]
 pub fn missing_feature() -> Option<String> {
-    landlock::abi()
+    if let Err(error) = landlock::abi() {
+        return Some(format!("kernel feature Landlock ({error})"));
+    }
+    cgroup::Cgroup::create()
         .err()
-        .map(|error| format!("kernel feature Landlock ({error})"))
+        .map(|error| format!("a delegated cgroup v2 memory controller ({error:#})"))
 }
 
 /// Audits what the helper inherited and denies it everything it does not need. It must run on
@@ -202,6 +247,7 @@ pub fn lock_down() -> Result<Lockdown> {
         unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) } == 1,
         "the helper may gain privileges"
     );
+    cgroup::audit()?;
     let lockdown = landlock::restrict().context("Landlock")?;
     seccomp::install().context("seccomp")?;
     Ok(lockdown)
@@ -260,7 +306,7 @@ mod tests {
         assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, &limit) }, 0);
         let mut command = Command::new(std::env::current_exe().unwrap());
         command.args(["--exact", "no-such-test"]);
-        contain_expecting(&mut command, std::process::id() as libc::pid_t);
+        contain_expecting(&mut command, std::process::id() as libc::pid_t, None);
         match command.output() {
             Err(error) => println!("LAUNCH refused {}", error.raw_os_error().unwrap_or(-1)),
             Ok(output) => println!("LAUNCH ran {}", output.status),
@@ -317,7 +363,7 @@ mod tests {
         let launch = |parent| {
             let mut command = Command::new(std::env::current_exe().unwrap());
             command.args(["--exact", "no-such-test"]);
-            contain_expecting(&mut command, parent);
+            contain_expecting(&mut command, parent, None);
             command.output()
         };
         let orphaned = launch(libc::pid_t::MAX).unwrap_err();

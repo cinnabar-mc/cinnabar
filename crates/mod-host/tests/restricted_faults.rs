@@ -6,8 +6,8 @@
 #![cfg(target_os = "linux")]
 
 use mod_host::helper::restricted::{
-    DATA_LIMIT_BYTES, DESCRIPTOR_LIMIT, LIMITS, contain, inherited_descriptors, lock_down,
-    missing_feature,
+    DATA_LIMIT_BYTES, DESCRIPTOR_LIMIT, LIMITS, MEMORY_LIMIT_BYTES, contain, inherited_descriptors,
+    lock_down, missing_feature,
 };
 use std::{
     os::{fd::AsRawFd, unix::process::CommandExt},
@@ -31,12 +31,16 @@ fn lockdown_supported() -> bool {
 
 /// Runs `op` in a contained child that locks itself down first, and returns its report.
 fn probe(op: &str) -> String {
-    probe_with(op, contain)
+    probe_with(op, |command| contain(command).unwrap())
 }
 
 /// Runs `op` in a child that `launch` prepares and that locks itself down first, and returns
-/// its report.
-fn probe_with(op: &str, launch: fn(&mut Command)) -> String {
+/// its report, if any, and its output. Whatever `launch` returns is held until the child has
+/// exited and is returned too.
+fn run_probe<G>(
+    op: &str,
+    launch: impl FnOnce(&mut Command) -> G,
+) -> (Option<String>, std::process::Output, G) {
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args([
         "--exact",
@@ -45,20 +49,30 @@ fn probe_with(op: &str, launch: fn(&mut Command)) -> String {
         "--test-threads=1",
         &format!("{PROBE}{op}"),
     ]);
-    launch(&mut command);
+    let held = launch(&mut command);
     let output = command.output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout
+    let report = String::from_utf8_lossy(&output.stdout)
         .lines()
-        .find_map(|line| line.split_once("PROBE ").map(|(_, report)| report))
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            panic!(
-                "probe {op} reported nothing ({}):\n{stdout}\n{}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            )
-        })
+        .find_map(|line| {
+            line.split_once("PROBE ")
+                .map(|(_, report)| report.to_owned())
+        });
+    (report, output, held)
+}
+
+/// Runs `op` in a child that `launch` prepares and that locks itself down first, and returns
+/// its report.
+fn probe_with<G>(op: &str, launch: impl FnOnce(&mut Command) -> G) -> String {
+    let (report, output, held) = run_probe(op, launch);
+    drop(held);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    report.unwrap_or_else(|| {
+        panic!(
+            "probe {op} reported nothing ({}):\n{stdout}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
 }
 
 /// The probe side: does nothing in an ordinary run, otherwise locks down, runs the named
@@ -133,6 +147,33 @@ fn on_memory_file(change: impl FnOnce(libc::c_int) -> libc::c_int) -> String {
         libc::close(fd);
         report
     }
+}
+
+/// Writes `total` bytes into anonymous memory files, which `RLIMIT_DATA` does not count, each
+/// kept below the file size limit, and reports `allowed` if every byte was written.
+fn fill_memory_files(total: u64) -> String {
+    const CHUNK: usize = 1 << 20;
+    let chunk = vec![0x5a_u8; CHUNK];
+    let per_file = DATA_LIMIT_BYTES / 2;
+    let mut files = Vec::new();
+    let mut written = 0;
+    while written < total {
+        if written % per_file == 0 {
+            // SAFETY: creates a descriptor this probe owns until it exits.
+            let fd = unsafe { libc::memfd_create(c"probe".as_ptr(), libc::MFD_CLOEXEC) };
+            if fd < 0 {
+                return status(-1);
+            }
+            files.push(fd);
+        }
+        let fd = *files.last().unwrap();
+        // SAFETY: writes from a buffer of `CHUNK` initialized bytes.
+        if unsafe { libc::write(fd, chunk.as_ptr().cast(), CHUNK) } != CHUNK as isize {
+            return status(-1);
+        }
+        written += CHUNK as u64;
+    }
+    "allowed".into()
 }
 
 /// Attempts one operation the lockdown must refuse, or one it must leave. An operation on a
@@ -299,6 +340,7 @@ fn run(op: &str) -> String {
         "mq-unlink" => {
             status(unsafe { libc::syscall(libc::SYS_mq_unlink, c"restricted-probe".as_ptr()) })
         }
+        "shared-memory" => fill_memory_files(MEMORY_LIMIT_BYTES + (64 << 20)),
         other => format!("unknown {other}"),
     }
 }
@@ -447,6 +489,72 @@ fn the_lockdown_denies_ipc_objects() {
     ] {
         assert_eq!(probe(op), format!("denied {}", libc::EPERM), "{op}");
     }
+}
+
+/// Memory files count against the helper's cgroup: filling more than its memory limit with
+/// them, which neither `RLIMIT_DATA` nor swap can absorb, gets the helper killed, and the
+/// cgroup is removed once the helper has exited.
+#[test]
+fn the_cgroup_bounds_shared_memory() {
+    if !lockdown_supported() {
+        return;
+    }
+    let (report, output, containment) =
+        run_probe("shared-memory", |command| contain(command).unwrap());
+    use std::os::unix::process::ExitStatusExt;
+    assert_eq!(
+        (report.as_deref(), output.status.signal()),
+        (None, Some(libc::SIGKILL)),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let events = std::fs::read_to_string(containment.cgroup().join("memory.events")).unwrap();
+    assert!(
+        events.lines().any(|line| line
+            .strip_prefix("oom_kill ")
+            .is_some_and(|count| count != "0")),
+        "{events}"
+    );
+    let cgroup = containment.cgroup().to_path_buf();
+    drop(containment);
+    assert!(!cgroup.exists(), "{}", cgroup.display());
+}
+
+/// Launches like [`contain`], descriptors and limits included, but leaves the child in this
+/// process's cgroup, as when the helper's cgroup could not be joined.
+fn contain_outside_cgroup(command: &mut Command) {
+    command.env_clear();
+    // SAFETY: the closure makes only raw system calls on fully initialized structs.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // `CLOSE_RANGE_CLOEXEC`.
+            if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 1u32 << 2) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            for (resource, value) in LIMITS {
+                let limit = libc::rlimit {
+                    rlim_cur: value as libc::rlim_t,
+                    rlim_max: value as libc::rlim_t,
+                };
+                if libc::setrlimit(resource, &limit) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        })
+    };
+}
+
+/// A helper whose own cgroup does not hold it to the memory limit refuses to lock down, so it
+/// never serves.
+#[test]
+fn a_helper_outside_a_memory_limited_cgroup_fails_its_audit() {
+    let report = probe_with("read-file", contain_outside_cgroup);
+    assert!(report.starts_with("lockdown-failed"), "{report}");
+    assert!(report.contains("memory limit"), "{report}");
 }
 
 /// The running helper stays undumpable, so processes of the same user cannot trace it or read

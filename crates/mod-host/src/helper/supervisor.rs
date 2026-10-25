@@ -27,6 +27,8 @@ pub(super) enum Launch {
 #[derive(Default)]
 struct State {
     child: Option<Child>,
+    /// The restricted child's containment, released only once the child has been reaped.
+    containment: Option<super::restricted::Containment>,
     revoked: bool,
 }
 
@@ -97,6 +99,7 @@ impl Process {
 
             command.creation_flags(CREATE_NO_WINDOW);
         }
+        let mut containment = None;
         match launch {
             Launch::Developer => {
                 command
@@ -112,7 +115,7 @@ impl Process {
             }
             Launch::Restricted => {
                 command.arg(super::restricted::RESTRICTED_COMMAND);
-                super::restricted::contain(&mut command);
+                containment = Some(super::restricted::contain(&mut command)?);
             }
         }
         let mut child = command
@@ -135,6 +138,7 @@ impl Process {
             bail!("helper startup revoked");
         }
         state.child = Some(child);
+        state.containment = containment;
         Ok((input, output, stderr))
     }
 
@@ -147,16 +151,21 @@ impl Process {
         }
     }
 
-    /// Takes the child under a short lock and waits for its exit on a separate thread.
+    /// Takes the child under a short lock and waits for its exit on a separate thread, then
+    /// releases its containment.
     pub(super) fn reap(&self) {
         let process = self.clone();
         let _ = std::thread::Builder::new()
             .name("experience-reap".into())
             .spawn(move || {
-                let child = process.0.lock().unwrap().child.take();
+                let (child, containment) = {
+                    let mut state = process.0.lock().unwrap();
+                    (state.child.take(), state.containment.take())
+                };
                 if let Some(mut child) = child {
                     let _ = child.wait();
                 }
+                drop(containment);
             });
     }
 }
