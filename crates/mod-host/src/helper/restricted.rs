@@ -83,8 +83,20 @@ fn prepare_child() -> std::io::Result<()> {
         // ordinary executable; [`lock_down`] sets it again in the helper.
         check(libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0))?;
         if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) != 0 {
-            // Kernels before 5.9: close what the limit below could still address.
-            for fd in 3..1024 {
+            // `close_range` is missing (kernels before 5.9) or refused by an outer filter: close
+            // every descriptor the current hard limit can address, up to the kernel's default
+            // ceiling. One numbered higher survives, and the helper's audit then refuses to
+            // serve.
+            let mut limit = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            let ceiling = if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) == 0 {
+                limit.rlim_max.min(FALLBACK_CLOSE_CEILING)
+            } else {
+                FALLBACK_CLOSE_CEILING
+            };
+            for fd in 3..ceiling as libc::c_int {
                 libc::close(fd);
             }
         }
@@ -99,23 +111,31 @@ fn prepare_child() -> std::io::Result<()> {
     Ok(())
 }
 
-/// The descriptors above stdio this process holds, up to its descriptor limit.
+/// The descriptor the fallback closure before `exec` stops at when `close_range` cannot run:
+/// the kernel's default `fs.nr_open`, which bounds the hard descriptor limit unless raised.
 #[cfg(target_os = "linux")]
-pub fn inherited_descriptors() -> Vec<i32> {
-    let mut limit = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
-    // SAFETY: getrlimit fills the struct.
-    let ceiling = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } == 0 {
-        limit.rlim_cur.min(1 << 16) as i32
-    } else {
-        1024
-    };
+const FALLBACK_CLOSE_CEILING: libc::rlim_t = 1 << 20;
+
+/// The open descriptors above stdio this process holds, listed from `/proc/self/fd` so that
+/// none escapes however high its number or however low the descriptor limit. Fails when the
+/// listing is unavailable, so an audit built on it fails closed.
+#[cfg(target_os = "linux")]
+pub fn inherited_descriptors() -> Result<Vec<i32>> {
+    const LISTING: &str = "/proc/self/fd";
+    let mut listed = Vec::new();
+    for entry in std::fs::read_dir(LISTING).with_context(|| format!("cannot list {LISTING}"))? {
+        let name = entry
+            .with_context(|| format!("cannot list {LISTING}"))?
+            .file_name();
+        let fd = name.to_str().and_then(|name| name.parse::<i32>().ok());
+        listed.push(fd.with_context(|| format!("{LISTING} lists {name:?}"))?);
+    }
+    // The listing's own descriptor is closed by now and fails the check.
     // SAFETY: F_GETFD only queries a descriptor's flags.
-    (3..ceiling)
-        .filter(|&fd| unsafe { libc::fcntl(fd, libc::F_GETFD) } != -1)
-        .collect()
+    Ok(listed
+        .into_iter()
+        .filter(|&fd| fd > 2 && unsafe { libc::fcntl(fd, libc::F_GETFD) } != -1)
+        .collect())
 }
 
 /// Audits what the helper inherited and denies it everything it does not need. It must run on
@@ -129,7 +149,7 @@ pub fn lock_down() -> Result<Lockdown> {
             && unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } == 0,
         "the helper cannot make itself undumpable"
     );
-    let inherited = inherited_descriptors();
+    let inherited = inherited_descriptors().context("the helper cannot audit its descriptors")?;
     ensure!(
         inherited.is_empty(),
         "the helper inherited descriptors {inherited:?}"

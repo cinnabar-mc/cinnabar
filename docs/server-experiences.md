@@ -160,8 +160,10 @@ descriptor but the three stdio pipes, sets `PR_SET_NO_NEW_PRIVS`, makes the chil
 killed with its parent, and sets resource limits: 1 GiB of private writable memory and of file
 size (`RLIMIT_DATA`, `RLIMIT_FSIZE`), 64 descriptors, and no core files, locked memory, message
 queues or real-time priority. Because `exec` makes an ordinary program dumpable again, the helper
-first makes itself undumpable once more. Before reading the component, it audits that it holds no
-other descriptor, no environment and those limits, then denies itself everything else: a
+first makes itself undumpable once more. Where `close_range` cannot run, the parent closes every
+descriptor up to its hard limit instead. Before reading the component, the helper audits that it
+holds no other descriptor (listing `/proc/self/fd`, so one numbered above the new limit cannot
+escape, and failing without it), no environment and those limits, then denies itself everything else: a
 Landlock ruleset that handles every right the kernel knows and grants none (no file or directory
 can be opened; TCP bind and connect on ABI 4, signals and abstract sockets outside itself on
 ABI 6), and a seccomp filter, on every thread, failing with `EPERM` program execution, process
