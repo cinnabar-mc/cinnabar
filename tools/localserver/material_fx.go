@@ -35,7 +35,8 @@ const (
 	materialFxClockMs = 4096000
 )
 
-// The client part's control operations, as its experience.toml declares them.
+// The client part's control operations, numbered as experience.toml's `# op` lines number them
+// (TestMaterialFxRecordsMatchTheDeclaredChannel checks each by name).
 const (
 	materialFxBind uint16 = iota
 	materialFxUnbind

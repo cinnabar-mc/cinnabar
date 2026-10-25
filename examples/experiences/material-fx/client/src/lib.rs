@@ -17,6 +17,18 @@ mod experience {
     experience_sdk::include_declarations!();
 }
 
+/// The control channel's operations, numbered as `experience.toml` lists them; `build.rs`
+/// writes them.
+mod operations {
+    include!(concat!(env!("OUT_DIR"), "/operations.rs"));
+}
+
+// The control channel's choice admits exactly the operations the manifest numbers.
+const _: () = assert!(matches!(
+    experience::channels::CONTROL.fields.first(),
+    Some(experience_sdk::Field::Choice { variants }) if *variants == operations::COUNT
+));
+
 std::thread_local! {
     /// The showcase's state, which the parameters are computed from.
     static STATE: std::cell::RefCell<State> = std::cell::RefCell::new(State::default());
@@ -94,9 +106,9 @@ impl ClientPart for MaterialFx {
         };
         let args = [argument(1), argument(2), argument(3), argument(4)];
         match *op {
-            0 => bind_all(),
-            1 => unbind_all(),
-            6 => {
+            operations::BIND => bind_all(),
+            operations::UNBIND => unbind_all(),
+            operations::THERMAL => {
                 STATE.with_borrow_mut(|state| state.thermal = args[0] == 1);
                 bind_all();
             }

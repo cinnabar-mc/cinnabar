@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -73,7 +75,9 @@ func TestMaterialFxCommandsBecomeControlRecords(t *testing.T) {
 	}
 }
 
-// The control channel's schema and operation count match the Experience's declaration.
+// The control channel's schema matches the Experience's declaration, and each operation's
+// number matches the `# op <index> <name>:` line experience.toml numbers it with, which the
+// client part's build script derives its own constants from.
 func TestMaterialFxRecordsMatchTheDeclaredChannel(t *testing.T) {
 	manifest, err := os.ReadFile("../../examples/experiences/material-fx/experience.toml")
 	if err != nil {
@@ -83,8 +87,26 @@ func TestMaterialFxRecordsMatchTheDeclaredChannel(t *testing.T) {
 	if !strings.Contains(text, fmt.Sprintf("schema = %d\n", materialFxSchema)) {
 		t.Errorf("experience.toml does not declare schema %d", materialFxSchema)
 	}
-	if !strings.Contains(text, fmt.Sprintf(`{ type = "choice", variants = %d }`, materialFxPortalDistance+1)) {
-		t.Errorf("experience.toml does not declare %d operations", materialFxPortalDistance+1)
+	operations := map[string]uint16{
+		"bind": materialFxBind, "unbind": materialFxUnbind, "cut": materialFxCut, "boom": materialFxBoom,
+		"heartbeat": materialFxHeartbeat, "hit": materialFxHit, "thermal": materialFxThermal,
+		"corrupt": materialFxCorrupt, "layout": materialFxLayout, "facing": materialFxFacing,
+		"radar": materialFxRadar, "portal_distance": materialFxPortalDistance,
+	}
+	listed := regexp.MustCompile(`(?m)^# op (\d+) ([a-z_]+):`).FindAllStringSubmatch(text, -1)
+	for index, line := range listed {
+		number, name := line[1], line[2]
+		op, ok := operations[name]
+		if !ok || number != strconv.Itoa(index) || op != uint16(index) {
+			t.Errorf("experience.toml numbers %s %s (line %d); the server sends it as %d (known %v)", name, number, index, op, ok)
+		}
+		delete(operations, name)
+	}
+	for name := range operations {
+		t.Errorf("experience.toml does not number operation %s", name)
+	}
+	if !strings.Contains(text, fmt.Sprintf(`{ type = "choice", variants = %d }`, len(listed))) || len(listed) != int(materialFxPortalDistance)+1 {
+		t.Errorf("experience.toml's choice does not admit exactly its %d operations", len(listed))
 	}
 }
 
