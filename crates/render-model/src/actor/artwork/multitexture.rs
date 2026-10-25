@@ -306,7 +306,10 @@ mod tests {
         let pages = ActorArtworkPages::default().with_pack_artwork(
             &textures,
             &[binding],
-            &assets::ActorMultitextureSources::from_draws([[10, 11, 12]]),
+            &assets::ActorPageSharing {
+                multitexture: assets::ActorMultitextureSources::from_draws([[10, 11, 12]]),
+                ..Default::default()
+            },
         );
         let rig = crate::pack_rig_id(0);
         let route = pages.multitexture_location(rig, [10, 11, 12]).unwrap();
@@ -335,10 +338,14 @@ mod tests {
                 rgba8: Arc::from([source as u8, 0, 0, 255]),
             })
             .collect();
-        let sources = assets::ActorMultitextureSources::from_draws(
-            (0..DRAWS).map(|draw| [draw * 3, draw * 3 + 1, draw * 3 + 2]),
-        );
-        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[], &sources);
+        let sharing = assets::ActorPageSharing {
+            multitexture: assets::ActorMultitextureSources::from_draws(
+                (0..DRAWS).map(|draw| [draw * 3, draw * 3 + 1, draw * 3 + 2]),
+            ),
+            ..Default::default()
+        };
+        let sources = &sharing.multitexture;
+        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[], &sharing);
         let page = |source: u32| pages.pack_source_locations[&source].page;
         for draw in sources.draws() {
             assert!(
