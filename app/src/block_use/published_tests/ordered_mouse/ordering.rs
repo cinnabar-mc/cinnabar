@@ -114,8 +114,8 @@ fn ordered_mouse_use_before_attack_is_not_replaced_by_a_frame_wide_attack_veto()
 #[test]
 fn ordered_mouse_attack_use_attack_preserves_both_attacks_and_the_use_timing_policy() {
     let (mut world, mut captured) = mouse_fixture();
-    let scope = item_use_tests::hold_snowball(&mut world);
-    world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
+    item_use_tests::hold_snowball(&mut world);
+    world.insert_resource(crate::item_use::ModItemUsePolicy { pulse: true });
     tap(&mut world, MouseButton::Left);
     tap(&mut world, MouseButton::Right);
     tap(&mut world, MouseButton::Left);

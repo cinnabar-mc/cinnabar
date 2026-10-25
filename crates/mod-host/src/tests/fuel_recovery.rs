@@ -20,7 +20,12 @@ fn host() -> (tempfile::TempDir, ModHost) {
         },
     )
     .unwrap();
-    host.set_panel_bundle(r#"{"panel":{"title":"Retained","toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}"#).unwrap();
+    let bundle = serde_json::json!({
+        "panel": {"surface": panel_surface("retained"),
+            "toggle_key": "ShiftRight", "controls": []},
+        "surfaces": {}
+    });
+    host.set_panel_bundle(&bundle.to_string()).unwrap();
     host.set_panel_open(true);
     (directory, host)
 }
@@ -62,7 +67,7 @@ fn repeated_frame_fuel_overruns_quarantine_the_guest() {
 fn successful_frames_reset_overruns_but_deferred_frames_do_not() {
     let (_directory, mut host) = host();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, Default::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     for _ in 0..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
         host.frame(true).unwrap_err();
         budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
@@ -87,7 +92,7 @@ fn successful_frames_reset_overruns_but_deferred_frames_do_not() {
 fn busy_loading_lane_defers_recovery_without_reentering_the_trapped_guest() {
     let (_directory, mut host) = host();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, Default::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     host.frame(true).unwrap_err();
     assert_eq!(
         budget.remaining(),
@@ -129,40 +134,10 @@ fn fuel_recovery_preserves_committed_settings_and_rejects_failed_writes() {
     host.frame(true).unwrap_err();
     assert_eq!(host.settings_snapshot(), Some(settings));
     // Successful init of a fresh store must retain the committed in-memory preferences.
-    host.set_frame_authority(CallbackBudget::new(0), false, false, 0, Default::default());
+    host.set_frame_authority(CallbackBudget::new(0), false, false, 0);
     host.frame(false).unwrap();
     assert!(host.is_active());
     assert_eq!(host.settings_snapshot(), Some(settings));
-}
-
-#[test]
-fn frame_fuel_overrun_keeps_the_last_published_hud_and_crosshair() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("hud.wat");
-    let source = hud::source(
-        r#"{"cards":[{"id":"retained","rows":[]}]}"#,
-        r#"{"shape":"circle","color":[0.3,1,0.5,1]}"#,
-        "call $cards call $cursor",
-        "call $clear (loop $forever br $forever)",
-        false,
-    );
-    std::fs::write(&path, source).unwrap();
-    let mut host = ModHost::load_with_grants(
-        &path,
-        ModGrants {
-            hud: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    let hud = host.hud().unwrap().clone();
-    let revision = host.hud_revision();
-    let crosshair = host.crosshair().unwrap().clone();
-    host.frame(false).unwrap_err();
-    assert!(host.is_active());
-    assert_eq!(host.hud(), Some(&hud));
-    assert_eq!(host.hud_revision(), revision);
-    assert_eq!(host.crosshair(), Some(&crosshair));
 }
 
 #[test]
@@ -205,42 +180,4 @@ fn failed_recovery_initialization_quarantines_instead_of_retrying() {
     assert!(!host.is_active());
     assert!(host.label().is_none());
     host.frame(false).unwrap();
-}
-
-#[test]
-fn frame_fuel_overrun_releases_only_uncommitted_hud_claims() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("claims.wat");
-    let content = r#"{"cards":[{"id":"old","rows":[]}]}"#;
-    let offset = content.find("old").unwrap();
-    let frame = format!(
-        "i32.const {offset} i32.const {} i32.store8 call $cards (loop $forever br $forever)",
-        b'n'
-    );
-    std::fs::write(
-        &path,
-        hud::source(content, "", "call $cards", &frame, false),
-    )
-    .unwrap();
-    let mut host = ModHost::load_with_grants(
-        &path,
-        ModGrants {
-            hud: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    let claims = HudClaims::default();
-    host.set_frame_authority(
-        CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
-        false,
-        false,
-        0,
-        claims.clone(),
-    );
-    host.frame(false).unwrap_err();
-    assert!(host.is_active());
-    assert_eq!(host.hud().unwrap().cards[0].id, "old");
-    assert!(claims.claim(1, std::iter::once("nld".to_owned())));
-    assert!(!claims.claim(1, std::iter::once("old".to_owned())));
 }

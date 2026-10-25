@@ -113,11 +113,7 @@ impl UiPresentationRuntime {
         self.nametag_atlas.set_palette(palette);
         let (font, glyphs) = (&self.font, &self.session_glyphs);
         let dynamic_start = self.textures.dynamic_start();
-        let style = self
-            .screens
-            .mod_ui
-            .mod_actor_style()
-            .and_then(|style| style.nametags.as_ref());
+        let style = self.screens.mod_ui.mod_nametag_style();
         let mut scene = nametags::build_nametag_scene(
             &self.nametag_anchors,
             style,
@@ -148,11 +144,7 @@ impl UiPresentationRuntime {
         clip_from_world: glam::Mat4,
         rotation: glam::Quat,
     ) -> bool {
-        let style = self
-            .screens
-            .mod_ui
-            .mod_actor_style()
-            .and_then(|style| style.nametags.as_ref());
+        let style = self.screens.mod_ui.mod_nametag_style();
         self.nametag_bounds.intersects_view(
             anchor,
             clip_from_world,
@@ -190,5 +182,38 @@ impl UiPresentationRuntime {
     /// The effective GUI preference consumed by the app scale adapter.
     pub fn gui_scale_preference(&self) -> Option<u8> {
         self.gui_scale_preference
+    }
+
+    /// The gameplay HUD root's size in GUI units for a window, inset by the safe area; none
+    /// when the window cannot hold the HUD.
+    pub fn hud_gui_viewport(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<[f32; 2]> {
+        let geometry = HudGeometry::new(
+            physical_size,
+            dpi_scale,
+            self.safe_area,
+            self.gui_scale_preference,
+        )?;
+        Some([geometry.gui_width, geometry.gui_height])
+    }
+
+    /// A window-logical point in the gameplay HUD root's GUI units, from the root's top left:
+    /// the space of [`Self::hud_gui_viewport`], independent of any panel's own scaling.
+    pub fn hud_gui_point(
+        &self,
+        logical: [f32; 2],
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+    ) -> Option<[f32; 2]> {
+        let geometry = HudGeometry::new(
+            physical_size,
+            dpi_scale,
+            self.safe_area,
+            self.gui_scale_preference,
+        )?;
+        let point = [
+            (logical[0] - self.safe_area.left()) / geometry.scale,
+            (logical[1] - self.safe_area.top()) / geometry.scale,
+        ];
+        point.iter().all(|value| value.is_finite()).then_some(point)
     }
 }

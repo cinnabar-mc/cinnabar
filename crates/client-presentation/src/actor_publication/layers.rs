@@ -229,15 +229,18 @@ pub(super) fn apply_style_and_visibility(
         } else if let Some(style) = style {
             let armor = (3..=6).contains(&identity.layer);
             let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
-            let attackable = style.attackable_actor == Some(identity.runtime_id)
-                && actor
-                    .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }));
+            let tint = actor.and_then(|actor| {
+                style.presentation.tint(
+                    identity.runtime_id,
+                    matches!(actor.kind, protocol::ActorKind::Player { .. }),
+                )
+            });
             if let Some(color) = cosmetic_overlay(
-                style,
+                &style.presentation.hurt_overlay,
                 hurt,
                 armor,
                 submission.overlay_rgba8 != 0,
-                attackable,
+                tint,
             ) {
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
             }
@@ -255,25 +258,23 @@ pub(super) fn apply_style_and_visibility(
     }
 }
 
-/// Selects cosmetic color without treating a reach overlay as evidence of damage.
+/// Selects the mod overlay colour: its damage colours while the actor is hurt, else its tint.
 pub(super) fn cosmetic_overlay(
-    style: &ActorPresentationStyle,
+    hurt_overlay: &ui::mod_presentation::HurtOverlay,
     hurt: bool,
     armor: bool,
     native_overlay: bool,
-    attackable: bool,
+    tint: Option<[f32; 4]>,
 ) -> Option<[f32; 4]> {
     if hurt {
         if armor {
-            style.hurt_armor_color
+            hurt_overlay.armor
         } else if native_overlay {
-            style.hurt_color
+            hurt_overlay.body
         } else {
             None
         }
-    } else if attackable {
-        style.attackable_color
     } else {
-        None
+        tint
     }
 }

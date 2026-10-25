@@ -184,7 +184,10 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        world.stream.as_ref(),
+        world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().inventory_ui()),
         client_presentation::camera::CameraSettingsAuthority::default().perspective(),
         0,
     );

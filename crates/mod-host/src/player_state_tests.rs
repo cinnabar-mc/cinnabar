@@ -407,6 +407,7 @@ fn presentation_reads_share_grants_budget_and_revocation() {
         dimension: 0,
         position: (1., 2., 3.),
         alive: true,
+        runtime_id: 1,
     });
     assert!(state.read_fps().unwrap().is_err());
     assert!(state.read_world().unwrap().is_err());

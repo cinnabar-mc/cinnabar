@@ -93,8 +93,6 @@ pub struct HudFrame {
     pub viewmodel_pitch_degrees: f32,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
-    /// Exact declared food component of the currently selected authoritative stack.
-    pub selected_food: Option<protocol::FoodProperties>,
     /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the
     /// mount jump bar replaces the experience bar for the ride's duration.
     pub mount_jump: Option<f32>,

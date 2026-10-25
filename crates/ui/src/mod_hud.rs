@@ -5,29 +5,25 @@ use std::collections::HashSet;
 
 mod anchor;
 mod bindings;
+mod elements;
 mod geometry;
 pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
+pub use elements::{
+    ElementState, ElementStates, HiddenElements, HudViewport, PanelLayout, VanillaElement,
+};
 pub use geometry::{HudGeometry, HudGeometryRequests, MAX_HUD_GEOMETRY_REQUESTS};
 mod compass;
-mod cosmetic;
 mod editor_style;
 mod source;
 mod text_plate;
-pub use text_plate::{MAX_TEXT_PLATE_HEIGHT, TextPlate, TextPlateLayout, TextPlateStyle};
-mod totems;
-pub use totems::{CounterAnnotation, TotemCounterStyle};
-mod merge;
-mod update;
 pub use compass::{
     COMPASS_DEFAULT_WIDTH, COMPASS_DIRECTIONS, COMPASS_HEIGHT, COMPASS_MAX_WIDTH,
     COMPASS_MIN_WIDTH, COMPASS_TICKS, Compass, CompassFrame, CompassMarker, MAX_COMPASS_COORDINATE,
     MAX_COMPASS_MARKERS, MAX_HUD_COMPASSES, compass_bearing, compass_offset,
 };
-pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
 pub use editor_style::{EditorStyle, MAX_EDITOR_HANDLE_RADIUS};
-pub use merge::HudMergeCache;
-pub use source::{ActorBounds, ActorHealth, NativeRows, RowSource};
-pub use update::HudUpdate;
+pub use source::{NativeRows, RowSource};
+pub use text_plate::{MAX_TEXT_PLATE_HEIGHT, TextPlate, TextPlateLayout, TextPlateStyle};
 
 /// Bound for one read-only server text field crossing an extension callback.
 pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;
@@ -37,10 +33,6 @@ pub const MAX_OBSERVED_CHAT_MESSAGES: usize = 32;
 pub const MAX_CHAT_READ_MESSAGES: usize = 4;
 /// Bound for camera-projected labels, separate from draggable HUD cards.
 pub const MAX_WORLD_LABELS: usize = 64;
-/// Reserved projected labels for the host's bounded nearby-actor observation set.
-pub const MAX_NATIVE_ACTOR_LABELS: usize = 16;
-/// Bound for clickable literal spans in native chat.
-pub const MAX_CHAT_ACTIONS: usize = 32;
 pub const MAX_HUD_BYTES: usize = 128 * 1024;
 pub const MAX_HUD_CARDS: usize = 64;
 pub const MAX_HUD_ROWS: usize = 256;
@@ -114,18 +106,6 @@ pub enum RowLayout {
 #[serde(deny_unknown_fields)]
 pub struct Hud {
     pub cards: Vec<Card>,
-    /// Cosmetic native actor overrides; absence restores native presentation.
-    #[serde(default)]
-    pub actor_style: Option<ActorStyle>,
-    /// Read-only replicated health labels; players and mobs require their own grants.
-    #[serde(default)]
-    pub actor_health: Option<ActorHealth>,
-    /// Native depth-tested outlines; requires render plus the selected actor grants.
-    #[serde(default)]
-    pub actor_bounds: Option<ActorBounds>,
-    /// Adds cosmetic food-state artwork to the actual native hunger controls.
-    #[serde(default)]
-    pub hunger_overlay: Option<HungerOverlay>,
     /// Suppresses the ordinary status-effect icons while this HUD is published.
     #[serde(default)]
     pub hide_effect_icons: bool,
@@ -135,9 +115,6 @@ pub struct Hud {
     /// Bounded world anchors rendered by the host through the actual gameplay camera.
     #[serde(default)]
     pub world_labels: Vec<WorldLabel>,
-    /// Client-selected literal spans made clickable in the open native chat history.
-    #[serde(default)]
-    pub chat_actions: Vec<ChatAction>,
     /// Editor requests persist completed gestures when explicitly enabled.
     #[serde(default)]
     pub autosave: bool,
@@ -156,14 +133,6 @@ pub struct Hud {
     /// Optional editor settings-card size in GUI pixels, positioned beside the selection.
     #[serde(default)]
     pub inspector_size: Option<[f32; 2]>,
-}
-
-/// Exact plain-text chat span and the extension event emitted by a primary click.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChatAction {
-    pub text: String,
-    pub action: String,
 }
 
 /// Cosmetic world anchor; text content and persistence belong to the extension.
@@ -585,18 +554,6 @@ impl Hud {
         }) {
             return Err("HUD inspector size must contain finite positive GUI pixels".into());
         }
-        if let Some(bounds) = &self.actor_bounds {
-            bounds.validate()?;
-        }
-        if let Some(health) = &self.actor_health {
-            health.validate()?;
-            if self.world_labels.len() > MAX_WORLD_LABELS - MAX_NATIVE_ACTOR_LABELS {
-                return Err(
-                    "actor health labels require sixteen reserved world-label slots".into(),
-                );
-            }
-        }
-        cosmetic::validate(self.actor_style.as_ref(), self.hunger_overlay.as_ref())?;
         if let Some(style) = &self.editor_style {
             style.validate()?;
         }
@@ -635,21 +592,6 @@ impl Hud {
                     return Err("HUD editor surface action is unsupported".into());
                 }
             }
-        }
-        if self.chat_actions.len() > MAX_CHAT_ACTIONS
-            || self.chat_actions.iter().any(|a| {
-                a.text.is_empty()
-                    || a.text.len() > 96
-                    || a.text.chars().any(char::is_control)
-                    || a.action.is_empty()
-                    || a.action.len() > crate::mod_panel::MAX_PANEL_ID_BYTES
-                    || !a
-                        .action
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-            })
-        {
-            return Err("invalid chat actions".into());
         }
         if self.world_labels.len() > MAX_WORLD_LABELS
             || self.world_labels.iter().any(|label| {

@@ -504,7 +504,7 @@ fn check_stack_enchantment_selection(condition: &str) {
         presentation.dress_player_preview(
             &player,
             &runtime,
-            Some(&world),
+            Some(world.authority().inventory_ui()),
             Default::default(),
             |stack| {
                 Some(client_world::CanonicalItemStack {

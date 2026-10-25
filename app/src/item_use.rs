@@ -41,17 +41,17 @@ mod frame;
 pub(crate) mod ordered;
 mod riptide;
 
-/// A successful extension request is valid only in its originating world scope.
+/// This frame's item-use edge was a mod's admitted use pulse rather than a physical press.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct ModItemUsePolicy {
-    pub scope: Option<(u64, i32)>,
+    pub pulse: bool,
 }
 
 #[derive(SystemParam)]
 pub(crate) struct ItemUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     ordered: Option<Res<'w, crate::ordered_interactions::InteractionRuntime>>,
-    delay_fix: Option<Res<'w, ModItemUsePolicy>>,
+    pulse: Option<Res<'w, ModItemUsePolicy>>,
     ui: Res<'w, UiRuntimeResource>,
     focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
@@ -161,7 +161,6 @@ pub(crate) fn adopt_server_item_use(
     let policy = frame::FramePolicy {
         held: true,
         before_flush: false,
-        delay_fix_enabled: false,
         aim_rotation: None,
         release_facing: Default::default(),
         sample: Some(sample),
@@ -267,6 +266,11 @@ fn produce_use(
     runtime.observe_gameplay_focus(button.gameplay_focused);
     let held = button.held;
     button.observe(&mut runtime, &context.input);
+    if context.pulse.as_ref().is_some_and(|policy| policy.pulse) {
+        // A frame with an admitted pulse has no physical use press, so its latched press is
+        // the pulse.
+        runtime.mark_pulse();
+    }
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
         && context
@@ -289,25 +293,12 @@ fn produce_use(
     if !admitted {
         runtime.cancel_pending_input();
     }
-    let scope = context.client_world.stream.as_ref().map(|stream| {
-        let authority = stream.authority();
-        (authority.actor_session_id(), authority.current_dimension())
-    });
-    let delay_fix_enabled = admitted
-        && scope.is_some()
-        && context
-            .delay_fix
-            .as_ref()
-            .is_some_and(|policy| policy.scope == scope);
-    runtime.set_delay_fix(delay_fix_enabled);
-    runtime.observe_selected_slot(player_runtime.selected_hotbar_slot());
     if !runtime.has_work(held) {
         return;
     }
     let policy = frame::FramePolicy {
         held,
         before_flush,
-        delay_fix_enabled,
         aim_rotation,
         release_facing,
         sample: None,

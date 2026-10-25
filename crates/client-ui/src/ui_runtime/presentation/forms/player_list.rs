@@ -69,7 +69,7 @@ impl UiPresentationRuntime {
         };
         list.paint(
             renderer,
-            runtime.player_roster.rows(),
+            runtime.session.player_roster.rows(),
             &mut paint_frame,
             available_y,
         )?;

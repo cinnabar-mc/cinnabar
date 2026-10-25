@@ -76,18 +76,24 @@ fn feed(name: &str, skin: PlayerSkin) -> client_world::LocalPlayerFeed {
 }
 
 /// A fresh world's local identity, including its own runtime actor id.
-fn stream(actor: u64, name: &str, skin: PlayerSkin) -> chunk_pipeline::WorldStream {
-    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
-        local_player_unique_id: actor as i64,
-        local_player_runtime_id: actor,
-        dimension: 0,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 0,
-        block_network_ids_are_hashes: false,
-    });
-    stream.sync_local_player_pose(&feed(name, skin));
-    stream
+fn profile_world(actor: u64, name: &str, skin: PlayerSkin) -> client_world::WorldAuthority {
+    let mut world = client_world::WorldAuthority::new(
+        protocol::WorldBootstrap {
+            local_player_unique_id: actor as i64,
+            local_player_runtime_id: actor,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(assets::RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    world.sync_local_player_pose(&feed(name, skin));
+    world
 }
 
 /// An authored portrait, native name and original neutral fallback artwork.
@@ -107,15 +113,14 @@ fn identity_surface() -> Surface {
         // Host values must replace extension attempts to claim another identity.
         bindings: [(identity::NAME.into(), SurfaceValue::Text("Forged".into())),
             (identity::AVAILABLE.into(), SurfaceValue::Bool(true))].into(),
-        collections: Default::default(), transitions: Default::default(), previews: Default::default(),
-    }
+        collections: Default::default(), transitions: Default::default(),    }
 }
 
 /// A personal panel with a portrait, native name and original neutral fallback artwork.
 fn presentation() -> UiPresentationRuntime {
     let mut presentation = mini_engine_presentation();
     let mut panel = mod_ui::test_support::sample_panel();
-    panel.surface = Some(identity_surface());
+    panel.surface = identity_surface();
     presentation
         .mod_ui_mut()
         .set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))
@@ -149,8 +154,8 @@ fn contains(image: &[u8], color: [u8; 4]) -> bool {
 fn local_player_identity_skin_changes_replace_rendered_face_and_preserve_hat() {
     let mut presentation = presentation();
     let runtime = UiRuntime::new(1);
-    let mut world = stream(1, "First", PlayerSkin::Standard(skin(FACE)));
-    presentation.capture_local_player_identity(Some(&world), 1);
+    let mut world = profile_world(1, "First", PlayerSkin::Standard(skin(FACE)));
+    presentation.capture_local_player_identity(Some(world.local_player_ui()), 1);
     let first = draw(&mut presentation, &runtime);
     assert!(contains(&first, FACE));
     assert!(contains(&first, HAT));
@@ -163,7 +168,7 @@ fn local_player_identity_skin_changes_replace_rendered_face_and_preserve_hat() {
         presentation.mod_ui().mod_panel_state().unwrap().passes
     );
     world.sync_local_player_pose(&feed("First", PlayerSkin::Standard(skin(SECOND))));
-    presentation.capture_local_player_identity(Some(&world), 1);
+    presentation.capture_local_player_identity(Some(world.local_player_ui()), 1);
     let second = draw(&mut presentation, &runtime);
     assert!(contains(&second, SECOND));
     assert!(contains(&second, HAT));
@@ -174,17 +179,17 @@ fn local_player_identity_skin_changes_replace_rendered_face_and_preserve_hat() {
 fn local_player_identity_missing_and_invalid_skins_render_only_neutral_fallback() {
     let mut presentation = presentation();
     let runtime = UiRuntime::new(1);
-    let valid = stream(1, "First", PlayerSkin::Standard(skin(FACE)));
-    presentation.capture_local_player_identity(Some(&valid), 1);
+    let valid = profile_world(1, "First", PlayerSkin::Standard(skin(FACE)));
+    presentation.capture_local_player_identity(Some(valid.local_player_ui()), 1);
     draw(&mut presentation, &runtime);
     for candidate in [
         None,
-        Some(stream(
+        Some(profile_world(
             1,
             "Hidden",
             PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
         )),
-        Some(stream(
+        Some(profile_world(
             1,
             "Malformed",
             PlayerSkin::Standard(StandardSkin {
@@ -193,7 +198,10 @@ fn local_player_identity_missing_and_invalid_skins_render_only_neutral_fallback(
             }),
         )),
     ] {
-        presentation.capture_local_player_identity(candidate.as_ref(), 1);
+        presentation.capture_local_player_identity(
+            candidate.as_ref().map(|stream| stream.local_player_ui()),
+            1,
+        );
         let fallback = draw(&mut presentation, &runtime);
         assert!(contains(&fallback, NEUTRAL));
         assert!(!contains(&fallback, FACE));
@@ -209,8 +217,8 @@ fn local_player_identity_missing_and_invalid_skins_render_only_neutral_fallback(
 fn local_player_identity_world_and_session_changes_clear_old_portrait_and_name() {
     let mut presentation = presentation();
     let mut runtime = UiRuntime::new(1);
-    let first = stream(1, "First", PlayerSkin::Standard(skin(FACE)));
-    presentation.capture_local_player_identity(Some(&first), 1);
+    let first = profile_world(1, "First", PlayerSkin::Standard(skin(FACE)));
+    presentation.capture_local_player_identity(Some(first.local_player_ui()), 1);
     draw(&mut presentation, &runtime);
     runtime.begin_session(2);
     let cleared = draw(&mut presentation, &runtime);
@@ -220,8 +228,8 @@ fn local_player_identity_world_and_session_changes_clear_old_portrait_and_name()
         presentation.local_player_identity.name(),
         identity::DEFAULT_NAME
     );
-    let second = stream(2, "Second", PlayerSkin::Standard(skin(SECOND)));
-    presentation.capture_local_player_identity(Some(&second), 2);
+    let second = profile_world(2, "Second", PlayerSkin::Standard(skin(SECOND)));
+    presentation.capture_local_player_identity(Some(second.local_player_ui()), 2);
     let replaced = draw(&mut presentation, &runtime);
     assert!(contains(&replaced, SECOND));
     assert!(!contains(&replaced, FACE));
@@ -309,8 +317,8 @@ fn local_player_identity_hud_editor_overrides_forged_raster_name_and_transitions
     assert_painted_name(&presentation, identity::DEFAULT_NAME);
 
     // The same open HUD editor must show the actual head/name on its very next paint.
-    let world = stream(1, "First", PlayerSkin::Standard(skin(FACE)));
-    presentation.capture_local_player_identity(Some(&world), 1);
+    let world = profile_world(1, "First", PlayerSkin::Standard(skin(FACE)));
+    presentation.capture_local_player_identity(Some(world.local_player_ui()), 1);
     let current = draw(&mut presentation, &runtime);
     assert!(contains(&current, FACE));
     assert!(contains(&current, HAT));
@@ -330,10 +338,9 @@ fn local_player_identity_hud_editor_overrides_forged_raster_name_and_transitions
 fn local_player_identity_never_uses_another_players_roster_profile() {
     let mut presentation = presentation();
     let runtime = UiRuntime::new(1);
-    let mut world = stream(1, "Local", PlayerSkin::Standard(skin(FACE)));
+    let mut world = profile_world(1, "Local", PlayerSkin::Standard(skin(FACE)));
     world
-        .submit(
-            1,
+        .apply_ordered_event(
             protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
                 protocol::PlayerListUpdateEvent {
                     entries: Arc::from([protocol::PlayerListEntry::Add {
@@ -346,9 +353,10 @@ fn local_player_identity_never_uses_another_players_roster_profile() {
                     }]),
                 },
             )),
+            Some(1),
         )
         .unwrap();
-    presentation.capture_local_player_identity(Some(&world), 1);
+    presentation.capture_local_player_identity(Some(world.local_player_ui()), 1);
     let local = draw(&mut presentation, &runtime);
     assert!(contains(&local, FACE));
     assert!(!contains(&local, SECOND));
@@ -360,7 +368,7 @@ fn local_player_identity_never_uses_another_players_roster_profile() {
         .unwrap()
         .identity();
     let (_, allocation) = test_alloc::measure(|| {
-        presentation.capture_local_player_identity(Some(&world), 1);
+        presentation.capture_local_player_identity(Some(world.local_player_ui()), 1);
         presentation.publish_local_player_identity(1);
     });
     assert_eq!(allocation.calls, 0);
@@ -378,7 +386,7 @@ fn local_player_identity_never_uses_another_players_roster_profile() {
         "Local",
         PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
     ));
-    presentation.capture_local_player_identity(Some(&world), 1);
+    presentation.capture_local_player_identity(Some(world.local_player_ui()), 1);
     let neutral = draw(&mut presentation, &runtime);
     assert!(contains(&neutral, NEUTRAL));
     assert!(!contains(&neutral, SECOND));

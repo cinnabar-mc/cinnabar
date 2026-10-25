@@ -101,11 +101,6 @@ impl CrafterView {
 }
 
 impl ScreenState {
-    /// Drops all session-owned input and window preferences.
-    pub(super) fn reset_session(&mut self) {
-        *self = Self::default();
-    }
-
     /// Whether the retained input state belongs to this window generation.
     pub(super) fn observes_window(&self, generation: Option<u64>) -> bool {
         self.window == generation

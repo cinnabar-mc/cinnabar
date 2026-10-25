@@ -155,13 +155,10 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
 }
 
 #[test]
-fn shaders_tab_is_visible_only_in_shader_pack_builds() {
+fn shaders_tab_is_visible() {
     let shaders = SettingSection::Shaders.definition();
-    assert_eq!(shaders.tab_title.is_some(), super::SHADER_PACK_BINDINGS);
-    assert_eq!(
-        SETTINGS_TABS.iter().any(|(name, _)| *name == shaders.name),
-        super::SHADER_PACK_BINDINGS
-    );
+    assert!(shaders.tab_title.is_some());
+    assert!(SETTINGS_TABS.iter().any(|(name, _)| *name == shaders.name));
     let position = |section: SettingSection| {
         SECTION_DEFINITIONS
             .iter()
@@ -467,18 +464,14 @@ fn mob_effects_defaults_to_z_under_its_vanilla_name() {
     assert_eq!(reloaded.named_key_control(BindingId::MobEffects), Some(tab));
 }
 
-/// Iris's reload key defaults to R and remaps like other client controls, in builds that
-/// compile shader packs; other builds offer no row for it.
+/// Iris's reload key defaults to R and remaps like other client controls.
 #[test]
-fn reload_shaders_defaults_to_r_and_remaps_only_in_shader_pack_builds() {
+fn reload_shaders_defaults_to_r_and_remaps() {
     let r = semantic_input::PhysicalControl::KeyboardUsage(0x15);
     let mut options = SettingsOptions::default();
-    let row = BindingId::ReloadShaders.row(false);
-    assert_eq!(row.is_some(), super::SHADER_PACK_BINDINGS);
-    let Some(row) = row else {
-        assert_eq!(options.named_key_control(BindingId::ReloadShaders), None);
-        return;
-    };
+    let row = BindingId::ReloadShaders
+        .row(false)
+        .expect("reload shaders keyboard row");
     assert_eq!(
         super::custom_key_label(BindingId::ReloadShaders.name()),
         Some("Reload Shaders")

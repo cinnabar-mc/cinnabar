@@ -36,20 +36,47 @@ callback still receives `null`. Successful output is
 callback. Without a players grant the host removes player observations before
 calling the guest. `cabi_post_camera-frame(i32)` may release the result.
 
-Effects select either a once-consumed rotation or a detached view, plus optional
-damage-camera intensity and teleport-view preservation. Detached views keep
-native look separate from body heading. Orbit follows the body with host terrain
-collision; flying views consume movement only for the camera while the body's
-physics, gravity, server corrections and network cadence continue. No effect
-changes a teleport destination or its acknowledgment. The shared damage-camera
-owner validates intensity. `native-camera-v1.json` is the cross-language output
-fixture.
+Effects carry an optional once-consumed rotation, an optional absolute presented
+`view` pose computed by the guest (`position` in world blocks, `yaw` and `pitch`
+in actor YXZ radians, `velocity` in blocks per real second), `capture_look`,
+`capture_movement`, an optional current-frame `view_tilt` (`roll` and `pitch`
+degrees and `suppress_hurt_shake`), and teleport-view preservation. The `view`
+pose belongs to the frame its callback observed. On every rendered frame the host
+presents it with the position advanced by `velocity` for the real time since that
+frame was sent, at most 250 ms; the body's pose, physics and network cadence are
+unchanged. No effect changes a teleport destination or its acknowledgment.
+`native-camera-v1.json` is the cross-language output fixture.
+
+With `capture_look` and a `view`, native look input stops rotating the body. On
+every rendered frame the host instead adds it to the presented view's yaw and
+pitch, clamping pitch to ±89.9°, on top of the look already applied since the
+observed frame was sent. The next delivered frame's `look_delta` reports exactly
+the look applied since the previous delivered frame, so a guest that adds it to
+its own yaw and pitch stays aligned with the presented view, with no jump when a
+callback arrives. With `capture_movement`, which requires a `view`, the ordinary
+movement, jump and sneak bindings stop moving the body and are still reported.
+
+`view_tilt` adds degrees to the first-person view where the native damage shake
+applies, and `suppress_hurt_shake` removes that shake; death rotation and view
+bob remain. Positive pitch turns the view up. Positive roll turns it the way a
+native shake without direction does: the view's right edge rises, so the world
+appears to turn clockwise. A native shake of angle `a` from hurt direction `d`
+is approximately roll `a·cos d` and pitch `-a·sin d`, peaking at 14° times the
+player's damage bob.
+
+Every frame also reports `look_delta` (yaw and pitch radians the host applied to
+the captured view since the previous delivered frame, otherwise zero),
+`move_axes` (the ordinary movement bindings, `+X` right and `+Y` forward, each
+-1 to 1), the held jump and sneak bindings as `ascend` and `descend`, and
+`elapsed` (real seconds since the previous delivered frame, 0 on the first frame
+after a reset), so a guest can integrate a fly or orbit camera itself. Frames the
+worker never received contribute their look and time to the next delivered one.
 
 Presentation configuration remains valid until replaced or released; only relative
 rotations expire after two client frames and are consumed once. Worker contention
-does not reset detached position. Packet updates invalidate unconsumed rotations. A connected suspended frame
-retains only passive damage and teleport-view policies; it releases detached
-input immediately. Revocation, dimension/session changes, failure and stop
+does not reset the view. Packet updates invalidate unconsumed rotations. A connected suspended frame
+retains only passive view-tilt and teleport-view policies; it releases the view
+and look capture immediately. Revocation, dimension/session changes, failure and stop
 invalidate every effect. Omission
 restores the player's current camera settings and perspective.
 
@@ -59,12 +86,11 @@ restores the player's current camera settings and perspective.
 Capability bit `64` additionally permits `look` and `movement` in camera effects.
 `look` supplies absolute yaw/pitch in radians and a turn speed in radians per
 second. The host evaluates it against its current pose on every render frame.
-It excludes both relative rotation and detached views. `movement` supplies unit
+It excludes relative rotation. `movement` supplies unit
 axes (`+X` right, `+Y` forward), their yaw frame, and held jump/sneak/sprint
 requests. The host rotates these axes after camera updates and feeds its ordinary
 semantic input and physics; physical movement takes priority. Resolved held
-requests preserve the player's separate toggle settings. Detached views exclude
-walking requests. Input loss releases controls and fences older callbacks;
+requests preserve the player's separate toggle settings. Input loss releases controls and fences older callbacks;
 unchanged suspended frames still permit world drawing. Retained input expires
 250 ms after its observation. Session/world replacement, revocation, failure and
 stop release it as well. Guests must omit these fields without bit `64`.
@@ -91,8 +117,7 @@ When attachments exceed the GPU budget, fitting groups remain visible. Admission
 offers each owner one coverage group before its next, then follows stable owner
 and handle order. This also applies to component masks sharing the compositor.
 Optional `blocks` contains at most 1024 integer positions and per-block colours;
-bit `32` requires `block_highlights`. These use the same full-block overlay as
-host-discovered loaded-block selections. The independent consent bits do not
+bit `32` requires `block_highlights`. These use the native full-block overlay. The independent consent bits do not
 change which ordinary box/line callbacks are admitted. Unknown or removed actor
 incarnations cannot keep an old mesh selected.
 Retained geometry and depth permissions are admitted by the same drawing store

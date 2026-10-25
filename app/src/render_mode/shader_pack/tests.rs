@@ -47,11 +47,6 @@ fn requested(app: &App) -> Option<PathBuf> {
     app.world().resource::<ShaderPackRequest>().pack.clone()
 }
 
-/// The path a compiled build requests; builds without shader packs request nothing.
-fn compiled(path: PathBuf) -> Option<PathBuf> {
-    SHADER_PACKS_ENABLED.then_some(path)
-}
-
 #[test]
 fn request_follows_the_selected_pack_only_in_shader_pack_mode() {
     let mut app = app(config(None));
@@ -63,13 +58,10 @@ fn request_follows_the_selected_pack_only_in_shader_pack_mode() {
     );
     select(&mut app, RenderMode::ShaderPack, Some("Dusk.zip"));
     app.update();
-    assert_eq!(requested(&app), compiled(packs().join("Dusk.zip")));
+    assert_eq!(requested(&app), Some(packs().join("Dusk.zip")));
     select(&mut app, RenderMode::ShaderPack, Some("Nested"));
     app.update();
-    assert_eq!(
-        requested(&app),
-        compiled(packs().join("Nested").join("Inner"))
-    );
+    assert_eq!(requested(&app), Some(packs().join("Nested").join("Inner")));
     select(&mut app, RenderMode::ShaderPack, Some("../escape"));
     app.update();
     assert_eq!(requested(&app), None);
@@ -87,7 +79,7 @@ fn the_launch_pack_wins_over_the_saved_selection() {
     let mut app = app(config(Some(launch.clone())));
     select(&mut app, RenderMode::ShaderPack, Some("Dusk.zip"));
     app.update();
-    assert_eq!(requested(&app), compiled(launch));
+    assert_eq!(requested(&app), Some(launch));
     select(&mut app, RenderMode::Vanilla, Some("Dusk.zip"));
     app.update();
     assert_eq!(requested(&app), None);
@@ -112,7 +104,6 @@ fn an_unchanged_request_is_not_rewritten() {
     assert!(!app.world().resource_ref::<ShaderPackRequest>().is_changed());
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn reselecting_a_failed_pack_requests_another_load() {
     use launcher::menu::{MenuAction, RendererChoice};
@@ -150,7 +141,6 @@ fn reselecting_a_failed_pack_requests_another_load() {
     assert_eq!(app.world().resource::<ShaderPackRequest>(), &reselected);
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn a_menu_pick_replaces_the_launch_pack_and_saves_only_its_name() {
     use launcher::menu::{MenuAction, RendererChoice};
@@ -185,7 +175,6 @@ fn a_menu_pick_replaces_the_launch_pack_and_saves_only_its_name() {
     assert!(!std::fs::read_to_string(&path).unwrap().contains("Lumen"));
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn only_opening_shaders_lists_packs_added_while_running() {
     use launcher::menu::{MenuAction, MenuScreen};
@@ -233,7 +222,6 @@ fn only_opening_shaders_lists_packs_added_while_running() {
     );
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn regaining_focus_on_shaders_lists_packs_copied_in_meanwhile() {
     use launcher::menu::{MenuAction, MenuScreen};

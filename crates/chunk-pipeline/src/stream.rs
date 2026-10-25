@@ -351,9 +351,8 @@ use model::{
     SubChunkRecovery, queue_wait, split_block_update,
 };
 
-pub use block_cracks::{
-    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
-};
+pub use block_cracks::MAX_ACTIVE_BLOCK_CRACKS;
+use client_world::{ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus};
 pub use model::{
     CohortProgress, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
     SubChunkRequestBatch, ViewCohortStatus, WorldMeshChange, WorldStreamFatalError,

@@ -14,13 +14,26 @@ fn state(grants: ModGrants) -> State {
     State::new(grants, "{\"cps\":12}".into(), Default::default())
 }
 
+/// A minimal surface panel with the `controls` JSON array.
+fn panel_json(controls: &str) -> String {
+    format!(
+        r#"{{"toggle_key":"ShiftRight","controls":{controls},"surface":{}}}"#,
+        crate::tests::panel_surface("local")
+    )
+}
+
 fn panel() -> String {
-    r#"{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]}"#.into()
+    panel_json(r#"[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]"#)
 }
 
 /// Publishes one bounded native text field through the same admission path as a guest.
 fn text_panel(state: &mut State) {
-    state.set_content(r#"{"title":"Text","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":1,"max_chars":8}]}"#.into()).unwrap().unwrap();
+    state
+        .set_content(panel_json(
+            r#"[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":1,"max_chars":8}]"#,
+        ))
+        .unwrap()
+        .unwrap();
     state.controls.commit();
 }
 
@@ -146,6 +159,86 @@ fn native_text_input_survives_callback_deferral() {
     assert!(instance.is_active());
 }
 
+/// Only the mod whose open panel owns input reads the pointer and wheel; a non-finite pointer
+/// is rejected before any guest can read it.
+#[test]
+fn pointer_and_wheel_reach_only_an_open_panel() {
+    let engine = Engine::new(wasmtime::Config::new().consume_fuel(true)).unwrap();
+    let component = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let mut instance = Instance::new(
+        &engine,
+        component,
+        ModGrants {
+            controls: true,
+            ..Default::default()
+        },
+        "{}".into(),
+        Default::default(),
+        None,
+    )
+    .unwrap();
+    for panel_open in [true, false] {
+        let controls = ControlFrame {
+            panel_open,
+            ..control_frame()
+        };
+        instance
+            .observe_frame(false, None, Vec::new(), None, None, controls)
+            .unwrap();
+        let read = instance.store.data_mut().read_controls().unwrap().unwrap();
+        let expected = if panel_open {
+            (Some((12.0, 34.0)), 1.0)
+        } else {
+            (None, 0.0)
+        };
+        assert_eq!((read.pointer, read.wheel), expected);
+    }
+    for (pointer, wheel) in [(Some((f32::NAN, 0.0)), 0.0), (None, f32::INFINITY)] {
+        let controls = ControlFrame {
+            pointer,
+            wheel,
+            ..control_frame()
+        };
+        assert!(
+            instance
+                .observe_frame(false, None, Vec::new(), None, None, controls)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn panel_layout_reads_need_controls_authority_and_an_open_panel() {
+    let layout = ui::mod_hud::PanelLayout {
+        size: [600., 400.],
+        scale: 0.5,
+        offset: [0., 0.],
+    };
+    for controls in [true, false] {
+        let mut state = state(ModGrants {
+            controls,
+            ..Default::default()
+        });
+        state.set_content(panel()).unwrap().ok();
+        state.controls.commit();
+        state.controls.layout = Some(layout);
+        assert!(
+            state.read_layout().unwrap().is_none(),
+            "the panel is closed"
+        );
+        state.controls.open = true;
+        let read = state.read_layout().unwrap();
+        assert_eq!(
+            read.map(|read| (read.width, read.height, read.scale, read.offset)),
+            controls.then_some((600., 400., 0.5, (0., 0.)))
+        );
+    }
+}
+
 fn snapshot() -> GameplaySnapshot {
     GameplaySnapshot {
         session: 1,
@@ -227,6 +320,33 @@ fn panel_patch_obeys_transaction_boundaries() {
     assert!(state.controls.panel.is_none());
 }
 
+/// A panel patch naming `show_gameplay_hud` changes the retained flag until another patch
+/// changes it or new content replaces the panel.
+#[test]
+fn panel_patches_change_the_gameplay_hud_flag_until_new_content() {
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    let shown = |state: &State| state.controls.panel.as_ref().unwrap().show_gameplay_hud;
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!shown(&state));
+    for (patch, expected) in [
+        (r#"{"show_gameplay_hud":true}"#, true),
+        (r#"{"controls":[{"id":"enabled","value":true}]}"#, true),
+        (r#"{"show_gameplay_hud":false}"#, false),
+        (r#"{"show_gameplay_hud":true}"#, true),
+    ] {
+        state.update_content(patch.into()).unwrap().unwrap();
+        state.controls.commit();
+        assert_eq!(shown(&state), expected, "{patch}");
+    }
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!shown(&state), "new content replaces the flag");
+}
+
 /// A legacy replacement cannot select routes validated against a different control schema.
 #[test]
 fn registered_panel_routes_reject_a_replaced_schema() {
@@ -245,12 +365,7 @@ fn registered_panel_routes_reject_a_replaced_schema() {
         .unwrap()
         .unwrap();
     state.controls.commit();
-    state
-        .set_content(
-            r#"{"title":"Changed","toggle_key":"ShiftRight","dark":true,"controls":[]}"#.into(),
-        )
-        .unwrap()
-        .unwrap();
+    state.set_content(panel_json("[]")).unwrap().unwrap();
     state.controls.commit();
     assert!(state.update_content("{}".into()).unwrap().is_err());
     assert!(state.controls.panel.as_ref().unwrap().controls.is_empty());
@@ -275,6 +390,8 @@ fn control_frame() -> ControlFrame {
                 value: 3.0,
             },
         ],
+        pointer: Some((12.0, 34.0)),
+        wheel: 1.0,
     }
 }
 
@@ -757,9 +874,9 @@ fn native_field_input_deferred_submits_preserve_retained_values() {
     );
 }
 
-/// Click and weather policy are granted, transactional, retained and revoked on failure.
+/// Weather policy is granted, transactional, retained and revoked on failure.
 #[test]
-fn local_click_and_weather_policies_commit_and_revoke_together() {
+fn local_weather_policy_commits_and_revokes() {
     use cinnabar::extension::environment::{Host as _, Weather};
     let mut config = wasmtime::Config::new();
     config.consume_fuel(true);
@@ -785,36 +902,26 @@ fn local_click_and_weather_policies_commit_and_revoke_together() {
     instance
         .run(FRAME_FUEL, commit_event, |_, store| {
             let state = store.data_mut();
-            state.set_click_limits(Some(12), None)?.unwrap();
             state.set_weather_override(Some(Weather::Rain))?.unwrap();
-            assert_eq!(state.environment.click_limits, [None; 2]);
             assert!(state.environment.weather_override.is_none());
             Ok(())
         })
         .unwrap();
-    assert_eq!(instance.click_limits(), [Some(12), None]);
     assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
     instance.begin_frame();
     instance
         .run(FRAME_FUEL, commit_event, |_, _| Ok(()))
         .unwrap();
-    assert_eq!(instance.click_limits(), [Some(12), None]);
     assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
     instance
         .run(FRAME_FUEL, commit_event, |_, store| {
-            store.data_mut().set_click_limits(None, None)?.unwrap();
             store.data_mut().set_weather_override(None)?.unwrap();
             Ok(())
         })
         .unwrap();
-    assert_eq!(instance.click_limits(), [None; 2]);
     assert!(instance.weather_override().is_none());
     instance
         .run(FRAME_FUEL, commit_event, |_, store| {
-            store
-                .data_mut()
-                .set_click_limits(Some(5), Some(10))?
-                .unwrap();
             store
                 .data_mut()
                 .set_weather_override(Some(Weather::Thunder))?
@@ -833,40 +940,25 @@ fn local_click_and_weather_policies_commit_and_revoke_together() {
             })
             .is_err()
     );
-    assert_eq!(instance.click_limits(), [None; 2]);
     assert!(instance.weather_override().is_none());
 }
 
-/// Invalid rates and missing grants cannot replace a previously staged policy.
+/// Missing grants and exclusive ownership cannot replace a previously staged policy.
 #[test]
-fn click_and_weather_policy_admission_rejects_denied_or_invalid_writes() {
+fn weather_policy_admission_rejects_denied_writes() {
     use cinnabar::extension::environment::{Host as _, Weather};
     let mut denied = state(ModGrants::default());
-    assert!(denied.set_click_limits(Some(10), None).unwrap().is_err());
     assert!(
         denied
             .set_weather_override(Some(Weather::Clear))
             .unwrap()
             .is_err()
     );
-    assert!(denied.environment.pending_click_limits.is_none());
     assert!(denied.environment.pending_weather.is_none());
     let mut allowed = state(ModGrants {
-        controls: true,
         environment: true,
         ..Default::default()
     });
-    allowed
-        .set_click_limits(Some(10), Some(20))
-        .unwrap()
-        .unwrap();
-    for bad in [0, mod_api::MAX_CLICK_RATE + 1, u32::MAX] {
-        assert!(allowed.set_click_limits(Some(bad), None).unwrap().is_err());
-        assert_eq!(
-            allowed.environment.pending_click_limits,
-            Some([Some(10), Some(20)])
-        );
-    }
     allowed.exclusive.environment = true;
     assert!(
         allowed

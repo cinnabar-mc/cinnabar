@@ -87,7 +87,7 @@ impl UiPresentationRuntime {
         &mut self,
         player_runtime: &player_state::PlayerState,
         runtime: &crate::ui_runtime::UiRuntime,
-        stream: Option<&chunk_pipeline::WorldStream>,
+        world: Option<client_world::ui_read::InventoryUi<'_>>,
         input: actor_animation::AttachableAnimationInput<'_>,
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
     ) {
@@ -108,14 +108,13 @@ impl UiPresentationRuntime {
                 .and_then(|slot| ledger.displayed_stack(slot)),
         );
         let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
-        let owner = stream.and_then(|stream| {
-            let authority = stream.authority();
-            let id = stream.local_player_runtime_id();
-            let actor = authority.actor(id)?;
-            let rig = authority.actor_rig(id)?;
+        let owner = world.and_then(|world| {
+            let local = world.local_player();
+            let actor = local.actor()?;
+            let rig = local.rig()?;
             let facts = held
                 .as_ref()
-                .map(|(_, stack, _)| authority.item_use_profile(stack.network_id))
+                .map(|(_, stack, _)| world.item_use_profile(stack.network_id))
                 .unwrap_or_default();
             let elapsed = actor.is_using_item().then_some(rig.hand[1].use_ticks);
             let duration = facts.ticks.unwrap_or_default();
@@ -511,10 +510,8 @@ impl PlayerPreviewPose {
     }
 
     /// The local actor's pose; the default stance off-world.
-    pub fn of_local_player(stream: Option<&chunk_pipeline::WorldStream>) -> Self {
-        let Some(actor) =
-            stream.and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
-        else {
+    pub fn of_local_player(local: Option<client_world::ui_read::LocalPlayerUi<'_>>) -> Self {
+        let Some(actor) = local.and_then(|local| local.actor()) else {
             return Self::default();
         };
         Self::new(

@@ -3,6 +3,14 @@ use crate::render_mode::shader_pack::ShaderPackDirs;
 use launcher::menu::{MenuAction, MenuScreen, settings_sections::SettingSection};
 use std::path::Path;
 
+#[test]
+fn an_unused_import_host_allocates_no_result_queue() {
+    let pick: Pick = Arc::new(|_| Ok(Vec::new()));
+    let (host, allocations) = test_alloc::measure(|| ShaderPackImports::new(pick));
+    std::hint::black_box(host);
+    assert_eq!(allocations, test_alloc::Allocations::default());
+}
+
 /// The render-mode config with its pack folder at `packs`.
 fn config(packs: &Path) -> RenderModeConfig {
     RenderModeConfig {

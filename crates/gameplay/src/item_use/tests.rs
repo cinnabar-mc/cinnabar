@@ -12,9 +12,9 @@ use {super::*, inventory::crossbow_animation_frame};
 
 mod admission;
 mod crossbow;
-mod delayfix;
 mod frame_order;
 mod progress;
+mod pulse;
 mod respawn;
 mod riptide;
 mod rockets;
@@ -895,14 +895,13 @@ impl AdmissionQueue {
 }
 
 #[test]
-fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
+fn a_pulse_admits_once_per_tick_and_session_reset_restores_rearm() {
     let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
     let mut runtime = ItemUseRuntime::default();
     runtime.synchronize(1);
-    runtime.set_delay_fix(true);
     runtime.observe_press(true);
     assert!(runtime.step(&first).swung.is_some());
-    runtime.observe_press(true);
+    runtime.observe_pulse(true);
     assert_eq!(
         runtime.press_drop_reason(&first),
         Some("use_tick_already_admitted")
@@ -914,9 +913,10 @@ fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
         selection: Some(stack(3, SNOWBALL, 16)),
         ..first.clone()
     };
-    runtime.observe_press(true);
+    runtime.observe_pulse(true);
     assert!(runtime.step(&next).swung.is_some());
     runtime.synchronize(2);
+    assert!(!runtime.pulse_pending());
     runtime.observe_press(true);
     assert!(runtime.step(&first).swung.is_some());
     runtime.observe_press(true);

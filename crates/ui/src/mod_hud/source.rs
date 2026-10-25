@@ -18,17 +18,10 @@ pub struct RowSource {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NativeRows {
-    /// Displays the current server-clock day, independently of cosmetic time overrides.
-    WorldDays,
     /// Displays native local wall-clock time; no game clock or guest polling is involved.
     Clock {
         military: bool,
         am_pm: bool,
-    },
-    /// A native local activation counter; inventory quantity never contributes to this value.
-    TotemUses {
-        flip: bool,
-        count_color: bool,
     },
     Inventory {
         hotbar: bool,
@@ -68,58 +61,13 @@ pub enum NativeRows {
     },
 }
 
-/// Projects native replicated health over eligible actors, without exposing unobserved state.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ActorHealth {
-    pub players: bool,
-    pub mobs: bool,
-    pub range: f32,
-    #[serde(default = "super::white")]
-    pub color: [f32; 4],
-}
-
-/// Depth-tested outlines of native actor bounds, separate from projected health text.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ActorBounds {
-    pub players: bool,
-    pub mobs: bool,
-    pub range: f32,
-    pub color: [f32; 4],
-}
-
-impl ActorBounds {
-    /// Keeps outline selection within the same bounded actor observation range.
-    pub fn validate(&self) -> Result<(), String> {
-        if !self.range.is_finite() || !(0.0..=128.0).contains(&self.range) {
-            return Err("actor outline range exceeds its bounds".into());
-        }
-        super::color(self.color)
-    }
-}
-
-impl ActorHealth {
-    /// Keeps projected label work and distances within the actor observation boundary.
-    pub fn validate(&self) -> Result<(), String> {
-        if !self.range.is_finite() || !(0.0..=128.0).contains(&self.range) {
-            return Err("actor health label range exceeds its bounds".into());
-        }
-        super::color(self.color)
-    }
-}
-
 impl RowSource {
     /// Reserves the maximum materialized rows before any observations become available.
     pub fn validate(&self) -> Result<(), String> {
         if self.limit == 0 || usize::from(self.limit) > super::MAX_CARD_ROWS {
             return Err("native HUD source requires a bounded positive row limit".into());
         }
-        if matches!(
-            self.kind,
-            NativeRows::Clock { .. } | NativeRows::TotemUses { .. } | NativeRows::WorldDays
-        ) && (self.limit != 1 || self.brackets)
-        {
+        if matches!(self.kind, NativeRows::Clock { .. }) && (self.limit != 1 || self.brackets) {
             return Err(
                 "native scalar sources reserve one plain row; text plates own brackets".into(),
             );

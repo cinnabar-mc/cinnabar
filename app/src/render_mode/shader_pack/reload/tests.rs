@@ -33,7 +33,6 @@ fn a_key_reload_reports_once_its_own_load_settles() {
 
 /// The reload key neither scans the pack folder nor reports for players without a pack, and
 /// reloads a selected pack without re-listing the folder on the frame.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn the_reload_key_only_reloads_a_selected_pack() {
     use crate::render_mode::{
@@ -113,7 +112,6 @@ fn the_reload_key_only_reloads_a_selected_pack() {
     assert_eq!(listed(&app), 0, "the key reload does not scan the folder");
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn a_reload_relists_packs_and_loads_the_selected_pack_again_under_a_new_revision() {
     use crate::render_mode::{

@@ -1,14 +1,10 @@
 //! A private JSON-UI catalog for bounded personal-extension controls.
 
-mod compact;
 mod data;
 mod edit;
 mod field;
 mod field_paint;
-mod hud_cards;
-mod icons;
 mod input;
-mod layout;
 mod motion;
 pub(crate) mod prepared;
 mod reveal;
@@ -28,7 +24,7 @@ use std::sync::Arc;
 
 use json_ui::{Catalog, DataSource, ViewState};
 use ui::{
-    FONT_DESIGN_PIXEL_TEXELS, UiScale,
+    FONT_DESIGN_PIXEL_TEXELS, IconRef, UiScale,
     mod_panel::{Control, Event, Panel},
 };
 
@@ -46,22 +42,16 @@ use ui_engine::{
 pub(crate) use widgets::Palette;
 
 const SCREEN: &str = "cinnabar_personal.panel";
-const ROW_HEIGHT: f64 = 26.0;
-const CHROME_HEIGHT: f64 = 88.0;
 
 pub(super) struct ModPanel {
     pub(super) owner: PanelUiOwner,
-    hud_previews: hud_cards::Previews,
+    embeds: crate::hud_surface::embed::Embeds,
     panel: Panel,
     open: bool,
     catalog: Option<Arc<Catalog>>,
     screen: CachedScreen,
     frame: Option<EngineFrame>,
     viewport: [f64; 2],
-    page: usize,
-    category: usize,
-    pages: usize,
-    rows: usize,
     drag: Option<usize>,
     vector_drag: Option<vector::Drag>,
     scroll_drag: Option<(String, f64)>,
@@ -77,6 +67,13 @@ pub(super) struct ModPanel {
     field_events: Vec<ui::mod_panel::FieldEvent>,
     prepared: Option<Arc<prepared::PreparedRoute>>,
     collection_reveals: reveal::CollectionReveals,
+    /// Item values of the surface, as icon indices into `icons`.
+    items: Vec<(String, Option<IconRef>)>,
+    icons: Vec<IconRef>,
+    /// The last projected offset of each projected binding.
+    projected: std::collections::BTreeMap<String, Option<[f64; 2]>>,
+    /// Where the panel was last laid out over the HUD root.
+    layout: Option<ui::mod_hud::PanelLayout>,
 }
 
 impl ModPanel {
@@ -87,31 +84,6 @@ impl ModPanel {
 }
 
 impl ModUi {
-    /// Reports distinct unknown HUD selectors for rendering regressions.
-    #[cfg(test)]
-    pub(crate) fn hud_preview_unknowns(&self) -> usize {
-        self.mod_panel
-            .as_ref()
-            .map_or(0, |panel| panel.hud_previews.unknown_ids)
-    }
-
-    /// Preview declarations of the active or exiting panel; other owners remain inaccessible.
-    pub fn control_previews(
-        &self,
-    ) -> Option<(
-        PanelUiOwner,
-        &std::collections::BTreeMap<String, ui::mod_panel::preview::ControlPreview>,
-    )> {
-        if self.mod_hud_editor_painting() {
-            return None;
-        }
-        let panel = self
-            .mod_panel
-            .as_ref()
-            .filter(|panel| panel.open || panel.exiting())?;
-        Some((panel.owner, &panel.panel.surface.as_ref()?.previews))
-    }
-
     /// Drains committed native text edits once for the active personal-panel owner.
     pub fn take_mod_panel_text_events(
         &mut self,
@@ -202,14 +174,11 @@ impl ModUi {
         if let Some(current) = self.mod_panel.as_mut() {
             let data_changed = !same_shape || !data::same_values(&current.panel, panel);
             if current.owner != owner {
-                current.hud_previews = hud_cards::Previews::default();
+                current.embeds = Default::default();
             }
             if !same_shape {
-                let transitions = (current.owner == owner
-                    && current.open
-                    && current.panel.surface.is_some()
-                    && panel.surface.is_some())
-                .then(|| std::mem::take(&mut current.motion.transitions));
+                let transitions = (current.owner == owner && current.open)
+                    .then(|| std::mem::take(&mut current.motion.transitions));
                 current.text_events.clear();
                 current.field_events.clear();
                 current.owner = owner;
@@ -220,12 +189,8 @@ impl ModUi {
                 current.drag = None;
                 current.vector_drag = None;
                 current.scroll_drag = None;
-                if current.panel.sections != panel.sections
-                    || current.panel.controls.len() != panel.controls.len()
-                {
-                    current.page = 0;
-                    current.category = 0;
-                }
+                current.items.clear();
+                current.projected.clear();
                 current.view = ViewState::default();
                 current.motion = motion::PanelMotion::default();
                 if let Some(transitions) = transitions {
@@ -250,22 +215,22 @@ impl ModUi {
         } else {
             self.mod_panel = Some(ModPanel {
                 owner,
-                hud_previews: hud_cards::Previews::default(),
+                embeds: Default::default(),
                 panel: panel.clone(),
                 open: false,
                 catalog: prepared.as_ref().map(|route| Arc::clone(&route.catalog)),
                 screen: CachedScreen::default(),
                 frame: None,
                 viewport: [0.0; 2],
-                page: 0,
-                category: 0,
-                pages: 1,
-                rows: 1,
                 drag: None,
                 vector_drag: None,
                 scroll_drag: None,
                 view: ViewState::default(),
-                data: Arc::new(control_data(panel)),
+                data: Arc::new({
+                    let mut data = control_data(panel);
+                    surface::viewport(&mut data, [0.0; 2]);
+                    data
+                }),
                 pointer: None,
                 held: false,
                 edit: None,
@@ -279,6 +244,10 @@ impl ModUi {
                     requests.publish(panel);
                     requests
                 },
+                items: Vec::new(),
+                icons: Vec::new(),
+                projected: Default::default(),
+                layout: None,
             });
         }
         if (self.reduced_motion || !panel.motion)
@@ -315,6 +284,16 @@ impl ModUi {
     /// Whether the panel is open and owns input; false while a closed panel plays its exit.
     pub fn mod_panel_open(&self) -> bool {
         self.mod_panel.as_ref().is_some_and(|panel| panel.open)
+    }
+
+    /// The open panel's owner and where it was last laid out over the HUD root, for
+    /// `panel.read-layout`; none while no panel is open or the HUD editor draws instead.
+    pub fn mod_panel_layout(&self) -> Option<(PanelUiOwner, ui::mod_hud::PanelLayout)> {
+        if self.mod_hud_editor_painting() {
+            return None;
+        }
+        let panel = self.mod_panel.as_ref().filter(|panel| panel.open)?;
+        Some((panel.owner, panel.layout?))
     }
 
     /// Whether the active panel retains resource-pack HUD content for placement or inspection.
@@ -453,24 +432,21 @@ impl ModUi {
             UiScale::new_display(scale).expect("fitted display scale is valid");
         let px = paint_frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let viewport = [f64::from(content[0] / px), f64::from(content[1] / px)];
-        if viewport[0] < 120.0
-            || viewport[1] - layout::top_offset(viewport) - 12.0 < CHROME_HEIGHT + ROW_HEIGHT + 8.0
-        {
+        if !viewport.iter().all(|axis| axis.is_finite() && *axis > 0.) {
             panel.close(false);
             return;
         }
-        let rows = (((viewport[1] - layout::top_offset(viewport) - CHROME_HEIGHT - 12.0)
-            / ROW_HEIGHT) as usize)
-            .clamp(1, ui::mod_panel::MAX_PANEL_CONTROLS);
-        if panel.viewport != viewport || panel.rows != rows {
+        // The panel root and the HUD root both lay out from the safe content's top left.
+        panel.layout = Some(ui::mod_hud::PanelLayout {
+            size: viewport.map(|axis| axis as f32),
+            scale: px / (hud_metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32),
+            offset: [0.; 2],
+        })
+        .filter(|layout| layout.valid());
+        if panel.viewport != viewport {
             panel.cancel_edit();
             panel.viewport = viewport;
             panel.refresh_data();
-            panel.rows = rows;
-            panel.page = panel.page.min(panel.last_page());
-            if panel.panel.surface.is_none() {
-                panel.catalog = None;
-            }
             panel.frame = None;
             panel.drag = None;
             panel.vector_drag = None;
@@ -487,15 +463,10 @@ impl ModUi {
             match template::catalog_prepared(
                 &panel.panel,
                 viewport,
-                panel.category,
-                panel.page,
-                rows,
                 panel.edit.as_ref(),
                 panel.prepared.as_ref().map(|route| route.catalog.as_ref()),
             ) {
-                Ok((catalog, pages)) => {
-                    panel.pages = pages;
-                    panel.page = panel.page.min(pages - 1);
+                Ok(catalog) => {
                     panel.catalog = Some(Arc::new(catalog));
                     panel.screen = CachedScreen::default();
                 }
@@ -513,20 +484,17 @@ impl ModUi {
             return;
         }
         if panel.animated() && (changed || panel.motion_data_dirty) {
-            panel
-                .motion
-                .write(&panel.panel, Arc::make_mut(&mut panel.data));
+            panel.motion.write(Arc::make_mut(&mut panel.data));
             panel.motion_data_dirty = false;
         }
         self.local_player_identity.write(&mut panel.data);
+        panel.resolve_items(icon);
         let data = Arc::clone(&panel.data);
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
         let world = panel
-            .panel
-            .surface
-            .as_ref()
-            .map(|surface| panel.motion.transitions.world_backdrop(surface))
-            .unwrap_or_default();
+            .motion
+            .transitions
+            .world_backdrop(&panel.panel.surface);
         if let Err(error) = paint_world_backdrop(paint_frame, world) {
             out_of_render(panel, paint_frame, rollback);
             tracing::warn!(%error, "personal extension panel disabled after rendering failure");
@@ -542,7 +510,11 @@ impl ModUi {
                 Palette::for_panel(&panel.panel),
                 [paint_frame.safe_area.left(), paint_frame.safe_area.top()],
             );
-            let mut field_slot: [&mut dyn CustomRenderer; 1] = [&mut field];
+            let mut items = ui_engine::engine::item_renderer::ItemRenderer {
+                icons: &panel.icons,
+                id_aux: &[],
+            };
+            let mut field_slot: [&mut dyn CustomRenderer; 2] = [&mut field, &mut items];
             let mut host = RendererChain {
                 first: &mut glass,
                 rest: &mut field_slot,
@@ -563,13 +535,11 @@ impl ModUi {
                         .map(|owner| owner.screen(route))
                 })
                 .unwrap_or(&mut panel.screen);
-            if let Some(surface) = &panel.panel.surface {
-                for name in surface.collections.keys() {
-                    screen.virtualize_clipped_grid(
-                        name,
-                        ui::mod_panel::SurfaceCollection::INITIAL_WINDOW,
-                    );
-                }
+            for name in panel.panel.surface.collections.keys() {
+                screen.virtualize_clipped_grid(
+                    name,
+                    ui::mod_panel::SurfaceCollection::INITIAL_WINDOW,
+                );
             }
             let laid = {
                 let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
@@ -601,11 +571,12 @@ impl ModUi {
             if let Some(laid) = laid {
                 let panel_metrics = paint_frame.metrics;
                 paint_frame.metrics = hud_metrics;
-                panel.hud_previews.prepare(
+                panel.embeds.prepare(
                     &laid,
                     &panel.view,
                     panel.owner,
-                    &mut self.hud_sources,
+                    &mut self.hud_surfaces,
+                    &self.local_player_identity,
                     renderer,
                     paint_frame,
                     icon,
@@ -613,9 +584,7 @@ impl ModUi {
                 paint_frame.metrics = panel_metrics;
             }
             let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
-            let mut previews = panel
-                .hud_previews
-                .renderer(panel.owner, &mut self.hud_sources);
+            let mut previews = panel.embeds.renderer(panel.owner, &mut self.hud_surfaces);
             let mut combined = RendererChain {
                 first: &mut previews,
                 rest: &mut renderers,
@@ -644,10 +613,11 @@ impl ModUi {
         paint_frame.renderers = caller;
         match result {
             Ok(Some(mut frame)) => {
-                if let Some(surface) = &panel.panel.surface
-                    && !surface.collections.is_empty()
-                {
-                    surface::resolve_collection_hits(surface, Arc::make_mut(&mut frame.hits));
+                if !panel.panel.surface.collections.is_empty() {
+                    surface::resolve_collection_hits(
+                        &panel.panel.surface,
+                        Arc::make_mut(&mut frame.hits),
+                    );
                 }
                 for (key, metrics) in &frame.report.scrolls {
                     if let Some(offset) = panel.view.scroll.get_mut(key) {
@@ -736,9 +706,10 @@ impl ModPanel {
                 .motion
                 .advance(&self.panel, &mut self.view, hovered, now, animate);
         }
-        if let Some(surface) = &self.panel.surface {
-            changed |= self.motion.transitions.advance(surface, now, animate);
-        }
+        changed |= self
+            .motion
+            .transitions
+            .advance(&self.panel.surface, now, animate);
         changed
     }
 
@@ -752,15 +723,12 @@ impl ModPanel {
         let mut changed =
             self.motion
                 .advance(&self.panel, &mut self.view, None, self.motion.now, false);
-        if let Some(surface) = &self.panel.surface {
-            changed |= self
-                .motion
-                .transitions
-                .advance(surface, self.motion.now, false);
-        }
+        changed |= self
+            .motion
+            .transitions
+            .advance(&self.panel.surface, self.motion.now, false);
         if changed || self.motion_data_dirty {
-            self.motion
-                .write(&self.panel, Arc::make_mut(&mut self.data));
+            self.motion.write(Arc::make_mut(&mut self.data));
         }
         self.motion_data_dirty = false;
     }
@@ -779,10 +747,7 @@ impl ModPanel {
             self.open = false;
             self.cancel_edit();
             self.cancel_pointer_input();
-            if exit
-                && let Some(surface) = &self.panel.surface
-                && self.motion.transitions.begin_exit(surface)
-            {
+            if exit && self.motion.transitions.begin_exit(&self.panel.surface) {
                 self.view.focused = None;
                 self.motion_data_dirty = true;
                 return;
@@ -809,25 +774,90 @@ impl ModPanel {
                 .advance(&self.panel, &mut self.view, None, self.motion.now, false);
         }
         let mut data = control_data(&self.panel);
-        if self.panel.surface.is_some() {
-            surface::viewport(&mut data, self.viewport);
-        }
+        surface::viewport(&mut data, self.viewport);
         self.data = Arc::new(data);
+        self.items.clear();
+        self.projected.clear();
         self.motion_data_dirty = true;
+    }
+
+    /// Projects the surface's projected bindings onto the panel root, which covers the HUD
+    /// root `hud` at the panel's own scale, writing changed offsets and their companions.
+    pub(crate) fn project(
+        &mut self,
+        hud: crate::hud_surface::RootPlacement,
+        camera: Option<&glam::Mat4>,
+        actor: &dyn Fn(u64) -> Option<crate::hud_surface::ProjectedActor>,
+        authority: crate::hud_surface::ActorAuthority,
+    ) {
+        if !hud.size[0].is_finite() || hud.size[0] <= 0. || self.viewport[0] <= 0. {
+            return;
+        }
+        let scale = self.viewport[0] / hud.size[0];
+        let root = crate::hud_surface::RootPlacement {
+            origin: hud.origin.map(|axis| axis * scale),
+            size: self.viewport,
+            window: hud.window.map(|axis| axis * scale),
+        };
+        for (name, value) in &self.panel.surface.bindings {
+            let Some(projection) = value.projection() else {
+                continue;
+            };
+            let offset = crate::hud_surface::project(projection, camera, root, actor, authority);
+            if self.projected.get(name) == Some(&offset) {
+                continue;
+            }
+            self.projected.insert(name.clone(), offset);
+            let data = Arc::make_mut(&mut self.data);
+            data.set_global(
+                name.as_str(),
+                json_ui::Scalar::Json(serde_json::json!(offset.unwrap_or([0.; 2]))),
+            );
+            data.set_global(
+                ui::mod_panel::projected_visible_name(name),
+                json_ui::Scalar::Bool(offset.is_some()),
+            );
+        }
+    }
+
+    /// Resolves the surface's item values to icon indices, rewriting only changed bindings.
+    fn resolve_items(&mut self, icon: &dyn Fn(&str, u32) -> Option<IconRef>) {
+        let mut changed = false;
+        let mut index = 0;
+        for (name, value) in &self.panel.surface.bindings {
+            let Some(item) = value.item() else {
+                continue;
+            };
+            let resolved = icon(&item.identifier, item.metadata);
+            match self.items.get(index) {
+                Some((current, previous)) if current == name && *previous == resolved => {}
+                _ => {
+                    changed = true;
+                    self.items.truncate(index);
+                    self.items.push((name.clone(), resolved));
+                }
+            }
+            index += 1;
+        }
+        changed |= self.items.len() != index;
+        self.items.truncate(index);
+        if !changed {
+            return;
+        }
+        self.icons.clear();
+        let data = Arc::make_mut(&mut self.data);
+        for (name, resolved) in &self.items {
+            let value = resolved.map_or(json_ui::Scalar::Json(serde_json::Value::Null), |icon| {
+                self.icons.push(icon);
+                json_ui::Scalar::Num((self.icons.len() - 1) as f64)
+            });
+            data.set_global(name.as_str(), value);
+        }
     }
 
     /// Whether native feedback or declared surface transitions rewrite published bindings.
     fn animated(&self) -> bool {
-        self.panel.motion
-            || self
-                .panel
-                .surface
-                .as_ref()
-                .is_some_and(|surface| !surface.transitions.is_empty())
-    }
-
-    fn last_page(&self) -> usize {
-        self.pages.saturating_sub(1)
+        self.panel.motion || !self.panel.surface.transitions.is_empty()
     }
 }
 
@@ -848,14 +878,18 @@ impl ModUi {
         Some(crate::test_support::ModPanelState {
             catalog: panel.catalog.as_ref(),
             frame: panel.frame.as_ref(),
-            page: panel.page,
-            rows: panel.rows,
-            category: panel.category,
-            pages: panel.pages,
             passes: screen.passes,
             #[cfg(feature = "test-support")]
             resolves: screen.resolves,
         })
+    }
+
+    /// Ink fits the panel's embedded HUD controls have computed.
+    #[cfg(test)]
+    pub(crate) fn mod_panel_embed_fits(&self) -> usize {
+        self.mod_panel
+            .as_ref()
+            .map_or(0, |panel| panel.embeds.fit_computations())
     }
 }
 

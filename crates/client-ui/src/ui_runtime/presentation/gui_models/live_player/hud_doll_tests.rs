@@ -35,7 +35,7 @@ fn hud_doll_keeps_its_live_pose_while_the_inventory_shows_its_own_doll() {
         glint: false,
     };
     presentation.player_preview_icon = Some(preview);
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     // The HUD paints its doll first; the inventory's live renderer paints after it.
     presentation.hud_preview_view = PreviewView::Hud;
     presentation.player_preview_view = PreviewView::Live {

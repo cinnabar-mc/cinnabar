@@ -55,6 +55,7 @@ impl UiRuntime {
     ) -> Option<GrindstonePreview> {
         let ledger = self.inventory_ledger(player_runtime);
         let mut cache = self
+            .session
             .grindstone_cache
             .0
             .lock()

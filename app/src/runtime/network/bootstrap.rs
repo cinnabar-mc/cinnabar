@@ -191,7 +191,7 @@ pub(super) fn apply(
     );
     #[cfg(not(target_arch = "wasm32"))]
     {
-        ui_runtime.experiences.marker = packs.extension_marker.take();
+        ui_runtime.session.experiences.marker = packs.extension_marker.take();
     }
     player_runtime.facts.publish_bootstrap_game_modes(
         player_game_mode,

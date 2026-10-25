@@ -48,6 +48,7 @@ fn run(host: &mut ModHost) -> anyhow::Result<()> {
         world: "fixture".into(),
         position: (0., 63., 0.),
         alive: true,
+        runtime_id: 1,
     };
     host.observe_presentation(Some(world), None, None, Vec::new())?;
     host.frame_with_gameplay(false, Some(snapshot()))
@@ -122,25 +123,13 @@ fn polling_crosses_the_component_boundary() {
 fn deferred_callbacks_keep_their_subscriptions() {
     let mut host = load(&expect_reads(&[PENDING, CHANGED, UNCHANGED]), true);
     let budget = CallbackBudget::new;
-    host.set_frame_authority(
-        budget(mod_api::TOTAL_MOD_FRAME_FUEL),
-        false,
-        false,
-        0,
-        HudClaims::default(),
-    );
+    host.set_frame_authority(budget(mod_api::TOTAL_MOD_FRAME_FUEL), false, false, 0);
     run(&mut host).unwrap();
     frame(&mut host, STALE, 8).unwrap();
-    host.set_frame_authority(budget(0), false, false, 0, HudClaims::default());
+    host.set_frame_authority(budget(0), false, false, 0);
     frame(&mut host, TerrainCheck::Current, 8).unwrap();
     assert_eq!(host.instance.terrain_subscriptions(), 1);
-    host.set_frame_authority(
-        budget(mod_api::TOTAL_MOD_FRAME_FUEL),
-        false,
-        false,
-        0,
-        HudClaims::default(),
-    );
+    host.set_frame_authority(budget(mod_api::TOTAL_MOD_FRAME_FUEL), false, false, 0);
     frame(&mut host, TerrainCheck::Current, 8).unwrap();
 }
 
@@ -173,6 +162,7 @@ fn round_robin_sampling_reaches_every_mod() {
                 world: "fixture".into(),
                 position: (32., 64., 8.),
                 alive: true,
+                runtime_id: 1,
             };
             host.observe_presentation(Some(world), None, None, Vec::new())
                 .unwrap();

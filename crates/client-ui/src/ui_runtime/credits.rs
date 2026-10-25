@@ -141,13 +141,13 @@ impl CreditsState {
 
 impl UiRuntime {
     pub fn credits(&self) -> &CreditsState {
-        &self.credits
+        &self.session.credits
     }
     pub fn credits_mut(&mut self) -> &mut CreditsState {
-        &mut self.credits
+        &mut self.session.credits
     }
     pub fn credits_player_name(&self) -> &str {
-        &self.local_player_display_name
+        &self.session.local_player_display_name
     }
 }
 
@@ -233,7 +233,7 @@ mod tests {
             "",
             "a new local actor must not inherit the previous player's poem name"
         );
-        assert!(runtime.chat_xuid.is_empty());
+        assert!(runtime.session.chat_xuid.is_empty());
         runtime.set_chat_identity("CurrentPlayer".into(), "current-account".into());
         assert_eq!(runtime.credits_player_name(), "CurrentPlayer");
     }

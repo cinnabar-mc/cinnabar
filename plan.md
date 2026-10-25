@@ -1213,8 +1213,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   qualification remains incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Generic resolved action filtering exposes synchronous module verdicts, retained
-  releases and lifecycle reconciliation; timing and rates belong to modules. Legacy
-  native click caps remain frozen for compatibility. Local weather overrides retain
+  releases and lifecycle reconciliation; timing and rates belong to modules, and
+  attack and use pulses reach it as repeats. Local weather overrides retain
   transactional host APIs. These contracts have offline behavior coverage; populated-world interaction and rendering acceptance
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
@@ -1302,6 +1302,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   positions/link acceptance and mixed-client rendering remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
+- The mod `presentation` capability sets native nametag parameters, per-actor nametag and
+  player-list annotation spans, damage overlay colours, per-actor overlay tints, item tooltip
+  lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
+  item, potion and effect tables and the installation's food; `player-state` reports the server
+  world clock and totem activations as combat events. Offline regressions cover grants, bounds,
+  merging, roster mapping and span placement. Tipped-arrow facts report the carried potion's
+  durations until the native arrow duration is referenced, and displayed-client acceptance of
+  the presentation parameters remains pending.
 - Server WIT 0.10 adds cell overlays: Experience-registered overlay types, turned to a face, and
   item overlays drawn flat on a face, up to 12 per host cell, saved in the host's
   `CinnabarOverlays` block entity. Cinnabar meshes them with terrain, draws their items with
@@ -1319,11 +1327,19 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.
+- Local weather overrides have transactional host APIs and offline behavior
+  coverage; populated-world interaction and rendering acceptance remain unverified.
+- Personal-mod mechanics capabilities (sprint and sneak intents, use pulses, view
+  tilt, the relayed and presented camera positions, loaded-block search and panel
+  pointer and wheel) have host and adapter regression coverage. The tilt's sign
+  follows the native damage shake. Populated-world and displayed-frame acceptance
+  remain pending.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
-  compass markers, totem annotations and bounded camera overrides) still need
+  compass markers and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance. Packet extensions now
-  negotiate bounded detached-view and passive camera effects through the shared
-  camera owners; interactive movement, perspective release, teleport and hurt-view
+  present guest-computed detached views, extrapolated by velocity between callbacks,
+  with exactly reported look capture, movement capture and view tilt through the
+  shared camera owners; interactive flight, perspective release, teleport and tilt
   acceptance remain unverified in a displayed client. Panel previews now
   select owner-scoped HUD cards, including preview-only cards, and share retained
   gameplay artwork. Optional measured fitting sizes and aligns their painted bounds
@@ -1331,6 +1347,18 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Focused rendering and cache regressions cover visible previews;
   populated-world and displayed-frame acceptance remain pending.
   Personal panels and HUD editor surfaces can bind the host local player's name
+- Mods draw their HUDs as JSON-UI surfaces over gameplay: each top-level control is
+  painted and cached on its own, item and projected values resolve on the host,
+  named controls embed in the same mod's panels, updates replace single control
+  definitions and rebuild only the controls reading them, and mods read text metrics,
+  the HUD root, their panel's layout and their callback's remaining fuel and hide
+  vanilla crosshair, effects, sidebar and hunger. Offline paint,
+  cache and benchmark regressions and ui-snapshot fixtures cover them; displayed-frame
+  pacing and populated-world acceptance remain pending. Packet extensions now
+  negotiate bounded detached-view and passive camera effects through the shared
+  camera owners; interactive movement, perspective release, teleport and hurt-view
+  acceptance remain unverified in a displayed client.
+  Personal panels can bind the host local player's name
   and skin head, with neutral artwork when the identity is unavailable. Skin and
   session changes retire the previous portrait; full in-world acceptance remains pending.
   Embedded panel fonts admit covered Latin-1 and General Punctuation glyphs within
@@ -1340,13 +1368,6 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   preferences now settle feedback, wheel scrolling and surface transitions
   immediately, retain prepared routes and apply across route changes.
   displayed-frame pacing and complete rendering acceptance.
-  Saturation overlays prepare source outlines on image workers independently of GPU-sheet
-  capacity and area-filter them to the requested draw size. Paint skips pending sources,
-  unions small masks within the visible viewport and atlas allocation budget, and draws
-  ordinary prepared sprites. A small LRU reuses clamped source grids across GUI scales. Current and held-food
-  coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
-  edges, independent shake, inversion and high-resolution minification; complete in-game
-  and platform acceptance remain pending.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized
   compatibility reads. Editor drags snap to neighboring cards, stacking gaps and
@@ -1359,6 +1380,15 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Hidden card IDs have an additive result read; toast and anchor motion use the
   presentation clock. Displayed-frame pacing and populated-world Studio acceptance
   remain pending.
+  Saturation overlays prepare source outlines on image workers independently of GPU-sheet
+  capacity and area-filter them to the requested draw size. Paint skips pending sources,
+  unions small masks within the visible viewport and atlas allocation budget, and draws
+  ordinary prepared sprites. A small LRU reuses clamped source grids across GUI scales. Current and held-food
+  coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
+  edges, independent shake, inversion and high-resolution minification; complete in-game
+  and platform acceptance remain pending.
+  The host layout editor, now used by the touch-control layout, keeps nine anchors,
+  snapping, undo/redo, grid and inspector behavior; mods build their own editors.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.
@@ -1374,8 +1404,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Diagnostics or bounded fixtures do not establish safe general gameplay use.
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
-- Java shader packs (Iris/OptiFine format) use the `shaderpacks` Cargo feature, enabled in
-  nightly packages while tagged beta packages leave it disabled. Shaders start Off.
+- Experimental Java shader packs (Iris/OptiFine format) are built into every client channel.
+  Shaders start Off.
   Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
@@ -1401,7 +1431,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   then released after Off; idle view and geometry preparation record no shader work.
   Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
-  draws a pack, recreated when that changes. The Shaders library lists Off and every pack in
+  draws a pack, recreated when that changes. Import result queues are created only after
+  an import request. The Shaders library lists Off and every pack in
   one list ending in an import target that opens the file picker for `.zip` packs and, on
   desktop, takes dropped zips and folders. Android shows an Import shader pack button and
   passes the loader's archive size bound to the document picker. The selected pack's card shows
@@ -1409,6 +1440,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Incomplete: Android can add only `.zip` packs, because its document picker selects files
   and folder packs need a folder picker.
   Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
+  memory and visual acceptance across supported backends. A matched software-Vulkan
+  diagnostic pair has identical world pixels and GPU allocation totals, with no idle shader
+  or pipeline creation. Differing startup/menu timings, feature-only CPU bookkeeping and
+  unmatched menu-preview phases prevent zero-cost acceptance. Hardware Vulkan, Metal and
+  DX12 timing, memory and visual acceptance remain open. `shaderpack` loads packs,
+  Incomplete: matched pre-integration versus integrated/no-pack startup, frame-time,
   memory and visual acceptance across supported backends. `shaderpack` loads packs,
   parses `shaders.properties`, options, Iris
   option menus, profiles and option files, evaluates custom uniforms and translates programs

@@ -196,7 +196,8 @@ pub(crate) fn drive_gameplay_touch_targets(
                         .as_deref()
                         .and_then(|world| world.stream.as_ref())
                         .map(|stream| stream.authority());
-                    let _ = ui.toggle_inventory(&mut player, authority);
+                    let _ = ui
+                        .toggle_inventory(&mut player, authority.map(|world| world.inventory_ui()));
                 }
                 touch::CHAT => {
                     ui.open_chat(&mut player);

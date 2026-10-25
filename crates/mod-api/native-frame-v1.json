@@ -13,6 +13,11 @@
     "pitch": -0.25,
     "attack_held": true,
     "seconds": 0.015625,
+    "look_delta": [0.0625, -0.03125],
+    "move_axes": [-1.0, 0.5],
+    "ascend": true,
+    "descend": false,
+    "elapsed": 0.03125,
     "players": [{"runtime_id": 18446744073709551613, "feet": [2.5, 64.0, -5.0]}]
   },
   "delta": {"yaw": 0.03125, "pitch": -0.015625}

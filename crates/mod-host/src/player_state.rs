@@ -352,6 +352,19 @@ impl cinnabar::extension::player_state::Host for State {
         }
         Ok(Ok(self.player_state.current_revision))
     }
+
+    fn read_world_time(&mut self) -> Result<Result<Option<crate::WorldTimeObservation>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        let session = self.player_state.world.as_ref().map(|world| world.session);
+        Ok(Ok(self
+            .player_state
+            .observations
+            .world_time
+            .filter(|time| Some(time.session) == session)))
+    }
 }
 
 #[cfg(test)]

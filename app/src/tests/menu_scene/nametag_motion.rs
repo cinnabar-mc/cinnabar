@@ -31,21 +31,17 @@ fn fixture_world(perspective: PerspectiveMode) -> World {
             .resource_mut::<CameraSettingsAuthority>()
             .cycle_perspective();
     }
-    let hud: ui::mod_hud::Hud = serde_json::from_value(serde_json::json!({
-        "cards": [],
-        "actor_style": {"nametags": {
-            "show_self": true,
-            "own_text_color": OWN_COLOR,
-            "replace_own_text_color": true,
-            "text_color": REMOTE_COLOR,
-            "replace_text_color": true
-        }}
-    }))
-    .unwrap();
     world
         .resource_mut::<UiPresentationResource>()
-        .set_mod_hud(Some(&hud))
-        .unwrap();
+        .set_mod_presentation(std::sync::Arc::new(ui::mod_presentation::Presentation {
+            nametag_style: Some(ui::mod_presentation::NametagStyle {
+                show_self: true,
+                own_text_color: Some(OWN_COLOR),
+                text_color: Some(REMOTE_COLOR),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }));
     assert_own_policy(&world);
     world
 }
@@ -55,14 +51,11 @@ fn assert_own_policy(world: &World) {
     let presentation = world.resource::<UiPresentationResource>();
     let style = presentation
         .mod_ui()
-        .mod_actor_style()
-        .and_then(|style| style.nametags.as_ref())
+        .mod_nametag_style()
         .expect("self-tag cosmetic policy must remain published");
     assert!(style.show_self && !style.hide && !style.hide_players);
     assert_eq!(style.own_text_color, Some(OWN_COLOR));
-    assert!(style.replace_own_text_color);
     assert_eq!(style.text_color, Some(REMOTE_COLOR));
-    assert!(style.replace_text_color);
     assert_ne!(
         world.resource::<CameraSettingsAuthority>().perspective(),
         PerspectiveMode::FirstPerson

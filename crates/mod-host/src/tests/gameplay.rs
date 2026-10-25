@@ -37,42 +37,6 @@ fn delay(value: u32, error: bool) -> String {
     )
 }
 
-fn show_position(enabled: bool, error: bool) -> String {
-    format!(
-        "i32.const {} i32.const 256 call $show i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
-        u8::from(enabled),
-        u8::from(error)
-    )
-}
-
-#[test]
-fn real_position_visual_is_denied_by_default_retained_on_success_and_cleared_on_trap() {
-    let (_directory, mut denied) = load("", &show_position(true, true), ModGrants::default());
-    denied.frame(false).unwrap();
-    assert!(!denied.show_real_position());
-    let granted = ModGrants {
-        packet_delay: true,
-        ..Default::default()
-    };
-    let (_directory, mut enabled) = load(&show_position(true, false), "", granted.clone());
-    enabled.frame(false).unwrap();
-    assert!(enabled.show_real_position());
-    let (_directory, mut disabled) = load(
-        &show_position(true, false),
-        &show_position(false, false),
-        granted.clone(),
-    );
-    disabled.frame(false).unwrap();
-    assert!(!disabled.show_real_position());
-    let (_directory, mut trapped) = load(
-        &show_position(true, false),
-        &format!("{} unreachable", show_position(false, false)),
-        granted,
-    );
-    assert!(trapped.frame(false).is_err());
-    assert!(!trapped.show_real_position());
-}
-
 #[test]
 fn packet_delay_is_denied_by_default_and_bounded_without_a_gameplay_frame() {
     let (_directory, mut denied) = load("", &delay(200, true), ModGrants::default());
@@ -435,6 +399,8 @@ fn mod_host_movement() -> crate::GameplayMovementSnapshot {
         },
         on_ground: true,
         jump_held: false,
+        sprint_held: false,
+        sneak_held: false,
         eligible: true,
         knockback_sequence: 1,
     }

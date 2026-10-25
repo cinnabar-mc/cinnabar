@@ -6,13 +6,13 @@ use super::*;
 #[derive(SystemParam)]
 pub(super) struct ModObservation<'w, 's> {
     weather: Option<ResMut<'w, crate::environment::VisualWeatherOverride>>,
-    click_limiter: Local<'s, semantic_input::ClickLimiter>,
     action_filter: Local<'s, semantic_input::action_filter::ActionFilterState>,
-    click_scope: Local<'s, Option<(u64, i32)>>,
+    action_scope: Local<'s, Option<(u64, i32)>>,
     packets: Option<Res<'w, packets::PacketMods>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
     drawing: Option<ResMut<'w, packet_render::Drawing>>,
+    /// The presented camera that `read-camera` reports.
     cameras: Query<
         'w,
         's,
@@ -23,6 +23,8 @@ pub(super) struct ModObservation<'w, 's> {
     module_observer: Local<'s, module_observations::ModuleObserver>,
     terrain: Local<'s, terrain::TerrainSampling>,
     actor_style: Option<ResMut<'w, client_presentation::actor_publication::ActorPresentationStyle>>,
+    relayed: Option<Res<'w, packet_delay::RealPositionSnapshot>>,
+    native_camera: Local<'s, native_camera::NativeCamera>,
 }
 
 #[allow(
@@ -49,9 +51,8 @@ pub(super) fn drive_mod(
 ) {
     let ModObservation {
         mut weather,
-        mut click_limiter,
         mut action_filter,
-        mut click_scope,
+        mut action_scope,
         packets,
         watcher,
         mut render_scene,
@@ -61,10 +62,16 @@ pub(super) fn drive_mod(
         mut module_observer,
         mut terrain,
         mut actor_style,
+        relayed,
+        mut native_camera,
     } = observation;
-    let (network, mut camera, cues, item_use) = outputs;
+    let now = time.elapsed_secs_f64();
+    let (network, mut camera, cues, mut item_use) = outputs;
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
+    }
+    if let Some(policy) = item_use.as_deref_mut() {
+        policy.pulse = false;
     }
     let user_freelook = gameplay
         .input
@@ -95,37 +102,50 @@ pub(super) fn drive_mod(
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
     else {
-        click_limiter.reset();
         action_filter::inactive(
             &mut action_filter,
             gameplay.input.as_deref_mut(),
             time.elapsed().as_micros(),
         );
-        *click_scope = None;
-        let effects = packets
-            .as_ref()
-            .filter(|packets| packets.native_frame_available())
-            .and_then(|packets| {
-                packets.native_frame(gameplay.native_frame(captured && !absorbed, &ui))
-            });
+        *action_scope = None;
+        let output = exchange_native_frame(
+            packets.as_deref(),
+            &mut native_camera,
+            &gameplay,
+            captured && !absorbed,
+            &ui,
+            (time.delta_secs(), now),
+        );
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(
-                effects.as_ref().and_then(|effects| effects.drawing.clone()),
+                output.as_ref().and_then(|output| output.drawing.clone()),
                 packet_render::session(&gameplay),
             );
             if let Some(scene) = render_scene.as_deref_mut() {
                 packet_render::publish_alone(scene, drawing);
             }
         }
-        let effects = effects.and_then(|effects| effects.camera);
+        let source = output.as_ref().map_or(0, |output| output.camera_sequence);
+        let effects = output.and_then(|output| output.camera);
         if let Some(camera) = camera.as_deref_mut() {
-            camera.set_preserve_teleport_rotation(false);
-            camera.set_hurt_camera_style(None);
-            native_camera::apply(
+            camera.set_preserve_teleport_rotation(
+                effects
+                    .as_ref()
+                    .is_some_and(|effects| effects.preserve_teleport_rotation),
+            );
+            camera.set_view_tilt(
+                effects
+                    .as_ref()
+                    .and_then(|effects| effects.view_tilt)
+                    .map(native_camera::view_tilt),
+            );
+            native_camera.apply(
                 camera,
                 gameplay.view.as_deref_mut(),
                 user_freelook,
                 effects.as_ref(),
+                source,
+                now,
             );
         }
         let delta = effects
@@ -137,18 +157,19 @@ pub(super) fn drive_mod(
             });
         gameplay.apply_native_controls(effects.as_ref(), delta, &ui);
         clear_touch_buttons(&mut presentation);
+        gameplay.apply_movement_intents(None, false);
         return;
     };
     if extension.suspended {
         time_override.0 = None;
-        click_limiter.reset();
         action_filter::inactive(
             &mut action_filter,
             gameplay.input.as_deref_mut(),
             time.elapsed().as_micros(),
         );
-        *click_scope = None;
+        *action_scope = None;
         gameplay.apply_native_input(None, &ui);
+        gameplay.apply_movement_intents(None, false);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
             if let Some(scene) = render_scene.as_deref_mut() {
@@ -160,8 +181,15 @@ pub(super) fn drive_mod(
         }
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_preserve_teleport_rotation(false);
-            camera.set_hurt_camera_style(None);
-            native_camera::apply(camera, gameplay.view.as_deref_mut(), user_freelook, None);
+            camera.set_view_tilt(None);
+            native_camera.apply(
+                camera,
+                gameplay.view.as_deref_mut(),
+                user_freelook,
+                None,
+                0,
+                now,
+            );
         }
         clear_touch_buttons(&mut presentation);
         return;
@@ -190,6 +218,7 @@ pub(super) fn drive_mod(
     );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    let chat_events = std::mem::take(&mut extension.chat_events);
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registrations: Vec<_> = extension
         .metadata
@@ -204,6 +233,7 @@ pub(super) fn drive_mod(
         &player_runtime,
         &ui,
     );
+    extension.hosts.set_food_catalog(ui.food_catalog());
     let world_observation = gameplay.world_observation(&ui);
     let modules = module_observer.capture(
         &gameplay,
@@ -229,6 +259,20 @@ pub(super) fn drive_mod(
                 .collect(),
         });
     terrain.refresh(&mut extension.hosts, &gameplay, world_observation.as_ref());
+    let (hud_viewport, hud_elements) = presentation.hud_elements();
+    let label_metrics = presentation.label_metrics();
+    extension
+        .hosts
+        .observe_hud(hud_viewport, hud_elements, label_metrics);
+    let panel_layout = presentation.mod_ui().mod_panel_layout();
+    for index in 0..extension.hosts.host_count() {
+        let owner = extension.panel_ui_owner(index);
+        extension.hosts.host_mut(index).observe_panel_layout(
+            panel_layout
+                .filter(|(laid_out, _)| *laid_out == owner)
+                .map(|(_, layout)| layout),
+        );
+    }
     let mut callback_failures = Vec::new();
     multi::run_frame_callbacks(
         &mut extension.hosts,
@@ -242,6 +286,15 @@ pub(super) fn drive_mod(
             modules: Some(&modules),
             sidebar: sidebar.as_ref(),
             chat: &chat,
+            chat_events: &chat_events,
+            gameplay_facts: gameplay.facts(
+                captured && !absorbed,
+                cameras.single().ok().map(|(camera, _)| camera),
+                world_observation
+                    .as_ref()
+                    .and(relayed.as_deref())
+                    .and_then(|relayed| relayed.position),
+            ),
         },
         |grants| {
             let snapshot = gameplay.snapshot(captured && !absorbed, grants);
@@ -293,23 +346,30 @@ pub(super) fn drive_mod(
                 captured,
             )
         });
-    if *click_scope != scope || !source_admitted || absorbed {
+    if *action_scope != scope || !source_admitted || absorbed {
         action_filter.reset();
     }
     let enabled = source_admitted && !absorbed && scope.is_some();
-    let pulse_requested = extension
+    let attack_requested = extension
         .hosts
         .iter_mut()
         .any(|host| host.attack_pulse_requested());
-    let (pulse, filter_error) = action_filter::apply(
+    let use_requested = extension
+        .hosts
+        .iter_mut()
+        .any(|host| host.use_pulse_requested());
+    let ([attack_pulse, use_pulse], filter_error) = action_filter::apply(
         &mut action_filter,
         gameplay.input.as_deref_mut(),
         &mut extension.hosts,
         enabled,
         time.elapsed().as_micros(),
-        pulse_requested,
+        [attack_requested, use_requested],
     );
-    interaction.attack_pulse = pulse;
+    interaction.attack_pulse = attack_pulse;
+    if let Some(policy) = item_use.as_deref_mut() {
+        policy.pulse = use_pulse;
+    }
     if let Some((index, error)) = filter_error {
         callback_failed = true;
         if let Some(registered) = &registrations[index]
@@ -333,23 +393,27 @@ pub(super) fn drive_mod(
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
     });
-    let native_effects = packets
-        .as_ref()
-        .filter(|packets| packets.native_frame_available())
-        .and_then(|packets| {
-            packets
-                .native_frame(gameplay.native_frame(captured && !absorbed && !regular_camera, &ui))
-        });
+    let native_output = exchange_native_frame(
+        packets.as_deref(),
+        &mut native_camera,
+        &gameplay,
+        captured && !absorbed && !regular_camera,
+        &ui,
+        (time.delta_secs(), now),
+    );
     if let Some(drawing) = drawing.as_deref_mut() {
         drawing.update(
-            native_effects
+            native_output
                 .as_ref()
-                .and_then(|effects| effects.drawing.clone()),
+                .and_then(|output| output.drawing.clone()),
             packet_render::session(&gameplay),
         );
     }
     render::publish(render_scene, &mut extension, drawing.as_deref());
-    let native_effects = native_effects.and_then(|effects| effects.camera);
+    let native_source = native_output
+        .as_ref()
+        .map_or(0, |output| output.camera_sequence);
+    let native_effects = native_output.and_then(|output| output.camera);
     let delta = merged.delta.or_else(|| {
         native_effects
             .as_ref()
@@ -364,91 +428,59 @@ pub(super) fn drive_mod(
         delta,
         &ui,
     );
+    gameplay.apply_movement_intents(merged.movement_intents, captured && !absorbed);
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
     if let Some(mut cues) = cues {
         cues.0 = merged.cues;
     }
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
-        camera.set_preserve_teleport_rotation(merged.preserve_teleport_rotation);
+        let native_effects = native_effects.as_ref().filter(|_| !regular_camera);
+        camera.set_preserve_teleport_rotation(
+            merged.preserve_teleport_rotation
+                || native_effects.is_some_and(|effects| effects.preserve_teleport_rotation),
+        );
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
-        camera.set_hurt_camera_style(merged.hurt_style);
-        native_camera::apply(
+        camera.set_view_tilt(
+            merged
+                .view_tilt
+                .or_else(|| native_effects.and_then(|effects| effects.view_tilt))
+                .map(native_camera::view_tilt),
+        );
+        native_camera.apply(
             &mut camera,
             gameplay.view.as_deref_mut(),
             user_freelook,
-            native_effects.as_ref().filter(|_| !regular_camera),
+            native_effects,
+            native_source,
+            now,
         );
-    }
-    if let Some(mut policy) = item_use {
-        policy.scope = merged.item_use_delay_fix;
     }
     time_override.0 = merged.time_override;
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = merged.weather_override;
     }
-    let scope = world_observation
+    *action_scope = world_observation
         .as_ref()
         .map(|world| (world.session, world.dimension));
-    if *click_scope != scope || !captured || absorbed {
-        click_limiter.reset();
-    }
-    *click_scope = scope;
-    if captured
-        && !absorbed
-        && scope.is_some()
-        && let Some(input) = gameplay.input.as_deref_mut()
-    {
-        input.limit_clicks(
-            &mut click_limiter,
-            merged.click_limits,
-            time.delta_secs_f64(),
-        );
-    }
     if let Err(error) = presentation
         .mod_ui_mut()
         .set_mod_label(extension.hosts.merged_label())
     {
         warn!("Cinnabar extension HUD rejected: {error}");
     }
-    if let Err(error) = presentation
-        .mod_ui_mut()
-        .set_mod_hud_sources(extension.hud_sources())
+    let hidden = extension.hosts.hidden_hud_elements();
+    let mod_ui = presentation.mod_ui_mut();
+    mod_ui.set_hud_surfaces(extension.hud_surfaces());
+    mod_ui.set_hidden_hud_elements(hidden);
+    let mod_presentation = extension.hosts.merged_presentation();
+    if let Some(style) = actor_style.as_mut()
+        && !std::sync::Arc::ptr_eq(&style.presentation, &mod_presentation)
     {
-        warn!("Cinnabar extension HUD sources rejected: {error}");
+        style.presentation = std::sync::Arc::clone(&mod_presentation);
     }
-    let combined_hud = extension.hosts.merged_hud();
-    let hud = combined_hud.as_deref();
-    if let Some(style) = actor_style.as_mut() {
-        style.attackable_color = hud
-            .and_then(|hud| hud.actor_style.as_ref())
-            .and_then(|style| style.attackable_color);
-        style.attackable_actor = if style.attackable_color.is_some() {
-            module_observations::current_target(&gameplay, &ui, Some(&interaction)).flatten()
-        } else {
-            None
-        };
-        style.hurt_armor_color = hud
-            .and_then(|hud| hud.actor_style.as_ref())
-            .and_then(|style| style.hurt_armor_color);
-        style.hurt_color = hud
-            .and_then(|hud| hud.actor_style.as_ref())
-            .and_then(|style| style.hurt_color);
-    }
-    if let Err(error) = presentation.set_shared_mod_hud(combined_hud) {
-        warn!("Cinnabar extension HUD cards rejected: {error}");
-    }
-    presentation
-        .mod_ui_mut()
-        .set_mod_world_projection(cameras.single().ok().map(|(transform, projection)| {
-            (projection.get_clip_from_view() * transform.to_matrix().inverse()).to_cols_array()
-        }));
-    let crosshair_owner = extension.hosts.crosshair_owner();
-    let crosshair = crosshair_owner.and_then(|owner| extension.hosts.host(owner).crosshair());
-    if let Err(error) = presentation.mod_ui_mut().set_mod_crosshair(crosshair) {
-        warn!("Cinnabar extension crosshair rejected: {error}");
-    }
+    presentation.set_mod_presentation(mod_presentation);
     if !packets
         .as_ref()
         .is_some_and(|packets| packets.menu_owns_panel())
@@ -459,6 +491,9 @@ pub(super) fn drive_mod(
         {
             warn!("Cinnabar extension panel font rejected: {error}");
         }
+        presentation
+            .mod_ui_mut()
+            .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
         if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
             extension.panel_ui_owner(owner),
             extension.hosts.host(owner).panel(),
@@ -477,13 +512,6 @@ pub(super) fn drive_mod(
             .into_iter()
             .map(|(index, button)| (hosts.host(index).touch_owner(), button)),
     );
-    let editor_session = gameplay.hud_editor_session(&ui);
-    hud_editor::publish(
-        &mut extension,
-        &mut presentation,
-        editor_session,
-        focused || driven.is_some(),
-    );
     if let Some(owner) = extension.hosts.screen_owner() {
         screens::publish(extension.hosts.host(owner), &mut presentation);
     } else {
@@ -495,4 +523,33 @@ pub(super) fn drive_mod(
 fn clear_touch_buttons(presentation: &mut UiPresentationResource) {
     presentation.take_mod_touch_taps();
     presentation.set_mod_touch_buttons(std::iter::empty());
+}
+
+/// Builds this frame's packet observation with its captured look and real time, hands it to
+/// the packet mod and records it for rebasing that callback's view. `time` is the real frame
+/// duration and elapsed seconds.
+fn exchange_native_frame(
+    packets: Option<&packets::PacketMods>,
+    state: &mut native_camera::NativeCamera,
+    gameplay: &gameplay::GameplayContext,
+    allowed: bool,
+    ui: &client_ui::ui_runtime::UiRuntime,
+    (seconds, now): (f32, f64),
+) -> Option<client_extensions::modding::packet_relay::FrameOutput> {
+    let packets = packets.filter(|packets| packets.native_frame_available())?;
+    let frame = state.prepare(
+        gameplay.view.as_deref(),
+        seconds,
+        gameplay.native_frame(allowed, ui),
+    );
+    let sent = frame.is_some();
+    let output = packets.native_frame(frame);
+    state.exchanged(
+        output
+            .as_ref()
+            .filter(|_| sent)
+            .map(|output| output.sequence),
+        now,
+    );
+    output
 }

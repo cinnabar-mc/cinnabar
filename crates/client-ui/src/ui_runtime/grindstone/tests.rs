@@ -264,7 +264,7 @@ fn user_data_is_read_from_the_compound_marker() {
 fn predictions_are_reused_until_an_input_changes() {
     let (mut runtime, mut player) = grindstone();
     let first = runtime.grindstone_preview(&player).unwrap();
-    assert!(runtime.grindstone_cache.0.lock().unwrap().is_some());
+    assert!(runtime.session.grindstone_cache.0.lock().unwrap().is_some());
     assert_eq!(runtime.grindstone_preview(&player), Some(first.clone()));
     place(&mut runtime, &mut player, 16, sword(32, sword_data(false)));
     let changed = runtime.grindstone_preview(&player).unwrap();

@@ -74,14 +74,20 @@ pub(super) fn check_dependencies(
                 ));
             }
         }
-        if !rule.forbidden_transitive_dependencies.is_empty() {
-            check_transitive_dependencies(
-                &rule.name,
-                &rule.forbidden_transitive_dependencies,
-                &graph,
-                &rule_paths,
-                diagnostics,
-            );
+        for (forbidden, include_tests) in [
+            (&rule.forbidden_transitive_dependencies, true),
+            (&rule.forbidden_production_transitive_dependencies, false),
+        ] {
+            if !forbidden.is_empty() {
+                check_transitive_dependencies(
+                    &rule.name,
+                    forbidden,
+                    include_tests,
+                    &graph,
+                    &rule_paths,
+                    diagnostics,
+                );
+            }
         }
         for forbidden in &rule.forbidden_dependencies {
             if dependencies.iter().any(|dependency| {
@@ -266,6 +272,7 @@ fn check_test_support_features(
 fn check_transitive_dependencies(
     origin: &str,
     forbidden: &[String],
+    include_tests: bool,
     graph: &BTreeMap<String, CrateDependencies>,
     rule_paths: &BTreeMap<PathBuf, String>,
     diagnostics: &mut Vec<String>,
@@ -277,8 +284,8 @@ fn check_transitive_dependencies(
             continue;
         }
         let dependencies = &graph[&name];
-        // Cargo builds the origin's tests, but does not inherit dependencies' tests.
-        let dependencies = if name == origin {
+        // Test-inclusive rules follow only the origin's fixtures, never dependencies' tests.
+        let dependencies = if include_tests && name == origin {
             &dependencies.all
         } else {
             &dependencies.production

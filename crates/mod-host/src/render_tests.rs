@@ -282,37 +282,9 @@ fn legacy_post_effects_use_the_same_user_consent_in_local_and_remote_worlds() {
     }
 }
 
-/// Native overlays share the ribbon budget and revocation invalidates even native-only output.
+/// Retained commits and entity removals reconcile, and revocation clears them.
 #[test]
-fn native_lines_respect_existing_budget_and_revoke_their_generation() {
-    let mut state = RenderState::new();
-    let ribbon = mod_render::Ribbon {
-        pattern: mod_render::LinePattern::Solid,
-        taper: false,
-        points: vec![[0.; 3], [1., 0., 0.]],
-        width: 1.,
-        color: [1.; 4],
-    };
-    state.staged_primitives.ribbons = vec![ribbon.clone(); mod_api::MAX_RENDER_RIBBONS];
-    state.commit();
-    state.native_lines(vec![ribbon.clone()]);
-    assert_eq!(
-        state.output().primitives.ribbons.len(),
-        mod_api::MAX_RENDER_RIBBONS
-    );
-    state.begin_frame();
-    state.commit();
-    state.native_lines(vec![ribbon]);
-    assert_eq!(state.output().primitives.ribbons.len(), 1);
-    let generation = state.generation();
-    state.revoke();
-    assert!(state.output().primitives.is_empty());
-    assert_ne!(state.generation(), generation);
-}
-
-/// Native outlines preserve retained commits and entity removals, and revoke with them.
-#[test]
-fn native_lines_reconcile_retained_output_and_revoke_both() {
+fn retained_output_reconciles_removals_and_revokes() {
     let mut render = RenderState::new();
     let actor = mod_render::retained::EntityKey {
         session: 1,
@@ -331,13 +303,6 @@ fn native_lines_reconcile_retained_output_and_revoke_both() {
         )
         .unwrap();
     render.commit_retained();
-    render.native_lines(vec![mod_render::Ribbon {
-        pattern: mod_render::LinePattern::Solid,
-        taper: false,
-        points: vec![[0.; 3], [1., 0., 0.]],
-        width: 1.,
-        color: [1.; 4],
-    }]);
     render.begin_callback();
     render.retained.remove(material).unwrap();
     render.commit_retained();
@@ -359,7 +324,6 @@ fn native_lines_reconcile_retained_output_and_revoke_both() {
     assert!(render.output().retained[0].entities.contains_key(&entity));
     render.update_entities(Vec::new(), &[actor]).unwrap();
     assert!(render.output().retained[0].entities.is_empty());
-    assert_eq!(render.output().primitives.ribbons.len(), 1);
     render.revoke();
     assert_eq!(render.output(), &RenderOutput::default());
 }

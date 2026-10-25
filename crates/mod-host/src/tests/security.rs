@@ -1,5 +1,32 @@
 use super::*;
 
+/// A guest whose frame passes a list of identifiers to `terrain.find-blocks`.
+const FIND_BLOCKS: &str = r#"(component
+  (import "$TERRAIN" (instance $terrain
+    (type $p (record (field "x" s32) (field "y" s32) (field "z" s32)))
+    (export "position" (type $position (eq $p)))
+    (type $e (enum "denied" "unavailable" "invalid-query" "out-of-range" "budget-exhausted" "limit-exceeded"))
+    (export "read-error" (type $read-error (eq $e)))
+    (export "find-blocks" (func (param "identifiers" (list string)) (param "range" f32) (param "limit" u32)
+      (result (result (list $position) (error $read-error)))))))
+  (alias export $terrain "find-blocks" (func $find))
+  (core module $memory-module
+    (memory (export "memory") 1)
+    (func (export "realloc") (param i32 i32 i32 i32) (result i32) i32.const 32768))
+  (core instance $mem (instantiate $memory-module))
+  (alias core export $mem "memory" (core memory $memory))
+  (alias core export $mem "realloc" (core func $realloc))
+  (core func $lower (canon lower (func $find) (memory $memory) (realloc $realloc)))
+  (core module $code
+    (import "host" "find" (func $find (param i32 i32 f32 i32 i32)))
+    (import "host" "memory" (memory 1))
+    (func (export "init"))
+    (func (export "frame") $FRAME))
+  (core instance $host (export "find" (func $lower)) (export "memory" (memory $memory)))
+  (core instance $run (instantiate $code (with "host" (instance $host))))
+  (func (export "init") (canon lift (core func $run "init")))
+  (func (export "frame") (canon lift (core func $run "frame"))))"#;
+
 #[test]
 fn guest_lists_share_a_copy_budget_before_capability_checks() {
     let package = include_str!("../../../mod-api/wit/extension.wit")
@@ -22,13 +49,10 @@ fn guest_lists_share_a_copy_budget_before_capability_checks() {
         ));
     }
     frame.push_str(&format!(
-        "i32.const 1 i32.const 2048 i32.const {count} f32.const 64 \
-         f32.const 1 f32.const 0.1 f32.const 0.7 f32.const 0.8 i32.const 512 call $set"
+        "i32.const 2048 i32.const {count} f32.const 64 i32.const 16 i32.const 512 call $find"
     ));
-    let source = include_str!("block_highlights.wat")
-        .replace("$RENDER", &format!("{name}/render@{version}"))
-        .replace("$ERROR", "1")
-        .replace("$INIT", "")
+    let source = FIND_BLOCKS
+        .replace("$TERRAIN", &format!("{name}/terrain@{version}"))
         .replace("$FRAME", &frame);
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("bounded.wat");
@@ -37,7 +61,6 @@ fn guest_lists_share_a_copy_budget_before_capability_checks() {
     let error = host.frame(false).unwrap_err();
     assert!(format!("{error:#}").contains("hostcalls"), "{error:#}");
     assert!(!host.is_active());
-    assert!(host.block_highlights().is_none());
 }
 
 #[test]

@@ -18,33 +18,11 @@ mod tests {
         assert_eq!(card.row_layout, RowLayout::Grid);
     }
     #[test]
-    fn larger_card_catalog_and_actor_cosmetics_keep_explicit_bounds() {
-        let mut hud:Hud=serde_json::from_value(serde_json::json!({"cards":(0..MAX_HUD_CARDS)
-            .map(|index|serde_json::json!({"id":format!("card_{index}"),"rows":[]})).collect::<Vec<_>>(),
-            "actor_style":{"hurt_color":[1.,0.,0.,0.3],"nametags":{"scale":1.,"shadow":true}}})).unwrap();
+    fn larger_card_catalog_keeps_explicit_bounds() {
+        let mut hud: Hud = serde_json::from_value(serde_json::json!({"cards":(0..MAX_HUD_CARDS)
+            .map(|index|serde_json::json!({"id":format!("card_{index}"),"rows":[]})).collect::<Vec<_>>()}))
+        .unwrap();
         assert!(hud.validate().is_ok());
-        hud.actor_style
-            .as_mut()
-            .unwrap()
-            .nametags
-            .as_mut()
-            .unwrap()
-            .opacity = 1.01;
-        assert!(hud.validate().is_err());
-        hud.actor_style
-            .as_mut()
-            .unwrap()
-            .nametags
-            .as_mut()
-            .unwrap()
-            .opacity = 0.5;
-        hud.actor_style.as_mut().unwrap().attackable_color = Some([1., 0., 0., 1.1]);
-        assert!(hud.validate().is_err());
-        hud.actor_style.as_mut().unwrap().attackable_color = Some([1., 0., 0., 0.3]);
-        assert!(hud.validate().is_ok());
-        hud.actor_style.as_mut().unwrap().hurt_color = Some([f32::NAN, 0., 0., 1.]);
-        assert!(hud.validate().is_err());
-        hud.actor_style = None;
         let mut excess = hud.cards[0].clone();
         excess.id = "excess".into();
         hud.cards.push(excess);
@@ -199,7 +177,6 @@ mod tests {
             ("button.resume_game", false),
         ] {
             hud.surface = Some(crate::mod_panel::Surface {
-                previews: Default::default(),
                 collections: Default::default(),
                 transitions: Default::default(),
                 screen: "fixture.editor".into(),
@@ -435,8 +412,7 @@ fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
                 document: serde_json::json!({"namespace":"studio","root":{"type":"screen","controls":[{"action":{
                     "type":"button", "size":[20,20], "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":action,"mapping_type":"pressed"}]
                 }}]}}).to_string(),
-                bindings: Default::default(), transitions: Default::default(), collections: Default::default(), previews: Default::default(),
-            }),
+                bindings: Default::default(), transitions: Default::default(), collections: Default::default(),            }),
             ..Default::default()
         };
         hud.validate()

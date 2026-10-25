@@ -46,8 +46,6 @@ struct Step {
     #[serde(default)]
     expect_geometry: Vec<String>,
     #[serde(default)]
-    expect_preview_sizes: Vec<String>,
-    #[serde(default)]
     expect_rect_change: Vec<String>,
     #[serde(default)]
     expect_scale_grow: Vec<String>,
@@ -372,16 +370,6 @@ fn external_reactor_runs_retained_menu_and_actual_pack_hud_scenario() {
             .cloned()
             .unwrap_or_default();
         let next = presentation.mod_hud_geometry(&requests, 1);
-        let preview_sizes = presentation
-            .mod_control_preview_sizes(PanelUiOwner::PacketSession(packets.menu.relay.unwrap()), 1);
-        for name in &step.expect_preview_sizes {
-            assert!(
-                preview_sizes.contains_key(name),
-                "{}: missing pack-control preview {name}; measured {:?}",
-                step.name,
-                preview_sizes
-            );
-        }
         for name in &step.expect_geometry {
             assert!(
                 next.contains_key(name),
@@ -410,8 +398,7 @@ fn external_reactor_runs_retained_menu_and_actual_pack_hud_scenario() {
             .retained
             .as_ref()
             .and_then(|output| output.output.panel.as_ref())
-            .and_then(|panel| panel.surface.as_ref())
-            .map(|surface| surface.document.clone());
+            .map(|panel| panel.surface.document.clone());
         if step.expect_panel_document_unchanged {
             assert_eq!(
                 document, next_document,
@@ -450,7 +437,7 @@ fn external_reactor_runs_retained_menu_and_actual_pack_hud_scenario() {
                 step.name, scenario.size[0], scenario.size[1]
             ),
         );
-        report.push(serde_json::json!({"step":step.name,"millis":step.millis,"open":presentation.mod_ui().mod_panel_open(),"geometry":next,"preview_sizes":preview_sizes,"edits":edits,"panel":packets.menu.retained.as_ref().map(|output|&output.output)}));
+        report.push(serde_json::json!({"step":step.name,"millis":step.millis,"open":presentation.mod_ui().mod_panel_open(),"geometry":next,"edits":edits,"panel":packets.menu.retained.as_ref().map(|output|&output.output)}));
         geometry = next;
         document = next_document;
         previous_vertices = Some(frame.vertices);

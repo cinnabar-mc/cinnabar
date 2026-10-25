@@ -687,47 +687,42 @@ fn a_position_correction_revokes_an_old_throw_retry() {
     assert!(runtime.has_work(false));
 }
 
+/// A rejected pulse retries as a pulse, still once per slot and tick.
 #[test]
-fn delay_fix_retries_rejected_batches_but_not_an_accepted_same_tick() {
+fn a_rejected_pulse_retries_without_the_rearm_but_not_on_an_accepted_tick() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.set_delay_fix(true);
     let mut swings = SwingTracker::default();
     let throw = item_frame(100, false, stack(4, SNOWBALL, 16), "minecraft:snowball");
     let (full, _) = AdmissionQueue::with_command_capacity(0);
     let (ready, _) = AdmissionQueue::with_command_capacity(8);
     runtime.observe_press(true);
-    send_use(&mut runtime, &mut swings, &throw, &full);
-    assert_eq!(ready.pending_command_count(), 0);
     send_use(&mut runtime, &mut swings, &throw, &ready);
     assert_eq!(ready.pending_command_count(), 2);
-    runtime.observe_press(true);
-    send_use(&mut runtime, &mut swings, &throw, &ready);
-    assert_eq!(ready.pending_command_count(), 2);
-    runtime.observe_press(true);
     let next = UseFrame {
         tick: 101,
         now_millis: throw.now_millis + 50,
         ..throw
     };
+    runtime.observe_pulse(true);
+    send_use(&mut runtime, &mut swings, &next, &full);
+    assert_eq!(ready.pending_command_count(), 2);
+    assert!(runtime.pulse_pending(), "the rejected pulse stays latched");
     send_use(&mut runtime, &mut swings, &next, &ready);
     assert_eq!(
         ready.pending_command_count(),
-        2,
-        "same-slot repeats retain their delay"
+        3,
+        "the retried pulse throws inside the rearm without restarting the arm swing"
     );
+    runtime.observe_pulse(true);
+    send_use(&mut runtime, &mut swings, &next, &ready);
+    assert_eq!(ready.pending_command_count(), 3);
     let switched = UseFrame {
         selection: Some(stack(5, SNOWBALL, 16)),
         ..next
     };
-    runtime.observe_press(true);
-    send_use(&mut runtime, &mut swings, &switched, &full);
-    assert_eq!(ready.pending_command_count(), 2);
+    runtime.observe_pulse(true);
     send_use(&mut runtime, &mut swings, &switched, &ready);
-    assert_eq!(
-        ready.pending_command_count(),
-        3,
-        "a rejected slot-change use retries without restarting the existing arm swing"
-    );
+    assert_eq!(ready.pending_command_count(), 4);
 }
 
 /// With every tick already sent and none due, a press and its release each leave in their own

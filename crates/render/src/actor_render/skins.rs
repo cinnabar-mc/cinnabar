@@ -105,7 +105,6 @@ impl GpuSkinArrays {
         &self.classes[class].view
     }
 
-    #[cfg(feature = "shaderpacks")]
     /// The array texture of resolution class `class` for raw views, once allocated to allow them.
     pub fn raw_texture(&self, class: usize) -> Option<&Texture> {
         let class = self.classes.get(class)?;

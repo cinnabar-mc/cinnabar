@@ -107,13 +107,21 @@ pub(crate) struct TerrainState {
     /// callbacks leave them untouched.
     pub subscriptions: Vec<(TerrainQuery, Sample)>,
     pub pending_queries: Vec<TerrainQuery>,
+    /// Block searches the last executed callback made, with their latest answers.
+    pub searches: Vec<(crate::BlockSearch, crate::block_search::SearchSample)>,
+    pub pending_searches: Vec<crate::BlockSearch>,
     pub calls: usize,
     revision: u64,
 }
 impl TerrainState {
     pub fn begin_frame(&mut self) {
         self.pending_queries.clear();
+        self.pending_searches.clear();
         self.calls = 0;
+    }
+    /// Whether this callback already subscribes the most region queries and searches.
+    pub fn subscriptions_full(&self) -> bool {
+        self.pending_queries.len() + self.pending_searches.len() >= mod_api::MAX_TERRAIN_QUERIES
     }
     /// Replaces the subscriptions with this callback's reads, keeping their samples.
     pub fn commit(&mut self) {
@@ -124,6 +132,14 @@ impl TerrainState {
                 .position(|(candidate, _)| *candidate == query)
                 .map_or(Sample::Pending, |index| previous.swap_remove(index).1);
             self.subscriptions.push((query, sample));
+        }
+        let mut previous = std::mem::take(&mut self.searches);
+        for search in self.pending_searches.drain(..) {
+            let sample = previous
+                .iter()
+                .position(|(candidate, _)| *candidate == search)
+                .and_then(|index| previous.swap_remove(index).1);
+            self.searches.push((search, sample));
         }
     }
     /// Refreshes subscription `index` through `refresh`.

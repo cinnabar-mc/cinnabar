@@ -1,7 +1,8 @@
 # Local terrain reads
 
 [Personal mods](mods/personal.md) with the default-denied `terrain` grant can call
-`terrain.read-region` and read local pose from `gameplay.read-frame`. Other players
+`terrain.read-region` and `terrain.find-blocks` and read local pose from
+`gameplay.read-frame` and `gameplay.read-camera`. Other players
 need their own grants. Screens suspend reads. Limits are `MAX_TERRAIN_*` in
 [`mod-api`](../crates/mod-api/src/lib.rs).
 
@@ -23,6 +24,19 @@ change. A shared round-robin frame-cell budget defers remaining refreshes as
 `pending`. Oversized geometry/metadata/responses return `limit-exceeded`; shrink
 the query. Sampling is host work; guest pathfinding and caches still consume the
 ordinary frame fuel and should be incremental.
+
+## Block search
+
+`terrain.find-blocks(identifiers, range, limit)` returns loaded blocks whose
+identifier matches one of up to `MAX_FOUND_BLOCK_IDENTIFIERS` namespaced names,
+nearest the player's feet first, within `range` blocks (1 to
+`MAX_TERRAIN_DISTANCE`), at most `limit` (1 to `MAX_FOUND_BLOCKS`). A search is a
+subscription like a region query and shares `MAX_TERRAIN_QUERIES` and the call
+budget with them. Mods searching for the same names and range share one scan. A
+new search returns no positions; the client then scans loaded terrain
+incrementally between frames under a per-frame budget shared by every mod, so
+results fill in nearest first. Unloaded terrain is never searched. Mods draw what
+they find with world drawing.
 
 ## Region layout
 

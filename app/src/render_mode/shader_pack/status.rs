@@ -54,8 +54,7 @@ fn pack_load<'a>(
     }
 }
 
-/// Mirrors the load state into the menu each frame; builds without the shader-pack host
-/// have no status and stay on Vanilla silently.
+/// Mirrors the load state into the menu each frame; a missing host status stays on Vanilla.
 #[expect(
     clippy::too_many_arguments,
     reason = "Bevy supplies the pack state, load feedback and menu resources"

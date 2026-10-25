@@ -500,6 +500,7 @@ impl ModuleObserver {
                     kind: match event.kind {
                         client_world::ActorCombatKind::Hurt => CombatKind::Hurt,
                         client_world::ActorCombatKind::Death => CombatKind::Death,
+                        client_world::ActorCombatKind::Totem => CombatKind::Totem,
                     },
                     player: event.player,
                     local: event.runtime_id == authority.local_player_runtime_id(),
@@ -519,8 +520,7 @@ impl ModuleObserver {
                 .map(PathBuf::from),
         );
         ModuleObservations {
-            world_day: gameplay.world_day(world),
-            local_totem_uses: authority.totem_activations(authority.local_player_runtime_id()),
+            world_time: gameplay.world_time(world),
             motion,
             vitals,
             ping_ms,

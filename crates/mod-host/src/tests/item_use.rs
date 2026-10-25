@@ -45,153 +45,81 @@ fn snapshot() -> GameplaySnapshot {
     }
 }
 
-fn call(enabled: bool, denied: bool) -> String {
+/// Calls the lowered pulse import and checks its success or refusal.
+fn call(refused: bool) -> String {
     format!(
-        "i32.const {} i32.const 256 call $preserve i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
-        u8::from(enabled),
-        u8::from(denied)
+        "i32.const 256 call $pulse i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
+        u8::from(refused)
     )
 }
 
-#[test]
-fn item_use_policy_is_granted_per_gameplay_frame_and_false_disables_it() {
-    let (_dir, mut denied) = load(&call(true, true), false);
-    denied.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert!(denied.item_use_delay_fix().is_none());
-    let frame = format!(
-        "global.get $count i32.const 1 i32.eq if {} else {} end",
-        call(true, false),
-        call(false, false)
-    );
-    let (_dir, mut host) = load(&frame, true);
-    assert!(host.item_use_delay_fix().is_none());
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert_eq!(host.item_use_delay_fix(), Some((1, 0)));
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert!(host.item_use_delay_fix().is_none());
-    let (_dir, mut menus) = load(&call(true, false), true);
-    menus.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert_eq!(menus.item_use_delay_fix(), Some((1, 0)));
-    menus.frame(false).unwrap();
-    assert!(menus.item_use_delay_fix().is_none());
+/// Calls the lowered pulse import, accepting either result.
+const CALL_ANY: &str = "i32.const 256 call $pulse";
+
+fn held() -> GameplayFacts {
+    GameplayFacts {
+        use_held: true,
+        ..Default::default()
+    }
 }
 
+/// A pulse needs the item-use grant, a gameplay frame and a physically held use control.
 #[test]
-fn omission_traps_and_reload_revoke_item_use_policy() {
-    let first = format!(
-        "global.get $count i32.const 1 i32.eq if {} end",
-        call(true, false)
+fn pulse_use_needs_its_grant_a_gameplay_frame_and_a_held_use() {
+    let (_dir, mut denied) = load(&call(true), false);
+    denied.observe_gameplay(held()).unwrap();
+    denied.frame_with_gameplay(false, Some(snapshot())).unwrap();
+    assert!(denied.is_active() && !denied.use_pulse_requested());
+    let (_dir, mut released) = load(&call(true), true);
+    released
+        .frame_with_gameplay(false, Some(snapshot()))
+        .unwrap();
+    assert!(!released.use_pulse_requested());
+    let (_dir, mut menu) = load(&call(true), true);
+    menu.observe_gameplay(held()).unwrap();
+    menu.frame_with_gameplay(false, None).unwrap();
+    assert!(!menu.use_pulse_requested());
+    let (_dir, mut granted) = load(&call(false), true);
+    granted.observe_gameplay(held()).unwrap();
+    granted
+        .frame_with_gameplay(false, Some(snapshot()))
+        .unwrap();
+    assert!(granted.use_pulse_requested());
+}
+
+/// A pulse is one edge for its own frame; it is not retained, and a trap publishes none.
+#[test]
+fn pulse_use_lasts_one_frame_and_a_trap_drops_it() {
+    let (_dir, mut host) = load(CALL_ANY, true);
+    host.observe_gameplay(held()).unwrap();
+    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+    assert!(host.use_pulse_requested());
+    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+    assert!(
+        !host.use_pulse_requested(),
+        "facts and pulses belong to one frame"
     );
-    let (_dir, mut omitted) = load(&first, true);
-    omitted
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(omitted.item_use_delay_fix().is_some());
-    omitted
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(omitted.item_use_delay_fix().is_none());
-    let frame = format!(
-        "{} global.get $count i32.const 2 i32.eq if unreachable end",
-        call(true, false)
-    );
-    let (_dir, mut trapped) = load(&frame, true);
-    trapped
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(trapped.item_use_delay_fix().is_some());
+    host.observe_gameplay(held()).unwrap();
+    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+    host.begin_frame();
+    assert!(!host.use_pulse_requested());
+    let (_dir, mut trapped) = load(&format!("{CALL_ANY} unreachable"), true);
+    trapped.observe_gameplay(held()).unwrap();
     assert!(
         trapped
             .frame_with_gameplay(false, Some(snapshot()))
             .is_err()
     );
-    assert!(!trapped.is_active());
-    assert!(trapped.item_use_delay_fix().is_none());
-    trapped
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(trapped.item_use_delay_fix().is_none());
-    let (dir, mut reloaded) = load(&call(true, false), true);
-    reloaded
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(reloaded.item_use_delay_fix().is_some());
-    std::fs::write(dir.path().join("item_use.wat"), source("")).unwrap();
-    assert!(reloaded.reload_if_changed().unwrap());
-    assert!(reloaded.item_use_delay_fix().is_none());
+    assert!(!trapped.use_pulse_requested());
 }
 
 #[test]
 fn item_use_import_budget_quarantines_excess_writes() {
-    let calls = std::iter::repeat_n(call(true, false), 9)
+    let calls = std::iter::repeat_n(call(true), 9)
         .collect::<Vec<_>>()
         .join(" ");
     let (_dir, mut host) = load(&calls, true);
     assert!(host.frame_with_gameplay(false, Some(snapshot())).is_err());
     assert!(!host.is_active());
-    assert!(host.item_use_delay_fix().is_none());
-}
-
-#[test]
-fn renewed_item_policy_tracks_its_current_session_and_dimension() {
-    let (_dir, mut host) = load(&call(true, false), true);
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert_eq!(host.item_use_delay_fix(), Some((1, 0)));
-    let next = GameplaySnapshot {
-        session: 2,
-        dimension: 1,
-        ..snapshot()
-    };
-    host.frame_with_gameplay(false, Some(next)).unwrap();
-    assert_eq!(host.item_use_delay_fix(), Some((2, 1)));
-    host.frame(false).unwrap();
-    assert_eq!(host.item_use_delay_fix(), None);
-}
-
-#[test]
-fn deferred_lifecycle_clears_item_use_policy_without_quarantining_the_guest() {
-    let (_dir, mut host) = super::load_with_view_closed(
-        source(&call(true, false)),
-        ModGrants {
-            item_use: true,
-            ..Default::default()
-        },
-        "",
-    );
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert_eq!(host.item_use_delay_fix(), Some((1, 0)));
-    let budget = super::defer_view_closed(&mut host);
-    host.frame(false).unwrap();
-    assert!(host.is_active());
-    assert_eq!(host.item_use_delay_fix(), None);
-    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert_eq!(host.item_use_delay_fix(), Some((1, 0)));
-}
-
-#[test]
-fn lifecycle_callbacks_cannot_publish_item_use_policy_through_the_next_frame() {
-    for deferred in [false, true] {
-        let event = format!("{} i32.const 7 global.set $count", call(true, false));
-        let (_dir, mut host) = super::load_with_view_closed(
-            source("global.get $count i32.const 8 i32.ne if unreachable end"),
-            ModGrants {
-                item_use: true,
-                ..Default::default()
-            },
-            &event,
-        );
-        if deferred {
-            let budget = super::defer_view_closed(&mut host);
-            budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
-        } else {
-            assert_eq!(
-                host.dispatch(vec![ModEvent::ViewClosed]).unwrap(),
-                CallbackOutcome::Executed
-            );
-        }
-        host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-        assert!(host.is_active());
-        assert_eq!(host.item_use_delay_fix(), None);
-    }
+    assert!(!host.use_pulse_requested());
 }

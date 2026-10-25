@@ -10,7 +10,7 @@ use super::*;
 fn content(motion: bool) -> Panel {
     let mut panel = crate::test_support::sample_panel();
     panel.motion = motion;
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{"type":"screen"}}).to_string(),
         bindings: BTreeMap::from([("#fade".into(), SurfaceValue::Number(1.0))]),
@@ -24,8 +24,7 @@ fn content(motion: bool) -> Panel {
             },
         )]),
         collections: Default::default(),
-        previews: Default::default(),
-    });
+    };
     panel
 }
 
@@ -43,9 +42,7 @@ fn patch(ui: &mut ModUi, json: &str) {
 fn sample(ui: &mut ModUi, now: f64) -> f64 {
     let current = ui.mod_panel.as_mut().unwrap();
     current.advance_motion(now, !ui.reduced_motion);
-    current
-        .motion
-        .write(&current.panel, Arc::make_mut(&mut current.data));
+    current.motion.write(Arc::make_mut(&mut current.data));
     current.motion_data_dirty = false;
     match current.data.global_value("#fade") {
         Some(Scalar::Num(value)) => *value,
@@ -81,9 +78,7 @@ fn motion_preference_snaps_feedback_and_resumes_only_future_transitions() {
         current
             .motion
             .advance(&current.panel, &mut current.view, Some(0), 1.54, true);
-        current
-            .motion
-            .write(&current.panel, Arc::make_mut(&mut current.data));
+        current.motion.write(Arc::make_mut(&mut current.data));
         assert!(current.motion.active());
     }
     patch(&mut ui, r#"{"motion":false}"#);
@@ -211,7 +206,7 @@ fn screen_animation_preference_still_bounds_panel_motion() {
 fn local_toggle_edits_stay_settled_with_motion_disabled() {
     for boundary in 0..3 {
         let mut panel = content(boundary != 0);
-        panel.surface.as_mut().unwrap().document = json!({
+        panel.surface.document = json!({
             "namespace":"extension","screen":{"type":"screen","size":["100%","100%"],
                 "controls":[{"toggle":{"type":"button","size":[40,20],
                     "anchor_from":"top_left","anchor_to":"top_left",

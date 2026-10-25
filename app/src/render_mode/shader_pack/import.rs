@@ -3,7 +3,10 @@
 //! screen does; the list then refreshes and a toast reports the outcome with Iris's wording.
 //! Unlike Iris, an added pack is not selected, since picking a pack here applies it at once.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
 
 use bevy::{prelude::*, time::Real, window::FileDragAndDrop};
 use client_shell::ui_resources::UiRuntimeResource;
@@ -38,9 +41,29 @@ enum Finished {
 /// Outcomes of import workers and the picker they open.
 #[derive(Resource)]
 struct ShaderPackImports {
-    sender: crossbeam_channel::Sender<Finished>,
-    receiver: crossbeam_channel::Receiver<Finished>,
+    results: OnceLock<(
+        crossbeam_channel::Sender<Finished>,
+        crossbeam_channel::Receiver<Finished>,
+    )>,
     pick: Pick,
+}
+
+impl ShaderPackImports {
+    /// Prepares an import host without allocating its result queue.
+    fn new(pick: Pick) -> Self {
+        Self {
+            results: OnceLock::new(),
+            pick,
+        }
+    }
+
+    /// Creates the result queue on the first import and shares it with later workers.
+    fn sender(&self) -> crossbeam_channel::Sender<Finished> {
+        self.results
+            .get_or_init(crossbeam_channel::unbounded)
+            .0
+            .clone()
+    }
 }
 
 /// Adds the drop and picker imports to the render-mode plugin.
@@ -50,16 +73,11 @@ pub(in crate::render_mode) fn configure(app: &mut App) {
 
 /// [`configure`] with the file picker that `pick` opens.
 fn configure_with(app: &mut App, pick: Pick) {
-    let (sender, receiver) = crossbeam_channel::unbounded();
-    app.insert_resource(ShaderPackImports {
-        sender,
-        receiver,
-        pick,
-    })
-    .add_systems(
-        Update,
-        (start_imports, start_picked_import, finish_imports).chain(),
-    );
+    app.insert_resource(ShaderPackImports::new(pick))
+        .add_systems(
+            Update,
+            (start_imports, start_picked_import, finish_imports).chain(),
+        );
 }
 
 /// Hands the files dropped this frame to a worker while the menu takes shader-pack drops.
@@ -83,7 +101,7 @@ fn start_imports(
         return;
     };
     let dir = dirs.packs.clone();
-    let sender = imports.sender.clone();
+    let sender = imports.sender();
     let spawned = std::thread::Builder::new()
         .name("shader pack import".into())
         .spawn(move || {
@@ -114,7 +132,7 @@ fn start_picked_import(
         return;
     };
     let dir = dirs.packs.clone();
-    let sender = imports.sender.clone();
+    let sender = imports.sender();
     let pick = Arc::clone(&imports.pick);
     let spawned = std::thread::Builder::new()
         .name("shader pack picker".into())
@@ -144,7 +162,10 @@ fn finish_imports(
     mut ui: Option<ResMut<UiRuntimeResource>>,
     time: Res<Time<Real>>,
 ) {
-    for finished in imports.receiver.try_iter() {
+    let Some((_, receiver)) = imports.results.get() else {
+        return;
+    };
+    for finished in receiver.try_iter() {
         let message = match finished {
             Finished::Dropped(outcome) => Some(Ok(outcome)),
             Finished::Picked(picked) => {

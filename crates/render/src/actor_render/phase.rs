@@ -191,27 +191,19 @@ pub(super) fn sorted(material: u32) -> bool {
 impl ActorGpu {
     /// Uses the same material and artwork admission for native and pack draws.
     pub(super) fn pack_supports_span(&self, span: &crate::actor::gpu::ActorDrawSpan) -> bool {
-        #[cfg(feature = "shaderpacks")]
-        {
-            // A pack vertex shader may move a depth producer away from its native overlay.
-            // Keep the complete actor frame native while that dependency exists.
-            !self.pack_depth_dependency
-                && (span.page == 0
-                    || self
-                        .artwork
-                        .page(usize::from(span.page) - 1)
-                        .is_some_and(|page| page.raw_texture().is_some()))
-                && (span.first..span.first + span.count).all(|index| {
-                    self.instances
-                        .get(index as usize)
-                        .is_some_and(crate::shaderpack::actors::instance_supported)
-                })
-        }
-        #[cfg(not(feature = "shaderpacks"))]
-        {
-            let _ = span;
-            false
-        }
+        // A pack vertex shader may move a depth producer away from its native overlay.
+        // Keep the complete actor frame native while that dependency exists.
+        !self.pack_depth_dependency
+            && (span.page == 0
+                || self
+                    .artwork
+                    .page(usize::from(span.page) - 1)
+                    .is_some_and(|page| page.raw_texture().is_some()))
+            && (span.first..span.first + span.count).all(|index| {
+                self.instances
+                    .get(index as usize)
+                    .is_some_and(crate::shaderpack::actors::instance_supported)
+            })
     }
 
     /// Captures a queued receipt identity only while every prepared revision and manifest match.

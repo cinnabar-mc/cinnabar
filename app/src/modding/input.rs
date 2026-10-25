@@ -303,16 +303,6 @@ pub(super) fn prepare_mod_input(
             packets.menu.pending.shift_held = physical.shift_held(focused);
         }
     }
-    // Native HUD geometry stays host-owned; guests cannot manufacture keep-out regions.
-    if presentation.mod_ui().mod_hud_editor_open() {
-        let region = presentation.mod_hud_editor_native_keep_out(ui.session_id());
-        presentation
-            .mod_ui_mut()
-            .set_mod_hud_editor_keep_out(region.as_slice());
-        presentation
-            .mod_ui_mut()
-            .set_mod_hud_editor_shift(physical.shift_held(focused));
-    }
     if extension.is_none() && !packet_owned && !physical.panel_owned && !physical.ime_owned {
         return;
     }
@@ -411,7 +401,6 @@ pub(super) fn prepare_mod_input(
             shift_held: physical.shift_held(focused),
             viewport,
             hud_geometry: Default::default(),
-            preview_sizes: Default::default(),
             events: events
                 .into_iter()
                 .take(ui::mod_panel::MAX_PANEL_EVENTS)
@@ -478,13 +467,6 @@ pub(super) fn prepare_mod_input(
         }
         return;
     };
-    super::hud_editor::guard(
-        &mut extension,
-        &mut presentation,
-        Some(ui.session_id()),
-        focused,
-        absorbed,
-    );
     let was_open = physical.panel_owned;
     if focused && !absorbed {
         let toggles: Vec<_> = panel_keys
@@ -610,15 +592,13 @@ pub(super) fn prepare_mod_input(
             presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
         }
     }
-    super::hud_editor::collect(&mut extension, &mut presentation);
-    if extension.hosts.hud_owner() == Some(owner) {
-        events.extend(
-            presentation
-                .take_chat_extension_actions()
-                .into_iter()
-                .map(|id| ui::mod_panel::Event { id, value: 1. }),
-        );
-    }
+    // Chat clicks go to the chat-action owner, which need not own the panel.
+    extension.chat_events = presentation
+        .take_chat_extension_actions()
+        .into_iter()
+        .take(ui::mod_panel::MAX_PANEL_EVENTS)
+        .map(|id| mod_host::ControlEvent { id, value: 1. })
+        .collect();
     let events = events
         .into_iter()
         .take(ui::mod_panel::MAX_PANEL_EVENTS)
@@ -669,6 +649,21 @@ pub(super) fn prepare_mod_input(
             Vec::new()
         },
         events,
+        pointer: window
+            .cursor_position()
+            .filter(|_| open && focused && !absorbed)
+            .and_then(|position| {
+                presentation.hud_gui_point(
+                    position.to_array(),
+                    [window.physical_width(), window.physical_height()],
+                    window.scale_factor(),
+                )
+            })
+            .map(|[x, y]| (x, y)),
+        wheel: scroll
+            .as_deref()
+            .filter(|_| open && focused && !absorbed)
+            .map_or(0.0, wheel_notches),
     };
     field::sync_ime(
         &mut physical,
@@ -735,6 +730,15 @@ pub(super) fn prepare_mod_input(
 }
 
 /// Applies shared pointer capture and input consumption for every native personal panel.
+/// One frame's wheel turn in notches, positive away from the player; a pixel-precise wheel
+/// reports its pixels / 16.
+fn wheel_notches(scroll: &AccumulatedMouseScroll) -> f32 {
+    match scroll.unit {
+        MouseScrollUnit::Line => scroll.delta.y,
+        MouseScrollUnit::Pixel => scroll.delta.y / 16.0,
+    }
+}
+
 fn finish_capture(
     open: bool,
     was_open: bool,

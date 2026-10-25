@@ -11,7 +11,6 @@ impl Instance {
             self.consecutive_frame_overruns += 1;
             if self.consecutive_frame_overruns < MAX_CONSECUTIVE_FRAME_OVERRUNS {
                 self.status = InstanceStatus::Recovering;
-                self.store.data().retain_hud_claims();
                 return error.context("mod frame fuel exhausted; retaining output until recovery");
             }
         }
@@ -73,6 +72,8 @@ impl State {
             pressed: _,
             label: _,
             hud,
+            presentation,
+            facts,
             pending,
             writes,
             grants: _,
@@ -86,8 +87,7 @@ impl State {
             packet_delay_ms: _,
             pending_packet_delay: _,
             packet_delay_writes,
-            show_real_position: _,
-            pending_show_real_position: _,
+            gameplay_facts: _,
             controls,
             world: _,
             camera_policy: _,
@@ -104,7 +104,6 @@ impl State {
             pending_screens,
             calls,
             output,
-            block_highlights: _,
             inventory,
             events: _,
             touch,
@@ -118,6 +117,8 @@ impl State {
         *calls = 0;
         *output = 0;
         hud.rollback();
+        presentation.begin();
+        facts.begin();
         controls.rollback();
         environment.rollback();
         inventory.begin();

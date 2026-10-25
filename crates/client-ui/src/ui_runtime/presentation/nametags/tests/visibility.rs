@@ -120,7 +120,7 @@ fn projected_player_tags_follow_always_show_metadata_updates() {
         let tags = project_nametags(
             &mut cache,
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view(Vec3::new(0.0, 0.0, 5.0)),
             None,
             1.0,

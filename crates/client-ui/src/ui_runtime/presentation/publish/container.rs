@@ -14,7 +14,7 @@ use presentation::{
 pub(super) fn capture(
     player_runtime: &player_state::PlayerState,
     items: &ItemResolver<'_>,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     window_icons: &mut WindowIcons,
 ) -> WindowText {
     let runtime = items.runtime;
@@ -24,7 +24,7 @@ pub(super) fn capture(
         capture_titles(
             player_runtime,
             runtime,
-            stream,
+            world,
             inventory_screen,
             &mut window_text,
         );
@@ -47,7 +47,7 @@ pub(super) fn capture(
 fn capture_titles(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     inventory_screen: InventoryScreen,
     window_text: &mut WindowText,
 ) {
@@ -64,16 +64,17 @@ fn capture_titles(
         .or_else(|| {
             ledger
                 .window_actor()
-                .and_then(|actor| stream?.authority().actor_container_name(actor))
+                .and_then(|actor| world?.actor_container_name(actor))
                 .map(|name| name.to_string())
                 .or_else(|| {
                     ledger
                         .window_position()
-                        .and_then(|position| stream?.block_entity_custom_name(position))
+                        .and_then(|position| world?.block_entity_custom_name(position.into()))
                 })
         });
     window_text.custom_title.clone_from(&stated_title);
     window_text.block_entity = runtime
+        .session
         .storage_block
         .as_ref()
         .map(|(_, block_entity)| block_entity.to_string());
@@ -135,7 +136,7 @@ fn capture_titles(
     }
 }
 
-/// Adds the hovered item's tooltip, optional nutrition, and bundle contents in display order.
+/// Adds the hovered item's tooltip, mod tooltip lines, and bundle contents in display order.
 fn capture_tooltip(
     player_runtime: &player_state::PlayerState,
     items: &ItemResolver<'_>,
@@ -169,24 +170,17 @@ fn capture_tooltip(
                 name.as_deref(),
             )
         };
-        if presentation
-            .mod_ui()
-            .mod_hunger_overlay()
-            .is_some_and(|style| style.tooltips)
-            && let Some(food) = identifier
-                .as_deref()
-                .and_then(|identifier| runtime.food_properties(identifier))
-        {
-            window_text
-                .tooltip
-                .push(presentation::hud_layout::TooltipLine {
-                    text: format!(
-                        "Nutrition: {}  Saturation: {:.1}",
-                        food.nutrition(),
-                        food.nutrition() as f32 * food.saturation_modifier() * 2.
-                    ),
-                    color: [255, 170, 0, 255],
-                });
+        if let Some(identifier) = identifier.as_deref() {
+            window_text.tooltip.extend(
+                presentation
+                    .mod_ui()
+                    .mod_presentation()
+                    .tooltip_lines(identifier, stack.metadata)
+                    .map(|line| presentation::hud_layout::TooltipLine {
+                        text: line.text.clone(),
+                        color: line.color.map(|channel| (channel * 255.).round() as u8),
+                    }),
+            );
         }
         if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
             .and_then(|id| runtime.inventory_ledger(player_runtime).bundle_contents(id))

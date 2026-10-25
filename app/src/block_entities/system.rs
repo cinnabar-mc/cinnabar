@@ -309,7 +309,7 @@ fn second_crack_part(
     store: &world::ChunkStore,
     mode: assets::NetworkIdMode,
     dimension: i32,
-    entry: &chunk_pipeline::ActiveBlockCrack,
+    entry: &client_world::ActiveBlockCrack,
 ) -> Option<([i32; 3], CrackLayers)> {
     let id = entry.layers[0]?;
     let offset = collisions.second_part_offset(mode, id)?;

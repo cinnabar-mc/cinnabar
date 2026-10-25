@@ -22,8 +22,6 @@ pub mod actor_effects;
 pub mod antialiasing;
 mod bob;
 mod controls;
-mod detached;
-pub use detached::DetachedView;
 #[cfg(test)]
 mod death_view_tests;
 mod easing;
@@ -68,7 +66,8 @@ pub use rig::{
 };
 pub use server_view::{ActorView, ServerCameraSkips, ServerCameraView, ViewContext};
 pub use settings::{
-    CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, next_perspective,
+    CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, PresentedView,
+    ViewTilt, next_perspective,
 };
 pub use vehicle_look::{VehicleLookFollow, predicted_heading};
 

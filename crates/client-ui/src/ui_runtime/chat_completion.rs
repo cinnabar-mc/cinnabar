@@ -25,10 +25,10 @@ impl UiRuntime {
             .local_abilities()
             .map(|update| update.command_permission);
         let context = CompletionContext {
-            players: &self.known_player_names,
+            players: &self.session.known_player_names,
             command_permission,
         };
-        let Ok(completion) = self.chat_autocomplete_catalog.complete_in(
+        let Ok(completion) = self.session.chat_autocomplete_catalog.complete_in(
             &request.input,
             usize::from(request.cursor_byte),
             context,
@@ -37,7 +37,8 @@ impl UiRuntime {
         };
         let usage = completion.usage.clone();
         let applied = matches!(
-            self.chat_autocomplete
+            self.session
+                .chat_autocomplete
                 .apply_response(ChatAutocompleteResponse {
                     session: request.session,
                     input_revision: request.input_revision,
@@ -48,7 +49,7 @@ impl UiRuntime {
             Ok(ChatAutocompleteApply::Applied)
         );
         if applied {
-            self.chat_usage_hint = usage;
+            self.session.chat_usage_hint = usage;
         }
         applied
     }
@@ -57,7 +58,7 @@ impl UiRuntime {
         if matches!(action, UiAction::TabNext | UiAction::TabPrevious) {
             return self.cycle_chat_suggestion(action);
         }
-        let Some(suggestion) = self.chat_autocomplete.handle_action(action) else {
+        let Some(suggestion) = self.session.chat_autocomplete.handle_action(action) else {
             return false;
         };
         self.accept_chat_suggestion(&suggestion);
@@ -77,10 +78,10 @@ impl UiRuntime {
             let Some(index) = suggestion_hit else {
                 return false;
             };
-            if !self.chat_autocomplete.select_index(index) {
+            if !self.session.chat_autocomplete.select_index(index) {
                 return false;
             }
-            let Some(suggestion) = self.chat_autocomplete.selected_suggestion() else {
+            let Some(suggestion) = self.session.chat_autocomplete.selected_suggestion() else {
                 return false;
             };
             self.accept_chat_suggestion(&suggestion);
@@ -91,13 +92,13 @@ impl UiRuntime {
 
     /// Accepts a suggestion, ending completion when it already matches the active token.
     fn accept_chat_suggestion(&mut self, value: &str) {
-        let cursor = self.chat_editor.cursor_byte();
+        let cursor = self.session.chat_editor.cursor_byte();
         let start = self.chat_token_start();
-        if &self.chat_editor.as_str()[start..cursor] == value {
-            self.chat_autocomplete.clear();
-            self.pending_chat_autocomplete_request = None;
-            self.chat_tab_cycling = false;
-            self.chat_tab_start = None;
+        if &self.session.chat_editor.as_str()[start..cursor] == value {
+            self.session.chat_autocomplete.clear();
+            self.session.pending_chat_autocomplete_request = None;
+            self.session.chat_tab_cycling = false;
+            self.session.chat_tab_start = None;
         } else {
             self.replace_chat_token(value);
         }
@@ -105,23 +106,23 @@ impl UiRuntime {
 
     /// Tab inserts the selected suggestion; repeated Tab steps through the same list.
     fn cycle_chat_suggestion(&mut self, action: UiAction) -> bool {
-        if self.chat_autocomplete.suggestions().is_empty() {
+        if self.session.chat_autocomplete.suggestions().is_empty() {
             return false;
         }
-        if self.chat_tab_cycling {
-            self.chat_autocomplete.handle_action(action);
+        if self.session.chat_tab_cycling {
+            self.session.chat_autocomplete.handle_action(action);
         }
-        let Some(selected) = self.chat_autocomplete.selected_suggestion() else {
+        let Some(selected) = self.session.chat_autocomplete.selected_suggestion() else {
             return false;
         };
-        let list = self.chat_autocomplete.suggestions().to_vec();
-        let index = self.chat_autocomplete.selected_index();
-        let hint = self.chat_usage_hint.clone();
+        let list = self.session.chat_autocomplete.suggestions().to_vec();
+        let index = self.session.chat_autocomplete.selected_index();
+        let hint = self.session.chat_usage_hint.clone();
         let start = self.chat_token_start();
         self.replace_chat_token(&selected);
         // The edit re-arms completion; restoring the list keeps the cycle stable.
-        if let Some(request) = self.pending_chat_autocomplete_request.take() {
-            let restored = self.chat_autocomplete.apply(
+        if let Some(request) = self.session.pending_chat_autocomplete_request.take() {
+            let restored = self.session.chat_autocomplete.apply(
                 request,
                 ChatAutocompleteDelta {
                     enum_name: Arc::from("catalog"),
@@ -132,30 +133,30 @@ impl UiRuntime {
             if restored.is_ok()
                 && let Some(index) = index
             {
-                self.chat_autocomplete.select_index(index);
+                self.session.chat_autocomplete.select_index(index);
             }
         }
-        self.chat_usage_hint = hint;
-        self.chat_tab_cycling = true;
-        self.chat_tab_start = Some(start);
+        self.session.chat_usage_hint = hint;
+        self.session.chat_tab_cycling = true;
+        self.session.chat_tab_start = Some(start);
         true
     }
 
     /// Keeps the original replacement boundary while Tab cycles a suggestion list.
     fn chat_token_start(&self) -> usize {
-        if self.chat_tab_cycling
-            && let Some(start) = self.chat_tab_start
+        if self.session.chat_tab_cycling
+            && let Some(start) = self.session.chat_tab_start
         {
             return start;
         }
-        let head = &self.chat_editor.as_str()[..self.chat_editor.cursor_byte()];
+        let head = &self.session.chat_editor.as_str()[..self.session.chat_editor.cursor_byte()];
         ChatAutocompleteCatalog::replacement_start(head)
     }
 
     /// Replaces the active token, including any text up to its existing closing quote.
     fn replace_chat_token(&mut self, value: &str) {
-        let text = self.chat_editor.as_str();
-        let cursor = self.chat_editor.cursor_byte();
+        let text = self.session.chat_editor.as_str();
+        let cursor = self.session.chat_editor.cursor_byte();
         let head = &text[..cursor];
         let start = self.chat_token_start();
         let tail = &text[cursor..];
@@ -174,12 +175,13 @@ impl UiRuntime {
             return;
         }
         let tail_chars = tail.chars().count();
-        self.chat_editor.clear();
-        self.chat_editor
+        self.session.chat_editor.clear();
+        self.session
+            .chat_editor
             .insert(&next)
             .expect("length was checked against the chat input bound");
         for _ in 0..tail_chars {
-            self.chat_editor.move_left();
+            self.session.chat_editor.move_left();
         }
         self.note_chat_editor_change();
     }

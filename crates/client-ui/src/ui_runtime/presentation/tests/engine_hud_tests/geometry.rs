@@ -20,7 +20,7 @@ fn java_pack_geometry_on_a_real_viewport() {
         .publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(&mut player_runtime, &mut runtime);
     full_stats(&mut player_runtime, &mut runtime, 1);
-    runtime.hud.set_experience(7, 0.4);
+    runtime.session.hud.set_experience(7, 0.4);
     let input = build_at(
         &player_runtime,
         &mut presentation,

@@ -99,10 +99,18 @@ fn executable() -> Vec<u8> {
     .unwrap()
 }
 
+/// A minimal panel surface whose screen namespace is `name`, so tests can tell panels apart.
+fn panel_surface(name: &str) -> serde_json::Value {
+    serde_json::json!({"screen":format!("{name}.root"),
+        "document":serde_json::json!({"namespace":name,"root":{"type":"panel"}}).to_string()})
+}
+
 /// A guest keeps its panel in the host; the bundle and font never enter linear memory.
 fn component(title: &str, font: Option<&[u8]>) -> Vec<u8> {
     let mut bytes = executable();
-    let bundle = serde_json::json!({"panel":{"title":title,"toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}).to_string();
+    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+        "surface":panel_surface(title)},"surfaces":{}})
+    .to_string();
     section(&mut bytes, mod_api::PANEL_BUNDLE_SECTION, bundle.as_bytes());
     section(&mut bytes, mod_api::MENU_TITLE_SECTION, title.as_bytes());
     if let Some(font) = font {
@@ -174,10 +182,13 @@ fn changed_source_atomically_replaces_host_and_prepared_resources_without_duplic
     let retired = apply(&mut world, update).unwrap();
     let runtime = world.resource::<ModRuntime>();
     assert_eq!(runtime.hosts.host_count(), 1);
-    assert_eq!(runtime.hosts.host(0).panel().unwrap().title, "Second");
+    assert_eq!(
+        runtime.hosts.host(0).panel().unwrap().surface.screen,
+        "Second.root"
+    );
     assert_eq!(runtime.hosts.host(0).menu_title(), Some("Second"));
     assert!(runtime.metadata[0].branding.is_some());
-    assert_eq!(retired.panel().unwrap().title, "First");
+    assert_eq!(retired.panel().unwrap().surface.screen, "First.root");
     assert!(
         prepare(
             request(&path, runtime.hosts.host(0).source_digest()),
@@ -218,8 +229,9 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "First"
+            .surface
+            .screen,
+        "First.root"
     );
     assert!(prepare(request(&path, digest), &mut attempted, Instant::now()).is_none());
 }
@@ -263,13 +275,14 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
                 .host(0)
                 .panel()
                 .unwrap()
-                .title,
-            "First"
+                .surface
+                .screen,
+            "First.root"
         );
         assert!(prepare(candidate(digest), &mut attempted, Instant::now()).is_none());
 
         let repaired = serde_json::json!({
-            "panel":{"title":"Repaired","toggle_key":"ShiftRight","dark":true,"controls":[]},
+            "panel":{"toggle_key":"ShiftRight","controls":[],"surface":panel_surface("Repaired")},
             "surfaces":{}
         });
         std::fs::write(&ui, repaired.to_string()).unwrap();
@@ -278,7 +291,7 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
         assert!(update.result.as_ref().unwrap().panel_ui.is_some());
         drop(apply(&mut world, update).unwrap());
         let current = world.resource::<ModRuntime>().hosts.host(0);
-        assert_eq!(current.panel().unwrap().title, "Repaired");
+        assert_eq!(current.panel().unwrap().surface.screen, "Repaired.root");
         let accepted = current.source_digest();
         std::fs::remove_file(&ui).unwrap();
         assert!(
@@ -334,8 +347,9 @@ fn changed_committed_settings_retry_a_rejected_component() {
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "Second"
+            .surface
+            .screen,
+        "Second.root"
     );
 }
 
@@ -381,8 +395,9 @@ fn repairing_settings_without_a_committed_seed_retries_the_changed_component() {
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "Second"
+            .surface
+            .screen,
+        "Second.root"
     );
 }
 
@@ -468,9 +483,9 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
     });
     let update = prepare(current, &mut attempted, Instant::now()).unwrap();
     let rejected = apply(&mut world, update).unwrap();
-    assert_eq!(rejected.panel().unwrap().title, "Second");
+    assert_eq!(rejected.panel().unwrap().surface.screen, "Second.root");
     let old = world.resource::<ModRuntime>().hosts.host(0);
-    assert_eq!(old.panel().unwrap().title, "First");
+    assert_eq!(old.panel().unwrap().surface.screen, "First.root");
     assert_eq!(old.settings_snapshot(), Some("{\"value\":1}"));
     let mut retry = request(&path, digest);
     retry.source.grants.settings = true;
@@ -483,7 +498,7 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
     drop(apply(&mut world, update).unwrap());
     drop(rejected);
     let current = world.resource::<ModRuntime>().hosts.host(0);
-    assert_eq!(current.panel().unwrap().title, "Second");
+    assert_eq!(current.panel().unwrap().surface.screen, "Second.root");
     assert_eq!(current.settings_snapshot(), Some("{\"value\":1}"));
     drop(world);
     assert_eq!(std::fs::read_to_string(companion).unwrap(), "{\"value\":1}");
@@ -534,8 +549,9 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "Second"
+            .surface
+            .screen,
+        "Second.root"
     );
     assert!(world.resource::<ModRuntime>().metadata[0].font.is_some());
 }
@@ -579,7 +595,10 @@ fn drawing_restart_prepares_changed_guest_and_presentation_as_one_snapshot() {
     assert_eq!(prepared.host.drawing_session(), Some(session));
     apply(&mut world, update).unwrap();
     let runtime = world.resource::<ModRuntime>();
-    assert_eq!(runtime.hosts.host(0).panel().unwrap().title, "Second");
+    assert_eq!(
+        runtime.hosts.host(0).panel().unwrap().surface.screen,
+        "Second.root"
+    );
     assert_eq!(runtime.hosts.host(0).menu_title(), Some("Second"));
     assert!(runtime.metadata[0].branding.is_some());
     assert!(!runtime.hosts.host(0).needs_drawing_restart());
@@ -798,7 +817,8 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         }
         let mut ui = client_ui::ui_runtime::UiRuntime::new(1);
         if scope != "absent" {
-            ui.experiences.session.state = server_experience::session::State::Granted(grant);
+            ui.session.experiences.session.state =
+                server_experience::session::State::Granted(grant);
         }
         let mut source = request(&path, old_digest).source;
         source.grants.render_post = scope != "user_denied";
@@ -842,12 +862,14 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         if scope == "revoked_before_publish" {
             world
                 .resource_mut::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state = server_experience::session::State::Disabled;
         } else if scope == "expired_before_publish"
             && let server_experience::session::State::Granted(grant) = &mut world
                 .resource_mut::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state
@@ -894,8 +916,16 @@ fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload()
         now + mod_host::local_files::CONTENT_REVALIDATION_INTERVAL,
     );
     assert_eq!(
-        changed.unwrap().result.unwrap().host.panel().unwrap().title,
-        "Other"
+        changed
+            .unwrap()
+            .result
+            .unwrap()
+            .host
+            .panel()
+            .unwrap()
+            .surface
+            .screen,
+        "Other.root"
     );
     assert_eq!(first.bytes.as_ref(), bytes);
 }

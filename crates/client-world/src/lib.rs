@@ -1,5 +1,6 @@
 mod action;
 mod actor_store;
+mod block_cracks;
 mod block_entity_visuals;
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod browser_jobs;
@@ -8,6 +9,9 @@ pub mod ingestion;
 mod item;
 mod local_player_facts;
 pub mod server_position;
+pub mod ui_read;
+
+pub use block_cracks::{ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus};
 
 pub use local_player_facts::{LocalPlayerFacts, LocalPlayerStat};
 

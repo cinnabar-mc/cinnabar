@@ -54,64 +54,58 @@ mod tests {
 
     use bevy::prelude::Vec3;
 
-    #[test]
-    fn unchanged_blocks_reuse_geometry_and_preserve_other_markers() {
-        let mut scene = ModRenderScene::default();
-        scene.set_position_box(Some([[0.0; 3], [1.0; 3]]));
-        let marker = Arc::clone(&scene.marker_vertices);
-        let guest = Arc::clone(&scene.vertices);
-        scene.set_block_highlights(&[[2, 3, 4]], PINK);
-        let vertices = Arc::clone(&scene.block_vertices);
-        scene.set_block_highlights(&[[2, 3, 4]], PINK);
-        assert!(Arc::ptr_eq(&vertices, &scene.block_vertices));
-        assert!(Arc::ptr_eq(&marker, &scene.marker_vertices));
-        assert!(Arc::ptr_eq(&guest, &scene.vertices));
-        scene.set_block_highlights(&[], PINK);
-        assert!(scene.block_vertices.is_empty());
-        assert!(Arc::ptr_eq(&marker, &scene.marker_vertices));
+    fn block(position: [i32; 3]) -> mod_api::native_render::BlockHighlight {
+        mod_api::native_render::BlockHighlight {
+            position,
+            colour: PINK,
+            outline: None,
+        }
     }
 
     #[test]
-    fn publication_caps_blocks_and_rejects_invalid_color() {
+    fn unchanged_blocks_reuse_geometry_and_preserve_guest_output() {
         let mut scene = ModRenderScene::default();
-        scene.set_block_highlights(&vec![[0; 3]; MAX_BLOCK_HIGHLIGHTS + 1], PINK);
-        assert_eq!(scene.block_vertices.len(), VERTICES_PER_BLOCK);
-        scene.set_block_highlights(&[[0; 3]], [f32::NAN; 4]);
+        let guest = Arc::clone(&scene.vertices);
+        scene.set_drawn_block_highlights(&[block([2, 3, 4])]);
+        let vertices = Arc::clone(&scene.block_vertices);
+        scene.set_drawn_block_highlights(&[block([2, 3, 4])]);
+        assert!(Arc::ptr_eq(&vertices, &scene.block_vertices));
+        assert!(Arc::ptr_eq(&guest, &scene.vertices));
+        scene.set_drawn_block_highlights(&[]);
         assert!(scene.block_vertices.is_empty());
+    }
+
+    #[test]
+    fn publication_caps_blocks() {
+        let mut scene = ModRenderScene::default();
+        let separate: Vec<_> = (0..=MAX_BLOCK_HIGHLIGHTS as i32)
+            .map(|index| block([2 * index, 0, 0]))
+            .collect();
+        scene.set_drawn_block_highlights(&separate);
+        assert_eq!(
+            scene.block_vertices.len(),
+            MAX_BLOCK_HIGHLIGHTS * VERTICES_PER_BLOCK
+        );
         scene.clear();
         assert_eq!(scene.vertex_count(), 0);
     }
 }
 
-/// Packet-provided colours use exactly the finder geometry and coexist with its selection.
+/// Packet-provided colours use exactly the cube geometry and release together.
 #[test]
-fn drawn_blocks_share_finder_geometry_and_release_independently() {
+fn drawn_blocks_use_cube_geometry_and_release() {
     use super::*;
-    use std::sync::Arc;
     let mut scene = ModRenderScene::default();
-    let pink = [1., 0.12, 0.55, 1.];
     let red = [1., 0., 0., 1.];
-    scene.set_block_highlights(&[[1, 2, 3]], pink);
     scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
         position: [4, 5, 6],
         colour: red,
         outline: None,
     }]);
-    let expected: Vec<_> = mod_render::block_highlights::build(&[[1, 2, 3]], pink)
-        .into_iter()
-        .chain(mod_render::block_highlights::build(&[[4, 5, 6]], red))
-        .collect();
-    assert_eq!(scene.block_vertices.as_ref(), expected.as_slice());
-    let before = Arc::clone(&scene.block_vertices);
-    scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
-        position: [4, 5, 6],
-        colour: red,
-        outline: None,
-    }]);
-    assert!(Arc::ptr_eq(&before, &scene.block_vertices));
-    scene.set_drawn_block_highlights(&[]);
     assert_eq!(
         scene.block_vertices.as_ref(),
-        mod_render::block_highlights::build(&[[1, 2, 3]], pink)
+        mod_render::block_highlights::build(&[[4, 5, 6]], red)
     );
+    scene.set_drawn_block_highlights(&[]);
+    assert!(scene.block_vertices.is_empty());
 }

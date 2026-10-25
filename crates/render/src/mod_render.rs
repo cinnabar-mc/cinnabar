@@ -61,4 +61,4 @@ fn install(app: &mut App) {
     composition::install(app.sub_app_mut(RenderApp));
 }
 
-use mod_render::{block_highlights, position_box};
+use mod_render::block_highlights;

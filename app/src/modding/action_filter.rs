@@ -12,22 +12,23 @@ pub(super) fn inactive(
 ) {
     state.reset();
     if let Some(input) = input {
-        input.filter_actions(state, None, clock(time_us), false, |_| None);
+        input.filter_actions(state, None, clock(time_us), [false; 2], |_| None);
     }
 }
 
-/// Resolves one owner and applies its return value before gameplay or legacy policies.
+/// Resolves one owner and applies its return value before gameplay consumes the input.
+/// `repeat` holds the attack and item-use pulses mods requested; returns those admitted.
 pub(super) fn apply(
     state: &mut input::ActionFilterState,
     input: Option<&mut SemanticInputSnapshot>,
     hosts: &mut ModHosts,
     enabled: bool,
     time_us: u128,
-    repeat: bool,
-) -> (bool, Option<(usize, String)>) {
+    repeat: [bool; 2],
+) -> ([bool; 2], Option<(usize, String)>) {
     let Some(input) = input else {
         state.reset();
-        return (false, None);
+        return ([false; 2], None);
     };
     let owner = enabled.then(|| hosts.action_filter_owner()).flatten();
     let identity = owner.and_then(|i| hosts.host(i).action_filter_identity());
@@ -36,7 +37,7 @@ pub(super) fn apply(
         state,
         identity,
         clock(time_us),
-        enabled && repeat,
+        repeat.map(|repeat| enabled && repeat),
         |frame| {
             let index = owner?;
             match hosts.host_mut(index).filter_actions(to_guest(frame)) {

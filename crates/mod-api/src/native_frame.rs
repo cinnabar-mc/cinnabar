@@ -29,6 +29,17 @@ pub struct Frame {
     pub pitch: f32,
     pub attack_held: bool,
     pub seconds: f32,
+    /// Look the host applied to the captured view since the last delivered frame, as yaw and
+    /// pitch radians; zero without `capture_look`.
+    pub look_delta: [f32; 2],
+    /// The ordinary movement bindings, x right and y forward, each -1 to 1.
+    pub move_axes: [f32; 2],
+    /// The jump binding is held.
+    pub ascend: bool,
+    /// The sneak binding is held.
+    pub descend: bool,
+    /// Real seconds since the previous delivered frame; 0 on the first frame after a reset.
+    pub elapsed: f32,
     pub players: Vec<Player>,
     /// A connected world without gameplay input; only passive camera policies may be returned.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -44,6 +55,13 @@ impl Frame {
             && self.pitch.is_finite()
             && self.seconds.is_finite()
             && (0.0..=1.0).contains(&self.seconds)
+            && self.elapsed.is_finite()
+            && self.elapsed >= 0.0
+            && self.look_delta.iter().all(|value| value.is_finite())
+            && self
+                .move_axes
+                .iter()
+                .all(|value| value.is_finite() && (-1.0..=1.0).contains(value))
             && (!self.suspended || !self.attack_held && self.players.is_empty())
             && self.players.len() <= crate::MAX_GAMEPLAY_PLAYERS
             && self.players.iter().all(|player| {

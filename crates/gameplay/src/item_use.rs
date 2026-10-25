@@ -114,6 +114,8 @@ pub struct UseOutcome {
 #[derive(Debug, Default, Clone)]
 pub struct PendingUseInput {
     latched_press: bool,
+    /// The latched press is a mod's use pulse rather than a physical press.
+    pulse: bool,
     /// A rejected click retries only while its verified selection remains current.
     deferred_selection: Option<FrozenMiningSelection>,
     /// Only this owner's rejected batch may retry a published tick.
@@ -131,16 +133,23 @@ impl PendingUseInput {
             ..Self::default()
         }
     }
+
+    /// Starts one mod use pulse, which skips the client's use rearm delay.
+    pub fn pulse(pressed: bool) -> Self {
+        Self {
+            latched_press: pressed,
+            pulse: pressed,
+            ..Self::default()
+        }
+    }
 }
 
 /// The press latch, the accepted use, cooldowns and the throw prediction.
 #[derive(Debug, Default, Clone)]
 pub struct ItemUseRuntime {
     pending: PendingUseInput,
-    delay_fix: bool,
-    selected_slot: Option<u8>,
-    slot_change_pending: bool,
-    last_air_use_tick: Option<u64>,
+    /// The tick and hotbar slot of the latest admitted air use.
+    last_air_use: Option<(u64, u8)>,
     last_frame_tick: Option<u64>,
     active: Option<ActiveUse>,
     /// Latest accepted local or server write to the reported UsingItem flag.
@@ -217,28 +226,8 @@ impl ItemUseRuntime {
     pub fn take_rocket_boost(&mut self) -> bool {
         std::mem::take(&mut self.rocket_boost)
     }
-    /// Allows one immediate air use after each slot change; item cooldowns remain authoritative.
-    pub fn set_delay_fix(&mut self, enabled: bool) {
-        self.delay_fix = enabled;
-        if !enabled {
-            self.slot_change_pending = false;
-        }
-    }
-
-    /// Observes slot changes even without use input; unavailable inventory grants no new use.
-    pub fn observe_selected_slot(&mut self, slot: Option<u8>) {
-        let Some(slot) = slot else {
-            return;
-        };
-        if self.selected_slot != Some(slot) {
-            self.slot_change_pending = self.delay_fix && self.selected_slot.is_some();
-            self.selected_slot = Some(slot);
-        }
-    }
-
     /// A newly admitted selection ends a charge without inventing a release transaction.
     pub fn retire_reselected_use(&mut self, slot: u8) {
-        self.observe_selected_slot(Some(slot));
         if self
             .active
             .as_ref()
@@ -368,12 +357,32 @@ impl ItemUseRuntime {
             self.pending.deferred_selection = None;
             self.pending.rejected_swing_tick = None;
             self.pending.latched_press = true;
+            self.pending.pulse = false;
         }
+    }
+
+    /// Latches a mod's use pulse: a press that skips the client's use rearm delay. Item
+    /// cooldowns still apply, and a slot admits at most one air use per tick.
+    pub fn observe_pulse(&mut self, pressed: bool) {
+        self.observe_press(pressed);
+        self.pending.pulse |= pressed;
+    }
+
+    /// Marks the press already latched from this frame's use input as a mod's use pulse, as
+    /// `observe_pulse` would have latched it; without a latched press nothing changes.
+    pub fn mark_pulse(&mut self) {
+        self.pending.pulse = self.pending.latched_press;
+    }
+
+    /// Whether the latched press is a mod's use pulse.
+    pub const fn pulse_pending(&self) -> bool {
+        self.pending.latched_press && self.pending.pulse
     }
 
     /// Screens, focus loss and spectator mode cancel queued clicks, but accepted uses release.
     pub fn cancel_pending_input(&mut self) {
         self.pending.latched_press = false;
+        self.pending.pulse = false;
         self.repeat_armed = false;
         self.pending.deferred_selection = None;
         self.pending.rejected_swing_tick = None;
@@ -397,10 +406,7 @@ impl ItemUseRuntime {
 
     /// Clears session-owned use state after disconnect or session replacement.
     fn cancel(&mut self) {
-        self.delay_fix = false;
-        self.selected_slot = None;
-        self.slot_change_pending = false;
-        self.last_air_use_tick = None;
+        self.last_air_use = None;
         self.cancel_for_respawn();
         self.reported_using_item = None;
         self.rearm_millis = None;
@@ -453,9 +459,9 @@ impl ItemUseRuntime {
         );
         self.last_frame_tick = Some(frame.tick);
         let was_using = self.active.is_some();
-        self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.pending.latched_press);
+        let pulse = std::mem::take(&mut self.pending.pulse) && pressed;
         if pressed {
             self.repeat_armed = !frame.press_consumed
                 && (frame.air_use.is_some()
@@ -470,7 +476,7 @@ impl ItemUseRuntime {
         self.end_use(frame, &mut outcome, release);
         let ended = was_using && self.active.is_none();
         if self.active.is_none() && (pressed || frame.held) {
-            self.try_use(frame, pressed, &mut outcome);
+            self.try_use(frame, pressed, pulse, &mut outcome);
         }
         if !frame.held {
             self.repeat_armed = false;
@@ -561,11 +567,12 @@ impl ItemUseRuntime {
         if !self.pending.latched_press || self.active.is_some() {
             return None;
         }
+        let pulse = self.pending.pulse;
         if frame.press_consumed {
             Some("consumed_by_block_or_attack")
-        } else if self.use_tick_already_admitted(frame) {
+        } else if self.use_tick_already_admitted(frame, pulse) {
             Some("use_tick_already_admitted")
-        } else if self.rearm_pending(frame) {
+        } else if self.rearm_pending(frame, pulse) {
             Some("rearm_pending")
         } else if frame.selection.is_none() {
             Some("selection_unverified")
@@ -580,11 +587,11 @@ impl ItemUseRuntime {
         }
     }
 
-    fn try_use(&mut self, frame: &UseFrame, pressed: bool, outcome: &mut UseOutcome) {
+    fn try_use(&mut self, frame: &UseFrame, pressed: bool, pulse: bool, outcome: &mut UseOutcome) {
         let air_use = self.crossbows.air_use(frame);
         if frame.press_consumed
-            || self.use_tick_already_admitted(frame)
-            || self.rearm_pending(frame)
+            || self.use_tick_already_admitted(frame, pulse)
+            || self.rearm_pending(frame, pulse)
             || (!pressed
                 && (!self.repeat_armed
                     || air_use.is_some_and(|air_use| !air_use.repeats_while_held())))
@@ -598,8 +605,7 @@ impl ItemUseRuntime {
         let Some(legacy_request_id) = protocol::next_legacy_request_id() else {
             return;
         };
-        self.slot_change_pending = false;
-        self.last_air_use_tick = Some(frame.tick);
+        self.last_air_use = Some((frame.tick, selection.slot));
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
         let cooldown = air_use.and_then(AirUse::cooldown);
         let on_cooldown = cooldown.is_some_and(|cooldown| self.on_cooldown(cooldown.category));
@@ -686,14 +692,18 @@ impl ItemUseRuntime {
         }
     }
 
-    /// Blocks repeated admissions in the same slot without swallowing a slot-change use.
-    fn use_tick_already_admitted(&self, frame: &UseFrame) -> bool {
-        self.delay_fix && self.last_air_use_tick == Some(frame.tick) && !self.slot_change_pending
+    /// A pulse cannot admit a second air use from the same slot on one tick.
+    fn use_tick_already_admitted(&self, frame: &UseFrame, pulse: bool) -> bool {
+        pulse
+            && frame
+                .selection
+                .as_ref()
+                .is_some_and(|selection| self.last_air_use == Some((frame.tick, selection.slot)))
     }
 
-    /// Retains the normal repeat gate after the slot change's first admitted air use.
-    fn rearm_pending(&self, frame: &UseFrame) -> bool {
-        !(self.delay_fix && self.slot_change_pending)
+    /// The client's use rearm delay after an air use, which only a pulse skips.
+    fn rearm_pending(&self, frame: &UseFrame, pulse: bool) -> bool {
+        !pulse
             && self
                 .rearm_millis
                 .is_some_and(|rearm| frame.now_millis <= rearm)
