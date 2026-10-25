@@ -144,14 +144,12 @@ fn every() -> Features {
 fn each_feature_adds_its_functions_and_resources() {
     let material = compose_with(EVERY_FEATURE, 1, every()).unwrap();
     let bindings = material.bindings();
-    // Frame 0, texture 1, sampler 2, then the scene and the cells.
-    assert_eq!(
-        (bindings.scene_color, bindings.scene_depth, bindings.cells),
-        (Some(3), Some(4), Some(5))
-    );
+    // Frame 0, texture 1, sampler 2, then the cells; the scene in the next group.
+    assert_eq!((bindings.cells, bindings.scene), (Some(3), true));
     let library = material.library(2);
-    assert!(library.contains("@group(2) @binding(3) var world_material_scene_color"));
-    assert!(library.contains("@group(2) @binding(5) var<storage, read> world_material_cells"));
+    assert!(library.contains("@group(3) @binding(0) var world_material_scene_color"));
+    assert!(library.contains("@group(3) @binding(1) var world_material_scene_depth"));
+    assert!(library.contains("@group(2) @binding(3) var<storage, read> world_material_cells"));
     assert!(library.contains("fn world_material_displace"));
     // Without the features the functions still exist and return neutral values, so a
     // withdrawn effect never stops the material compiling.

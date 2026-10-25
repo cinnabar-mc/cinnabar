@@ -51,6 +51,7 @@ fn mixed_chunk() -> (ChunkRenderInstance, FreshChunkRanges, GpuChunkOrigin) {
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
+        world_materials: false,
     };
     let plan = plan_chunk_range_update(
         16,

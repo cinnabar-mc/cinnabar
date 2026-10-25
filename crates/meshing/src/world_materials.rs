@@ -3,7 +3,8 @@
 /// One block network value a programmable world material shades.
 ///
 /// Meshing takes these sorted by [`Self::network_value`], one per value. A bound block's cube
-/// faces carry its tag, never merge with other faces and draw only in their material's pass.
+/// faces carry its tag, stay one block wide (a world material may move each corner) and draw
+/// only in their material's pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorldMaterialBlock {
     /// The block's network value.

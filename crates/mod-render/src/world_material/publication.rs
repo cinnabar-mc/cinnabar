@@ -42,6 +42,11 @@ impl Texture {
     }
 }
 
+/// The farthest, in blocks, any material's drawing may reach past its target's own bounds
+/// within the contract's ranges ([`Effects::reach_blocks`]); terrain sections holding bound
+/// blocks are culled with bounds this much larger. The client checks it against the ranges.
+pub const MAX_REACH_BLOCKS: f32 = 4.25;
+
 /// A bloom of a material's emission.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bloom {

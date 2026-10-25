@@ -40,6 +40,7 @@ fn section(index: i32) -> ChunkRenderInstance {
         token: None,
         publication_permit: None,
         origin: [index * 16, 0, 0],
+        world_materials: false,
     }
 }
 

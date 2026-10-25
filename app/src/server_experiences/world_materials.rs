@@ -29,6 +29,15 @@ use std::{
     },
 };
 
+// Culling bounds grow by the renderer's reach, which must cover every effect's range.
+const _: () = {
+    use server_experience::world_material::{
+        MAX_DISPLACEMENT_BLOCKS, MAX_OUTLINE_TEXELS, MAX_PARTICLE_RADIUS_BLOCKS,
+    };
+    assert!(MAX_DISPLACEMENT_BLOCKS + MAX_OUTLINE_TEXELS / 16.0 <= publication::MAX_REACH_BLOCKS);
+    assert!(MAX_PARTICLE_RADIUS_BLOCKS + 0.25 <= publication::MAX_REACH_BLOCKS);
+};
+
 /// Provisional: the widest or tallest declared texture, in texels.
 pub(super) const MAX_TEXTURE_EXTENT: u32 = 1024;
 /// Provisional: GPU bytes charged for each distinct set of pipelines a bundle compiles.

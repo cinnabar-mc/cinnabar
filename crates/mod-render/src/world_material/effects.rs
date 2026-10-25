@@ -22,36 +22,27 @@ pub struct Features {
     pub particles: bool,
 }
 
-/// Where a material's feature resources sit in its bind group, after the frame uniform, the
-/// declared textures and their sampler.
+/// Where a material's feature resources sit. The cells follow the frame uniform, the declared
+/// textures and their sampler in the material's bind group; the scene, which differs per view,
+/// takes the next bind group: the colour at binding 0 and the depth at binding 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialBindings {
-    /// The view's opaque colour, a `texture_2d<f32>` read with `textureLoad`.
-    pub scene_color: Option<u32>,
-    /// The view's opaque depth as linear view depth in blocks, an unfilterable
-    /// `texture_2d<f32>` read with `textureLoad`.
-    pub scene_depth: Option<u32>,
-    /// The bundle's compute cells, a read-only storage `array<vec4<f32>>`.
+    /// The bundle's compute cells in the material's group, a read-only storage
+    /// `array<vec4<f32>>` the vertex and fragment stages read.
     pub cells: Option<u32>,
+    /// Whether the group after the material's holds the view's opaque colour (a
+    /// `texture_2d<f32>`) and its linear view depth in blocks (an unfilterable
+    /// `texture_2d<f32>`), both read with `textureLoad` by the fragment stage.
+    pub scene: bool,
 }
 
 impl MaterialBindings {
     /// The bindings of a material with `textures` declared textures and `features`.
     pub fn of(textures: usize, features: Features) -> Self {
-        let mut next = textures as u32 + 1 + u32::from(textures != 0);
-        let mut take = |enabled: bool| {
-            enabled.then(|| {
-                next += 1;
-                next - 1
-            })
-        };
-        let scene_color = take(features.scene);
-        let scene_depth = take(features.scene);
-        let cells = take(features.cells);
+        let next = textures as u32 + 1 + u32::from(textures != 0);
         Self {
-            scene_color,
-            scene_depth,
-            cells,
+            cells: features.cells.then_some(next),
+            scene: features.scene,
         }
     }
 }
@@ -128,10 +119,11 @@ pub(super) fn library(group: u32, textures: usize, features: Features) -> String
     if !features.cells {
         out.push_str(NO_CELLS);
     }
-    if let (Some(color), Some(depth)) = (bindings.scene_color, bindings.scene_depth) {
+    if bindings.scene {
+        let scene = group + 1;
         out.push_str(&format!(
-            "@group({group}) @binding({color}) var {SCENE_COLOR}: texture_2d<f32>;
-@group({group}) @binding({depth}) var {SCENE_DEPTH}: texture_2d<f32>;
+            "@group({scene}) @binding(0) var {SCENE_COLOR}: texture_2d<f32>;
+@group({scene}) @binding(1) var {SCENE_DEPTH}: texture_2d<f32>;
 var<private> {FRAGMENT}: vec4<f32>;
 // The host sets the fragment's pixel and linear view depth before `shade` runs.
 fn world_material_set_fragment(pixel: vec2<f32>, depth: f32) {{

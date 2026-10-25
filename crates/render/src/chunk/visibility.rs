@@ -28,6 +28,8 @@ use bevy::{
 };
 use render_scene::ChunkRenderInstance;
 
+use super::bounds::BoundsKind;
+
 #[cfg(test)]
 mod tests;
 
@@ -64,20 +66,20 @@ struct Block {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    /// Whether the section uses the padded model bounds.
-    models: Vec<bool>,
+    /// Which bounds the section culls with.
+    kinds: Vec<BoundsKind>,
     /// [`SHOWN`] and [`REMOVED`] bits.
     state: Vec<u8>,
     removed: usize,
 }
 
 impl Block {
-    fn insert(&mut self, at: usize, entity: Entity, origin: [f32; 3], models: bool, state: u8) {
+    fn insert(&mut self, at: usize, entity: Entity, origin: [f32; 3], kind: BoundsKind, state: u8) {
         self.entities.insert(at, entity);
         self.x.insert(at, origin[0]);
         self.y.insert(at, origin[1]);
         self.z.insert(at, origin[2]);
-        self.models.insert(at, models);
+        self.kinds.insert(at, kind);
         self.state.insert(at, state);
     }
 
@@ -88,7 +90,7 @@ impl Block {
             x: self.x.split_off(at),
             y: self.y.split_off(at),
             z: self.z.split_off(at),
-            models: self.models.split_off(at),
+            kinds: self.kinds.split_off(at),
             state: self.state.split_off(at),
             removed: 0,
         };
@@ -103,7 +105,7 @@ impl Block {
         retain_live(&mut self.x, &self.state);
         retain_live(&mut self.y, &self.state);
         retain_live(&mut self.z, &self.state);
-        retain_live(&mut self.models, &self.state);
+        retain_live(&mut self.kinds, &self.state);
         self.state.retain(|&state| state & REMOVED == 0);
         self.removed = 0;
     }
@@ -133,13 +135,13 @@ impl ChunkVisibilitySet {
         (block, position)
     }
 
-    /// Records or replaces the section at `origin`; `models` selects the padded model bounds
-    /// and `shown` is the entity's `InheritedVisibility`.
+    /// Records or replaces the section at `origin`; `kind` selects its bounds and `shown` is
+    /// the entity's `InheritedVisibility`.
     pub(in crate::chunk) fn insert(
         &mut self,
         entity: Entity,
         origin: [i32; 3],
-        models: bool,
+        kind: BoundsKind,
         shown: bool,
     ) {
         // The same conversion as the `GlobalTransform` Bevy culled chunks with.
@@ -156,11 +158,11 @@ impl ChunkVisibilitySet {
                     block.removed -= 1;
                 }
                 [block.x[at], block.y[at], block.z[at]] = origin;
-                block.models[at] = models;
+                block.kinds[at] = kind;
                 block.state[at] = state;
             }
             Err(at) => {
-                block.insert(at, entity, origin, models, state);
+                block.insert(at, entity, origin, kind, state);
                 if block.entities.len() >= BLOCK_CAPACITY {
                     let tail = block.split_off(BLOCK_CAPACITY / 2);
                     self.blocks.insert(index + 1, tail);
@@ -222,7 +224,7 @@ impl ChunkVisibilitySet {
         scratch: &mut CullScratch,
     ) {
         let planes = CullPlanes::new(frustum);
-        let kinds = [super::bounds::aabb(false), super::bounds::aabb(true)];
+        let kinds = BoundsKind::ALL.map(BoundsKind::aabb);
         scratch.classes.resize(BLOCK_CAPACITY, REJECT);
         scratch.kept.resize(BLOCK_CAPACITY, Entity::PLACEHOLDER);
         for block in &self.blocks {
@@ -239,7 +241,7 @@ impl ChunkVisibilitySet {
                     && bevy_visible(
                         frustum,
                         block.origin(index),
-                        &kinds[usize::from(block.models[index])],
+                        &kinds[block.kinds[index] as usize],
                     );
                 scratch.kept[kept] = block.entities[index];
                 kept += usize::from(((class == ACCEPT) & shown) | exact);
@@ -275,7 +277,7 @@ struct CullPlane {
     normal: [f32; 3],
     /// Per bounds kind: signed distance of the farthest bounds corner along the normal, for a
     /// section at the origin.
-    reach: [f32; 2],
+    reach: [f32; BoundsKind::ALL.len()],
 }
 
 /// The planes Bevy tests, and the rounding margin that makes their f32 verdicts certain.
@@ -292,7 +294,7 @@ struct CullPlanes {
 
 impl CullPlanes {
     fn new(frustum: &Frustum) -> Self {
-        let kinds = [super::bounds::aabb(false), super::bounds::aabb(true)];
+        let kinds = BoundsKind::ALL.map(BoundsKind::aabb);
         let mut planes = [CullPlane::default(); PLANE_COUNT];
         let mut exact_only = false;
         let (mut normal_sum, mut base, mut accept_extra) = (0.0f64, 0.0f64, 0.0f64);
@@ -332,20 +334,11 @@ impl CullPlanes {
             classes.fill(UNSURE);
             return;
         }
-        let sections = block
-            .x
-            .iter()
-            .zip(&block.y)
-            .zip(&block.z)
-            .zip(&block.models);
-        for ((((&x, &y), &z), &models), class) in sections.zip(classes) {
+        let sections = block.x.iter().zip(&block.y).zip(&block.z).zip(&block.kinds);
+        for ((((&x, &y), &z), &kind), class) in sections.zip(classes) {
             let mut lowest = f32::MAX;
             for plane in &self.planes {
-                let reach = if models {
-                    plane.reach[1]
-                } else {
-                    plane.reach[0]
-                };
+                let reach = plane.reach[kind as usize];
                 let distance =
                     plane.normal[0] * x + plane.normal[1] * y + plane.normal[2] * z + reach;
                 lowest = if distance < lowest { distance } else { lowest };
@@ -389,7 +382,7 @@ fn track_inserted_chunk(
     set.insert(
         insert.entity,
         instance.origin,
-        !instance.model_refs.is_empty(),
+        BoundsKind::of(!instance.model_refs.is_empty(), instance.world_materials),
         inherited.is_some_and(|inherited| inherited.get()),
     );
 }

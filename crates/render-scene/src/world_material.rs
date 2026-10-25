@@ -53,10 +53,31 @@ impl WorldMaterialScene {
     /// The tag (one more than the slot) and host raster state an entity `identifier`'s draws
     /// take, if bound.
     pub fn entity(&self, identifier: &str) -> Option<(u8, render_api::render_state::RenderState)> {
-        let (slot, published) = self.set.entity(identifier)?;
-        let tag = u8::try_from(slot + 1).ok()?;
-        Some((tag, host_raster(published.depth, published.blend)))
+        self.bound_entity(identifier)
+            .map(|bound| (bound.tag, bound.raster))
     }
+
+    /// How an entity `identifier`'s draws are bound, if they are.
+    pub fn bound_entity(&self, identifier: &str) -> Option<BoundEntity> {
+        let (slot, published) = self.set.entity(identifier)?;
+        Some(BoundEntity {
+            tag: u8::try_from(slot + 1).ok()?,
+            raster: host_raster(published.depth, published.blend),
+            reach_blocks: published.effects.reach_blocks(),
+        })
+    }
+}
+
+/// What a bound entity's draws take from its world material.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoundEntity {
+    /// One more than the material's slot.
+    pub tag: u8,
+    /// The host raster state of the material's class.
+    pub raster: render_api::render_state::RenderState,
+    /// How far, in blocks, the material's drawing reaches past the entity's own bounds, by
+    /// which its culling bounds grow.
+    pub reach_blocks: f32,
 }
 
 /// The raster state the host draws a world material class with: the guest chooses only the

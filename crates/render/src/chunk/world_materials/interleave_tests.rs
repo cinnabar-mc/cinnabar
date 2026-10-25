@@ -57,6 +57,7 @@ fn section(cubes: Vec<PackedQuad>, water: Vec<PackedLiquidQuad>, tag: u8) -> Chu
         token: None,
         publication_permit: None,
         origin: [0; 3],
+        world_materials: false,
     }
 }
 

@@ -836,3 +836,62 @@ fn bound_entity_acceptance_follows_coverage_and_emission() {
         "emission adds after lighting: {dark:?} {glowing:?}"
     );
 }
+
+/// A displacing world material moves the drawn actor within its declared bound: the host
+/// clamps what `displace` returns on each axis.
+#[test]
+fn a_displacing_world_material_moves_the_actor_within_its_bound() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture("displacing_world_material") else {
+        return;
+    };
+    // A one-block plane filling the frame.
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let features = mod_render::world_material::Features {
+        displace: true,
+        ..Default::default()
+    };
+    let draw = |offset: &str, limit: f32| {
+        let material = mod_render::world_material::compose_with(
+            &format!(
+                "fn shade(input: WorldMaterialInput) -> Surface {{ return Surface(vec3<f32>(1.0, 0.0, 0.0), 1.0, vec3<f32>(0.0)); }}
+fn displace(input: WorldVertexInput) -> vec3<f32> {{ return vec3<f32>({offset}, 0.0, 0.0); }}"
+            ),
+            0,
+            features,
+        )
+        .unwrap();
+        let frame = mod_render::world_material::frame_uniform_with_effects(
+            0.0,
+            1,
+            [limit, 0.0, 0.0, 0.0],
+            &[],
+        );
+        actor_raster::raster_world_material(
+            &gpu,
+            &plane,
+            render_model::ActorMaterial::default(),
+            &material.library(2),
+            &frame,
+            &[
+                "WORLD_MATERIAL",
+                "WORLD_MATERIAL_OPAQUE",
+                "WORLD_MATERIAL_DISPLACE",
+            ],
+        )
+    };
+    let red = |frame: &[u8], u: f32| {
+        let side = gpu_snapshot::SNAPSHOT_SIDE as usize;
+        let x = (u * side as f32) as usize;
+        let pixel = &frame[(side / 2 * side + x) * 4..][..4];
+        pixel[0] > 200 && pixel[1] < 30
+    };
+    let still = draw("0.0", 2.0);
+    assert!(red(&still, 0.05) && red(&still, 0.95));
+    // A quarter block to the right uncovers the frame's left eighth.
+    let moved = draw("0.25", 2.0);
+    assert!(!red(&moved, 0.05) && red(&moved, 0.3) && red(&moved, 0.95));
+    // Ten blocks clamp to the declared quarter block.
+    assert_eq!(draw("10.0", 0.25), moved);
+    // A NaN offset draws in place.
+    assert_eq!(draw("sqrt(-input.phase - 1.0)", 2.0), still);
+}

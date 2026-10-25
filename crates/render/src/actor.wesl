@@ -248,6 +248,15 @@ fn actor_vertex(
     @if(ACTOR_MASK)
     { world = vec4(world.xyz + mask_displacement.xyz, 1.0); }
     out.position = view.clip_from_world * world;
+    // A world material may move the drawn vertex within its declared bound; the entity's
+    // position, hit box and shadow stay where it is.
+    @if(WORLD_MATERIAL_DISPLACE)
+    {
+        let world_material_placed = placed_normal(placement, bone_normal);
+        let world_material_normal = select(vec3(0.0, 1.0, 0.0), normalize(world_material_placed), dot(world_material_placed, world_material_placed) > 0.0);
+        let world_material_offset = world_material_displace(WorldVertexInput(world.xyz, world_material_normal, artwork_uv, world_material_phase()));
+        out.position = view.clip_from_world * vec4(world.xyz + world_material_offset, 1.0);
+    }
     @if(ACTOR_MOTION)
     {
         let motion = actor_motion[instance_index];

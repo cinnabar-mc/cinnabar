@@ -10,7 +10,7 @@
 
 use crate::chunk::*;
 use crate::world_material::{
-    MODEL_SHADERS, ShaderFamily, TERRAIN_SHADERS, WorldMaterialGpu, WorldVariant, layout,
+    MODEL_SHADERS, ShaderFamily, TERRAIN_SHADERS, WorldMaterialGpu, WorldVariant,
 };
 use bevy::render::render_resource::{BlendComponent, BlendFactor, BlendOperation};
 use mod_render::world_material::publication::{Blend, Depth};
@@ -118,7 +118,7 @@ impl Specializer<RenderPipeline> for WorldTerrainSpecializer {
             ));
         }
         descriptor.label = Some("world material terrain pipeline".into());
-        descriptor.layout.push(layout(key.world.textures));
+        descriptor.layout.push(key.world.layout());
         descriptor.vertex.shader_defs.extend(key.world.defs());
         let fragment = descriptor.fragment.as_mut().expect("terrain colour");
         fragment.shader_defs.extend(key.world.defs());
@@ -317,6 +317,7 @@ mod tests {
                 textures: 1,
                 blend,
                 depth,
+                features: Default::default(),
             };
             WorldTerrainSpecializer
                 .specialize(

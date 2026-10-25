@@ -44,6 +44,8 @@ pub(crate) struct WorldVariant {
     pub textures: u8,
     pub blend: Blend,
     pub depth: Depth,
+    /// The guest functions and resources its module has beyond `shade`.
+    pub features: abi::Features,
 }
 
 impl WorldVariant {
@@ -53,7 +55,13 @@ impl WorldVariant {
             textures: u8::try_from(published.textures.len()).ok()?,
             blend: published.blend,
             depth: published.depth,
+            features: published.material.features,
         })
+    }
+
+    /// Its bind group layout: the frame uniform, the textures and sampler, then its cells.
+    pub(crate) fn layout(self) -> BindGroupLayoutDescriptor {
+        layout(self.textures, self.features)
     }
 
     /// This program's module in the renderer `namespace`.
@@ -61,8 +69,9 @@ impl WorldVariant {
         shader(namespace, self.program)
     }
 
-    /// The shader definitions selecting the host's handling of the material's blend class.
-    pub(crate) fn defs(self) -> [bevy::shader::ShaderDefVal; 4] {
+    /// The shader definitions selecting the host's handling of the material's blend class and
+    /// of the effect functions its module has.
+    pub(crate) fn defs(self) -> [bevy::shader::ShaderDefVal; 6] {
         let def = |name: &'static str, enabled: bool| {
             bevy::shader::ShaderDefVal::Bool(name.into(), enabled)
         };
@@ -74,6 +83,8 @@ impl WorldVariant {
                 "WORLD_MATERIAL_PREMULTIPLY",
                 matches!(self.blend, Blend::Premultiplied | Blend::Additive),
             ),
+            def("WORLD_MATERIAL_DISPLACE", self.features.displace),
+            def("WORLD_MATERIAL_SCENE", self.features.scene),
         ]
     }
 }
@@ -86,9 +97,9 @@ fn shader(namespace: u64, program: u128) -> Handle<Shader> {
     )
 }
 
-/// Bind group layout of a material with `textures` declared textures: the frame uniform, the
-/// textures, then a sampler when there is one.
-pub(crate) fn layout(textures: u8) -> BindGroupLayoutDescriptor {
+/// Bind group layout of a material with `textures` declared textures and `features`: the frame
+/// uniform, the textures, a sampler when there is one, then the compute cells it reads.
+pub(crate) fn layout(textures: u8, features: abi::Features) -> BindGroupLayoutDescriptor {
     let mut entries = vec![BindGroupLayoutEntry {
         binding: 0,
         // Terrain vertex stages read the quad tag.
@@ -117,6 +128,18 @@ pub(crate) fn layout(textures: u8) -> BindGroupLayoutDescriptor {
             binding: u32::from(textures) + 1,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Sampler(SamplerBindingType::Filtering),
+            count: None,
+        });
+    }
+    if let Some(binding) = abi::MaterialBindings::of(usize::from(textures), features).cells {
+        entries.push(BindGroupLayoutEntry {
+            binding,
+            visibility: ShaderStages::VERTEX_FRAGMENT,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: BufferSize::new(16),
+            },
             count: None,
         });
     }
@@ -266,6 +289,8 @@ pub(crate) fn register_all_shaders(
 /// One material's GPU resources.
 struct Entry {
     variant: WorldVariant,
+    /// The effects row of its frame uniform.
+    effects: [f32; 4],
     /// One more than the material's slot, which its terrain quads carry.
     tag: u8,
     uniform: Buffer,
@@ -366,6 +391,7 @@ pub(crate) fn prepare(
             if let Some(published) = published
                 && let Some(entry) = gpu.entries.get_mut(&published.key)
             {
+                entry.effects = published.effects.row();
                 entry.tag = u8::try_from(slot + 1).unwrap_or(0);
             }
         }
@@ -376,7 +402,7 @@ pub(crate) fn prepare(
         let params = values
             .and_then(|values| values.get(key))
             .unwrap_or(&[0.0; 16]);
-        let words = abi::frame_uniform(phase, entry.tag, params);
+        let words = abi::frame_uniform_with_effects(phase, entry.tag, entry.effects, params);
         queue.write_buffer(&entry.uniform, 0, bytemuck::cast_slice(&words));
     }
 }
@@ -389,6 +415,10 @@ fn create(
     published: &Published,
 ) -> Option<Entry> {
     let variant = WorldVariant::of(published)?;
+    // Cells come from a compute's resources, which this renderer does not create yet.
+    if variant.features.cells {
+        return None;
+    }
     let uniform = device.create_buffer(&BufferDescriptor {
         label: Some("world material frame"),
         size: abi::FRAME_UNIFORM_BYTES as u64,
@@ -450,11 +480,12 @@ fn create(
     }
     let bind_group = device.create_bind_group(
         Some("world material bind group"),
-        &cache.get_bind_group_layout(&layout(variant.textures)),
+        &cache.get_bind_group_layout(&variant.layout()),
         &entries,
     );
     Some(Entry {
         variant,
+        effects: published.effects.row(),
         tag: 0,
         uniform,
         bind_group,
@@ -690,6 +721,47 @@ mod tests {
                     "WORLD_MATERIAL_PREMULTIPLY",
                     "NATIVE_GAMMA_BLEND",
                 ],
+            );
+        }
+        // A displacing material's vertex stages compose with its library too.
+        let displacing = mod_render::world_material::compose_with(
+            "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }
+fn displace(input: WorldVertexInput) -> vec3<f32> { return input.normal * input.phase; }",
+            0,
+            abi::Features {
+                displace: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let actor_library =
+            displacing.library(crate::actor_render::world_materials::WORLD_MATERIAL_GROUP);
+        let terrain_library =
+            displacing.library(crate::chunk::world_materials::WORLD_MATERIAL_GROUP);
+        let defs = [
+            "WORLD_MATERIAL",
+            "WORLD_MATERIAL_OPAQUE",
+            "WORLD_MATERIAL_DISPLACE",
+        ];
+        crate::shader_source::composed(
+            &format!(
+                "{}\n{actor_library}",
+                include_str!("actor.wesl")
+                    .replace(
+                        "ACTOR_GPU_INSTANCE_WORDS",
+                        &format!("{}u", render_model::ACTOR_GPU_INSTANCE_WORDS),
+                    )
+                    .replace(
+                        "ACTOR_RIG_VERTEX_WORDS",
+                        &format!("{}u", render_model::ACTOR_RIG_VERTEX_WORDS),
+                    )
+            ),
+            &defs,
+        );
+        for source in [include_str!("chunk.wesl"), include_str!("model.wesl")] {
+            crate::shader_source::composed(
+                &crate::material_shader::source(&format!("{source}\n{terrain_library}")),
+                &defs,
             );
         }
         // The Bedrock fallback passes compose without any library.
