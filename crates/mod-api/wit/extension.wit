@@ -638,6 +638,14 @@ interface camera {
     /// Renew only during focused, input-owned gameplay; 1/1 restores the player's view.
     /// Omission, UI focus, unload, and failed callbacks restore both scales without changing saved settings or perspective.
     set-view-scale: func(fov-scale: f32, look-scale: f32) -> result<_, string>;
+    /// The native damage shake of the local player's last presented view, at full strength:
+    /// before the player's damage-shake setting, any mod `view-tilt`, or suppression. Degrees,
+    /// using the `view-tilt` sign convention: a tilt of these angles that suppresses the native
+    /// shake presents the same view. None while no shake is active, in third person, or outside
+    /// gameplay. Like a tilt, it continues while a menu owns input.
+    record damage-shake { roll: f32, pitch: f32 }
+    /// Requires the camera grant.
+    read-damage-shake: func() -> result<option<damage-shake>, string>;
 }
 
 /// Opt-in item-use policy; requires the explicit item-use grant.

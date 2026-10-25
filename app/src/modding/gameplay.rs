@@ -361,12 +361,14 @@ impl GameplayContext<'_> {
     }
 
     /// Captures the facts gameplay capabilities read: the last presented camera and the use
-    /// control while gameplay owns input, and the relayed feet position in a connected world.
+    /// control while gameplay owns input, and the relayed feet position and the last presented
+    /// damage shake in a connected world.
     pub(super) fn facts(
         &self,
         input_owned: bool,
         camera: Option<&GlobalTransform>,
         relayed: Option<[f32; 3]>,
+        damage_shake: Option<client_presentation::camera::actor_effects::DamageShake>,
     ) -> mod_host::GameplayFacts {
         let camera = camera.filter(|_| input_owned).and_then(|camera| {
             let (_, rotation, position) = camera.to_scale_rotation_translation();
@@ -381,6 +383,12 @@ impl GameplayContext<'_> {
         });
         mod_host::GameplayFacts {
             camera,
+            damage_shake: damage_shake
+                .map(|shake| mod_host::DamageShake {
+                    roll: shake.roll_degrees,
+                    pitch: shake.pitch_degrees,
+                })
+                .filter(|shake| shake.roll.is_finite() && shake.pitch.is_finite()),
             relayed_position: relayed
                 .map(Vec3::from_array)
                 .filter(|position| position.is_finite())

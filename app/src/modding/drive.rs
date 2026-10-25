@@ -24,6 +24,8 @@ pub(super) struct ModObservation<'w, 's> {
     terrain: Local<'s, terrain::TerrainSampling>,
     actor_style: Option<ResMut<'w, client_presentation::actor_publication::ActorPresentationStyle>>,
     relayed: Option<Res<'w, packet_delay::RealPositionSnapshot>>,
+    /// The damage shake that `read-damage-shake` reports.
+    damage_shake: Option<Res<'w, client_presentation::camera::actor_effects::PresentedDamageShake>>,
     native_camera: Local<'s, native_camera::NativeCamera>,
 }
 
@@ -63,6 +65,7 @@ pub(super) fn drive_mod(
         mut terrain,
         mut actor_style,
         relayed,
+        damage_shake,
         mut native_camera,
     } = observation;
     let now = time.elapsed_secs_f64();
@@ -294,6 +297,10 @@ pub(super) fn drive_mod(
                     .as_ref()
                     .and(relayed.as_deref())
                     .and_then(|relayed| relayed.position),
+                world_observation
+                    .as_ref()
+                    .and(damage_shake.as_deref())
+                    .and_then(|shake| shake.0),
             ),
         },
         |grants| {

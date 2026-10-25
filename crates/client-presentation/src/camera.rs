@@ -190,6 +190,7 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<ScreenOverlays>()
             .init_resource::<ScreenEffectFacts>()
             .init_resource::<FirstPersonHandMotion>()
+            .init_resource::<actor_effects::PresentedDamageShake>()
             .init_resource::<LocalViewPose>()
             .init_resource::<CameraPose>()
             .init_resource::<InteractionOriginSnapshot>()
