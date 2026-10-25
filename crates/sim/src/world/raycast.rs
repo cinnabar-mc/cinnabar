@@ -63,6 +63,24 @@ impl PaletteWorld<'_> {
         self.block_interaction_ray_with_identity(origin, direction, max_distance, None)
     }
 
+    /// Searches a distance-limited prefix while keeping the full ray's rounded geometry.
+    pub fn block_interaction_ray_prefix_current(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f64,
+        prefix_distance: f64,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
+        if !prefix_distance.is_finite() || prefix_distance < 0.0 {
+            return Err(WorldQueryError::InvalidRayDistance);
+        }
+        let prefix_distance = (prefix_distance < max_distance).then_some(prefix_distance);
+        let origin = origin.rounded();
+        let max_distance = f64::from(max_distance as f32);
+        let direction = validate_ray(origin, direction, max_distance)?;
+        self.trace_block_segment(origin, direction, max_distance, None, prefix_distance)
+    }
+
     /// Finds the nearest selection-shape intercept along a caller-bounded ray.
     ///
     /// `expected_identity` must cover every column whose collision data could
@@ -95,7 +113,7 @@ impl PaletteWorld<'_> {
         let origin = origin.rounded();
         let max_distance = f64::from(max_distance as f32);
         let direction = validate_ray(origin, direction, max_distance)?;
-        self.trace_block_segment(origin, direction, max_distance, expected_identity)
+        self.trace_block_segment(origin, direction, max_distance, expected_identity, None)
     }
 
     /// Reclips a stored hit to its exact endpoint without normalizing and rebuilding that segment.
@@ -115,7 +133,7 @@ impl PaletteWorld<'_> {
         if delta.length_squared() > MAX_COLLISION_QUERY_EXTENT * MAX_COLLISION_QUERY_EXTENT {
             return Err(WorldQueryError::InvalidRayDistance);
         }
-        self.trace_block_segment(origin, delta, 1.0, None)
+        self.trace_block_segment(origin, delta, 1.0, None, None)
     }
 
     /// Traverses and clips one already validated float segment, retaining all query evidence.
@@ -125,10 +143,11 @@ impl PaletteWorld<'_> {
         direction: Vec3,
         max_distance: f64,
         expected_identity: Option<&WorldCollisionIdentity>,
+        prefix_distance: Option<f64>,
     ) -> Result<Option<BlockHit>, WorldQueryError> {
+        let ray = FloatRay::new(origin, direction, max_distance);
         let halo = self.registry.selection_ray_halo();
-        let inspection_limit =
-            inspection_limit(FloatRay::new(origin, direction, max_distance), halo)?;
+        let inspection_limit = inspection_limit(ray, halo)?;
         let mut state = TraversalState::new(origin, direction, max_distance)?;
         let mut inspected = BTreeSet::new();
         let mut inspected_count = 0_usize;
@@ -156,6 +175,7 @@ impl PaletteWorld<'_> {
                 .as_ref()
                 .is_some_and(|hit| crossing_order(hit.fraction, next).is_lt())
                 || next > 1.0
+                || prefix_distance.is_some_and(|limit| ray.distance(ray.point(next)) > limit)
             {
                 break;
             }
@@ -176,7 +196,9 @@ impl PaletteWorld<'_> {
             }
         }
 
-        let Some(best) = best else {
+        let Some(best) =
+            best.filter(|hit| prefix_distance.is_none_or(|limit| hit.distance <= limit))
+        else {
             return Ok(None);
         };
         let identity =

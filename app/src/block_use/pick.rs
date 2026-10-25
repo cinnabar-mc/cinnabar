@@ -107,7 +107,12 @@ pub(crate) fn retain_block_use_pick(
             pick_context,
         );
         let hit = world
-            .block_interaction_ray_current(vector(origin), vector(direction), query_reach)
+            .block_interaction_ray_prefix_current(
+                vector(origin),
+                vector(direction),
+                reach,
+                query_reach,
+            )
             .ok()?;
         if let Crosshair::Actor(actor) = classify_block_hit(actor, origin, hit.as_ref(), reach) {
             return Some(
