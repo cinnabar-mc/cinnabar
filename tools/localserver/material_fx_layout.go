@@ -5,7 +5,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // The gallery's layout, in blocks across (negative to the player's right), up from the ground
@@ -95,8 +95,8 @@ func materialFxCorruptionSource(view showcaseViewpoint) mgl32.Vec3 {
 
 // materialFxLayoutRecords tell the client part where the gallery's pieces stand and which way
 // it faces.
-func materialFxLayoutRecords(view showcaseViewpoint) [][]experience.Scalar {
-	records := [][]experience.Scalar{materialFxRecord(materialFxFacing, int64(view.quarter))}
+func materialFxLayoutRecords(view showcaseViewpoint) [][]cinnabarext.Scalar {
+	records := [][]cinnabarext.Scalar{materialFxRecord(materialFxFacing, int64(view.quarter))}
 	for piece, centre := range materialFxPieces(view) {
 		records = append(records, materialFxRecord(materialFxLayout, int64(piece), milli(centre[0]), milli(centre[1]), milli(centre[2])))
 	}
