@@ -10,14 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/df-mc/dragonfly/server"
-	"github.com/df-mc/dragonfly/server/block/cube"
-	"github.com/df-mc/dragonfly/server/player"
-	"github.com/df-mc/dragonfly/server/session"
-	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
-	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
@@ -29,23 +23,41 @@ import (
 // registers the blocks and the client part bundle draws them (see world-materials.md).
 
 const (
-	materialFxID        = "materialfx"
-	materialFxChannel   = "materialfx.control"
-	materialFxFirstID   = 9400000
-	materialFxTexture   = "textures/entity/materialfx_"
-	materialFxControl   = "controller.render.materialfx"
-	materialFxEnergy    = "materialfx:energy"
-	materialFxPortal    = "materialfx:portal"
-	materialFxFlashStep = 90 * time.Millisecond
+	materialFxID      = "materialfx"
+	materialFxChannel = "materialfx.control"
+	// materialFxSchema is the control channel's schema, as experience.toml declares it.
+	materialFxSchema  = 2
+	materialFxFirstID = 9400000
+	materialFxTexture = "textures/entity/materialfx_"
+	materialFxControl = "controller.render.materialfx"
+	// materialFxClockMs is the session clock's wrap: world materials animate on the wall clock
+	// modulo 4096 s, so the server times effects on the same clock.
+	materialFxClockMs = 4096000
 )
 
 // The client part's control operations, as its experience.toml declares them.
 const (
 	materialFxBind uint16 = iota
 	materialFxUnbind
-	materialFxFlash
-	materialFxStatus
 	materialFxCut
+	materialFxBoom
+	materialFxHeartbeat
+	materialFxHit
+	materialFxThermal
+	materialFxCorrupt
+	materialFxLayout
+	materialFxFacing
+	materialFxRadar
+	materialFxPortalDistance
+)
+
+// The layout pieces whose centres the client part needs, by the layout operation's piece index.
+const (
+	materialFxArenaPiece = iota
+	materialFxBlackHolePiece
+	materialFxPaintingPiece
+	materialFxScreenPiece
+	materialFxPortalPiece
 )
 
 // materialFxEntity is one showcase entity and its generated skin.
@@ -54,8 +66,11 @@ type materialFxEntity struct {
 	pixel func(x, y int) color.NRGBA
 }
 
-// materialFxEntities are spawned left to right: the dissolving wraith, the hologram and the
-// sentinel whose status tint and damage flash the commands drive.
+// materialFxMetal is the liquid metal mob, the one hits are aimed at.
+const materialFxMetal = "materialfx:metal"
+
+// materialFxEntities are spawned left to right: the dissolving wraith, the hologram, the void
+// walker, the lenticular mob and the liquid metal target.
 var materialFxEntities = []materialFxEntity{
 	{"materialfx:wraith", func(x, y int) color.NRGBA {
 		// Pale robe cloth with darker folds.
@@ -69,18 +84,20 @@ var materialFxEntities = []materialFxEntity{
 		}
 		return color.NRGBA{R: 120, G: 140, B: 160, A: 255}
 	}},
-	{"materialfx:sentinel", func(x, y int) color.NRGBA {
-		// Grey armour plates with rivets.
-		if x%16 == 3 && y%16 == 3 {
-			return color.NRGBA{R: 220, G: 220, B: 210, A: 255}
-		}
-		level := uint8(110 + (x/4+y/4)%2*25)
-		return color.NRGBA{R: level, G: level, B: level + 8, A: 255}
+	{"materialfx:voidwalker", func(x, y int) color.NRGBA {
+		// A dark figure; its world material shows space through it.
+		return color.NRGBA{R: 30, G: 20, B: 45, A: 255}
+	}},
+	{"materialfx:lenticular", func(x, y int) color.NRGBA {
+		// A plain figure; its world material picks one of three faces by angle.
+		return color.NRGBA{R: 200, G: 170, B: 120, A: 255}
+	}},
+	{materialFxMetal, func(x, y int) color.NRGBA {
+		// Brushed steel.
+		level := uint8(150 + (x+y*3)%7*6)
+		return color.NRGBA{R: level, G: level, B: level + 10, A: 255}
 	}},
 }
-
-// materialFxStatuses are the /materialfx status names, by the client part's status value.
-var materialFxStatuses = []string{"none", "poison", "burning", "frozen"}
 
 // materialFxPack offers the showcase entities. Their materials are Bedrock's entity_alphatest
 // until the client part binds its world materials.
@@ -153,237 +170,83 @@ func materialFxPack() (*resource.Pack, error) {
 	return resource.ReadBytes(archive.Bytes())
 }
 
-// materialFxCommand is one parsed /materialfx command: the actor and block packets or block
-// placements it needs and the control records it sends the client part.
-type materialFxCommand struct {
-	spawn    bool
-	controls [][]experience.Scalar
-	// flash fades a damage flash over several control records.
-	flash bool
-	usage string
+// materialFxRecord builds one control record of operation `op` with up to four arguments.
+func materialFxRecord(op uint16, args ...int64) []experience.Scalar {
+	record := []experience.Scalar{{Choice: &op}}
+	for index := range 4 {
+		var value int64
+		if index < len(args) {
+			value = args[index]
+		}
+		record = append(record, experience.Scalar{Integer: &value})
+	}
+	return record
 }
 
-// materialFxRecord builds one control record.
-func materialFxRecord(op uint16, value int64) []experience.Scalar {
-	return []experience.Scalar{{Choice: &op}, {Integer: &value}}
+// materialFxNowMs is the session clock now, in milliseconds.
+func materialFxNowMs(now time.Time) int64 {
+	return now.UnixMilli() % materialFxClockMs
 }
+
+// milli is a block coordinate in the control channel's thousandths.
+func milli(value float32) int64 {
+	return int64(math.Round(float64(value) * 1000))
+}
+
+// materialFxCommand is one parsed /materialfx command.
+type materialFxCommand struct {
+	usage string
+	// spawn builds the gallery in front of the player.
+	spawn bool
+	// controls go to the client part as they are.
+	controls [][]experience.Scalar
+	// boom starts a shockwave at the arena's centre now.
+	boom bool
+	// thermal toggles thermal vision.
+	thermal bool
+	// corrupt starts the corruption at the wall's end now; cleanse stops it.
+	corrupt, cleanse bool
+}
+
+// materialFxUsage lists the /materialfx commands.
+const materialFxUsage = "usage: /materialfx [spawn|revoke|restore|boom|heartbeat <0-100|off>|thermal|corrupt|cleanse|cut <0-100|sweep>]"
 
 // parseMaterialFx reads the arguments of /materialfx.
 func parseMaterialFx(args []string) materialFxCommand {
-	usage := "usage: /materialfx [spawn|revoke|restore|flash|status <none|poison|burning|frozen>|cut <0-100|sweep>]"
+	number := func(text string) (int64, bool) {
+		var value int64
+		_, err := fmt.Sscanf(text, "%d", &value)
+		return value, err == nil && value >= 0 && value <= 100
+	}
 	switch {
-	case len(args) == 0 || args[0] == "spawn":
-		return materialFxCommand{spawn: true, controls: [][]experience.Scalar{materialFxRecord(materialFxBind, 0)}}
+	case len(args) == 0 || (args[0] == "spawn" && len(args) == 1):
+		return materialFxCommand{spawn: true}
 	case args[0] == "revoke" && len(args) == 1:
-		return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxUnbind, 0)}}
+		return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxUnbind)}}
 	case args[0] == "restore" && len(args) == 1:
-		return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxBind, 0)}}
-	case args[0] == "flash" && len(args) == 1:
-		return materialFxCommand{flash: true}
-	case args[0] == "status" && len(args) == 2:
-		for value, name := range materialFxStatuses {
-			if name == args[1] {
-				return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxStatus, int64(value))}}
-			}
+		return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxBind)}}
+	case args[0] == "boom" && len(args) == 1:
+		return materialFxCommand{boom: true}
+	case args[0] == "thermal" && len(args) == 1:
+		return materialFxCommand{thermal: true}
+	case args[0] == "corrupt" && len(args) == 1:
+		return materialFxCommand{corrupt: true}
+	case args[0] == "cleanse" && len(args) == 1:
+		return materialFxCommand{cleanse: true}
+	case args[0] == "heartbeat" && len(args) == 2:
+		if args[1] == "off" {
+			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxHeartbeat, -1)}}
+		}
+		if health, ok := number(args[1]); ok {
+			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxHeartbeat, health*10)}}
 		}
 	case args[0] == "cut" && len(args) == 2:
 		if args[1] == "sweep" {
 			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxCut, -1)}}
 		}
-		var percent int64
-		if _, err := fmt.Sscanf(args[1], "%d", &percent); err == nil && percent >= 0 && percent <= 100 {
+		if percent, ok := number(args[1]); ok {
 			return materialFxCommand{controls: [][]experience.Scalar{materialFxRecord(materialFxCut, percent*10)}}
 		}
 	}
-	return materialFxCommand{usage: usage}
-}
-
-// materialFxFlashSteps are a damage flash's intensities in thousandths, sent one step apart:
-// full white at once, then fading out.
-var materialFxFlashSteps = []int64{1000, 700, 450, 250, 100, 0}
-
-// materialFxActors spawns the showcase entities at foot level in a row four blocks in front of
-// the player, facing them.
-func materialFxActors(view showcaseViewpoint) []packet.Packet {
-	packets := make([]packet.Packet, 0, len(materialFxEntities))
-	for index, entity := range materialFxEntities {
-		id := int64(materialFxFirstID + index)
-		packets = append(packets, &packet.AddActor{
-			EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: entity.id,
-			Position: view.at(float32(index*2-(len(materialFxEntities)-1)), 4),
-			Yaw:      view.facingBack(), HeadYaw: view.facingBack(), BodyYaw: view.facingBack(),
-			EntityMetadata: actorBurstMetadata(),
-		})
-	}
-	return packets
-}
-
-// materialFxClear removes the previously spawned entities.
-func materialFxClear() []packet.Packet {
-	packets := make([]packet.Packet, 0, len(materialFxEntities))
-	for index := range materialFxEntities {
-		packets = append(packets, &packet.RemoveActor{EntityUniqueID: int64(materialFxFirstID + index)})
-	}
-	return packets
-}
-
-// materialFxBlocks are the showcase's block placements in front of the player: a 3×2 wall of
-// energy conduits on their right and a 2×3 star portal on their left, six blocks ahead,
-// standing on the player's ground level.
-func materialFxBlocks(view showcaseViewpoint) map[cube.Pos]string {
-	placed := map[cube.Pos]string{}
-	for side := -4; side <= -2; side++ {
-		for up := 1; up <= 2; up++ {
-			placed[view.block(side, up, 6)] = materialFxEnergy
-		}
-	}
-	for side := 2; side <= 3; side++ {
-		for up := 1; up <= 3; up++ {
-			placed[view.block(side, up, 6)] = materialFxPortal
-		}
-	}
-	return placed
-}
-
-// materialFxListener adds /materialfx to opted-in local worlds.
-func materialFxListener(inner func(server.Config) (server.Listener, error), players func(uuid.UUID) (*world.EntityHandle, bool), ext *experienceSender) func(server.Config) (server.Listener, error) {
-	return func(conf server.Config) (server.Listener, error) {
-		listener, err := inner(conf)
-		if err != nil {
-			return nil, err
-		}
-		return &materialFxPacketListener{Listener: listener, players: players, ext: ext}, nil
-	}
-}
-
-// experienceSender is the client part channel the commands drive; nil without -extension flags.
-type experienceSender struct {
-	send func(player uuid.UUID, exp, channel string, schema uint16, payload []experience.Scalar) bool
-}
-
-type materialFxPacketListener struct {
-	server.Listener
-	players func(uuid.UUID) (*world.EntityHandle, bool)
-	ext     *experienceSender
-}
-
-// Accept tracks each connection's player and position for the showcase command.
-func (l *materialFxPacketListener) Accept() (session.Conn, error) {
-	conn, err := l.Listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-	id, _ := uuid.Parse(conn.IdentityData().Identity)
-	return &materialFxConn{Conn: conn, players: l.players, ext: l.ext, id: id}, nil
-}
-
-// Disconnect unwraps this fixture before delegating to the original listener.
-func (l *materialFxPacketListener) Disconnect(conn session.Conn, reason string) error {
-	if wrapped, ok := conn.(*materialFxConn); ok {
-		conn = wrapped.Conn
-	}
-	return l.Listener.Disconnect(conn, reason)
-}
-
-type materialFxConn struct {
-	session.Conn
-	players func(uuid.UUID) (*world.EntityHandle, bool)
-	ext     *experienceSender
-	id      uuid.UUID
-	view    showcaseViewpoint
-	spawned bool
-}
-
-// ReadPacket runs /materialfx: it spawns the showcase entities, places the blocks in the world
-// and sends the client part its control records.
-func (c *materialFxConn) ReadPacket() (packet.Packet, error) {
-	for {
-		pk, err := c.Conn.ReadPacket()
-		if err != nil {
-			return pk, err
-		}
-		if movement, ok := pk.(*packet.PlayerAuthInput); ok {
-			c.view = viewpointOf(movement)
-		}
-		request, ok := pk.(*packet.CommandRequest)
-		if !ok {
-			return pk, nil
-		}
-		fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(request.CommandLine), "/"))
-		if len(fields) == 0 || fields[0] != "materialfx" {
-			return pk, nil
-		}
-		if err := c.run(parseMaterialFx(fields[1:])); err != nil {
-			return nil, err
-		}
-	}
-}
-
-// run carries out one parsed command on this connection.
-func (c *materialFxConn) run(command materialFxCommand) error {
-	if command.usage != "" {
-		c.tell(command.usage)
-		return nil
-	}
-	if command.spawn {
-		var packets []packet.Packet
-		if c.spawned {
-			packets = materialFxClear()
-		}
-		for _, fixture := range append(packets, materialFxActors(c.view)...) {
-			if err := c.Conn.WritePacket(fixture); err != nil {
-				return err
-			}
-		}
-		c.spawned = true
-		c.placeBlocks()
-	}
-	send := func(record []experience.Scalar) {
-		if c.ext == nil || !c.ext.send(c.id, materialFxID, materialFxChannel, 1, record) {
-			c.tell("materialfx: no active client part (run the client with CINNABAR_DEV_SERVER_EXPERIENCES=1)")
-		}
-	}
-	for _, record := range command.controls {
-		send(record)
-	}
-	if command.flash {
-		for step, value := range materialFxFlashSteps {
-			record := materialFxRecord(materialFxFlash, value)
-			time.AfterFunc(time.Duration(step)*materialFxFlashStep, func() { send(record) })
-		}
-	}
-	return nil
-}
-
-// do runs `f` on the connection's player in its world, if it is still there.
-func (c *materialFxConn) do(f func(tx *world.Tx, p *player.Player)) {
-	handle, ok := c.players(c.id)
-	if !ok {
-		return
-	}
-	handle.Do(func(tx *world.Tx, e world.Entity) {
-		if p, ok := e.(*player.Player); ok {
-			f(tx, p)
-		}
-	})
-}
-
-// tell shows `text` to the connection's player.
-func (c *materialFxConn) tell(text string) {
-	c.do(func(_ *world.Tx, p *player.Player) { p.Message(text) })
-}
-
-// placeBlocks places the Experience's blocks ahead of the player, when it registered them,
-// and says so when it did not.
-func (c *materialFxConn) placeBlocks() {
-	c.do(func(tx *world.Tx, p *player.Player) {
-		for pos, name := range materialFxBlocks(c.view) {
-			b, ok := world.BlockByName(name, nil)
-			if !ok {
-				p.Message("materialfx: the Experience's blocks are not registered (start the server with -experiences)")
-				return
-			}
-			tx.SetBlock(pos, b, nil)
-		}
-	})
+	return materialFxCommand{usage: materialFxUsage}
 }

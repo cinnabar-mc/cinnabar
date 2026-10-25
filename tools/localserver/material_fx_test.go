@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -38,10 +40,10 @@ func TestMaterialFxCommandsBecomeControlRecords(t *testing.T) {
 		op    uint16
 		value int64
 	}{
-		{"", materialFxBind, 0},
 		{"revoke", materialFxUnbind, 0},
 		{"restore", materialFxBind, 0},
-		{"status burning", materialFxStatus, 2},
+		{"heartbeat 40", materialFxHeartbeat, 400},
+		{"heartbeat off", materialFxHeartbeat, -1},
 		{"cut 40", materialFxCut, 400},
 		{"cut sweep", materialFxCut, -1},
 	} {
@@ -49,28 +51,61 @@ func TestMaterialFxCommandsBecomeControlRecords(t *testing.T) {
 			t.Errorf("%q: %d %d", test.args, op, value)
 		}
 	}
-	if !parseMaterialFx([]string{"spawn"}).spawn || !parseMaterialFx([]string{"flash"}).flash {
-		t.Fatal("spawn and flash")
+	for args, ok := range map[string]func(materialFxCommand) bool{
+		"":        func(c materialFxCommand) bool { return c.spawn },
+		"spawn":   func(c materialFxCommand) bool { return c.spawn },
+		"boom":    func(c materialFxCommand) bool { return c.boom },
+		"thermal": func(c materialFxCommand) bool { return c.thermal },
+		"corrupt": func(c materialFxCommand) bool { return c.corrupt },
+		"cleanse": func(c materialFxCommand) bool { return c.cleanse },
+	} {
+		if !ok(parseMaterialFx(strings.Fields(args))) {
+			t.Errorf("%q", args)
+		}
 	}
-	for _, bad := range []string{"status sparkly", "cut 101", "cut x", "dance"} {
+	for _, bad := range []string{"heartbeat 101", "cut x", "dance", "boom now"} {
 		if parseMaterialFx(strings.Fields(bad)).usage == "" {
 			t.Errorf("%q is refused", bad)
 		}
 	}
-	if steps := materialFxFlashSteps; steps[0] != 1000 || steps[len(steps)-1] != 0 {
-		t.Fatalf("a flash starts full and ends off: %v", steps)
+	if got := len(materialFxRecord(materialFxBoom, 1, 2, 3)); got != 5 {
+		t.Fatalf("a record carries an operation and four arguments: %d", got)
 	}
-	blocks := materialFxBlocks(showcaseViewpoint{})
-	energy, portal := 0, 0
-	for _, name := range blocks {
-		switch name {
-		case materialFxEnergy:
-			energy++
-		case materialFxPortal:
-			portal++
+}
+
+// The control channel's schema and operation count match the Experience's declaration.
+func TestMaterialFxRecordsMatchTheDeclaredChannel(t *testing.T) {
+	manifest, err := os.ReadFile("../../examples/experiences/material-fx/experience.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(manifest)
+	if !strings.Contains(text, fmt.Sprintf("schema = %d\n", materialFxSchema)) {
+		t.Errorf("experience.toml does not declare schema %d", materialFxSchema)
+	}
+	if !strings.Contains(text, fmt.Sprintf(`{ type = "choice", variants = %d }`, materialFxPortalDistance+1)) {
+		t.Errorf("experience.toml does not declare %d operations", materialFxPortalDistance+1)
+	}
+}
+
+// The gallery holds every piece: the arena floor, the 27-block black hole, the wall's hollow
+// blocks, runes, painting, portal and screen, and the exhibits.
+func TestMaterialFxGalleryHoldsEveryPiece(t *testing.T) {
+	counts := map[string]int{}
+	for _, name := range materialFxBlocks(showcaseViewpoint{}) {
+		counts[strings.TrimPrefix(name, materialFxID+":")]++
+	}
+	for name, want := range map[string]int{
+		"arena": 63, "blackhole": 27, "bottle": 1, "snowglobe": 1, "lavalamp": 1, "glintore": 4,
+		"pulseore": 4, "aquarium": 1, "mineshaft": 1, "rune": 2, "canvas": 4, "vortex": 6, "screen": 12,
+		"wallstone": 17*5 - 1 - 1 - 2 - 4 - 6 - 12,
+	} {
+		if counts[name] != want {
+			t.Errorf("%s: %d blocks, want %d", name, counts[name], want)
 		}
 	}
-	if energy != 6 || portal != 6 {
-		t.Fatalf("%d energy and %d portal blocks", energy, portal)
+	pieces := materialFxPieces(showcaseViewpoint{})
+	if pieces[materialFxPortalPiece][1] != 1.5 {
+		t.Errorf("the portal's centre stands in its middle row: %v", pieces[materialFxPortalPiece])
 	}
 }

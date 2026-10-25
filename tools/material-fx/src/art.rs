@@ -62,7 +62,7 @@ fn fractal(side: u32, seed: u32) -> Vec<f32> {
 }
 
 /// `image` as PNG bytes.
-fn png(image: &RgbaImage) -> Vec<u8> {
+pub fn png(image: &RgbaImage) -> Vec<u8> {
     let mut bytes = std::io::Cursor::new(Vec::new());
     image
         .write_to(&mut bytes, ImageFormat::Png)
@@ -89,34 +89,6 @@ pub fn stars() -> Vec<u8> {
             0
         };
         Rgba([level, level, level, 255])
-    }))
-}
-
-/// The energy conduit's Bedrock look, 16×16: dark basalt with faint orange veins.
-pub fn energy_block() -> Vec<u8> {
-    let values = fractal(16, 41);
-    png(&RgbaImage::from_fn(16, 16, |x, y| {
-        let vein = values[(y * 16 + x) as usize];
-        if vein > 0.72 {
-            Rgba([160, 70, 20, 255])
-        } else {
-            let level = 40 + (vein * 30.0) as u8;
-            Rgba([level, level, level + 4, 255])
-        }
-    }))
-}
-
-/// The star portal's Bedrock look, 16×16: deep violet stone.
-pub fn portal_block() -> Vec<u8> {
-    let values = fractal(16, 53);
-    png(&RgbaImage::from_fn(16, 16, |x, y| {
-        let level = values[(y * 16 + x) as usize];
-        Rgba([
-            30 + (level * 25.0) as u8,
-            10 + (level * 10.0) as u8,
-            50 + (level * 40.0) as u8,
-            255,
-        ])
     }))
 }
 
