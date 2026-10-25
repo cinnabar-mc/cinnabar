@@ -378,8 +378,6 @@ fn evaluate_layer_into(
     budget: &mut EvalBudget<'_>,
 ) -> Result<bool, EvalError> {
     let assets = evaluator.assets;
-    // A `USE_MULTITEXTURE` material samples the controller's first three textures in one draw.
-    let multitexture = layer.material_state.is_some_and(|state| state.multitexture);
     let render = assets.render_data();
     let mut unresolved_artwork = false;
     budget.charge_work()?;
@@ -392,6 +390,9 @@ fn evaluate_layer_into(
     }
     let (material, material_state, material_definition) =
         selected_material(evaluator, variables, layer, budget)?;
+    // A selected `USE_MULTITEXTURE` material samples the controller's first three textures in
+    // one draw.
+    let multitexture = material_state.is_some_and(|state| state.multitexture);
     let choices = render
         .geometries
         .get(
