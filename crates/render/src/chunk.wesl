@@ -908,8 +908,10 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     {
         let world_fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
         let world_light = terrain_light_colour(in.native_light_levels) * in.native_ao_face;
+        // Faces a material only shades merge across blocks; each block still reads its own
+        // surface coordinates, as one-block faces do.
         let world_input = WorldMaterialInput(
-            in.uv, in.world_position, vec4(sampled.rgb * tint_gamma, sampled.a),
+            fract(in.uv), in.world_position, vec4(sampled.rgb * tint_gamma, sampled.a),
             vec4(world_light, in.native_ao_face),
             vec4(world_fog_gamma, distance_fog_amount(in.world_position)),
             vec4(0.0), world_material_phase(), quad_shape_normal(in.quad_shape),

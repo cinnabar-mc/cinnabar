@@ -42,13 +42,9 @@ impl ChunkRenderInstance {
         self.biome = biome;
         self.tint_identity = tint_identity;
         self.cube_layout = mesh.cube_layout();
+        self.world_materials = mesh.has_world_materials();
         let (cubes, cube_light, models, model_light, draws, transparent, liquids, liquid_light) =
             mesh.into_streams();
-        self.world_materials = cubes.iter().any(|quad| quad.world_material() != 0)
-            || draws
-                .iter()
-                .chain(transparent.iter())
-                .any(|draw| draw.world_material() != 0);
         self.cube_quads = cubes.into();
         self.cube_lighting = cube_light.into();
         self.model_refs = models.into();

@@ -75,8 +75,8 @@ fn still_held(held: Held, session: u64, progress: u64) -> bool {
 }
 
 /// The bound blocks of `set` by sorted unique network value, each with one more than its
-/// slot and whether its material is anything but opaque; a slot past the quad tag's range is
-/// left untagged.
+/// slot, whether its material is anything but opaque and whether its permitted effects move its
+/// vertices; a slot past the quad tag's range is left untagged.
 fn tags<'a>(
     set: Option<&WorldMaterialSet>,
     ids: impl Fn(&str) -> &'a [u32],
@@ -92,16 +92,16 @@ fn tags<'a>(
             let tag = u8::try_from(slot + 1)
                 .ok()
                 .filter(|tag| *tag <= meshing::PackedQuad::MAX_WORLD_MATERIAL)?;
-            let see_through = set
+            let material = set
                 .materials
                 .get(usize::from(slot))
-                .and_then(Option::as_ref)
-                .is_some_and(|material| material.blend != Blend::Opaque);
-            Some(
-                ids(name)
-                    .iter()
-                    .map(move |id| WorldMaterialBlock::new(*id, tag, see_through)),
-            )
+                .and_then(Option::as_ref);
+            let see_through = material.is_some_and(|material| material.blend != Blend::Opaque);
+            let displaces =
+                material.is_some_and(|material| material.effects.displacement_blocks.is_some());
+            Some(ids(name).iter().map(move |id| {
+                WorldMaterialBlock::new(*id, tag, see_through).displacing(displaces)
+            }))
         })
         .flatten()
         .collect();
@@ -115,11 +115,21 @@ mod tests {
     use super::*;
     use mod_render::world_material::{
         WorldMaterial,
-        publication::{Depth, Published},
+        publication::{Depth, Effects, Published},
     };
 
     /// A set whose slots draw with `blends` in order and bind `blocks` to them.
     fn set(blends: &[Blend], blocks: &[(&str, u16)]) -> WorldMaterialSet {
+        set_with_effects(blends, &[], blocks)
+    }
+
+    /// A set whose slots draw with `blends` and, where given, `effects` in order and bind
+    /// `blocks` to them.
+    fn set_with_effects(
+        blends: &[Blend],
+        effects: &[Effects],
+        blocks: &[(&str, u16)],
+    ) -> WorldMaterialSet {
         let material = Arc::new(WorldMaterial {
             source: "".into(),
             textures: 0,
@@ -137,7 +147,7 @@ mod tests {
                         textures: Arc::from([]),
                         depth: Depth::Test,
                         blend: *blend,
-                        effects: Default::default(),
+                        effects: effects.get(slot).copied().unwrap_or_default(),
                     })
                 })
                 .collect(),
@@ -209,5 +219,34 @@ mod tests {
             .map(|block| block.see_through)
             .collect();
         assert_eq!(see_through, [false, true, true, true]);
+    }
+
+    #[test]
+    fn only_blocks_whose_permitted_effects_displace_them_hide_nothing() {
+        let wave = Effects {
+            displacement_blocks: Some(1.0),
+            ..Effects::default()
+        };
+        let ids = |name: &str| -> &'static [u32] {
+            match name {
+                "a:wave" => &[1],
+                _ => &[2],
+            }
+        };
+        let displaces = |effects: &[Effects]| -> Vec<bool> {
+            let set = set_with_effects(
+                &[Blend::Opaque, Blend::Opaque],
+                effects,
+                &[("a:wave", 0), ("a:stone", 1)],
+            );
+            tags(Some(&set), ids)
+                .iter()
+                .map(|block| block.displaces)
+                .collect()
+        };
+        assert_eq!(displaces(&[wave]), [true, false]);
+        // Withdrawing the vertex permission publishes the material without its displacement,
+        // so the block occludes again.
+        assert_eq!(displaces(&[Effects::default()]), [false, false]);
     }
 }

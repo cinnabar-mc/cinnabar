@@ -50,11 +50,14 @@ pub(crate) struct CubeQuadStreams {
     solid_counts: [u32; 6],
     two_sided: Vec<PackedQuad>,
     two_sided_lighting: Vec<PackedQuadLighting>,
+    /// Whether any quad pushed carries a world material tag.
+    world_materials: bool,
 }
 
 impl CubeQuadStreams {
     /// Solid quads must arrive grouped by face in `Face::ALL` order.
     fn push(&mut self, quad: PackedQuad, lighting: PackedQuadLighting, solid: bool) {
+        self.world_materials |= quad.world_material() != 0;
         if solid {
             self.solid_counts[quad.face().index()] += 1;
             self.solid.push(quad);
@@ -63,6 +66,11 @@ impl CubeQuadStreams {
             self.two_sided.push(quad);
             self.two_sided_lighting.push(lighting);
         }
+    }
+
+    /// Whether any quad pushed so far carries a world material tag.
+    pub(crate) const fn has_world_materials(&self) -> bool {
+        self.world_materials
     }
 
     pub(crate) fn finish(self) -> (Vec<PackedQuad>, Vec<PackedQuadLighting>, CubeQuadLayout) {
@@ -114,6 +122,11 @@ impl<'a> CubeMeshOutput<'a> {
     fn world_material(&self, network_value: u32) -> u8 {
         crate::world_materials::tag(self.world_materials, network_value)
     }
+
+    /// Whether a world material may move block `network_value`'s vertices.
+    fn displaces(&self, network_value: u32) -> bool {
+        crate::world_materials::displaces(self.world_materials, network_value)
+    }
 }
 
 type Columns = [[u64; SIDE]; SIDE];
@@ -163,11 +176,11 @@ impl AxisColumns {
 
 pub(crate) struct VisibilityMasks {
     geometry: AxisColumns,
-    /// Voxels that hide their neighbours' faces: full occluders that no see-through world
-    /// material shades.
+    /// Voxels that hide their neighbours' faces: full occluders that no see-through or
+    /// displacing world material shades.
     occluders: AxisColumns,
-    /// Voxels a world material shades whose geometry covers each of their faces ([`covers_faces`]):
-    /// they hide the faces a same-tag neighbour turns toward them.
+    /// Voxels a world material shades without moving them whose geometry covers each of their
+    /// faces ([`covers_faces`]): they hide the faces a same-tag neighbour turns toward them.
     bound: AxisColumns,
 }
 
@@ -183,8 +196,8 @@ impl VisibilityMasks {
             (
                 entry.emits_cube_geometry(),
                 entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
-                    && !bound.is_some_and(|block| block.see_through),
-                bound.is_some() && covers_faces(entry),
+                    && !bound.is_some_and(|block| block.see_through || block.displaces),
+                bound.is_some_and(|block| !block.displaces) && covers_faces(entry),
             )
         };
         let all = |set: bool| {
@@ -305,13 +318,19 @@ pub(crate) fn exposed_columns<'a>(
                         let [x, y, z] = neighbour_boundary_coordinate(face, u, v);
                         facts.at(x, y, z)
                     });
-                let slice = boundary_bit.trailing_zeros() as usize;
-                let cell = block_coordinate(face, slice, u, v);
-                let cell = facts.at(cell[0], cell[1], cell[2]).network_value;
+                // Only world materials read the cell's own block; sections without them skip it.
+                let same_tag_cover = || {
+                    let slice = boundary_bit.trailing_zeros() as usize;
+                    let [x, y, z] = block_coordinate(face, slice, u, v);
+                    crate::world_materials::same_tag(
+                        world,
+                        facts.at(x, y, z).network_value,
+                        neighbour.network_value,
+                    ) && covers_faces(&neighbour)
+                };
                 if (culls_face(neighbour.flags)
-                    && !crate::world_materials::see_through(world, neighbour.network_value))
-                    || (crate::world_materials::same_tag(world, cell, neighbour.network_value)
-                        && covers_faces(&neighbour))
+                    && !crate::world_materials::hides_no_other(world, neighbour.network_value))
+                    || (!world.is_empty() && same_tag_cover())
                 {
                     faces &= !boundary_bit;
                 }
@@ -393,9 +412,9 @@ pub(crate) fn greedy_slice(
                 // it once per face rather than once per pixel.
                 || (output.split_tinted_faces
                     && material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0)
-                // A world material may move each corner of a face, so a bound block's faces
-                // stay one block wide and every block moves on its own.
-                || world != 0;
+                // A displacing world material may move each corner of a face, so its block's
+                // faces stay one block wide and every block moves on its own.
+                || (world != 0 && output.displaces(origin_entry.network_value));
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;

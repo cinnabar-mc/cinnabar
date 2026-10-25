@@ -392,6 +392,7 @@ fn bound_model_blocks_tag_every_model_draw_and_keep_their_template_quads() {
         assert_eq!(tagged.model_ref_index(), plain.model_ref_index());
     }
     assert_eq!(bound.model_refs(), bedrock.model_refs(), "only the draws carry the tag");
+    assert!(bound.has_world_materials() && !bedrock.has_world_materials());
 }
 
 /// A bound cube beside a same-tag block hides the face between them only when that block covers

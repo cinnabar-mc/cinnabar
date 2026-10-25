@@ -226,6 +226,7 @@ fn world_material_tags_split_greedy_faces_and_make_alias_changes_visible() {
             .all(|quad| quad.world_material() == 0)
     );
     let tagged = mesh(&[meshing::WorldMaterialBlock::new(TWIN_B, 3, false)]);
+    assert!(tagged.has_world_materials() && !untagged.has_world_materials());
     // The twins share a material and merge untagged; the tagged twin's faces stand alone.
     assert!(tagged.quad_count() > untagged.quad_count());
     let tagged_quads: Vec<_> = tagged
@@ -315,35 +316,74 @@ fn see_through_world_material_blocks_hide_only_their_own_kind() {
 }
 
 #[test]
-fn bound_faces_stay_one_block_wide_so_each_block_can_move_on_its_own() {
+fn displaced_faces_stay_one_block_wide_so_each_block_can_move_on_its_own() {
     // Two touching bound cubes in a row.
     let section = sub_chunk(vec![packed_storage(
         1,
         &[TWIN_AIR, TWIN_B],
         &[([3, 4, 3], 1), ([4, 4, 3], 1)],
     )]);
-    let mesh = mesh_twins(
-        &section,
-        &[meshing::WorldMaterialBlock::new(TWIN_B, 3, false)],
-    );
-    let tops: Vec<_> = mesh
-        .quads()
-        .iter()
-        .filter(|quad| quad.face() == meshing::Face::PositiveY)
-        .collect();
-    assert_eq!(tops.len(), 2, "{tops:?}");
-    assert!(
-        tops.iter()
-            .all(|quad| quad.width() == 1 && quad.height() == 1)
-    );
-    // Untagged, the same row merges into one face.
-    let plain = mesh_twins(&section, &[]);
-    assert_eq!(
-        plain
+    let tops = |tags: &[meshing::WorldMaterialBlock]| -> Vec<meshing::PackedQuad> {
+        mesh_twins(&section, tags)
             .quads()
             .iter()
             .filter(|quad| quad.face() == meshing::Face::PositiveY)
-            .count(),
-        1
+            .copied()
+            .collect()
+    };
+    let displaced = tops(&[meshing::WorldMaterialBlock::new(TWIN_B, 3, false).displacing(true)]);
+    assert_eq!(displaced.len(), 2, "{displaced:?}");
+    assert!(
+        displaced
+            .iter()
+            .all(|quad| quad.width() == 1 && quad.height() == 1)
     );
+    // A material that only shades merges same-tag faces like any other.
+    let shaded = tops(&[meshing::WorldMaterialBlock::new(TWIN_B, 3, false)]);
+    assert_eq!(shaded.len(), 1, "{shaded:?}");
+    assert_eq!((shaded[0].width(), shaded[0].world_material()), (2, 3));
+    assert_eq!(
+        shaded[0].blocks().collect::<Vec<_>>(),
+        [[3, 4, 3], [4, 4, 3]],
+        "the merged face names each block it covers"
+    );
+    // Untagged, the same row merges into one face.
+    assert_eq!(tops(&[]).len(), 1);
+}
+
+#[test]
+fn displaced_world_material_blocks_hide_no_face() {
+    // A row of two bound cubes sits on another cube, beside an unbound twin.
+    let section = sub_chunk(vec![packed_storage(
+        2,
+        &[TWIN_AIR, TWIN_B, TWIN_A, TWIN_OTHER],
+        &[
+            ([3, 4, 3], 1),
+            ([4, 4, 3], 1),
+            ([3, 4, 4], 2),
+            ([3, 3, 3], 3),
+        ],
+    )]);
+    let has = |mesh: &meshing::ChunkMesh, origin: [u8; 3], face: meshing::Face| {
+        mesh.quads()
+            .iter()
+            .any(|quad| quad.origin() == origin && quad.face() == face)
+    };
+    let opaque = meshing::WorldMaterialBlock::new(TWIN_B, 3, false);
+    let wave = mesh_twins(&section, &[opaque.displacing(true)]);
+    // The opaque material may move its faces away, so the faces behind them still draw: the
+    // top of the cube below, the side of the unbound twin and the faces the bound pair share.
+    assert!(has(&wave, [3, 3, 3], meshing::Face::PositiveY));
+    assert!(has(&wave, [3, 4, 4], meshing::Face::NegativeZ));
+    assert!(has(&wave, [3, 4, 3], meshing::Face::PositiveX));
+    assert!(has(&wave, [4, 4, 3], meshing::Face::NegativeX));
+    // Its own faces are still hidden by ordinary neighbours that do not move.
+    assert!(!has(&wave, [3, 4, 3], meshing::Face::NegativeY));
+    assert!(!has(&wave, [3, 4, 3], meshing::Face::PositiveZ));
+
+    // Without the displacement it occludes like any full cube again.
+    let still = mesh_twins(&section, &[opaque]);
+    assert!(!has(&still, [3, 3, 3], meshing::Face::PositiveY));
+    assert!(!has(&still, [3, 4, 4], meshing::Face::NegativeZ));
+    assert!(!has(&still, [3, 4, 3], meshing::Face::PositiveX));
 }
