@@ -1,8 +1,12 @@
 //! The material showcase's server half: it owns the blocks the client part restyles, plain
 //! cubes whose Bedrock textures show while their world materials are revoked or still
-//! compiling. The local server drives the client part directly, so no callback stages anything.
+//! compiling. The glass pieces blend, so the world behind them shows as it does through glass.
+//! The local server drives the client part directly, so no callback stages anything.
 
-use experience_sdk::server::{BlockDef, Experience, GuestError, Mining, TextureBinding};
+use experience_sdk::server::{
+    BlockDef, BlockType, Experience, GuestError, Material, Mining, PlacementStates, Registration,
+    RenderMethod, TextureBinding, Visual,
+};
 
 struct MaterialFx;
 
@@ -38,18 +42,51 @@ pub const BLOCKS: [(&str, &str); 14] = [
     ("vortex", "Star Portal"),
 ];
 
+/// The blocks whose world materials blend: glass the world behind shows through, so their
+/// Bedrock looks blend too and hide none of their neighbours' faces.
+pub const BLENDED: [&str; 3] = ["bottle", "snowglobe", "blackhole"];
+
+/// The block type of showcase block `name`: a plain cube, or for a [`BLENDED`] block a full
+/// cube whose one material blends.
+fn block_type(name: &str, display_name: &str) -> BlockType {
+    let id = format!("materialfx:{name}");
+    let texture = format!("{name}.png");
+    if !BLENDED.contains(&name) {
+        return experience_sdk::server::cube(block(&id, display_name, &texture));
+    }
+    let mut def = block(&id, display_name, &texture);
+    def.textures.clear();
+    BlockType {
+        def,
+        states: Vec::new(),
+        placement: PlacementStates::empty(),
+        visual: Some(Visual {
+            geometry: None,
+            materials: vec![Material {
+                instance: "*".to_owned(),
+                path: texture,
+                render_method: RenderMethod::Blend,
+                flipbook: None,
+            }],
+            bones: Vec::new(),
+            collision: None,
+            selection: None,
+            rotation: None,
+        }),
+        permutations: Vec::new(),
+        network: false,
+    }
+}
+
 impl Experience for MaterialFx {
-    fn register() -> Result<Vec<BlockDef>, GuestError> {
-        Ok(BLOCKS
-            .iter()
-            .map(|(name, display)| {
-                block(
-                    &format!("materialfx:{name}"),
-                    display,
-                    &format!("{name}.png"),
-                )
-            })
-            .collect())
+    fn registration() -> Result<Registration, GuestError> {
+        Ok(Registration {
+            blocks: BLOCKS
+                .iter()
+                .map(|(name, display)| block_type(name, display))
+                .collect(),
+            items: Vec::new(),
+        })
     }
 }
 

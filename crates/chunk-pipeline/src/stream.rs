@@ -377,9 +377,9 @@ pub struct WorldStream {
     /// Java meshing for shader packs, with the sorted network values of the blocks Java fills
     /// with water; see [`WorldStream::set_java_meshing`].
     java_meshing: Option<Arc<[u32]>>,
-    /// Sorted network values of blocks a programmable world material shades, with one more
-    /// than its slot; see [`WorldStream::set_world_materials`].
-    world_materials: Arc<[(u32, u8)]>,
+    /// Blocks a programmable world material shades, sorted by network value; see
+    /// [`WorldStream::set_world_materials`].
+    world_materials: Arc<[::meshing::WorldMaterialBlock]>,
     /// The resident sections the last world material change remeshes, each with the revision
     /// the change forced; a section is done once that revision or a newer one publishes, or
     /// once it unloads, and a new change waits until every one is done.

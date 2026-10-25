@@ -5689,6 +5689,7 @@ dependencies = [
  "experience-runtime",
  "experience-sdk",
  "image",
+ "serde_json",
  "server-experience",
  "sha2",
  "tempfile",

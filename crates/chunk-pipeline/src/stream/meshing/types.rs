@@ -15,7 +15,7 @@ pub(in crate::stream) struct MeshSnapshot {
     /// The sub-chunk's overlay hosts, whose block-state overlays the mesh draws.
     pub(in crate::stream) overlays: OverlayHosts,
     /// World material tags by sorted network value ([`WorldStream::set_world_materials`]).
-    pub(in crate::stream) world_materials: Arc<[(u32, u8)]>,
+    pub(in crate::stream) world_materials: Arc<[::meshing::WorldMaterialBlock]>,
 }
 
 pub(in crate::stream) type BiomeNeighbourhood =

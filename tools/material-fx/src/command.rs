@@ -19,7 +19,7 @@ pub fn server_command(root: &Path, out: &Path, built: &Built) -> String {
         "{} -dir {} -addr {ADDRESS} -material-fx -experiences {} -experience-runtime {} \
          -extension-key {} -extension-audience {ADDRESS} -extension-cxb {}",
         binary("bedrock-local-server").display(),
-        out.join("world").display(),
+        crate::world::dir(out).display(),
         built.experiences.display(),
         binary("experience-runtime").display(),
         built.server_seed.display(),
@@ -39,6 +39,7 @@ mod tests {
             cxb_dir: out.join("cxb"),
             cxb: out.join("cxb/materialfx.cxb"),
             server_seed: out.join("keys/server.seed"),
+            world_reset: false,
         };
         let command = server_command(Path::new("/work"), out, &built);
         let words: Vec<_> = command.split(' ').collect();

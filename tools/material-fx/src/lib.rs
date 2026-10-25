@@ -6,3 +6,4 @@ pub mod artifact;
 pub mod command;
 pub mod diorama;
 pub mod pictures;
+pub mod world;

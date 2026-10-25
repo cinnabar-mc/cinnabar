@@ -761,7 +761,10 @@ fn world_material_tags_reach_new_snapshots_and_remesh_until_they_are_cleared() {
     let now = Instant::now();
     let revision = stream.mark_dirty_exact(key, now);
     // The center section holds value 1.
-    let tags: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8), (5, 2)]);
+    let tags: Arc<[::meshing::WorldMaterialBlock]> = Arc::from([
+        ::meshing::WorldMaterialBlock::new(1, 1, false),
+        ::meshing::WorldMaterialBlock::new(5, 2, true),
+    ]);
     assert_eq!(
         stream.set_world_materials(Arc::clone(&tags), now),
         Some(vec![key])
@@ -772,7 +775,13 @@ fn world_material_tags_reach_new_snapshots_and_remesh_until_they_are_cleared() {
     // The same tags change nothing.
     let revision = stream.revisions.dirty(key).unwrap().revision;
     assert_eq!(
-        stream.set_world_materials(Arc::from([(1_u32, 1_u8), (5, 2)]), now),
+        stream.set_world_materials(
+            Arc::from([
+                ::meshing::WorldMaterialBlock::new(1, 1, false),
+                ::meshing::WorldMaterialBlock::new(5, 2, true)
+            ]),
+            now
+        ),
         Some(Vec::new())
     );
     assert!(stream.revisions.is_current(key, revision));
@@ -804,7 +813,10 @@ fn binding_a_block_remeshes_only_the_sections_that_hold_it() {
     let neighbour = neighbours[0];
     stream.mesh_jobs.in_flight.insert(neighbour, revisions[0].1);
     assert_eq!(
-        stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now),
+        stream.set_world_materials(
+            Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+            now
+        ),
         Some(vec![center]),
         "the withdrawn sections are the ones whose queued uploads the caller drops"
     );
@@ -818,6 +830,31 @@ fn binding_a_block_remeshes_only_the_sections_that_hold_it() {
     assert!(
         stream.mesh_jobs.in_flight.contains_key(&neighbour),
         "unaffected work is kept"
+    );
+}
+
+#[test]
+fn a_block_that_stops_hiding_faces_remeshes_the_sections_beside_it_too() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    // The center holds value 1; every neighbour is uniformly value 3.
+    let sections: Vec<SubChunkKey> = center.mesh_neighbourhood_dependents().collect();
+    for key in &sections {
+        stream.resident.insert(*key);
+        stream.mark_dirty_exact(*key, now);
+    }
+    let mut remeshed = stream
+        .set_world_materials(
+            Arc::from([::meshing::WorldMaterialBlock::new(1, 1, true)]),
+            now,
+        )
+        .unwrap();
+    remeshed.sort();
+    let mut expected = sections.clone();
+    expected.sort();
+    assert_eq!(
+        remeshed, expected,
+        "a see-through block uncovers the faces its neighbours turn toward it"
     );
 }
 
@@ -840,8 +877,9 @@ fn alternating_binds_wait_for_the_last_change_to_publish_and_keep_jobs_running()
     stream
         .mesh_cancellations
         .insert(center, Arc::clone(&cancelled));
-    let bound: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8)]);
-    let unbound: Arc<[(u32, u8)]> = Arc::from([]);
+    let bound: Arc<[::meshing::WorldMaterialBlock]> =
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]);
+    let unbound: Arc<[::meshing::WorldMaterialBlock]> = Arc::from([]);
     assert_eq!(
         stream.set_world_materials(Arc::clone(&bound), now),
         Some(vec![center])
@@ -880,7 +918,8 @@ fn unrelated_dirt_after_a_change_publishes_does_not_hold_the_next_change() {
     let (mut stream, center) = fixture();
     let now = Instant::now();
     stream.resident.insert(center);
-    let bound: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8)]);
+    let bound: Arc<[::meshing::WorldMaterialBlock]> =
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]);
     assert_eq!(
         stream.set_world_materials(Arc::clone(&bound), now),
         Some(vec![center])
@@ -904,7 +943,10 @@ fn an_unloaded_section_settles_the_change_it_was_held_for() {
     let (mut stream, center) = fixture();
     let now = Instant::now();
     stream.resident.insert(center);
-    stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now);
+    stream.set_world_materials(
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+        now,
+    );
     assert_eq!(stream.set_world_materials(Arc::from([]), now), None);
     stream.settle_world_material(center, None);
     assert!(stream.set_world_materials(Arc::from([]), now).is_some());
@@ -914,7 +956,13 @@ fn an_unloaded_section_settles_the_change_it_was_held_for() {
 fn the_applied_tags_name_their_slots() {
     let (mut stream, _) = fixture();
     assert_eq!(stream.world_material_slots(), 0);
-    stream.set_world_materials(Arc::from([(1_u32, 1_u8), (7, 4)]), Instant::now());
+    stream.set_world_materials(
+        Arc::from([
+            ::meshing::WorldMaterialBlock::new(1, 1, false),
+            ::meshing::WorldMaterialBlock::new(7, 4, false),
+        ]),
+        Instant::now(),
+    );
     assert_eq!(stream.world_material_slots(), 0b1001);
 }
 
@@ -923,7 +971,10 @@ fn a_section_dirtied_every_tick_settles_once_a_mesh_past_the_change_is_drawn() {
     let (mut stream, center) = fixture();
     let now = Instant::now();
     stream.resident.insert(center);
-    stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now);
+    stream.set_world_materials(
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+        now,
+    );
     let progress = stream.world_material_progress();
     // The remesh publishes after redstone has dirtied the section again, so the drawn
     // generation is already stale.
@@ -940,7 +991,10 @@ fn a_section_that_never_publishes_holds_the_next_change_only_for_a_bounded_wait(
     let (mut stream, center) = fixture();
     let now = Instant::now();
     stream.resident.insert(center);
-    stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now);
+    stream.set_world_materials(
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+        now,
+    );
     for _ in 1..super::super::resource_reload::WORLD_MATERIAL_HOLD_ROUNDS {
         stream.mark_dirty_exact(center, now);
         stream.count_mesh_round();
