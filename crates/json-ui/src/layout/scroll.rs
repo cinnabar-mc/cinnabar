@@ -163,6 +163,8 @@ fn role_key(view: &ResolvedControl, root_key: &str, path: &[usize]) -> String {
 /// A live scroll view: its solved geometry, applied as its descendants are placed.
 pub(crate) struct ScrollFrame {
     pub key: String,
+    /// Every control the view names in a role, in `ROLE_KEYS` order.
+    roles: [Option<usize>; 5],
     content: Option<usize>,
     bar_box: Option<usize>,
     panel: Option<usize>,
@@ -204,13 +206,12 @@ impl ScrollFrame {
                 .as_ref()
                 .and_then(|path| locate(view, rect, path, env))
         };
-        let content = find(CONTENT);
-        let viewport = find(VIEWPORT);
-        let track = find(TRACK);
-        let bar_box = find(BOX);
-        let panel = find(PANEL);
+        let located: [_; 5] = std::array::from_fn(find);
+        let [viewport, content, track, bar_box, panel] =
+            [VIEWPORT, CONTENT, TRACK, BOX, PANEL].map(|role| located[role]);
         let mut frame = Self {
             key: key.to_owned(),
+            roles: located.map(|role| role.map(|(control, _, _)| address(control))),
             content: content.map(|(control, _, _)| address(control)),
             bar_box: bar_box.map(|(control, _, _)| address(control)),
             panel: panel.map(|(control, _, _)| address(control)),
@@ -382,6 +383,12 @@ impl ScrollFrame {
             }
         }
         Adjusted::Kept
+    }
+
+    /// Whether `control` fills one of this view's roles, so its placement, visibility or
+    /// report follows the view's scroll state rather than its own placement inputs.
+    pub(super) fn governs(&self, control: &ResolvedControl) -> bool {
+        self.roles.contains(&Some(address(control)))
     }
 
     /// The bar panel's address, when the view names one.

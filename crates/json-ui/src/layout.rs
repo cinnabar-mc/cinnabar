@@ -419,8 +419,8 @@ fn place_subtree<'a>(
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
     // Only context a control's inputs capture lets a later layout splice it. Scroll content
-    // may splice: the view's offset and fade belong to the layout's view state, the scroll
-    // moves only the controls whose parents taint below, and whether it culls is an input.
+    // may splice: the view's offset and fade belong to the layout's view state, the controls
+    // it names in roles taint below, and whether it culls is an input.
     let free = ctx.sliders.is_empty()
         && ctx.overrides.is_empty()
         && ctx.hidden_names.is_empty()
@@ -430,6 +430,7 @@ fn place_subtree<'a>(
         .last()
         .map_or(parent_clip, |(_, parent, _)| *parent);
     let enabled_above = ctx.disabled == 0;
+    let governed = ctx.scrolls.iter().any(|frame| frame.governs(control));
     let entry = ctx.reuse.as_mut().map(|reuse| {
         let address = reuse
             .address
@@ -456,10 +457,15 @@ fn place_subtree<'a>(
                     .is_some_and(|frame| frame.metrics.is_some()),
         };
         let reused = old
-            .filter(|_| free)
+            .filter(|_| free && !governed)
             .and_then(|old| reuse.placements.reuse(address, old, &inputs));
         (address, old, inputs, reuse.taint, reused)
     });
+    // A scroll view moves, sizes, fades, hides or reports the controls it names in roles from
+    // its own state, so neither they nor anything enclosing them can splice.
+    if governed {
+        ctx.taint();
+    }
     let (entry, reused) = match entry {
         Some((address, old, inputs, taint, reused)) => {
             (Some((address, old, inputs, taint)), reused)
@@ -552,10 +558,6 @@ fn place_subtree<'a>(
         && let Some(panel) = frame.panel_address()
         && measure::suppress(panel, frame.panel_hidden)
     {
-        // The panel's last output saw its old visibility.
-        if let Some(reuse) = ctx.reuse.as_mut() {
-            reuse.placements.forget(panel, false);
-        }
         scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
     }
     let opened_scroll = scroll.is_some();
@@ -690,7 +692,6 @@ fn place_subtree<'a>(
         }
         let mut child_shown = child_shown;
         let mut box_fade = None;
-        let mut scrolled = false;
         for frame in ctx.scrolls.iter().rev() {
             match frame.adjust(child, child_rect) {
                 Adjusted::Kept => continue,
@@ -698,12 +699,7 @@ fn place_subtree<'a>(
                 Adjusted::Box(moved, fade) => (child_rect, box_fade) = (moved, fade),
                 Adjusted::Hidden => child_shown = false,
             }
-            scrolled = true;
             break;
-        }
-        // The scroll moved, sized or hid this child from outside this control's inputs.
-        if scrolled {
-            ctx.taint();
         }
         let repeat = repeats
             .get(measure::child_index(control, child))

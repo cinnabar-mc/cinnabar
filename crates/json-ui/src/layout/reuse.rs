@@ -140,7 +140,7 @@ impl<T: Clone> Retained<T> {
     /// output order, which it returns.
     fn keep<K: Ord>(items: Vec<T>, key: impl Fn(&T) -> K) -> (Self, Arc<[T]>) {
         let mut indexed: Vec<(usize, T)> = items.into_iter().enumerate().collect();
-        indexed.sort_by(|(_, a), (_, b)| key(a).cmp(&key(b)));
+        indexed.sort_by_key(|(_, item)| key(item));
         let mut positions = vec![0; indexed.len()];
         let output: Arc<[T]> = indexed
             .into_iter()

@@ -95,15 +95,24 @@ fn screen(title: &str, rows: &[String]) -> ResolvedControl {
                 json!({"size": [100, 100], "clips_children": true, "anchor_from": "top_left", "anchor_to": "top_left"}),
                 vec![content],
             ),
-            // The box sits outside the bar panel, so nothing the scroll moves taints the panel.
+            // A fixed wrapper holds the bar panel, with the track and box outside it: only the
+            // panel's role ties the wrapper to the scroll state.
             node(
-                "bars",
+                "rail",
                 "panel",
                 json!({"size": [8, 100], "offset": [100, 0], "anchor_from": "top_left", "anchor_to": "top_left"}),
-                vec![
-                    node("track", "scroll_track", json!({"size": [8, 100]}), vec![]),
-                    node("grip", "label", json!({"text": "|"}), vec![]),
-                ],
+                vec![node(
+                    "bars",
+                    "panel",
+                    json!({"size": [8, 100]}),
+                    vec![node("grip", "label", json!({"text": "|"}), vec![])],
+                )],
+            ),
+            node(
+                "track",
+                "scroll_track",
+                json!({"size": [8, 100], "offset": [100, 0], "anchor_from": "top_left", "anchor_to": "top_left"}),
+                vec![],
             ),
             node(
                 "box",
