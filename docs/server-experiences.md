@@ -163,14 +163,15 @@ queues or real-time priority. Because `exec` makes an ordinary program dumpable 
 first makes itself undumpable once more. Where `close_range` cannot run, the parent closes every
 descriptor up to its hard limit instead. Before reading the component, the helper audits that it
 holds no other descriptor (listing `/proc/self/fd`, so one numbered above the new limit cannot
-escape, and failing without it), no environment and those limits, then denies itself everything else: a
-Landlock ruleset that handles every right the kernel knows and grants none (no file or directory
-can be opened; TCP bind and connect on ABI 4, signals and abstract sockets outside itself on
-ABI 6, and any right a later ABI adds, since each right is probed from the running kernel), and a seccomp filter, on every thread, failing with `EPERM` program execution, process
-creation (threads remain), every socket call, tracing and cross-process memory, namespaces and
-mounts, BPF, performance counters, keys, io_uring, modules and administration calls; a foreign
-architecture or x32 call kills it. A helper that cannot lock down exits before reading the
-component, and a kernel without Landlock refuses. The component compiles after the lockdown, so
+escape, and failing without it), no environment and those limits, then denies itself everything
+else: a Landlock ruleset that handles every right the kernel knows and grants none (no file or
+directory can be opened; TCP bind and connect on ABI 4, signals and abstract sockets outside
+itself on ABI 6, and any right a later ABI adds, since each right is probed from the running
+kernel), and a seccomp filter, on every thread, failing with `EPERM` program execution, process
+creation (threads remain), every socket call, tracing and cross-process memory, other processes'
+resource limits, namespaces and mounts, BPF, performance counters, keys, io_uring, modules and
+administration calls; a foreign architecture or x32 call kills it. A helper that cannot lock down
+exits before reading the component, and a kernel without Landlock refuses. The component compiles after the lockdown, so
 the compiler is contained too, under the same limits and the parent's callback deadline.
 `crates/mod-host/tests/restricted_faults.rs` injects each forbidden operation into a contained
 child, and `tests/helper.rs` runs a real component restricted.

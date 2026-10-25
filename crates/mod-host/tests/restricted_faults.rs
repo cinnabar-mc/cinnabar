@@ -80,6 +80,19 @@ fn status(value: i64) -> String {
     })
 }
 
+/// Reads the descriptor limit of process `pid` (0 is the caller) with `prlimit`, changing
+/// nothing.
+fn prlimit_of(pid: libc::pid_t) -> String {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: a query that only fills `limit`.
+    status(i64::from(unsafe {
+        libc::prlimit(pid, libc::RLIMIT_NOFILE, std::ptr::null(), &mut limit)
+    }))
+}
+
 /// Attempts one operation the lockdown must refuse, or one it must leave.
 fn run(op: &str) -> String {
     let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
@@ -141,6 +154,9 @@ fn run(op: &str) -> String {
             unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
             format!("nofile {}", limit.rlim_max)
         }
+        "prlimit-parent" => prlimit_of(unsafe { libc::getppid() }),
+        "prlimit-self" => prlimit_of(0),
+        "prlimit-own-pid" => prlimit_of(std::process::id() as libc::pid_t),
         "dumpable" => format!("dumpable {}", unsafe {
             libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0)
         }),
@@ -180,6 +196,16 @@ fn the_lockdown_denies_processes_but_not_threads() {
 #[test]
 fn the_lockdown_bounds_memory_and_descriptors() {
     assert!(probe("memory").starts_with("denied"));
+    assert_eq!(probe("limits"), format!("nofile {DESCRIPTOR_LIMIT}"));
+}
+
+/// The helper may query and set its own resource limits but not the client's, which shares
+/// its user and whose process id it knows.
+#[test]
+fn the_lockdown_denies_resource_limits_of_other_processes() {
+    assert_eq!(probe("prlimit-parent"), format!("denied {}", libc::EPERM));
+    assert_eq!(probe("prlimit-self"), "allowed");
+    assert_eq!(probe("prlimit-own-pid"), "allowed");
     assert_eq!(probe("limits"), format!("nofile {DESCRIPTOR_LIMIT}"));
 }
 

@@ -1,8 +1,9 @@
 //! A seccomp filter that leaves the helper the system calls a compiler and a sandboxed
 //! runtime use and fails the rest of the kernel's attack surface with `EPERM`: running
 //! programs, creating processes (threads remain), sockets, tracing or reading other
-//! processes, namespaces and mounts, BPF, performance counters, keys, io_uring, modules and
-//! system administration. A foreign architecture or the x32 ABI kills the process.
+//! processes or changing their resource limits, namespaces and mounts, BPF, performance
+//! counters, keys, io_uring, modules and system administration. A foreign architecture or the
+//! x32 ABI kills the process.
 
 use anyhow::{Result, ensure};
 use libc::{
@@ -110,8 +111,8 @@ const fn jump(code: u32, k: u32, jt: u8, jf: u8) -> sock_filter {
     }
 }
 
-/// The filter program.
-pub(super) fn program() -> Vec<sock_filter> {
+/// The filter program for the process `own_pid`.
+pub(super) fn program(own_pid: u32) -> Vec<sock_filter> {
     let deny = statement(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | libc::EPERM as u32);
     let mut filter = vec![
         statement(BPF_LD | BPF_W | BPF_ABS, ARCH_OFFSET),
@@ -127,6 +128,17 @@ pub(super) fn program() -> Vec<sock_filter> {
     for &call in DENIED.iter().chain(DENIED_ARCH) {
         filter.extend([jump(BPF_JMP | BPF_JEQ | BPF_K, call as u32, 0, 1), deny]);
     }
+    // prlimit64 may read and set only the helper's own limits: process 0 or its own id, never
+    // the client's or another process of the same user. The kernel takes the id as a 32-bit
+    // `pid_t`, so the low half of the argument is the whole of it.
+    filter.extend([
+        jump(BPF_JMP | BPF_JEQ | BPF_K, libc::SYS_prlimit64 as u32, 0, 5),
+        statement(BPF_LD | BPF_W | BPF_ABS, ARG0_LOW),
+        jump(BPF_JMP | BPF_JEQ | BPF_K, 0, 2, 0),
+        jump(BPF_JMP | BPF_JEQ | BPF_K, own_pid, 1, 0),
+        deny,
+        statement(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    ]);
     // clone3 reports ENOSYS so the C library falls back to clone, whose flags a filter can
     // read; clone may create threads but not processes.
     filter.extend([
@@ -143,7 +155,7 @@ pub(super) fn program() -> Vec<sock_filter> {
 
 /// Installs the filter on every thread of the process.
 pub(super) fn install() -> Result<()> {
-    let filter = program();
+    let filter = program(std::process::id());
     let program = sock_fprog {
         len: u16::try_from(filter.len())?,
         filter: filter.as_ptr().cast_mut(),
