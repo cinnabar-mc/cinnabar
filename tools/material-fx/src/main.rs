@@ -14,6 +14,9 @@ use anyhow::{Context, Result, bail};
 use material_fx::{artifact, command};
 
 const USAGE: &str = "usage: material-fx --out <dir> [--user-data <client user data dir>]";
+/// A checkout-built client keeps its user data in the workspace's `.local`, so the bundle is
+/// seeded there unless `--user-data` names another client's directory.
+const CHECKOUT_USER_DATA: &str = ".local";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -30,10 +33,9 @@ fn main() -> Result<()> {
     let out = out.context(USAGE)?;
     let root = workspace_root();
     let built = artifact::build(&root, &out, &artifact::Guests::build(&root)?)?;
-    if let Some(user_data) = &user_data {
-        let (digest, objects) = cinnabar_cxb::seed_cache(&built.cxb, user_data)?;
-        println!("seeded {digest} into {}", objects.display());
-    }
+    let user_data = user_data.unwrap_or_else(|| root.join(CHECKOUT_USER_DATA));
+    let (digest, objects) = cinnabar_cxb::seed_cache(&built.cxb, &user_data)?;
+    println!("seeded {digest} into {}", objects.display());
     println!("{}", command::server_command(&root, &out, &built));
     Ok(())
 }
