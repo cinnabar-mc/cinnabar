@@ -474,6 +474,12 @@ impl ActorSnapshot {
         self.flag(ActorFlag::UsingItem.wire_value())
     }
 
+    /// Whether the server marks this actor enchanted, as it does for a thrown enchanted trident.
+    #[must_use]
+    pub fn is_enchanted(&self) -> bool {
+        self.flag(ActorFlag::Enchanted.wire_value())
+    }
+
     /// Reads a rendering flag, including the local rig's visual primary word.
     pub(crate) fn flag(&self, bit: u32) -> bool {
         if bit < u64::BITS
