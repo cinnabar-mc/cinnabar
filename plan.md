@@ -653,6 +653,12 @@ pack-renamed `loyalty_rope` texture, the native trident material and light sampl
 point, pole-only bone selection, abstract-arrow motion seeding for tridents and the
 trident charge (`brandish_spear`) arm pose in third person and the paper doll remain
 incomplete.
+item foil when enchanted. Actors publish the native `variable.is_brandishing_spear` and
+`variable.charge_amount`: an item with the spear use animation brandishes while used and
+charges over ten ticks, and a non-player mob holding a trident brandishes it while it has
+a target, so the pack's third-person `brandish_spear` raises the arm. The loyalty rope,
+the native trident material and light sample point, pole-only bone selection and
+abstract-arrow motion seeding for tridents remain incomplete.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -712,6 +718,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   The HUD paper doll keeps its own animated mesh while a screen shows another player renderer.
   The inventory's live player renderer still draws the static preview model turned toward
   the pointer; native renders the animated actor there, so that remains incomplete.
+  The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
+  the local player has an effect, listing iconed effects in id order with potency and
+  `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and
+  damage closes it. Vanilla's controller View-button and touch actions, which share the
+  press with toast interaction, the opening guard's unidentified player check, close-button
+  hover and list scrolling acceptance remain incomplete.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.

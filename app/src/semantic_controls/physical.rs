@@ -118,7 +118,7 @@ pub(crate) fn finalize_semantic_input_after_ui_authority(
     mut runtime: ResMut<SemanticInputRuntime>,
     mut route: ResMut<SemanticRouteState>,
     mut published: ResMut<SemanticInputSnapshot>,
-    emote_input: Option<Res<client_state::EmoteInputConsumed>>,
+    emote_input: Option<Res<client_state::ScreenInputConsumed>>,
 ) {
     let routed = std::mem::take(&mut route.routed);
     if !routed {

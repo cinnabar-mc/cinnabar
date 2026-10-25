@@ -296,7 +296,7 @@ pub(crate) fn drive_chat_keyboard_input(
     mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
     (emote_input, driven, world): (
-        Option<Res<client_state::EmoteInputConsumed>>,
+        Option<Res<client_state::ScreenInputConsumed>>,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::runtime::world::ClientWorld>>,
     ),
@@ -392,6 +392,7 @@ pub(crate) fn drive_chat_keyboard_input(
         || runtime.server_forms().owns_input()
         || runtime.data_driven_ui().owns_input()
         || runtime.emotes().is_open()
+        || runtime.mob_effect_screen().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation
             .as_ref()
@@ -423,6 +424,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&keys),
                 button,
                 now_millis,
@@ -518,6 +520,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,
@@ -693,6 +696,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 keyboard_usage(input.key_code).map(semantic_input::PhysicalControl::KeyboardUsage),
                 now_millis,
@@ -840,6 +844,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,
