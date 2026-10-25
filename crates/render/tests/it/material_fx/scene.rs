@@ -91,6 +91,8 @@ struct FxVertex {{ @builtin(position) position: vec4<f32>, @location(0) uv: vec2
     }} else if abs(normal.x) > 0.5 {{
         uv = vec2<f32>(local.z, local.y);
     }}
+    // The frame uniform stays bound even when the guest reads no parameter.
+    _ = world_material_phase();
     world_material_set_fragment(vertex.position.xy, near * dot(dir, forward));
     let input = WorldMaterialInput(uv, world,
         vec4<f32>({r:?}, {g:?}, {b:?}, {a:?}), vec4<f32>(1.0), vec4<f32>(0.0), vec4<f32>(0.0),

@@ -116,3 +116,132 @@ fn a_scene_reading_material_sees_the_opaque_scene_offset_and_its_depth() {
     let pixel = at(&without, 0.4, 0.5);
     assert!(pixel[0] < 5 && pixel[2] < 5 && pixel[1] == 255, "{pixel:?}");
 }
+
+/// Runs `steps` frames of the compute `source` over `cells` zeroed cells as the host does:
+/// each frame dispatches one invocation per cell into the next cells and copies them over the
+/// current ones, which it returns.
+pub(super) fn run_compute(
+    gpu: &Gpu,
+    source: &str,
+    cells: u32,
+    params: &[f32],
+    steps: u32,
+) -> wgpu::Buffer {
+    use mod_render::world_material::compute;
+    let program = compute::compose(source).expect("the step passes the sandbox");
+    let module = gpu
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("world compute"),
+            source: wgpu::ShaderSource::Wgsl(program.module().into()),
+        });
+    let pipeline = gpu
+        .device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("world compute"),
+            layout: None,
+            module: &module,
+            entry_point: Some(compute::ENTRY),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+    let bytes = u64::from(cells) * 16;
+    let buffer = |label| {
+        gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: bytes,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    };
+    let (current, next) = (buffer("cells"), buffer("next cells"));
+    let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("compute frame"),
+        size: compute::FRAME_UNIFORM_BYTES as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("world compute"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: current.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: next.as_entire_binding(),
+            },
+        ],
+    });
+    for step in 0..steps {
+        let words = compute::frame_uniform(step as f32 / 4096.0, cells, params);
+        gpu.queue
+            .write_buffer(&uniform, 0, bytemuck::cast_slice(&words));
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(cells.div_ceil(compute::WORKGROUP_SIZE), 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&next, 0, &current, 0, bytes);
+        gpu.queue.submit([encoder.finish()]);
+    }
+    current
+}
+
+#[test]
+fn compute_cells_step_from_the_previous_frame_and_materials_read_them() {
+    let Some(gpu) = Gpu::for_fixture("world material compute cells") else {
+        return;
+    };
+    // Each cell counts its frames and remembers its index; the last frame's phase sits in z.
+    let counter = "fn step(input: WorldCellInput) -> vec4<f32> {
+        let previous = cell(input.index);
+        return vec4<f32>(previous.x + compute_param(0u), f32(input.index), input.phase * 4096.0, 1.0);
+    }";
+    let cells = run_compute(&gpu, counter, 100, &[0.25], 3);
+    // A material colours each quarter of the screen by its cell: red is the count, green the
+    // index over the cell count.
+    let reader = "fn shade(input: WorldMaterialInput) -> Surface {
+        let index = u32(input.uv.x * f32(cell_count()));
+        let c = cell(index);
+        return Surface(vec3<f32>(c.x, c.y / f32(cell_count()), c.z / 2.0), 1.0, vec3<f32>(0.0));
+    }";
+    let effects = Effects {
+        features: mod_render::world_material::Features {
+            cells: true,
+            ..Default::default()
+        },
+        cells: Some(&cells),
+        ..Effects::default()
+    };
+    let frame = raster_effects(&gpu, reader, &[], &[], &Inputs::default(), &effects);
+    let left = at(&frame, 0.05, 0.5);
+    let right = at(&frame, 0.95, 0.5);
+    // Three steps of a quarter, from the previous frame each time; the last phase was 2.
+    assert!(
+        (189..=193).contains(&left[0]) && left[0] == right[0],
+        "{left:?} {right:?}"
+    );
+    assert!(left[1] < 20 && right[1] > 230, "{left:?} {right:?}");
+    assert!(left[2] > 250, "{left:?}");
+    // Without cells the same material reads zero.
+    let none = raster_effects(
+        &gpu,
+        reader,
+        &[],
+        &[],
+        &Inputs::default(),
+        &Effects::default(),
+    );
+    assert_eq!(&at(&none, 0.5, 0.5)[..3], &[0, 0, 0]);
+}

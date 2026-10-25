@@ -189,6 +189,7 @@ pub(crate) fn register_shaders(
     shaders: &mut bevy::asset::Assets<Shader>,
     registered: &mut BTreeSet<u128>,
 ) {
+    register_computes(scene, shaders, registered);
     for published in scene.set.published() {
         let Some(variant) = WorldVariant::of(published) else {
             continue;
@@ -207,6 +208,28 @@ pub(crate) fn register_shaders(
                 (family.build)(source, path),
             );
         }
+    }
+}
+
+/// Registers each published compute's module once, keyed by its program like the materials'
+/// modules, which [`register_shaders`] never removes.
+fn register_computes(
+    scene: &WorldMaterialScene,
+    shaders: &mut bevy::asset::Assets<Shader>,
+    registered: &mut BTreeSet<u128>,
+) {
+    for published in &scene.set.computes {
+        let program = published.compute.program();
+        if !registered.insert(program) {
+            continue;
+        }
+        let _ = shaders.insert(
+            cells::shader(program).id(),
+            crate::shader_safety::from_wgsl(
+                published.compute.module(),
+                format!("src/world_material/compute_{program:032x}.wgsl"),
+            ),
+        );
     }
 }
 
@@ -293,6 +316,8 @@ struct Entry {
     effects: [f32; 4],
     /// One more than the material's slot, which its terrain quads carry.
     tag: u8,
+    /// The compute whose cells its group binds.
+    cells: Option<u64>,
     uniform: Buffer,
     bind_group: BindGroup,
     /// Kept alive with the bind group that samples them.
@@ -306,6 +331,8 @@ pub(crate) struct WorldMaterialGpu {
     revision: Option<u64>,
     entries: HashMap<u64, Entry>,
     slots: Vec<Option<u64>>,
+    /// Every published compute's cells and pipeline.
+    pub(crate) computes: cells::Computes,
 }
 
 impl WorldMaterialGpu {
@@ -374,6 +401,8 @@ pub(crate) fn prepare(
     let set = &scene.set;
     if gpu.revision != Some(set.revision) {
         gpu.revision = Some(set.revision);
+        let gpu = &mut *gpu;
+        gpu.computes.sync(&set.computes, &device, &cache);
         let live: BTreeSet<u64> = set.published().map(|m| m.key).collect();
         gpu.entries.retain(|key, _| live.contains(key));
         let mut slots = Vec::with_capacity(set.materials.len());
@@ -382,8 +411,21 @@ pub(crate) fn prepare(
                 slots.push(None);
                 continue;
             };
+            // A material's group binds its compute's cells, so a new compute needs a new group.
+            let cells = published
+                .effects
+                .cells
+                .and_then(|index| gpu.computes.get(index));
+            let cells_key = cells.map(|(key, _)| key);
+            if gpu
+                .entries
+                .get(&published.key)
+                .is_some_and(|entry| entry.cells != cells_key)
+            {
+                gpu.entries.remove(&published.key);
+            }
             if !gpu.entries.contains_key(&published.key)
-                && let Some(entry) = create(&device, &queue, &cache, published)
+                && let Some(entry) = create(&device, &queue, &cache, published, cells)
             {
                 gpu.entries.insert(published.key, entry);
             }
@@ -414,18 +456,21 @@ pub(crate) fn prepare(
     }
 }
 
-/// Uploads one material's textures and builds its bind group.
+/// Uploads one material's textures and builds its bind group, binding `cells`' current cells
+/// when its module reads them; such a material waits until they exist.
 fn create(
     device: &RenderDevice,
     queue: &RenderQueue,
     cache: &PipelineCache,
     published: &Published,
+    cells: Option<(u64, &cells::ComputeEntry)>,
 ) -> Option<Entry> {
     let variant = WorldVariant::of(published)?;
-    // Cells come from a compute's resources, which this renderer does not create yet.
-    if variant.features.cells {
-        return None;
-    }
+    let cells = if variant.features.cells {
+        Some(cells?)
+    } else {
+        None
+    };
     let uniform = device.create_buffer(&BufferDescriptor {
         label: Some("world material frame"),
         size: abi::FRAME_UNIFORM_BYTES as u64,
@@ -485,6 +530,15 @@ fn create(
             resource: BindingResource::Sampler(&sampler),
         });
     }
+    if let (Some((_, compute)), Some(binding)) = (
+        cells,
+        abi::MaterialBindings::of(views.len(), variant.features).cells,
+    ) {
+        entries.push(BindGroupEntry {
+            binding,
+            resource: compute.current.as_entire_binding(),
+        });
+    }
     let bind_group = device.create_bind_group(
         Some("world material bind group"),
         &cache.get_bind_group_layout(&variant.layout()),
@@ -494,10 +548,65 @@ fn create(
         variant,
         effects: published.effects.row(),
         tag: 0,
+        cells: cells.map(|(key, _)| key),
         uniform,
         bind_group,
         _textures: textures,
     })
+}
+
+/// Runs this frame's compute steps before anything draws, so every view reads the same cells.
+pub(crate) fn dispatch_computes(
+    gpu: Option<Res<WorldMaterialGpu>>,
+    phase: Option<Res<WorldMaterialPhase>>,
+    device: Option<Res<RenderDevice>>,
+    queue: Option<Res<RenderQueue>>,
+    cache: Option<Res<PipelineCache>>,
+    mut pending: Option<ResMut<bevy::render::renderer::PendingCommandBuffers>>,
+    mut cursor: Local<usize>,
+) {
+    let (Some(gpu), Some(device), Some(queue), Some(cache), Some(pending)) =
+        (gpu, device, queue, cache, pending.as_deref_mut())
+    else {
+        return;
+    };
+    if gpu.computes.entries.is_empty() {
+        return;
+    }
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("world material compute"),
+    });
+    let phase = phase.map_or(0.0, |phase| phase.0);
+    if cells::encode(
+        gpu.computes.ordered(),
+        phase,
+        (&queue, &cache),
+        &mut encoder,
+        &mut cursor,
+    ) > 0
+    {
+        pending.push_encoder(encoder, "world material compute");
+    }
+}
+
+/// Records each compute pipeline that failed to compile, once; materials keep reading its
+/// zeroed cells.
+pub(crate) fn record_compute_failures(
+    gpu: Option<Res<WorldMaterialGpu>>,
+    cache: Option<Res<PipelineCache>>,
+    failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
+) {
+    let (Some(gpu), Some(cache), Some(failures)) = (gpu, cache, failures) else {
+        return;
+    };
+    for (key, entry) in &gpu.computes.entries {
+        if matches!(
+            cache.get_compute_pipeline_state(entry.pipeline()),
+            bevy::render::render_resource::CachedPipelineState::Err(_)
+        ) {
+            failures.record(*key);
+        }
+    }
 }
 
 /// Installs the shared world material resources once, whichever renderer asks first.
@@ -543,6 +652,9 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
                 bevy::render::Render,
                 (
                     prepare.in_set(bevy::render::RenderSystems::PrepareResources),
+                    (dispatch_computes, record_compute_failures)
+                        .after(prepare)
+                        .in_set(bevy::render::RenderSystems::PrepareResources),
                     scene::prepare
                         .in_set(bevy::render::RenderSystems::PrepareBindGroups)
                         .after(bevy::render::view::prepare_view_targets),
@@ -564,6 +676,7 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
     }
 }
 
+pub(crate) mod cells;
 pub(crate) mod scene;
 
 #[cfg(test)]
@@ -694,6 +807,66 @@ mod tests {
         world.run_system_once(prepare).unwrap();
         let gpu = world.resource::<WorldMaterialGpu>();
         assert!(!gpu.has_materials() && gpu.slot(0).is_none());
+    }
+
+    /// A material reading cells binds its compute's current cells once they exist, and a new
+    /// compute in its place rebuilds its group.
+    #[test]
+    fn materials_reading_cells_bind_their_computes_cells() {
+        use bevy::ecs::system::RunSystemOnce;
+        let compute = |key| abi::publication::PublishedCompute {
+            key,
+            compute: std::sync::Arc::new(
+                abi::compute::compose(
+                    "fn step(input: WorldCellInput) -> vec4<f32> { return cell(input.index); }",
+                )
+                .unwrap(),
+            ),
+            cells: 64,
+            params: [0.0; 16],
+        };
+        let reading = |computes: Vec<abi::publication::PublishedCompute>, revision| {
+            let mut scene = WorldMaterialScene::with_bound_entities(&["example:moth"]);
+            let set = std::sync::Arc::make_mut(&mut scene.set);
+            set.revision = revision;
+            let material = set.materials[0].as_mut().unwrap();
+            material.material = std::sync::Arc::new(
+                abi::compose_with(
+                    "fn shade(input: WorldMaterialInput) -> Surface { return Surface(cell(0u).rgb, 1.0, vec3<f32>(0.0)); }",
+                    0,
+                    abi::Features {
+                        cells: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
+            );
+            material.effects.cells = (!computes.is_empty()).then_some(0);
+            set.computes = computes;
+            scene
+        };
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        world.init_resource::<WorldMaterialGpu>();
+        // Without its compute the material waits.
+        world.insert_resource(reading(Vec::new(), 2));
+        world.run_system_once(prepare).unwrap();
+        assert!(world.resource::<WorldMaterialGpu>().slot(0).is_none());
+        world.insert_resource(reading(vec![compute(90)], 3));
+        world.run_system_once(prepare).unwrap();
+        let gpu = world.resource::<WorldMaterialGpu>();
+        assert!(gpu.slot(0).is_some());
+        assert_eq!(gpu.computes.get(0).map(|(key, _)| key), Some(90));
+        assert_eq!(gpu.entries.values().next().unwrap().cells, Some(90));
+        world.insert_resource(reading(vec![compute(91)], 4));
+        world.run_system_once(prepare).unwrap();
+        let gpu = world.resource::<WorldMaterialGpu>();
+        assert_eq!(
+            gpu.computes.entries.len(),
+            1,
+            "the replaced compute's cells are freed"
+        );
+        assert_eq!(gpu.entries.values().next().unwrap().cells, Some(91));
     }
 
     /// The production actor and cube modules compose and validate with a world material
