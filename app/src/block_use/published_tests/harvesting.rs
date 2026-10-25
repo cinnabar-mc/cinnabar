@@ -116,11 +116,16 @@ fn check_held_wheat_use(item: Option<&str>, growth: u64, repeats: bool) {
         world.run_system_cached(produce_block_use).unwrap();
         let packets = captured.drain();
         let uses = packets.iter().filter_map(item_use).collect::<Vec<_>>();
-        assert_eq!(
-            uses.len(),
-            usize::from(frame == 0 || repeats),
-            "{item:?}, frame {frame}"
-        );
+        // The press leaves its ray buffered. The first tick can retry that ray and
+        // the newly presented one; later ticks receive one new ray each.
+        let expected = if frame == 0 {
+            1
+        } else if repeats {
+            1 + usize::from(frame == 1)
+        } else {
+            0
+        };
+        assert_eq!(uses.len(), expected, "{item:?}, frame {frame}");
         for use_on in &uses {
             assert_eq!(use_on.position, CROP);
             assert_eq!(
