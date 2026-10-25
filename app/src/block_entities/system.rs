@@ -1,9 +1,7 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
-use crate::runtime::network::resource_packs::PackApplication;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::IntoScheduleConfigs;
-use client_runtime::network::NetworkHandle;
 use std::{path::Path, sync::Arc};
 
 use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
@@ -57,6 +55,7 @@ mod crystal_beams;
 mod culling;
 mod dragon_death;
 mod loyalty_ropes;
+mod maps;
 mod placement;
 mod portals;
 use placement::{held_placement, overlay_item_placements};
@@ -222,7 +221,7 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
             (
                 update_block_entity_scene
                     .after(crate::runtime::network::prepare_actor_render_frame),
-                request_missing_maps,
+                maps::request_missing_maps,
             )
                 .chain()
                 .run_if(bevy::prelude::resource_exists::<PhysicsCollisionRegistries>),
@@ -746,68 +745,6 @@ const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-
 const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 
-/// Requests each missing held or framed map once per session after output admission.
-pub(crate) fn request_missing_maps(
-    mut runtime: ResMut<BlockEntityRuntime>,
-    network: Option<Res<NetworkHandle<PackApplication>>>,
-    mut world: ResMut<ClientWorld>,
-    player: Res<client_state::PlayerRuntime>,
-    ui: Option<Res<UiRuntimeResource>>,
-) {
-    let Some(network) = network else {
-        runtime.missing_maps.clear();
-        return;
-    };
-    let Some(stream) = world.stream.as_mut() else {
-        runtime.missing_maps.clear();
-        return;
-    };
-    let runtime = &mut *runtime;
-    {
-        let held = client_presentation::presentation::equipment::local_input(
-            &player,
-            stream,
-            ui.as_deref().map(|ui| &ui.0),
-            stream.local_player_runtime_id(),
-        );
-        for item in [held.main, held.off].into_iter().flatten() {
-            if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
-                && let Some(id) = item.map_id
-                && stream.map_image(id).is_none()
-            {
-                runtime.missing_maps.push(id);
-            }
-        }
-    }
-    runtime.missing_maps.sort_unstable();
-    runtime.missing_maps.dedup();
-    for id in std::mem::take(&mut runtime.missing_maps) {
-        if !stream.map_is_known(id)
-            && network
-                .send_inventory_packet(protocol::map_info_request_packet(id))
-                .is_ok()
-        {
-            stream.admit_map_request(id);
-        }
-    }
-}
-
-/// Cache key for a map image at one revision.
-fn map_cache_key(map_id: i64, revision: u64) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (map_id, revision).hash(&mut hasher);
-    hasher.finish()
-}
-
-/// A 128x128 RGBA8 canvas from packed map pixels (red in the low byte).
-fn map_canvas(pixels: &[u32]) -> Vec<u8> {
-    pixels
-        .iter()
-        .flat_map(|pixel| pixel.to_le_bytes())
-        .collect()
-}
-
 /// Applies per-frame state (lid openness, sign canvases, viewer yaw) to a template; a `hidden`
 /// one still advances its book, lid, ring and map request and keeps its text and map canvases
 /// resident, but prepares no geometry.
@@ -896,8 +833,8 @@ fn resolve(
             }
             let map = map_id.and_then(|id| {
                 let image = stream.map_image(id)?;
-                scene.map_rect(map_cache_key(id, image.revision), || {
-                    map_canvas(&image.pixels)
+                scene.map_rect(maps::map_cache_key(id, image.revision), || {
+                    maps::map_canvas(&image.pixels)
                 })
             });
             if hidden {
