@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 /// that went away, so a section is scanned once per mesh and no frame walks every section,
 /// and the sections each view draws this frame.
 #[derive(Resource, Default)]
-pub(in crate::chunk) struct WorldTerrainSections {
+pub(crate) struct WorldTerrainSections {
     /// Each tagged section's slot mask.
     masks: HashMap<Entity, u64>,
     /// How many sections carry each slot.
@@ -34,6 +34,15 @@ impl WorldTerrainSections {
         self.views
             .get(&view)
             .map_or(&[], |(draws, _)| draws.as_slice())
+    }
+
+    /// Every view's sections with tagged geometry, as [`Self::view`] lists them.
+    pub(in crate::chunk) fn all_views(
+        &self,
+    ) -> impl Iterator<Item = (Entity, &[(Entity, u64, bool)])> {
+        self.views
+            .iter()
+            .map(|(view, (draws, _))| (*view, draws.as_slice()))
     }
 
     /// Takes `view`'s sections with ready translucent materials queued this frame.

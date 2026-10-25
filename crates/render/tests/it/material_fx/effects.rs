@@ -245,3 +245,126 @@ fn compute_cells_step_from_the_previous_frame_and_materials_read_them() {
     );
     assert_eq!(&at(&none, 0.5, 0.5)[..3], &[0, 0, 0]);
 }
+
+/// Rasters the host's particle stage for `particle` with `count` particles around each of
+/// `origins`, seen straight down the z axis with one block across a quarter of the frame.
+pub(super) fn particles(
+    gpu: &Gpu,
+    particle: &str,
+    count: u32,
+    radius: f32,
+    origins: &[[f32; 4]],
+) -> Vec<u8> {
+    use crate::gpu_snapshot::{Draw, RasterState};
+    let features = mod_render::world_material::Features {
+        particles: true,
+        ..Default::default()
+    };
+    let material = mod_render::world_material::compose_with(
+        &format!("fn shade(input: WorldMaterialInput) -> Surface {{ return surface(input); }}\n{particle}"),
+        0,
+        features,
+    )
+    .expect("the particle function passes the sandbox");
+    let library = material
+        .library(1)
+        .replace("@group(1) @binding(0)", "@group(0) @binding(10)");
+    let source = format!(
+        "{library}\n{}",
+        include_str!("../../../src/world_material/particles.wgsl")
+    );
+    let frame = gpu.buffer(
+        &mod_render::world_material::frame_uniform_with_effects(
+            0.0,
+            1,
+            [[0.0, radius, count as f32, 0.0], [0.0; 4]],
+            &[],
+        ),
+        wgpu::BufferUsages::UNIFORM,
+    );
+    // Orthographic: x and y in blocks over two, depth in the middle of reverse Z.
+    let scale = 0.5;
+    let view = gpu.buffer(
+        &[
+            scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0,
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+        ],
+        wgpu::BufferUsages::UNIFORM,
+    );
+    let flat: Vec<f32> = origins.iter().flatten().copied().collect();
+    let targets = gpu.buffer(&flat, wgpu::BufferUsages::STORAGE);
+    let bindings = [
+        wgpu::BindGroupEntry {
+            binding: 0,
+            resource: view.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 1,
+            resource: targets.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 10,
+            resource: frame.as_entire_binding(),
+        },
+    ];
+    gpu.render_with_state(
+        &source,
+        "particle_vertex",
+        &[Draw {
+            fragment: "particle_fragment",
+            vertices: 0..4,
+            bindings: &bindings,
+            blend: None,
+            write_depth: false,
+        }],
+        RasterState {
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            instance_ranges: std::iter::once(0..count * origins.len() as u32).collect(),
+            ..RasterState::default()
+        },
+    )
+}
+
+#[test]
+fn particles_square_around_each_target_within_their_radius() {
+    let Some(gpu) = Gpu::for_fixture("world material particles") else {
+        return;
+    };
+    // Two red squares of 16 texels, one block left and one block right of each target; the
+    // second asks for ten blocks and stays within the radius.
+    let pair = "fn particle(input: WorldParticleInput) -> WorldParticle {
+        let side = select(-1.0, 10.0, input.index == 1u);
+        return WorldParticle(vec3<f32>(side, 0.0, 0.0), 4.0, vec3<f32>(1.0, 0.0, 0.0), 1.0);
+    }";
+    let frame = particles(&gpu, pair, 2, 1.0, &[[0.0, 0.0, 0.0, 1.0]]);
+    let red = |u: f32, v: f32| {
+        let pixel = at(&frame, u, v);
+        pixel[0] > 250 && pixel[1] < 5
+    };
+    // One block at a quarter of the frame per block: x = -1 and x = +1.
+    assert!(red(0.5 - 0.25, 0.5) && red(0.5 + 0.25, 0.5));
+    assert!(!red(0.5, 0.5), "nothing at the target itself");
+    assert!(
+        !red(0.95, 0.5),
+        "the far particle is held within the radius"
+    );
+    // Each target gets its own particles.
+    let two = particles(
+        &gpu,
+        pair,
+        2,
+        1.0,
+        &[[0.0, 0.0, 0.0, 1.0], [0.0, 1.5, 0.0, 1.0]],
+    );
+    let pixel = at(&two, 0.25, 0.5 - 0.375);
+    assert!(pixel[0] > 250, "{pixel:?}");
+    // A particle with no size or coverage is not drawn.
+    let hidden = "fn particle(input: WorldParticleInput) -> WorldParticle {
+        return WorldParticle(vec3<f32>(0.0), 0.0, vec3<f32>(1.0), 1.0);
+    }";
+    let none = particles(&gpu, hidden, 4, 1.0, &[[0.0, 0.0, 0.0, 1.0]]);
+    assert!(none.chunks(4).all(|pixel| pixel[0] == none[0]));
+}
