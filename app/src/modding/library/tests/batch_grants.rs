@@ -194,7 +194,7 @@ fn undeclared_and_malformed_requests_cannot_get_batch_grants() {
     fs::create_dir_all(&mods).unwrap();
     let component = mods.join("mod.wasm");
     select(&registration, &component, true, "enable".into()).unwrap();
-    let record = registration.join(super::super::registration::REGISTRATION_FILE);
+    let record = registration.join(registration::REGISTRATION_FILE);
     let before = fs::read(&record).unwrap();
     for bytes in [b"undeclared".as_slice(), b"\0asm".as_slice()] {
         fs::write(&component, bytes).unwrap();
