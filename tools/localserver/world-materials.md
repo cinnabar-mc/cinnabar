@@ -65,7 +65,7 @@ From the repository root:
 
 | Command | Effect |
 | --- | --- |
-| `/materialfx` or `/materialfx spawn` | Builds the gallery in front of you (your facing snaps to the nearest compass direction), sends the client part its layout and binds every material over about a second |
+| `/materialfx` or `/materialfx spawn` | Builds the gallery in front of you (your facing snaps to the nearest compass direction), clearing the one you built before, sends the client part its layout and binds every material over about a second |
 | `/materialfx revoke` | Unbinds every material: the mobs draw as their plain skins and the blocks as their Bedrock textures again, with no reconnect |
 | `/materialfx restore` | Binds them again from the materials the client part kept |
 | `/materialfx boom` | A shockwave ring races out across the arena floor from its centre |

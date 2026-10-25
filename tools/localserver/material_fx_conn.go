@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/df-mc/dragonfly/server"
+	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
@@ -217,7 +218,8 @@ func (c *materialFxConn) run(command materialFxCommand) error {
 func (c *materialFxConn) spawn() error {
 	view := c.view
 	c.mu.Lock()
-	first := c.gallery == nil
+	previous := c.gallery
+	first := previous == nil
 	c.gallery = &view
 	c.mu.Unlock()
 	var packets []packet.Packet
@@ -229,7 +231,7 @@ func (c *materialFxConn) spawn() error {
 			return err
 		}
 	}
-	c.placeBlocks(view)
+	c.placeBlocks(previous, view)
 	c.send(materialFxLayoutRecords(view)...)
 	for pulse := range materialFxBindPulses {
 		time.AfterFunc(time.Duration(pulse)*materialFxBindGap, func() { c.send(materialFxRecord(materialFxBind)) })
@@ -323,11 +325,24 @@ func (c *materialFxConn) tell(text string) {
 }
 
 // placeBlocks builds the gallery's blocks in front of `view`, when the Experience registered
-// them, and says so when it did not.
-func (c *materialFxConn) placeBlocks(view showcaseViewpoint) {
+// them, and says so when it did not. The blocks of the gallery built from `previous`, if any,
+// that are still in place and not part of the new one become air.
+func (c *materialFxConn) placeBlocks(previous *showcaseViewpoint, view showcaseViewpoint) {
 	c.do(func(tx *world.Tx, p *player.Player) {
-		for pos, name := range materialFxBlocks(view) {
-			b, ok := world.BlockByName(name, nil)
+		blocks := materialFxBlocks(view)
+		if previous != nil {
+			for pos, name := range materialFxBlocks(*previous) {
+				if _, kept := blocks[pos]; kept {
+					continue
+				}
+				if current, _ := tx.Block(pos).EncodeBlock(); current == name {
+					tx.SetBlock(pos, block.Air{}, nil)
+				}
+			}
+		}
+		registry := tx.World().BlockRegistry()
+		for pos, name := range blocks {
+			b, ok := registry.BlockByName(name, nil)
 			if !ok {
 				p.Message("materialfx: the Experience's blocks are not registered (start the server with -experiences)")
 				return
