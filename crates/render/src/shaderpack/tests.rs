@@ -842,8 +842,14 @@ fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
-    let (device, queue) =
-        bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+    .unwrap();
     let gpu = GpuContext {
         device,
         queue,
