@@ -296,6 +296,7 @@ fn admission_bounds_cover_the_production_quads_for_every_label_extension() {
                 ui::mod_presentation::SpanPosition::Before,
                 ui::mod_presentation::SpanPosition::After,
                 ui::mod_presentation::SpanPosition::Above,
+                ui::mod_presentation::SpanPosition::Below,
             ] {
                 let mut tag = anchor("AAAA\nB");
                 tag.sneaking = sneaking;

@@ -140,7 +140,7 @@ fn spans(
 }
 
 /// Annotation spans keep their RGBA colours and order, reserve space in narrow columns, and
-/// sit before the name or after it, including spans a mod placed above.
+/// sit before the name or after it, including spans a mod placed above or below.
 #[test]
 fn annotation_spans_render_separate_tints_before_or_after_a_clipped_name() {
     use ui::mod_presentation::SpanPosition;
@@ -148,6 +148,7 @@ fn annotation_spans_render_separate_tints_before_or_after_a_clipped_name() {
         SpanPosition::Before,
         SpanPosition::After,
         SpanPosition::Above,
+        SpanPosition::Below,
     ] {
         let mut list = PlayerList::new();
         let mut player = row("VeryLongPlayerName", true);
@@ -193,6 +194,44 @@ fn annotation_spans_render_separate_tints_before_or_after_a_clipped_name() {
         } else {
             name.x + name.w <= prefix.x
         });
+    }
+}
+
+/// One space separates the name from spans before or after it, and spans meet each other with
+/// none; a row has no other line, so spans placed above or below lay out as after the name.
+#[test]
+fn annotation_spans_keep_one_space_and_follow_the_name_from_other_lines() {
+    use ui::mod_presentation::SpanPosition;
+    let layout = |position| {
+        let mut list = PlayerList::new();
+        let mut player = row("Alex", false);
+        player.annotation = Some(spans(&["| ", "-2"], position));
+        list.refresh(&[player], MAX_ROWS);
+        let nodes = render(&mut list);
+        ["Alex", "| ", "-2"].map(|wanted| {
+            nodes
+                .iter()
+                .find_map(|node| {
+                    matches!(&node.draw, Draw::Text { text, .. } if text == wanted)
+                        .then_some(node.dest)
+                })
+                .unwrap()
+        })
+    };
+    let space = Measure.extent(" ")[0];
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+    let [name, prefix, value] = layout(SpanPosition::After);
+    assert!(close(prefix.x, name.x + name.w + space));
+    assert!(close(value.x, prefix.x + prefix.w));
+    let [name, prefix, value] = layout(SpanPosition::Before);
+    assert!(close(name.x, value.x + value.w + space));
+    assert!(close(value.x, prefix.x + prefix.w));
+    for position in [SpanPosition::Above, SpanPosition::Below] {
+        assert_eq!(
+            layout(position),
+            layout(SpanPosition::After),
+            "{position:?}"
+        );
     }
 }
 

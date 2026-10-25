@@ -119,6 +119,7 @@ fn spans(
             wit::AnnotationPosition::Before => SpanPosition::Before,
             wit::AnnotationPosition::After => SpanPosition::After,
             wit::AnnotationPosition::Above => SpanPosition::Above,
+            wit::AnnotationPosition::Below => SpanPosition::Below,
         },
     };
     spans.validate()?;

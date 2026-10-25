@@ -12,20 +12,31 @@ pub(super) fn texts(spans: &Spans) -> impl Iterator<Item = &Arc<str>> {
     spans.texts().chain(std::iter::once(&*SPACE))
 }
 
-/// Reserves one coloured run per span and, for spans above the name, their own backing plate.
+/// Reserves one coloured run per span and, for spans on their own line, its backing plate.
 pub(super) fn record_budget(spans: &Spans, style: Option<&NametagStyle>) -> usize {
     spans.spans.len() * style::record_cost(style, false)
-        + usize::from(spans.position == SpanPosition::Above) * style::record_cost(style, true)
+        + usize::from(own_line(spans.position)) * style::record_cost(style, true)
 }
 
-/// Whether spans take their own line above the name instead of extending its first line.
+/// Whether spans take their own line, above or below the name, instead of extending its first
+/// line.
 pub(super) fn separate(spans: &Spans) -> bool {
-    spans.position == SpanPosition::Above
+    own_line(spans.position)
 }
 
-/// Whether spans precede the name, on its line or on the line above.
+/// Whether spans precede the name, on its first line or on the line above.
 pub(super) fn before(spans: &Spans) -> bool {
-    spans.position != SpanPosition::After
+    leads(spans.position)
+}
+
+/// Whether spans at `position` take their own line instead of extending the name's first line.
+const fn own_line(position: SpanPosition) -> bool {
+    matches!(position, SpanPosition::Above | SpanPosition::Below)
+}
+
+/// Whether spans at `position` precede the name, on its first line or on the line above.
+const fn leads(position: SpanPosition) -> bool {
+    matches!(position, SpanPosition::Before | SpanPosition::Above)
 }
 
 pub(super) struct Layout {
@@ -60,14 +71,14 @@ impl Layout {
         self.runs.iter().map(|(line, _)| line.width_px).sum()
     }
 
-    /// Spans above the name occupy one line instead of extending the first name line.
+    /// Spans above or below the name occupy one line instead of extending the first name line.
     pub(super) fn separate(&self) -> bool {
-        self.position == SpanPosition::Above
+        own_line(self.position)
     }
 
     /// Selects placement before the name or its multiline block.
     pub(super) fn before(&self) -> bool {
-        self.position != SpanPosition::After
+        leads(self.position)
     }
 
     /// Emits independently tinted runs before the existing depth/alpha pass construction.

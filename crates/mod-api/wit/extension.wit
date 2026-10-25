@@ -95,9 +95,13 @@ interface presentation {
     set-nametag-style: func(style: option<nametag-style>) -> result<_, string>;
     /// Plain single-line text of at most `MAX_ANNOTATION_SPAN_BYTES`, without style codes.
     record text-span { text: string, color: rgba }
-    /// Where annotation spans go relative to the native name. A player-list row has no line
-    /// above, so roster spans placed above follow the name.
-    enum annotation-position { before, after, above }
+    /// Where annotation spans go relative to the native name. Spans draw end to end in list
+    /// order, with nothing inserted between them. `before` and `after` extend the name's first
+    /// line, and the host inserts exactly one space between the name and the spans; any other
+    /// separator belongs in the spans. `above` and `below` draw the spans on their own centred
+    /// line above the name's first line or below its last. A player-list row has one line, so
+    /// roster spans placed `above` or `below` follow the name as `after` does.
+    enum annotation-position { before, after, above, below }
     /// Text attached to one actor's eligible nametag and, for a player whose actor the client
     /// knows, that player's player-list row. Each surface holds up to `MAX_ANNOTATION_SPANS`
     /// spans; an empty list leaves that surface native. Nametag spans on the local player also

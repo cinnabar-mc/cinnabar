@@ -115,15 +115,20 @@ impl NametagStyle {
     }
 }
 
-/// Where annotation spans go relative to the native name.
+/// Where annotation spans go relative to the native name. Spans on the name's line are separated
+/// from it by one space; a player-list row has one line, so roster spans placed above or below
+/// follow the name.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SpanPosition {
+    /// On the name's first line, before it.
     Before,
+    /// On the name's first line, after it.
     #[default]
     After,
-    /// On its own line above the name; a player-list row has no line above, so roster spans
-    /// placed above follow the name.
+    /// On its own line above the name.
     Above,
+    /// On its own line below the name.
+    Below,
 }
 
 /// One coloured run of plain text.

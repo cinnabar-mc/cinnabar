@@ -37,14 +37,15 @@ fn spans(position: SpanPosition) -> Arc<Spans> {
     })
 }
 
-/// Actual glyph cells determine inline order, the line above, colour alpha, and the expanded
-/// backing plate.
+/// Actual glyph cells determine inline order, the lines above and below, colour alpha, and the
+/// expanded backing plate.
 #[test]
 fn annotations_preserve_server_lines_tints_and_native_depth_passes() {
     for position in [
         SpanPosition::Before,
         SpanPosition::After,
         SpanPosition::Above,
+        SpanPosition::Below,
     ] {
         let mut tag = anchor("Player\n7 wins");
         tag.set_annotation(Some(spans(position)));
@@ -67,6 +68,7 @@ fn annotations_preserve_server_lines_tints_and_native_depth_passes() {
         );
         match position {
             SpanPosition::Above => assert!(count.rect[1] < names[0].rect[1]),
+            SpanPosition::Below => assert!(count.rect[1] > names[1].rect[1]),
             SpanPosition::Before => assert!(count.rect[0] < names[0].rect[0]),
             SpanPosition::After => assert!(count.rect[0] > names[0].rect[0]),
         }
@@ -76,8 +78,53 @@ fn annotations_preserve_server_lines_tints_and_native_depth_passes() {
                 .iter()
                 .filter(|record| record.uv[2] < 0.)
                 .count(),
-            2 + usize::from(position == SpanPosition::Above)
+            2 + usize::from(matches!(
+                position,
+                SpanPosition::Above | SpanPosition::Below
+            ))
         );
+    }
+}
+
+/// Spans on the name's line sit exactly one space advance from it and none from each other;
+/// spans on their own line are centred with no space added.
+#[test]
+fn inline_annotations_keep_one_space_from_the_name() {
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = TextLayoutCache::new(8, 1 << 20);
+    let mut width = |text: &str| {
+        super::super::super::nametag_atlas::line_metrics(text, &font, &mut layouts)
+            .unwrap()
+            .width_px
+    };
+    let [name, space, prefix, count] = ["Player", " ", "| ", "-2"].map(&mut width);
+    assert!(space > 0.);
+    for position in [
+        SpanPosition::Before,
+        SpanPosition::After,
+        SpanPosition::Above,
+        SpanPosition::Below,
+    ] {
+        let mut tag = anchor("Player");
+        tag.set_annotation(Some(spans(position)));
+        let painted = scene_with_font(&[tag], &font);
+        let first = colored_record(&painted, [0.2, 0.4, 0.6]).rect[0];
+        let second = colored_record(&painted, [85. / 255., 1., 85. / 255.]).rect[0];
+        let named = painted
+            .records
+            .iter()
+            .find(|record| record.text == 1 && record.color == [1.; 4])
+            .unwrap()
+            .rect[0];
+        assert!((second - first - prefix).abs() < 1e-3, "{position:?}");
+        let expected = match position {
+            SpanPosition::Before => named - (prefix + count + space),
+            SpanPosition::After => named + name + space,
+            SpanPosition::Above | SpanPosition::Below => {
+                render_model::nametag_line_left(prefix + count)
+            }
+        };
+        assert!((first - expected).abs() < 1e-3, "{position:?}");
     }
 }
 

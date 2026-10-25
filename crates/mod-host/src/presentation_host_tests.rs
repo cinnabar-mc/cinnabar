@@ -124,6 +124,29 @@ fn presentation_commits_transactionally_with_fresh_revisions() {
     );
 }
 
+/// Every WIT annotation position reaches the client unchanged on both surfaces.
+#[test]
+fn annotation_positions_map_one_to_one() {
+    let mut state = hud(true, false);
+    for (requested, position) in [
+        (wit::AnnotationPosition::Before, SpanPosition::Before),
+        (wit::AnnotationPosition::After, SpanPosition::After),
+        (wit::AnnotationPosition::Above, SpanPosition::Above),
+        (wit::AnnotationPosition::Below, SpanPosition::Below),
+    ] {
+        state.presentation.begin();
+        let mut row = annotation(9, "3");
+        row.nametag_position = requested;
+        row.roster_position = requested;
+        state.set_annotations(vec![row]).unwrap().unwrap();
+        state.presentation.commit();
+        let (output, _) = state.presentation.output();
+        let annotation = &output.annotations[&9];
+        assert_eq!(annotation.nametag.as_ref().unwrap().position, position);
+        assert_eq!(annotation.roster.as_ref().unwrap().position, position);
+    }
+}
+
 /// Malformed or oversized input is rejected without staging anything.
 #[test]
 fn presentation_rejects_unbounded_or_malformed_rows() {
