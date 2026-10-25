@@ -258,8 +258,8 @@ const _: () = assert!(
 );
 pub mod facts;
 
-/// Total regular frame-callback fuel shared across all local mods.
-pub const TOTAL_MOD_FRAME_FUEL: u64 = 200_000;
+/// Frame-callback fuel all local mods share: two of mod-host's measured `FRAME_FUEL`.
+pub const TOTAL_MOD_FRAME_FUEL: u64 = 400_000;
 
 /// World drawing authority and generation-safe resource tokens.
 pub mod drawing;

@@ -130,7 +130,18 @@ pub const MAX_COMPONENT_SOURCE_BYTES: usize = MAX_COMPONENT_BYTES
     + component_assets::MAX_SECTION_FRAMING_BYTES;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;
-pub(crate) const FRAME_FUEL: u64 = 100_000;
+/// Fuel one frame callback may use: about twice the 105k peak the first-party Cinnabar Client
+/// mod's layout editor reached, so its editor and menu paths keep headroom. Measured on a Ryzen 9
+/// 7900X with a release host driving that mod's string building and JSON encoding, guest code
+/// ran 24 µs per 100k fuel at the median, 90–110 µs at p99 and at most 0.41 ms right after a
+/// multi-millisecond host import evicted its caches. A full 200k callback therefore takes
+/// about 0.05 ms, 0.2 ms at p99; a frame's `mod_api::TOTAL_MOD_FRAME_FUEL`, two of them, about
+/// 0.1 ms, 0.5 ms at p99 and 1.7 ms at worst, well inside the live-testing main-CPU budgets.
+pub(crate) const FRAME_FUEL: u64 = 200_000;
+const _: () = assert!(
+    mod_api::TOTAL_MOD_FRAME_FUEL == 2 * FRAME_FUEL,
+    "a frame admits two full frame callbacks"
+);
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Where a mod came from, which reload reads again.
