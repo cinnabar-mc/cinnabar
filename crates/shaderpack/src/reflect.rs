@@ -74,6 +74,9 @@ pub(crate) fn reflect(
                 .map(|(_, _, n)| n.clone())
                 .or_else(|| var.name.clone())
                 .unwrap_or_default();
+            if compiled.stage == StageKind::Geometry && rb.group == crate::GEOMETRY_GROUP {
+                continue;
+            }
             let res = resource(module, var, name, rb.group, rb.binding, compiled.stage)?;
             match resources.get_mut(&(rb.group, rb.binding)) {
                 Some(existing) => merge(existing, res, rb)?,

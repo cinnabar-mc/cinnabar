@@ -453,6 +453,7 @@ pub(crate) struct GeometryDraw {
     /// Index of its program in `PackGpu::programs`.
     pub program: usize,
     pub pipeline: wgpu::RenderPipeline,
+    pub emulation: Option<super::geometry_shader::Pipelines>,
     /// Per fragment output location: the `colortex` (shadow pass: `shadowcolor`) index it
     /// writes, when the pipeline has a target there.
     pub outputs: Vec<Option<u32>>,
@@ -470,6 +471,12 @@ pub(crate) struct GeometryStage {
     pub layout: wgpu::PipelineLayout,
     pub vertex: wgpu::ShaderModule,
     pub fragment: naga::Module,
+    pub emulation: Option<(
+        shaderpack::CompiledStage,
+        shaderpack::CompiledStage,
+        shaderpack::GeometryEmulation,
+    )>,
+    pub layouts: [Option<wgpu::BindGroupLayout>; 4],
 }
 
 /// Builds every resolved draw's pipeline. Terrain draws read a [`TerrainLayout::compact`]
@@ -490,6 +497,7 @@ pub(crate) fn geometry_draws(
     effects: &EffectSettings,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
     shadow: &ShadowSlots,
+    failures: &mut Vec<String>,
 ) -> Vec<GeometryDraw> {
     let terrain_layout = TerrainLayout::compact(
         selected
@@ -519,13 +527,39 @@ pub(crate) fn geometry_draws(
                 buffer_formats.get(buffer as usize).copied().flatten()
             }
         };
+        let scope = super::pipelines::RejectionScope::push(&gpu.device);
+        let emulation = match &stage.emulation {
+            Some((vertex, geometry, contract)) => match super::geometry_shader::pipelines(
+                &gpu.device,
+                *kind,
+                terrain_layout,
+                &stage.layouts,
+                &program.reflection,
+                vertex,
+                geometry,
+                contract,
+            ) {
+                Ok(pipelines) => Some(pipelines),
+                Err(error) => {
+                    let _ = scope.pop();
+                    failures.push(format!("{} ({kind:?}): {error}", program.name));
+                    continue;
+                }
+            },
+            None => None,
+        };
         let inputs = DrawPipelineInputs {
             device: &gpu.device,
             cache,
-            layout: &stage.layout,
+            layout: emulation
+                .as_ref()
+                .map_or(&stage.layout, |p| &p.raster_pipeline_layout),
             name: &program.name,
             reflection: &program.reflection,
-            vertex: &stage.vertex,
+            vertex: emulation
+                .as_ref()
+                .map_or(&stage.vertex, |p| &p.raster_vertex),
+            emulated: emulation.is_some(),
             fragment: &stage.fragment,
             properties,
             effects,
@@ -534,7 +568,6 @@ pub(crate) fn geometry_draws(
         };
         // Each draw gets its own error scope: a pipeline the device rejects drops only that
         // draw, as Iris falls back per program, instead of the pack-wide scope failing.
-        let scope = super::pipelines::RejectionScope::push(&gpu.device);
         let built = draw_pipeline(*kind, &inputs);
         let rejected = scope.pop();
         match (built, rejected) {
@@ -542,20 +575,16 @@ pub(crate) fn geometry_draws(
                 kind: *kind,
                 program: stage.program,
                 pipeline: built.pipeline,
+                emulation,
                 outputs: built.outputs,
                 layout: kind.category().is_some().then_some(terrain_layout),
                 alpha_test: built.alpha_test,
             }),
-            (Err(error), _) => bevy::log::warn!(
-                target: "cinnabar::shaderpack",
-                program = %program.name, draw = ?kind,
-                "draw skipped: {error}"
-            ),
-            (Ok(_), Some(error)) => bevy::log::warn!(
-                target: "cinnabar::shaderpack",
-                program = %program.name, draw = ?kind,
-                "draw skipped: the device rejected its pipeline: {error}"
-            ),
+            (Err(error), _) => failures.push(format!("{} ({kind:?}): {error}", program.name)),
+            (Ok(_), Some(error)) => failures.push(format!(
+                "{} ({kind:?}): the device rejected its pipeline: {error}",
+                program.name
+            )),
         }
     }
     if !complete_world(|kind| draws.iter().any(|draw| draw.kind == kind)) {

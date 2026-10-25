@@ -4,7 +4,9 @@
 
 use std::{ops::DerefMut, sync::Arc, time::Duration};
 
-use launcher::menu::shader_pack_status::{PackLoad, PackNotices, PackToast, failure_description};
+use launcher::menu::shader_pack_status::{
+    PackLoad, PackNotices, PackToast, failure_description, warning_description,
+};
 use ui::{RenderMode, StandingToast};
 
 use super::MenuRuntime;
@@ -25,6 +27,7 @@ pub(super) struct ShaderPackStatusUi {
 struct Failure {
     pack: String,
     reason: String,
+    partial: bool,
     description: Arc<str>,
 }
 
@@ -39,16 +42,25 @@ impl MenuRuntime {
     ) {
         let status = &mut self.shader_pack_status;
         match load {
-            PackLoad::Failed { pack, reason } => {
-                if !status
-                    .failure
-                    .as_ref()
-                    .is_some_and(|failure| failure.pack == pack && failure.reason == reason)
-                {
+            PackLoad::Failed { pack, reason }
+            | PackLoad::Ready {
+                pack,
+                warnings: Some(reason),
+            } => {
+                if !status.failure.as_ref().is_some_and(|failure| {
+                    failure.pack == pack
+                        && failure.reason == reason
+                        && failure.partial == matches!(load, PackLoad::Ready { .. })
+                }) {
                     status.failure = Some(Failure {
                         pack: pack.to_owned(),
                         reason: reason.to_owned(),
-                        description: Arc::from(failure_description(reason)),
+                        partial: matches!(load, PackLoad::Ready { .. }),
+                        description: Arc::from(if matches!(load, PackLoad::Ready { .. }) {
+                            warning_description(reason)
+                        } else {
+                            failure_description(reason)
+                        }),
                     });
                 }
             }
@@ -170,7 +182,10 @@ mod tests {
         );
         let ready = held + Duration::from_secs(1);
         menu.sync_shader_pack_status(
-            PackLoad::Ready { pack: "Dusk.zip" },
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: None,
+            },
             &mut &mut runtime,
             ready,
         );

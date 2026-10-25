@@ -76,10 +76,10 @@ pub(super) use pipelines::load_shaders;
 pub use residency::{DEFAULT_GEOMETRY_BUDGET_BYTES, device_geometry_budget};
 pub(crate) use shadow_cull::{ShadowCulling, ShadowFrustum};
 #[cfg(test)]
-pub(crate) use vertex::{BLOCK_ID, LIGHTMAP, NORMAL, POSITION, UV0};
+pub(crate) use vertex::{BLOCK_ID, COLOR, LIGHTMAP, NORMAL, POSITION, UV0, draw_origin};
 pub(crate) use vertex::{
-    CONSTANT_STREAM_WORDS, f32_to_half, host_vertex, substitute_layout_constants,
-    textured_host_vertex,
+    CONSTANT_STREAM_WORDS, DRAW_ORIGIN_BYTES, f32_to_half, host_vertex,
+    substitute_layout_constants, textured_host_vertex,
 };
 pub use vertex::{
     CONSTANT_VERTEX_BUFFER, DRAW_ORIGIN_VERTEX_BUFFER, GEOMETRY_VERTEX_BUFFER, IRIS_VERTEX_STRIDE,
