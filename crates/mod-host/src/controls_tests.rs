@@ -14,6 +14,52 @@ fn state(grants: ModGrants) -> State {
     State::new(grants, "{\"cps\":12}".into(), Default::default())
 }
 
+#[test]
+fn scroll_requires_controls_and_a_frame_callback_and_claims_commit_transactionally() {
+    let mut state = state(ModGrants::default());
+    assert!(state.read_scroll().unwrap().is_err());
+    assert!(state.reserve_scroll(vec!["KeyC".into()]).unwrap().is_err());
+    state.grants.controls = true;
+    state.controls.scroll = crate::ScrollFrame {
+        line_x: 0.5,
+        line_y: 2.0,
+        pixel_x: 0.0,
+        pixel_y: -12.0,
+    };
+    state.controls.frame.focused = true;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state.controls.begin_text_frame();
+    let first = state.read_scroll().unwrap().unwrap();
+    assert_eq!(first.line_y, 2.0);
+    assert_eq!(state.read_scroll().unwrap().unwrap(), first);
+    state.controls.frame.panel_open = true;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state.controls.frame.panel_open = false;
+    state.controls.frame.focused = false;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state
+        .reserve_scroll(vec!["KeyC".into(), "KeyC".into()])
+        .unwrap()
+        .unwrap();
+    assert!(state.controls.scroll_keys.is_empty());
+    state.controls.commit();
+    assert_eq!(state.controls.scroll_keys, ["KeyC"]);
+    assert!(
+        state
+            .reserve_scroll(vec!["../bad".into()])
+            .unwrap()
+            .is_err()
+    );
+    state.reserve_scroll(Vec::new()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(state.controls.scroll_keys.is_empty());
+    state.reserve_scroll(vec!["KeyC".into()]).unwrap().unwrap();
+    state.controls.revoke();
+    state.controls.commit();
+    assert!(state.controls.scroll_keys.is_empty());
+    assert_eq!(state.controls.scroll, crate::empty_scroll());
+}
+
 fn panel() -> String {
     r#"{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]}"#.into()
 }

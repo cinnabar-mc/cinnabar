@@ -1315,6 +1315,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.
+- Gameplay wheel observations preserve line/pixel axes under Controls authority.
+  Transactional physical-chord reservations follow mod load order and suppress both
+  hotbar input paths. UI and unfocused input stay outside the guest. Targeted regression
+  checks are included; physical-device and multi-platform acceptance remain incomplete.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance. Packet extensions now

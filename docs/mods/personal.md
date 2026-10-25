@@ -66,6 +66,18 @@ assuming an import succeeded. Shared values and ceilings live in
 [drawing limits](../../crates/mod-api/src/drawing.rs) and
 [host limits](../../crates/mod-host/src/lib.rs).
 
+## Gameplay wheel input
+
+`input.read-scroll()` reads the current captured-gameplay frame under the `controls`
+grant, with separate line and pixel X/Y deltas and positive Y upward. Reads are
+stable within the callback; no input replays after a deferred frame. Screens, lost
+focus and earlier capture return zero. Existing `controls` records remain unchanged.
+`input.reserve-scroll(["KeyC"])` claims the wheel while that physical chord is held,
+as sampled for the current frame, before native hotbar selection. Empty releases it;
+the keys themselves stay available.
+Reservations commit only after a successful callback and clear on revocation.
+The first active matching mod wins in load order; UI wheel handling is unaffected.
+
 ## Action filtering
 
 A player mod opts into `filter-actions(action-frame) -> action-verdict` with

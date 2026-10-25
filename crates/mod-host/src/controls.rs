@@ -53,6 +53,16 @@ impl ModHost {
         self.instance.reserved_keys()
     }
 
+    /// The committed physical chord which claims gameplay scrolling; empty disables it.
+    pub fn scroll_capture_keys(&self) -> &[String] {
+        self.instance.scroll_capture_keys()
+    }
+
+    /// Supplies this frame's native wheel input, readable only in its frame callback.
+    pub fn observe_scroll(&mut self, scroll: crate::ScrollFrame) {
+        self.instance.observe_scroll(scroll);
+    }
+
     /// Consumes committed local interaction requests once.
     pub fn take_interaction(&mut self) -> InteractionOutput {
         self.instance.take_interaction()
@@ -61,9 +71,11 @@ impl ModHost {
 
 pub(super) struct ControlState {
     pub frame: ControlFrame,
+    pub scroll: crate::ScrollFrame,
+    pub scroll_keys: Vec<String>,
     pub text_events: Vec<ui::mod_panel::TextEvent>,
     pub field_events: Vec<ui::mod_panel::FieldEvent>,
-    text_events_in_frame: bool,
+    in_frame_callback: bool,
     pub panel: Option<Panel>,
     pub bundle: Option<Arc<PanelBundle>>,
     pub open: bool,
@@ -74,6 +86,7 @@ pub(super) struct ControlState {
     pending_panel: Option<Option<Panel>>,
     pending_open: Option<bool>,
     pending_keys: Option<Vec<String>>,
+    pending_scroll_keys: Option<Vec<String>>,
     pending_settings: Option<String>,
     pub pending_interaction: InteractionOutput,
     reads: u32,
@@ -87,9 +100,11 @@ impl ControlState {
     pub fn new(settings: String) -> Self {
         Self {
             frame: empty_controls(),
+            scroll: crate::empty_scroll(),
+            scroll_keys: Vec::new(),
             text_events: Vec::new(),
             field_events: Vec::new(),
-            text_events_in_frame: false,
+            in_frame_callback: false,
             panel: None,
             bundle: None,
             open: false,
@@ -100,6 +115,7 @@ impl ControlState {
             pending_panel: None,
             pending_open: None,
             pending_keys: None,
+            pending_scroll_keys: None,
             pending_settings: None,
             pending_interaction: InteractionOutput::default(),
             reads: 0,
@@ -114,7 +130,7 @@ impl ControlState {
     }
 
     pub fn begin_frame(&mut self) {
-        self.text_events_in_frame = false;
+        self.in_frame_callback = false;
         self.reset_budget();
         self.frame = empty_controls();
         self.interaction = InteractionOutput::default();
@@ -134,6 +150,9 @@ impl ControlState {
         if let Some(keys) = self.pending_keys.take() {
             self.keys = keys;
         }
+        if let Some(keys) = self.pending_scroll_keys.take() {
+            self.scroll_keys = keys;
+        }
         if let Some(settings) = self.pending_settings.take() {
             self.settings.clone_from(&settings);
             self.dirty_settings = Some(settings);
@@ -144,13 +163,16 @@ impl ControlState {
     pub fn revoke(&mut self) {
         self.text_events.clear();
         self.field_events.clear();
-        self.text_events_in_frame = false;
+        self.in_frame_callback = false;
         self.panel = None;
         self.open = false;
         self.keys.clear();
+        self.scroll_keys.clear();
+        self.scroll = crate::empty_scroll();
         self.pending_panel = None;
         self.pending_open = None;
         self.pending_keys = None;
+        self.pending_scroll_keys = None;
         self.pending_settings = None;
         self.pending_interaction = InteractionOutput::default();
         self.interaction = InteractionOutput::default();
@@ -172,12 +194,12 @@ impl ControlState {
 
     /// Exposes committed native text only while a regular frame callback owns input.
     pub(super) fn begin_text_frame(&mut self) {
-        self.text_events_in_frame = true;
+        self.in_frame_callback = true;
     }
 
     /// Keeps input for a deferred frame while preventing unrelated callbacks from reading it.
     pub(super) fn finish_text_frame(&mut self, deferred: bool) {
-        self.text_events_in_frame = false;
+        self.in_frame_callback = false;
         if !deferred {
             self.text_events.clear();
             self.field_events.clear();
@@ -234,7 +256,7 @@ pub(super) fn read_text_events(
     if !state.grants.controls {
         return Ok(Err("controls capability denied".into()));
     }
-    if !state.controls.text_events_in_frame {
+    if !state.controls.in_frame_callback {
         return Ok(Ok(Vec::new()));
     }
     Ok(Ok(state
@@ -348,6 +370,42 @@ pub(super) fn reserve(state: &mut State, keys: Vec<String>) -> Result<Result<(),
     keys.sort();
     keys.dedup();
     state.controls.pending_keys = Some(keys);
+    Ok(Ok(()))
+}
+
+/// Reads the native frame without changing its value or legacy controls ABI.
+pub(super) fn read_scroll(state: &mut State) -> Result<Result<crate::ScrollFrame, String>> {
+    state.controls.budget(true)?;
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    Ok(Ok(
+        if state.controls.in_frame_callback
+            && state.controls.frame.focused
+            && !state.controls.frame.panel_open
+        {
+            state.controls.scroll
+        } else {
+            crate::empty_scroll()
+        },
+    ))
+}
+
+/// Stages a physical chord; revocation and callback failure discard it with other controls.
+pub(super) fn reserve_scroll(
+    state: &mut State,
+    mut keys: Vec<String>,
+) -> Result<Result<(), String>> {
+    state.controls.budget(false)?;
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    if keys.len() > mod_api::MAX_CONTROL_KEYS || !keys.iter().all(|key| key_valid(key)) {
+        return Ok(Err("invalid scroll key list".into()));
+    }
+    keys.sort();
+    keys.dedup();
+    state.controls.pending_scroll_keys = Some(keys);
     Ok(Ok(()))
 }
 
@@ -584,7 +642,7 @@ pub(super) fn read_field_events(
     if !state.grants.controls {
         return Ok(Err("controls capability denied".into()));
     }
-    if !state.controls.text_events_in_frame {
+    if !state.controls.in_frame_callback {
         return Ok(Ok(Vec::new()));
     }
     Ok(Ok(state
