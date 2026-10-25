@@ -274,3 +274,51 @@ fn no_count_caps_a_bundle_but_a_block_past_the_tag_width_is_reported() {
             .any(|line| line.contains("past the session's material slots"))
     );
 }
+
+#[test]
+fn replacing_or_removing_a_material_the_budget_rejected_charges_no_retired_pipeline() {
+    let textures = vec![("textures/glow.png".to_owned(), png(4, 2))];
+    let source = |round: u32| {
+        format!(
+            "fn shade(input: WorldMaterialInput) -> Surface {{ return Surface(vec3<f32>({round}.0), 1.0, vec3<f32>(0.0)); }}"
+        )
+    };
+    let entity = |id: u32, material: u32| {
+        (
+            id,
+            WorldTarget::Entity(format!("example:moth_{id}")),
+            material,
+        )
+    };
+    // The first material's texture leaves less than a pipeline charge for the others.
+    let budget = PIPELINE_CHARGE_BYTES * 2;
+    let mut presenter = WorldMaterialPresenter::default();
+    let first = (1, spec(&source(1), &["textures/glow.png"]));
+    let held = world(
+        &[first.clone(), (2, spec(&source(2), &[]))],
+        &[entity(1, 1), entity(2, 2)],
+    );
+    presenter.rebuild([bundle(&held, &textures, budget)]);
+    assert_eq!(presenter.set().materials.len(), 1);
+    // Replace the rejected second material and add a third the budget also rejects.
+    let held = world(
+        &[
+            first,
+            (2, spec(&source(3), &[])),
+            (3, spec(&source(4), &[])),
+        ],
+        &[entity(1, 1), entity(2, 2), entity(3, 3)],
+    );
+    presenter.rebuild([bundle(&held, &textures, budget)]);
+    assert_eq!(presenter.set().materials.len(), 1);
+    // Remove the first and third: only the first was ever drawn, so only it stays charged and
+    // the replacement fits in what is left.
+    let held = world(&[(2, spec(&source(3), &[]))], &[entity(2, 2)]);
+    presenter.rebuild([bundle(&held, &textures, budget)]);
+    presenter.rebuild([bundle(&held, &textures, budget)]);
+    assert!(
+        presenter.set().entity("example:moth_2").is_some(),
+        "{:?}",
+        presenter.diagnostics().collect::<Vec<_>>()
+    );
+}

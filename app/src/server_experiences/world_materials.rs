@@ -42,6 +42,9 @@ struct Cached {
     /// Numbers this admission attempt, so a failure is reported once per attempt.
     attempt: u64,
     outcome: Result<Published, String>,
+    /// Whether this attempt's material ever reached the drawn set, and so may hold compiled
+    /// pipelines that replacing or removing it leaves charged.
+    published: bool,
 }
 
 #[derive(Default)]
@@ -96,6 +99,7 @@ impl WorldMaterialPresenter {
                         spec: cached,
                         attempt,
                         outcome: Ok(published),
+                        published: drawn,
                     }) if cached.same_program(spec) => {
                         let updated = Cached {
                             spec: spec.clone(),
@@ -104,13 +108,14 @@ impl WorldMaterialPresenter {
                                 params: params(&spec.params),
                                 ..published.clone()
                             }),
+                            published: *drawn,
                         };
                         let result = (updated.attempt, updated.outcome.clone());
                         self.cache.insert(key.clone(), updated);
                         result
                     }
                     previous => {
-                        if previous.is_some_and(|cached| cached.outcome.is_ok()) {
+                        if previous.is_some_and(|cached| cached.published) {
                             self.retire(bundle.bundle);
                         }
                         self.next_key += 1;
@@ -121,6 +126,7 @@ impl WorldMaterialPresenter {
                                 spec: spec.clone(),
                                 attempt: self.next_key,
                                 outcome: outcome.clone(),
+                                published: false,
                             },
                         );
                         (self.next_key, outcome)
@@ -165,6 +171,9 @@ impl WorldMaterialPresenter {
                 };
                 materials.push(published);
                 slots.insert(id, slot);
+                if let Some(cached) = self.cache.get_mut(&key) {
+                    cached.published = true;
+                }
             }
             for binding in bundle.world.bindings.values() {
                 let Some(&slot) = slots.get(&binding.material) else {
@@ -203,7 +212,7 @@ impl WorldMaterialPresenter {
         let removed: Vec<String> = self
             .cache
             .iter()
-            .filter(|(key, cached)| !live.contains(*key) && cached.outcome.is_ok())
+            .filter(|(key, cached)| !live.contains(*key) && cached.published)
             .map(|((bundle, _), _)| bundle.clone())
             .collect();
         for bundle in removed {
