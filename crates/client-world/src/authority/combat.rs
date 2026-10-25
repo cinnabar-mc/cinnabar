@@ -128,22 +128,6 @@ mod tests {
             .unwrap();
     }
 
-    /// A hurt without damage is hurt evidence, as it starts the same native damage camera.
-    #[test]
-    fn hurt_without_damage_is_hurt_evidence() {
-        let mut world = world();
-        status(&mut world, 2, 2, ActorStatusKind::HurtWithoutDamage);
-        status(&mut world, 3, 1, ActorStatusKind::HurtWithoutDamage);
-        let events: Vec<_> = world
-            .combat_evidence()
-            .map(|event| (event.runtime_id, event.kind))
-            .collect();
-        assert_eq!(
-            events,
-            [(2, ActorCombatKind::Hurt), (1, ActorCombatKind::Hurt)]
-        );
-    }
-
     /// Totem activations on the local and remote players join hurt and death evidence in order,
     /// without any counting interval to enable.
     #[test]

@@ -201,14 +201,8 @@ impl WorldAuthority {
                     self.push_committed_ui(CommittedUiEvent::LocalTotemActivation { sequence });
                 }
                 let combat = match &event {
-                    // A hurt without damage starts the same native damage camera as a damaging
-                    // hurt, so both are hurt evidence.
                     ActorEvent::Status(status)
-                        if matches!(
-                            status.kind,
-                            protocol::ActorStatusKind::Hurt
-                                | protocol::ActorStatusKind::HurtWithoutDamage
-                        ) =>
+                        if status.kind == protocol::ActorStatusKind::Hurt =>
                     {
                         Some((status.runtime_id, super::ActorCombatKind::Hurt))
                     }
