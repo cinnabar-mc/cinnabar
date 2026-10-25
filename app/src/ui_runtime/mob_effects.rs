@@ -1,6 +1,7 @@
 //! Physical input for vanilla's mob effect screen: the Mob Effects binding opens and closes
 //! it, and Escape, Back, the controller's cancel button and its close button dismiss it.
 use bevy::{
+    ecs::message::{MessageCursor, Messages},
     ecs::system::SystemParam,
     input::{
         ButtonState,
@@ -10,17 +11,18 @@ use bevy::{
     },
     prelude::*,
     time::Real,
-    window::{CursorOptions, PrimaryWindow},
+    window::{CursorOptions, PrimaryWindow, WindowEvent},
 };
 use client_shell::menu::{
     MenuRuntime,
-    settings_options::control_bindings::{binding_key, gamepad_button},
+    settings_options::control_bindings::{binding_key, binding_mouse_button, gamepad_button},
 };
 use client_shell::physical_input::set_cursor_capture;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use launcher::menu::settings_options::BindingId;
 use ui::UiPoint;
 
+use super::interaction::input_capture::ordered_pointer_presses;
 use super::interaction::{chat_modifiers, command_macros};
 use crate::runtime::world::ClientWorld;
 use client_state::PlayerRuntime;
@@ -33,6 +35,8 @@ pub(crate) struct MobEffectInput<'w, 's> {
     mouse: ResMut<'w, ButtonInput<MouseButton>>,
     motion: ResMut<'w, AccumulatedMouseMotion>,
     keyboard: MessageReader<'w, 's, KeyboardInput>,
+    window_events: Option<Res<'w, Messages<WindowEvent>>>,
+    window_cursor: Local<'s, MessageCursor<WindowEvent>>,
     pads: Query<'w, 's, &'static Gamepad>,
     menu: Option<Res<'w, MenuRuntime>>,
     consent: Option<Res<'w, client_state::ConsentInput>>,
@@ -46,8 +50,14 @@ pub(crate) struct MobEffectInput<'w, 's> {
 }
 
 /// Runs after the emote wheel, which clears [`client_state::ScreenInputConsumed`] each frame,
-/// and before chat, inventory and menu input see the frame.
+/// and before chat, inventory and menu input see the frame. A frame the wheel already consumed
+/// is drained without acting on it.
 pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
+    let pointer_presses = if let Some(events) = input.window_events.as_deref() {
+        ordered_pointer_presses(input.window_cursor.read(events))
+    } else {
+        Vec::new()
+    };
     let runtime_id = input.runtime.local_runtime_id(&input.player);
     let stream = input
         .world
@@ -67,6 +77,7 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         || input.runtime.sign_editor().active().is_some()
         || input.runtime.local_sleeping()
         || input.runtime.emotes().is_open()
+        || input.runtime.credits().owns_input()
         || actor_unavailable;
     let keyboard: Vec<_> = input.keyboard.read().cloned().collect();
     if blocked || !input.window.0.focused {
@@ -74,10 +85,20 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         input.runtime.close_mob_effect_screen();
         return;
     }
+    if input.consumed.0 {
+        input.modifiers.reset_all();
+        return;
+    }
     let now = u64::try_from(input.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let was_open = input.runtime.mob_effect_screen().is_open();
     let mut owned = was_open;
     chat_modifiers::capture_before_events(&mut input.modifiers, &input.keys, &keyboard);
+    let mouse_toggled = mouse_binding_pressed(&input, &pointer_presses, &keyboard);
+    if mouse_toggled {
+        let open = input.runtime.mob_effect_screen().is_open();
+        input.runtime.toggle_mob_effect_screen(now);
+        owned |= open || input.runtime.mob_effect_screen().is_open();
+    }
     for event in &keyboard {
         chat_modifiers::track(&mut input.modifiers, event);
         if event.state != ButtonState::Pressed || event.repeat {
@@ -100,7 +121,8 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
             input.runtime.close_mob_effect_screen();
         }
     }
-    if input.runtime.mob_effect_screen().is_open() {
+    // A mouse press that toggled the screen this frame does not also dismiss it.
+    if !mouse_toggled && input.runtime.mob_effect_screen().is_open() {
         let pointer = input
             .window
             .0
@@ -138,6 +160,46 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         input.motion.delta = Vec2::ZERO;
         set_cursor_capture(&mut input.window.1, !open);
     }
+}
+
+/// Whether a newly pressed mouse button is the Mob Effects binding and no command macro owns
+/// it, judged with the modifiers held at that press's place among the frame's keys.
+fn mouse_binding_pressed(
+    input: &MobEffectInput,
+    pointer_presses: &[(usize, MouseButton)],
+    keyboard: &[KeyboardInput],
+) -> bool {
+    let menu = input.menu.as_deref();
+    input.mouse.get_just_pressed().any(|button| {
+        if !binding_mouse_button(menu, BindingId::MobEffects, *button) {
+            return false;
+        }
+        let macro_matches = |held: &ButtonInput<KeyCode>| {
+            command_macros::command(
+                menu,
+                &input.runtime,
+                chat_modifiers::held_chord(held),
+                client_shell::physical_input::mouse_button_code(*button)
+                    .map(semantic_input::PhysicalControl::MouseButton),
+            )
+            .is_some()
+        };
+        let macro_owns_press = if pointer_presses.is_empty() {
+            macro_matches(&input.keys)
+        } else {
+            pointer_presses
+                .iter()
+                .filter(|(_, candidate)| candidate == button)
+                .any(|(before, _)| {
+                    let mut held = input.modifiers.clone();
+                    for event in keyboard.iter().take(*before) {
+                        chat_modifiers::track(&mut held, event);
+                    }
+                    macro_matches(&held)
+                })
+        };
+        !macro_owns_press
+    })
 }
 
 #[cfg(test)]

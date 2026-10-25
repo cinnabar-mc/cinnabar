@@ -161,3 +161,75 @@ fn escape_closes_the_screen_without_passing_its_frame_to_chat() {
         "Escape must not also open the pause menu"
     );
 }
+
+#[test]
+fn credits_keep_their_input_while_an_effect_is_active() {
+    let mut h = Harness::new(true);
+    h.app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .credits_mut()
+        .open(42, 1, 0);
+    h.queue(KeyCode::KeyZ);
+    h.app.update();
+    assert!(!h.runtime().mob_effect_screen().is_open());
+    assert!(
+        !h.app.world().resource::<ScreenInputConsumed>().0,
+        "the credits screen must still see the frame's keys"
+    );
+}
+
+#[test]
+fn a_mouse_remap_opens_and_closes_the_screen_instead_of_z() {
+    let mut h = Harness::new(true);
+    let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
+    let row = BindingId::MobEffects.row(false).unwrap();
+    assert!(client_shell::menu::test_support::remap_control(
+        &mut menu,
+        row,
+        semantic_input::PhysicalControl::MouseButton(
+            client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap()
+        )
+    ));
+    h.app.insert_resource(menu);
+    h.press(KeyCode::KeyZ);
+    assert!(
+        !h.runtime().mob_effect_screen().is_open(),
+        "Z is no longer bound"
+    );
+    for open in [true, false] {
+        h.app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        h.app.update();
+        assert_eq!(h.runtime().mob_effect_screen().is_open(), open);
+        assert!(
+            !h.app
+                .world()
+                .resource::<ButtonInput<MouseButton>>()
+                .just_pressed(MouseButton::Back)
+        );
+        h.app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        h.app.update();
+    }
+}
+
+#[test]
+fn a_frame_the_emote_wheel_consumed_does_not_open_the_screen() {
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new(true);
+    h.press(KeyCode::KeyB);
+    assert!(h.runtime().emotes().is_open());
+    h.queue(KeyCode::Escape);
+    h.queue(KeyCode::KeyZ);
+    h.app.update();
+    assert!(!h.runtime().emotes().is_open());
+    assert!(
+        !h.runtime().mob_effect_screen().is_open(),
+        "Z arrived in the batch the wheel consumed"
+    );
+}
