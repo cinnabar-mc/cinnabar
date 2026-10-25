@@ -116,3 +116,48 @@ fn authored_cull_and_blend_bits_follow_the_raster_state() {
         );
     }
 }
+
+#[test]
+fn a_world_material_switches_the_cull_and_blend_bits_only_in_its_world_draw() {
+    use render_api::render_state::{BlendState, CullMode, RenderState};
+    let host = RenderState {
+        cull: CullMode::None,
+        ..Default::default()
+    };
+    let material = ActorMaterial {
+        state: Some(EntityRenderMaterialState::default()),
+        render_state: Some(RenderState {
+            cull: CullMode::Back,
+            blend: Some(BlendState::ALPHA),
+            ..Default::default()
+        }),
+        world: 3,
+        world_raster: Some(host),
+        ..Default::default()
+    };
+    let bedrock = material.gpu_word();
+    assert_ne!(bedrock & EntityRenderMaterialState::BLEND, 0);
+    assert_ne!(bedrock & EntityRenderMaterialState::CULL, 0);
+    assert_eq!(
+        super::actor_world_material(bedrock),
+        None,
+        "Bedrock draws untagged"
+    );
+    let (world, raster) = material.world_draw().unwrap();
+    assert_eq!(raster, host);
+    assert_eq!(super::actor_world_material(world), Some(2));
+    let switched = EntityRenderMaterialState::BLEND
+        | EntityRenderMaterialState::CULL
+        | super::ACTOR_WORLD_MATERIAL_MASK;
+    assert_eq!(world & switched, 3 << super::ACTOR_WORLD_MATERIAL_SHIFT);
+    assert_eq!(world & !switched, bedrock & !switched);
+    assert_eq!(
+        ActorMaterial {
+            world: 0,
+            ..material
+        }
+        .world_draw(),
+        None,
+        "an unbound draw has no world draw"
+    );
+}

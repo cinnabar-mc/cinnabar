@@ -168,6 +168,7 @@ fn install_actor_render(app: &mut App) {
             (
                 prepare_actor_resources
                     .in_set(RenderSystems::Queue)
+                    .after(prepare_actor_pipelines)
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_actors
@@ -225,6 +226,8 @@ pub(crate) struct ActorGpu {
     skin_revision: u64,
     view_buffer_id: Option<BufferId>,
     manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
+    /// The world draws the prepared instances switched to their world material.
+    world_ready: WorldReady,
 }
 
 /// Whether every player-page instance samples a resident skin slot.
@@ -338,6 +341,7 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
         skin_revision: u64::MAX,
         view_buffer_id: None,
         manifest: std::sync::Arc::from([]),
+        world_ready: WorldReady::new(),
     })
 }
 
@@ -350,9 +354,18 @@ fn prepare_actor_resources(
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    pipeline: Option<Res<ActorPipeline>>,
 ) {
     // Preparation can replace any part of the queued identity, even before queue runs.
     gpu.queued_draw = None;
+    // A world material that became ready, or stopped being drawable, prepares the frame again.
+    let world_ready = pipeline
+        .as_deref()
+        .map_or_else(WorldReady::new, |pipeline| pipeline.world_ready.clone());
+    if gpu.world_ready != world_ready {
+        gpu.world_ready = world_ready;
+        gpu.frame_generation = u64::MAX;
+    }
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     gpu.artwork.set_raw_views(raw_views);
     gpu.skins.set_raw_views(raw_views);
@@ -446,7 +459,13 @@ fn prepare_actor_resources(
         }
         let prepared = structurally_valid
             .then(|| {
-                let instances = dissolve::instances(&rig.instances, &rig.manifest, &rig.rasters);
+                let instances = world_materials::switched(
+                    &rig.instances,
+                    &rig.world_draws,
+                    &rig.rasters,
+                    &gpu.world_ready,
+                );
+                let instances = dissolve::instances(&instances, &rig.manifest, &rig.rasters);
                 gpu.bones.prepare(rig, instances)
             })
             .flatten();

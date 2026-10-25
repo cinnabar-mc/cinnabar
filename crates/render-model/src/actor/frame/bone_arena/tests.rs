@@ -267,6 +267,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
         geometry_spans: Arc::clone(&builder.catalog.published_spans),
         manifest: manifest.into(),
         rasters: rasters.into(),
+        world_draws: Arc::from([]),
         maximum_vertex_count: builder.catalog.published_spans[geometry_index as usize].vertex_count,
         rejects: ActorRigRejects {
             non_finite_pose: 2,

@@ -309,8 +309,9 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }
-            // A world material draws with its own pipeline once that compiled and its
-            // resources exist, and with the base pipeline until then.
+            // Only instances switched to their world material carry its tag, so a tagged span
+            // draws with that material's pipeline; should its resources have gone since the
+            // switch, it draws with the base pipeline until the next prepare restores Bedrock.
             let key = ActorPipelineKey {
                 msaa: *view.2,
                 hdr: view.5.hdr,

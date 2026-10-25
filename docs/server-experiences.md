@@ -156,8 +156,9 @@ entities to its first 255; a binding past that is reported and draws as Bedrock.
 
 The host owns depth, blend factors, pass and visibility: a class selects the host's raster, and
 the host applies Bedrock lighting and fog to the returned surface, adding emission after
-lighting. A bound entity's body and render-controller layers draw with the material; equipment,
-capes, hats and players never do. A bound block's cube faces and model quads are tagged in
+lighting. A bound entity's body and render-controller layers draw with the material once its
+pipelines are ready in every view, and with their Bedrock material, raster and pass until then;
+equipment, capes, hats and players never do. A bound block's cube faces and model quads are tagged in
 meshing and drawn in a world material pass: opaque and cutout classes in the opaque phase,
 premultiplied and additive classes merged face by face into their section's ordinary
 translucent order, so a bound face and the water or glass beside it draw back to front by the

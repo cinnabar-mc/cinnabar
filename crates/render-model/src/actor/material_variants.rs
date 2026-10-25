@@ -61,6 +61,7 @@ impl ActorMaterial {
             // A world material tags only its own draw, whose pipeline the frame's world draws
             // request; the Bedrock word and raster never carry it.
             world: _,
+            world_raster: _,
         } = self;
         [kind, assets::EntityRenderMaterial::Glint]
             .into_iter()
