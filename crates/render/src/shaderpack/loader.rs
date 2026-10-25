@@ -280,9 +280,6 @@ pub(crate) fn load(
     progress: &LoadProgress,
     compiler: Option<&Path>,
 ) -> Result<PackGpu, String> {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return Err("shader packs are unavailable on this platform or build".to_owned());
-    }
     super::kernels::validate_device(&gpu.device.limits())?;
     check_cancelled(progress)?;
     let started = std::time::Instant::now();
@@ -293,8 +290,7 @@ pub(crate) fn load(
         environment: host_environment(),
         purpose: shaderpack::worker::Purpose::Render,
     };
-    let executable = compiler.ok_or("the isolated shader compiler is unavailable")?;
-    let mut worker = shaderpack::worker::Running::start(executable, &request)?;
+    let mut worker = shaderpack::worker::Running::start(compiler, &request)?;
     let compiled = loop {
         if let Some(result) = worker.poll(started.elapsed(), progress.is_cancelled()) {
             break result?.into_translation()?;

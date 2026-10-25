@@ -4,7 +4,7 @@ The iOS client is the desktop client built for arm64 iPhones and iPads on iOS 17
 with Metal. iOS lets an app neither start other programs nor compile code at run time, so the Go
 core links into the app itself, and there is no prep kit: the IPA cannot prepare game assets on
 the device. You sideload it yourself; it is not on the App Store. It has run on an iPhone 18 Pro
-Max: menus, sign-in and joining servers work; touch input is lightly tested.
+Max: menus, sign-in, joining servers and shader packs work; touch input is lightly tested.
 
 ## Get the IPA
 
@@ -57,8 +57,9 @@ the App ID, later installs keep it; `isideload`'s `install_app` turns it on when
 
 The app's `Documents` folder appears in the Files app under **On My iPhone > Cinnabar**. Logs are
 in `data/logs`, settings and `servers.json` in `config`. Include the newest log when reporting a
-problem. Java shader packs are disabled until iOS supports in-process shader compilation.
-The world renders at the screen's native 3× resolution.
+problem. The build includes the experimental Java shader-pack renderer: drop a pack's zip into
+`data/shaderpacks` and pick it in the Shaders tab. Packs render at the screen's native 3×
+resolution, so a heavy pack is GPU-bound on a phone; its lower quality profiles cost less.
 
 ## Controls
 

@@ -435,7 +435,7 @@ forbidden_dependencies = ["asset-compiler"]
 [[crates]]
 name = "cinnabar-ios"
 path = "packaging/ios/client"
-allowed_dependencies = ["app", "diagnostics", "launcher"]
+allowed_dependencies = ["app", "diagnostics", "launcher", "shaderpack"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]

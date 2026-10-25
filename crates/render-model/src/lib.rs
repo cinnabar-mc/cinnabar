@@ -109,10 +109,8 @@ pub use visibility::{
 pub const ENHANCED_RENDERING_ENABLED: bool = false;
 
 /// The Java shader-pack render mode is opt-in at build time while it is experimental.
-/// Default builds and platforms without compiler support keep settings, launch flags and
-/// cameras off it.
-pub const SHADER_PACKS_ENABLED: bool =
-    cfg!(feature = "shaderpacks") && render_api::SHADER_PACK_PLATFORM_SUPPORTED;
+/// Default builds keep settings, launch flags and cameras off it.
+pub const SHADER_PACKS_ENABLED: bool = cfg!(feature = "shaderpacks");
 
 #[cfg(feature = "enhanced-diagnostics")]
 static ENHANCED_DIAGNOSTIC: std::sync::atomic::AtomicBool =

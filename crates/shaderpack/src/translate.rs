@@ -67,6 +67,7 @@ impl ProgramTranslation {
 
 /// Inputs shared by every program of one translation.
 pub(crate) struct Context<'a> {
+    pub cancelled: &'a (dyn Fn() -> bool + Sync),
     pub source: &'a PackSource,
     pub options: &'a [PackOption],
     pub values: &'a OptionValues,
@@ -174,6 +175,9 @@ pub(crate) fn translate_program(
     let mut vertex_targets = None;
     let mut preprocessed = Vec::new();
     for (i, (stage, path)) in program.stages.iter().enumerate() {
+        if (cx.cancelled)() {
+            return out;
+        }
         out.stages.push(StageTranslation {
             stage: *stage,
             path: path.clone(),
@@ -208,6 +212,9 @@ pub(crate) fn translate_program(
     }
     let mut attempted = HashSet::new();
     let drafts = loop {
+        if (cx.cancelled)() {
+            return out;
+        }
         let (drafts, mut unknown) =
             compile_stages(cx, &preprocessed, program.group.draws_geometry(), &mut out);
         unknown.retain(|name| attempted.insert(name.clone()));
@@ -304,6 +311,9 @@ fn compile_stages(
     let mut iface = ProgramInterface::default();
     let mut drafts = Vec::new();
     for (i, pp) in preprocessed {
+        if (cx.cancelled)() {
+            return (drafts, HashSet::new());
+        }
         let names = ResourceNames {
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
@@ -337,6 +347,9 @@ fn compile_stages(
     };
     let mut unknown = HashSet::new();
     for (i, draft, map) in &drafts {
+        if (cx.cancelled)() {
+            return (drafts, unknown);
+        }
         let (glsl, origins) = assemble(draft, &ubo, &locations);
         let output = OutputMap {
             glsl: &glsl,

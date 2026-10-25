@@ -2436,6 +2436,7 @@ dependencies = [
  "launcher",
  "serde",
  "serde_json",
+ "shaderpack",
 ]
 
 [[package]]

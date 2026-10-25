@@ -1087,13 +1087,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - The iOS IPA (`docs/ios.md`) runs each Go core in-process from a linked C archive and loads
   carriers injected into the bundle. On an iPhone 18 Pro Max (iOS 27) it launches full screen,
-  renders with Metal, signs in and joins servers; servers that
+  renders with Metal, signs in and joins servers, including a Java shader pack; servers that
   send large packs need the increased-memory-limit capability. The 120 Hz display link and
   Game Mode have no device evidence yet. Safe-area insets are not applied, so the Dynamic Island
   can cover HUD edges, and there is no render-scale option for the native 3× drawable. Touch,
   soft-keyboard entry and keyboard overlap remain unverified. Chat requests the iOS software
-  keyboard. Shader-pack controls and compilation are disabled on iOS; in-process shader
-  compilation for iOS remains open. On-device first-run preparation,
+  keyboard. Shader packs compile on a background thread on iOS, with cooperative heap and
+  time checks; compiler faults can terminate the app. Device acceptance of this path remains open.
+  On-device first-run preparation,
   native crash capture, clipboard, link opening, local worlds and mods (no JIT) remain
   unavailable.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
@@ -1286,10 +1287,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
   passes skip frames without a loaded pack or whose world is covered by the menu panorama or
   an opaque screen; that backdrop stays native and unshaded, as Iris shades only the level.
-  CPU translation runs in an owned child process
+  On desktop and Android, CPU translation runs in an owned child process
   with a 2 GiB Rust heap limit, a 60-second CPU and elapsed-time limit, and bounded input/output.
-  Cancellation kills and reaps that child; parser crashes fail the selected pack. Saved option
-  files and generated helper copies have storage limits, and input files must be regular files.
+  Cancellation kills and reaps that child; parser crashes fail the selected pack. Option-menu
+  reads and translation on iOS run on an owned background thread with the same output cap,
+  cooperative 60-second cancellation and a soft 2 GiB live process-heap budget. An active
+  parser or blocking file operation must return before cancellation retires the thread;
+  compiler faults can stop the app. Device acceptance of the thread backend remains open.
+  Saved option files and generated helper copies have storage limits, and input files must be regular files.
   Option-menu reads use the same compiler limits; payload decoding stays off the UI thread,
   and closing the menu retires its reader before another starts. Accepted expression depths
   survive result transport. Unreadable render-side saved settings retain the default values.
