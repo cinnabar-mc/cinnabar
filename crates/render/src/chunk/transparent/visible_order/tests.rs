@@ -84,7 +84,7 @@ fn allocation(
         has_depth_liquid: false,
         has_transparent_liquid: water,
         depth_liquid_range: None,
-        order_independent_liquid: generation % 2 == 0,
+        order_independent_liquid: generation.is_multiple_of(2),
         metadata_index: 1,
     }
 }

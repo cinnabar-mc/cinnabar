@@ -602,9 +602,17 @@ fn scan_visible_models(
     Some((address, total_refs))
 }
 
+/// Extracted cameras that have a visible-entity list to sort for.
+type SortViews<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static ExtractedView),
+    (With<ExtractedCamera>, With<RenderVisibleEntities>),
+>;
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_transparent_model_sorts(
-    views: Query<(Entity, &ExtractedView), (With<ExtractedCamera>, With<RenderVisibleEntities>)>,
+    views: SortViews,
     instances: Query<&ChunkRenderInstance>,
     allocations: Query<&GpuChunkAllocation>,
     visible: Res<VisibleTransparentChunks>,
