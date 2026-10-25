@@ -214,7 +214,7 @@ fn route_press(
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if binding_mouse_button(menu, BindingId::Inventory, button) {
-            runtime.toggle_inventory(player_runtime, authority);
+            runtime.toggle_inventory(player_runtime, authority.map(|world| world.inventory_ui()));
             return (PressRoute::Binding, true);
         }
         if !runtime.inventory_open() {
@@ -490,7 +490,10 @@ pub(crate) fn drive_chat_keyboard_input(
         if (mouse_bindings && binding_mouse(menu.as_deref(), BindingId::Inventory, &mouse_buttons))
             || binding_gamepad(menu.as_deref(), BindingId::Inventory, &gamepads)
         {
-            runtime.toggle_inventory(&mut player_runtime, authority);
+            runtime.toggle_inventory(
+                &mut player_runtime,
+                authority.map(|world| world.inventory_ui()),
+            );
             dismissed |= !runtime.inventory_open();
             inventory_ownership_changed = true;
             consumed_gameplay = true;
@@ -652,7 +655,10 @@ pub(crate) fn drive_chat_keyboard_input(
                     && (key == KeyCode::Escape
                         || binding_key(menu.as_deref(), BindingId::Inventory, key)) => {}
                 key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
-                    runtime.toggle_inventory(&mut player_runtime, authority);
+                    runtime.toggle_inventory(
+                        &mut player_runtime,
+                        authority.map(|world| world.inventory_ui()),
+                    );
                     inventory_ownership_changed = true;
                 }
                 // Escape returns from a player mod's view to the container, and the hidden
@@ -707,7 +713,10 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             match input.key_code {
                 key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
-                    runtime.toggle_inventory(&mut player_runtime, authority);
+                    runtime.toggle_inventory(
+                        &mut player_runtime,
+                        authority.map(|world| world.inventory_ui()),
+                    );
                     inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }

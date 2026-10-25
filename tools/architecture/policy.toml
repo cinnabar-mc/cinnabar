@@ -301,6 +301,7 @@ path = "crates/client-ui"
 allowed_dependencies = ["update-manifest", "particles", "cosmetics", "pack-json", "env-compat", "simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_production_transitive_dependencies = ["chunk-pipeline", "meshing", "far-terrain"]
 test_support_features = ["test-support"]
 
 # Interaction systems consume the shared frame contract without sibling app plugin edges.

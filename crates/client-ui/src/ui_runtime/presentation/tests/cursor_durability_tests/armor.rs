@@ -103,7 +103,7 @@ fn capture(
         player,
         runtime,
         presentation,
-        Some(stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         Default::default(),

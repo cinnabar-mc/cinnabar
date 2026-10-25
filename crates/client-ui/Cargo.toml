@@ -28,7 +28,6 @@ simulation-clock = { path = "../simulation-clock" }
 bridge = { path = "../bridge" }
 anyhow.workspace = true
 assets = { path = "../assets" }
-chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
 glam.workspace = true
 actor-animation = { path = "../actor-animation" }
@@ -72,6 +71,7 @@ wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4.77"
 
 [dev-dependencies]
+chunk-pipeline = { path = "../chunk-pipeline" }
 update-manifest = { path = "../update-manifest" }
 cosmetics = { path = "../cosmetics", features = ["test-support"] }
 render-model = { path = "../render-model", features = ["test-support"] }

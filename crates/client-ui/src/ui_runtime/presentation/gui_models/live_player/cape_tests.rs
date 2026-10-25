@@ -173,7 +173,7 @@ fn hud_cape_follows_motion_and_keeps_animating_with_unchanged_pixels() {
     let mut feed = feed();
     stream.sync_local_player_pose(&feed);
     stream.advance_actor_interpolation_ticks(1);
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     let resting = cape_points(&presentation);
     let texture = presentation.gui_models.skin.as_ref().unwrap().identity();
     for (speed, sprinting, sneaking) in [
@@ -188,7 +188,7 @@ fn hud_cape_follows_motion_and_keeps_animating_with_unchanged_pixels() {
         feed.sneaking = sneaking;
         stream.sync_local_player_pose(&feed);
         stream.advance_actor_interpolation_ticks(1);
-        presentation.capture_hud_player(Some(&stream), false);
+        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
         assert_ne!(
             cape_points(&presentation),
             resting,
@@ -201,7 +201,7 @@ fn hud_cape_follows_motion_and_keeps_animating_with_unchanged_pixels() {
     }
     let moving = cape_points(&presentation);
     stream.advance_actor_interpolation_ticks(1);
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     assert_ne!(
         cape_points(&presentation),
         moving,
@@ -217,9 +217,9 @@ fn hud_cape_and_torso_share_the_swimming_translation_once() {
     let catalog = catalog();
     let stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
     let mut presentation = presentation(&catalog);
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     let standing = cape_points(&presentation);
-    presentation.capture_hud_player(Some(&stream), true);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), true);
     let swimming = cape_points(&presentation);
     let expected = -super::super::super::player_preview::HUD_SWIM_OFFSET
         * super::super::super::player_preview::PREVIEW_PIXELS_PER_BLOCK
@@ -237,7 +237,7 @@ fn missing_or_hidden_cape_keeps_the_hud_body_visible() {
         let mut stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
         stream.advance_actor_interpolation_ticks(1);
         let mut presentation = presentation(&catalog);
-        presentation.capture_hud_player(Some(&stream), false);
+        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
         let mesh = presentation
             .gui_player_mesh()
             .expect("a missing or hidden cape must not hide the player's body");
@@ -255,7 +255,7 @@ fn flattened_cape_keeps_its_visible_faces_and_hud_body() {
     let mut stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
     stream.advance_actor_interpolation_ticks(1);
     let mut presentation = presentation(&catalog);
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     let mesh = presentation
         .gui_player_mesh()
         .expect("collapsed cape faces must not hide the body or the remaining cape faces");
@@ -268,7 +268,7 @@ fn worn_wings_suppress_the_hud_cape_until_the_chest_slot_is_cleared() {
     let catalog = catalog();
     let stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
     let mut presentation = presentation(&catalog);
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     let visible = cape_points(&presentation);
     let reference = |identifier: &str| assets::EquipmentReference {
         identifier: identifier.into(),

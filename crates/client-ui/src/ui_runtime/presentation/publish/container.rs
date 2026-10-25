@@ -14,7 +14,7 @@ use presentation::{
 pub(super) fn capture(
     player_runtime: &player_state::PlayerState,
     items: &ItemResolver<'_>,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     window_icons: &mut WindowIcons,
 ) -> WindowText {
     let runtime = items.runtime;
@@ -24,7 +24,7 @@ pub(super) fn capture(
         capture_titles(
             player_runtime,
             runtime,
-            stream,
+            world,
             inventory_screen,
             &mut window_text,
         );
@@ -47,7 +47,7 @@ pub(super) fn capture(
 fn capture_titles(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     inventory_screen: InventoryScreen,
     window_text: &mut WindowText,
 ) {
@@ -64,12 +64,12 @@ fn capture_titles(
         .or_else(|| {
             ledger
                 .window_actor()
-                .and_then(|actor| stream?.authority().actor_container_name(actor))
+                .and_then(|actor| world?.actor_container_name(actor))
                 .map(|name| name.to_string())
                 .or_else(|| {
                     ledger
                         .window_position()
-                        .and_then(|position| stream?.block_entity_custom_name(position))
+                        .and_then(|position| world?.block_entity_custom_name(position.into()))
                 })
         });
     window_text.custom_title.clone_from(&stated_title);

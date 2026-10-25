@@ -19,7 +19,7 @@ fn unchanged_full_projection_reuses_on_and_off_screen_text_without_allocating() 
             let tags = project_nametags(
                 text,
                 &boards,
-                &stream,
+                stream.authority().nametag_ui(),
                 view(camera),
                 None,
                 1.0,
@@ -225,7 +225,7 @@ fn off_screen_near_actors_do_not_consume_the_tag_or_record_budgets() {
         let unculled = project_nametags(
             &mut text_cache,
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view,
             None,
             1.0,
@@ -259,7 +259,7 @@ fn off_screen_near_actors_do_not_consume_the_tag_or_record_budgets() {
         let tags = project_nametags(
             &mut text_cache,
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view,
             None,
             1.0,

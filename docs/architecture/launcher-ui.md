@@ -62,13 +62,22 @@ remain synchronous:
   session checks. UI sound requests keep their bounded queue and are drained at
   the original audio phase.
 
-`client-ui` still depends on `render` for existing draw and preview types, and on
-`chunk-pipeline` for existing read-only world queries. The app and client UI
-currently name that dependency `client-world` to preserve their `WorldStream`
-callers. `player-state` depends directly on the smaller `client-world` crate for
-`LocalPlayerFacts`; it does not depend on the stream coordinator. UI compilation
-fixtures use `pack-compiler` for UI carriers and `pack-entity-compiler` for actor
-artwork, while `asset-compiler` remains the offline CLI.
+`client-ui` reads admitted world facts through three borrowed `client-world::ui_read`
+contracts: `InventoryUi` for container admission, stations, mount HUD and item publication;
+`LocalPlayerUi` for the local profile, skin and evaluated equipment/body pose; and
+`NametagUi` for actor labels and ride relationships. Queries remain lazy and
+synchronous at the existing frame observation points. Shared profiles, skin/pack
+allocations, NBT and registry identity tokens retain their original owners.
+Container block queries accept the existing global `world::BlockPos`, keeping
+block positions distinct from chunk and section keys.
+
+Shared block-crack observations belong to `client-world`; the app captures them
+after the stream advances progression and passes the snapshot to UI. Scheduling,
+worker queues and world mutation stay outside UI. `chunk-pipeline` is only a UI
+dev-dependency for existing integration fixtures. Draw and preview types come from
+`render-api` and `render-model`. UI compilation fixtures use `pack-compiler` for UI
+carriers and `pack-entity-compiler` for actor artwork, while `asset-compiler` remains
+the offline CLI.
 The gate keeps reusable compilation out of UI production and out of launcher
 models, including their test dependencies. The UI's extension chrome retains
 `mod-host` and `server-experience`. These are explicit temporary dependencies in
@@ -79,7 +88,10 @@ models and player state have no Bevy or renderer dependency.
 
 `tools/architecture/policy.toml` records the new dependency allowlists and rejects
 transitive Bevy, renderer and client-UI backedges from launcher and player state.
-It rejects app, runtime, session and gameplay dependencies from client-ui. Source rules reject
+It rejects app, runtime, session and gameplay dependencies from client-ui.
+A production dependency rule also rejects streaming, meshing and far-terrain routes
+from client-ui, including transitive, renamed, workspace-inherited and target-specific
+build edges. The same packages remain available to test-only fixtures. Source rules reject
 app module access from the new crates, UI-owned inventory/player authority, and
 movement access to UI (including the new crate name).
 

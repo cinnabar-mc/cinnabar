@@ -244,14 +244,19 @@ pub(crate) fn prepare_ui_runtime(
     let skin = if menu_visible {
         player_preview::local_preview_skin(None, &own_pixels)
     } else {
-        player_preview::local_preview_skin(stream, &own_pixels)
+        player_preview::local_preview_skin(
+            stream.map(|stream| stream.authority().local_player_ui()),
+            &own_pixels,
+        )
     };
     let dressing_room =
         menu_visible && menu_scene == Some(launcher::menu::MenuScreen::DressingRoom);
     let pose = if dressing_room {
         player_preview::PlayerPreviewPose::default()
     } else {
-        player_preview::PlayerPreviewPose::of_local_player(stream)
+        player_preview::PlayerPreviewPose::of_local_player(
+            stream.map(|stream| stream.authority().local_player_ui()),
+        )
     };
     presentation.set_preview_equipment_assets(
         client_world.entity_assets.clone(),
@@ -276,7 +281,7 @@ pub(crate) fn prepare_ui_runtime(
         presentation.dress_player_preview(
             &player_runtime,
             &runtime,
-            stream,
+            stream.map(|stream| stream.authority().inventory_ui()),
             actor_animation::AttachableAnimationInput {
                 frame_alpha: actor_partial.0,
                 delta_seconds: Some(time.delta_secs()),
@@ -324,7 +329,10 @@ pub(crate) fn prepare_ui_runtime(
         });
     if hud_doll || runtime.emotes().is_open() || control_preview_player {
         presentation.capture_hud_player_with_emote(
-            client_world.stream.as_ref(),
+            client_world
+                .stream
+                .as_ref()
+                .map(|stream| stream.authority().local_player_ui()),
             doll_state.is_some_and(|state| state.swimming),
             emote_preview,
         );
@@ -371,7 +379,10 @@ pub(crate) fn prepare_ui_runtime(
     client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,
         &mut runtime,
-        client_world.stream.as_ref(),
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().inventory_ui()),
         |position| {
             station_triggered(
                 client_world.stream.as_ref()?,
@@ -403,7 +414,10 @@ pub(crate) fn prepare_ui_runtime(
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        client_world.stream.as_ref(),
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().inventory_ui()),
         camera_settings.perspective(),
         now_millis,
         icon_frames,
@@ -526,7 +540,7 @@ pub(crate) fn prepare_ui_runtime(
             let mut tags = nametags::project_nametags(
                 &mut nametag_cache,
                 runtime.scoreboards(),
-                stream,
+                stream.authority().nametag_ui(),
                 nametag_view,
                 picked_actor.as_deref().and_then(|picked| picked.0),
                 actor_partial.0,
@@ -596,8 +610,13 @@ pub(crate) fn prepare_ui_runtime(
     #[cfg(target_arch = "wasm32")]
     let menu_view = None;
     presentation.set_menu_view(menu_view);
-    presentation
-        .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    presentation.refresh_scoreboard_owner_names(
+        runtime.scoreboards(),
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().nametag_ui()),
+    );
     presentation.publish_scene_inputs(&mut runtime);
     prepared.0 = Some(PendingUiPublication {
         inventory: runtime.capture_presentation_inventory(&player_runtime),

@@ -114,7 +114,7 @@ fn custom_wearable_protection_reaches_the_rendered_hud() {
         &player,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         Default::default(),

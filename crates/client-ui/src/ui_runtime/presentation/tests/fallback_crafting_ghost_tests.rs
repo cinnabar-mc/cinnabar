@@ -442,7 +442,7 @@ fn assert_ghost_tooltip(workbench: bool, output: bool) {
         &player,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         ItemIconFrames::default(),

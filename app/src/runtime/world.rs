@@ -58,7 +58,6 @@ use client_world::CommittedControlEvent;
 
 use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
-use client_ui::block_cracks::reconcile_world_block_cracks;
 use protocol::BlobCacheStats;
 use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
@@ -774,7 +773,7 @@ pub(crate) fn drive_world_stream(
     } else {
         time.delta_secs()
     });
-    reconcile_world_block_cracks(&mut ui_runtime, stream);
+    ui_runtime.project_block_cracks(stream.block_crack_snapshot());
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world

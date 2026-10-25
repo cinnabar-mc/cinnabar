@@ -92,7 +92,7 @@ fn capture(
     let items = ItemResolver {
         runtime,
         presentation,
-        authority: Some(stream.authority()),
+        authority: Some(stream.authority().inventory_ui()),
     };
     let update = cache.capture(player, &items, &ItemIconFrames::default());
     let expected = capture_contents(

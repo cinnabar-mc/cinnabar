@@ -897,7 +897,7 @@ fn presented_selected_durability(
         player_runtime,
         runtime,
         &mut presentation,
-        Some(stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );

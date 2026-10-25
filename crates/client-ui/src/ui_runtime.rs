@@ -478,18 +478,18 @@ impl UiRuntime {
         true
     }
 
-    pub fn project_block_cracks(&mut self, snapshot: chunk_pipeline::BlockCrackSnapshot) {
+    pub fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {
         self.session.block_cracks.project(snapshot);
         self.session
             .block_cracks
             .report_status(self.session.session_id, self.block_cracks_status());
     }
 
-    pub fn block_crack_snapshot(&self) -> Option<&chunk_pipeline::BlockCrackSnapshot> {
+    pub fn block_crack_snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
         self.session.block_cracks.snapshot()
     }
 
-    pub fn block_cracks_status(&self) -> chunk_pipeline::BlockCrackStatus {
+    pub fn block_cracks_status(&self) -> client_world::BlockCrackStatus {
         self.session.block_cracks.status()
     }
 
@@ -551,7 +551,7 @@ impl UiRuntime {
     pub fn toggle_inventory(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
-        authority: Option<&client_world::WorldAuthority>,
+        authority: Option<client_world::ui_read::InventoryUi<'_>>,
     ) -> UiAuthorityTransition {
         self.session.screen.container_close_armed = false;
         self.session.chat_focused = false;
@@ -577,12 +577,12 @@ impl UiRuntime {
                 self.local_runtime_id(player_runtime)
                     .is_some_and(|runtime_id| {
                         let mount = authority
-                            .filter(|world| world.local_player_runtime_id() == runtime_id)
+                            .filter(|world| world.local_player().runtime_id() == runtime_id)
                             .and_then(|world| {
                                 player_runtime
                                     .facts
                                     .mount_unique_id()
-                                    .and_then(|mount| world.actor_by_unique_id(mount))
+                                    .and_then(|mount| world.container_actor(mount))
                             });
                         let ledger = player_runtime.inventory.ledger_mut();
                         ledger.request_personal_open(

@@ -432,7 +432,7 @@ fn has_nametag_lines(
 pub fn project_nametags(
     cache: &mut NametagTextCache,
     scoreboards: &ui::ScoreboardStore,
-    stream: &chunk_pipeline::WorldStream,
+    names: client_world::ui_read::NametagUi<'_>,
     view: NametagView,
     picked_actor: Option<u64>,
     partial_tick: f32,
@@ -441,7 +441,7 @@ pub fn project_nametags(
 ) -> Vec<NametagAnchor> {
     #[cfg(feature = "tracy")]
     let _zone = tracing::info_span!("nametag.select").entered();
-    let authority = stream.authority();
+    let authority = names;
     for cached in cache.entries.values_mut() {
         cached.queried = false;
     }
@@ -461,7 +461,7 @@ pub fn project_nametags(
             .remote_actors()
             .filter(|actor| show_players || !matches!(actor.kind, ActorKind::Player { .. }))
             .filter_map(|actor| {
-                let name = stream.authority().actor_name_tag(actor.unique_id)?;
+                let name = authority.actor_name_tag(actor.unique_id)?;
                 let (_, distance_squared) =
                     nametag_geometry(actor, view.camera_position, picked_actor, partial_tick)?;
                 has_nametag_lines(
