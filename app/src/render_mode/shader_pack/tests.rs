@@ -321,3 +321,42 @@ fn selecting_then_disabling_a_pack_returns_settings_to_zero_systems() {
     assert!(requested(&app).is_none());
     assert_eq!(frame_executions(&mut app), 0);
 }
+
+#[test]
+fn off_withdraws_loading_feedback_before_settings_become_idle() {
+    use client_shell::ui_resources::UiRuntimeResource;
+    use render_scene::shaderpack::ShaderPackStatus;
+    let mut app = scheduled_app();
+    app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
+        .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
+        .insert_resource(ShaderPackStatus::Loading(packs().join("Dusk.zip")));
+    select(&mut app, RenderMode::ShaderPack, Some("Dusk.zip"));
+    frame_executions(&mut app);
+    app.world_mut()
+        .resource_mut::<Time<bevy::time::Real>>()
+        .advance_by(launcher::menu::shader_pack_status::LOADING_TOAST_DELAY);
+    frame_executions(&mut app);
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .hud()
+            .standing_toast()
+            .unwrap()
+            .until_millis,
+        u64::MAX
+    );
+    select(&mut app, RenderMode::Vanilla, None);
+    frame_executions(&mut app);
+    app.world_mut().insert_resource(ShaderPackStatus::Idle);
+    assert!(frame_executions(&mut app) > 0);
+    assert_ne!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .hud()
+            .standing_toast()
+            .unwrap()
+            .until_millis,
+        u64::MAX
+    );
+    assert_eq!(frame_executions(&mut app), 0);
+}

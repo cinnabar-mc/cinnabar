@@ -115,8 +115,13 @@ impl Plugin for ShaderpackGeometryPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
+        super::scheduling::configure_render(render_app);
         render_app
             .init_resource::<ShaderpackGeometrySettings>()
+            .add_systems(
+                bevy::render::ExtractSchedule,
+                super::kernels::extract_shared_shaders.in_set(super::scheduling::ShaderPackSystems),
+            )
             .add_systems(
                 Render,
                 super::kernels::prepare_kernels

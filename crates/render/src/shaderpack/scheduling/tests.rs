@@ -123,3 +123,35 @@ fn loaded_pack_releases_render_owners_then_returns_to_zero_systems() {
     render.clear_trackers();
     assert_eq!(executions(render, Render), 0);
 }
+
+#[test]
+fn standalone_geometry_extracts_shared_shaders_until_off_releases_its_cache() {
+    use crate::shaderpack::geometry::ShaderpackGeometryPlugin;
+    use bevy::render::renderer::{RenderDevice, RenderQueue};
+    let mut app = App::new();
+    app.init_resource::<Assets<Shader>>()
+        .add_message::<AssetEvent<Shader>>();
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    render.init_schedule(ExtractSchedule);
+    app.insert_sub_app(bevy::render::RenderApp, render);
+    app.add_plugins(ShaderpackGeometryPlugin);
+    let mut ready = plugin::native_tests::ready_world();
+    let render = app.sub_app_mut(bevy::render::RenderApp).world_mut();
+    render.insert_resource(ready.remove_resource::<RenderDevice>().unwrap());
+    render.insert_resource(ready.remove_resource::<RenderQueue>().unwrap());
+    render.resource_mut::<ShaderpackGeometrySettings>().enabled = true;
+    assert!(executions(render, Render) > 0);
+    assert!(render.contains_resource::<Kernels>());
+    assert!(extract(&mut app) > 0);
+    let render = app.sub_app_mut(bevy::render::RenderApp).world_mut();
+    render.resource_mut::<ShaderpackGeometrySettings>().enabled = false;
+    assert!(executions(render, Render) > 0);
+    assert!(!render.contains_resource::<Kernels>());
+    render.clear_trackers();
+    assert_eq!(extract(&mut app), 0);
+    assert_eq!(
+        executions(app.sub_app_mut(bevy::render::RenderApp).world_mut(), Render),
+        0
+    );
+}

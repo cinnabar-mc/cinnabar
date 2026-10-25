@@ -151,6 +151,7 @@ impl MenuRuntime {
             || self.shader_pack_remove_request.is_some()
             || self.shader_pack_removing.is_some()
             || self.has_shader_option_work()
+            || self.has_shader_pack_feedback()
     }
 
     /// Whether files dropped on the window go to the shader-pack folder while the Shaders

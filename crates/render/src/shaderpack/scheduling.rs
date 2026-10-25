@@ -34,12 +34,12 @@ pub(super) fn main_work_pending(world: &World) -> bool {
             .is_some_and(ViewFailures::is_pending)
 }
 
-/// Extracts the Off transition while the render world still owns the previous pack.
-pub(super) fn extraction_pending(
-    main: Res<MainWorld>,
-    pack: Option<Res<LoadedShaderPack>>,
-) -> bool {
-    main_work_pending(&main) || pack.is_some_and(|pack| pack.0.is_some())
+/// Extracts while a main-world load or an existing render owner still needs shader inputs.
+pub(super) fn extraction_pending(world: &World) -> bool {
+    world
+        .get_resource::<MainWorld>()
+        .is_some_and(|main| main_work_pending(main))
+        || render_work_pending(world)
 }
 
 /// Copies opted-in cameras; the sync plugin removes their markers when main cameras leave.
@@ -84,9 +84,13 @@ pub(super) fn admit_cameras(
     }
 }
 
-/// Gives every optional render-preparation system the same lifecycle condition.
+/// Gates extraction and render preparation with their existing load and render owners.
 pub(super) fn configure_render(app: &mut SubApp) {
-    app.configure_sets(Render, ShaderPackSystems.run_if(render_work_pending));
+    app.configure_sets(Render, ShaderPackSystems.run_if(render_work_pending))
+        .configure_sets(
+            bevy::render::ExtractSchedule,
+            ShaderPackSystems.run_if(extraction_pending),
+        );
 }
 
 #[cfg(test)]

@@ -937,10 +937,9 @@ pub(super) fn finish(app: &mut App) {
                 extract_resource::<ShaderPackFrameInputs, RenderApp, ()>,
                 extract_resource::<ShaderPackActorIds, RenderApp, ()>,
                 extract_resource::<DedicatedGraphicsMemory, RenderApp, ()>,
-                super::kernels::extract_shared_shaders,
                 crate::actor::gpu::extract_artwork_raw_views,
             )
-                .run_if(super::scheduling::extraction_pending),
+                .in_set(super::scheduling::ShaderPackSystems),
         )
         .add_systems(
             Render,
@@ -969,7 +968,6 @@ pub(super) fn finish(app: &mut App) {
             )
                 .in_set(super::scheduling::ShaderPackSystems),
         );
-    super::scheduling::configure_render(render_app);
     install_graph(render_app.world_mut());
 }
 
