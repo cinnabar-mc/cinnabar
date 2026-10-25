@@ -119,6 +119,8 @@ type materialFxConn struct {
 	thermal bool
 	// portalDistance is the distance last sent, in thousandths.
 	portalDistance int64
+	// missing is set while the client part refuses records, so the player hears of it once.
+	missing bool
 }
 
 // ReadPacket runs /materialfx, follows the player for the radar and the portal, and turns hits
@@ -155,11 +157,19 @@ func (c *materialFxConn) ReadPacket() (packet.Packet, error) {
 	}
 }
 
-// send hands `records` to the client part, saying so once when it is not running.
+// send hands `records` to the client part. When it is not running, the player is told once
+// until a record goes through again, however many commands, binds and radar updates fail.
 func (c *materialFxConn) send(records ...[]cinnabarext.Scalar) {
 	for _, record := range records {
-		if c.ext == nil || !c.ext.send(c.id, materialFxID, materialFxChannel, materialFxSchema, record) {
+		sent := c.ext != nil && c.ext.send(c.id, materialFxID, materialFxChannel, materialFxSchema, record)
+		c.mu.Lock()
+		warn := !sent && !c.missing
+		c.missing = !sent
+		c.mu.Unlock()
+		if warn {
 			c.tell("materialfx: no active client part (run the client with CINNABAR_DEV_SERVER_EXPERIENCES=1)")
+		}
+		if !sent {
 			return
 		}
 	}
