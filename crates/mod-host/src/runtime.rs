@@ -9,7 +9,6 @@ use crate::{
     ModGrants, ModScreens, PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
-pub(crate) use recovery::MAX_CONSECUTIVE_FRAME_OVERRUNS;
 use server_experience::{
     runtime::{CALLBACK_FUEL, LOAD_FUEL},
     screen::ScreenLayout as HostLayout,
@@ -31,6 +30,8 @@ wasmtime::component::bindgen!({
 });
 
 pub(crate) const MAX_IMPORT_WRITES: u32 = 8;
+/// Consecutive frame fuel overruns before a local guest loses its session authority.
+pub(crate) const MAX_CONSECUTIVE_FRAME_OVERRUNS: u32 = 3;
 #[path = "block_highlights.rs"]
 mod block_highlights;
 #[path = "camera.rs"]

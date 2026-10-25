@@ -81,6 +81,14 @@ pub(super) struct ControlState {
 }
 
 impl ControlState {
+    /// Keeps native edits and their displayed values when admitted code restarts after fuel loss.
+    pub(super) fn recover_input(&mut self, previous: &mut Self) {
+        self.panel.clone_from(&previous.panel);
+        self.open = previous.open && self.panel.is_some();
+        self.text_events = std::mem::take(&mut previous.text_events);
+        self.field_events = std::mem::take(&mut previous.field_events);
+    }
+
     pub(super) fn settings(&self) -> &str {
         &self.settings
     }

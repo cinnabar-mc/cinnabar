@@ -114,7 +114,7 @@ fn fuel_recovery_preserves_committed_settings_and_rejects_failed_writes() {
     let settings = r#"{"done":true}"#;
     let source = prepared_settings::settings_guest("{}", settings)
         .replace("i32.const 1024 i32.const 2 i32.const 512 call $save", "")
-        .replace("(func (export \"frame\")", "(func (export \"frame\") call $pressed if i32.const 1024 i32.const 2 i32.const 512 call $save (loop $forever br $forever) end");
+        .replacen("(func (export \"frame\")", "(func (export \"frame\") call $pressed if i32.const 1024 i32.const 2 i32.const 512 call $save (loop $forever br $forever) end", 1);
     std::fs::write(&path, source).unwrap();
     let mut host = ModHost::load_with_grants(
         &path,
@@ -187,8 +187,8 @@ fn failed_recovery_initialization_quarantines_instead_of_retrying() {
         .replace("(core func $lower-settings", "(core func $lower-load (canon lower (func $get-settings) (memory $memory) (realloc $realloc))) (core func $lower-settings")
         .replace("(import \"host\" \"save\"", "(import \"host\" \"load\" (func $load (param i32))) (import \"host\" \"save\"")
         .replace("(export \"save\" (func $lower-settings))", "(export \"load\" (func $lower-load)) (export \"save\" (func $lower-settings))")
-        .replace("(func (export \"init\")", "(func (export \"init\") i32.const 800 call $load i32.const 808 i32.load if unreachable end")
-        .replace("(func (export \"frame\")", "(func (export \"frame\") (loop $forever br $forever)");
+        .replacen("(func (export \"init\")", "(func (export \"init\") i32.const 800 call $load i32.const 808 i32.load if unreachable end", 1)
+        .replacen("(func (export \"frame\")", "(func (export \"frame\") (loop $forever br $forever)", 1);
     std::fs::write(&path, source).unwrap();
     let mut host = ModHost::load_with_grants(
         &path,

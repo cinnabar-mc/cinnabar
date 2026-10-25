@@ -2,9 +2,6 @@
 
 use super::*;
 
-/// Consecutive frame fuel overruns before a local guest loses its session authority.
-pub(crate) const MAX_CONSECUTIVE_FRAME_OVERRUNS: u32 = 3;
-
 impl Instance {
     /// Retains committed output only for bounded, recoverable frame fuel traps.
     pub(super) fn callback_failure(&mut self, fuel: u64, error: anyhow::Error) -> anyhow::Error {
@@ -68,15 +65,19 @@ impl Instance {
         };
         candidate.callback_budget = self.callback_budget.clone();
         candidate.consecutive_frame_overruns = self.consecutive_frame_overruns;
-        candidate.set_panel_open(self.panel_open());
+        let previous = self.store.data_mut();
+        let state = candidate.store.data_mut();
+        state.controls.recover_input(&mut previous.controls);
+        state.hud.editor_result = previous.hud.editor_result.take();
+        state.events.modifiers = previous.events.modifiers;
         // These host observations were supplied for the upcoming frame, not the failed one.
-        std::mem::swap(
-            &mut candidate.store.data_mut().player_state,
-            &mut self.store.data_mut().player_state,
-        );
-        candidate.store.data_mut().world.incoming =
-            std::mem::take(&mut self.store.data_mut().world.incoming);
+        std::mem::swap(&mut state.player_state, &mut previous.player_state);
+        state.world.recover_input_and_limits(&mut previous.world);
         *self = candidate;
         Ok(true)
     }
 }
+
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod tests;

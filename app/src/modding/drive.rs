@@ -229,7 +229,7 @@ pub(super) fn drive_mod(
                 .collect(),
         });
     terrain.refresh(&mut extension.hosts, &gameplay, world_observation.as_ref());
-    let mut callback_failed = false;
+    let mut callback_failures = Vec::new();
     multi::run_frame_callbacks(
         &mut extension.hosts,
         multi::FrameInput {
@@ -250,15 +250,19 @@ pub(super) fn drive_mod(
             (snapshot, mobs, movement)
         },
         |index, error| {
-            callback_failed = true;
-            if let Some(registered) = &registrations[index]
-                && let Some(watcher) = watcher.as_ref()
-            {
-                watcher.quarantine(&registered.entry, error.clone());
-            }
-            warn!("Cinnabar extension callback failed: {error}");
+            callback_failures.push((index, error));
         },
     );
+    let mut callback_failed = !callback_failures.is_empty();
+    for (index, error) in callback_failures {
+        if !extension.hosts.host(index).is_active()
+            && let Some(registered) = &registrations[index]
+            && let Some(watcher) = watcher.as_ref()
+        {
+            watcher.quarantine(&registered.entry, error.clone());
+        }
+        warn!("Cinnabar extension callback failed: {error}");
+    }
     // A tapped mod that opened its panel shows it, as its toggle key would.
     extension.hosts.select_panels_opened_by_taps();
     for index in 0..extension.hosts.host_count() {

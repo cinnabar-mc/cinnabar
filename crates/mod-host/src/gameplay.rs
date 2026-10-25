@@ -32,6 +32,13 @@ pub(super) struct WorldState {
 }
 
 impl WorldState {
+    /// Preserves host command throttling and undelivered cues across automatic guest recovery.
+    pub(super) fn recover_input_and_limits(&mut self, previous: &mut Self) {
+        self.window_seconds = previous.window_seconds;
+        self.window_sent = previous.window_sent;
+        self.incoming = std::mem::take(&mut previous.incoming);
+    }
+
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
         self.movement_toggles = None;
