@@ -450,12 +450,12 @@ fn cosmetic_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
     presentation.set_preview_cosmetics(&[item]);
     let motion = [(item, render_model::hats::Motion::default())];
     presentation.set_cosmetic_motion(&motion);
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     // Grow every scratch buffer before measuring its steady state.
-    presentation.capture_hud_player(Some(&stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     let (_, allocations) = test_alloc::count(|| {
         presentation.set_cosmetic_motion(&motion);
-        presentation.capture_hud_player(Some(&stream), false);
+        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     });
     assert_eq!(allocations, 0);
     assert!(!presentation.gui_models.live_player.hat_vertices[&item].is_empty());
