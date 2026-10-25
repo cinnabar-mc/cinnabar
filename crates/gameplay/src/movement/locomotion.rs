@@ -11,7 +11,8 @@ mod swimming_trigger;
 
 /// A second jump press within this many ticks of the first toggles flight.
 const FLY_TRIGGER_TICKS: i32 = 7;
-/// Gliding ticks after which a fresh jump press ends the glide without Instabuild.
+/// Gliding ticks after which a fresh jump press ends the glide without Instabuild,
+/// and held jump makes an Instabuild glide climb.
 const GLIDE_CANCEL_TICKS: u32 = 11;
 
 /// What the local player is mounted on; only the steering-relevant classes.
@@ -122,6 +123,8 @@ pub(super) struct ModeChoice {
     pub sprinting: bool,
     /// The double-tap requested starting (true) or stopping (false) flight this tick.
     pub flight_request: Option<bool>,
+    /// Instabuild jump input pushes this tick's glide upward.
+    pub glide_ascent: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -323,6 +326,7 @@ impl ModeTracker {
                 forced_sneak: false,
                 sprinting: self.sprinting,
                 flight_request: None,
+                glide_ascent: false,
             });
         }
         // Every ability update overwrites local flight, even when it repeats the previous value.
@@ -358,6 +362,7 @@ impl ModeTracker {
                 forced_sneak: false,
                 sprinting: false,
                 flight_request,
+                glide_ascent: false,
             });
         }
         // Flight survives ground contact; server flight does not require MayFly.
@@ -459,6 +464,11 @@ impl ModeTracker {
         let forced_sneak = forced_sneak && mode == MovementMode::Walking;
         self.last_flight = intent.flight;
         self.last_ability_sequence = intent.ability_sequence;
+        // Holding jump climbs instead once the glide has outlasted its cancel window.
+        let glide_ascent = gliding
+            && intent.instabuild
+            && observed.jump_down
+            && self.fall_fly_ticks >= GLIDE_CANCEL_TICKS;
         // Every glide entry counts from its own first tick.
         self.fall_fly_ticks = match (self.poses.gliding, poses.gliding) {
             (true, true) => self.fall_fly_ticks.saturating_add(1),
@@ -475,6 +485,7 @@ impl ModeTracker {
             forced_sneak,
             sprinting: self.sprinting,
             flight_request,
+            glide_ascent,
         })
     }
 

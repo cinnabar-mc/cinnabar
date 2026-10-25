@@ -579,6 +579,35 @@ fn instabuild_keeps_gliding_through_a_jump_press() {
     );
 }
 
+/// Holding jump makes an Instabuild glide climb once its cancel window has passed;
+/// without Instabuild the same hold never pushes the glide.
+#[test]
+fn held_jump_climbs_an_instabuild_glide_after_ten_ticks() {
+    let held = ModeObservation {
+        jump_down: true,
+        ..airborne()
+    };
+    for instabuild in [true, false] {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            elytra_ready: true,
+            instabuild,
+            ..ModeIntent::default()
+        };
+        let mut ascent = |observed| {
+            let choice = tracker.select(intent, observed, &Ceiling(None)).unwrap();
+            assert_eq!(choice.mode, MovementMode::Gliding);
+            choice.glide_ascent
+        };
+        assert!(!ascent(pressed(airborne())));
+        for tick in 1..GLIDE_CANCEL_TICKS {
+            assert!(!ascent(held), "tick {tick} is inside the cancel window");
+        }
+        assert_eq!(ascent(held), instabuild);
+        assert!(!ascent(airborne()), "releasing jump stops the climb");
+    }
+}
+
 /// In creative the flight double-tap is what ends a glide: flight takes over.
 #[test]
 fn creative_double_tap_switches_a_glide_to_flight() {
