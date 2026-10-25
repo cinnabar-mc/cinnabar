@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
+platform-specific = ["macos"]
 reads = ["packaging/ios/runtime.json"]
 
 # The iOS app's executable; elsewhere it is an empty program, so desktop builds still compile it.
