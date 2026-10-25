@@ -145,6 +145,10 @@ fn dispatch(world: &mut World) {
             }
             Command::Chat { text } => chat(world, &text),
             Command::TestCape { enabled } => cape::apply(world, enabled),
+            Command::ExperiencePermission {
+                permission,
+                withdrawn,
+            } => crate::server_experiences::withdraw_permission(world, &permission, withdrawn),
             Command::SignInFixture { state } => world
                 .get_resource_mut::<client_shell::menu::MenuRuntime>()
                 .ok_or_else(|| "the launcher menu is unavailable".to_owned())

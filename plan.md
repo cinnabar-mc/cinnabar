@@ -133,7 +133,7 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   vanilla included, needs the separate `render_world_material_override` (API 3), denied by
   default, with its own consent line. The consent
   line reads "Change how this server's own mobs and blocks look (up to N MB GPU memory)". The
-  `world-material` import (`server-experience@1.4.0`)
+  `world-material` import (`server-experience@1.4.0`, now 1.5.0)
   declares materials and bindings; bound entities and cube blocks draw with them under
   host-owned depth, blend and pass, charged to the signed memory and GPU limits, and revocation
   restores Bedrock in one publication. Cube and model blocks are both tagged, and translucent
@@ -171,6 +171,15 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   unqualified. CI assertions cover
   the deterministic part: unchanged reloads create no pipelines, compiles or uploads, and one
   material change rebuilds only its dependents once.
+- [ ] World material effects (`world-material-effects`, `server-experience@1.5.0`, API 4): vertex
+  displacement (`render_world_material_vertex`), scene read (`render_world_material_scene`) and
+  extra passes and compute (`render_world_material_passes`), each its own provisional consent
+  line, denied by default (a `CINNABAR_DEV_WORLD_MATERIAL_*` variable opts the developer client
+  in), developer-only and charged to the bundle's limits; withdrawing one drops its effects in
+  one publication. Implemented: the contract, validation of each effect's functions and ranges,
+  publication, charges and withdrawal (developer-control `experience_permission`). Incomplete:
+  the renderers do not draw any effect yet, there is no in-game withdrawal control, and every
+  range and charge is provisional.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;

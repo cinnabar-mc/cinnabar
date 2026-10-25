@@ -14,7 +14,10 @@
     "render_material",
     "render_world_material",
     "render_post",
-    "render_world_material_override"
+    "render_world_material_override",
+    "render_world_material_vertex",
+    "render_world_material_scene",
+    "render_world_material_passes"
   ],
   "implemented_permissions": [
     "ui",

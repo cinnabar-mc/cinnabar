@@ -579,6 +579,7 @@ mod tests {
         material.material = std::sync::Arc::new(abi::WorldMaterial {
             source: "fn shade(input: WorldMaterialInput) -> Surface { return Surface(vec3<f32>(1.0), 1.0, vec3<f32>(0.0)); }".into(),
             textures: 1,
+            features: Default::default(),
         });
         let other_variant = WorldVariant::of(material).unwrap();
         assert_ne!(other_variant.program, variant.program);

@@ -17,6 +17,7 @@ fn world_declarations_are_refused_against_retained_state_and_kept_across_commits
         params: Vec::new(),
         depth: WorldDepth::Test,
         blend: WorldBlend::Opaque,
+        effects: Default::default(),
     };
     let bind = |material| Command::WorldBinding {
         id: 0,
@@ -167,6 +168,7 @@ fn staging_a_declaration_copies_none_of_the_others_and_a_failed_callback_undoes_
         params: vec![0.0; 16],
         depth: WorldDepth::Test,
         blend: WorldBlend::Opaque,
+        effects: Default::default(),
     };
     for id in 0..200 {
         state

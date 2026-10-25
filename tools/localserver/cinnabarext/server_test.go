@@ -188,6 +188,22 @@ func TestNewServerOffersWorldMaterialMemory(t *testing.T) {
 	}
 }
 
+// A bundle that may read the scene or draw extra passes asks for their GPU memory too.
+func TestNewServerOffersWorldMaterialEffectsMemory(t *testing.T) {
+	plain, _ := testServer(t, nil)
+	base, _ := markerOffer(t, plain.Marker())
+	for _, permission := range []Permission{PermissionRenderWorldMaterialScene, PermissionRenderWorldMaterialPasses} {
+		s, _ := testServer(t, func(cfg *Config) {
+			cfg.Bundles[0].Manifest.Permissions |= NewPermissions(PermissionRenderWorldMaterial, permission)
+		})
+		offer, _ := markerOffer(t, s.Marker())
+		want := min(MaxGPUBytes, base.Scope.GPUBytes+uint64(len(offer.Packages))*(WorldMaterialGPUBytes+WorldMaterialEffectsGPUBytes))
+		if offer.Scope.GPUBytes != want {
+			t.Errorf("%v: GPU bytes %d, want %d", permission, offer.Scope.GPUBytes, want)
+		}
+	}
+}
+
 // Startup refuses an offer the client would refuse or could not reach.
 func TestNewServerRejects(t *testing.T) {
 	tooMany := func(cfg *Config) {

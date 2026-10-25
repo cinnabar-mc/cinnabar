@@ -72,28 +72,45 @@ fn hosts_notice(origins: &std::collections::BTreeSet<String>) -> String {
     }
 }
 
-/// What approving `render_world_material` allows, as one plain permission line with the GPU
-/// memory that bounds it, in whole megabytes rounded up, and a line of its own for
-/// `render_world_material_override`; empty when the offer asks for neither.
+/// What approving `render_world_material` and each permission extending it allows, one plain
+/// line each with the GPU memory that bounds them all, in whole megabytes rounded up; empty
+/// when the offer asks for none of them.
 pub fn world_material_notice(scope: &server_experience::manifest::Scope) -> String {
+    use server_experience::manifest::{Permission, WORLD_MATERIAL_EXTENSIONS};
+    let asked = std::iter::once(Permission::RenderWorldMaterial).chain(
+        WORLD_MATERIAL_EXTENSIONS
+            .iter()
+            .map(|extension| extension.permission),
+    );
+    asked
+        .filter(|permission| scope.permissions.contains(permission))
+        .filter_map(world_material_line)
+        .map(|line| format!("{line} (up to {} MB GPU memory)\n", gpu_megabytes(scope)))
+        .collect()
+}
+
+/// The consent line of a world material permission, before its GPU memory. The lines of the
+/// vertex, scene and passes permissions are provisional wording.
+fn world_material_line(
+    permission: server_experience::manifest::Permission,
+) -> Option<&'static str> {
     use server_experience::manifest::Permission;
-    let mut notice = String::new();
-    if scope.permissions.contains(&Permission::RenderWorldMaterial) {
-        notice.push_str(&format!(
-            "Change how this server's own mobs and blocks look (up to {} MB GPU memory)\n",
-            gpu_megabytes(scope)
-        ));
-    }
-    if scope
-        .permissions
-        .contains(&Permission::RenderWorldMaterialOverride)
-    {
-        notice.push_str(&format!(
-            "Change how any mob or block looks, including vanilla ones (up to {} MB GPU memory)\n",
-            gpu_megabytes(scope)
-        ));
-    }
-    notice
+    Some(match permission {
+        Permission::RenderWorldMaterial => "Change how this server's own mobs and blocks look",
+        Permission::RenderWorldMaterialOverride => {
+            "Change how any mob or block looks, including vanilla ones"
+        }
+        Permission::RenderWorldMaterialVertex => {
+            "Move and bend how the mobs and blocks it restyles are drawn; where they really are and what you can hit stay the same"
+        }
+        Permission::RenderWorldMaterialScene => {
+            "Let the mobs and blocks it restyles show what is behind them on your screen, bent or blurred"
+        }
+        Permission::RenderWorldMaterialPasses => {
+            "Run extra drawing and GPU work for the mobs and blocks it restyles, such as glows, outlines and particles"
+        }
+        _ => return None,
+    })
 }
 
 /// The offer's GPU limit, as the host enforces it, in whole megabytes rounded up.
@@ -157,6 +174,31 @@ mod status_tests {
         scope.gpu_bytes = u64::MAX;
         let ceiling = server_experience::policy::MAX_GPU_BYTES >> 20;
         assert!(world_material_notice(&scope).contains(&format!("(up to {ceiling} MB")));
+    }
+
+    #[test]
+    fn every_world_material_extension_has_its_own_consent_line() {
+        use server_experience::manifest::{Permission, WORLD_MATERIAL_EXTENSIONS};
+        let mut scope = server_experience::manifest::Scope {
+            permissions: [Permission::RenderWorldMaterial].into(),
+            origins: Default::default(),
+            memory_bytes: 0,
+            gpu_bytes: 8 << 20,
+            personal_mods: Default::default(),
+        };
+        let base = world_material_notice(&scope);
+        let mut lines = std::collections::BTreeSet::new();
+        for extension in WORLD_MATERIAL_EXTENSIONS {
+            let line = world_material_line(extension.permission)
+                .unwrap_or_else(|| panic!("{} has no consent line", extension.name));
+            assert!(lines.insert(line), "{} shares a line", extension.name);
+            scope.permissions.insert(extension.permission);
+            let notice = world_material_notice(&scope);
+            assert!(notice.starts_with(&base));
+            assert!(notice.contains(&format!("{line} (up to 8 MB GPU memory)\n")));
+            assert!(!line.contains('\n') && line.chars().all(|c| !c.is_control()));
+            scope.permissions.remove(&extension.permission);
+        }
     }
 
     #[test]

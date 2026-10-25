@@ -40,7 +40,7 @@
       "module": "policy",
       "name": "API_VERSION",
       "type": "u16",
-      "value": "3",
+      "value": "4",
       "go": "APIVersion"
     },
     {
@@ -1294,6 +1294,24 @@
           "rust": "RenderWorldMaterialOverride",
           "go": "PermissionRenderWorldMaterialOverride",
           "json": "render_world_material_override",
+          "implemented": false
+        },
+        {
+          "rust": "RenderWorldMaterialVertex",
+          "go": "PermissionRenderWorldMaterialVertex",
+          "json": "render_world_material_vertex",
+          "implemented": false
+        },
+        {
+          "rust": "RenderWorldMaterialScene",
+          "go": "PermissionRenderWorldMaterialScene",
+          "json": "render_world_material_scene",
+          "implemented": false
+        },
+        {
+          "rust": "RenderWorldMaterialPasses",
+          "go": "PermissionRenderWorldMaterialPasses",
+          "json": "render_world_material_passes",
           "implemented": false
         }
       ]

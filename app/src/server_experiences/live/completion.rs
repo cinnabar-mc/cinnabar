@@ -394,7 +394,7 @@ enum WorldChange {
     None,
     /// Only these materials' parameters.
     Params(Vec<u32>),
-    /// Anything else: a new program, a removal or a binding.
+    /// Anything else: a new program, a removal, a binding or a compute declaration.
     Structural,
 }
 
@@ -416,7 +416,9 @@ fn world_change(
             {
                 params.push(*id);
             }
-            Command::WorldMaterial { .. } | Command::WorldBinding { .. } => {
+            Command::WorldMaterial { .. }
+            | Command::WorldBinding { .. }
+            | Command::WorldCompute { .. } => {
                 return WorldChange::Structural;
             }
             _ => {}

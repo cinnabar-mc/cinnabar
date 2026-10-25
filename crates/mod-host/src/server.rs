@@ -569,6 +569,10 @@ impl BundleHost {
             &mut linker,
             |state: &mut State| state,
         )?;
+        cinnabar::server_experience::world_material_effects::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
         items::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         crate::runtime::State::link_presentation(&mut linker, |state: &mut State| {
             &mut state.presentation
@@ -983,4 +987,4 @@ pub fn drawing_grants(capabilities: &Capabilities) -> crate::ModGrants {
     }
 }
 
-mod world_material;
+pub mod world_material;

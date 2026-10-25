@@ -26,6 +26,7 @@ fn bound() -> Live<FakeWorker> {
         params: Vec::new(),
         depth: WorldDepth::Test,
         blend: WorldBlend::Opaque,
+        effects: Default::default(),
     };
     let bind = |id, target| Command::WorldBinding {
         id,
@@ -46,13 +47,16 @@ fn bound() -> Live<FakeWorker> {
             bind(1, WorldTarget::Block("example:lamp".into())),
         ],
     });
-    live.poll(1, 0, true, |_| true).unwrap();
+    live.poll_ready(1, 0).unwrap();
     live
 }
 
+/// No permission withdrawn.
+static NO_WITHDRAWALS: BTreeSet<server_experience::manifest::Permission> = BTreeSet::new();
+
 /// Rebuilds a presenter's set over budgets large enough for the fixture.
 fn present(live: &Live<FakeWorker>, presenter: &mut WorldMaterialPresenter) -> bool {
-    presenter.rebuild(live.world_bundles().map(|bundle| {
+    presenter.rebuild(live.world_bundles(&NO_WITHDRAWALS).map(|bundle| {
         crate::server_experiences::world_materials::BundleWorld {
             gpu_bytes: u64::MAX,
             memory_bytes: u64::MAX,
@@ -80,8 +84,8 @@ fn a_stopped_client_part_revokes_its_world_materials_in_one_publication() {
     for strike in 1..=MAX_GUEST_STRIKES {
         receive(&mut live, "bundle0", strike as u64);
         let now = strike as u64 * CALLBACK_INTERVAL_MS;
-        live.poll(1, now, true, |_| true).unwrap();
-        live.poll(1, now, true, |_| true).unwrap();
+        live.poll_ready(1, now).unwrap();
+        live.poll_ready(1, now).unwrap();
     }
     assert!(live.instances["bundle0"].stopped.is_some());
     assert_ne!(live.world_contribution(), revision);
@@ -151,6 +155,7 @@ fn redeclare(round: u32) -> Command {
             params: Vec::new(),
             depth: WorldDepth::Test,
             blend: WorldBlend::Opaque,
+            effects: Default::default(),
         }),
     }
 }
@@ -195,15 +200,15 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
         .scope
         .gpu_bytes = budget;
     let mut presenter = WorldMaterialPresenter::inline();
-    assert!(presenter.follow(Some(&mut live), (0, u64::MAX)));
+    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS));
     assert!(presenter.set().entity("example:moth").is_some());
     assert!(
-        !presenter.follow(Some(&mut live), (0, u64::MAX)),
+        !presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS),
         "nothing changed"
     );
     // Replacing the drawn material retires its pipeline, which uses up the share.
     callback(&mut live, 1, vec![redeclare(1)]);
-    presenter.follow(Some(&mut live), (0, u64::MAX));
+    presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS);
     assert!(presenter.set().entity("example:moth").is_none());
     // The session ends and the same bundle reconnects with the same share.
     let mut again = bound();
@@ -214,7 +219,7 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
         .capabilities
         .scope
         .gpu_bytes = budget;
-    assert!(presenter.follow(Some(&mut again), (0, u64::MAX)));
+    assert!(presenter.follow(Some(&mut again), (0, u64::MAX), &NO_WITHDRAWALS));
     assert!(presenter.set().entity("example:moth").is_some());
 }
 
@@ -222,7 +227,7 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
 fn new_parameters_patch_the_published_ones_without_a_new_set() {
     let mut live = bound();
     let mut presenter = WorldMaterialPresenter::inline();
-    assert!(presenter.follow(Some(&mut live), (0, u64::MAX)));
+    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS));
     let set = std::sync::Arc::clone(presenter.set());
     let key = set.entity("example:moth").unwrap().1.key;
     let flash = |value: f32| Command::WorldMaterial {
@@ -234,6 +239,7 @@ fn new_parameters_patch_the_published_ones_without_a_new_set() {
             params: vec![value],
             depth: WorldDepth::Test,
             blend: WorldBlend::Opaque,
+            effects: Default::default(),
         }),
     };
     let structure = live.world_contribution();
@@ -243,14 +249,14 @@ fn new_parameters_patch_the_published_ones_without_a_new_set() {
         structure,
         "a parameter-only update is no structural change"
     );
-    assert!(presenter.follow(Some(&mut live), (0, u64::MAX)));
+    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS));
     assert!(
         std::sync::Arc::ptr_eq(&set, presenter.set()),
         "the set is not rebuilt or republished"
     );
     assert_eq!(presenter.params().values[&key][0], 0.75);
     assert!(
-        !presenter.follow(Some(&mut live), (0, u64::MAX)),
+        !presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS),
         "nothing more"
     );
 }
@@ -277,6 +283,7 @@ fn the_retained_declarations_and_decoded_textures_share_one_memory_ledger() {
         params: Vec::new(),
         depth: WorldDepth::Test,
         blend: WorldBlend::Opaque,
+        effects: Default::default(),
     };
     instance
         .capabilities
@@ -295,7 +302,7 @@ fn the_retained_declarations_and_decoded_textures_share_one_memory_ledger() {
     let declarations = instance.contributions.world.charge();
     instance.capabilities.scope.memory_bytes = declarations + 8 * 8 * 4 + source.len() as u64 - 1;
     let mut presenter = WorldMaterialPresenter::inline();
-    presenter.follow(Some(&mut live), (0, u64::MAX));
+    presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS);
     assert!(presenter.set().entity("example:moth").is_none());
     assert!(
         presenter

@@ -5,7 +5,7 @@ const (
 	MarkerPath              = "cinnabar/extension-offer.json"
 	WireVersion             = 1
 	MaxWireVersion          = 2
-	APIVersion              = 3
+	APIVersion              = 4
 	MaxIdentifierBytes      = 96
 	MaxURLBytes             = 2048
 	MaxOrigins              = 8

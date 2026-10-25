@@ -6,8 +6,8 @@
 //! and one `#[on_message]` method per reply. [`send`] accepts only to-server messages.
 //! Dispatch silently drops unknown channels and records that fail to decode.
 //! The host's imports include [`ui`], [`input`], [`messaging`], [`scene`], [`media`],
-//! [`world_material`], [`items`], [`drawing`], [`render`] and [`environment`]; each checks the
-//! bundle's grants.
+//! [`world_material`], [`world_material_effects`], [`items`], [`drawing`], [`render`] and
+//! [`environment`]; each checks the bundle's grants.
 
 /// Bindings generated from `../mod-api/wit/client.wit`.
 pub mod bindings {
@@ -21,7 +21,7 @@ pub mod bindings {
 
 pub use bindings::cinnabar::extension::{environment, render};
 pub use bindings::cinnabar::server_experience::{
-    input, media, messaging, scene, ui, world_material,
+    input, media, messaging, scene, ui, world_material, world_material_effects,
 };
 pub use bindings::cinnabar::session::items;
 pub use bindings::cinnabar::world_draw::{assets, drawing, masks};

@@ -300,9 +300,12 @@ const (
 	PermissionRenderWorldMaterial
 	PermissionRenderPost
 	PermissionRenderWorldMaterialOverride
+	PermissionRenderWorldMaterialVertex
+	PermissionRenderWorldMaterialScene
+	PermissionRenderWorldMaterialPasses
 )
 
-var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media", "items", "world_draw", "entity_observe", "entity_highlight", "render_through_walls", "render_material", "render_world_material", "render_post", "render_world_material_override"}
+var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media", "items", "world_draw", "entity_observe", "entity_highlight", "render_through_walls", "render_material", "render_world_material", "render_post", "render_world_material_override", "render_world_material_vertex", "render_world_material_scene", "render_world_material_passes"}
 
 // String returns the schema name, or a diagnostic for an invalid enum.
 func (v Permission) String() string {

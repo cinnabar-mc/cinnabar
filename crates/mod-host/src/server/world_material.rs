@@ -1,9 +1,14 @@
-//! The `world-material` import: stages world material declarations and bindings, which the
-//! client re-validates before it draws them.
+//! The `world-material` and `world-material-effects` imports: stage world material
+//! declarations, bindings and compute declarations, which the client re-validates before it
+//! draws them.
 
-use super::{Command, Result, State, cinnabar::server_experience::world_material as wit};
+use super::{
+    Command, Result, State,
+    cinnabar::server_experience::{world_material as wit, world_material_effects as effects},
+};
 use server_experience::world_material::{
-    WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget, WorldUndo,
+    WorldBinding, WorldBlend, WorldBloom, WorldComputeSpec, WorldDepth, WorldEffects,
+    WorldMaterialSpec, WorldOutline, WorldParticles, WorldTarget, WorldUndo,
 };
 
 impl State {
@@ -21,6 +26,10 @@ impl State {
                 .world
                 .set_binding_within(*id, binding.as_ref(), memory)
                 .map(|previous| WorldUndo::Binding(*id, previous)),
+            Command::WorldCompute { id, compute } => self
+                .world
+                .set_compute_within(*id, compute.as_ref(), memory)
+                .map(|previous| WorldUndo::Compute(*id, previous)),
             _ => return Ok(()),
         };
         self.world_undo
@@ -51,32 +60,30 @@ impl State {
         {
             return Ok(());
         }
+        self.spend_world_compile()?;
+        mod_render::world_material::compose_with(
+            &spec.source,
+            spec.textures.len(),
+            features(&spec.effects),
+        )
+        .map(|_| ())
+    }
+
+    /// Spends one of this callback's world shader validations.
+    fn spend_world_compile(&mut self) -> Result<(), String> {
         if self.world_compiles >= mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK {
             return Err("world material compile budget exceeded".into());
         }
         self.world_compiles += 1;
-        mod_render::world_material::compose(&spec.source, spec.textures.len()).map(|_| ())
+        Ok(())
     }
-}
 
-impl wit::Host for State {
-    /// Stages material `id` after the shader and its declared resources pass validation.
-    fn set_material(&mut self, id: u32, spec: wit::MaterialSpec) -> Result<Result<(), String>> {
-        let spec = WorldMaterialSpec {
-            source: spec.source,
-            textures: spec.textures,
-            params: spec.params,
-            depth: match spec.depth {
-                wit::Depth::Test => WorldDepth::Test,
-                wit::Depth::Always => WorldDepth::Always,
-            },
-            blend: match spec.blend {
-                wit::Blend::Opaque => WorldBlend::Opaque,
-                wit::Blend::Cutout => WorldBlend::Cutout,
-                wit::Blend::Premultiplied => WorldBlend::Premultiplied,
-                wit::Blend::Additive => WorldBlend::Additive,
-            },
-        };
+    /// Validates and stages material `id`.
+    fn declare_world_material(
+        &mut self,
+        id: u32,
+        spec: WorldMaterialSpec,
+    ) -> Result<Result<(), String>> {
         if let Err(error) = self.compile_world_material(id, &spec) {
             self.charge()?;
             return Ok(Err(error));
@@ -85,6 +92,64 @@ impl wit::Host for State {
             id,
             material: Some(spec),
         })
+    }
+
+    /// Validates the compute within the per-callback compile budget, after the declaration's
+    /// own bounds; new parameters alone revalidate nothing.
+    fn compile_world_compute(&mut self, id: u32, spec: &WorldComputeSpec) -> Result<(), String> {
+        self.capabilities
+            .world_authority()
+            .validate_compute(spec)
+            .map_err(|error| error.to_string())?;
+        if self
+            .world
+            .computes()
+            .get(&id)
+            .is_some_and(|staged| staged.same_program(spec))
+        {
+            return Ok(());
+        }
+        self.spend_world_compile()?;
+        mod_render::world_material::compute::compose(&spec.source).map(|_| ())
+    }
+}
+
+/// The module features a material's effects call: each effect's guest functions and the
+/// resources they read.
+pub fn features(effects: &WorldEffects) -> mod_render::world_material::Features {
+    mod_render::world_material::Features {
+        displace: effects.displacement_blocks.is_some(),
+        scene: effects.scene,
+        cells: effects.cells.is_some(),
+        outline: effects.outline.is_some(),
+        particles: effects.particles.is_some(),
+    }
+}
+
+/// A material declaration from its WIT form.
+fn material_spec(spec: wit::MaterialSpec, effects: WorldEffects) -> WorldMaterialSpec {
+    WorldMaterialSpec {
+        source: spec.source,
+        textures: spec.textures,
+        params: spec.params,
+        depth: match spec.depth {
+            wit::Depth::Test => WorldDepth::Test,
+            wit::Depth::Always => WorldDepth::Always,
+        },
+        blend: match spec.blend {
+            wit::Blend::Opaque => WorldBlend::Opaque,
+            wit::Blend::Cutout => WorldBlend::Cutout,
+            wit::Blend::Premultiplied => WorldBlend::Premultiplied,
+            wit::Blend::Additive => WorldBlend::Additive,
+        },
+        effects,
+    }
+}
+
+impl wit::Host for State {
+    /// Stages material `id` after the shader and its declared resources pass validation.
+    fn set_material(&mut self, id: u32, spec: wit::MaterialSpec) -> Result<Result<(), String>> {
+        self.declare_world_material(id, material_spec(spec, WorldEffects::default()))
     }
 
     fn remove_material(&mut self, id: u32) -> Result<Result<(), String>> {
@@ -106,3 +171,56 @@ impl wit::Host for State {
         self.stage(Command::WorldBinding { id, binding: None })
     }
 }
+
+impl effects::Host for State {
+    /// Stages material `id` with `declared` effects after the shader, its declared resources
+    /// and the effects' permissions and ranges pass validation.
+    fn set_material_with_effects(
+        &mut self,
+        id: u32,
+        spec: wit::MaterialSpec,
+        declared: effects::Effects,
+    ) -> Result<Result<(), String>> {
+        let effects = WorldEffects {
+            displacement_blocks: declared.displacement_blocks,
+            scene: declared.scene,
+            outline: declared.outline.map(|outline| WorldOutline {
+                width_texels: outline.width_texels,
+            }),
+            bloom: declared.bloom.map(|bloom| WorldBloom {
+                strength: bloom.strength,
+                radius_pixels: bloom.radius_pixels,
+            }),
+            particles: declared.particles.map(|particles| WorldParticles {
+                count: particles.count,
+                radius_blocks: particles.radius_blocks,
+            }),
+            cells: declared.cells,
+        };
+        self.declare_world_material(id, material_spec(spec, effects))
+    }
+
+    /// Stages compute `id` after its program and cell count pass validation.
+    fn set_compute(&mut self, id: u32, spec: effects::ComputeSpec) -> Result<Result<(), String>> {
+        let spec = WorldComputeSpec {
+            source: spec.source,
+            cells: spec.cells,
+            params: spec.params,
+        };
+        if let Err(error) = self.compile_world_compute(id, &spec) {
+            self.charge()?;
+            return Ok(Err(error));
+        }
+        self.stage(Command::WorldCompute {
+            id,
+            compute: Some(spec),
+        })
+    }
+
+    fn remove_compute(&mut self, id: u32) -> Result<Result<(), String>> {
+        self.stage(Command::WorldCompute { id, compute: None })
+    }
+}
+
+#[cfg(test)]
+mod tests;

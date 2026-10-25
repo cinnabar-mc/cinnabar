@@ -1,18 +1,25 @@
 //! Turns the client parts' retained world material declarations into the set the renderer
 //! draws: each shader validated again and each declared texture decoded off the frame, every
 //! material charged to its bundle's GPU and memory shares, and every binding resolved to a
-//! slot. A parameter-only change patches the published parameters without a rebuild.
+//! slot. A parameter-only change patches the published parameters without a rebuild. Each
+//! effect is kept only while its permission is granted and not withdrawn, and compute
+//! declarations are charged and published alongside the materials that read them.
 
 mod admission;
+mod computes;
 mod slots;
 
 use admission::{Cached, Executor, Fit, Orphan, Pipelines};
 use mod_render::world_material::publication::{
-    self, Published, WorldMaterialParams, WorldMaterialSet,
+    self, Bloom, Effects, Particles, Published, PublishedCompute, WorldMaterialParams,
+    WorldMaterialSet,
 };
 use server_experience::{
+    manifest::Permission,
     screen::Files,
-    world_material::{WorldMaterials, WorldTarget},
+    world_material::{
+        WorldAuthority, WorldEffects, WorldMaterialSpec, WorldMaterials, WorldTarget,
+    },
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
@@ -39,6 +46,12 @@ pub(super) const SERVER_PIPELINE_BYTES: u64 = server_experience::policy::MAX_GPU
 pub(super) const PROCESS_PIPELINE_BYTES: u64 = 4 * SERVER_PIPELINE_BYTES;
 /// Failure descriptions kept for the session's diagnostics, newest last.
 pub(super) const MAX_DIAGNOSTICS: usize = 16;
+/// Provisional: GPU bytes charged once to a bundle whose materials read the scene, for its
+/// share of the host's copies of the view's colour and depth.
+pub(super) const SCENE_CHARGE_BYTES: u64 = 16 * 1024 * 1024;
+/// Provisional: GPU bytes charged once to a bundle whose materials bloom, for its share of the
+/// host's blur targets.
+pub(super) const BLOOM_CHARGE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// One bundle's declarations as the presenter reads them.
 pub(super) struct BundleWorld<'a> {
@@ -53,10 +66,27 @@ pub(super) struct BundleWorld<'a> {
     pub memory_bytes: u64,
     /// The bundle's signed files, whose PNGs the declarations name.
     pub files: &'a Arc<Files>,
+    /// The bundle's granted permissions.
+    pub permissions: &'a BTreeSet<Permission>,
+    /// Permissions the user withdrew in this session; with the ones not granted, their effects
+    /// are dropped from every material.
+    pub withdrawn: &'a BTreeSet<Permission>,
+}
+
+impl BundleWorld<'_> {
+    /// What the bundle may do now: its granted permissions less the withdrawn ones.
+    fn allowed(&self) -> BTreeSet<Permission> {
+        self.permissions
+            .difference(self.withdrawn)
+            .copied()
+            .collect()
+    }
 }
 
 pub(super) struct WorldMaterialPresenter {
     cache: BTreeMap<(String, u32), Cached>,
+    /// Each compute declaration's last outcome, kept while its program is unchanged.
+    computes: BTreeMap<(String, u32), computes::CachedCompute>,
     next_key: u64,
     revision: u64,
     set: Arc<WorldMaterialSet>,
@@ -85,6 +115,8 @@ pub(super) struct WorldMaterialPresenter {
     starved: bool,
     /// The runtime and world contribution revision the set was last built from.
     built: Option<(u64, u64)>,
+    /// The permissions withdrawn when the set was last built.
+    withdrawn: BTreeSet<Permission>,
     /// The runtime the session belongs to; zero while none runs.
     run: u64,
     executor: Executor,
@@ -109,6 +141,7 @@ impl WorldMaterialPresenter {
     fn with_executor(executor: Executor) -> Self {
         Self {
             cache: BTreeMap::new(),
+            computes: BTreeMap::new(),
             next_key: 0,
             revision: 0,
             set: Arc::default(),
@@ -124,6 +157,7 @@ impl WorldMaterialPresenter {
             reclaimable: 0,
             starved: false,
             built: None,
+            withdrawn: BTreeSet::new(),
             run: 0,
             executor,
             done: Arc::default(),
@@ -159,14 +193,16 @@ impl WorldMaterialPresenter {
     }
 
     /// Follows `live`'s declarations: another runtime, or none, ends the previous session
-    /// first; a structural change, finished admission work or a freed slot a material waits
-    /// for rebuilds the set; parameter-only changes patch the published parameters. `carried`
-    /// is the render world's latest (observation count, carried block slots). Returns whether
-    /// the set or the parameters changed.
+    /// first; a structural change, a change of the `withdrawn` permissions, finished
+    /// admission work or a freed slot a material waits for rebuilds the set; parameter-only
+    /// changes patch the published parameters. `carried` is the render world's latest
+    /// (observation count, carried block slots). Returns whether the set or the parameters
+    /// changed.
     pub(super) fn follow<H: super::worker::Worker>(
         &mut self,
         live: Option<&mut super::live::Live<H>>,
         (count, mask): (u64, u64),
+        withdrawn: &BTreeSet<Permission>,
     ) -> bool {
         let carried = slots::Carried { count, mask };
         let built = live.as_deref().map(super::live::Live::world_contribution);
@@ -190,9 +226,10 @@ impl WorldMaterialPresenter {
             return changed;
         };
         let patches = live.take_world_params();
-        if built != self.built || settled || freed {
+        if built != self.built || settled || freed || *withdrawn != self.withdrawn {
             self.built = built;
-            changed |= self.rebuild(live.world_bundles());
+            self.withdrawn.clone_from(withdrawn);
+            changed |= self.rebuild(live.world_bundles(withdrawn));
         } else {
             for (bundle, id, values) in patches {
                 changed |= self.patch(&bundle, id, &values);
@@ -224,12 +261,14 @@ impl WorldMaterialPresenter {
             cached.cancel();
             self.adopt_orphans(&bundle, &mut cached);
         }
+        self.computes.clear();
         self.reported.clear();
         self.diagnostics.clear();
         self.compiled.clear();
         self.slots.empty(self.carried.count);
         self.starved = false;
         self.built = None;
+        self.withdrawn.clear();
         let mut changed = false;
         if *self.set != WorldMaterialSet::empty(self.set.revision) {
             self.revision += 1;
@@ -276,9 +315,18 @@ impl WorldMaterialPresenter {
         let mut values = BTreeMap::new();
         let mut live = BTreeSet::new();
         let mut claimed = HashSet::new();
+        let mut computes = Vec::new();
+        let mut live_computes = BTreeSet::new();
         for bundle in &bundles {
-            self.admit(bundle, &mut drawn, &mut values, &mut live, &mut claimed);
+            self.admit(
+                bundle,
+                (&mut drawn, &mut values),
+                (&mut computes, &mut live_computes),
+                &mut live,
+                &mut claimed,
+            );
         }
+        self.computes.retain(|key, _| live_computes.contains(key));
         let removed: Vec<(String, u32)> = self
             .cache
             .keys()
@@ -309,6 +357,7 @@ impl WorldMaterialPresenter {
         if materials != self.set.materials
             || entities != self.set.entities
             || blocks != self.set.blocks
+            || computes != self.set.computes
         {
             self.revision += 1;
             self.set = Arc::new(WorldMaterialSet {
@@ -316,6 +365,7 @@ impl WorldMaterialPresenter {
                 materials,
                 entities,
                 blocks,
+                computes,
             });
             changed = true;
         }
@@ -330,22 +380,53 @@ impl WorldMaterialPresenter {
     }
 
     /// Admits `bundle`'s declarations against its shares, adding what draws to `drawn` and its
-    /// parameters to `values` and every declaration to `live`. One admission job runs per
-    /// bundle at a time, superseded ones included until they return, oldest attempt first;
-    /// nothing new draws until all of the bundle's materials are measured; and a set of
-    /// pipelines new to the process waits for room in its server's share and the process's
-    /// ceiling, which `claimed` reserves across bundles.
+    /// parameters to `values`, its published computes to `computes` and every declaration to
+    /// `live` or `live_computes`. Each material keeps only the effects the bundle may draw
+    /// now. One admission job runs per bundle at a time, superseded ones included until they
+    /// return, oldest attempt first; nothing new draws until all of the bundle's materials are
+    /// measured; and a set of pipelines new to the process waits for room in its server's
+    /// share and the process's ceiling, which `claimed` reserves across bundles.
+    #[allow(
+        clippy::type_complexity,
+        reason = "the rebuild's drawn and compute tables"
+    )]
     fn admit(
         &mut self,
         bundle: &BundleWorld<'_>,
-        drawn: &mut BTreeMap<(String, u32), Published>,
-        values: &mut BTreeMap<u64, [f32; 16]>,
+        (drawn, values): (
+            &mut BTreeMap<(String, u32), Published>,
+            &mut BTreeMap<u64, [f32; 16]>,
+        ),
+        (computes, live_computes): (&mut Vec<PublishedCompute>, &mut BTreeSet<(String, u32)>),
         live: &mut BTreeSet<(String, u32)>,
         claimed: &mut HashSet<Pipelines>,
     ) {
+        let allowed = bundle.allowed();
+        let mut compiled = self.compiled.remove(bundle.bundle).unwrap_or_default();
+        self.orphans.retain(|(_, orphan)| orphan.alive());
+        let orphaned = self
+            .orphans
+            .iter()
+            .filter(|(owner, _)| *owner == (self.run, bundle.bundle.to_owned()))
+            .fold((0_u64, 0_u64), |(gpu, memory), (_, orphan)| {
+                (gpu + orphan.charge.gpu, memory + orphan.charge.memory)
+            });
+        // Every set of pipelines the bundle compiled this session stays charged.
+        let mut gpu = bundle
+            .gpu_bytes
+            .saturating_sub(compiled.iter().map(admission::set_bytes).sum())
+            .saturating_sub(orphaned.0);
+        let mut memory = bundle.memory_bytes.saturating_sub(orphaned.1);
+        let cells = self.publish_computes(
+            bundle,
+            (computes, live_computes),
+            (&mut gpu, &mut memory),
+            (&mut compiled, claimed),
+        );
         let mut entries: Vec<(u32, Cached)> = Vec::new();
-        for (&id, spec) in bundle.world.materials() {
+        for (&id, declared) in bundle.world.materials() {
             let key = (bundle.bundle.to_owned(), id);
+            let spec = &permitted(declared, &allowed, &cells);
             let cached = match self.cache.remove(&key) {
                 // New parameters keep the compiled shader, its key and its charge.
                 Some(mut cached) if cached.spec.same_program(spec) => {
@@ -360,7 +441,10 @@ impl WorldMaterialPresenter {
                         self.adopt_orphans(bundle.bundle, &mut previous);
                     }
                     self.next_key += 1;
-                    Cached::new(spec, self.next_key)
+                    match check_effects(spec, &allowed) {
+                        Ok(()) => Cached::new(spec, self.next_key),
+                        Err(reason) => Cached::refused(spec, self.next_key, reason),
+                    }
                 }
             };
             live.insert(key);
@@ -369,14 +453,6 @@ impl WorldMaterialPresenter {
         for (_, cached) in &mut entries {
             cached.settle();
         }
-        self.orphans.retain(|(_, orphan)| orphan.alive());
-        let orphaned = self
-            .orphans
-            .iter()
-            .filter(|(owner, _)| *owner == (self.run, bundle.bundle.to_owned()))
-            .fold((0_u64, 0_u64), |(gpu, memory), (_, orphan)| {
-                (gpu + orphan.charge.gpu, memory + orphan.charge.memory)
-            });
         // One job runs per bundle, counting superseded ones until they return; with none
         // running the oldest unmeasured attempt measures next, so churning one material never
         // starves another, and work that finishes at once lets the next one start.
@@ -396,13 +472,7 @@ impl WorldMaterialPresenter {
             busy = entries[oldest].1.running();
         }
         let measured = entries.iter().all(|(_, cached)| cached.measured());
-        let mut compiled = self.compiled.remove(bundle.bundle).unwrap_or_default();
-        // Every set of pipelines the bundle compiled this session stays charged.
-        let mut gpu = bundle
-            .gpu_bytes
-            .saturating_sub(compiled.len() as u64 * PIPELINE_CHARGE_BYTES)
-            .saturating_sub(orphaned.0);
-        let mut memory = bundle.memory_bytes.saturating_sub(orphaned.1);
+        let mut targets = SharedCharges::default();
         let mut reserved = HashSet::new();
         let mut newly = HashSet::new();
         for (id, cached) in &mut entries {
@@ -411,35 +481,23 @@ impl WorldMaterialPresenter {
             let shared = identity.is_some_and(|identity| {
                 compiled.contains(&identity) || reserved.contains(&identity)
             });
-            // A program the bundle already compiled costs only its bind group.
-            let pipeline = BIND_GROUP_CHARGE_BYTES + if shared { 0 } else { PIPELINE_CHARGE_BYTES };
+            // A program the bundle already compiled costs only its bind group; the first
+            // material needing the scene copies or the bloom targets pays for them.
+            let pipeline = BIND_GROUP_CHARGE_BYTES
+                + identity.map_or(PIPELINE_CHARGE_BYTES, |identity| {
+                    if shared {
+                        0
+                    } else {
+                        admission::set_bytes(&identity)
+                    }
+                })
+                + targets.charge(&cached.spec.effects);
             let mut fit = cached.fit(gpu, memory, pipeline);
             if let (Fit::Decode(_) | Fit::Drawable(..), Some(identity)) = (&fit, identity)
-                && !self.retained.contains_key(&identity)
-                && !claimed.contains(&identity)
+                && let Some(reason) = self.claim(identity, claimed)
             {
-                let mine = self
-                    .retained
-                    .values()
-                    .filter(|server| **server == self.server)
-                    .count();
-                let charge =
-                    |count: usize| (count as u64 + 1).saturating_mul(PIPELINE_CHARGE_BYTES);
-                let refusal = if charge(mine + claimed.len()) > SERVER_PIPELINE_BYTES {
-                    Some(
-                        "this server's share of the client's world material pipeline memory is full",
-                    )
-                } else if charge(self.retained.len() + claimed.len()) > PROCESS_PIPELINE_BYTES {
-                    Some("the client's world material pipeline memory is full")
-                } else {
-                    None
-                };
-                if let Some(reason) = refusal {
-                    cached.cancel();
-                    fit = Fit::Refused(reason.into());
-                } else {
-                    claimed.insert(identity);
-                }
+                cached.cancel();
+                fit = Fit::Refused(reason.into());
             }
             if let Fit::Decode(charge) = fit {
                 // Nothing new draws before every material of the bundle is measured.
@@ -458,9 +516,11 @@ impl WorldMaterialPresenter {
                 fit = cached.fit(gpu, memory, pipeline);
             }
             match fit {
-                Fit::Drawable(published, charge) => {
+                Fit::Drawable(mut published, charge) => {
                     gpu -= charge.gpu;
                     memory -= charge.memory;
+                    targets.note(&cached.spec.effects);
+                    published.effects = published_effects(&cached.spec.effects, &cells);
                     values.insert(published.key, params(&cached.spec.params));
                     drawn.insert((bundle.bundle.to_owned(), id), published);
                     reserved.extend(identity);
@@ -477,6 +537,7 @@ impl WorldMaterialPresenter {
                     memory -= charge.memory;
                     if charge.gpu != 0 {
                         reserved.extend(identity);
+                        targets.note(&cached.spec.effects);
                     }
                 }
                 Fit::Refused(reason) => self.report(bundle.bundle, id, attempt, &reason),
@@ -488,6 +549,34 @@ impl WorldMaterialPresenter {
             self.adopt_orphans(bundle.bundle, &mut cached);
             self.cache.insert((bundle.bundle.to_owned(), id), cached);
         }
+    }
+
+    /// Claims room for a set of pipelines new to the process in its server's share and the
+    /// process's ceiling, reserving it in `claimed`; returns why there is none. A set the
+    /// process already holds or another bundle claimed costs nothing more.
+    fn claim(&self, identity: Pipelines, claimed: &mut HashSet<Pipelines>) -> Option<&'static str> {
+        if self.retained.contains_key(&identity) || claimed.contains(&identity) {
+            return None;
+        }
+        let new = admission::set_bytes(&identity);
+        let claims: u64 = claimed.iter().map(admission::set_bytes).sum();
+        let mine: u64 = self
+            .retained
+            .iter()
+            .filter(|(_, server)| **server == self.server)
+            .map(|(identity, _)| admission::set_bytes(identity))
+            .sum();
+        let all: u64 = self.retained.keys().map(admission::set_bytes).sum();
+        if mine.saturating_add(claims).saturating_add(new) > SERVER_PIPELINE_BYTES {
+            return Some(
+                "this server's share of the client's world material pipeline memory is full",
+            );
+        }
+        if all.saturating_add(claims).saturating_add(new) > PROCESS_PIPELINE_BYTES {
+            return Some("the client's world material pipeline memory is full");
+        }
+        claimed.insert(identity);
+        None
     }
 
     /// Takes `cached`'s abandoned jobs that still run as `bundle`'s orphans.
@@ -634,6 +723,91 @@ impl WorldMaterialPresenter {
     }
 }
 
+/// The charges a bundle pays once however many of its materials use them: its share of the
+/// host's scene copies and bloom targets.
+#[derive(Default)]
+struct SharedCharges {
+    scene: bool,
+    bloom: bool,
+}
+
+impl SharedCharges {
+    /// What a material with `effects` adds to the shared charges paid so far.
+    fn charge(&self, effects: &WorldEffects) -> u64 {
+        let scene = if effects.scene && !self.scene {
+            SCENE_CHARGE_BYTES
+        } else {
+            0
+        };
+        let bloom = if effects.bloom.is_some() && !self.bloom {
+            BLOOM_CHARGE_BYTES
+        } else {
+            0
+        };
+        scene + bloom
+    }
+
+    /// Records that a material with `effects` holds its charge.
+    fn note(&mut self, effects: &WorldEffects) {
+        self.scene |= effects.scene;
+        self.bloom |= effects.bloom.is_some();
+    }
+}
+
+/// `declared` with only the effects `permissions` allow, and without cells whose compute was
+/// not published, so a withdrawn permission removes exactly its effects in one rebuild.
+fn permitted(
+    declared: &WorldMaterialSpec,
+    permissions: &BTreeSet<Permission>,
+    cells: &BTreeMap<u32, u16>,
+) -> WorldMaterialSpec {
+    let withdrawn: BTreeSet<Permission> = server_experience::manifest::WORLD_MATERIAL_EXTENSIONS
+        .iter()
+        .map(|extension| extension.permission)
+        .filter(|permission| !permissions.contains(permission))
+        .collect();
+    let mut effects = declared.effects.without(&withdrawn);
+    effects.cells = effects.cells.filter(|compute| cells.contains_key(compute));
+    WorldMaterialSpec {
+        effects,
+        ..declared.clone()
+    }
+}
+
+/// Checks a material's effects again: their ranges and their permissions, which the helper's
+/// validation does not prove.
+fn check_effects(spec: &WorldMaterialSpec, allowed: &BTreeSet<Permission>) -> Result<(), String> {
+    let assets = BTreeSet::new();
+    WorldAuthority {
+        permissions: allowed,
+        namespace: None,
+        assets: &assets,
+    }
+    .validate_effects(spec)
+    .map_err(|error| error.to_string())
+}
+
+/// The effects a renderer draws for `effects`, its cells resolved through this rebuild's
+/// published computes, by compute id.
+fn published_effects(effects: &WorldEffects, cells: &BTreeMap<u32, u16>) -> Effects {
+    Effects {
+        displacement_blocks: effects.displacement_blocks,
+        scene: effects.scene,
+        outline_texels: effects.outline.map(|outline| outline.width_texels),
+        bloom: effects.bloom.map(|bloom| Bloom {
+            strength: bloom.strength,
+            radius_pixels: bloom.radius_pixels,
+        }),
+        particles: effects.particles.map(|particles| Particles {
+            count: particles.count,
+            radius_blocks: particles.radius_blocks,
+        }),
+        cells: effects
+            .cells
+            .and_then(|compute| cells.get(&compute).copied()),
+    }
+}
+
 /// A declaration's parameters as the sixteen the renderer uploads, missing ones zero.
 fn params(declared: &[f32]) -> [f32; 16] {
     let mut params = [0.0; 16];
@@ -643,5 +817,7 @@ fn params(declared: &[f32]) -> [f32; 16] {
     params
 }
 
+#[cfg(test)]
+mod effects_tests;
 #[cfg(test)]
 mod tests;

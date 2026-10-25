@@ -108,6 +108,14 @@ fn pointer_wheel_and_test_cape_parse_from_wire() {
         Command::TestCape { enabled: false }
     );
     assert_eq!(
+        parse(json!({"cmd": "experience_permission", "permission": "render_world_material_scene", "withdrawn": true}))
+            .unwrap(),
+        Command::ExperiencePermission {
+            permission: "render_world_material_scene".into(),
+            withdrawn: true
+        }
+    );
+    assert_eq!(
         parse(json!({"cmd": "test_accounts", "enabled": true})).unwrap(),
         Command::TestAccounts { enabled: true }
     );
