@@ -43,8 +43,10 @@ Confirmed gaps against the current client:
 - Colour masking and three-sampler draws follow `USE_COLOR_MASK` and `USE_MULTITEXTURE`. The
   vanilla pack does not define the native `sheep`, `wolf` and `llama` materials, so the client's
   built-in bases declare them; packs cannot derive from `entity_change_color` or
-  `entity_multitexture`, which the vanilla pack never names. `GLINT`,
-  `MULTIPLICATIVE_TINT` and `MASKED_MULTITEXTURE` texture requirements are not checked.
+  `entity_multitexture`, which the vanilla pack never names. A material
+  whose `GLINT`, `MULTIPLICATIVE_TINT` or `MASKED_MULTITEXTURE` defines need more textures than its
+  controller supplies is not drawn; whether the native check applies to every material is
+  unresolved.
 
 These questions remain unresolved:
 

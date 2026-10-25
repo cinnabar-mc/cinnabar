@@ -27,6 +27,8 @@ struct Raster {
     definition: Option<u32>,
     /// Index of a Cinnabar material's masks in the carrier's mask table.
     masks: Option<u32>,
+    /// Textures the controller must supply for this material to draw.
+    required_textures: u16,
 }
 
 pub(super) struct Group {
@@ -45,6 +47,8 @@ fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut Material
         state: resolved.map(|(state, _)| state),
         definition: resolved.map(|(_, definition)| definition),
         masks: None,
+        required_textures: resolved
+            .map_or(0, |(_, definition)| table.required_textures(definition)),
     }
 }
 
@@ -97,6 +101,7 @@ pub(super) fn resolve(
                 state: Some(state),
                 definition: Some(definition),
                 masks,
+                required_textures: table.required_textures(definition),
             };
             rules.push((pattern.to_owned(), raster));
         }
@@ -266,10 +271,16 @@ pub(super) struct Records<'a> {
 
 pub(super) fn append(
     base: EntityRenderLayer,
-    groups: Vec<Group>,
+    mut groups: Vec<Group>,
     records: Records<'_>,
     molang: &mut MolangCompiler,
 ) -> Result<(), AssetError> {
+    // A material whose controller supplies too few textures is not drawn, as on Bedrock; its
+    // bones stay hidden in the other groups.
+    groups.retain(|group| group.raster.required_textures <= base.slot_count);
+    if groups.is_empty() {
+        return Ok(());
+    }
     let Records {
         selections,
         layers,
@@ -299,7 +310,7 @@ pub(super) fn append(
             "entity material groups exceed admitted render bounds",
         ));
     }
-    if groups.len() == 1 {
+    if groups.len() == 1 && groups[0].hidden.is_empty() {
         let group = groups.into_iter().next().expect("one group");
         layers.push(EntityRenderLayer {
             material: group.raster.material,
