@@ -6,7 +6,7 @@ import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
 import render::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
-import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, point_lit_terrain_light_colour, tint_to_gamma, tint_to_linear, terrain_light_levels};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array, cutout_mix};
 @if(ENHANCED)
@@ -598,8 +598,8 @@ fn native_leaf_colour(
     fog_amount: f32,
 ) -> vec3<f32> {
     let fog_gamma = tint_to_gamma(vec4(fog_linear, 1.0)).rgb;
-    let lit_gamma = ((texture_gamma * tint_gamma) * ao_face) * lightmap_gamma;
-    return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
+    let base_gamma = ((texture_gamma * tint_gamma) * ao_face) * lightmap_gamma;
+    return tint_to_linear(vec4(mix(base_gamma, fog_gamma, fog_amount), 1.0)).rgb;
 }
 
 // Terrain lighting operates on encoded RGB before the framebuffer conversion.
@@ -793,7 +793,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.material_flags,
         tint_gamma,
         in.native_ao_face,
-        terrain_light_colour(in.native_light_levels),
+        point_lit_terrain_light_colour(in.native_light_levels, in.world_position),
         atmosphere.fog_color_start.rgb,
         distance_fog_amount(in.world_position),
     );

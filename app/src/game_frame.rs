@@ -2,6 +2,7 @@
 use crate::{
     local_player::{
         publish_local_player_frame, resolve_camera_pose, resolve_local_player_presentation,
+        sync_world_point_light_from_local_player,
     },
     movement::{advance_local_physics, send_movement_prediction_sync},
     runtime::{
@@ -80,7 +81,11 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_actor_render_frame, publish_entity_shadows)
+            (
+                publish_actor_render_frame,
+                crate::local_player::sync_remote_item_point_lights,
+                publish_entity_shadows,
+            )
                 .chain()
                 .in_set(ClientFrameSet::ActorPublication),
         );
@@ -132,6 +137,7 @@ pub(crate) fn configure_world(app: &mut App) {
         Update,
         (
             publish_local_player_frame,
+            sync_world_point_light_from_local_player,
             publish_interaction_origin,
             crate::camera::aim_assist::publish_assisted_interaction,
             crate::camera::aim_highlight::publish,

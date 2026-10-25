@@ -3,6 +3,9 @@
 use super::{layout::SettingPanel, reset::SettingsGroup};
 use assets::audio_category::AudioCategory;
 
+/// Help text shared by the native and JSON-UI Video settings rows.
+pub const DYNAMIC_LIGHTS_DESCRIPTION: &str = "Adds smooth client-side light from nearby players holding light-emitting items and from dropped light-emitting items. Existing block and sky lighting stay unchanged.";
+
 #[derive(Clone, Copy, Debug)]
 pub struct SettingChoice {
     pub name: &'static str,
@@ -547,6 +550,8 @@ settings! {
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
         [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
+    DynamicLights => "dynamic_lights", toggle("Dynamic Lights", false),
+        [(SettingPanel::VideoGraphics, 14)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

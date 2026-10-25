@@ -20,7 +20,80 @@ use bevy::{
     },
 };
 use render_model::{LightmapInputs, LightmapUniform};
-use render_scene::{WorldFullbright, WorldLighting};
+use render_scene::{WorldFullbright, WorldLighting, WorldPointLight, WorldPointLightSource};
+
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+struct PointLightUniform {
+    enabled: [f32; 4],
+    color: [f32; 4],
+    sources: [[f32; 4]; 8],
+    strengths: [[f32; 4]; 2],
+}
+
+impl From<WorldPointLight> for PointLightUniform {
+    fn from(light: WorldPointLight) -> Self {
+        let sources = [
+            light.local,
+            light.additional[0],
+            light.additional[1],
+            light.additional[2],
+            light.additional[3],
+            light.additional[4],
+            light.additional[5],
+            light.additional[6],
+        ]
+        .map(|source| source_uniform(source, light.enabled));
+        Self {
+            enabled: [if light.enabled { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+            color: [
+                finite_channel(light.color[0]),
+                finite_channel(light.color[1]),
+                finite_channel(light.color[2]),
+                0.0,
+            ],
+            sources: std::array::from_fn(|index| sources[index].0),
+            strengths: std::array::from_fn(|group| {
+                std::array::from_fn(|channel| sources[group * 4 + channel].1)
+            }),
+        }
+    }
+}
+
+fn source_uniform(source: WorldPointLightSource, enabled: bool) -> ([f32; 4], f32) {
+    let radius = finite_nonnegative(source.radius);
+    let strength = finite_channel(source.intensity);
+    let active = enabled && radius > 0.0 && strength > 0.0;
+    (
+        [
+            finite_position(source.position[0]),
+            finite_position(source.position[1]),
+            finite_position(source.position[2]),
+            if active { radius } else { 0.0 },
+        ],
+        if active { strength } else { 0.0 },
+    )
+}
+
+fn finite_nonnegative(value: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+fn finite_channel(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+fn finite_position(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
 
 #[derive(Resource)]
 pub(crate) struct LightmapGpu {
@@ -28,6 +101,8 @@ pub(crate) struct LightmapGpu {
     pub(crate) bind_group: BindGroup,
     inputs: Option<LightmapInputs>,
     atmosphere: Buffer,
+    point_light: Buffer,
+    point_light_input: PointLightUniform,
 }
 
 /// Describes group one shared by every ordinary lit world pipeline.
@@ -57,6 +132,18 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
                 },
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(
+                        std::mem::size_of::<PointLightUniform>() as u64
+                    ),
+                },
+                count: None,
+            },
         ],
     )
 }
@@ -67,7 +154,8 @@ struct LightingInstalled;
 /// Installs one lightmap upload, independent of terrain or actor publication revisions.
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<WorldLighting>()
-        .init_resource::<WorldFullbright>();
+        .init_resource::<WorldFullbright>()
+        .init_resource::<WorldPointLight>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -78,6 +166,7 @@ pub(crate) fn install(app: &mut App) {
         .insert_resource(LightingInstalled);
     app.add_plugins(ExtractResourcePlugin::<WorldLighting>::default());
     app.add_plugins(ExtractResourcePlugin::<WorldFullbright>::default());
+    app.add_plugins(ExtractResourcePlugin::<WorldPointLight>::default());
     const MATERIAL_SHADER: Handle<Shader> = uuid_handle!("40309d5a-76a4-4e3b-aed0-d5c76aa5d52e");
 
     const SHADER: Handle<Shader> = uuid_handle!("4562a3ce-92ab-46f2-823f-af9faf2cc5c8");
@@ -107,7 +196,11 @@ pub(crate) fn install(app: &mut App) {
 /// Rebuilds the small table only when an environment input changes.
 fn prepare(
     mut commands: Commands,
-    (input, fullbright): (Res<WorldLighting>, Res<WorldFullbright>),
+    (input, fullbright, point_light): (
+        Res<WorldLighting>,
+        Res<WorldFullbright>,
+        Res<WorldPointLight>,
+    ),
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -124,11 +217,30 @@ fn prepare(
             );
             gpu.inputs = inputs;
         }
+        let mut bind_group_changed = false;
         if let Some(atmosphere) = atmosphere.as_deref()
             && gpu.atmosphere.id() != atmosphere.buffer.id()
         {
             gpu.atmosphere = atmosphere.buffer.clone();
-            gpu.bind_group = bind_group(&device, &cache, &gpu.buffer, &gpu.atmosphere);
+            bind_group_changed = true;
+        }
+        let point_light_uniform = PointLightUniform::from(*point_light);
+        if gpu.point_light_input != point_light_uniform {
+            queue.profiled_write_buffer(
+                &gpu.point_light,
+                0,
+                bytemuck::bytes_of(&point_light_uniform),
+            );
+            gpu.point_light_input = point_light_uniform;
+        }
+        if bind_group_changed {
+            gpu.bind_group = bind_group(
+                &device,
+                &cache,
+                &gpu.buffer,
+                &gpu.atmosphere,
+                &gpu.point_light,
+            );
         }
         return;
     }
@@ -144,12 +256,20 @@ fn prepare(
             usage: BufferUsages::UNIFORM,
         })
     });
-    let bind_group = bind_group(&device, &cache, &buffer, &atmosphere);
+    let point_light_uniform = PointLightUniform::from(*point_light);
+    let point_light = device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("world point light"),
+        contents: bytemuck::bytes_of(&point_light_uniform),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+    let bind_group = bind_group(&device, &cache, &buffer, &atmosphere, &point_light);
     commands.insert_resource(LightmapGpu {
         buffer,
         bind_group,
         inputs,
         atmosphere,
+        point_light,
+        point_light_input: point_light_uniform,
     });
 }
 
@@ -174,6 +294,7 @@ fn bind_group(
     cache: &PipelineCache,
     light: &Buffer,
     atmosphere: &Buffer,
+    point_light: &Buffer,
 ) -> BindGroup {
     device.create_bind_group(
         "world lighting and fog",
@@ -186,6 +307,10 @@ fn bind_group(
             BindGroupEntry {
                 binding: 1,
                 resource: atmosphere.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: point_light.as_entire_binding(),
             },
         ],
     )
@@ -229,5 +354,76 @@ mod fullbright_tests {
             ..Default::default()
         };
         assert_eq!(light_table(Some(day)), day.build());
+    }
+
+    #[test]
+    fn point_light_uniform_sanitizes_config_and_keeps_zero_radius_off() {
+        let uniform = PointLightUniform::from(WorldPointLight {
+            enabled: true,
+            color: [2.0, f32::NAN, 0.25],
+            local: WorldPointLightSource {
+                position: [f32::INFINITY, -64.0, 2.0],
+                intensity: 1.0,
+                radius: f32::NAN,
+            },
+            additional: [
+                WorldPointLightSource {
+                    position: [1.0, 2.0, 3.0],
+                    intensity: 2.0,
+                    radius: 9.0,
+                },
+                WorldPointLightSource {
+                    position: [4.0, 5.0, 6.0],
+                    intensity: f32::NAN,
+                    radius: 7.0,
+                },
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+            ],
+        });
+        assert_eq!(uniform.enabled, [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(uniform.color, [1.0, 0.0, 0.25, 0.0]);
+        assert_eq!(
+            uniform.sources,
+            [
+                [0.0, -64.0, 2.0, 0.0],
+                [1.0, 2.0, 3.0, 9.0],
+                [4.0, 5.0, 6.0, 0.0],
+                [0.0; 4],
+                [0.0; 4],
+                [0.0; 4],
+                [0.0; 4],
+                [0.0; 4],
+            ]
+        );
+        assert_eq!(uniform.strengths[0], [0.0, 1.0, 0.0, 0.0]);
+
+        let active = PointLightUniform::from(WorldPointLight::default());
+        assert_eq!(active.enabled[0], 0.0);
+        assert_eq!(active.sources, [[0.0; 4]; 8]);
+
+        let remote_only = PointLightUniform::from(WorldPointLight {
+            enabled: true,
+            additional: [
+                WorldPointLightSource {
+                    position: [1.0, 2.0, 3.0],
+                    intensity: 0.5,
+                    radius: 5.0,
+                },
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+                WorldPointLightSource::default(),
+            ],
+            ..WorldPointLight::default()
+        });
+        assert_eq!(remote_only.sources[1], [1.0, 2.0, 3.0, 5.0]);
+        assert_eq!(remote_only.strengths[0][1], 0.5);
+        assert_eq!(remote_only.sources.len(), 8);
     }
 }
