@@ -441,6 +441,72 @@ fn the_portal_keeps_turning_smoothly_as_the_player_walks() {
     assert!(kept(&before, &jumped) < 0.9, "{}", kept(&before, &jumped));
 }
 
+/// When the session clock wraps to zero, the shader's turn drops by the rate times the wrap. At
+/// the client part's rates, a whole number of the vortex's cycles per wrap, the tunnel, its stars
+/// and its sparks look as they did; at a rate between cycles the tunnel jumps.
+#[test]
+fn the_portal_carries_on_unchanged_across_the_clock_wrap() {
+    let Some(gpu) = Gpu::for_fixture("material fx portal wrap") else {
+        return;
+    };
+    let stars = texture(&gpu, 16, |x, y| {
+        if (x * 7 + y * 3) % 11 == 0 {
+            [255; 4]
+        } else {
+            [0, 0, 0, 255]
+        }
+    });
+    let at = 4095.5_f32;
+    let scene = Scene {
+        lo: [0.0; 3],
+        hi: [2.0, 3.0, 1.0],
+        phase: phase(at),
+        ..Scene::default()
+    };
+    let camera = Camera {
+        eye: [1.0, 1.5, -4.0],
+        target: [1.0, 1.5, 0.5],
+        fov: 40.0,
+    };
+    let frame = |rate: f32, offset: f32| {
+        view(
+            &gpu,
+            shader!("vortex"),
+            std::slice::from_ref(&stars),
+            &[1.0, 1.5, 0.5, 0.0, 1.0, 0.45, 0.15, 0.85, rate, offset],
+            &camera,
+            &scene,
+        )
+    };
+    let kept = |before: &[u8], after: &[u8]| {
+        let (mut same, mut lit) = (0, 0);
+        for (a, b) in pixels(before).zip(pixels(after)) {
+            if a != MISS {
+                lit += 1;
+                same += usize::from((0..3).all(|c| a[c].abs_diff(b[c]) <= 6));
+            }
+        }
+        assert!(lit > 2000, "{lit}");
+        same as f32 / lit as f32
+    };
+    // Twenty cycles of 138 per 4096 s wrap.
+    let whole = 20.0 * 138.0 / 4096.0;
+    let wrapped = frame(whole, 3.0);
+    let unwrapped = frame(whole, 3.0 + 4096.0 * whole);
+    assert!(
+        kept(&wrapped, &unwrapped) >= 0.99,
+        "{}",
+        kept(&wrapped, &unwrapped)
+    );
+    let between = 0.4_f32;
+    let jumped = frame(between, 3.0 + 4096.0 * between);
+    assert!(
+        kept(&frame(between, 3.0), &jumped) < 0.9,
+        "{}",
+        kept(&frame(between, 3.0), &jumped)
+    );
+}
+
 /// The perf budget: every copy of a raymarched block traces only its own block, within the
 /// sandbox's fixed per-pixel worst case (`every_showcase_shader_passes_the_sandbox`), so a wall
 /// of copies costs what one block costs per covered pixel. Sixteen bottles side by side each

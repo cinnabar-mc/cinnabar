@@ -107,7 +107,8 @@ so the server times them and every client agrees. The screen gets every player's
 a second, and the portal your distance, with the moment you were there, whenever it changes by
 a quarter block. A new distance or boss health changes how fast the portal turns or the heart
 beats from that moment on: the client part keeps each animation's phase where it was, so it
-speeds up or slows down smoothly and never jumps to another frame.
+speeds up or slows down smoothly and never jumps to another frame. Those rates are rounded to a
+whole number of cycles per 4096 s, so the animations also carry on unchanged when the clock wraps.
 
 ### Withdrawing an effect permission live
 

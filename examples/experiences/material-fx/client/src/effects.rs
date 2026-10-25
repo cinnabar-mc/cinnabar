@@ -435,9 +435,29 @@ pub const COMPUTES: [u32; 2] = [STORM_COMPUTE, FIRE_COMPUTE];
 /// Thousandths per block, the unit the server sends positions and times in.
 const MILLI: f32 = 1000.0;
 
+/// Seconds after which the session clock the shaders read (`seconds` in `common.wgsl`) wraps to
+/// zero: the host's animation phase spans this many seconds.
+const CLOCK_WRAP_SECONDS: f64 = 4096.0;
+
+/// The span of the portal's turn phase after which the vortex looks the same: its bands, stars
+/// and sparks all repeat after it (`vortex.wgsl`).
+pub const PORTAL_CYCLE: f32 = 138.0;
+
+/// `rate` rounded to the nearest rate, at least one cycle per wrap, that advances a phase by a
+/// whole number of `cycle`s each time the session clock wraps, so a pattern repeating every
+/// `cycle` of phase carries on unchanged when the clock returns to zero.
+fn whole_cycles(rate: f32, cycle: f32) -> f32 {
+    let cycle = f64::from(cycle);
+    let cycles = (f64::from(rate) * CLOCK_WRAP_SECONDS / cycle)
+        .round()
+        .max(1.0);
+    (cycles * cycle / CLOCK_WRAP_SECONDS) as f32
+}
+
 /// An animation phase `seconds * rate + offset` on the session clock, as the shaders compute it, whose rate the server
 /// changes. Changing the rate at a moment moves the offset so the phase carries on from where it
-/// was, instead of jumping to where the new rate would have put it since the clock began.
+/// was, instead of jumping to where the new rate would have put it since the clock began. Rates
+/// come from [`whole_cycles`], so the phase also carries on when the clock wraps.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Phase {
     /// Phase units per session second.
@@ -468,14 +488,16 @@ pub fn portal_near(distance: f32) -> f32 {
     (1.0 - distance / 12.0).clamp(0.0, 1.0)
 }
 
-/// How fast the portal turns, in phase units per second, at closeness `near`.
+/// How fast the portal turns, in phase units per second, at closeness `near`: whole
+/// [`PORTAL_CYCLE`]s per clock wrap.
 pub fn portal_rate(near: f32) -> f32 {
-    0.4 + 1.6 * near
+    whole_cycles(0.4 + 1.6 * near, PORTAL_CYCLE)
 }
 
-/// Heartbeats per second at boss health `health` (0 to 1): faster as it falls.
+/// Heartbeats per second at boss health `health` (0 to 1): faster as it falls, and whole beats
+/// per clock wrap.
 pub fn beat_rate(health: f32) -> f32 {
-    1.0 / (0.45 + (1.4 - 0.45) * health.clamp(0.0, 1.0))
+    whole_cycles(1.0 / (0.45 + (1.4 - 0.45) * health.clamp(0.0, 1.0)), 1.0)
 }
 
 /// What the server has said so far.
@@ -770,7 +792,7 @@ impl State {
                     0.15,
                     0.85,
                     self.portal_spin.rate,
-                    self.portal_spin.offset as f32,
+                    self.portal_spin.offset.rem_euclid(f64::from(PORTAL_CYCLE)) as f32,
                 ]
             }
             WAVE_GRASS => {
@@ -791,7 +813,7 @@ impl State {
             }
             BOSS => {
                 let beat = self.heartbeat.unwrap_or(Phase {
-                    rate: 0.8,
+                    rate: whole_cycles(0.8, 1.0),
                     offset: 0.0,
                 });
                 vec![beat.rate, beat.offset.rem_euclid(1.0) as f32]
@@ -837,4 +859,28 @@ pub fn rich_spec(id: u32, state: &State) -> Option<(MaterialSpec, wme::Effects)>
         spec.source = source.into();
     }
     Some((spec, (rich.effects)(state)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Phase cycles a rate advances over one wrap of the session clock.
+    fn cycles_per_wrap(rate: f32, cycle: f32) -> f64 {
+        f64::from(rate) * CLOCK_WRAP_SECONDS / f64::from(cycle)
+    }
+
+    #[test]
+    fn server_driven_rates_keep_their_phase_across_the_clock_wrap() {
+        for step in 0..=100 {
+            let at = step as f32 / 100.0;
+            let portal = cycles_per_wrap(portal_rate(at), PORTAL_CYCLE);
+            assert_eq!(portal, portal.round(), "portal at closeness {at}");
+            let beat = cycles_per_wrap(beat_rate(at), 1.0);
+            assert_eq!(beat, beat.round(), "heartbeat at health {at}");
+        }
+        // Rounding moves a rate by at most half a cycle per wrap.
+        assert!((f64::from(portal_rate(0.0)) - 0.4).abs() <= 69.0 / CLOCK_WRAP_SECONDS);
+        assert!((f64::from(beat_rate(1.0)) - 1.0 / 1.4).abs() <= 0.5 / CLOCK_WRAP_SECONDS);
+    }
 }
