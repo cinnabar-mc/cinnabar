@@ -270,12 +270,15 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   credits. The shared output-memory limit is unchanged.
   Late blob replies for retired transactions no longer discard valid, still-needed
   blobs in the same response. Verified requested bodies arriving after ordinary-lane
-  retirement can warm the cache for recovery. Terrain requests use a packet origin
-  that fits their absolute positions and leave distant columns queued for later packets.
+  retirement can warm the cache for recovery. Ordinary updates wait in their bounded lane
+  while missing bodies arrive; ordinary admission pressure can retire cached blockers
+  when that lane fills.
+  Retained updates also preserve ordering with later cached terrain on the same column.
+  Terrain requests use a packet origin that fits their absolute positions and leave distant
+  columns queued for later packets.
   Failed sends restore demand, and view retirement still cancels stale columns.
-  Sustained high-speed hardware qualification remains open.
-  retirement can warm the cache for recovery. Unresolved cached SubChunk replies have a
-  session recovery timer that retries exact missing heights and preserves valid late bodies.
+  Unresolved cached SubChunk replies have a session recovery timer that retries exact missing
+  heights and preserves valid late bodies.
   Full cached columns retain their original biome and inline data while waiting for bodies;
   SubChunk recovery cannot replace that complete payload. Fresh recovery replies can request
   expired shared misses again. This interval is an internal liveness policy. Recovery of a

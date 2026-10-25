@@ -1,10 +1,26 @@
 use super::*;
 
 impl BlobCacheResolver {
-    /// Stops network intake while ordinary work is retained behind an earlier cached column.
+    /// Whether ordinary work remains retained, possibly behind an earlier cached column.
     #[must_use]
     pub fn ordinary_lane_needs_drain(&self) -> bool {
         !self.immediate_ready.is_empty()
+    }
+
+    /// Checks the next ordinary item's admission against the existing count and byte quotas.
+    pub(crate) fn can_accept_ordinary(
+        &self,
+        accounted_bytes: usize,
+    ) -> Result<bool, BlobCacheError> {
+        let retained_bytes = self
+            .retained_ordinary_bytes()?
+            .checked_add(accounted_bytes)
+            .and_then(|bytes| bytes.checked_add(size_of::<(u64, ImmediateReady)>()))
+            .ok_or(BlobCacheError::ByteCountOverflow)?;
+        Ok(
+            self.immediate_ready.len() < MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS
+                && retained_bytes <= MAX_CLIENT_BLOB_ORDINARY_READY_BYTES,
+        )
     }
 
     /// Abandons the cached transactions that block retained ordinary work, including those
