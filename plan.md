@@ -345,15 +345,17 @@ is a broader claim than the presence of these features.
   records the implementation audit, pinned Bedrock/Controlify evidence, native
   capture gates and staged delegation plan. Bevy-free navigation and semantic
   action foundations now connect to app input and cursor/focus rendering for
-  ordinary inventory, storage, equipment and crafting cells. Regression coverage
+  ordinary inventory, storage, equipment and crafting cells, recipe-book rows
+  (identified by content) and the recipe panel's controls. Regression coverage
   includes stale targets, clipped geometry, item-region pointer aliases, nearest
   cursor-to-D-pad acquisition, open-instance generations, ownership
   handoff, neutral-gated action edges and same-frame-close gameplay consumption.
   Left-stick cursor, D-pad and swapped face-button roles use explicitly provisional
-  Cinnabar defaults, not measured Bedrock bindings/timings. Recipe/catalog/widget
-  activation, contextual prompts, persisted cursor options, scroll reveal,
-  virtualized neighbors and magnets remain open. Controller-only screen-family
-  acceptance and native capture evidence are missing; this does not close parity.
+  Cinnabar defaults, not measured Bedrock bindings/timings. Other widget activation,
+  the fallback creative grid, search entry, contextual prompts, persisted cursor
+  options, scroll reveal, virtualized neighbors and magnets remain open.
+  Controller-only screen-family acceptance and native capture evidence are missing;
+  this does not close parity.
 
 macOS has a provisional, read-only Switch full-report adapter for `057e:2009`
 devices already streaming report `0x30`. The client enables Bevy's gamepad types,

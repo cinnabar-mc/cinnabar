@@ -1,6 +1,7 @@
 # Controller inventory and container UI specification
 
-Status: ordinary-cell controller routing and rendering are wired; recipe/widget
+Status: ordinary-cell and recipe-row controller routing and rendering are wired,
+with the recipe panel's controls; scroll reveal, search entry, other widget
 integration and Bedrock controller acceptance remain incomplete. Researched 2026-10-25.
 
 ## 1. Scope and evidence rules
@@ -57,8 +58,11 @@ The controller implementation lives in
 and retained session, plus semantic action dispatch through the existing ledger.
 Dispatch requires a captured screen token and matching resolved/current semantic
 selections, including layout revision. App routing admits ordinary player,
-storage, equipment, crafting-input and crafting-output cells. Recipe/catalog rows
-and widgets are intentionally excluded rather than assigned positional identities.
+storage, equipment, crafting-input and crafting-output cells. Recipe-book rows use
+their content identity, never their list position, and the recipe panel's controls
+(category tabs, filter, layout and right-tab radios, furnace tabs, book paging) are
+admitted. Other widgets, search entry and the fallback creative grid stay excluded
+until their authored mappings are integrated.
 Authored focus metadata and a client-owned cross pointer share the dispatch GUI
 coordinates. Nonfocusable item/input regions retain semantic aliases to the same
 cell as its directional focus control, including after stick release. From free
@@ -71,12 +75,15 @@ same-frame UI close retires the captured gameplay sample.
 The first routing policy is explicitly provisional: left stick moves the cursor,
 D-pad navigates, physical South takes/places, West takes half/places one, North
 quick-transfers and East goes Back, respecting saved face-button swaps. Gather and
-drop have no default physical binding. Cursor speed, radial deadzone and repeat
+drop have no default physical binding. On recipe rows, Primary is the pointer click
+(select or place), QuickTransfer is the shift path (craft all on recipe rows), and
+HalfOrPlaceOne stays unresolved. Cursor speed, radial deadzone and repeat
 timings are defined by `SESSION_SETTINGS` in the app adapter, independently of
 camera sensitivity. These are Cinnabar trial settings, not Bedrock defaults. Persisted cursor
-options, contextual prompts, recipe/widget activation, scroll reveal, virtualized
-neighbors, magnets and live controller-only acceptance remain open. Ordinary-cell
-routing does not establish complete survival/chest/workbench/furnace acceptance.
+options, contextual prompts, other widget activation, search entry, scroll reveal,
+virtualized neighbors, magnets and live controller-only acceptance remain open.
+Ordinary-cell routing does not establish complete survival/chest/workbench/furnace
+acceptance.
 
 Reuse existing ledger entry points, including `begin_target_gesture`,
 `begin_quick_move`, `begin_gather`, `begin_drop`, crafting/recipe-placement and

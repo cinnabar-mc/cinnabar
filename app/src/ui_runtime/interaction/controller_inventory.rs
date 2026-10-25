@@ -34,7 +34,7 @@ use client_ui::ui_runtime::{
     controller_inventory::{
         actions::{ContainerControllerAction, ControllerActionOutcome},
         navigation::{self, Frame, Mode, Target},
-        session::{ControllerSession, Input},
+        session::{ControllerSession, Input, recipe_row_identities},
     },
     presentation::UiPresentationRuntime,
 };
@@ -506,18 +506,32 @@ pub(crate) fn drive_controller_inventory(
     let owner = owner.unwrap_or_default();
 
     // Keep semantic pointer aliases; the session selects one focusable key per cell.
+    // Recipe rows carry their content identity; a row without an entry is dropped.
     // The session interns identities, drops unsupported cells and their focus candidates.
     let cells: Vec<(String, InventoryCellHit)> = engine
         .hits
         .iter()
         .filter_map(|hit| Some((hit.key.clone(), view.engine_container_region_hit(hit)?)))
         .collect();
+    let rows = cells
+        .iter()
+        .any(|(_, hit)| matches!(hit, InventoryCellHit::RecipeBook(_)))
+        .then(|| recipe_row_identities(&player_runtime.0, &runtime));
     let targets: Vec<Target> = cells
         .iter()
-        .map(|(key, hit)| Target {
-            key: key.clone(),
-            identity: 0,
-            hit: *hit,
+        .filter_map(|(key, hit)| {
+            let identity = match hit {
+                InventoryCellHit::RecipeBook(index) => rows
+                    .as_ref()
+                    .and_then(|rows| rows.get(usize::from(*index)))
+                    .copied()?,
+                _ => 0,
+            };
+            Some(Target {
+                key: key.clone(),
+                identity,
+                hit: *hit,
+            })
         })
         .collect();
     let revision = input.revisions.observe(&GeometrySnapshot {

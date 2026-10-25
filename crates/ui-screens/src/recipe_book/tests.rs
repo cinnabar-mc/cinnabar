@@ -180,3 +180,49 @@ fn hidden_recipe_book_uses_survival_binding_and_retains_unknown_layouts() {
         }
     }
 }
+
+/// A catalog item or group keeps its content identity when its row or expansion changes.
+#[test]
+fn book_entry_identity_follows_content_not_row() {
+    let item = |creative_network_id| CreativeItem {
+        creative_network_id,
+        stack: NetworkItemStack::empty(),
+        group: 0,
+    };
+    let first = item(9);
+    let other = item(10);
+    let listed = BookEntry::Creative {
+        item: &first,
+        grouped: false,
+    };
+    let grouped = BookEntry::Creative {
+        item: &first,
+        grouped: true,
+    };
+    assert_eq!(listed.identity(), grouped.identity());
+    assert_ne!(
+        listed.identity(),
+        BookEntry::Creative {
+            item: &other,
+            grouped: false,
+        }
+        .identity()
+    );
+    let group = CreativeGroup {
+        category: protocol::CreativeCategory::Items,
+        name: "group".into(),
+        icon: None,
+    };
+    let folded = BookEntry::Group {
+        index: 3,
+        group: &group,
+        expanded: false,
+    };
+    let unfolded = BookEntry::Group {
+        index: 3,
+        group: &group,
+        expanded: true,
+    };
+    assert_eq!(folded.identity(), unfolded.identity());
+    assert_ne!(folded.identity(), listed.identity());
+}

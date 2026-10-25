@@ -1,12 +1,16 @@
-//! Retained input arbitration for ordinary inventory cells.
+//! Retained input arbitration for container cells and recipe-panel controls.
 //!
-//! The caller owns modal/text arbitration and scroll reveal. Recipe/catalog rows
-//! and widgets are deliberately excluded until their authoritative identities and
-//! authored activation mappings are integrated. No pointer clicks are synthesized.
+//! The caller owns modal/text arbitration and scroll reveal. Ordinary inventory cells,
+//! recipe-book rows and the recipe panel's controls (category tabs, filter, layout and
+//! right-tab radios, furnace tabs, book paging) are admitted. Other widgets, search
+//! fields and the fallback creative grid stay excluded until their authored activation
+//! mappings are integrated. Recipe rows are identified by the content key the caller
+//! supplies, so a filtered row never inherits focus or an action from its old position.
+//! No pointer clicks are synthesized.
 
 use super::{actions::ContainerControllerAction, navigation};
 use crate::ui_runtime::UiRuntime;
-use ui_screens::container_actions::InventoryCellHit;
+use ui_screens::container_actions::{InventoryCellHit, Widget};
 
 /// Held logical buttons, in `ContainerControllerAction::ALL` order.
 pub struct Input {
@@ -21,6 +25,13 @@ pub struct Output {
     pub actions: Vec<ContainerControllerAction>,
 }
 
+/// What a target's identity is interned from: the cell itself, or a list row's content.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Semantic {
+    Cell(InventoryCellHit),
+    Row(u64),
+}
+
 /// Retain in the app resource. Reset on any higher-priority input owner.
 pub struct ControllerSession {
     navigation: navigation::Navigation,
@@ -29,7 +40,7 @@ pub struct ControllerSession {
     held: [bool; ContainerControllerAction::ALL.len()],
     previous_time: Option<std::time::Duration>,
     deadzone: f64,
-    identities: Vec<InventoryCellHit>,
+    identities: Vec<Semantic>,
 }
 
 impl ControllerSession {
@@ -56,31 +67,43 @@ impl ControllerSession {
         self.identities.clear();
     }
 
-    /// Interns ordinary semantic cells, preserving identity across layout reflow.
-    /// Repeated regions for one cell use the first association in layout order.
-    /// Catalog rows and widgets are not admitted by this initial slice.
+    /// Interns admitted semantic targets, preserving identity across layout reflow.
+    /// Repeated regions for one cell or recipe content use the first association in
+    /// layout order. A supplied `identity` is the content key for recipe rows and is
+    /// ignored for every other cell.
     pub fn targets(
         &mut self,
-        associations: impl IntoIterator<Item = (String, InventoryCellHit)>,
+        associations: impl IntoIterator<Item = navigation::Target>,
     ) -> Vec<navigation::Target> {
         let mut targets: Vec<navigation::Target> = Vec::new();
-        for (key, hit) in associations {
-            if !ordinary_cell(hit)
+        let mut semantics: Vec<Semantic> = Vec::new();
+        for association in associations {
+            let hit = association.hit;
+            if !admitted_cell(hit) {
+                continue;
+            }
+            let semantic = if matches!(hit, InventoryCellHit::RecipeBook(_)) {
+                Semantic::Row(association.identity)
+            } else {
+                Semantic::Cell(hit)
+            };
+            if semantics.contains(&semantic)
                 || targets
                     .iter()
-                    .any(|target| target.hit == hit || target.key == key)
+                    .any(|target| target.hit == hit || target.key == association.key)
             {
                 continue;
             }
-            let identity = match self.identities.iter().position(|cell| *cell == hit) {
+            let identity = match self.identities.iter().position(|cell| *cell == semantic) {
                 Some(index) => index,
                 None => {
-                    self.identities.push(hit);
+                    self.identities.push(semantic);
                     self.identities.len() - 1
                 }
             };
+            semantics.push(semantic);
             targets.push(navigation::Target {
-                key,
+                key: association.key,
                 identity: u64::try_from(identity).expect("cell identity exceeds u64"),
                 hit,
             });
@@ -150,7 +173,7 @@ impl ControllerSession {
                 .targets
                 .iter()
                 .filter(|target| focusable.contains(target.key.as_str()))
-                .map(|target| (target.key.clone(), target.hit)),
+                .cloned(),
         );
         let aliases: Vec<_> = frame
             .targets
@@ -227,8 +250,9 @@ impl ControllerSession {
     }
 }
 
-/// Catalog rows cannot borrow an identity from their current position.
-fn ordinary_cell(hit: InventoryCellHit) -> bool {
+/// Cells with an existing pointer route the controller may drive: inventory cells, recipe
+/// rows and the recipe panel's controls. Other widgets wait for their authored mappings.
+fn admitted_cell(hit: InventoryCellHit) -> bool {
     matches!(
         hit,
         InventoryCellHit::Player(_)
@@ -237,7 +261,30 @@ fn ordinary_cell(hit: InventoryCellHit) -> bool {
             | InventoryCellHit::Offhand
             | InventoryCellHit::Craft(_)
             | InventoryCellHit::CraftOutput
+            | InventoryCellHit::RecipeBook(_)
+            | InventoryCellHit::CreativeTab(_)
+            | InventoryCellHit::Widget(
+                Widget::RecipeFilter
+                    | Widget::InventoryLayout(_)
+                    | Widget::InventoryRightTab(_)
+                    | Widget::FurnaceTab(_)
+                    | Widget::FurnaceClearRecipe
+                    | Widget::BookToggle
+                    | Widget::BookRecipe(_)
+                    | Widget::BookPage { .. }
+            )
     )
+}
+
+/// Content keys of the recipe book's rows, indexed like `InventoryCellHit::RecipeBook`.
+pub fn recipe_row_identities(
+    player_runtime: &player_state::PlayerState,
+    runtime: &UiRuntime,
+) -> Vec<u64> {
+    crate::ui_runtime::inventory_actions::recipe_book_entries(player_runtime, runtime)
+        .iter()
+        .map(|entry| entry.identity())
+        .collect()
 }
 
 #[cfg(test)]

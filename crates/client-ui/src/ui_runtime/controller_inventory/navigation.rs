@@ -26,7 +26,8 @@ use ui_screens::container_actions::InventoryCellHit;
 pub struct Target {
     pub key: String,
     /// Stable within a screen generation, including across layout/key changes.
-    /// For filtered recipes/catalogs this must identify content, NOT row index.
+    /// For filtered recipes/catalogs this must identify content, NOT row index. The
+    /// session interns recipe rows by this caller-supplied key and ordinary cells by their hit.
     pub identity: u64,
     pub hit: InventoryCellHit,
 }

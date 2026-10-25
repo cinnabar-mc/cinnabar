@@ -65,6 +65,23 @@ fn region() -> HitRegion {
     }
 }
 
+fn assoc(key: &str, hit: InventoryCellHit) -> navigation::Target {
+    navigation::Target {
+        key: key.into(),
+        identity: 0,
+        hit,
+    }
+}
+
+/// A recipe row whose identity is its content key `content`, not its position.
+fn row(key: &str, index: u16, content: u64) -> navigation::Target {
+    navigation::Target {
+        key: key.into(),
+        identity: content,
+        hit: InventoryCellHit::RecipeBook(index),
+    }
+}
+
 fn input(time: u64, actions: bool) -> Input {
     Input {
         navigation: navigation::Input {
@@ -80,7 +97,7 @@ fn input(time: u64, actions: bool) -> Input {
 }
 
 fn step(session: &mut ControllerSession, runtime: &mut UiRuntime, input: Input) -> Output {
-    let targets = session.targets([("cell".into(), InventoryCellHit::Player(0))]);
+    let targets = session.targets([assoc("cell", InventoryCellHit::Player(0))]);
     let hits = [region()];
     let generation = runtime.container_generation();
     session.step(
@@ -123,16 +140,17 @@ fn generation_records_same_frame_close_reopen_and_session_replacement() {
 #[test]
 fn interned_cells_survive_reflow_and_duplicate_regions_are_single_targets() {
     let mut session = session();
-    let first = session.targets([("old".into(), InventoryCellHit::Storage(4))]);
+    let first = session.targets([assoc("old", InventoryCellHit::Storage(4))]);
     let next = session.targets([
-        ("new".into(), InventoryCellHit::Storage(4)),
-        ("duplicate".into(), InventoryCellHit::Storage(4)),
-        ("recipe".into(), InventoryCellHit::RecipeBook(0)),
-        ("creative".into(), InventoryCellHit::CreativeGrid(0)),
+        assoc("new", InventoryCellHit::Storage(4)),
+        assoc("duplicate", InventoryCellHit::Storage(4)),
+        row("recipe", 0, 7),
+        assoc("creative", InventoryCellHit::CreativeGrid(0)),
     ]);
-    assert_eq!(next.len(), 1);
+    assert_eq!(next.len(), 2);
     assert_eq!(first[0].identity, next[0].identity);
     assert_eq!(next[0].key, "new");
+    assert_eq!(next[1].key, "recipe");
 }
 
 #[test]
@@ -221,17 +239,36 @@ fn mouse_takeover_and_blank_space_never_emit_actions() {
 }
 
 #[test]
-fn stale_recipe_rows_never_become_action_selections() {
+fn recipe_rows_keep_identity_by_content_not_position() {
     let mut session = session();
-    assert!(
-        session
-            .targets([("row".into(), InventoryCellHit::RecipeBook(0))])
-            .is_empty()
-    );
-    assert!(
-        session
-            .targets([("row".into(), InventoryCellHit::RecipeBook(1))])
-            .is_empty()
+    let unfiltered = session.targets([row("row0", 0, 10), row("row1", 1, 11)]);
+    let filtered = session.targets([row("row0", 0, 11)]);
+    assert_eq!(filtered[0].identity, unfiltered[1].identity);
+    assert_ne!(filtered[0].identity, unfiltered[0].identity);
+}
+
+#[test]
+fn recipe_panel_controls_are_targets_but_other_widgets_are_not() {
+    let mut session = session();
+    let targets = session.targets([
+        assoc("tab", InventoryCellHit::CreativeTab(1)),
+        assoc("filter", InventoryCellHit::Widget(Widget::RecipeFilter)),
+        assoc(
+            "layout",
+            InventoryCellHit::Widget(Widget::InventoryLayout(1)),
+        ),
+        assoc("trade", InventoryCellHit::Widget(Widget::Trade)),
+        assoc("search", InventoryCellHit::CreativeSearch),
+        assoc("grid", InventoryCellHit::CreativeGrid(0)),
+    ]);
+    let hits: Vec<_> = targets.iter().map(|target| target.hit).collect();
+    assert_eq!(
+        hits,
+        [
+            InventoryCellHit::CreativeTab(1),
+            InventoryCellHit::Widget(Widget::RecipeFilter),
+            InventoryCellHit::Widget(Widget::InventoryLayout(1)),
+        ]
     );
 }
 
@@ -335,7 +372,7 @@ fn action_only_mouse_handoff_keeps_controller_cursor_on_next_neutral_sample() {
 }
 
 #[test]
-fn unsupported_focusable_recipe_cannot_trap_ordinary_cell_navigation() {
+fn dpad_focus_and_primary_reach_a_recipe_row() {
     let mut session = session();
     let mut runtime = UiRuntime::new(1);
     runtime.set_inventory_open(true);
@@ -347,9 +384,63 @@ fn unsupported_focusable_recipe_cannot_trap_ordinary_cell_navigation() {
         hit.order = index;
     }
     let targets = session.targets([
-        (hits[0].key.clone(), InventoryCellHit::Player(0)),
-        (hits[1].key.clone(), InventoryCellHit::RecipeBook(0)),
-        (hits[2].key.clone(), InventoryCellHit::Player(1)),
+        assoc(&hits[0].key, InventoryCellHit::Player(0)),
+        row(&hits[1].key, 0, 5),
+        assoc(&hits[2].key, InventoryCellHit::Player(1)),
+    ]);
+    let sample = |session: &mut ControllerSession, runtime: &mut UiRuntime, input| {
+        let generation = runtime.container_generation();
+        session.step(
+            runtime,
+            navigation::Frame {
+                generation,
+                geometry_revision: 1,
+                bounds: bounds(),
+                hits: &hits,
+                targets: &targets,
+            },
+            input,
+        )
+    };
+    sample(&mut session, &mut runtime, input(0, false));
+    let mut right = input(1, false);
+    right.navigation.directions[3] = true;
+    sample(&mut session, &mut runtime, right);
+    sample(&mut session, &mut runtime, input(2, false));
+    let mut right = input(3, false);
+    right.navigation.directions[3] = true;
+    let focused = sample(&mut session, &mut runtime, right);
+    assert_eq!(
+        focused.navigation.selection.unwrap().target.hit,
+        InventoryCellHit::RecipeBook(0)
+    );
+    sample(&mut session, &mut runtime, input(4, false));
+    let mut press = input(5, false);
+    press.actions[0] = true;
+    let primary = sample(&mut session, &mut runtime, press);
+    assert_eq!(primary.actions, [ContainerControllerAction::Primary]);
+    assert_eq!(
+        primary.navigation.selection.unwrap().target.hit,
+        InventoryCellHit::RecipeBook(0)
+    );
+}
+
+#[test]
+fn unsupported_focusable_widget_cannot_trap_ordinary_cell_navigation() {
+    let mut session = session();
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_inventory_open(true);
+    let mut hits = [region(), region(), region()];
+    for (index, hit) in hits.iter_mut().enumerate() {
+        hit.key = format!("cell{index}");
+        hit.focus.as_mut().unwrap().identifier = hit.key.clone();
+        hit.rect.x += index as f64 * 20.0;
+        hit.order = index;
+    }
+    let targets = session.targets([
+        assoc(&hits[0].key, InventoryCellHit::Player(0)),
+        assoc(&hits[1].key, InventoryCellHit::Widget(Widget::Trade)),
+        assoc(&hits[2].key, InventoryCellHit::Player(1)),
     ]);
     let sample = |session: &mut ControllerSession, runtime: &mut UiRuntime, input| {
         let generation = runtime.container_generation();
@@ -443,7 +534,7 @@ fn unsupported_modal_still_blocks_underlying_ordinary_cells() {
     modal.key = "modal".into();
     modal.kind = HitKind::Modal;
     let hits = [region(), modal];
-    let targets = session.targets([("cell".into(), InventoryCellHit::Player(0))]);
+    let targets = session.targets([assoc("cell", InventoryCellHit::Player(0))]);
     for time in 0..2 {
         let mut input = input(time, false);
         input.navigation.directions[3] = time == 1;
