@@ -30,7 +30,7 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
                 concat!(
                     "Server: {}\nKey: {}\n{}\n{}\n",
                     "Permissions: {:?}\nMemory limit: {} bytes; GPU limit: {} bytes\n{}",
-                    "Media/download hosts: {}\nThese hosts see your IP address.\n",
+                    "{}",
                     "Fallback: {}\nServer code is untrusted. F9 disables it immediately.",
                 ),
                 offer.offer.audience,
@@ -41,14 +41,7 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
                 offer.offer.scope.memory_bytes,
                 offer.offer.scope.gpu_bytes,
                 world,
-                offer
-                    .offer
-                    .scope
-                    .origins
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n"),
+                hosts_notice(&offer.offer.scope.origins),
                 offer.offer.fallback,
             )
         }
@@ -58,6 +51,25 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
         }),
     };
     (Some(text), matches!(session.state, State::Offered(_)))
+}
+
+/// The consent lines naming the hosts the client may contact for media and downloads. Reserved
+/// `.invalid` origins are left out: local servers name them for bundles the client already
+/// holds, and the client never contacts them.
+fn hosts_notice(origins: &std::collections::BTreeSet<String>) -> String {
+    let hosts: Vec<&str> = origins
+        .iter()
+        .map(String::as_str)
+        .filter(|origin| !server_experience::manifest::reserved_origin(origin))
+        .collect();
+    if hosts.is_empty() {
+        "Media/download hosts: none\n".into()
+    } else {
+        format!(
+            "Media/download hosts: {}\nThese hosts see your IP address.\n",
+            hosts.join("\n")
+        )
+    }
 }
 
 /// What approving `render_world_material` allows, as one plain permission line with the GPU
@@ -145,5 +157,21 @@ mod status_tests {
         scope.gpu_bytes = u64::MAX;
         let ceiling = server_experience::policy::MAX_GPU_BYTES >> 20;
         assert!(world_material_notice(&scope).contains(&format!("(up to {ceiling} MB")));
+    }
+
+    #[test]
+    fn consent_lists_only_hosts_the_client_may_contact() {
+        let origins = |list: &[&str]| list.iter().map(|origin| (*origin).to_owned()).collect();
+        assert_eq!(
+            hosts_notice(&origins(&["https://cxb.invalid"])),
+            "Media/download hosts: none\n"
+        );
+        assert_eq!(
+            hosts_notice(&origins(&[
+                "https://cxb.invalid",
+                "https://media.example:8443"
+            ])),
+            "Media/download hosts: https://media.example:8443\nThese hosts see your IP address.\n"
+        );
     }
 }

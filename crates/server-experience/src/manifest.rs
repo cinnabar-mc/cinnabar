@@ -115,6 +115,20 @@ use std::collections::BTreeSet;
 
 use crate::{crypto::fixed_hex, policy::*};
 
+/// Whether `origin` (an ASCII-serialized origin such as `https://cxb.invalid:443`) names a
+/// reserved `.invalid` host (RFC 6761), which never resolves. Local servers name one as the
+/// origin of bundles a client must already hold in its cache, so the client never contacts it.
+pub fn reserved_origin(origin: &str) -> bool {
+    let host = origin.split_once("://").map_or(origin, |(_, rest)| rest);
+    let host = host.split(['/', '?', '#']).next().unwrap_or_default();
+    if host.starts_with('[') {
+        return false;
+    }
+    let host = host.rsplit_once(':').map_or(host, |(name, _)| name);
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "invalid" || host.ends_with(".invalid")
+}
+
 impl Scope {
     /// Validates the user-visible scope against host ceilings.
     pub fn validate(&self) -> Result<()> {
@@ -325,4 +339,28 @@ pub fn in_namespace(identifier: &str, namespace: &str) -> bool {
         .and_then(|rest| rest.strip_prefix(':'))
         .is_some_and(|name| !name.is_empty() && !name.contains(':'))
         && crate::manifest::identifier(identifier)
+}
+
+#[cfg(test)]
+mod reserved_origin_tests {
+    use super::reserved_origin;
+
+    #[test]
+    fn only_reserved_invalid_hosts_are_reserved_origins() {
+        for origin in [
+            "https://cxb.invalid",
+            "https://CXB.Invalid:443",
+            "https://invalid",
+        ] {
+            assert!(reserved_origin(origin), "{origin}");
+        }
+        for origin in [
+            "https://invalid.example",
+            "https://media.example:8443",
+            "https://[::1]:443",
+            "https://127.0.0.1:19133",
+        ] {
+            assert!(!reserved_origin(origin), "{origin}");
+        }
+    }
 }
