@@ -56,7 +56,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
         assert!(
             matches!(&saved.controls[0], ui::mod_panel::Control::Keybind { key, .. } if key == "KeyR")
         );
-        let gameplay_reservations = app.world().resource::<ReservedControls>().0.clone();
+        let gameplay_reservations = app.world().resource::<ReservedControls>().keys.clone();
         let event = KeyboardInput {
             key_code,
             logical_key,
@@ -95,7 +95,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
         assert_eq!(runtime.hosts.host(0).panel(), Some(&saved));
         assert_eq!(runtime.hosts.host(0).reserved_keys(), reservations);
         assert_eq!(
-            app.world().resource::<ReservedControls>().0,
+            app.world().resource::<ReservedControls>().keys,
             gameplay_reservations
         );
         let keys = app.world().resource::<ButtonInput<KeyCode>>();

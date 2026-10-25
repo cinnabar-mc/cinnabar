@@ -24,7 +24,7 @@ pub(super) fn collect(
         inputs
             .reserved
             .as_ref()
-            .is_some_and(|reserved| reserved.0.iter().any(|key| key == name))
+            .is_some_and(|reserved| reserved.keys.iter().any(|key| key == name))
     };
     for event in cursor.read(messages) {
         let relevant = match event {
@@ -36,7 +36,13 @@ pub(super) fn collect(
             WindowEvent::MouseButtonInput(event) => {
                 event.window == window && !reserved(&format!("Mouse{:?}", event.button))
             }
-            WindowEvent::MouseWheel(event) => event.window == window,
+            WindowEvent::MouseWheel(event) => {
+                event.window == window
+                    && !inputs
+                        .reserved
+                        .as_ref()
+                        .is_some_and(|reserved| reserved.scroll)
+            }
             WindowEvent::KeyboardFocusLost(_) => {
                 lost = true;
                 false

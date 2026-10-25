@@ -236,6 +236,18 @@ interface input {
     read-field-events: func() -> result<list<field-event>, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
+    record scroll {
+        line-x: f32, line-y: f32,
+        pixel-x: f32, pixel-y: f32,
+    }
+    /// Current captured-gameplay frame only; positive Y scrolls up. Requires controls.
+    /// Line and pixel units remain separate. Repeated reads are stable; no events replay.
+    /// Returns zero while unfocused, in a screen, or after an earlier mod claims scrolling.
+    read-scroll: func() -> result<scroll, string>;
+    /// Claims gameplay wheel input while every listed physical key is held in this frame's snapshot.
+    /// Empty releases the claim. Does not reserve the keys themselves or affect UI scrolling.
+    /// Committed after a successful callback; first active matching mod wins in load order.
+    reserve-scroll: func(keys: list<string>) -> result<_, string>;
 }
 
 /// Local presentation only; no world mutation or outbound packets.

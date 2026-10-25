@@ -415,6 +415,34 @@ impl ModHosts {
         keys.dedup();
         keys
     }
+
+    /// Routes one captured-gameplay wheel frame in load order before native hotbar input.
+    pub fn route_scroll(&mut self, scroll: &mod_host::ScrollFrame, held: &[String]) -> bool {
+        let mut captured = false;
+        let mut claimed = Vec::new();
+        for index in 0..self.host_count() {
+            let host = self.host_mut(index);
+            if !host.is_active() {
+                continue;
+            }
+            host.observe_scroll(if captured {
+                mod_host::empty_scroll()
+            } else {
+                *scroll
+            });
+            let chord = host.scroll_capture_keys();
+            if host.grants().controls
+                && !chord.is_empty()
+                && chord
+                    .iter()
+                    .all(|key| held.contains(key) && !claimed.contains(key))
+            {
+                captured = true;
+            }
+            claimed.extend(host.reserved_keys().iter().cloned());
+        }
+        captured
+    }
 }
 
 /// The controls one mod sees: keys reserved by an earlier mod are withheld, and only the

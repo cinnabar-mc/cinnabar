@@ -2,6 +2,7 @@
 
 mod field;
 mod physical;
+mod scroll;
 use field::PanelSample;
 
 use super::{MenuRuntime, ModRuntime};
@@ -12,6 +13,7 @@ use bevy::{
         keyboard::KeyboardInput,
         mouse::{
             AccumulatedMouseMotion, AccumulatedMouseScroll, MouseButtonInput, MouseScrollUnit,
+            MouseWheel,
         },
     },
     prelude::*,
@@ -30,7 +32,8 @@ pub(super) struct PanelInput<'w> {
     ordered_events: Option<Res<'w, Messages<WindowEvent>>>,
     clipboard: Option<ResMut<'w, client_shell::menu::MenuClipboard>>,
     mouse_events: Option<Res<'w, Messages<MouseButtonInput>>>,
-    scroll: Option<Res<'w, AccumulatedMouseScroll>>,
+    scroll: Option<ResMut<'w, AccumulatedMouseScroll>>,
+    wheel_events: Option<Res<'w, Messages<MouseWheel>>>,
     reserved: Option<ResMut<'w, super::ReservedControls>>,
 }
 
@@ -45,6 +48,7 @@ const TEXT_INPUT: &str = "TextInput";
 pub(super) struct PhysicalControls {
     keys: MessageCursor<KeyboardInput>,
     mouse: MessageCursor<MouseButtonInput>,
+    wheel: MessageCursor<MouseWheel>,
     ime: MessageCursor<Ime>,
     ordered: MessageCursor<WindowEvent>,
     ime_owned: bool,
@@ -121,13 +125,23 @@ pub(super) fn prepare_mod_input(
         ordered_events,
         mut clipboard,
         mouse_events,
-        scroll,
+        mut scroll,
+        wheel_events,
         mut reserved,
     } = input;
     if let Some(reserved) = reserved.as_mut() {
-        reserved.0.clear();
+        reserved.keys.clear();
+        reserved.scroll = false;
     }
     let mut extension = extension.filter(|runtime| !runtime.suspended);
+    if let Some(extension) = extension.as_mut() {
+        for index in 0..extension.hosts.host_count() {
+            extension
+                .hosts
+                .host_mut(index)
+                .observe_scroll(mod_host::empty_scroll());
+        }
+    }
     let viewport = windows
         .single()
         .ok()
@@ -144,6 +158,9 @@ pub(super) fn prepare_mod_input(
         .is_some_and(|packets| packets.menu_owns_panel());
     if extension.is_none() && !packet_owned && !packet_available {
         physical.discard_pending(keyboard_events.as_deref(), mouse_events.as_deref());
+        if let Some(events) = &wheel_events {
+            physical.wheel.clear(events);
+        }
         if let Some(events) = &ime_events {
             physical.ime.clear(events);
         }
@@ -157,6 +174,8 @@ pub(super) fn prepare_mod_input(
     let Ok((entity, mut window, mut cursor)) = windows.single_mut() else {
         return;
     };
+    let (wheel_frame, wheel_received) =
+        scroll::sample(&mut physical.wheel, wheel_events.as_deref(), entity);
     let focused = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     if focused {
@@ -670,6 +689,26 @@ pub(super) fn prepare_mod_input(
         },
         events,
     };
+    let gameplay_scroll = focused
+        && !absorbed
+        && !open
+        && !was_open
+        && !editing
+        && crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some());
+    if gameplay_scroll && wheel_received {
+        let runtime = &mut *extension;
+        if runtime
+            .hosts
+            .route_scroll(&wheel_frame, &runtime.controls.keys_held)
+        {
+            if let Some(reserved) = reserved.as_deref_mut() {
+                reserved.scroll = true;
+            }
+            if let Some(scroll) = scroll.as_deref_mut() {
+                scroll.delta = Vec2::ZERO;
+            }
+        }
+    }
     field::sync_ime(
         &mut physical,
         &mut window,
@@ -817,8 +856,8 @@ fn consume_reserved(
         }
     }
     if let Some(consumed) = consumed.as_mut() {
-        consumed.0.extend_from_slice(reserved);
-        consumed.0.extend(toggle.map(str::to_owned));
+        consumed.keys.extend_from_slice(reserved);
+        consumed.keys.extend(toggle.map(str::to_owned));
     }
 }
 
