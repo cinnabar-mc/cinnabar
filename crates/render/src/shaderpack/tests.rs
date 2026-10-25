@@ -8,6 +8,7 @@
 #[cfg(target_os = "windows")]
 mod fxc;
 mod geometry_frames;
+mod partial;
 
 use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
@@ -100,25 +101,6 @@ fn enabled_full_screen_programs_run_in_frame_order() {
         "composite2's flip is suppressed"
     );
     assert_eq!(plans[3].group, ProgramGroup::Final);
-}
-
-#[test]
-fn a_failed_required_program_fails_the_load() {
-    let pack = pack(&[
-        ("composite.vsh", PASS_VERTEX),
-        (
-            "composite.fsh",
-            "#version 120\nvoid main() { gl_FragData[0] = undefined_name; }\n",
-        ),
-    ]);
-    let translation = pack.translate(&translate_config(&pack, JAVA_DIMENSIONS[0]));
-    let error = runnable_programs(&translation).expect_err("composite fails");
-    let lines: Vec<&str> = error.lines().collect();
-    assert_eq!(lines.len(), 1, "one line per failed program: {error}");
-    assert!(
-        lines[0].starts_with("composite: composite.fsh:") && lines[0].contains("undefined_name"),
-        "names the program and its first diagnostic: {error}"
-    );
 }
 
 /// Switching packs shows Vanilla, which removes the block ids, between them; the geometry

@@ -265,7 +265,9 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
             view.renderer = Some(selected);
             view.shader_options_available = true;
             if failed {
-                view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+                view.renderer_issue = Some(launcher::menu::shader_pack_status::PackIssue::Failure(
+                    "Pack failed: unknown bloomTint".into(),
+                ));
             } else {
                 view.shader_pack_loading = true;
             }

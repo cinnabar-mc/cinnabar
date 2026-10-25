@@ -1411,7 +1411,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.
-  Incomplete: geometry shader translation, comma expressions containing void calls and full
+  Triangle geometry shaders have compute expansion and an emitted-vertex reader;
+  unsupported programs leave diagnostics in the pack status while supported passes run.
+  Acceptance of this path remains incomplete. Other geometry topologies, interface blocks,
+  layered outputs, non-literal layout values, full-screen geometry stages and geometry
+  programs with pack storage buffers are unsupported.
+  Incomplete: comma expressions containing void calls and full
   GLSL preprocessing compatibility; in-game acceptance across packs and platforms (Metal is
   unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition

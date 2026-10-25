@@ -2,9 +2,11 @@
 //! load runs, an ordinary toast with the outcome, and the failure in the Shaders tab
 //! while the failed pack is selected.
 
-use std::{ops::DerefMut, sync::Arc, time::Duration};
+use std::{ops::DerefMut, time::Duration};
 
-use launcher::menu::shader_pack_status::{PackLoad, PackNotices, PackToast, failure_description};
+use launcher::menu::shader_pack_status::{
+    PackIssue, PackLoad, PackNotices, PackToast, failure_description, warning_description,
+};
 use ui::{RenderMode, StandingToast};
 
 use super::MenuRuntime;
@@ -25,7 +27,7 @@ pub(super) struct ShaderPackStatusUi {
 struct Failure {
     pack: String,
     reason: String,
-    description: Arc<str>,
+    description: PackIssue,
 }
 
 impl MenuRuntime {
@@ -39,16 +41,25 @@ impl MenuRuntime {
     ) {
         let status = &mut self.shader_pack_status;
         match load {
-            PackLoad::Failed { pack, reason } => {
-                if !status
-                    .failure
-                    .as_ref()
-                    .is_some_and(|failure| failure.pack == pack && failure.reason == reason)
-                {
+            PackLoad::Failed { pack, reason }
+            | PackLoad::Ready {
+                pack,
+                warnings: Some(reason),
+            } => {
+                if !status.failure.as_ref().is_some_and(|failure| {
+                    failure.pack == pack
+                        && failure.reason == reason
+                        && matches!(failure.description, PackIssue::Warning(_))
+                            == matches!(load, PackLoad::Ready { .. })
+                }) {
                     status.failure = Some(Failure {
                         pack: pack.to_owned(),
                         reason: reason.to_owned(),
-                        description: Arc::from(failure_description(reason)),
+                        description: if matches!(load, PackLoad::Ready { .. }) {
+                            PackIssue::Warning(warning_description(reason).into())
+                        } else {
+                            PackIssue::Failure(failure_description(reason).into())
+                        },
                     });
                 }
             }
@@ -103,12 +114,12 @@ impl MenuRuntime {
         }
     }
 
-    /// Why the selected shader pack failed to load, while it is the chosen renderer.
-    pub(super) fn renderer_failure(&self) -> Option<Arc<str>> {
+    /// Load feedback for the selected shader pack while it is the chosen renderer.
+    pub(super) fn renderer_issue(&self) -> Option<PackIssue> {
         let failure = self.shader_pack_status.failure.as_ref()?;
         (self.render_mode == RenderMode::ShaderPack
             && self.shader_pack.as_deref() == Some(failure.pack.as_str()))
-        .then(|| Arc::clone(&failure.description))
+        .then(|| failure.description.clone())
     }
 
     /// Whether the render host is still loading the selected shader pack.
@@ -124,6 +135,7 @@ mod tests {
     use super::*;
     use client_ui::ui_runtime::UiRuntime;
     use launcher::menu::shader_pack_status::LOADING_TOAST_DELAY;
+    use std::sync::Arc;
     use ui::ToastPress;
 
     const REASON: &str = "composite: composite.fsh:2: parse: Unknown variable: undefined_name";
@@ -145,6 +157,24 @@ mod tests {
             .hud()
             .showing_toast(millis(at))
             .map(|toast| (toast.title.to_owned(), toast.message.to_owned()))
+    }
+
+    #[test]
+    fn usable_packs_keep_warning_severity_in_the_menu() {
+        let mut menu = shader_pack_menu("Dusk.zip");
+        let mut runtime = UiRuntimeResource(UiRuntime::new(1));
+        menu.sync_shader_pack_status(
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: Some("shadow: unsupported output"),
+            },
+            &mut &mut runtime,
+            Duration::ZERO,
+        );
+        assert!(
+            matches!(menu.view().renderer_issue, Some(PackIssue::Warning(message)) if message.contains("shadow"))
+        );
+        assert!(!menu.view().shader_pack_loading);
     }
 
     #[test]
@@ -170,7 +200,10 @@ mod tests {
         );
         let ready = held + Duration::from_secs(1);
         menu.sync_shader_pack_status(
-            PackLoad::Ready { pack: "Dusk.zip" },
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: None,
+            },
             &mut &mut runtime,
             ready,
         );
@@ -222,24 +255,23 @@ mod tests {
             shown(&runtime, Duration::ZERO).map(|toast| toast.1),
             Some(REASON.to_owned())
         );
-        let description = menu.view().renderer_failure.expect("selected pack failed");
-        assert!(description.contains(REASON), "{description}");
-        menu.shader_pack = Some("Lumen".to_owned());
-        assert_eq!(
-            menu.view().renderer_failure,
-            None,
-            "another pack is selected"
+        let description = menu.view().renderer_issue.expect("selected pack failed");
+        assert!(
+            description.description().contains(REASON),
+            "{description:?}"
         );
+        menu.shader_pack = Some("Lumen".to_owned());
+        assert_eq!(menu.view().renderer_issue, None, "another pack is selected");
         menu.shader_pack = Some("Dusk.zip".to_owned());
         menu.render_mode = RenderMode::Vanilla;
-        assert_eq!(menu.view().renderer_failure, None, "Vanilla is selected");
+        assert_eq!(menu.view().renderer_issue, None, "Vanilla is selected");
         menu.render_mode = RenderMode::ShaderPack;
         let retry = PackLoad::Loading {
             pack: "Dusk.zip",
             programs: None,
         };
         menu.sync_shader_pack_status(retry, &mut &mut runtime, Duration::from_secs(9));
-        assert_eq!(menu.view().renderer_failure, None, "loading it again");
+        assert_eq!(menu.view().renderer_issue, None, "loading it again");
         assert!(menu.view().shader_pack_loading, "the retry is loading");
         menu.shader_pack = Some("Lumen".to_owned());
         assert!(!menu.view().shader_pack_loading, "another pack is selected");
