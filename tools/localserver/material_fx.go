@@ -74,8 +74,8 @@ type materialFxEntity struct {
 // materialFxMetal is the liquid metal mob, the one hits are aimed at.
 const materialFxMetal = "materialfx:metal"
 
-// materialFxEntities are spawned left to right: the dissolving wraith, the hologram, the void
-// walker, the lenticular mob and the liquid metal target.
+// materialFxEntities are spawned in a row from the player's right to their left: the dissolving
+// wraith, the hologram, the void walker, the lenticular mob and the liquid metal target.
 var materialFxEntities = []materialFxEntity{
 	{"materialfx:wraith", func(x, y int) color.NRGBA {
 		// Pale robe cloth with darker folds.
