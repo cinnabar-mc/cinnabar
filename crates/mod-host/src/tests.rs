@@ -6,6 +6,7 @@ use super::*;
 mod block_highlights;
 mod drawing_policy;
 mod embedded_assets;
+mod fuel_recovery;
 mod fullbright;
 mod gameplay;
 mod hud;
@@ -74,7 +75,9 @@ fn trap_discards_staged_output_and_quarantines_only_this_instance() {
 #[test]
 fn fuel_stops_an_infinite_loop() {
     let (_directory, mut host) = load_fixture("(loop $forever br $forever)");
-    assert!(host.frame(false).is_err());
+    for _ in 0..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
+        assert!(host.frame(false).is_err());
+    }
     assert!(!host.is_active());
 }
 

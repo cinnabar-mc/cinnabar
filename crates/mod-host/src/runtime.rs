@@ -2,12 +2,14 @@ mod action_filter;
 mod input_host;
 mod output_lifecycle;
 mod presentation;
+mod recovery;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
     GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
     ModGrants, ModScreens, PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
+pub(crate) use recovery::MAX_CONSECUTIVE_FRAME_OVERRUNS;
 use server_experience::{
     runtime::{CALLBACK_FUEL, LOAD_FUEL},
     screen::ScreenLayout as HostLayout,
@@ -278,22 +280,25 @@ impl cinnabar::extension::environment::Host for State {
     }
 }
 
-/// An authority revocation may be rebuilt; a trapped guest requires an intentional replacement.
+/// Recoverable fuel traps retain output but cannot enter the trapped component again.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum InstanceStatus {
     Running,
+    Recovering,
     Revoked,
     Quarantined,
 }
 
 pub(super) struct Instance {
     store: Store<State>,
+    pre: wasmtime::component::InstancePre<State>,
     exports: exports::Exports,
     status: InstanceStatus,
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
     filter_identity: u64,
+    consecutive_frame_overruns: u32,
 }
 
 impl Instance {
@@ -479,14 +484,17 @@ impl Instance {
         })
     }
 
-    /// Runs one callback with `fuel` and commits its output with `publish`; a trap discards
-    /// it and quarantines the guest, removing everything it presented.
+    /// Publishes only successful callbacks; frame fuel traps may retain output for recovery.
     fn run(
         &mut self,
         fuel: u64,
         publish: fn(&mut Store<State>),
         call: impl FnOnce(&exports::Exports, &mut Store<State>) -> Result<()>,
     ) -> Result<CallbackOutcome> {
+        if self.status == InstanceStatus::Recovering {
+            self.last_fuel = 0;
+            return Ok(CallbackOutcome::Deferred);
+        }
         let allowance = self
             .callback_budget
             .as_ref()
@@ -518,10 +526,12 @@ impl Instance {
             budget.refund(allowance - self.last_fuel);
         }
         if let Err(error) = called {
-            self.quarantine();
-            bail!("mod quarantined after a guest trap: {error:#}");
+            return Err(self.callback_failure(fuel, error));
         }
         publish(&mut self.store);
+        if fuel == FRAME_FUEL {
+            self.consecutive_frame_overruns = 0;
+        }
         Ok(CallbackOutcome::Executed)
     }
 
@@ -575,9 +585,12 @@ impl Instance {
         self.store.data().exclusive.refused
     }
 
-    /// Whether the guest may execute any callback.
+    /// Whether the mod retains authority, including while awaiting a fresh component.
     pub(super) fn is_active(&self) -> bool {
-        self.status == InstanceStatus::Running
+        matches!(
+            self.status,
+            InstanceStatus::Running | InstanceStatus::Recovering
+        )
     }
 
     /// Whether an authority transition stopped a previously running guest.
@@ -900,14 +913,7 @@ fn commit_event(store: &mut Store<State>) {
     let state = store.data_mut();
     state.render.commit_retained();
     state.hud.commit();
-    if let Some(claims) = &state.exclusive.hud {
-        claims.release(state.exclusive.owner);
-        if let Some(content) = &state.hud.content {
-            for card in &content.cards {
-                claims.retain(state.exclusive.owner, std::iter::once(card.id.clone()));
-            }
-        }
-    }
+    state.retain_hud_claims();
     state.controls.commit();
     state.touch.commit();
     state.inventory.commit();

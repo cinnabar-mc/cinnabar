@@ -1206,7 +1206,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
-  normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
+  normal polls) to catch writes with unchanged metadata on every platform. Local frame fuel
+  overruns retain committed output and recover admitted code with committed preferences on
+  the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
+  resets the count. Other guest traps still quarantine immediately. Live overrun recovery
+  qualification remains incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Generic resolved action filtering exposes synchronous module verdicts, retained
   releases and lifecycle reconciliation; timing and rates belong to modules. Legacy

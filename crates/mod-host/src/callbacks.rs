@@ -14,7 +14,7 @@ impl ModHost {
         self.instance.is_revoked()
     }
 
-    /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
+    /// Runs a bounded callback; isolated frame fuel traps retain output and recover next frame.
     pub fn frame(&mut self, pressed: bool) -> Result<()> {
         self.frame_with_gameplay(pressed, None)
     }
@@ -95,16 +95,31 @@ impl ModHost {
         controls: ControlFrame,
     ) -> Result<()> {
         self.begin_frame();
-        let result = match self.dispatch(Vec::new()) {
-            Ok(delivery) => self
-                .instance
-                .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
-                .and_then(|()| self.instance.frame(delivery)),
-            Err(error) => Err(error),
-        };
+        let result = self
+            .recover_frame_fuel()
+            .and_then(|()| match self.dispatch(Vec::new()) {
+                Ok(delivery) => self
+                    .instance
+                    .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
+                    .and_then(|()| self.instance.frame(delivery)),
+                Err(error) => Err(error),
+            });
         self.instance.finish_frame();
         self.queue_settings();
         result
+    }
+
+    /// Restarts a fuel-trapped guest before current input and restores its lifecycle context.
+    fn recover_frame_fuel(&mut self) -> Result<()> {
+        if self.instance.recover_frame_fuel()? && self.instance.has_events() {
+            self.pending_events
+                .insert(0, ModEvent::ScreenChanged(self.layout.clone()));
+            self.pending_events.insert(
+                1,
+                ModEvent::DataChanged(vec![DataSource::Items, DataSource::Recipes]),
+            );
+        }
+        Ok(())
     }
 
     /// Supplies bounded, read-only presentation facts for the next frame callback only.
@@ -210,7 +225,7 @@ impl ModHost {
         self.instance.packet_delay_ms()
     }
 
-    /// Whether this guest can still receive callbacks.
+    /// Whether this mod retains authority and can resume callbacks.
     pub fn is_active(&self) -> bool {
         self.instance.is_active()
     }

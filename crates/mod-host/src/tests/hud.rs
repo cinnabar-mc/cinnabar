@@ -7,7 +7,14 @@ fn escape(text: &str) -> String {
         .map(|b| format!("\\{b:02x}"))
         .collect()
 }
-fn source(content: &str, crosshair: &str, init: &str, frame: &str, error: bool) -> String {
+/// Builds a component that stages HUD and crosshair writes through the canonical imports.
+pub(super) fn source(
+    content: &str,
+    crosshair: &str,
+    init: &str,
+    frame: &str,
+    error: bool,
+) -> String {
     let package = include_str!("../../../mod-api/wit/extension.wit")
         .lines()
         .next()

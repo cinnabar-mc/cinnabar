@@ -114,7 +114,15 @@ impl Instance {
         }
         let pre = linker.instantiate_pre(&component)?;
         exports::Exports::check(&pre)?;
-        let mut store = Store::new(engine, state);
+        Self::instantiate(pre, state)
+    }
+
+    /// Initializes a fresh store from admitted code and caller-selected host state.
+    pub(super) fn instantiate(
+        pre: wasmtime::component::InstancePre<State>,
+        state: State,
+    ) -> Result<Self> {
+        let mut store = Store::new(pre.engine(), state);
         store.limiter(|state| &mut state.limits);
         let initial = FRAME_FUEL;
         crate::execution::arm(&mut store, initial, true)?;
@@ -137,11 +145,13 @@ impl Instance {
             };
         Ok(Self {
             store,
+            pre,
             exports,
             status: InstanceStatus::Running,
             last_fuel,
             callback_budget: None,
             filter_identity: super::action_filter::next_identity(),
+            consecutive_frame_overruns: 0,
         })
     }
 

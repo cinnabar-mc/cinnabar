@@ -93,6 +93,20 @@ impl HudState {
         }
     }
 }
+
+impl State {
+    /// Rebuilds this owner's HUD reservations from its successfully published content.
+    pub(super) fn retain_hud_claims(&self) {
+        if let Some(claims) = &self.exclusive.hud {
+            claims.release(self.exclusive.owner);
+            if let Some(content) = &self.hud.content {
+                for card in &content.cards {
+                    claims.retain(self.exclusive.owner, std::iter::once(card.id.clone()));
+                }
+            }
+        }
+    }
+}
 /// Stages validated previews only while a granted panel owns focused input.
 pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), String>> {
     if let Err(error) = admit(state)? {

@@ -287,7 +287,7 @@ impl ModHost {
         self.instance.last_fuel()
     }
 
-    /// The committed overlay, view and bound data; empty after a trap.
+    /// The committed overlay, view and bound data; empty after quarantine.
     pub fn screens(&self) -> &ModScreens {
         self.instance.screens()
     }
