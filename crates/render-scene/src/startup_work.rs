@@ -1,54 +1,45 @@
-//! Separates menu completion from demand for world GPU work.
+//! Admits background world preparation after the menu's first completed GPU frame.
 
 use bevy::prelude::{Res, Resource};
 use std::sync::{
     Arc,
-    atomic::{AtomicU8, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
 
-const MENU_PRESENTED: u8 = 1;
-const WORLD_REQUESTED: u8 = 2;
-const ADMITTED: u8 = MENU_PRESENTED | WORLD_REQUESTED;
-
-/// CPU assets may prepare after the menu; world GPU work also needs a connection request.
+/// Shares the first-menu boundary with CPU and GPU preparation workers.
 #[derive(Clone, Resource)]
-pub struct WorldWorkAdmission(Arc<AtomicU8>);
+pub struct WorldWorkAdmission(Arc<AtomicBool>);
 
 impl Default for WorldWorkAdmission {
     /// Keeps direct joins, tests and isolated renderers independent of a menu.
     fn default() -> Self {
-        Self(Arc::new(AtomicU8::new(ADMITTED)))
+        Self(Arc::new(AtomicBool::new(true)))
     }
 }
 
 impl WorldWorkAdmission {
     /// Creates a closed boundary for a launch that must present its menu first.
     pub fn after_menu() -> Self {
-        Self(Arc::new(AtomicU8::new(0)))
+        Self(Arc::new(AtomicBool::new(false)))
     }
 
-    /// Allows CPU preparation once the menu's submitted GPU work completes.
+    /// Starts background preparation after the menu's submitted GPU work completes.
     pub fn menu_presented(&self) {
-        self.0.fetch_or(MENU_PRESENTED, Ordering::AcqRel);
+        self.0.store(true, Ordering::Release);
     }
 
-    /// Records world demand without allowing it to delay the first menu image.
-    pub fn request_world(&self) {
-        self.0.fetch_or(WORLD_REQUESTED, Ordering::AcqRel);
-    }
-
-    /// Reads the CPU preparation boundary independently of world GPU demand.
+    /// Reads the CPU preparation boundary across threads.
     pub fn can_prepare_assets(&self) -> bool {
-        self.0.load(Ordering::Acquire) & MENU_PRESENTED != 0
+        self.is_admitted()
     }
 
-    /// Reads admission across the main and render threads.
+    /// Reads background GPU admission across the main and render threads.
     pub fn is_admitted(&self) -> bool {
-        self.0.load(Ordering::Acquire) == ADMITTED
+        self.0.load(Ordering::Acquire)
     }
 }
 
-/// Gates world-only systems while allowing renderers without a startup menu to run normally.
+/// Gates world preparation while allowing renderers without a startup menu to run normally.
 pub fn world_work_allowed(admission: Option<Res<WorldWorkAdmission>>) -> bool {
     admission.is_none_or(|admission| admission.is_admitted())
 }
@@ -56,25 +47,18 @@ pub fn world_work_allowed(admission: Option<Res<WorldWorkAdmission>>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn world_gpu_work_requires_both_menu_completion_and_world_demand() {
-        for request_first in [false, true] {
-            let gate = WorldWorkAdmission::after_menu();
-            let worker = gate.clone();
-            assert!(!worker.can_prepare_assets());
-            assert!(!worker.is_admitted());
-            if request_first {
-                gate.request_world();
-                assert!(!worker.can_prepare_assets());
-                assert!(!worker.is_admitted());
-            }
-            gate.menu_presented();
-            assert!(worker.can_prepare_assets());
-            assert_eq!(worker.is_admitted(), request_first);
-            gate.request_world();
-            gate.menu_presented();
-            assert!(worker.is_admitted());
-        }
+    fn completed_menu_admits_world_work_without_a_connection_request() {
+        let gate = WorldWorkAdmission::after_menu();
+        let worker = gate.clone();
+        assert!(!worker.can_prepare_assets());
+        assert!(!worker.is_admitted());
+        gate.menu_presented();
+        assert!(worker.can_prepare_assets());
+        assert!(worker.is_admitted());
+        gate.menu_presented();
+        assert!(worker.is_admitted());
         assert!(WorldWorkAdmission::default().is_admitted());
     }
 }

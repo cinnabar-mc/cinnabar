@@ -187,6 +187,59 @@ wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6
 
 wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
 
+# Keep every Bevy crate on the same renderer fork revision. CI checks the locked graph.
+bevy = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_a11y = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_android = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_anti_alias = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_app = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_asset = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_asset_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_camera = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_clipboard = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_color = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_core_pipeline = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_curve = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_derive = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_diagnostic = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_ecs = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_ecs_macro_logic = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_ecs_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_encase_derive = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_extract = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_extract_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_gizmos = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_gizmos_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_image = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_input = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_input_focus = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_internal = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_light = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_log = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_macro_utils = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_material = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_material_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_math = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_mesh = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_pbr = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_platform = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_post_process = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_ptr = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_reflect = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_reflect_derive = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_render = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_render_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_shader = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_shape = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_state = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_state_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_tasks = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_time = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_transform = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_utils = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_window = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+bevy_winit = { git = "https://github.com/cinnabar-mc/bevy", rev = "61ea75dffb2b30c95b2e61b1b90107ae746e96d6" }
+
 [profile.dev]
 opt-level = 1
 # Line tables keep backtraces and panics readable; full debuginfo made local builds 20-45% slower.

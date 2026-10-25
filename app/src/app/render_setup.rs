@@ -33,6 +33,7 @@ pub(super) fn primary_window(
 /// Initializes the renderer after winit has supplied the real display connection.
 pub(super) struct RendererSetup {
     pub data_root: std::path::PathBuf,
+    pub pipeline_cache_dir: std::path::PathBuf,
     pub graphics_api_revision: u64,
     pub video_override: Option<launcher::graphics_backend::Backend>,
 }
@@ -50,6 +51,9 @@ impl bevy::prelude::Plugin for RendererSetup {
             settings,
         );
         install_result(app, result);
+        app.add_plugins(render::PipelineCompilationPlugin {
+            cache_dir: self.pipeline_cache_dir.clone(),
+        });
     }
 }
 

@@ -80,7 +80,11 @@ mod pack_skybox;
 mod panorama_render;
 mod particle_render;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod pipeline_compilation;
 mod pipeline_warmup;
+#[cfg(not(target_arch = "wasm32"))]
+pub use pipeline_compilation::PipelineCompilationPlugin;
 #[cfg(test)]
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;

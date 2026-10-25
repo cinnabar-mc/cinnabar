@@ -611,7 +611,6 @@ pub(crate) fn drive_session(
     mut menu: ResMut<MenuRuntime>,
     client_blob_cache: Res<BlobCache>,
     mut session: SessionResources,
-    admission: Option<Res<render_scene::startup_work::WorldWorkAdmission>>,
 ) {
     session.controller.publish(&mut menu);
     // A queued answer reaches its core before a decline below retires that core.
@@ -625,11 +624,6 @@ pub(crate) fn drive_session(
         &client_blob_cache,
         &mut session,
     );
-    if session.controller.connecting
-        && let Some(admission) = admission
-    {
-        admission.request_world();
-    }
     session.controller.publish(&mut menu);
     if !session.controller.connecting {
         session.controller.trust = None;

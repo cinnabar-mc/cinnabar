@@ -320,8 +320,8 @@ mod tests {
         world.run_system_once(poll).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 1);
         assert!(
-            !admission.is_admitted(),
-            "asset preparation must not start world GPU work"
+            admission.is_admitted(),
+            "completed menu admits background GPU preparation too"
         );
     }
 }

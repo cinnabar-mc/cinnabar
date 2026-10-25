@@ -483,6 +483,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         }
     };
     let renderer_data_root = layout.user_data_root.clone();
+    let pipeline_cache_dir = layout.pipeline_cache_dir();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
     let menu = render_scene::startup_timing::measure("menu_services", || {
         MenuRuntime::new_with_import_snapshot(
@@ -548,6 +549,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
+        pipeline_cache_dir,
         video_override: saved_settings.graphics_api(),
         graphics_api_revision: saved_settings.graphics_api_revision(),
     };

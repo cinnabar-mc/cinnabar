@@ -76,7 +76,7 @@ mod tests {
     struct Prepared;
 
     #[test]
-    fn world_gpu_construction_stays_unstarted_after_menu_completion_until_a_join() {
+    fn world_gpu_construction_starts_after_menu_completion_without_a_join() {
         let mut app = SubApp::new();
         app.init_schedule(Render);
         let admission = WorldWorkAdmission::after_menu();
@@ -91,11 +91,6 @@ mod tests {
         assert_eq!(count.load(Ordering::Relaxed), 0);
         assert!(!app.world().contains_resource::<Prepared>());
         admission.menu_presented();
-        for _ in 0..10 {
-            app.world_mut().run_schedule(Render);
-        }
-        assert_eq!(count.load(Ordering::Relaxed), 0);
-        admission.request_world();
         test_time::eventually("world GPU preparation published", || {
             app.world_mut().run_schedule(Render);
             app.world().contains_resource::<Prepared>()

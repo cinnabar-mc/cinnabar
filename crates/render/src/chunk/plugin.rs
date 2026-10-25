@@ -113,6 +113,7 @@ impl Plugin for ChunkRenderPlugin {
             app.world().resource::<TransparentWitnessEvidence>().clone();
 
         crate::pipeline_warmup::register::<ChunkPipeline>(app);
+        crate::pipeline_warmup::register_pending::<ChunkGpuTextureAssets>(app);
         let render_app = app.sub_app_mut(RenderApp);
         crate::device_poll::install(render_app);
         render_app
