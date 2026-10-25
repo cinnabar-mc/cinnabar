@@ -94,7 +94,7 @@ pub fn client_textures() -> Vec<(String, Vec<u8>)> {
 
 /// Each showcase block's Bedrock look while its material is revoked: base and accent colours.
 /// The server half registers exactly these blocks, which `tests/showcase.rs` checks.
-pub const BLOCK_LOOKS: [(&str, [u8; 3], [u8; 3]); 14] = [
+pub const BLOCK_LOOKS: [(&str, [u8; 3], [u8; 3]); 21] = [
     ("bottle", [200, 225, 240], [150, 180, 200]),
     ("aquarium", [40, 90, 160], [110, 110, 115]),
     ("mineshaft", [40, 34, 30], [110, 110, 115]),
@@ -109,6 +109,13 @@ pub const BLOCK_LOOKS: [(&str, [u8; 3], [u8; 3]); 14] = [
     ("screen", [20, 40, 25], [60, 62, 70]),
     ("rune", [160, 155, 145], [90, 140, 220]),
     ("vortex", [30, 12, 50], [90, 50, 140]),
+    ("wavegrass", [70, 150, 55], [110, 80, 50]),
+    ("flag", [180, 20, 30], [220, 170, 30]),
+    ("lens", [200, 235, 245], [45, 45, 55]),
+    ("haze", [250, 200, 150], [250, 170, 110]),
+    ("forcefield", [60, 140, 250], [150, 210, 255]),
+    ("storm", [50, 55, 80], [150, 190, 255]),
+    ("firewall", [105, 100, 100], [230, 110, 20]),
 ];
 
 /// The server half's block textures, by artifact path.

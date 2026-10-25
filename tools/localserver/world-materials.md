@@ -2,13 +2,20 @@
 
 The `materialfx` Experience shows what programmable world materials can do inside the host's
 rules. Its client part (`examples/experiences/material-fx/client`) declares one guest `shade`
-material per effect in `effects::EFFECTS` and binds them to the Experience's own entities and
-blocks; its server half (`examples/experiences/material-fx/server`) registers the blocks; this
-local server fixture (`-material-fx`) offers the entities and adds `/materialfx`. All art is
-original and generated in code: nothing under `textures/` is committed.
+material per effect in `effects::EFFECTS` and two compute declarations, and binds them to the
+Experience's own entities and blocks; its server half (`examples/experiences/material-fx/server`)
+registers the blocks; this local server fixture (`-material-fx`) offers the entities and adds
+`/materialfx`. All art is original and generated in code: nothing under `textures/` is
+committed.
 
 World materials are developer-only: the client runs them only with
-`CINNABAR_DEV_SERVER_EXPERIENCES=1`, and production clients refuse the permission.
+`CINNABAR_DEV_SERVER_EXPERIENCES=1`, and production clients refuse the permission. The effects
+wing also asks for the three world material effect permissions (vertex displacement, scene
+reads, extra passes and compute), which the developer client offers only when
+`CINNABAR_DEV_WORLD_MATERIAL_VERTEX`, `CINNABAR_DEV_WORLD_MATERIAL_SCENE` and
+`CINNABAR_DEV_WORLD_MATERIAL_PASSES` are `1`. Each one not offered is denied: the materials
+that need it fall back to plain forms (still pixel-art, but flat, unmoving, without bloom or
+particles), so the showcase runs either way.
 
 ## Run it
 
@@ -54,12 +61,16 @@ From the repository root:
      -extension-cxb .local/material-fx/cxb
    ```
 
-4. Start the client with Experiences enabled and join `127.0.0.1:19132`, accepting the
-   Experience's consent prompt:
+4. Start the client with Experiences and the effect permissions enabled, and join
+   `127.0.0.1:19132`, accepting the Experience's consent prompt (one line per permission):
 
    ```sh
-   CINNABAR_DEV_SERVER_EXPERIENCES=1 make play
+   CINNABAR_DEV_SERVER_EXPERIENCES=1 CINNABAR_DEV_WORLD_MATERIAL_VERTEX=1 \
+     CINNABAR_DEV_WORLD_MATERIAL_SCENE=1 CINNABAR_DEV_WORLD_MATERIAL_PASSES=1 make play
    ```
+
+   For the live permission toggle below, add `DEVELOPER_CONTROL=1` and
+   `CINNABAR_DEVELOPER_CONTROL=.local/developer-control/materialfx.json`.
 
    With the switch, `make play` also builds the media helper with its AV1 decoder, which needs
    `dav1d` and `pkg-config`.
@@ -79,6 +90,16 @@ From the repository root:
 | `/materialfx thermal` | Toggles thermal vision on every mob |
 | `/materialfx corrupt` / `cleanse` | Purple corruption creeps block by block across the stone wall from its right end, or the wall is clean again |
 | `/materialfx cut <0-100>` / `cut sweep` | Holds the wraith's dissolve at that percentage, or returns it to its four-second sweep |
+| `/materialfx wind <0-100>` | How hard the wind blows the waving grass and the flag (50 at first) |
+| `/materialfx jelly`, or hitting the jelly | The jelly wobbles and squashes, settling over a second |
+| `/materialfx shatter`, or hitting the shattering mob | It bursts into its pixels at once and pulls itself back together (it also does so every four seconds) |
+| `/materialfx heat <0-100>` | How strongly the air over the lava lamp shimmers (60 at first) |
+| `/materialfx refract <0-100>` | How strongly the lens window bends the world behind it (70 at first) |
+| `/materialfx pulse` | A ring of light ripples out across the force field |
+| `/materialfx outline` | Toggles the boss's outline |
+| `/materialfx bloom` | Toggles bloom on every emissive piece |
+| `/materialfx storm` | The storm's particles spin up and fly outward for three seconds |
+| `/materialfx ignite` / `extinguish` | Fire catches at the fire wall's bottom right and spreads across it, or goes out, leaving char |
 
 Every server-driven change is a parameter update that compiles nothing. Shockwaves, hits and the
 corruption start at a moment on the session clock, which follows the wall clock modulo 4096 s,
@@ -87,6 +108,25 @@ a second, and the portal your distance, with the moment you were there, whenever
 a quarter block. A new distance or boss health changes how fast the portal turns or the heart
 beats from that moment on: the client part keeps each animation's phase where it was, so it
 speeds up or slows down smoothly and never jumps to another frame.
+
+### Withdrawing an effect permission live
+
+With a client started with `DEVELOPER_CONTROL=1` and its endpoint as in step 4, withdraw one
+effect permission from the running showcase, or give it back, without a reconnect:
+
+```sh
+cargo run -p material-fx -- permission vertex withdraw
+cargo run -p material-fx -- permission vertex restore
+```
+
+`vertex`, `scene` and `passes` name the three permissions; `--endpoint <file>` names another
+endpoint (by default `CINNABAR_DEVELOPER_CONTROL`, else
+`.local/developer-control/materialfx.json`). Withdrawn displacement draws the grass, flag,
+jelly and shattering mob unmoving; withdrawn scene reads turn the lens and lensing black hole
+dark, hide the heat haze and drop the force field's seam; withdrawn passes stop bloom, the
+boss's outline, the storm's particles and the fire (its cells read zero). The client part is
+not told and declares nothing; restoring brings everything back as it was. The client has no
+in-game control for this yet.
 
 ## Layout
 
@@ -101,15 +141,24 @@ From where you stand, facing forward (right is your right hand):
   ore (left);
 - 15 blocks ahead, a stone wall 17 wide and 5 high: from the right, the hollow aquarium and
   mineshaft with a carved rune above each, the 2×2 living painting, the 2×3 star portal and the
-  4×3 screen.
+  4×3 screen;
+- a heat haze two blocks high over the lava lamp.
+
+The effects wing stands on your left, from 11 blocks across:
+
+- 2 to 6 blocks ahead, in the ground: a 7×5 field of waving grass;
+- 7 blocks ahead, from the right: the jelly, the shattering mob and the boss;
+- 10 blocks ahead: a 2×2 lens window, then a 3×3 force field standing on the ground, and a storm
+  core floating three blocks up, nine ahead, at the far left;
+- 13 blocks ahead: a 3×2 flag on a four-block stone pole on its right, then a 4×3 fire wall.
 
 ## What each effect should look like
 
 Everything except the black hole snaps to the 16-texel grid of its block or the 64-texel grid of
 its skin and uses a small palette, so even the traced 3D reads as Minecraft pixels.
 
-The ship in a bottle, the snow globe and the black hole are glass: the ground and blocks behind
-them stay drawn, and their Bedrock looks blend too.
+The ship in a bottle, the snow globe, the black hole, the lens, the heat haze and the force field
+are glass: the ground and blocks behind them stay drawn, and their Bedrock looks blend too.
 
 - **Ship in a bottle** (premultiplied). A glass cube with a one-texel frame and a glint, holding
   a floating island built of texel voxels: grass over dirt over a stone point, a cottage with a
@@ -160,11 +209,46 @@ them stay drawn, and their Bedrock looks blend too.
 - **Thermal vision** (`thermal`, cutout). Every mob in a six-step heat palette, hottest where it
   faces you.
 
+The effects wing, with each effect's permission:
+
+- **Waving grass** (opaque, vertex). A pixel lawn with yellow flowers and a hanging fringe.
+  Its top corners sway with gusts rolling across the field, a texel at a time; the bottoms stay
+  put, so the sides shear and the field moves as one sheet without cracks.
+- **Flag** (opaque, vertex). A crimson-over-gold banner with a white star by the pole, woven
+  in alternate texels. It folds in travelling pixel steps that grow away from the pole.
+- **Jelly** (premultiplied, vertex). A translucent green slime with bright highlights and
+  glowing specks. It breathes slowly; a hit makes it shake and squash, settling in a second.
+- **Shattering mob** (cutout, vertex). A patchwork figure whose faces fly apart along
+  scattered directions in whole texels while most of its texels drop out with white-hot edges,
+  then everything comes back together.
+- **Lens window** (premultiplied, scene). A lead-framed window of 4×4-texel bevelled panes,
+  each showing the real world behind it shifted its own way, with a cyan tint and a glint.
+  Without the scene the panes are a flat blue-grey.
+- **Heat haze** (premultiplied, scene). Invisible but for the world behind it rippling sideways
+  in rising pixel waves, strongest just above the lamp and fading to nothing at the top.
+- **Lensing black hole** (premultiplied, scene). With the scene the black hole bends what is
+  really behind it, the gallery, ground and sky, around its shadow instead of its own stars.
+- **Force field** (additive, scene). A shimmering blue hex lattice of texel lines, with a soft
+  bright seam where it stands on the ground, from how close the opaque scene is behind it, and
+  rings of light rippling out on `pulse`.
+- **Bloom** (passes). The diamond and redstone ores, the lava lamp, the screen, the runes, the
+  portal, the boss's eyes and runes, the storm core and the fire glow past their edges.
+- **Boss** (opaque, passes). A dark riveted knight with burning eyes and red runes beating with
+  the heartbeat; a two-pixel red outline rings it, brighter on each beat.
+- **Storm core** (opaque, passes). A churning cloud block with lightning veins, circled by a
+  thousand one- and two-texel electric-blue particles that orbit, drift and are reborn; a
+  compute declaration moves them every frame.
+- **Fire wall** (opaque, passes). A stone wall a cellular automaton sets alight texel by texel:
+  after `ignite`, flame catches at the bottom right, spreads along the bottom and climbs in a
+  five-colour palette, leaving char.
+
 ## Tests
 
 - `cargo test -p material-fx`: the showcase builds an artifact the Experience runtime loads, with
   exactly the blocks the tool draws a Bedrock look for, and a client part bundle the client
-  verifies.
+  verifies; every material's plain form is valid with `render_world_material` alone, every rich
+  form and compute is valid with the effect permissions and refused without them, and the wing
+  stays within its frame budget of 8 192 compute cells and 4 096 particles.
 - `cargo test -p cinnabar --lib material_fx`: the real client part, as the tool builds it, runs in
   the real developer helper; it declares all twenty materials over several callbacks, the client
   validates and publishes them within their budgets, a shockwave updates parameters without a
@@ -181,6 +265,12 @@ them stay drawn, and their Bedrock looks blend too.
 - `cargo test -p render --lib scale_tests` and `many_bound_actors`: published materials request
   their pipelines before any bound block is in view, and 1 024 bound sections or 1 000 bound
   actors request no further pipelines.
+- `cargo test -p render --test it material_fx::wing`: the grass, flag, jelly and shattering mob
+  move in whole texels where and when they should and nowhere else; the lens and haze show the
+  scene shifted, the lensing black hole bends it around a black shadow, the force field's seam
+  glows only where the scene is close; the boss's outline beats red; the storm's particles stay
+  alive around the core and burst outward; the fire spreads, climbs and chars, and the fire wall
+  draws it in the flame palette.
 - `go test -run 'MaterialFx|Showcases' .` in `tools/localserver`: the pack declares each mob, the
   commands become control records of the declared channel, and the gallery holds every piece in
   front of the player at foot level for each facing.

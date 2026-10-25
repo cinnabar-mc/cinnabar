@@ -18,7 +18,16 @@ import (
 //     clusters of breathing diamond (right) and redstone (left) ore;
 //   - a corruptible stone wall 15 blocks ahead, 17 wide and 5 high, holding the hollow
 //     aquarium and mineshaft, two carved runes, the 2×2 living painting, the 2×3 star portal
-//     and the 4×3 screen.
+//     and the 4×3 screen;
+//   - a heat haze two blocks high over the lava lamp.
+//
+// The effects wing stands on the player's left, from 11 blocks across:
+//
+//   - a waving grass field, 7 wide and 5 deep, from two blocks ahead, in the ground itself;
+//   - the jelly, the shattering mob and the outlined boss in a row seven blocks ahead;
+//   - ten blocks ahead, a 2×2 lens window, a 3×3 force field standing on the ground and a
+//     storm core floating three blocks up, nine ahead;
+//   - thirteen blocks ahead, a 3×2 flag on a four-block pole on its right and a 4×3 fire wall.
 const (
 	materialFxWallAhead  = 15
 	materialFxArenaAhead = 9
@@ -61,6 +70,14 @@ func materialFxBlocks(view showcaseViewpoint) map[cube.Pos]string {
 	put("canvas", materialFxSpan(-3, -2), materialFxSpan(2, 3), wall)
 	put("vortex", materialFxSpan(0, 1), materialFxSpan(1, 3), wall)
 	put("screen", materialFxSpan(3, 6), materialFxSpan(2, 4), wall)
+	put("haze", one(6), materialFxSpan(2, 3), one(7))
+	put("wavegrass", materialFxSpan(11, 17), one(0), materialFxSpan(2, 6))
+	put("lens", materialFxSpan(11, 12), materialFxSpan(1, 2), one(10))
+	put("forcefield", materialFxSpan(14, 16), materialFxSpan(1, 3), one(10))
+	put("storm", one(19), one(3), one(9))
+	put("wallstone", one(11), materialFxSpan(1, 4), one(13))
+	put("flag", materialFxSpan(12, 14), materialFxSpan(3, 4), one(13))
+	put("firewall", materialFxSpan(16, 19), materialFxSpan(1, 3), one(13))
 	return placed
 }
 
@@ -75,15 +92,19 @@ func materialFxCentre(view showcaseViewpoint, sides, ups, aheads [2]int) mgl32.V
 }
 
 // materialFxPieces are the centres the client part needs, by piece index.
-func materialFxPieces(view showcaseViewpoint) [5]mgl32.Vec3 {
+func materialFxPieces(view showcaseViewpoint) [materialFxPieceCount]mgl32.Vec3 {
 	wall := [2]int{materialFxWallAhead, materialFxWallAhead}
 	arena := materialFxCentre(view, [2]int{0, 0}, [2]int{0, 0}, [2]int{materialFxArenaAhead, materialFxArenaAhead})
-	return [5]mgl32.Vec3{
+	return [materialFxPieceCount]mgl32.Vec3{
 		materialFxArenaPiece:     arena.Add(mgl32.Vec3{0, 0.5, 0}),
 		materialFxBlackHolePiece: materialFxCentre(view, [2]int{-1, 1}, [2]int{3, 5}, [2]int{8, 10}),
 		materialFxPaintingPiece:  materialFxCentre(view, [2]int{-3, -2}, [2]int{2, 3}, wall),
 		materialFxScreenPiece:    materialFxCentre(view, [2]int{3, 6}, [2]int{2, 4}, wall),
 		materialFxPortalPiece:    materialFxCentre(view, [2]int{0, 1}, [2]int{1, 3}, wall),
+		materialFxFlagPiece:      materialFxCentre(view, [2]int{12, 14}, [2]int{3, 4}, [2]int{13, 13}),
+		materialFxFirePiece:      materialFxCentre(view, [2]int{16, 19}, [2]int{1, 3}, [2]int{13, 13}),
+		materialFxFieldPiece:     materialFxCentre(view, [2]int{14, 16}, [2]int{1, 3}, [2]int{10, 10}),
+		materialFxGrassPiece:     materialFxCentre(view, [2]int{11, 17}, [2]int{0, 0}, [2]int{2, 6}).Add(mgl32.Vec3{0, 0.5, 0}),
 	}
 }
 
@@ -103,21 +124,19 @@ func materialFxLayoutRecords(view showcaseViewpoint) [][]cinnabarext.Scalar {
 	return records
 }
 
-// materialFxMobFeet is where the showcase mob at index stands: at foot level in a row four blocks in
-// front of the player, two blocks apart and centred on them.
-func materialFxMobFeet(view showcaseViewpoint, index int) mgl32.Vec3 {
-	return view.at(float32(index*2-(len(materialFxEntities)-1)), 4)
+// materialFxActorAt is where showcase entity `entity` stands, at foot level, in front of `view`.
+func materialFxActorAt(view showcaseViewpoint, entity materialFxEntity) mgl32.Vec3 {
+	return view.at(entity.side, entity.ahead)
 }
 
-// materialFxActors spawns the showcase entities at foot level in a row four blocks in front of
-// the player, facing them.
+// materialFxActors spawns the showcase entities at foot level, facing the player.
 func materialFxActors(view showcaseViewpoint) []packet.Packet {
 	packets := make([]packet.Packet, 0, len(materialFxEntities))
 	for index, entity := range materialFxEntities {
 		id := int64(materialFxFirstID + index)
 		packets = append(packets, &packet.AddActor{
 			EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: entity.id,
-			Position: materialFxMobFeet(view, index),
+			Position: materialFxActorAt(view, entity),
 			Yaw:      view.facingBack(), HeadYaw: view.facingBack(), BodyYaw: view.facingBack(),
 			EntityMetadata: actorBurstMetadata(),
 		})

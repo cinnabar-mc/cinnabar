@@ -92,3 +92,32 @@ fn cell_normal(p: vec3<f32>, centre: vec3<f32>) -> vec3<f32> {
     }
     return vec3<f32>(0.0, 0.0, sign(q.z));
 }
+
+// `v` (in blocks) rounded to whole texels, so moved geometry keeps to the pixel grid.
+fn to_texels(v: vec3<f32>) -> vec3<f32> {
+    return round(v * TEXELS) / TEXELS;
+}
+
+// Seconds on the session clock in a vertex or particle stage.
+fn seconds_at(phase: f32) -> f32 {
+    return phase * 4096.0;
+}
+
+// Seconds since `start` on the session clock in a vertex or particle stage.
+fn since_at(phase: f32, start: f32) -> f32 {
+    return fract((seconds_at(phase) - start) / 4096.0 + 1.0) * 4096.0;
+}
+
+// The camera's right and up directions for a view direction `d`, the camera never rolling.
+fn camera_axes(d: vec3<f32>) -> mat2x3<f32> {
+    let right = normalize(cross(d, vec3<f32>(0.0, 1.0, 0.0)) + vec3<f32>(1e-5, 0.0, 0.0));
+    return mat2x3<f32>(right, cross(right, d));
+}
+
+// The screen offset, in pixels, that turning the view ray from `d` to `bent` moves its hit by,
+// at `pixels` pixels per radian.
+fn screen_shift(d: vec3<f32>, bent: vec3<f32>, pixels: f32) -> vec2<f32> {
+    let axes = camera_axes(d);
+    let turn = bent - d;
+    return vec2<f32>(dot(turn, axes[0]), -dot(turn, axes[1])) * pixels;
+}

@@ -57,8 +57,10 @@ struct FxVertex {{ @builtin(position) position: vec4<f32>, @location(0) uv: vec2
     let lean = (uv.x * 2.0 - 1.0) * {tilt:?};
     let across = {across};
     let world = {origin} + uv.x * across + uv.y * {up};
-    // The frame uniform stays bound even when the guest reads no parameter.
+    // The frame uniform and the scene stay bound even when the guest reads neither.
     _ = world_material_phase();
+    _ = scene_color(vec2<f32>(0.0));
+    _ = scene_depth(vec2<f32>(0.0));
     world_material_set_fragment(vertex.position.xy, {depth:?});
     let input = WorldMaterialInput(uv, world,
         vec4<f32>({r:?}, {g:?}, {b:?}, {a:?}), vec4<f32>(1.0), vec4<f32>(0.0), vec4<f32>(0.0),

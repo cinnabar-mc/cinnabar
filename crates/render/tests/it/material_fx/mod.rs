@@ -9,6 +9,7 @@ mod flat;
 mod mobs;
 mod scene;
 mod volumes;
+mod wing;
 
 /// The showcase's shader directory, in the Experience's client part.
 pub(super) const SHADERS: &str = concat!(
@@ -48,9 +49,24 @@ fn declared_textures(source: &str) -> usize {
         .unwrap_or(0)
 }
 
+/// The effects a showcase material's source uses: the functions it defines and the
+/// resources it reads.
+fn used_features(source: &str) -> mod_render::world_material::Features {
+    mod_render::world_material::Features {
+        displace: source.contains("fn displace("),
+        scene: source.contains("scene_color(") && !source.contains("fn scene_color(")
+            || source.contains("scene_depth(") && !source.contains("fn scene_depth("),
+        cells: source.contains(" cell("),
+        outline: source.contains("fn outline("),
+        particles: source.contains("fn particle("),
+    }
+}
+
 /// Every showcase shader passes the host's sandbox with its prelude: no loops, at most 32
 /// texture reads and 4096 expressions per pixel in the worst case, which bounds the work of
-/// every copy of every effect, the raymarched ones included.
+/// every copy of every effect, the raymarched ones included. Each material passes both with
+/// the effects it uses and without any, as its plain form and its withdrawn form compile;
+/// each compute step (`*_step`, without the prelude) passes the compute sandbox.
 #[test]
 fn every_showcase_shader_passes_the_sandbox() {
     let prelude = std::fs::read_to_string(format!("{SHADERS}/common.wgsl")).unwrap();
@@ -58,13 +74,24 @@ fn every_showcase_shader_passes_the_sandbox() {
     for entry in std::fs::read_dir(SHADERS).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+        let own = std::fs::read_to_string(&path).unwrap();
         if name == "common" {
             continue;
         }
-        let source = format!("{prelude}{}", std::fs::read_to_string(&path).unwrap());
-        if let Err(error) = mod_render::world_material::compose(&source, declared_textures(&source))
-        {
-            failures.push(format!("{name}: {error}"));
+        if name.ends_with("_step") {
+            if let Err(error) = mod_render::world_material::compute::compose(&own) {
+                failures.push(format!("{name}: {error}"));
+            }
+            continue;
+        }
+        let source = format!("{prelude}{own}");
+        let textures = declared_textures(&source);
+        for features in [Default::default(), used_features(&source)] {
+            if let Err(error) =
+                mod_render::world_material::compose_with(&source, textures, features)
+            {
+                failures.push(format!("{name} {features:?}: {error}"));
+            }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

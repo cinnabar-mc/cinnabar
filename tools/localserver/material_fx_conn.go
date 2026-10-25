@@ -23,7 +23,7 @@ import (
 // materialFxBindPulses is how many bind records a spawn sends, materialFxBindGap apart: the
 // client part declares a few materials per callback, so the gallery fills in over several.
 const (
-	materialFxBindPulses = 7
+	materialFxBindPulses = 12
 	materialFxBindGap    = 150 * time.Millisecond
 	// materialFxRadarGap is how often the screen's radar gets the players' positions.
 	materialFxRadarGap = 500 * time.Millisecond
@@ -120,6 +120,9 @@ type materialFxConn struct {
 	// gallery is the viewpoint the gallery was built from, once it is.
 	gallery *showcaseViewpoint
 	thermal bool
+	// outline and bloom are whether the boss's outline and the emissive pieces' bloom are off;
+	// both start on.
+	outlineOff, bloomOff bool
 	// portalDistance is the distance last sent, in thousandths.
 	portalDistance int64
 	// missing is set while the client part refuses records, so the player hears of it once.
@@ -218,7 +221,7 @@ func (c *materialFxConn) run(command materialFxCommand) error {
 	switch {
 	case command.spawn:
 		return c.spawn()
-	case gallery == nil && (command.boom || command.corrupt || command.cleanse):
+	case gallery == nil && (command.boom || command.corrupt || command.cleanse || command.jelly || len(command.timed) > 0):
 		c.tell("materialfx: run /materialfx first to build the gallery")
 	case command.boom:
 		arena := materialFxPieces(*gallery)[materialFxArenaPiece]
@@ -240,6 +243,26 @@ func (c *materialFxConn) run(command materialFxCommand) error {
 		c.send(materialFxRecord(materialFxCorrupt, 0, 0, 0, -1))
 	case command.heartbeat != nil:
 		c.send(materialFxRecord(materialFxHeartbeat, *command.heartbeat, materialFxNowMs(time.Now())))
+	case command.jelly:
+		jelly := materialFxActorAt(*gallery, materialFxEntityNamed(materialFxJelly)).Add(mgl32.Vec3{0, 0.5, 0})
+		c.send(materialFxRecord(materialFxJellyHit, milli(jelly[0]), milli(jelly[1]), milli(jelly[2]), materialFxNowMs(time.Now())))
+	case command.outline, command.bloom:
+		c.mu.Lock()
+		off := &c.bloomOff
+		op := materialFxBloom
+		if command.outline {
+			off, op = &c.outlineOff, materialFxOutline
+		}
+		*off = !*off
+		on := int64(1)
+		if *off {
+			on = 0
+		}
+		c.mu.Unlock()
+		c.send(materialFxRecord(op, on))
+	}
+	for _, op := range command.timed {
+		c.send(materialFxRecord(op, materialFxNowMs(time.Now())))
 	}
 	c.send(command.controls...)
 	return nil
@@ -315,7 +338,7 @@ func (c *materialFxConn) followPortal() {
 }
 
 // hit ripples the liquid metal mob where it was struck and sends a shockwave across the arena
-// from its feet.
+// from its feet, shakes the jelly, and bursts the shattering mob.
 func (c *materialFxConn) hit(use *protocol.UseItemOnEntityTransactionData) {
 	c.mu.Lock()
 	gallery := c.gallery
@@ -324,17 +347,34 @@ func (c *materialFxConn) hit(use *protocol.UseItemOnEntityTransactionData) {
 		return
 	}
 	for index, entity := range materialFxEntities {
-		if entity.id != materialFxMetal || use.TargetEntityRuntimeID != uint64(materialFxFirstID+index) {
+		if use.TargetEntityRuntimeID != uint64(materialFxFirstID+index) {
 			continue
 		}
-		feet := materialFxMobFeet(*gallery, index)
+		feet := materialFxActorAt(*gallery, entity)
 		struck := feet.Add(use.ClickedPosition)
 		now := materialFxNowMs(time.Now())
-		c.send(
-			materialFxRecord(materialFxHit, milli(struck[0]), milli(struck[1]), milli(struck[2]), now),
-			materialFxRecord(materialFxBoom, milli(feet[0]), milli(feet[2]), now),
-		)
+		switch entity.id {
+		case materialFxMetal:
+			c.send(
+				materialFxRecord(materialFxHit, milli(struck[0]), milli(struck[1]), milli(struck[2]), now),
+				materialFxRecord(materialFxBoom, milli(feet[0]), milli(feet[2]), now),
+			)
+		case materialFxJelly:
+			c.send(materialFxRecord(materialFxJellyHit, milli(struck[0]), milli(feet[1]), milli(struck[2]), now))
+		case materialFxShatterMob:
+			c.send(materialFxRecord(materialFxShatter, now))
+		}
 	}
+}
+
+// materialFxEntityNamed is the showcase entity `id`, which must be one.
+func materialFxEntityNamed(id string) materialFxEntity {
+	for _, entity := range materialFxEntities {
+		if entity.id == id {
+			return entity
+		}
+	}
+	panic("materialfx: no showcase entity " + id)
 }
 
 // abs64 is |v|.

@@ -183,7 +183,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   linear depth, and compute cells stepped once a frame before anything draws (at most 2^20 cell
   updates a frame across bundles; computes past that wait) that materials read, and bloom and
   screen-space outlines from an effects pass over the bound targets, and pixel particles around
-  bound entities and blocks. Incomplete: there is no in-game withdrawal control, particles
+  bound entities and blocks. The `materialfx` showcase's effects wing exercises each effect,
+  with offline raster checks per effect, a frame budget check and a developer-control toggle
+  (`material-fx permission`). Incomplete: there is no in-game withdrawal control, particles
   around entities are not culled per view, no in-game capture exists, and every range and charge
   is provisional.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
