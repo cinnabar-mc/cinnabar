@@ -51,6 +51,8 @@ pub struct EntityPackSkips {
     pub over_budget: u32,
     /// Files dropped because the pack failed to compile with them and succeeded without.
     pub isolated: u32,
+    /// Materials past their declaration or definition bounds, drawn as layers without one.
+    pub unresolved_materials: u32,
 }
 
 /// A pack's entity catalog. Symbols a pack shares with vanilla resolve as
@@ -429,7 +431,10 @@ fn compile_selected(
                 assets: compilation.assets,
                 reference_outcomes: compilation.reference_outcomes,
                 equipment_bindings: compilation.equipment_bindings,
-                skipped,
+                skipped: EntityPackSkips {
+                    unresolved_materials: compilation.unresolved_materials,
+                    ..skipped
+                },
                 payloads,
             })
         }),

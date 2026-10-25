@@ -8,8 +8,9 @@
 //! pack file that declares one of those names patches it for every file that inherits it.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::Path,
+    sync::Arc,
 };
 
 use assets::{
@@ -27,11 +28,6 @@ use serde_json::{Map, Value};
 
 use super::SourceDocuments;
 
-/// Deepest variant nesting resolved before the remainder is dropped.
-const MAX_VARIANT_DEPTH: usize = 8;
-/// Longest parent chain resolved before the material is treated as cyclic.
-const MAX_PARENT_DEPTH: usize = 64;
-
 /// One `+name` declaration: its file's version and fields.
 type Modification = (u8, Map<String, Value>);
 
@@ -48,23 +44,41 @@ pub(super) struct MaterialStates {
     definitions: BTreeMap<Box<str>, Declaration>,
     /// `+name` declarations applied in place after the named material resolves.
     modifications: BTreeMap<Box<str>, Vec<Modification>>,
+    /// Declarations past the symbol bound, which stay unresolved.
+    unadmitted: u32,
 }
 
 /// One material during resolution, before its variants are interned into a carrier table.
+/// Every field whose size an author controls is shared and copied only when a declaration
+/// changes it, so a link that inherits it unchanged costs a reference; the rest is bounded.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Resolved {
     version: u8,
-    states: BTreeSet<EntityMaterialState>,
-    defines: BTreeSet<Box<str>>,
+    states: Arc<BTreeSet<EntityMaterialState>>,
+    defines: Arc<BTreeSet<Box<str>>>,
+    /// `None` keeps the default vertex layout.
+    vertex_fields: Option<Arc<[EntityMaterialVertexField]>>,
+    /// Bounded fields only; [`Self::carrier`] adds the shared lists.
     definition: EntityMaterialDefinition,
     samplers: [Option<EntityMaterialSampler>; ENTITY_MATERIAL_SAMPLER_SLOTS as usize],
-    variants: Vec<(Box<str>, Resolved)>,
+    /// Shared until a declaration changes the list, so links that inherit variants unchanged
+    /// hold one allocation.
+    variants: Arc<Vec<(Box<str>, Resolved)>>,
 }
 
-/// Interns resolved definitions, including variants, into one carrier table.
+/// Interns resolved definitions, including variants, into one carrier table. One table serves
+/// one [`MaterialStates`], whose resolutions it memoises by name.
 #[derive(Default)]
 pub(super) struct MaterialTable {
     definitions: Vec<EntityMaterialDefinition>,
+    /// Table index of each interned definition.
+    indices: HashMap<EntityMaterialDefinition, u32>,
+    /// Shading features and table index already resolved for a material name.
+    resolved: HashMap<Box<str>, Option<(EntityRenderMaterialState, u32)>>,
+    /// Definitions left unresolved because the table reached its carrier bound.
+    unresolved: u32,
+    /// Parent-chain links resolved against the built-in bases.
+    chains: ChainMemo,
 }
 
 impl MaterialTable {
@@ -73,33 +87,39 @@ impl MaterialTable {
         self.definitions.into_boxed_slice()
     }
 
-    /// Interns `resolved` and its variants, reusing an equal existing entry.
-    fn intern(&mut self, resolved: &Resolved) -> Result<u32, AssetError> {
-        let mut definition = resolved.definition.clone();
+    /// Definitions and variants that did not fit the carrier bound. Their materials draw as
+    /// layers without one, and the rest of the pack still compiles.
+    pub(super) fn unresolved(&self) -> u32 {
+        self.unresolved
+    }
+
+    /// Interns `resolved` and its variants, reusing an equal existing entry. Recursion depth
+    /// follows variant nesting, which the JSON parser's recursion limit bounds. A definition past
+    /// the carrier bound stays unresolved and is counted; a variant that does not fit is left
+    /// out of its owner.
+    fn intern(&mut self, resolved: &Resolved) -> Option<u32> {
+        let mut definition = resolved.carrier();
         definition.variants = resolved
             .variants
             .iter()
-            .map(|(name, variant)| {
-                Ok(EntityMaterialVariant {
+            .filter_map(|(name, variant)| {
+                Some(EntityMaterialVariant {
                     name: name.clone(),
                     definition: self.intern(variant)?,
                 })
             })
-            .collect::<Result<_, AssetError>>()?;
-        if let Some(index) = self
-            .definitions
-            .iter()
-            .position(|existing| *existing == definition)
-        {
-            return Ok(index as u32);
+            .collect();
+        if let Some(&index) = self.indices.get(&definition) {
+            return Some(index);
         }
         if self.definitions.len() >= MAX_ENTITY_MATERIAL_DEFINITIONS {
-            return Err(super::invalid(
-                "entity material definitions exceed admitted bound",
-            ));
+            self.unresolved += 1;
+            return None;
         }
+        let index = self.definitions.len() as u32;
+        self.indices.insert(definition.clone(), index);
         self.definitions.push(definition);
-        Ok(self.definitions.len() as u32 - 1)
+        Some(index)
     }
 }
 
@@ -156,7 +176,10 @@ impl MaterialStates {
                     .push((version, fields.clone()));
                 continue;
             }
-            if self.definitions.len() >= assets::MAX_ENTITY_ASSET_SYMBOLS {
+            if self.definitions.len() >= assets::MAX_ENTITY_ASSET_SYMBOLS
+                && !self.definitions.contains_key(name)
+            {
+                self.unadmitted += 1;
                 continue;
             }
             self.definitions
@@ -190,7 +213,14 @@ impl MaterialStates {
                 .extend(modifications);
         }
         self.files += upper.files;
+        self.unadmitted += upper.unadmitted;
         names
+    }
+
+    /// Declarations left out because the file set declared more materials than the symbol
+    /// bound admits. Their materials draw as layers without one.
+    pub(super) fn unadmitted(&self) -> u32 {
+        self.unadmitted
     }
 
     /// Includes the same normalized names and parent links used by material resolution.
@@ -216,9 +246,14 @@ impl MaterialStates {
     }
 
     /// Resolves the dye mask from `USE_COLOR_MASK`, keeping an unknown parent unresolved.
-    pub(super) fn color_mask(&self, target: &str) -> assets::EquipmentColorMask {
+    /// `links` is shared across one compile's lookups and serves only this base.
+    pub(super) fn color_mask(
+        &self,
+        target: &str,
+        links: &mut ChainMemo,
+    ) -> assets::EquipmentColorMask {
         use assets::EquipmentColorMask;
-        match self.resolve_with(material_name(target), &color_mask_base) {
+        match self.resolve_with(material_name(target), &color_mask_base, links) {
             Some(resolved) if resolved.defines.contains(COLOR_MASK) => EquipmentColorMask::Dye,
             Some(_) => EquipmentColorMask::NoMask,
             None => EquipmentColorMask::Unresolved,
@@ -226,75 +261,152 @@ impl MaterialStates {
     }
 
     /// Resolves `target`, interns its complete definition and returns its shading features
-    /// alongside the definition's table index.
+    /// alongside the definition's table index. `None` leaves the material unresolved.
     pub(super) fn resolve(
         &self,
         target: &str,
         table: &mut MaterialTable,
-    ) -> Result<Option<(EntityRenderMaterialState, u32)>, AssetError> {
-        let Some(resolved) = self.resolve_with(material_name(target), &builtin) else {
-            return Ok(None);
-        };
-        Ok(Some((shading(&resolved), table.intern(&resolved)?)))
+    ) -> Option<(EntityRenderMaterialState, u32)> {
+        let name = material_name(target);
+        if let Some(resolved) = table.resolved.get(name) {
+            return *resolved;
+        }
+        let resolved = self
+            .resolve_with(name, &builtin, &mut table.chains)
+            .and_then(|resolved| Some((shading(&resolved), table.intern(&resolved)?)));
+        table.resolved.insert(name.into(), resolved);
+        resolved
     }
 
+    /// Walks `name`'s parent chain until a link `memo` already knows, then applies each
+    /// declaration and its `+name` modifications from there down, remembering every link, so
+    /// each declaration applies once however many names share its chain. Declared parents come
+    /// from the child's own file. A chain that returns to a link it already visited is a cycle,
+    /// which the client's inheritance tree never reaches, so it stays unresolved; there is no
+    /// other depth bound. `memo` must only ever be used with the same `base`.
     fn resolve_with(
         &self,
         name: &str,
         base: &dyn Fn(&str) -> Option<Resolved>,
+        memo: &mut ChainMemo,
     ) -> Option<Resolved> {
-        self.resolve_depth(name, None, base, 0)
+        enum Link<'a> {
+            Declared(&'a Declaration),
+            /// A parent from another file resolved through the pack's own declaration of a
+            /// built-in base; it resolves exactly as the next link.
+            Retried,
+        }
+        let mut chain = Vec::new();
+        let mut visited = HashSet::new();
+        let (mut current, mut file) = (name, None);
+        let mut resolved = loop {
+            if let Some(known) = memo.links.get(&(Box::from(current), file)) {
+                break known.as_deref().cloned();
+            }
+            if !visited.insert((current, file)) {
+                break None;
+            }
+            let Some(declaration) = self
+                .definitions
+                .get(current)
+                .filter(|declaration| file.is_none_or(|file| declaration.file == file))
+            else {
+                // A parent declared only in another pack file is unreachable, as on the
+                // client, unless the client also has a built-in base of that name: the pack's
+                // declaration of it then applies, exactly as for a direct reference to that
+                // name.
+                if self.definitions.contains_key(current) {
+                    if file.is_some() && base(current).is_some() {
+                        chain.push((current, file, Link::Retried));
+                        file = None;
+                        continue;
+                    }
+                    break None;
+                }
+                // A built-in base the pack never declares still takes its modifications.
+                let resolved = base(current).and_then(|mut resolved| {
+                    self.modify(current, &mut resolved, &mut memo.applies)?;
+                    Some(resolved)
+                });
+                memo.links
+                    .insert((current.into(), file), resolved.clone().map(Arc::new));
+                break resolved;
+            };
+            // A direct reference and a parent link reach the same declaration alike.
+            if file.is_none()
+                && let Some(known) = memo
+                    .links
+                    .get(&(Box::from(current), Some(declaration.file)))
+            {
+                let known = known.clone();
+                let resolved = known.as_deref().cloned();
+                memo.links.insert((current.into(), None), known);
+                break resolved;
+            }
+            chain.push((current, file, Link::Declared(declaration)));
+            match declaration.parent.as_deref() {
+                Some(parent) => {
+                    file = Some(declaration.file);
+                    current = parent;
+                }
+                None => break Some(base(current).unwrap_or_default()),
+            }
+        };
+        for (name, file, link) in chain.into_iter().rev() {
+            if let Link::Declared(declaration) = link {
+                resolved = resolved.and_then(|mut resolved| {
+                    if !lists_are_well_formed(&declaration.fields) {
+                        return None;
+                    }
+                    resolved.version = declaration.version;
+                    resolved.apply(&declaration.fields);
+                    memo.applies += 1;
+                    self.modify(name, &mut resolved, &mut memo.applies)?;
+                    Some(resolved)
+                });
+                // A parent link reaches this declaration under its file's key.
+                let shared = resolved.clone().map(Arc::new);
+                memo.links
+                    .insert((name.into(), Some(declaration.file)), shared.clone());
+                memo.links.insert((name.into(), file), shared);
+                continue;
+            }
+            memo.links
+                .insert((name.into(), file), resolved.clone().map(Arc::new));
+        }
+        resolved
     }
 
-    /// Resolves `name`; `file` restricts declared parents to the child's own file.
-    fn resolve_depth(
-        &self,
-        name: &str,
-        file: Option<usize>,
-        base: &dyn Fn(&str) -> Option<Resolved>,
-        depth: usize,
-    ) -> Option<Resolved> {
-        if depth > MAX_PARENT_DEPTH {
-            return None;
-        }
-        let Some(declaration) = self
-            .definitions
-            .get(name)
-            .filter(|declaration| file.is_none_or(|file| declaration.file == file))
-        else {
-            // A parent declared only in another pack file is unreachable, as on the client,
-            // unless the client also has a built-in base of that name: the pack's declaration of
-            // it then applies, exactly as for a direct reference to that name.
-            if self.definitions.contains_key(name) {
-                if file.is_some() && base(name).is_some() {
-                    return self.resolve_depth(name, None, base, depth + 1);
-                }
-                return None;
-            }
-            return base(name);
-        };
-        let mut resolved = match declaration.parent.as_deref() {
-            Some(parent) => self.resolve_depth(parent, Some(declaration.file), base, depth + 1)?,
-            None => base(name).unwrap_or_default(),
-        };
-        if !lists_are_well_formed(&declaration.fields)
-            || self
-                .modifications
-                .get(name)
-                .into_iter()
-                .flatten()
-                .any(|(_, fields)| !lists_are_well_formed(fields))
+    /// Applies `name`'s `+name` modifications in order, counting each in `applies`; a
+    /// malformed list in any of them leaves the material unresolved.
+    fn modify(&self, name: &str, resolved: &mut Resolved, applies: &mut usize) -> Option<()> {
+        let modifications = self.modifications.get(name).map_or(&[][..], Vec::as_slice);
+        if modifications
+            .iter()
+            .any(|(_, fields)| !lists_are_well_formed(fields))
         {
             return None;
         }
-        resolved.version = declaration.version;
-        resolved.apply(&declaration.fields, 0);
-        for (version, fields) in self.modifications.get(name).into_iter().flatten() {
+        for (version, fields) in modifications {
             resolved.version = *version;
-            resolved.apply(fields, 0);
+            resolved.apply(fields);
+            *applies += 1;
         }
-        Some(resolved)
+        Some(())
     }
+}
+
+/// A walked parent-chain link: a material name and the declaring file it is restricted to.
+type ChainLink = (Box<str>, Option<usize>);
+
+/// Resolutions of each walked (name, declaring-file restriction) link for one base, so a
+/// parent chain shared by many names resolves once.
+#[derive(Default)]
+pub(super) struct ChainMemo {
+    /// One shared resolution per link; a link stored under two keys holds one allocation.
+    links: HashMap<ChainLink, Option<Arc<Resolved>>>,
+    /// Declarations and modifications applied so far; tests bound resolution work with it.
+    applies: usize,
 }
 
 /// The declarations of one file and the version they parse with.
@@ -331,14 +443,13 @@ fn builtin(name: &str) -> Option<Resolved> {
         // Native dyed and three-sampler bases declare their texture-combining define.
         match rules.material(name) {
             Some(MaterialKind::ColorMask) => {
-                resolved.defines.insert(COLOR_MASK.into());
+                Arc::make_mut(&mut resolved.defines).insert(COLOR_MASK.into());
             }
             Some(MaterialKind::Multitexture) => {
-                resolved.defines.insert(MULTITEXTURE.into());
+                Arc::make_mut(&mut resolved.defines).insert(MULTITEXTURE.into());
             }
             _ => {}
         }
-        resolved.finish();
         return Some(resolved);
     }
     let (states, defines): (&[State], &[&str]) = match name {
@@ -352,13 +463,11 @@ fn builtin(name: &str) -> Option<Resolved> {
         "entity_alphablend" | "entity_alphablend_nocolor" => (&[State::Blending], &[OVERLAY]),
         _ => return None,
     };
-    let mut resolved = Resolved::default();
-    resolved.states.extend(states.iter().copied());
-    resolved
-        .defines
-        .extend(defines.iter().map(|&define| Box::from(define)));
-    resolved.finish();
-    Some(resolved)
+    Some(Resolved {
+        states: Arc::new(states.iter().copied().collect()),
+        defines: Arc::new(defines.iter().map(|&define| Box::from(define)).collect()),
+        ..Resolved::default()
+    })
 }
 
 /// Bases for dye masks: leather armor masks, plain armor and other native bases do not.
@@ -366,7 +475,7 @@ fn color_mask_base(name: &str) -> Option<Resolved> {
     match name {
         "armor_leather" | "armor_leather_enchanted" => {
             let mut resolved = Resolved::default();
-            resolved.defines.insert(COLOR_MASK.into());
+            Arc::make_mut(&mut resolved.defines).insert(COLOR_MASK.into());
             Some(resolved)
         }
         "armor" | "armor_enchanted" => Some(Resolved::default()),
@@ -396,17 +505,39 @@ fn shading(resolved: &Resolved) -> EntityRenderMaterialState {
 
 impl Resolved {
     /// Working sets for a complete definition without variants or samplers.
-    fn from_definition(definition: EntityMaterialDefinition) -> Self {
+    fn from_definition(mut definition: EntityMaterialDefinition) -> Self {
         Self {
-            states: definition.states.iter().copied().collect(),
-            defines: definition.defines.iter().cloned().collect(),
+            states: Arc::new(
+                std::mem::take(&mut definition.states)
+                    .into_vec()
+                    .into_iter()
+                    .collect(),
+            ),
+            defines: Arc::new(
+                std::mem::take(&mut definition.defines)
+                    .into_vec()
+                    .into_iter()
+                    .collect(),
+            ),
+            vertex_fields: definition.vertex_fields.take().map(Arc::from),
             definition,
             ..Self::default()
         }
     }
 
+    /// The complete carrier definition, without variants.
+    fn carrier(&self) -> EntityMaterialDefinition {
+        EntityMaterialDefinition {
+            states: self.states.iter().copied().collect(),
+            defines: self.defines.iter().cloned().collect(),
+            samplers: self.samplers.iter().flatten().copied().collect(),
+            vertex_fields: self.vertex_fields.as_deref().map(Box::from),
+            ..self.definition.clone()
+        }
+    }
+
     /// Applies one declaration's fields with this material's version rules.
-    fn apply(&mut self, fields: &Map<String, Value>, depth: usize) {
+    fn apply(&mut self, fields: &Map<String, Value>) {
         let modern = self.version >= 1;
         names(
             fields,
@@ -421,8 +552,9 @@ impl Resolved {
         if self
             .states
             .contains(&EntityMaterialState::EnableAlphaToCoverage)
+            && !self.defines.contains("ALPHA_TO_COVERAGE")
         {
-            self.defines.insert("ALPHA_TO_COVERAGE".into());
+            Arc::make_mut(&mut self.defines).insert("ALPHA_TO_COVERAGE".into());
         }
         let definition = &mut self.definition;
         for (key, slot) in [
@@ -486,7 +618,7 @@ impl Resolved {
             definition.primitive = value;
         }
         if let Some(values) = fields.get("vertexFields").and_then(Value::as_array) {
-            definition.vertex_fields = Some(
+            self.vertex_fields = Some(
                 values
                     .iter()
                     .filter_map(|value| value.get("field")?.as_str())
@@ -495,10 +627,9 @@ impl Resolved {
             );
         }
         self.apply_samplers(fields, modern);
-        if depth < MAX_VARIANT_DEPTH {
-            self.apply_variants(fields, modern, depth);
-        }
-        self.finish();
+        // Nesting, and so this recursion and the table's interning, is bounded only by the
+        // JSON parser's recursion limit; parsing must keep that limit enabled.
+        self.apply_variants(fields, modern);
     }
 
     fn apply_samplers(&mut self, fields: &Map<String, Value>, modern: bool) {
@@ -536,29 +667,30 @@ impl Resolved {
     /// Each variant clones the material parsed so far, then applies its own fields. Version 1
     /// replaces inherited variants with a plain list; otherwise it adds `+variants` and then
     /// removes the inherited or added variants that `-variants` names.
-    fn apply_variants(&mut self, fields: &Map<String, Value>, modern: bool, depth: usize) {
+    fn apply_variants(&mut self, fields: &Map<String, Value>, modern: bool) {
         let plain = fields.get("variants").and_then(Value::as_array);
         if modern && plain.is_some() {
-            self.variants.clear();
+            self.variants = Arc::default();
         }
-        self.add_variants(fields, plain, depth);
+        self.add_variants(fields, plain);
         if modern && plain.is_none() {
             let removed = fields.get("-variants").and_then(Value::as_array);
             for name in removed.into_iter().flatten().filter_map(Value::as_str) {
-                self.variants
-                    .retain(|(existing, _)| existing.as_ref() != name);
+                if self
+                    .variants
+                    .iter()
+                    .any(|(existing, _)| existing.as_ref() == name)
+                {
+                    Arc::make_mut(&mut self.variants)
+                        .retain(|(existing, _)| existing.as_ref() != name);
+                }
             }
         }
     }
 
     /// Clones and applies each entry of the plain list, or of `+variants` when it is absent,
     /// replacing an existing variant of the same name.
-    fn add_variants(
-        &mut self,
-        fields: &Map<String, Value>,
-        plain: Option<&Vec<Value>>,
-        depth: usize,
-    ) {
+    fn add_variants(&mut self, fields: &Map<String, Value>, plain: Option<&Vec<Value>>) {
         let entries = plain.or_else(|| fields.get("+variants").and_then(Value::as_array));
         for entry in entries.into_iter().flatten().filter_map(Value::as_object) {
             for (name, value) in entry {
@@ -568,24 +700,19 @@ impl Resolved {
                 if name.is_empty() || name.len() > MAX_ENTITY_MATERIAL_NAME_BYTES {
                     continue;
                 }
-                let mut variant = self.clone();
-                variant.variants.clear();
+                let mut variant = Self {
+                    variants: Arc::default(),
+                    ..self.clone()
+                };
                 if let Some(version) = text(variant_fields, "version") {
                     variant.version = u8::from(!version.starts_with('0'));
                 }
-                variant.apply(variant_fields, depth + 1);
-                self.variants
-                    .retain(|(existing, _)| existing.as_ref() != name);
-                self.variants.push((name.as_str().into(), variant));
+                variant.apply(variant_fields);
+                let variants = Arc::make_mut(&mut self.variants);
+                variants.retain(|(existing, _)| existing.as_ref() != name);
+                variants.push((name.as_str().into(), variant));
             }
         }
-    }
-
-    /// Copies the working sets into the canonical carrier fields.
-    fn finish(&mut self) {
-        self.definition.states = self.states.iter().copied().collect();
-        self.definition.defines = self.defines.iter().cloned().collect();
-        self.definition.samplers = self.samplers.iter().flatten().copied().collect();
     }
 }
 
@@ -618,12 +745,13 @@ fn text<'a>(fields: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
     fields.get(key).and_then(Value::as_str)
 }
 
-/// Applies `key`, `+key` and `-key` lists with the version's replace and add rules.
-fn names<T: Ord>(
+/// Applies `key`, `+key` and `-key` lists with the version's replace and add rules, copying the
+/// shared set only when a list changes it.
+fn names<T: Ord + Clone>(
     fields: &Map<String, Value>,
     key: &str,
     modern: bool,
-    set: &mut BTreeSet<T>,
+    set: &mut Arc<BTreeSet<T>>,
     parse: impl Fn(&str) -> Option<T>,
 ) {
     let list = |key: &str| {
@@ -637,15 +765,23 @@ fn names<T: Ord>(
     };
     if let Some(values) = list(key) {
         if modern {
-            set.clear();
+            *set = Arc::new(values.into_iter().collect());
+        } else if values.iter().any(|value| !set.contains(value)) {
+            Arc::make_mut(set).extend(values);
         }
-        set.extend(values);
         return;
     }
-    set.extend(list(&format!("+{key}")).into_iter().flatten());
+    let added = list(&format!("+{key}")).unwrap_or_default();
+    if added.iter().any(|value| !set.contains(value)) {
+        Arc::make_mut(set).extend(added);
+    }
     if modern {
-        for value in list(&format!("-{key}")).into_iter().flatten() {
-            set.remove(&value);
+        let removed = list(&format!("-{key}")).unwrap_or_default();
+        if removed.iter().any(|value| set.contains(value)) {
+            let set = Arc::make_mut(set);
+            for value in &removed {
+                set.remove(value);
+            }
         }
     }
 }

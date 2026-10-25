@@ -79,7 +79,6 @@ fn material_word(name: &str) -> u32 {
     rules.raster(name).word(
         MaterialStates::default()
             .resolve(name, &mut MaterialTable::default())
-            .unwrap()
             .map(|(state, _)| state),
     )
 }

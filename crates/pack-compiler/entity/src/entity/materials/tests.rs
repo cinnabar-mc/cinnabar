@@ -13,7 +13,7 @@ fn definition(files: &[Value], name: &str) -> Option<(EntityMaterialDefinition, 
         states.read(file);
     }
     let mut table = MaterialTable::default();
-    let (_, index) = states.resolve(name, &mut table).unwrap()?;
+    let (_, index) = states.resolve(name, &mut table)?;
     let definition = table.definitions[index as usize].clone();
     Some((definition, table))
 }
@@ -197,7 +197,7 @@ fn shading_follows_defines_over_native_bases() {
     let mut states = MaterialStates::default();
     states.read(&file);
     let mut table = MaterialTable::default();
-    let (state, _) = states.resolve("hidden", &mut table).unwrap().unwrap();
+    let (state, _) = states.resolve("hidden", &mut table).unwrap();
     assert!(state.alpha_test && state.disable_overlay && !state.emissive);
 }
 
@@ -222,10 +222,7 @@ fn native_bases_keep_their_shading_and_raster() {
         ("entity_static", false, false, true, None, true),
     ] {
         let mut table = MaterialTable::default();
-        let (state, index) = MaterialStates::default()
-            .resolve(name, &mut table)
-            .unwrap()
-            .unwrap();
+        let (state, index) = MaterialStates::default().resolve(name, &mut table).unwrap();
         assert_eq!(
             (state.alpha_test, !state.disable_overlay),
             (alpha_test, overlay),
@@ -258,7 +255,6 @@ fn native_bases_keep_their_shading_and_raster() {
     ] {
         let (state, _) = MaterialStates::default()
             .resolve(name, &mut MaterialTable::default())
-            .unwrap()
             .unwrap();
         assert_eq!(
             (state.color_mask, state.multitexture),
@@ -266,4 +262,283 @@ fn native_bases_keep_their_shading_and_raster() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn modifications_of_a_builtin_only_material_apply_to_it_and_its_children() {
+    let patch = modern(json!({"+entity_alphatest": {"+defines": ["PATCHED"]}}));
+    let child = modern(json!({"my:entity_alphatest": {}}));
+    let (base, _) = definition(std::slice::from_ref(&patch), "entity_alphatest").unwrap();
+    assert!(base.has_define("ALPHA_TEST") && base.has_define("PATCHED"));
+    let (child, _) = definition(&[patch, child], "my").unwrap();
+    assert!(child.has_define("ALPHA_TEST") && child.has_define("PATCHED"));
+}
+
+#[test]
+fn long_parent_chains_and_deep_variants_resolve_while_cycles_stay_unresolved() {
+    const CHAIN: usize = 1_000;
+    let mut chain = serde_json::Map::new();
+    chain.insert("m0".into(), json!({"+defines": ["ROOT"]}));
+    for index in 1..CHAIN {
+        chain.insert(format!("m{index}:m{}", index - 1), json!({}));
+    }
+    let (leaf, _) =
+        definition(&[modern(Value::Object(chain))], &format!("m{}", CHAIN - 1)).unwrap();
+    assert!(leaf.has_define("ROOT"));
+
+    let cycle = modern(json!({"a:b": {}, "b:a": {}}));
+    assert!(definition(&[cycle], "a").is_none());
+
+    // Twelve nested variant levels, past any fixed nesting bound short of the JSON parser's.
+    let mut fields = json!({"+defines": ["DEEPEST"]});
+    for level in (0..12).rev() {
+        fields = json!({"+defines": [format!("L{level}")], "variants": [{"inner": fields}]});
+    }
+    let (outer, table) = definition(&[modern(json!({ "outer": fields }))], "outer").unwrap();
+    let mut current = &outer;
+    while let Some(variant) = current.variants.first() {
+        current = &table.definitions[variant.definition as usize];
+    }
+    assert!(current.has_define("DEEPEST") && current.has_define("L11"));
+}
+
+#[test]
+fn materials_past_the_definition_bound_stay_unresolved_and_are_counted() {
+    // Each material needs two entries: its variant and itself.
+    let admitted = MAX_ENTITY_MATERIAL_DEFINITIONS / 2;
+    let declarations = (0..=admitted)
+        .map(|index| {
+            (
+                format!("m{index}"),
+                json!({"+defines": [format!("D{index}")], "variants": [{"v": {"+defines": ["V"]}}]}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let mut states = MaterialStates::default();
+    states.read(&modern(Value::Object(declarations)));
+    let mut table = MaterialTable::default();
+    for index in 0..admitted {
+        let resolved = states.resolve(&format!("m{index}"), &mut table);
+        assert!(resolved.is_some(), "{index}");
+    }
+    assert_eq!(table.unresolved(), 0);
+    let past = states.resolve(&format!("m{admitted}"), &mut table);
+    assert!(past.is_none());
+    assert_eq!(table.unresolved(), 2, "the variant and its owner");
+    assert_eq!(table.definitions.len(), MAX_ENTITY_MATERIAL_DEFINITIONS);
+    // Earlier materials still resolve from the table.
+    assert!(states.resolve("m0", &mut table).is_some());
+
+    let declarations = (0..=assets::MAX_ENTITY_ASSET_SYMBOLS)
+        .map(|index| (format!("n{index}"), json!({})))
+        .collect::<serde_json::Map<_, _>>();
+    let mut states = MaterialStates::default();
+    states.read(&modern(Value::Object(declarations)));
+    assert_eq!(states.unadmitted(), 1);
+}
+
+#[test]
+fn every_name_of_a_long_chain_resolves_with_each_declaration_applied_once() {
+    const CHAIN: usize = 4_000;
+    let mut chain = serde_json::Map::new();
+    chain.insert("m0".into(), json!({"+defines": ["ROOT"]}));
+    for index in 1..CHAIN {
+        chain.insert(format!("m{index}:m{}", index - 1), json!({}));
+    }
+    let mut states = MaterialStates::default();
+    states.read(&modern(Value::Object(chain)));
+    let mut table = MaterialTable::default();
+    // Leaves first is the order that would re-walk the most without memoised links.
+    for index in (0..CHAIN).rev() {
+        assert!(states.resolve(&format!("m{index}"), &mut table).is_some());
+    }
+    assert_eq!(table.chains.applies, CHAIN);
+}
+
+#[test]
+fn material_documents_past_the_parser_depth_limit_are_rejected() {
+    // Resolution recurses once per variant nesting level; the JSON parser's recursion limit is
+    // what bounds that depth, so it must stay enabled where material files are parsed.
+    let nested = |levels: usize| {
+        let mut fields = String::from("{}");
+        for _ in 0..levels {
+            fields = format!(r#"{{"variants": [{{"inner": {fields}}}]}}"#);
+        }
+        format!(r#"{{"materials": {{"version": "1.0.0", "deep": {fields}}}}}"#)
+    };
+    let path = std::path::Path::new("materials/deep.material");
+    let shallow = pack_compile_input::json::parse_unique_json(path, nested(30).as_bytes())
+        .expect("a deep but admitted document parses");
+    let mut states = MaterialStates::default();
+    states.read(&shallow);
+    assert!(
+        states
+            .resolve("deep", &mut MaterialTable::default())
+            .is_some()
+    );
+    assert!(
+        pack_compile_input::json::parse_unique_json(path, nested(200).as_bytes()).is_err(),
+        "a document deeper than the parser admits is an error, not a stack overflow"
+    );
+}
+
+#[test]
+fn a_long_chain_under_a_wide_variant_root_shares_one_variant_list() {
+    const CHAIN: usize = 2_000;
+    const VARIANTS: usize = 300;
+    let mut chain = serde_json::Map::new();
+    let variants = (0..VARIANTS)
+        .map(|index| json!({ format!("v{index}"): {"+defines": [format!("V{index}")]} }))
+        .collect::<Vec<_>>();
+    chain.insert("m0".into(), json!({ "variants": variants }));
+    for index in 1..CHAIN {
+        chain.insert(format!("m{index}:m{}", index - 1), json!({}));
+    }
+    let mut states = MaterialStates::default();
+    states.read(&modern(Value::Object(chain)));
+    let mut table = MaterialTable::default();
+    for index in (0..CHAIN).rev() {
+        assert!(states.resolve(&format!("m{index}"), &mut table).is_some());
+    }
+    let links = table.chains.links.values().flatten().collect::<Vec<_>>();
+    let resolutions = links
+        .iter()
+        .map(|resolved| Arc::as_ptr(resolved))
+        .collect::<HashSet<_>>();
+    let variant_lists = links
+        .iter()
+        .map(|resolved| Arc::as_ptr(&resolved.variants))
+        .collect::<HashSet<_>>();
+    assert!(
+        resolutions.len() <= CHAIN,
+        "{} resolutions",
+        resolutions.len()
+    );
+    assert_eq!(
+        variant_lists.len(),
+        1,
+        "every link inherits the root's list"
+    );
+    assert!(
+        links
+            .iter()
+            .all(|resolved| resolved.variants.len() == VARIANTS)
+    );
+}
+
+#[test]
+fn dye_lookups_share_parent_chain_links_across_calls() {
+    const CHAIN: usize = 1_000;
+    let mut chain = serde_json::Map::new();
+    chain.insert("m0:armor_leather".into(), json!({}));
+    for index in 1..CHAIN {
+        chain.insert(format!("m{index}:m{}", index - 1), json!({}));
+    }
+    let mut states = MaterialStates::default();
+    states.read(&modern(Value::Object(chain)));
+    let mut links = ChainMemo::default();
+    for index in (0..CHAIN).rev() {
+        assert_eq!(
+            states.color_mask(&format!("m{index}"), &mut links),
+            assets::EquipmentColorMask::Dye
+        );
+    }
+    assert_eq!(links.applies, CHAIN);
+}
+
+/// Resolves every name in `names`, in order, from one modern file and returns the table.
+fn resolve_all(file: Value, names: impl Iterator<Item = String>) -> MaterialTable {
+    let mut states = MaterialStates::default();
+    states.read(&modern(file));
+    let mut table = MaterialTable::default();
+    for name in names {
+        assert!(states.resolve(&name, &mut table).is_some(), "{name}");
+    }
+    table
+}
+
+/// Distinct allocations of one shared field across every remembered link.
+fn distinct<T: ?Sized>(
+    table: &MaterialTable,
+    field: impl Fn(&Resolved) -> Option<*const T>,
+) -> usize {
+    table
+        .chains
+        .links
+        .values()
+        .flatten()
+        .filter_map(|resolved| field(resolved))
+        .map(|pointer| pointer.cast::<()>())
+        .collect::<HashSet<_>>()
+        .len()
+}
+
+#[test]
+fn a_long_chain_under_a_root_with_many_defines_or_vertex_fields_shares_them() {
+    const CHAIN: usize = 2_000;
+    let defines = (0..1_000)
+        .map(|index| format!("{index:0>200}"))
+        .collect::<Vec<_>>();
+    let fields = (0..1_000)
+        .map(|index| json!({"field": if index % 2 == 0 { "Position" } else { "UV0" }}))
+        .collect::<Vec<_>>();
+    let mut chain = serde_json::Map::new();
+    chain.insert(
+        "m0".into(),
+        json!({"defines": defines, "vertexFields": fields}),
+    );
+    for index in 1..CHAIN {
+        chain.insert(format!("m{index}:m{}", index - 1), json!({}));
+    }
+    let table = resolve_all(
+        Value::Object(chain),
+        (0..CHAIN).rev().map(|index| format!("m{index}")),
+    );
+    assert_eq!(table.chains.applies, CHAIN);
+    assert_eq!(
+        distinct(&table, |resolved| Some(Arc::as_ptr(&resolved.defines))),
+        1
+    );
+    assert_eq!(
+        distinct(&table, |resolved| resolved
+            .vertex_fields
+            .as_ref()
+            .map(Arc::as_ptr)),
+        1
+    );
+    // The interned carrier definitions still carry the complete lists.
+    assert!(table.definitions.iter().all(|definition| {
+        definition.defines.len() == 1_000
+            && definition
+                .vertex_fields
+                .as_ref()
+                .is_some_and(|fields| fields.len() == 1_000)
+    }));
+}
+
+#[test]
+fn two_long_chains_from_one_root_apply_each_declaration_once_and_share_its_lists() {
+    const CHAIN: usize = 1_000;
+    let defines = (0..500)
+        .map(|index| format!("D{index}"))
+        .collect::<Vec<_>>();
+    let mut file = serde_json::Map::new();
+    file.insert("root".into(), json!({ "defines": defines }));
+    for branch in ["a", "b"] {
+        file.insert(format!("{branch}1:root"), json!({}));
+        for index in 2..=CHAIN {
+            file.insert(format!("{branch}{index}:{branch}{}", index - 1), json!({}));
+        }
+    }
+    let names = ["a", "b"].into_iter().flat_map(|branch| {
+        (1..=CHAIN)
+            .rev()
+            .map(move |index| format!("{branch}{index}"))
+    });
+    let table = resolve_all(Value::Object(file), names);
+    assert_eq!(table.chains.applies, 2 * CHAIN + 1);
+    assert_eq!(
+        distinct(&table, |resolved| Some(Arc::as_ptr(&resolved.defines))),
+        1
+    );
 }

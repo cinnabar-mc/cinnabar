@@ -105,10 +105,12 @@ fn compile_uv_anim(molang: &mut MolangCompiler, value: Option<&Value>) -> Option
     Some(components)
 }
 
+/// Compiles the render controllers, returning the render payload and the number of material
+/// declarations and definitions left unresolved past their bounds.
 pub(super) fn compile_render(
     input: RenderSources<'_>,
     molang: &mut MolangCompiler,
-) -> Result<EntityRenderData, AssetError> {
+) -> Result<(EntityRenderData, u32), AssetError> {
     let RenderSources {
         root,
         payloads,
@@ -364,7 +366,8 @@ pub(super) fn compile_render(
             )?;
         }
     }
-    Ok(EntityRenderData {
+    let unresolved = materials.unadmitted() + material_table.unresolved();
+    let render = EntityRenderData {
         material_selections: material_selections.into_boxed_slice(),
         layers: layers.into_boxed_slice(),
         slots: slots.into_boxed_slice(),
@@ -372,7 +375,8 @@ pub(super) fn compile_render(
         visibility: visibility.into_boxed_slice(),
         geometries: layer_geometries.into_boxed_slice(),
         materials: material_table.into_definitions(),
-    })
+    };
+    Ok((render, unresolved))
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition
