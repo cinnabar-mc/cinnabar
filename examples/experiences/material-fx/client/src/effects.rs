@@ -2,6 +2,7 @@
 //! textures it declares, its host blend class, its target, and the parameters computed from the
 //! server-driven [`State`].
 
+use crate::operations;
 use experience_sdk::client::world_material::{Blend, Depth, MaterialSpec, Target};
 
 /// One showcase material.
@@ -221,19 +222,19 @@ impl State {
     pub fn apply(&mut self, op: u16, args: [i64; 4]) -> &'static [u32] {
         let blocks = |value: i64| value as f32 / MILLI;
         match op {
-            2 => {
+            operations::CUT => {
                 self.cut = (args[0] >= 0).then_some(args[0].min(1000));
                 &[WRAITH]
             }
-            3 => {
+            operations::BOOM => {
                 self.boom = [blocks(args[0]), blocks(args[1]), blocks(args[2])];
                 &[ARENA]
             }
-            4 => {
+            operations::HEARTBEAT => {
                 self.heartbeat = (args[0] >= 0).then(|| args[0].min(1000) as f32 / 1000.0);
                 &[ARENA]
             }
-            5 => {
+            operations::HIT => {
                 self.hit = [
                     blocks(args[0]),
                     blocks(args[1]),
@@ -242,7 +243,7 @@ impl State {
                 ];
                 &[METAL]
             }
-            7 => {
+            operations::CORRUPT => {
                 self.corruption = (args[3] >= 0).then(|| {
                     [
                         blocks(args[0]),
@@ -253,25 +254,25 @@ impl State {
                 });
                 &[CORRUPTION]
             }
-            8 => {
+            operations::LAYOUT => {
                 let Some(centre) = self.centres.get_mut(args[0].clamp(0, 4) as usize) else {
                     return &[];
                 };
                 *centre = [blocks(args[1]), blocks(args[2]), blocks(args[3])];
                 &[ARENA, BLACK_HOLE, PAINTING, SCREEN, PORTAL]
             }
-            9 => {
+            operations::FACING => {
                 self.quarter = args[0].rem_euclid(4) as f32;
                 &[PAINTING, SCREEN, PORTAL]
             }
-            10 => {
+            operations::RADAR => {
                 if let Some(player) = self.players.get_mut(args[0].clamp(0, 3) as usize) {
                     *player = [blocks(args[1]), blocks(args[2])];
                 }
                 self.player_count = args[3].clamp(0, 4) as f32;
                 &[SCREEN]
             }
-            11 => {
+            operations::PORTAL_DISTANCE => {
                 self.portal_distance = blocks(args[0]);
                 &[PORTAL]
             }
