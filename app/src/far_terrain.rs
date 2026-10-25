@@ -305,8 +305,7 @@ impl FarTerrain {
             Some(now + EXIT_SUMMARY_WAIT),
             &mut SummaryBudget::new(usize::MAX, usize::MAX),
         );
-        self.cache.leave_world();
-        self.cache.sync();
+        self.cache.finish();
     }
 }
 
