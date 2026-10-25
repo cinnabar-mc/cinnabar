@@ -20,12 +20,17 @@ From the repository root:
    make local-server
    ```
 
-2. Build the showcase and seed it into the client's bundle cache. `--user-data` is the client's
-   user data directory (the client's settings show it):
+2. Build the showcase and seed it into the client's bundle cache:
 
    ```sh
-   cargo run -p material-fx -- --out .local/material-fx --user-data <client user data directory>
+   cargo run -p material-fx -- --out .local/material-fx
    ```
+
+   A client built from this checkout (`make play`) keeps its user data in the repository's
+   `.local`, which the tool seeds by default. For an installed client, pass its user data
+   directory, for example `--user-data <directory>`. The server's offer
+   names `https://cxb.invalid`, a host that never resolves, so a client whose cache was not
+   seeded stops the Experience with a message saying so.
 
    This builds both guests for `wasm32-unknown-unknown`, writes the server artifact under
    `.local/material-fx/experiences/materialfx`, keys under `.local/material-fx/keys` (kept across
@@ -50,6 +55,9 @@ From the repository root:
    ```sh
    CINNABAR_DEV_SERVER_EXPERIENCES=1 make play
    ```
+
+   With the switch, `make play` also builds the media helper with its AV1 decoder, which needs
+   `dav1d` and `pkg-config`.
 
 5. Run `/time set night` (or stand in a cave) so emission stands out, then `/materialfx`.
 
