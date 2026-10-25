@@ -963,6 +963,8 @@ Local imports, decompression, UI/text expansion, language memory and other admis
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 Pack JSON whose value tree could need more than 1 GiB is refused before parsing, so a
 small archive cannot inflate into an allocation abort; that memory bound is an unverified limit.
+Pack JSON preserves raw control characters inside strings, including multiline manifest
+descriptions, through the shared parser used by local import and installed-pack admission.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware
