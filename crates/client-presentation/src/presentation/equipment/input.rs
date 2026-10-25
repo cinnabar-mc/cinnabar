@@ -58,7 +58,13 @@ pub(super) fn worn_item(
         kind: match item.visual {
             ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
             ItemVisualRoute::BlockItem(visual) => HeldKind::Block(visual.0),
-            _ => HeldKind::Other,
+            _ => {
+                if item.identifier.is_some() {
+                    HeldKind::Sprite
+                } else {
+                    HeldKind::Other
+                }
+            }
         },
         dye_rgb,
         enchanted: item.enchanted,
