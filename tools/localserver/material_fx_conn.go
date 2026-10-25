@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -122,6 +124,8 @@ type materialFxConn struct {
 	portalDistance int64
 	// missing is set while the client part refuses records, so the player hears of it once.
 	missing bool
+	// outOfRange is set once the player has heard that a record could not be carried.
+	outOfRange bool
 }
 
 // ReadPacket runs /materialfx, follows the player for the radar and the portal, and turns hits
@@ -164,21 +168,41 @@ func (c *materialFxConn) close() {
 	})
 }
 
-// send hands `records` to the client part. When it is not running, the player is told once
-// until a record goes through again, however many commands, binds and radar updates fail.
+// send hands `records` to the client part, each on its own, so one that cannot go does not hold
+// back the rest. A record with an argument the control channel cannot carry is never sent, and
+// the player hears of it once. When the client part refuses records (it is not running, or they
+// came faster than its rate allows), the player is told once, with how many of the batch were
+// refused, until a record goes through again.
 func (c *materialFxConn) send(records ...[]cinnabarext.Scalar) {
+	refused := 0
 	for _, record := range records {
-		sent := c.ext != nil && c.ext.send(c.id, materialFxID, materialFxChannel, materialFxSchema, record)
+		if !materialFxCarried(record) {
+			c.mu.Lock()
+			warn := !c.outOfRange
+			c.outOfRange = true
+			c.mu.Unlock()
+			if warn {
+				c.tell(fmt.Sprintf("materialfx: skipped a record beyond the control channel's ±%d blocks", materialFxArgLimit/1000))
+			}
+			continue
+		}
+		if c.ext == nil || !c.ext.send(c.id, materialFxID, materialFxChannel, materialFxSchema, record) {
+			refused++
+			continue
+		}
 		c.mu.Lock()
-		warn := !sent && !c.missing
-		c.missing = !sent
+		c.missing = false
 		c.mu.Unlock()
-		if warn {
-			c.tell("materialfx: no active client part (run the client with CINNABAR_DEV_SERVER_EXPERIENCES=1)")
-		}
-		if !sent {
-			return
-		}
+	}
+	if refused == 0 {
+		return
+	}
+	c.mu.Lock()
+	warn := !c.missing
+	c.missing = true
+	c.mu.Unlock()
+	if warn {
+		c.tell(fmt.Sprintf("materialfx: the client part refused %d of %d records: it is not active (run the client with CINNABAR_DEV_SERVER_EXPERIENCES=1) or they came too fast", refused, len(records)))
 	}
 }
 
@@ -257,7 +281,10 @@ func (c *materialFxConn) radar() {
 		case <-c.done:
 			return
 		case <-ticker.C:
-			positions := c.everyone.snapshot(c.id, materialFxRadarPlayers)
+			// Players the channel cannot place are left off, so the others keep their slots.
+			positions := slices.DeleteFunc(c.everyone.snapshot(c.id, materialFxRadarPlayers), func(feet mgl32.Vec3) bool {
+				return !materialFxCarried(materialFxRecord(materialFxRadar, 0, milli(feet[0]), milli(feet[2])))
+			})
 			for index, feet := range positions {
 				c.send(materialFxRecord(materialFxRadar, int64(index), milli(feet[0]), milli(feet[2]), int64(len(positions))))
 			}

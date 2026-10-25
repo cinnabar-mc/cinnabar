@@ -49,6 +49,40 @@ func TestMaterialFxWarnsOnceWhileTheClientPartIsMissing(t *testing.T) {
 	}
 }
 
+// A record the channel cannot carry is skipped and one the client part refuses does not hold
+// back the rest: every in-range record of the batch still goes, and the player hears once of
+// each problem.
+func TestMaterialFxSendsEveryCarriedRecordPastARefusedOne(t *testing.T) {
+	var sent []uint16
+	told := 0
+	c := &materialFxConn{
+		ext: &experienceSender{send: func(_ uuid.UUID, _, _ string, _ uint16, record []cinnabarext.Scalar) bool {
+			op := *record[0].Choice
+			if op == materialFxHit {
+				return false
+			}
+			sent = append(sent, op)
+			return true
+		}},
+		players: func(uuid.UUID) (*world.EntityHandle, bool) { told++; return nil, false },
+	}
+	far := materialFxRecord(materialFxRadar, 0, materialFxArgLimit+1, 0, 1)
+	for range 2 {
+		c.send(
+			materialFxRecord(materialFxFacing, 1),
+			far,
+			materialFxRecord(materialFxHit, 0, 0, 0, 0),
+			materialFxRecord(materialFxRadar, 0, materialFxArgLimit, -materialFxArgLimit, 1),
+		)
+	}
+	if want := []uint16{materialFxFacing, materialFxRadar, materialFxFacing, materialFxRadar}; !slices.Equal(sent, want) {
+		t.Fatalf("sent operations %v, want %v", sent, want)
+	}
+	if told != 3 {
+		t.Fatalf("told the player %d times, want once for the far record and once per refused batch after a sent record", told)
+	}
+}
+
 // A command whose write fails ends the connection like a failed read: the radar stops and the
 // player's position leaves the shared list.
 func TestMaterialFxStopsTheRadarWhenACommandWriteFails(t *testing.T) {

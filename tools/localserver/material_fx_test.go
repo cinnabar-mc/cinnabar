@@ -108,6 +108,10 @@ func TestMaterialFxRecordsMatchTheDeclaredChannel(t *testing.T) {
 	if !strings.Contains(text, fmt.Sprintf(`{ type = "choice", variants = %d }`, len(listed))) || len(listed) != int(materialFxPortalDistance)+1 {
 		t.Errorf("experience.toml's choice does not admit exactly its %d operations", len(listed))
 	}
+	bound := fmt.Sprintf(`{ type = "integer", min = %d, max = %d }`, -materialFxArgLimit, materialFxArgLimit)
+	if got := strings.Count(text, `type = "integer"`); got != 4 || strings.Count(text, bound) != got {
+		t.Errorf("experience.toml's four integer arguments are not all bounded as %s", bound)
+	}
 }
 
 // The gallery holds every piece: the arena floor, the 27-block black hole, the wall's hollow
