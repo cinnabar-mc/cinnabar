@@ -17,35 +17,48 @@ pub(super) fn spawn(world: &mut World, z: f32) {
 
 /// Commits a selectable actor of the requested kind into the fixture's stream.
 fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
-    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
-    let stream = client.stream.as_mut().unwrap();
-    let sequence = stream.committed_sequence() + 1;
-    stream
-        .submit(
-            sequence,
-            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
-                dimension: 0,
-                unique_id: 99,
-                runtime_id: 99,
-                kind,
-                position: [4.5, 1.5, z],
-                velocity: [0.0; 3],
-                pitch: 0.0,
-                yaw: 0.0,
-                head_yaw: 0.0,
-                body_yaw: 0.0,
-                held_item: protocol::NetworkItemStack::empty(),
-                metadata: [].into(),
-                attributes: [].into(),
-                properties: [].into(),
-                links: [].into(),
-            })),
-        )
+    spawn_without_pick(world, z, kind);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
-    test_time::eventually("fixture actor spawn", || {
-        stream.poll([4.5, 2.620_01, 8.5], 0);
-        stream.committed_sequence() >= sequence
-    });
+}
+
+/// Commits new actor geometry without changing the already retained frame observation.
+fn spawn_without_pick(world: &mut World, z: f32, kind: protocol::ActorKind) {
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(
+                    protocol::ActorSpawnEvent {
+                        dimension: 0,
+                        unique_id: 99,
+                        runtime_id: 99,
+                        kind,
+                        position: [4.5, 1.5, z],
+                        velocity: [0.0; 3],
+                        pitch: 0.0,
+                        yaw: 0.0,
+                        head_yaw: 0.0,
+                        body_yaw: 0.0,
+                        held_item: protocol::NetworkItemStack::empty(),
+                        metadata: [].into(),
+                        attributes: [].into(),
+                        properties: [].into(),
+                        links: [].into(),
+                    },
+                )),
+            )
+            .unwrap();
+        test_time::eventually("fixture actor spawn", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
 }
 
 #[test]
@@ -423,9 +436,15 @@ fn native_startup_then_empty_live_registry_still_throws_after_actor_interact() {
 }
 /// Removes the fixture chest so the eye ray reaches actors beyond it.
 pub(super) fn clear_line(world: &mut World) {
-    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
-    let stream = client.stream.as_mut().unwrap();
-    stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
 }
 
 /// The fixture actor's intercept and its distance from the eye along the full mouse pick ray.
@@ -471,4 +490,80 @@ fn actor_use_targets_an_actor_only_within_the_survival_cap() {
             assert!(interactions.is_empty(), "{interactions:?}");
         }
     }
+}
+
+/// Retaining actor geometry must preserve the classifier's strict radius-adjusted use boundary.
+#[test]
+fn a_retained_actor_hit_keeps_the_strict_radius_adjusted_reach_cap() {
+    for (z, accepted) in [(5.15, false), (5.65, true)] {
+        let (mut world, mut captured) = fixture();
+        super::frame_picks::update(&mut world, [4, 2, 6], "minecraft:air");
+        spawn(&mut world, z);
+        world.run_system_cached(produce_block_use).unwrap();
+        let actors = captured
+            .drain()
+            .iter()
+            .filter_map(observe_transaction)
+            .filter(|tx| tx.actor_use().is_some())
+            .count();
+        assert_eq!(actors, usize::from(accepted), "actor z={z}");
+    }
+}
+
+/// A runtime ID reused after removal cannot inherit an earlier actor's saved point.
+#[test]
+fn a_retained_actor_pick_cannot_target_a_replacement_lifetime() {
+    let (mut world, mut captured) = fixture();
+    spawn(&mut world, 7.5);
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(
+                    protocol::ActorRemoveEvent {
+                        dimension: 0,
+                        unique_id: 99,
+                    },
+                )),
+            )
+            .unwrap();
+        test_time::eventually("old picked actor removed", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
+    spawn_without_pick(
+        &mut world,
+        1.5,
+        protocol::ActorKind::Entity {
+            identifier: "minecraft:villager_v2".into(),
+        },
+    );
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(captured.drain().iter().all(|packet| {
+        observe_transaction(packet).is_none_or(|transaction| transaction.actor_use().is_none())
+    }));
+}
+
+/// Terrain beyond a nearby actor is unnecessary to establish its unobstructed pick.
+#[test]
+fn a_foreground_actor_remains_usable_before_an_unloaded_column() {
+    let (mut world, mut captured) = super::frame_picks::bridge_fixture(
+        [4.5, 2.620_01, 13.0],
+        Quat::from_rotation_y(std::f32::consts::PI),
+    );
+    spawn(&mut world, 14.0);
+    world.run_system_cached(produce_block_use).unwrap();
+    let packets = captured.drain();
+    let actors: Vec<_> = packets
+        .iter()
+        .filter_map(|packet| {
+            observe_transaction(packet)
+                .and_then(|transaction| transaction.actor_use().map(|actor| actor.runtime_id))
+        })
+        .collect();
+    assert_eq!(actors, [99]);
 }

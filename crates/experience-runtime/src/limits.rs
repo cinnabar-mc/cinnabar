@@ -50,6 +50,11 @@ pub const MAX_VERSION_BYTES: usize = 64;
 /// then builds take 1.3 s and 146 KiB of 16×16 textures. Every state of each block is a palette
 /// entry, so a block's states (`MAX_STATE_BITS`) weigh more than the count of blocks.
 pub const MAX_BLOCKS: usize = 256;
+/// Entity types, seats, properties and live instances are extension policy, not game limits.
+pub const MAX_ENTITY_TYPES: usize = 64;
+pub const MAX_ENTITY_SEATS: usize = 16;
+pub const MAX_ENTITY_PROPERTIES: usize = 32;
+pub const MAX_ENTITIES: usize = 256;
 /// Bytes in a block's name, the part of its id after `<experience id>:`; at least one is
 /// required.
 pub const MAX_BLOCK_NAME_BYTES: usize = 32;

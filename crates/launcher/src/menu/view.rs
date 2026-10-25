@@ -466,9 +466,8 @@ pub struct MenuView {
     pub renderer: Option<super::RendererChoice>,
     /// The requested pack has an option screen, including a command-line pack not listed.
     pub shader_options_available: bool,
-    /// Why the selected shader pack failed to load, for the Shaders tab; see
-    /// [`super::shader_pack_status::failure_description`].
-    pub renderer_failure: Option<std::sync::Arc<str>>,
+    /// Load failure or partial-program warning for the selected shader pack.
+    pub renderer_issue: Option<super::shader_pack_status::PackIssue>,
     /// The render host is still loading the selected shader pack.
     pub shader_pack_loading: bool,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
@@ -747,7 +746,7 @@ impl MenuView {
             shader_pack: None,
             renderer: Some(super::RendererChoice::Vanilla),
             shader_options_available: false,
-            renderer_failure: None,
+            renderer_issue: None,
             shader_pack_loading: false,
             vsync_override: None,
             display_name,

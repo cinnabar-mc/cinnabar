@@ -53,7 +53,7 @@ fn presentation() -> UiPresentationRuntime {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation
-        .enable_json_ui(Arc::new(RuntimeUiAssets::decode(&bytes).unwrap()))
+        .enable_json_ui_inline(Arc::new(RuntimeUiAssets::decode(&bytes).unwrap()))
         .unwrap();
     presentation
 }

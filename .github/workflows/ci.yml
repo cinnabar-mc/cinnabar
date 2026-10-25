@@ -167,6 +167,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/wgpu_fork_pin.py Cargo.toml
+      - name: Check the Bevy fork pin is on its release branch
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/bevy_fork_pin.py Cargo.toml
 
   # Full runs retain every diagnostic and cache writer even when preflight fails.
   verify:

@@ -100,10 +100,14 @@ type StateRecord struct {
 
 // WorldContext contains only the installing mod's instances and authorized private records.
 type WorldContext struct {
-	Current   WorldHandle     `json:"current"`
-	Player    *PlayerLocation `json:"player"`
-	Instances []WorldHandle   `json:"instances"`
-	Stores    []StateRecord   `json:"stores"`
+	// OpeningClosed restricts a historical callback to its authorized private stores.
+	OpeningClosed        bool             `json:"opening_closed,omitempty"`
+	ActorRidingElsewhere bool             `json:"actor_riding_elsewhere,omitempty"`
+	Entities             []EntitySnapshot `json:"entities,omitempty"`
+	Current              WorldHandle      `json:"current"`
+	Player               *PlayerLocation  `json:"player"`
+	Instances            []WorldHandle    `json:"instances"`
+	Stores               []StateRecord    `json:"stores"`
 }
 
 // WorldOp is a lifecycle-only result. Type selects Instance or the Transfer fields.

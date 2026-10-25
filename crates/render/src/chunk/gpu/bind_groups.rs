@@ -292,8 +292,16 @@ pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
     staged: Option<StagedTextures>,
+    bootstrap: Option<reload::BootstrapTextures>,
     #[cfg(feature = "enhanced")]
     authored_pending: Option<AuthoredUpload>,
+}
+
+impl crate::pipeline_warmup::PendingPipelines for ChunkGpuTextureAssets {
+    /// Keeps world readiness closed while the initial atlas is being uploaded.
+    fn pending(&self) -> bool {
+        self.bootstrap.is_some()
+    }
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]

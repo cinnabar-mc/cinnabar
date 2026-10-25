@@ -59,6 +59,14 @@ struct LoaderState {
 }
 
 impl PacketModLoader {
+    /// Captures the selected source's grants without waiting for compilation.
+    pub fn selected_grants(&self) -> Option<ModGrants> {
+        self.state()
+            .selection
+            .as_ref()
+            .map(|selection| selection.grants.clone())
+    }
+
     /// Selects the packet mod later sessions use and compiles it on a background thread; `None`
     /// clears it. Selecting the current source again keeps its compiled code.
     /// Returns the displaced executable owner for off-thread retirement.

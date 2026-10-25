@@ -5,16 +5,17 @@ use crate::{
     ChunkMesh, DiagnosticGeometryCount, Face, MAX_DIAGNOSTIC_IDENTITIES_PER_MESH,
     MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef,
     PackedModelRef, PackedQuad, PackedQuadLighting,
-    chunk::models::MAX_SELECTED_MODEL_TEMPLATES,
+    chunk::models::{
+        MAX_SELECTED_MODEL_TEMPLATES, ModelTemplateSelection, model_template_selection,
+    },
     types::{CubeStreams, ModelDrawRefs},
 };
 
 /// Conservative packed-output sizes for one immutable runtime asset set.
 #[derive(Debug)]
 pub struct MeshOutputBounds {
-    with_models: u64,
-    /// Bytes one selected model can emit, every compound part included.
-    per_model: u64,
+    model_templates: Box<[u64]>,
+    fallback_model: u64,
 }
 
 impl MeshOutputBounds {
@@ -32,13 +33,7 @@ impl MeshOutputBounds {
             .iter()
             .enumerate()
             .any(|(id, _)| assets.model_random_offset(id as u32).is_some());
-        let part = bytes::<PackedModelRef>(1)
-            + if offset_prefix {
-                bytes::<PackedQuadLighting>(2)
-            } else {
-                0
-            }
-            + quads * (bytes::<PackedQuadLighting>(1) + bytes::<PackedModelDrawRef>(1));
+        let part = model_part_bound(quads, offset_prefix);
         let mut chain = 0_u64;
         let mut max_parts = 1_u64;
         for template in assets.model_templates() {
@@ -48,15 +43,26 @@ impl MeshOutputBounds {
                 chain = 0;
             }
         }
-        let per_model = max_parts * part;
+        let fallback_model = max_parts * part;
+        let mut model_templates = vec![0; assets.model_templates().len()];
+        let mut chain_bytes = 0;
+        for (index, template) in assets.model_templates().iter().enumerate().rev() {
+            let continuation = if template.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
+                chain_bytes
+            } else {
+                0
+            };
+            chain_bytes =
+                model_part_bound(u64::from(template.quad_count), offset_prefix) + continuation;
+            model_templates[index] = chain_bytes;
+        }
         Self {
-            with_models: plain_bound()
-                + BLOCKS_PER_SUB_CHUNK as u64 * MAX_SELECTED_MODEL_TEMPLATES as u64 * per_model,
-            per_model,
+            model_templates: model_templates.into_boxed_slice(),
+            fallback_model,
         }
     }
 
-    /// Avoids reserving model streams when no source palette can emit a model.
+    /// Reserves the largest model the source palette can emit, including selected alternatives.
     #[must_use]
     pub fn for_sub_chunk(
         &self,
@@ -64,24 +70,32 @@ impl MeshOutputBounds {
         assets: &RuntimeAssets,
         mode: NetworkIdMode,
     ) -> u64 {
-        let models = source.storages().iter().any(|storage| {
-            storage
-                .palette()
-                .values()
-                .iter()
-                .any(|&id| assets.resolve(mode, id).model_template().is_some())
-        });
-        if models {
-            self.with_models
-        } else {
-            plain_bound()
-        }
+        let model_bytes = source
+            .storages()
+            .iter()
+            .flat_map(|storage| storage.palette().values())
+            .filter_map(|&id| {
+                let visual = assets.resolve(mode, id);
+                let index = visual.model_template()? as usize;
+                let selection = assets
+                    .model_templates()
+                    .get(index)
+                    .map(|template| model_template_selection(visual.kind(), template.flags));
+                Some(match (self.model_templates.get(index), selection) {
+                    (Some(&bound), Some(ModelTemplateSelection::Fixed)) => bound,
+                    _ => self.fallback_model,
+                })
+            })
+            .max()
+            .unwrap_or(0);
+        plain_bound()
+            + BLOCKS_PER_SUB_CHUNK as u64 * MAX_SELECTED_MODEL_TEMPLATES as u64 * model_bytes
     }
 
     /// What `overlays` cell overlays can add to a sub-chunk's mesh: each draws one model.
     #[must_use]
     pub const fn for_overlays(&self, overlays: usize) -> u64 {
-        overlays as u64 * self.per_model
+        overlays as u64 * self.fallback_model
     }
 }
 
@@ -102,6 +116,17 @@ pub fn mesh_output_byte_len(mesh: &ChunkMesh, biome: &PackedBiomeRecord) -> u64 
         + bytes::<PackedQuadLighting>(mesh.liquid_lighting().len() as u64)
         + bytes::<DiagnosticGeometryCount>(mesh.diagnostic_geometry().entries().len() as u64)
         + biome.byte_len()
+}
+
+/// Charges one model reference, optional displacement and every quad's packed output.
+fn model_part_bound(quads: u64, offset_prefix: bool) -> u64 {
+    bytes::<PackedModelRef>(1)
+        + if offset_prefix {
+            bytes::<PackedQuadLighting>(2)
+        } else {
+            0
+        }
+        + quads * (bytes::<PackedQuadLighting>(1) + bytes::<PackedModelDrawRef>(1))
 }
 
 /// Reserves all cube and liquid faces, plus the largest packed biome descriptor.

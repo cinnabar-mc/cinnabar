@@ -331,6 +331,12 @@ impl InstallLayout {
         self.user_data_root.join("shaderpacks")
     }
 
+    /// Driver pipeline data reused across launches; safe to delete while the client is closed.
+    #[must_use]
+    pub fn pipeline_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("cache/pipelines")
+    }
+
     /// Translated shader-pack programs reused across launches; safe to delete.
     #[must_use]
     pub fn shader_pack_cache_dir(&self) -> PathBuf {

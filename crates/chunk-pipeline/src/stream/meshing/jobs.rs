@@ -1,6 +1,11 @@
 use super::super::residency::ColumnDue;
 use super::super::*;
 
+#[cfg(test)]
+thread_local! {
+    pub(in crate::stream) static GEOMETRY_CLASSIFICATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl WorldStream {
     /// Keeps zero-byte removals independent of the initial geometry preparation limit.
     pub(in crate::stream) fn dispatch_mesh_jobs_with_limits(
@@ -38,35 +43,39 @@ impl WorldStream {
         if self.mesh_jobs.pending.is_empty() {
             return 0;
         }
-        let (resident, known_air) = (&self.resident, &self.known_air);
-        let terrain = self.authority.terrain();
-        let classifier = self.classifier;
-        let detail = &self.full_detail;
-        let needs_geometry =
-            |key| requires_geometry(detail, resident, known_air, terrain, classifier, key);
-        let mut woken = Vec::new();
-        let probe_near = self
-            .mesh_jobs
-            .ingress(view, self.poll_deadline, |key, _, pending| {
-                let lane = if needs_geometry(key) {
-                    RESIDENT_MESH_LANE
-                } else {
-                    MESH_REMOVAL_LANE
-                };
-                if lane == RESIDENT_MESH_LANE && scheduler::mesh_is_near(view, key) {
-                    woken.push(key);
-                }
-                (lane, pending.urgent)
-            });
-        woken.append(&mut self.mesh_jobs.refresh.take_woken());
-
         let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
         let mesh_worker_cap = super::admission::mesh_worker_cap();
         let regular_budget = budget.min(mesh_worker_cap.saturating_sub(occupied));
         let worker_budget = budget.min((mesh_worker_cap + urgent_reserve).saturating_sub(occupied));
+        // Keep wakeups and retries queued until preparation can produce a worker job.
+        if worker_budget == 0 || self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
+            return 0;
+        }
+        let mut woken = Vec::new();
+        let probe_near = {
+            let (resident, known_air) = (&self.resident, &self.known_air);
+            let terrain = self.authority.terrain();
+            let classifier = self.classifier;
+            let detail = &self.full_detail;
+            self.mesh_jobs
+                .ingress(view, self.poll_deadline, |key, _, pending| {
+                    let needs_geometry =
+                        requires_geometry(detail, resident, known_air, terrain, classifier, key);
+                    let lane = if needs_geometry {
+                        RESIDENT_MESH_LANE
+                    } else {
+                        MESH_REMOVAL_LANE
+                    };
+                    if lane == RESIDENT_MESH_LANE && scheduler::mesh_is_near(view, key) {
+                        woken.push(key);
+                    }
+                    (lane, pending.urgent)
+                })
+        };
+        woken.append(&mut self.mesh_jobs.refresh.take_woken());
         let probe = |key| {
             let pending = self.mesh_jobs.pending.get(&key).copied()?;
-            (needs_geometry(key)
+            (self.mesh_requires_geometry(key)
                 && !self.mesh_jobs.in_flight.contains_key(&key)
                 && self.revisions.is_current(key, pending.revision))
             .then_some((
@@ -93,11 +102,11 @@ impl WorldStream {
                 resident_candidates.push(candidate);
             }
         }
+        let mut already_probed: HashSet<_> = resident_candidates
+            .iter()
+            .map(|(candidate, _, _)| candidate.key)
+            .collect();
         if view.startup_center.is_none() {
-            let already_probed = resident_candidates
-                .iter()
-                .map(|(candidate, _, _)| candidate.key)
-                .collect();
             resident_candidates.extend(self.mesh_retry_candidates(view, &already_probed));
         }
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
@@ -115,10 +124,31 @@ impl WorldStream {
         let now = Instant::now();
         self.prioritize_transfer_mesh_candidates(&mut resident_candidates);
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
+        already_probed.extend(
+            resident_candidates
+                .iter()
+                .map(|(candidate, _, _)| candidate.key),
+        );
         let mut probed = resident_candidates.into_iter().peekable();
         let mut ready_pops = 0;
+        let mut notification_budget = MAX_PENDING_SCHEDULER_SCANS_PER_POLL;
         let mut seen = HashSet::new();
         loop {
+            if dispatched < worker_budget && (!examined || !self.poll_budget_exhausted()) {
+                let other_best = self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .ready
+                    .peek()
+                    .copied()
+                    .into_iter()
+                    .chain(probed.peek().map(|(candidate, _, _)| *candidate))
+                    .max();
+                self.promote_mesh_dependency_wakeups(
+                    view,
+                    &already_probed,
+                    other_best,
+                    &mut notification_budget,
+                );
+            }
             // The ready lane yields in rank order beside the probed candidates, one pop at a
             // time, so work this call cannot dispatch stays queued rather than cycling through.
             let ready_first = ready_pops < MAX_PENDING_SCHEDULER_SCANS_PER_POLL
@@ -700,6 +730,8 @@ fn requires_geometry(
     classifier: BlockClassifier,
     key: SubChunkKey,
 ) -> bool {
+    #[cfg(test)]
+    GEOMETRY_CLASSIFICATIONS.update(|count| count + 1);
     full_detail.wants_mesh(key.chunk(), resident)
         && resident.contains(&key)
         && !known_air.contains(&key)

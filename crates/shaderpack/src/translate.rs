@@ -14,6 +14,8 @@ use crate::transform::{
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod geometry;
+
 /// The outcome for one stage file.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct StageTranslation {
@@ -38,6 +40,8 @@ pub struct ProgramTranslation {
     pub diagnostics: Vec<Diagnostic>,
     /// The binding contract; present when every stage compiled and the stages agree.
     pub reflection: Option<ProgramReflection>,
+    /// Compute expansion and vertex-reader contract when this program has a geometry stage.
+    pub geometry: Option<crate::GeometryEmulation>,
     /// Buffer index per fragment output location, from the last active RENDERTARGETS or
     /// DRAWBUFFERS directive (fragment stage first, then vertex), else `[0]` as in Iris.
     pub draw_buffers: Vec<u32>,
@@ -153,6 +157,7 @@ pub(crate) fn translate_program(
         stages: vec![],
         diagnostics: vec![],
         reflection: None,
+        geometry: None,
         draw_buffers: vec![0],
         consts: vec![],
         released_overrides: 0,
@@ -183,7 +188,7 @@ pub(crate) fn translate_program(
             path: path.clone(),
             result: Err(vec![]),
         });
-        if crate::compile::naga_stage(*stage).is_none() {
+        if crate::compile::naga_stage(*stage).is_none() && *stage != StageKind::Geometry {
             out.stages[i].result = Err(vec![Diagnostic::new(
                 Phase::Transform,
                 format!("{} shaders are not supported", stage.extension()),
@@ -209,6 +214,14 @@ pub(crate) fn translate_program(
     }
     if let Some(targets) = fragment_targets.or(vertex_targets) {
         out.draw_buffers = targets;
+    }
+    if program
+        .stages
+        .iter()
+        .any(|(stage, _)| *stage == StageKind::Geometry)
+    {
+        geometry::translate(cx, &preprocessed, &mut out);
+        return out;
     }
     let mut attempted = HashSet::new();
     let drafts = loop {
@@ -317,10 +330,9 @@ fn compile_stages(
         let names = ResourceNames {
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
-            normalize_legacy: out.stages[*i].stage == StageKind::Compute
-                || pp.profile.as_deref() != Some("core")
-                    && (pp.version < 150 || pp.profile.as_deref() == Some("compatibility")),
+            normalize_legacy: normalize_legacy(out.stages[*i].stage, pp),
             geometry,
+            vertex_clip: true,
         };
         match transform(pp, out.stages[*i].stage, &mut iface, &names) {
             Ok(draft) => drafts.push((*i, draft, pp.map.clone())),
@@ -364,4 +376,11 @@ fn compile_stages(
         });
     }
     (drafts, unknown)
+}
+
+/// Applies compatibility sampler names only to legacy profiles and pack compute stages.
+fn normalize_legacy(stage: StageKind, source: &Preprocessed) -> bool {
+    stage == StageKind::Compute
+        || source.profile.as_deref() != Some("core")
+            && (source.version < 150 || source.profile.as_deref() == Some("compatibility"))
 }

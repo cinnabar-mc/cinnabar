@@ -1,8 +1,5 @@
 //! Adapts fresh world evidence to the gameplay-owned held placement intention.
-use gameplay::{
-    block_use::PlacementTarget,
-    melee::{Crosshair, classify_block_hit, pick_actor},
-};
+use gameplay::{block_use::PickResult, block_use::PlacementTarget};
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use sim::CollisionWorld;
 use simulation_clock::identity::PositionAuthorityGeneration;
@@ -39,13 +36,6 @@ pub(super) fn observe_use_target(
             && pick.actor_session_id == ray.actor_session_id()
     })?;
     let (velocity, sneaking) = (state.delta, state.sneaking);
-    let actor = pick_actor(
-        stream.authority().remote_actors(),
-        context.ui.gameplay_hud().mount_unique_id(),
-        pick.origin.to_array(),
-        pick.direction.to_array(),
-        reach,
-    );
     let selection = verified_use_selection(player_runtime, &context.ui)?;
     let identifier = stream
         .authority()
@@ -78,52 +68,34 @@ pub(super) fn observe_use_target(
             let vector = |value: bevy::prelude::Vec3| {
                 sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
             };
-            let (origin, direction) = (vector(pick.origin), vector(pick.direction));
-            let hit = world.block_interaction_ray_current(origin, direction, reach)?;
-            let mut actor =
-                match classify_block_hit(actor, pick.origin.to_array(), hit.as_ref(), reach) {
-                    Crosshair::Actor(actor) => Some(actor),
-                    _ => None,
-                };
-            let indirect = if hit.is_none() && actor.is_none() {
-                world.block_use_miss_support_current(origin, direction)?
+            let origin = vector(pick.origin);
+            let hit = if trigger == ItemUseTrigger::PlayerInput {
+                if liquids {
+                    pick.hits.liquid
+                } else {
+                    pick.hits.ordinary
+                }
             } else {
-                None
+                super::pick::refresh(world, pick, liquids, state, reach, stream.authority())?
             };
-            let mut block = if actor.is_none() {
-                hit.as_ref().or(indirect.as_ref())
-            } else {
-                None
+            let Some(hit) = hit else {
+                return Ok(None);
             };
-            // The refreshed pick is out of reach when its point lies beyond reach of the
-            // pre-tick eye; block hits measure from the block centre.
-            let picked = actor
-                .map(|actor| actor.point.map(f64::from))
-                .or_else(|| block.map(|hit| hit.block_pos.map(|axis| f64::from(axis) + 0.5)));
-            if picked.is_some_and(|point| {
-                (0..3)
-                    .map(|axis| (point[axis] - f64::from(state.position[axis])).powi(2))
-                    .sum::<f64>()
-                    > reach * reach
-            }) {
-                actor = None;
-                block = None;
-            }
-            let endpoint = actor.map_or_else(
-                || block.map_or(origin + direction * reach, |hit| hit.hit_world),
-                |actor| {
-                    sim::Vec3::new(
-                        f64::from(actor.point[0]),
-                        f64::from(actor.point[1]),
-                        f64::from(actor.point[2]),
-                    )
-                },
+            let block = match hit {
+                PickResult::Block(block) => Some(block),
+                _ => None,
+            };
+            let endpoint = hit.point().unwrap_or(pick.hits.endpoint);
+            let endpoint = sim::Vec3::new(
+                f64::from(endpoint[0]),
+                f64::from(endpoint[1]),
+                f64::from(endpoint[2]),
             );
             let target = runtime.intention.target(
                 block
-                    .filter(|_| indirect.is_none() || trigger == ItemUseTrigger::PlayerInput)
+                    .filter(|hit| !hit.indirect || trigger == ItemUseTrigger::PlayerInput)
                     .map(|hit| PlacementTarget {
-                        position: hit.block_pos,
+                        position: hit.position,
                         face: hit.face,
                     }),
                 [origin.x as f32, origin.y as f32, origin.z as f32],
@@ -140,21 +112,9 @@ pub(super) fn observe_use_target(
             let runtime_id = world.primary_runtime_id(target.position)?;
             // Miss continuation uses the support corner; a real pick keeps its click coordinates.
             let click = orientation_hit
+                .or_else(|| hit.point())
                 .map(|point| point.map(f64::from))
-                .unwrap_or_else(|| {
-                    actor.map_or_else(
-                        || {
-                            block.map_or(target.position.map(|n| n as f64), |hit| {
-                                [
-                                    hit.block_pos[0] as f64 + hit.hit_local.x,
-                                    hit.block_pos[1] as f64 + hit.hit_local.y,
-                                    hit.block_pos[2] as f64 + hit.hit_local.z,
-                                ]
-                            })
-                        },
-                        |actor| actor.point.map(f64::from),
-                    )
-                });
+                .unwrap_or_else(|| target.position.map(f64::from));
             Ok(Some(sim::BlockHit {
                 block_pos: target.position,
                 face: target.face,
@@ -165,13 +125,10 @@ pub(super) fn observe_use_target(
                 ),
                 hit_world: endpoint,
                 runtime_id,
-                distance: actor.map_or_else(
-                    || block.map_or(reach, |hit| hit.distance),
-                    |actor| actor.distance,
-                ),
+                distance: (endpoint - origin).length_squared().sqrt(),
                 identity: primary.identity,
                 overlay: block
-                    .filter(|hit| hit.block_pos == target.position)
+                    .filter(|hit| hit.position == target.position)
                     .and_then(|hit| hit.overlay),
             }))
         },
@@ -180,7 +137,5 @@ pub(super) fn observe_use_target(
     .value?;
     observed.ray.origin = pick.origin.to_array();
     observed.ray.direction = pick.direction.to_array();
-    // Like the refreshed pick, the resolved target is in reach of the pre-tick eye.
-    gameplay::interaction_authority::within_pick_range_of(&observed, state.position)
-        .then_some(observed)
+    Some(observed)
 }

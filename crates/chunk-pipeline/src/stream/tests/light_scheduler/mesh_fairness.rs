@@ -5,6 +5,106 @@ fn deferred_mesh_stream() -> (WorldStream, SchedulerView, SubChunkKey, SubChunkK
     seed_deferred_meshes(lit_stream(1))
 }
 
+/// Repeated light notifications share one readiness check until geometry can be scheduled.
+#[test]
+fn completed_light_notifications_coalesce_readiness() {
+    let (mut stream, view, visible, _) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    let blocked = SubChunkKey::new(1, visible.x - 1, -1, -1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    install_current_light(&mut stream, blocked, 0, 0, false);
+    stream.mark_light_dirty_exact(blocked).unwrap();
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    for _ in 0..32 {
+        stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    }
+    let checks = meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get);
+    assert!(
+        checks <= 1,
+        "repeated unresolved notifications performed {checks} readiness checks"
+    );
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&visible));
+
+    install_current_light(&mut stream, blocked, 0, 0, false);
+    let direct = stream.lighting.direct_sky[&blocked].clone();
+    stream.finish_accepted_light_completion(blocked, 0, &direct, [false; 6], false);
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, visible);
+    stream.accept_mesh_completion(completion);
+}
+
+/// Worker saturation retains dependency notifications without doing geometry preparation.
+#[test]
+fn completed_light_notifications_wait_for_geometry_capacity() {
+    let (mut stream, view, visible, _) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    stream
+        .admitted_mesh_jobs
+        .store(meshing::admission::mesh_worker_cap(), Ordering::Release);
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 0);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 0);
+    stream.admitted_mesh_jobs.store(0, Ordering::Release);
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, visible);
+    stream.accept_mesh_completion(completion);
+}
+
+/// A retired revision cannot leave a dependency notification ahead of current ready work.
+#[test]
+fn retired_mesh_releases_coalesced_dependency_notification() {
+    let (mut stream, view, visible, backlog) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    for _ in 0..32 {
+        stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    }
+    assert!(
+        stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+            .notified
+            .get(&visible)
+            .is_some()
+    );
+    stream.mesh_jobs.remove_pending(&visible);
+    assert!(
+        stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+            .notified
+            .get(&visible)
+            .is_none()
+    );
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, backlog);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 0);
+    stream.accept_mesh_completion(completion);
+}
+
+/// A lower-ranked dependency change must not spend preparation ahead of ready geometry.
+#[test]
+fn ready_geometry_precedes_lower_rank_dependency_preparation() {
+    let (mut stream, _, visible, backlog) = deferred_mesh_stream();
+    let finished = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    install_current_light(&mut stream, finished, 0, 0, false);
+    stream.mark_light_dirty_exact(visible).unwrap();
+    let direct = stream.lighting.direct_sky[&finished].clone();
+    stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    let camera = [(backlog.x * 16 + 8) as f32, 8.0, 8.0];
+    assert_eq!(stream.dispatch_mesh_jobs(camera, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, backlog);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 0);
+    stream.accept_mesh_completion(completion);
+}
+
 /// Queues a visible far mesh ahead of lower-priority work in a dimension-one test stream.
 fn seed_deferred_meshes(
     mut stream: WorldStream,
@@ -72,6 +172,79 @@ fn far_settled_halo_publishes_before_ready_backlog() {
             .any(|change| change.key() == visible)
     );
     assert!(stream.mesh_jobs.pending.contains_key(&backlog));
+}
+
+/// A completed halo wakes distant geometry without waiting behind unrelated blocked retries.
+#[test]
+fn far_completed_halo_bypasses_blocked_retry_rotation() {
+    for refreshing in [false, true] {
+        let mut initial = lit_stream(1);
+        let radius = scheduler::NEAR_CAMERA_RADIUS;
+        // Keep the stale backlog behind the camera and outside its direct probes.
+        for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL * 2 {
+            let index = i32::try_from(index).unwrap();
+            let key = SubChunkKey::new(
+                1,
+                -radius - 1 - index % (radius * 2),
+                index / (radius * 2) % radius,
+                index / (radius * radius * 2) - radius,
+            );
+            initial
+                .authority
+                .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+                .unwrap();
+            install_current_light(&mut initial, key, 0, 0, false);
+            initial.mark_light_dirty_exact(key).unwrap();
+            initial.mark_dirty_exact(key, Instant::now());
+        }
+        let (mut stream, mut view, visible, backlog) = seed_deferred_meshes(initial);
+        if refreshing {
+            view.position[2] += 32.0;
+            stream.mesh_jobs.refresh.refresh(
+                view,
+                &mut stream.mesh_jobs.lanes,
+                Some(Instant::now()),
+                |_, _| true,
+            );
+        }
+        let corner = SubChunkKey::new(1, visible.x + 1, visible.y + 1, visible.z + 1);
+        install_current_light(&mut stream, corner, 0, 0, false);
+        let light_completion = synthetic_light_completion(
+            &mut stream,
+            corner,
+            DirectSkyMask::Uniform(false),
+            false,
+            false,
+            [false; 6],
+        );
+        assert!(stream.mesh_light_halo(visible).is_none());
+        let pending = stream.mesh_jobs.pending[&visible];
+
+        stream.accept_light_completion(light_completion);
+        assert!(stream.mesh_light_halo(visible).is_some());
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].revision,
+            pending.revision
+        );
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].queued_at,
+            pending.queued_at
+        );
+
+        stream.poll_deadline = Some(Instant::now());
+        assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+        let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(completion.key, visible);
+        assert_eq!(completion.revision, pending.revision);
+        stream.accept_mesh_completion(completion);
+        assert!(
+            stream
+                .take_mesh_changes()
+                .iter()
+                .any(|change| change.key() == visible)
+        );
+        assert!(stream.mesh_jobs.pending.contains_key(&backlog));
+    }
 }
 
 /// A successful retry spends the expired poll's single dispatch allowance.
@@ -204,18 +377,24 @@ fn far_settled_retry_precedes_continuous_fresh_ingress() {
 /// Output-memory pressure must not starve a smaller ready mesh or duplicate retry heap records.
 #[test]
 fn memory_blocked_retry_keeps_ready_progress_and_bounded_storage() {
-    assert_memory_blocked_retry_progress(1);
+    assert_memory_blocked_retry_progress(1, false);
 }
 
 /// More blocked retries than the cooldown must still leave ordinary work an admission turn.
 #[test]
 fn many_memory_blocked_retries_preserve_ready_progress_across_rotations() {
     let blocked = usize::try_from(scheduler::MAX_RECHECK_BACKOFF_POLLS).unwrap() + 1;
-    assert_memory_blocked_retry_progress(blocked);
+    assert_memory_blocked_retry_progress(blocked, false);
+}
+
+/// Unchanged light completions must not repeatedly promote a mesh that cannot fit its output.
+#[test]
+fn light_completion_preserves_memory_backoff() {
+    assert_memory_blocked_retry_progress(1, true);
 }
 
 /// Keeps smaller ready meshes publishing while a FIFO of larger models cannot reserve output.
-fn assert_memory_blocked_retry_progress(blocked: usize) {
+fn assert_memory_blocked_retry_progress(blocked: usize, wake: bool) {
     let base = light_test_assets();
     let model_id = u32::try_from(base.visual_count()).unwrap();
     let side = assets::MODEL_POSITION_SCALE;
@@ -330,6 +509,17 @@ fn assert_memory_blocked_retry_progress(blocked: usize) {
         if !stream.mesh_jobs.pending.contains_key(&backlog) {
             stream.mark_dirty_exact(backlog, Instant::now());
         }
+        if wake {
+            let completion = synthetic_light_completion(
+                &mut stream,
+                visible,
+                DirectSkyMask::Uniform(false),
+                false,
+                false,
+                [false; 6],
+            );
+            stream.accept_light_completion(completion);
+        }
         stream.poll_deadline = Some(Instant::now());
         if stream.dispatch_mesh_jobs(view.position, 1) != 0 {
             let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -371,4 +561,66 @@ fn repeated_far_retry_publications_keep_storage_bounded_by_live_work() {
         );
         stream.mark_dirty_exact(visible, Instant::now());
     }
+}
+
+/// An incomplete halo must not consume the dispatch opportunity of an independent ready mesh.
+#[test]
+fn partial_light_halo_does_not_delay_ready_geometry() {
+    for retry in [false, true] {
+        let (mut stream, view, visible, backlog) = deferred_mesh_stream();
+        stream.mesh_jobs.retries.clear();
+        if retry {
+            stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                .ready
+                .remove(&backlog);
+            let revision = stream.mesh_jobs.pending[&backlog].revision;
+            stream.mesh_jobs.retries.enqueue(backlog, revision);
+        }
+        let pending = stream.mesh_jobs.pending[&visible];
+        let first = SubChunkKey::new(1, visible.x + 1, 1, 1);
+        let second = SubChunkKey::new(1, visible.x - 1, 1, 1);
+        for key in [first, second] {
+            install_current_light(&mut stream, key, 0, 0, false);
+            stream.mark_light_dirty_exact(key).unwrap();
+        }
+        install_current_light(&mut stream, first, 0, 0, false);
+        let direct = stream.lighting.direct_sky[&first].clone();
+        stream.finish_accepted_light_completion(first, 0, &direct, [false; 6], false);
+        assert!(stream.mesh_light_halo(visible).is_none());
+        assert!(stream.mesh_light_halo(backlog).is_some());
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].revision,
+            pending.revision
+        );
+        assert_eq!(
+            stream.mesh_jobs.pending[&visible].queued_at,
+            pending.queued_at
+        );
+        stream.poll_deadline = Some(Instant::now());
+        assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+        let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(completion.key, backlog);
+    }
+}
+
+/// A completed face may invalidate another halo member before deferred geometry can become ready.
+#[test]
+fn light_completion_fanout_preserves_ready_geometry() {
+    let (mut stream, view, visible, backlog) = deferred_mesh_stream();
+    stream.mesh_jobs.retries.clear();
+    let source = SubChunkKey::new(1, visible.x + 1, 1, 1);
+    let neighbour = SubChunkKey::new(1, source.x, source.y - 1, source.z);
+    install_current_light(&mut stream, source, 15, 0, false);
+    install_current_light(&mut stream, neighbour, 0, 0, false);
+    assert!(stream.mesh_light_halo(visible).is_some());
+    let direct = stream.lighting.direct_sky[&source].clone();
+    let changed_faces = LIGHT_NEIGHBOUR_OFFSETS.map(|offset| offset == [0, -1, 0]);
+    stream.finish_accepted_light_completion(source, 0, &direct, changed_faces, false);
+    assert!(stream.lighting.jobs.pending.contains_key(&neighbour));
+    assert!(stream.mesh_light_halo(visible).is_none());
+    assert!(stream.mesh_light_halo(backlog).is_some());
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, backlog);
 }

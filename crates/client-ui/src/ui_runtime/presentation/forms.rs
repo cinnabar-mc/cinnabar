@@ -256,6 +256,17 @@ impl UiPresentationRuntime {
         )
     }
 
+    /// [`Self::enable_json_ui`] decoding every image on the calling thread, so a single paint
+    /// holds all of them instead of deferring past the host's frame budget.
+    #[cfg(all(not(target_arch = "wasm32"), any(test, feature = "test-support")))]
+    pub fn enable_json_ui_inline(&mut self, assets: Arc<RuntimeUiAssets>) -> Result<(), String> {
+        self.enable_prepared_json_ui_with_sources(
+            PreparedJsonUi::new(assets)?,
+            texture_sources::downloads(),
+            ui_engine::sources::ImageWork::inline(),
+        )
+    }
+
     /// Binds verified UI data to the host's image source and bounded decode executor.
     pub fn enable_prepared_json_ui_with_sources(
         &mut self,

@@ -189,7 +189,12 @@ fn signed_out_home_has_a_direct_sign_in_action() {
 fn update_ready_notice_leaves_quit_and_play_reachable() {
     let mut view = view();
     view.updates.ready = Some(launcher::menu::updates::Ready {
-        version: "2.0.0".into(),
+        release: update_manifest::build::Build {
+            version: "2.0.0".into(),
+            number: 2,
+            channel: Some(update_manifest::channel::Channel::Beta),
+        },
+        switching: false,
         writable: true,
         protocol_required: false,
     });

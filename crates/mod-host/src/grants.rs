@@ -165,9 +165,33 @@ grants! {
     pub wasi: bool,
 }
 
+impl ModGrants {
+    /// Keeps chunk bodies inline when any active mod has authority to read session packets.
+    pub fn enables_upstream_client_cache<'a>(active: impl IntoIterator<Item = &'a Self>) -> bool {
+        !active.into_iter().any(|grants| grants.packets)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_active_packet_authority_disables_the_upstream_cache() {
+        let frame = ModGrants {
+            terrain: true,
+            ..Default::default()
+        };
+        let packets = ModGrants {
+            packets: true,
+            ..Default::default()
+        };
+        assert!(ModGrants::enables_upstream_client_cache([]));
+        assert!(ModGrants::enables_upstream_client_cache([&frame]));
+        assert!(!ModGrants::enables_upstream_client_cache([
+            &frame, &packets
+        ]));
+    }
+
     #[test]
     fn descriptors_cover_every_serialized_grant_and_default_off() {
         let grants = ModGrants::default();

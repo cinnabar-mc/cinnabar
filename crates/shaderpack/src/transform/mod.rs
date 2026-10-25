@@ -2,8 +2,7 @@
 //!
 //! Works on the fully preprocessed token stream (no macros left), so a light parser over
 //! top-level declarations is enough; function bodies are only rewritten at identifier level.
-//! Each stage becomes a [`StageDraft`]; a program's drafts are assembled with one shared
-//! loose-uniform block so every stage binds the same layout.
+//! Assembles [`StageDraft`]s with one shared loose-uniform block and layout.
 
 mod assemble;
 mod body;
@@ -12,8 +11,9 @@ mod constant_expr;
 mod declare;
 mod dot;
 mod interface;
-mod items;
+pub(crate) mod items;
 mod legacy;
+pub(crate) use legacy::interface_identifier;
 mod local_constants;
 mod math;
 mod missing;
@@ -89,6 +89,8 @@ pub(crate) struct ResourceNames<'a> {
     pub normalize_legacy: bool,
     /// The program draws world geometry, so texture unit 0 holds the atlas, not `colortex0`.
     pub geometry: bool,
+    /// Convert a raster vertex to wgpu clip space; emulated vertex pre-passes retain GL coordinates.
+    pub vertex_clip: bool,
 }
 
 /// Transforms one preprocessed stage.
@@ -131,7 +133,7 @@ pub(crate) fn transform(
     let items = shared::split_declarations(items);
     let items = specialize::specialize_opaque_params(items)?;
     let mut c = declare::collect(items, stage, iface, names)?;
-    if stage == StageKind::Vertex {
+    if stage == StageKind::Vertex && names.vertex_clip {
         c.after_main.push(GL_CLIP_TO_WGPU.to_string());
     }
 

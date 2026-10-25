@@ -53,6 +53,7 @@ impl BlobCacheResolver {
             requested_hashes: Default::default(),
             pending: HashMap::with_capacity(MAX_CLIENT_BLOB_PENDING_TRANSACTIONS),
             pending_order: BTreeSet::new(),
+            retryable_pending: BTreeSet::new(),
             pending_by_hash: HashMap::with_capacity(MAX_CLIENT_BLOB_PENDING_TRANSACTIONS),
             resolved_pending: BTreeSet::new(),
             ready: BTreeMap::new(),
@@ -408,6 +409,9 @@ impl BlobCacheResolver {
         );
         let admission = cached_sub_chunk_admission(&packet);
         let sequence = self.take_ready_sequence()?;
+        if matches!(packet, PendingPacket::SubChunk(_)) {
+            self.retryable_pending.insert(sequence);
+        }
         self.pending.insert(
             sequence,
             PendingTransaction {
@@ -425,7 +429,9 @@ impl BlobCacheResolver {
         self.retained_column_slots += columns.len();
         self.pending_order.insert(sequence);
         for hash in status.missing().iter().chain(status.outstanding().iter()) {
-            let transactions = self.pending_by_hash.entry(*hash).or_default();
+            let pending = self.pending_by_hash.entry(*hash).or_default();
+            pending.status_outstanding = true;
+            let transactions = &mut pending.transactions;
             let previous_capacity = transactions.capacity();
             transactions.insert(sequence);
             self.pending_hash_set_capacity += transactions.capacity() - previous_capacity;
@@ -636,8 +642,8 @@ impl BlobCacheResolver {
         let Some(transactions) = self.pending_by_hash.remove(&hash) else {
             return Ok(());
         };
-        self.pending_hash_set_capacity -= transactions.capacity();
-        for sequence in transactions {
+        self.pending_hash_set_capacity -= transactions.transactions.capacity();
+        for sequence in transactions.transactions {
             let Some(transaction) = self.pending.get_mut(&sequence) else {
                 continue;
             };
@@ -651,12 +657,14 @@ impl BlobCacheResolver {
 
     fn remove_pending_transaction(&mut self, sequence: u64) -> Option<PendingTransaction> {
         self.pending_order.remove(&sequence);
+        self.retryable_pending.remove(&sequence);
         self.resolved_pending.remove(&sequence);
         let transaction = self.pending.remove(&sequence)?;
         self.pending_accounted_bytes -= transaction.accounted_bytes;
         self.retained_column_slots -= transaction.columns.len();
         for hash in &transaction.unique_hashes {
-            let remove_hash = if let Some(transactions) = self.pending_by_hash.get_mut(hash) {
+            let remove_hash = if let Some(pending) = self.pending_by_hash.get_mut(hash) {
+                let transactions = &mut pending.transactions;
                 // A removal that leaves a tombstone reduces the set's reported capacity.
                 let previous_capacity = transactions.capacity();
                 transactions.remove(&sequence);
@@ -666,7 +674,7 @@ impl BlobCacheResolver {
                 false
             };
             if remove_hash && let Some(removed) = self.pending_by_hash.remove(hash) {
-                self.pending_hash_set_capacity -= removed.capacity();
+                self.pending_hash_set_capacity -= removed.transactions.capacity();
             }
         }
         Some(transaction)
@@ -707,6 +715,7 @@ impl BlobCacheResolver {
             .filter_map(|hash| {
                 self.pending_by_hash.get(hash).and_then(|transactions| {
                     transactions
+                        .transactions
                         .iter()
                         .filter(|sequence| **sequence != owner)
                         .min()
@@ -866,7 +875,7 @@ impl BlobCacheResolver {
         pin: bool,
     ) -> BlobCacheStatus {
         let mut status = BlobCacheStatus::classify(&self.cache, packet, recovery, pin);
-        status.omit_outstanding(&self.pending_by_hash);
+        status.omit_outstanding(&mut self.pending_by_hash);
         self.requested_hashes.record(status.missing());
         self.stats.hashes_classified = self
             .stats

@@ -1,6 +1,6 @@
 //! Actor use shares the pre-physics pick and press admission with block use.
 use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
-use gameplay::melee::{Crosshair, classify_block_hit, pick_actor};
+use gameplay::block_use::PickResult;
 use simulation_clock::identity::SessionGeneration;
 use {
     super::*,
@@ -30,7 +30,6 @@ pub(super) fn prepare(
     due: std::time::Duration,
     clock: RepeatClock,
 ) -> Option<ActorUse> {
-    let game_mode = player.facts.player_game_mode();
     let stream = context.client_world.stream.as_ref()?;
     let ray = origin.outbound_ray()?;
     if !crate::interaction_authority::ray_is_current(
@@ -47,72 +46,47 @@ pub(super) fn prepare(
     } else {
         creative_reach(input_mode)
     };
-    let actor = pick_actor(
-        stream.authority().remote_actors(),
-        context.ui.gameplay_hud().mount_unique_id(),
-        pick.origin.to_array(),
-        pick.direction.to_array(),
-        reach,
-    );
-    let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
-    let world = PaletteWorld::new(
-        stream.collision_store(),
-        context.collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
-        crate::interaction_authority::pick_context(
-            stream,
-            &context.collisions,
-            game_mode,
-            Some(selection.item.block_runtime_id()),
-        ),
-    )
-    .with_cell_overlays(&overlay_ids);
-    let vector =
-        |v: bevy::prelude::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
-    let obstruction = world
-        .observe(|world| {
-            world.block_interaction_ray_current(vector(pick.origin), vector(pick.direction), reach)
-        })
-        .ok()
-        .and_then(|query| query.value.ok().map(|block| (block, query.identity)));
-    let block = obstruction.as_ref().and_then(|(block, _)| block.as_ref());
-    // Like attacks, an actor is the use target only within the game-mode cap.
+    let refreshed = pick.hits.ordinary?;
+    let PickResult::Actor { identity, point } = refreshed else {
+        return None;
+    };
+    let actor = super::pick::live_actor(stream.authority(), identity)?;
+    let runtime_id = identity.runtime_id;
     let cap = player
         .facts
         .game_mode_capabilities()
         .map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
-    let Crosshair::Actor(hit) = classify_block_hit(actor, pick.origin.to_array(), block, cap)
-    else {
-        return None;
+    let hit = gameplay::melee::ActorHit {
+        runtime_id,
+        point,
+        distance: f64::from(gameplay::melee::pick_distance(
+            pick.origin.to_array(),
+            point,
+        )),
     };
-    if (0..3)
-        .map(|axis| (f64::from(hit.point[axis]) - f64::from(state.position[axis])).powi(2))
-        .sum::<f64>()
-        > reach * reach
+    if !matches!(
+        gameplay::melee::classify(Some(hit), None, cap),
+        gameplay::melee::Crosshair::Actor(_)
+    ) || matches!(refreshed.trimmed(state.position, reach), PickResult::Miss)
     {
         return None;
     }
     let packet = protocol::use_actor_packet(protocol::ActorUseRequest {
-        actor_runtime_id: hit.runtime_id,
+        actor_runtime_id: runtime_id,
         action: protocol::ActorUseAction::Interact,
         selected_slot: selection.slot,
         selected_item: selection.item.clone(),
         player_position: state.position,
-        hit_position: hit.point,
+        hit_position: point,
     })
     .ok()?;
-    let local_use = stream
-        .authority()
-        .actor(hit.runtime_id)
-        .map_or(LocalUse::Interact, |actor| {
-            LocalUse::for_actor(
-                &actor.kind,
-                context.ui.gameplay_hud().has_interact_text(),
-                stream
-                    .authority()
-                    .offered_use(hit.runtime_id, &use_equipment(player, &selection.item)),
-            )
-        });
+    let local_use = LocalUse::for_actor(
+        &actor.kind,
+        context.ui.gameplay_hud().has_interact_text(),
+        stream
+            .authority()
+            .offered_use(runtime_id, &use_equipment(player, &selection.item)),
+    );
     Some(ActorUse {
         packet,
         local_use,
@@ -195,6 +169,9 @@ pub(super) fn produce(
     due: std::time::Duration,
     clock: RepeatClock,
 ) -> bool {
+    if trigger == ItemUseTrigger::SimulationTick {
+        return false;
+    }
     let Some(mut attempt) = prepare(
         context,
         &context.origin,
@@ -208,8 +185,6 @@ pub(super) fn produce(
     ) else {
         return false;
     };
-    if trigger != ItemUseTrigger::SimulationTick {
-        advance(context, runtime, &mut attempt);
-    }
+    advance(context, runtime, &mut attempt);
     true
 }
