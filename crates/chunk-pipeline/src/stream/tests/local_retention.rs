@@ -57,15 +57,17 @@ fn ordinary_local_movement_bounds_residency_without_server_echoes() {
 }
 
 #[test]
-fn local_retention_forgets_columns_with_only_unencodable_requests() {
+fn local_retention_forgets_recentered_requests_after_failed_send() {
     for serviced in [false, true] {
         let mut stream = stream();
         stream.between_frames_service = serviced;
         let chunk = ChunkKey::new(0, 0, 0);
         stream.enqueue_request(chunk, -4, 1, None);
-        assert!(stream.prepare_sub_chunk_request([0, 124, 0], 1).is_none());
-        assert_eq!(stream.outstanding_sub_chunk_count(), 0);
-        assert!(stream.requests.unencodable.contains_key(&chunk));
+        let batch = stream.prepare_sub_chunk_request([0, 124, 0], 1).unwrap();
+        assert_eq!(batch.receipt.members[0].position, [0, -4, 0]);
+        stream.retry_sub_chunk_request_front(batch).unwrap();
+        assert_eq!(stream.outstanding_sub_chunk_count(), 1);
+        assert_eq!(stream.pending_request_count(), 1);
 
         assert!(stream.retain_local([320.5, 70.0, 0.5]));
         test_time::eventually("retired request retention", || {
@@ -75,6 +77,9 @@ fn local_retention_forgets_columns_with_only_unencodable_requests() {
 
         assert!(!stream.requests.collision_failures.contains(&chunk));
         assert!(!stream.requests.unencodable.contains_key(&chunk));
+        assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+        assert_eq!(stream.pending_request_count(), 0);
+        assert!(stream.prepare_sub_chunk_request([0; 3], 1).is_none());
     }
 }
 

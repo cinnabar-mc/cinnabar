@@ -11,6 +11,15 @@ use client_state::ClientFrameSet;
 pub(crate) fn configure(app: &mut App) {
     app.add_systems(
         Update,
+        crate::block_use::retain_block_use_pick
+            .run_if(resource_exists::<client_interaction::movement::PhysicsCollisionRegistries>)
+            .in_set(client_state::ClientInteractionSet::RetainPick)
+            .in_set(client_presentation::local_player::LocalPlayerFrameSet::Interaction)
+            .in_set(ClientFrameSet::Interaction)
+            .before(ClientFrameSet::NetworkSend),
+    );
+    app.add_systems(
+        Update,
         (
             flush_inventory_network,
             #[cfg(feature = "acceptance")]

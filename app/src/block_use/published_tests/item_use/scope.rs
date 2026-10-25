@@ -113,14 +113,10 @@ fn bow_world(held: bool) -> (World, client_session::CapturedPackets) {
     world
         .resource_mut::<InteractionOriginSnapshot>()
         .assist_direction(Vec3::Y);
-    world.resource_scope(|world, mut block_use: Mut<BlockUseRuntime>| {
-        block_use.retain_pick(
-            world.resource::<InteractionOriginSnapshot>(),
-            world
-                .resource::<MovementTicker>()
-                .position_authority_identity(),
-        );
-    });
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
     super::super::riptide_tests::flush_and_acknowledge(&mut world);
     world
         .run_system_cached(crate::item_use::ordered::synchronize_scope)

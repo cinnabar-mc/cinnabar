@@ -670,8 +670,7 @@ impl ItemUseRuntime {
             if (outcome.started || swung.is_some())
                 && let Some(Cooldown { category, ticks }) = cooldown
             {
-                self.cooldowns
-                    .push((category, frame.tick.saturating_add(u64::from(ticks))));
+                self.start_cooldown(Cooldown { category, ticks }, frame.tick);
             }
             self.rocket_boost |= swung.is_some() && matches!(air_use, Some(AirUse::GlideRocket));
             if predicted_stack.is_some() {
@@ -819,3 +818,5 @@ pub fn admit_on_tick(
 pub mod fixtures;
 #[cfg(test)]
 mod tests;
+
+mod cooldown;
