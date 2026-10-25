@@ -109,8 +109,7 @@ fn unseeded(
     cache_root: &std::path::Path,
 ) -> Option<anyhow::Error> {
     let url = url::Url::parse(&offer.url).ok()?;
-    let host = url.host_str()?;
-    (host == "invalid" || host.ends_with(".invalid")).then(|| {
+    crate::manifest::reserved_origin(&url.origin().ascii_serialization()).then(|| {
         anyhow::anyhow!(
             "bundle {} ({}) is not in the bundle cache at {}, and its offer names {}, a \
              reserved host that never resolves; seed the cache first with `cinnabar-cxb \
