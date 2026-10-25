@@ -98,7 +98,14 @@ impl Running {
             .name("shader compiler".into())
             .stack_size(64 * 1024 * 1024)
             .spawn(move || {
-                let result = work(&thread_control);
+                // Pack translation uses Rayon. Its queue must not occupy rendering's shared pool.
+                let result = rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .thread_name(|_| "shader translation".into())
+                    .stack_size(64 * 1024 * 1024)
+                    .build()
+                    .map_err(|error| format!("cannot start shader translation pool: {error}"))
+                    .and_then(|pool| pool.install(|| work(&thread_control)));
                 thread_control.cancelled();
                 thread_control.error().map_or(result, Err)
             })
