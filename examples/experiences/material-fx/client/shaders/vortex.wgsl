@@ -6,7 +6,14 @@
 // when the speed changes, so walking closer speeds it up from where it is, never jumping.
 // params 0-2: the portal's centre; param 3: its facing in quarter turns from south; param 4: the
 // player's closeness, 1 at the face to 0 twelve blocks away; params 5-7: tunnel colour; param 8:
-// turns per second; param 9: the turn's phase at session second zero.
+// the turn's rate per second, a whole number of cycles per wrap of the session clock; param 9:
+// the turn's phase at session second zero.
+
+// The span of the turn after which the bands, the stars and the sparks all look the same, so the
+// tunnel carries on unchanged when the session clock wraps.
+const PORTAL_CYCLE: f32 = 138.0;
+// The spark cells' extent around and along the opening over one cycle of the turn.
+const SPARK_CELLS: vec2<f32> = vec2<f32>(828.0, 414.0);
 
 fn shade(input: WorldMaterialInput) -> Surface {
     let time = seconds(input);
@@ -25,7 +32,8 @@ fn shade(input: WorldMaterialInput) -> Surface {
         return Surface(vec3<f32>(0.08, 0.04, 0.14) * (0.8 + 0.4 * hash3(floor(texel / 2.0))), 1.0, vec3<f32>(0.25, 0.1, 0.4) * sheen);
     }
     let near = clamp(param(input, 4u), 0.0, 1.0);
-    let spin = time * param(input, 8u) + param(input, 9u);
+    let turned = time * param(input, 8u) + param(input, 9u);
+    let spin = turned - floor(turned / PORTAL_CYCLE) * PORTAL_CYCLE;
     let d = -input.view;
     let inward = max(dot(d, facing), 0.05);
     let o = vec2<f32>(face.x, face.y * 0.75);
@@ -49,7 +57,7 @@ fn shade(input: WorldMaterialInput) -> Surface {
     // Sparks on the opening, spiralling inward in polar texels.
     let r = length(face);
     let polar = floor(vec2<f32>(r * 16.0 + spin * 6.0, (atan2(face.y, face.x) / TAU) * 64.0 + r * 10.0 - spin * 3.0));
-    let spark = hash2(polar) > 0.97 - near * 0.03;
+    let spark = hash2(polar - floor(polar / SPARK_CELLS) * SPARK_CELLS) > 0.97 - near * 0.03;
     let eye = smoothstep(9.0, 16.0, depth);
     let glow = colour * (0.8 + near * 1.6) + vec3<f32>(1.0, 0.8, 1.0) * eye * 2.0;
     let sparks = select(vec3<f32>(0.0), vec3<f32>(1.0, 0.85, 1.0) * 2.5, spark);

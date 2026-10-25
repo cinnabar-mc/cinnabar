@@ -105,16 +105,19 @@ fn phase_of(state: &effects::State, id: u32, (rate, offset): (usize, usize), sec
 #[test]
 fn server_updates_change_how_fast_the_portal_and_heartbeat_go_but_never_jump_them() {
     let mut state = effects::State::default();
-    // The player walks towards the portal a quarter block at a time, late in the session.
+    // The player walks towards the portal a quarter block at a time, late in the session. The
+    // turn repeats every portal cycle, which its offset is kept within.
     let spin = (8, 9);
+    let cycle = f64::from(effects::PORTAL_CYCLE);
     for (step, distance) in (0..8).zip((0..).map(|step| 9_000 - step * 250)) {
         let at_ms = 2_000_000 + step * 700;
         let at = at_ms as f64 / 1000.0;
         let before = phase_of(&state, effects::PORTAL, spin, at);
         state.apply(11, [distance, at_ms, 0, 0]);
         let after = phase_of(&state, effects::PORTAL, spin, at);
+        let gap = (after - before).rem_euclid(cycle);
         assert!(
-            (after - before).abs() < 0.01,
+            gap.min(cycle - gap) < 0.01,
             "step {step}: {before} then {after}"
         );
     }
