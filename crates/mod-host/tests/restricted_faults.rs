@@ -93,6 +93,16 @@ fn prlimit_of(pid: libc::pid_t) -> String {
     }))
 }
 
+/// Sets the priority of process `who` (0 is the caller) to the value it already has, changing
+/// nothing.
+fn renice(who: libc::id_t) -> String {
+    // SAFETY: plain system calls on scalar arguments.
+    status(i64::from(unsafe {
+        let current = libc::getpriority(libc::PRIO_PROCESS, who);
+        libc::setpriority(libc::PRIO_PROCESS, who, current)
+    }))
+}
+
 /// Attempts one operation the lockdown must refuse, or one it must leave.
 fn run(op: &str) -> String {
     let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
@@ -157,6 +167,29 @@ fn run(op: &str) -> String {
         "prlimit-parent" => prlimit_of(unsafe { libc::getppid() }),
         "prlimit-self" => prlimit_of(0),
         "prlimit-own-pid" => prlimit_of(std::process::id() as libc::pid_t),
+        // SAFETY (signal and process probes): plain system calls on scalar arguments; the only
+        // signal sent is SIGCONT, which a running process ignores.
+        "signal-parent-check" => status(i64::from(unsafe { libc::kill(libc::getppid(), 0) })),
+        "signal-parent" => status(i64::from(unsafe {
+            libc::kill(libc::getppid(), libc::SIGCONT)
+        })),
+        "signal-group" => status(i64::from(unsafe { libc::kill(0, libc::SIGCONT) })),
+        "tgkill-parent" => status(unsafe {
+            let parent = libc::getppid();
+            libc::syscall(libc::SYS_tgkill, parent, parent, libc::SIGCONT)
+        }),
+        "sigio-parent" => status(i64::from(unsafe {
+            libc::fcntl(1, libc::F_SETOWN, libc::getppid())
+        })),
+        "pidfd-parent" => {
+            status(unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getppid(), 0u32) })
+        }
+        "renice-parent" => renice(unsafe { libc::getppid() } as libc::id_t),
+        "signal-self" => status(i64::from(unsafe { libc::kill(libc::getpid(), 0) })),
+        "tgkill-self" => {
+            status(unsafe { libc::syscall(libc::SYS_tgkill, libc::getpid(), libc::gettid(), 0) })
+        }
+        "renice-self" => renice(0),
         "dumpable" => format!("dumpable {}", unsafe {
             libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0)
         }),
@@ -207,6 +240,27 @@ fn the_lockdown_denies_resource_limits_of_other_processes() {
     assert_eq!(probe("prlimit-self"), "allowed");
     assert_eq!(probe("prlimit-own-pid"), "allowed");
     assert_eq!(probe("limits"), format!("nofile {DESCRIPTOR_LIMIT}"));
+}
+
+/// The helper cannot signal its parent, its process group or anyone else, directly, by
+/// thread, through a process descriptor or as the owner of a descriptor's I/O signals, nor
+/// change its parent's priority, but it can still signal and renice itself.
+#[test]
+fn the_lockdown_denies_signals_to_other_processes() {
+    for op in [
+        "signal-parent-check",
+        "signal-parent",
+        "signal-group",
+        "tgkill-parent",
+        "sigio-parent",
+        "pidfd-parent",
+        "renice-parent",
+    ] {
+        assert_eq!(probe(op), format!("denied {}", libc::EPERM), "{op}");
+    }
+    for op in ["signal-self", "tgkill-self", "renice-self"] {
+        assert_eq!(probe(op), "allowed", "{op}");
+    }
 }
 
 /// The running helper stays undumpable, so processes of the same user cannot trace it or read

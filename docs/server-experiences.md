@@ -169,13 +169,16 @@ knows and grants none (no file or directory can be opened; TCP bind and connect 
 and abstract sockets outside itself on ABI 6, and any right a later ABI adds, since each right is
 probed from the running kernel), and a seccomp filter, on every thread, failing with `EPERM`
 program execution, process creation (threads remain), every socket call, tracing and cross-process
-memory, other processes' resource limits, namespaces and mounts, BPF, performance counters, keys,
-io_uring, modules and administration calls; a foreign architecture or x32 call kills it. A helper
-that cannot lock down exits before reading the component, and a kernel without Landlock refuses.
-The component compiles after the lockdown, so the compiler is contained too, under the same limits
-and the parent's callback deadline. `crates/mod-host/tests/restricted_faults.rs` injects each
-forbidden operation into a contained child, and `tests/helper.rs` runs a real component
-restricted.
+memory, signals to any process but the helper itself (on every kernel: `kill`, `tgkill` and queued
+signals only to its own process id, no `tkill`, process descriptors or I/O signal owners, so
+signal isolation does not depend on Landlock's ABI 6 scope, which stays as a second layer), other
+processes' resource limits, priorities and scheduling, namespaces and mounts, BPF, performance
+counters, keys, io_uring, modules and administration calls; a foreign architecture or x32 call
+kills it. A helper that cannot lock down exits before reading the component, and a kernel without
+Landlock refuses. The component compiles after the lockdown, so the compiler is contained too,
+under the same limits and the parent's callback deadline.
+`crates/mod-host/tests/restricted_faults.rs` injects each forbidden operation into a contained
+child, and `tests/helper.rs` runs a real component restricted.
 
 Production stays unavailable: macOS and Windows have no restricted launch, the Linux launch has
 not had the independent security review the gate requires, and the client does not call it.
