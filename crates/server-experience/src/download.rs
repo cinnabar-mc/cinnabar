@@ -38,6 +38,9 @@ impl Download {
                             let bytes = if let Some(bytes) = cache.read(&offer.digest)? {
                                 bytes
                             } else {
+                                if let Some(error) = unseeded(offer, &cache_root) {
+                                    return Err(error);
+                                }
                                 let download = crate::fetch::fetch(
                                     &offer.url,
                                     &grant.offer.offer.scope.origins,
@@ -95,5 +98,58 @@ impl Drop for Download {
     /// Cancels the current request; late results cannot reach a replacement session.
     fn drop(&mut self) {
         let _ = self.cancel.send(true);
+    }
+}
+
+/// The error for an uncached package whose offer names a reserved `.invalid` host (RFC 6761),
+/// which never resolves: local servers deliver bundles only through the digest cache, so the
+/// bundle has to be seeded there first. Other offers download as usual.
+fn unseeded(
+    offer: &crate::manifest::PackageOffer,
+    cache_root: &std::path::Path,
+) -> Option<anyhow::Error> {
+    let url = url::Url::parse(&offer.url).ok()?;
+    let host = url.host_str()?;
+    (host == "invalid" || host.ends_with(".invalid")).then(|| {
+        anyhow::anyhow!(
+            "bundle {} ({}) is not in the bundle cache at {}, and its offer names {}, a \
+             reserved host that never resolves; seed the cache first with `cinnabar-cxb \
+             seed-cache` (the material-fx tool does this with `--user-data <client user data \
+             directory>`)",
+            offer.id,
+            offer.digest,
+            cache_root.display(),
+            offer.url
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn offer(url: &str) -> crate::manifest::PackageOffer {
+        crate::manifest::PackageOffer {
+            id: "materialfx".into(),
+            publisher_key: String::new(),
+            digest: "abc".into(),
+            bytes: 1,
+            url: url.into(),
+        }
+    }
+
+    #[test]
+    fn an_unseeded_reserved_host_bundle_names_the_seeding_step_instead_of_resolving() {
+        let root = std::path::Path::new("/data/cache");
+        let error = unseeded(&offer("https://cxb.invalid/abc.cxb"), root)
+            .unwrap()
+            .to_string();
+        assert!(
+            error.contains("materialfx") && error.contains("seed-cache"),
+            "{error}"
+        );
+        assert!(error.contains("/data/cache"), "{error}");
+        assert!(unseeded(&offer("https://example.com/abc.cxb"), root).is_none());
+        assert!(unseeded(&offer("https://invalid.example/abc.cxb"), root).is_none());
     }
 }
