@@ -39,7 +39,7 @@ impl BlockEntityWork {
 /// Conservative bounds for locally drawing templates; global beams cannot use terrain culling.
 pub(super) fn bounds(template: &Template, block: [i32; 3]) -> Option<([f32; 3], [f32; 3])> {
     let bounded = match template {
-        Template::Beacon | Template::FlowerPot { .. } => false,
+        Template::Beacon | Template::FlowerPot { .. } | Template::OverlayItems(_) => false,
         Template::Static(kind) => kind.has_fixed_cull_reach(),
         Template::ItemFrame { item, .. } => item.is_none(),
         Template::Campfire { items, .. } => items.iter().all(Option::is_none),

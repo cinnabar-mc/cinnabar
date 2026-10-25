@@ -282,9 +282,10 @@ func (h *Host) useOnBlock(
 		return false
 	}
 	b = b.placed(user, target, face, clickPos)
+	placed := b.inWorld(nil)
 	before := blockID(tx.Block(target))
-	placer.PlaceBlock(target, b, ctx)
-	if tx.Block(target) != world.Block(b) {
+	placer.PlaceBlock(target, placed, ctx)
+	if tx.Block(target) != placed {
 		return false
 	}
 	instance, ok := h.worlds.of(tx.World())
@@ -303,9 +304,10 @@ func (h *Host) useOnBlock(
 }
 
 // activate queues on-interact for the user's interaction. The clicked face comes from the
-// client unchecked, so a face out of range is ignored; the interaction stays consumed.
+// client unchecked, so a face out of range is ignored; the interaction stays consumed. A click
+// position within the cell becomes the call's hit, in pixels.
 func (h *Host) activate(
-	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, _ *item.UseContext,
+	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, ctx *item.UseContext,
 ) {
 	instance, ok := h.worlds.of(tx.World())
 	if u == nil || !ok {
@@ -318,9 +320,23 @@ func (h *Host) activate(
 	actor := u.H()
 	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
 		Interact: &InteractCall{
-			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace],
+			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace], Hit: hitOf(ctx),
 		},
 	}})
+}
+
+// hitOf is the click position that ctx carries, in pixels, when it lies within the cell.
+func hitOf(ctx *item.UseContext) *Pixel {
+	if ctx == nil || ctx.ClickPos == nil {
+		return nil
+	}
+	click := ctx.ClickPos.Mul(blockPixels)
+	for _, axis := range click {
+		if !(axis >= 0 && axis <= blockPixels) {
+			return nil
+		}
+	}
+	return &Pixel{X: float32(click[0]), Y: float32(click[1]), Z: float32(click[2])}
 }
 
 // neighbourUpdateTick queues on-neighbor-changed, at most once per position and
@@ -539,9 +555,10 @@ type cellState struct {
 	loaded bool
 	id     string
 	// owned is set for this Experience's own block with a store entry, which block holds with
-	// its states.
+	// its states, and overlays with its overlays when it is an overlay host.
 	owned    bool
 	block    Block
+	overlays *overlayList
 	token    Token
 	hasToken bool
 	dataLen  uint64
@@ -659,6 +676,7 @@ func (h *Host) readFixed(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		cell := Cell{Pos: blockPos(pos), Loaded: st.loaded, ID: st.id, Owned: st.owned}
 		if st.owned {
 			cell.States = st.block.states()
+			cell.Overlays = st.overlays.list()
 			if data, ok := h.store.Data(d.id, ev.instance.storeKey(pos)); ok {
 				s := hex.EncodeToString(data)
 				cell.Data = &s
@@ -688,10 +706,10 @@ func (h *Host) cellState(tx *world.Tx, exp string, instance worldInstance, pos c
 	}
 	st.loaded = true
 	st.id = blockID(b)
-	own, ok := b.(Block)
+	own, overlays, ok := ownBlock(b)
 	st.owned = ok && own.t.exp == exp && st.hasToken
 	if st.owned {
-		st.block = own
+		st.block, st.overlays = own, overlays
 	}
 	return st
 }

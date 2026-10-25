@@ -258,6 +258,7 @@ impl LocomotionState {
                         vertical_fly_speed: facts.vertical_fly_speed,
                         creative_flight: facts.creative_flight,
                         elytra_ready: facts.elytra_ready,
+                        instabuild: facts.instabuild,
                         can_stand_on_snow: facts.can_stand_on_snow,
                         depth_strider: facts.depth_strider,
                         soul_speed: facts.soul_speed,

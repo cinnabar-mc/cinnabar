@@ -51,6 +51,12 @@ type fixtureLimits struct {
 	MaxRecipeInputs  int `json:"max_recipe_input_items"`
 	MaxScheduleTicks int `json:"max_schedule_ticks"`
 	MaxScheduled     int `json:"max_scheduled_updates"`
+	// The overlay bounds, which registration and the commit check keep.
+	MaxOverlayTypes int `json:"max_overlay_types"`
+	MaxCellOverlays int `json:"max_cell_overlays"`
+	// The item overlay bounds are floats Rust writes as "16.0"; json.Number keeps them so.
+	MaxOverlayItemSize   json.Number `json:"max_overlay_item_size"`
+	MaxOverlayItemOffset json.Number `json:"max_overlay_item_offset"`
 }
 
 // rustLimits reads the limits fixture.
@@ -400,10 +406,18 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxRecipeInputItems", maxRecipeInputItems, rust.MaxRecipeInputs},
 		{"maxScheduleTicks", maxScheduleTicks, rust.MaxScheduleTicks},
 		{"maxScheduledUpdates", maxScheduledUpdates, rust.MaxScheduled},
+		{"maxOverlayTypes", maxOverlayTypes, rust.MaxOverlayTypes},
+		{"maxCellOverlays", maxCellOverlays, rust.MaxCellOverlays},
 	} {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)
 		}
+	}
+	size, sizeErr := rust.MaxOverlayItemSize.Float64()
+	offset, offsetErr := rust.MaxOverlayItemOffset.Float64()
+	if sizeErr != nil || offsetErr != nil || maxOverlayItemSize != size || maxOverlayItemOffset != offset {
+		t.Errorf("item overlay bounds %v and %v, Rust has %v and %v", maxOverlayItemSize,
+			maxOverlayItemOffset, rust.MaxOverlayItemSize, rust.MaxOverlayItemOffset)
 	}
 }
 

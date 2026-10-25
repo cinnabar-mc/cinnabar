@@ -192,3 +192,56 @@ fn gliding_in_water_follows_water_travel() {
     };
     assert_eq!(travel(MovementMode::Gliding), travel(MovementMode::Walking));
 }
+
+/// One glide tick from `velocity`, with or without the Instabuild ascent.
+fn ascent_tick(mode: MovementMode, velocity: [f32; 3], glide_ascent: bool) -> PlayerState {
+    let mut state = PlayerState::new(Vec3::new(0.5, 100.0, 0.5));
+    state.velocity = Vec3::new(
+        f64::from(velocity[0]),
+        f64::from(velocity[1]),
+        f64::from(velocity[2]),
+    );
+    Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                mode,
+                pitch_degrees: 10.0,
+                glide_ascent,
+                ..MovementInput::default()
+            },
+            &AIR,
+        )
+        .unwrap();
+    state
+}
+
+/// The Instabuild ascent adds 0.1 to vertical velocity in f32 before glide
+/// travel, so the tick matches a glide that started 0.1 faster upward.
+#[test]
+fn instabuild_ascent_pushes_the_glide_before_travel() {
+    let start = [0.05, -0.4, 0.5];
+    let pushed = ascent_tick(MovementMode::Gliding, start, true);
+    let equivalent = ascent_tick(
+        MovementMode::Gliding,
+        [start[0], start[1] + 0.1, start[2]],
+        false,
+    );
+    assert_eq!(bits(pushed.velocity), bits(equivalent.velocity));
+    assert_eq!(pushed.position, equivalent.position);
+    let plain = ascent_tick(MovementMode::Gliding, start, false);
+    assert!(pushed.position.y > plain.position.y);
+}
+
+/// Only a glide reads the ascent; other modes ignore a stale flag.
+#[test]
+fn instabuild_ascent_needs_a_glide() {
+    let start = [0.0, -0.2, 0.3];
+    for mode in [MovementMode::Walking, MovementMode::Flying] {
+        assert_eq!(
+            ascent_tick(mode, start, true),
+            ascent_tick(mode, start, false),
+            "{mode:?}"
+        );
+    }
+}

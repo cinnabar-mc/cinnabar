@@ -130,7 +130,13 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     let mut geometry = vec![1, 0, 0, 0];
     geometry.extend(PackedModelRef::new(packed_position, 0, 4, 1).words());
     geometry.extend([0x0234_0123, 0x0846_0345]);
-    let mut cases = vec![("visible", geometry.clone(), template.clone(), 0, true)];
+    // Visibility word: 1 = visible, 4 = every UV inside one tile (the fixture's UVs are zero).
+    let mut repeating = template.clone();
+    repeating[10] = 4097; // First UV word: u past one tile.
+    let mut cases = vec![
+        ("visible", geometry.clone(), template.clone(), 0, 1 | 4),
+        ("repeating", geometry.clone(), repeating, 0, 1),
+    ];
     for (name, word, value) in [
         ("masked", 7, 0),
         ("padded", 1, 1),
@@ -142,7 +148,7 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     ] {
         let mut changed = geometry.clone();
         changed[word] = value;
-        cases.push((name, changed, template.clone(), 0, false));
+        cases.push((name, changed, template.clone(), 0, 0));
     }
     for (name, word, value) in [
         ("empty template", 2, 0),
@@ -151,18 +157,19 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     ] {
         let mut changed = template.clone();
         changed[word] = value;
-        cases.push((name, geometry.clone(), changed, 0, false));
+        cases.push((name, geometry.clone(), changed, 0, 0));
     }
-    cases.push(("short template", geometry.clone(), vec![0], 0, false));
+    cases.push(("short template", geometry.clone(), vec![0], 0, 0));
     cases.push((
         "instance overflow",
         geometry.clone(),
         template.clone(),
         0x8000_0000,
-        false,
+        0,
     ));
-    cases.push(("missing draw", geometry, template, 5, false));
-    for (name, geometry, template, instance, valid) in cases {
+    cases.push(("missing draw", geometry, template, 5, 0));
+    for (name, geometry, template, instance, visibility) in cases {
+        let valid = visibility != 0;
         let geometry = gpu.words(&geometry, storage);
         let template = gpu.words(&template, storage);
         let query = gpu.words(&[instance, 0, 0, 0], uniform);
@@ -186,7 +193,7 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
             assert_eq!(values[1], [3, 4, 5, 37]);
             assert_eq!(values[2], [0x0123, 0x0234, 0x0345, 0x0846]);
             for vertex in &values[3..] {
-                assert_eq!(*vertex, [1, 1, 37, 0]);
+                assert_eq!(*vertex, [visibility, 1, 37, 0], "{name}");
             }
         } else {
             let clips = values[3..]

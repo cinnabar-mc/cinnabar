@@ -306,6 +306,12 @@ impl WorldAuthority {
         self.actors.lifetime(runtime_id)
     }
 
+    /// Publishes StartGame's binding of the local player's mode to the world
+    /// default, which later default changes then reach.
+    pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
+        self.local_mode_follows_default = follows;
+    }
+
     /// Publishes the session's level mode before remote players are admitted.
     pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
         self.actors.apply_world_game_mode(mode);
@@ -421,6 +427,10 @@ impl WorldAuthority {
     /// Dying dragon body centers and ray parameters at the supplied frame fraction.
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
+    }
+    /// Loyalty ropes from thrown tridents to their present owners at the frame fraction.
+    pub fn loyalty_ropes(&self, partial_tick: f32) -> Vec<crate::LoyaltyRopeView> {
+        self.actors.loyalty_ropes(partial_tick)
     }
     /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {

@@ -3993,6 +3993,7 @@ name = "experience-runtime"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "block-transform",
  "experience-sdk",
  "serde",
  "serde_json",
@@ -5738,6 +5739,7 @@ name = "meshing"
 version = "0.1.28"
 dependencies = [
  "assets",
+ "block-transform",
  "bytemuck",
  "criterion",
  "image",
@@ -11293,6 +11295,7 @@ version = "0.1.28"
 name = "world"
 version = "0.1.28"
 dependencies = [
+ "block-transform",
  "criterion",
  "hashbrown 0.16.1",
  "mimalloc",

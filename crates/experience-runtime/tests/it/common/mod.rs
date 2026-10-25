@@ -59,6 +59,9 @@ use wit_component::metadata::Bindgen;
 pub const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
 pub const COUNTER: &str = "probe:counter";
 pub const AIR: &str = "minecraft:air";
+/// The probe's overlay host and the file of its plate's geometry, under `assets/`.
+pub const BUS: &str = "probe:bus";
+const PLATE_GEOMETRY: &str = "plate.geo.json";
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
@@ -455,8 +458,9 @@ pub fn hello_wasm() -> &'static [u8] {
     &WASM
 }
 
-/// A fresh probe artifact: the probe's `experience.toml`, `server.wasm`, `assets/counter.png` and
-/// `files.toml` with their real hashes. It is deleted when the returned guard drops.
+/// A fresh probe artifact: the probe's `experience.toml`, `server.wasm`, `assets/counter.png`, its
+/// `assets/plate.geo.json` and `files.toml` with their real hashes. It is deleted when the
+/// returned guard drops.
 pub fn probe_dir() -> TempDir {
     probe_dir_with(|_| {})
 }
@@ -471,6 +475,11 @@ pub fn probe_dir_with(edit: impl FnOnce(&Path)) -> TempDir {
     fs::write(root.join(SERVER_WASM), probe_wasm()).expect("write server.wasm");
     fs::create_dir(root.join(ASSETS_DIR)).expect("create assets/");
     fs::write(root.join(ASSETS_DIR).join("counter.png"), COUNTER_PNG).expect("write counter.png");
+    fs::copy(
+        probe.join(ASSETS_DIR).join(PLATE_GEOMETRY),
+        root.join(ASSETS_DIR).join(PLATE_GEOMETRY),
+    )
+    .expect("copy the plate's geometry");
     rehash(root);
     edit(root);
     dir
@@ -645,6 +654,7 @@ pub fn cell(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
         owned,
         data: data.map(str::to_owned),
         states: Vec::new(),
+        overlays: Vec::new(),
     }
 }
 
@@ -699,6 +709,7 @@ pub fn interact(x: i32) -> Request {
             player: ACTOR.to_owned(),
             pos: p(x),
             face: Face::Up,
+            hit: None,
         },
     )
 }
@@ -816,4 +827,24 @@ pub fn v0_8_dir() -> TempDir {
           (call $drop (local.get 0)) (i32.const 0)))"#
     );
     wat_dir(&guest, include_str!("../../../wit/0.8/server.wit"))
+}
+
+/// A frozen 0.9 component: the 0.8 one with simulation exports, without overlays or a click.
+pub fn v0_9_dir() -> TempDir {
+    let guest = V0_5_GUEST
+        .replace("@0.5.0", "@0.9.0")
+        .replace("v0.5", "v0.9");
+    let guest = guest.trim_end().strip_suffix(')').unwrap();
+    let guest = format!(
+        r#"{guest}
+      (func (export "world-definitions") (result i32) (i32.const 32))
+      (func (export "on-player") (param i32) (result i32) (i32.const 0))
+      (func (export "on-tick") (param i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-timer") (param i32 i32 i32 i64 i64 i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-scheduled-update") (param i32 i32 i32 i32) (result i32)
+          (call $drop (local.get 0)) (i32.const 0)))"#
+    );
+    wat_dir(&guest, include_str!("../../../wit/0.9/server.wit"))
 }

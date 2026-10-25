@@ -115,6 +115,9 @@ pub(super) struct EngineSlots {
     pub(super) is_sneaking: Option<usize>,
     pub(super) chest_layer_visible: Option<usize>,
     pub(super) is_blocking: Option<usize>,
+    /// The native brandish pose and the charge it raises the held spear by.
+    pub(super) is_brandishing_spear: Option<usize>,
+    pub(super) charge_amount: Option<usize>,
     pub(super) damage_nearby_mobs: Option<usize>,
     /// The eat/drink arm raise and bob the pack's `use_item_progress` pose reads.
     pub(super) use_item_startup_progress: Option<usize>,
@@ -240,6 +243,8 @@ impl VariableLayout {
                 is_sneaking: slot(V::IsSneaking.name()),
                 chest_layer_visible: slot(V::ChestLayerVisible.name()),
                 is_blocking: slot(V::IsBlocking.name()),
+                is_brandishing_spear: slot(V::IsBrandishingSpear.name()),
+                charge_amount: slot(V::ChargeAmount.name()),
                 damage_nearby_mobs: slot(V::DamageNearbyMobs.name()),
                 use_item_startup_progress: slot(V::UseItemStartupProgress.name()),
                 use_item_interval_progress: slot(V::UseItemIntervalProgress.name()),

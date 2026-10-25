@@ -9,9 +9,11 @@ use super::{
 use crate::{Aabb, Vec3};
 
 mod camera;
+mod overlays;
 mod placement;
 mod precision;
 pub use camera::CameraBlockHit;
+pub use overlays::OverlayHit;
 pub use placement::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y};
 use precision::FloatRay;
 
@@ -37,6 +39,9 @@ pub struct BlockHit {
     pub distance: f64,
     /// Exact registry and inspected-column revisions that authorize the hit.
     pub identity: WorldCollisionIdentity,
+    /// The cell overlay of the block that the ray met, when it met one rather than the block's
+    /// own shape ([`PaletteWorld::with_cell_overlays`]).
+    pub overlay: Option<OverlayHit>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +54,7 @@ struct Candidate {
     distance: f64,
     fraction: f32,
     shape_index: usize,
+    overlay: Option<OverlayHit>,
 }
 
 impl PaletteWorld<'_> {
@@ -158,6 +164,7 @@ impl PaletteWorld<'_> {
             runtime_id: best.runtime_id,
             distance: best.distance,
             identity,
+            overlay: best.overlay,
         }))
     }
 
@@ -294,6 +301,7 @@ impl PaletteWorld<'_> {
                     distance,
                     fraction,
                     shape_index,
+                    overlay: None,
                 };
                 if best
                     .as_ref()
@@ -303,6 +311,7 @@ impl PaletteWorld<'_> {
                 }
             }
         }
+        self.inspect_overlays(block, (origin, direction, max_distance), best)?;
         Ok(())
     }
 
@@ -410,9 +419,17 @@ pub(super) fn checked_offset(
 }
 
 fn candidate_precedes(candidate: &Candidate, previous: &Candidate) -> bool {
+    // At an equal distance an overlay wins over its host's own shape, and the lower slot wins
+    // among overlays.
+    let overlay_rank = |candidate: &Candidate| {
+        candidate
+            .overlay
+            .map_or(u16::MAX, |hit| u16::from(hit.slot))
+    };
     crossing_order(candidate.fraction, previous.fraction)
         .then_with(|| candidate.block_pos.cmp(&previous.block_pos))
         .then_with(|| candidate.runtime_id.cmp(&previous.runtime_id))
+        .then_with(|| overlay_rank(candidate).cmp(&overlay_rank(previous)))
         .then_with(|| candidate.shape_index.cmp(&previous.shape_index))
         .then_with(|| candidate.face.cmp(&previous.face))
         .is_lt()

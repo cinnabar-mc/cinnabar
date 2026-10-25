@@ -312,6 +312,10 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
+A fresh jump press ends a glide after its first ten ticks unless the player has
+Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
+input push, on live ticks and correction replay. Whether that push reads the glide
+flag before or after the same tick's stop check is unverified.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -366,7 +370,7 @@ block-climber flags, custom collision definitions, transition-tick packet orderi
 and broader live-server qualification remain incomplete.
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
-Server-driven item-use gameplay starts, block-climber flags, custom collision
+Block-climber flags, custom collision
 definitions, transition-tick packet ordering and broader live-server qualification
 remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
@@ -381,12 +385,20 @@ capture and requests replay when that following frame is retained. Current stamp
 wait for the next frame; a future stamp joins the current frame without immediate replay.
 Replay keeps the starting frame's capture, refreshes later ones and copies the replayed
 word back to the live state, keeping the live spin and glide counters, swim blend and
-camera eye blend. Glide, swim and crawl retain independent bits beside flight;
+camera eye blend. Item use reconciles with the word's item-use bit only on movement ticks:
+a set bit starts the selected item's use and reports `StartUsingItem` (an item without a held
+use completes on the next tick, and whether vanilla slows that tick is unverified; an empty
+hand keeps the flag set), a clear bit stops the use without a release transaction, and a
+spectator game-mode change stops it in packet order. Queued releases retain a pending server stop
+until their actions resolve; expiring the edges applies the stop without a release transaction.
+Queued local presses keep their normal transaction admission before a server start occupies the use. Each tick refreshes the in-use stack,
+count included; release validation compares the whole stack. Two further stack properties,
+including charged-item state, remain unmapped in the retained item data. Replayed ticks
+keep the slowdown their live tick recorded. Glide, swim and crawl retain independent bits beside flight;
 their own trigger transitions produce actions, and their combined state feeds
 the compact body, swim blend and eye offset. Replay preserves the pending swim-blend
 input across immobile pose transitions; only changed swim or crawl corrections replace it.
-Still incomplete: reconciling server `UsingItem` writes with local-use gameplay;
-the Riptide spin's entity-hit end, which
+Still incomplete: the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
 player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
 live-server evidence for these adoptions.
@@ -638,6 +650,15 @@ camera-driven choices live between ticks. Dynamic per-bone material rules, selec
 admission and in-world qualification remain incomplete. The samples omit the iron
 golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
+Thrown tridents draw their pack model placed by the native flight rotation, with the
+item foil when enchanted. A trident with a present owner draws vanilla's loyalty rope
+strips, growing two segments for each tick it returns. Actors publish the native
+`variable.is_brandishing_spear` and `variable.charge_amount`: an item with the spear use
+animation brandishes while used and charges over ten ticks, and a non-player mob holding
+a trident brandishes it while it has a target, so the pack's third-person
+`brandish_spear` raises the arm. The rope's native material, a pack-renamed
+`loyalty_rope` texture, the native trident material and light sample point, pole-only
+bone selection and abstract-arrow motion seeding for tridents remain incomplete.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -697,6 +718,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   The HUD paper doll keeps its own animated mesh while a screen shows another player renderer.
   The inventory's live player renderer still draws the static preview model turned toward
   the pointer; native renders the animated actor there, so that remains incomplete.
+  The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
+  the local player has an effect, listing iconed effects in id order with potency and
+  `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and
+  damage closes it. Vanilla's controller View-button and touch actions, which share the
+  press with toast interaction, the opening guard's unidentified player check, close-button
+  hover and list scrolling acceptance remain incomplete.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.
@@ -805,6 +832,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
   Recipe-book projections validate each occupied ingredient source once across the catalog.
+  A container screen's data change splices the controls it left unchanged from the last
+  layout, so a drag-split step on the creative catalog places only the changed slots; a
+  screen whose scroll content fits (bar panel suppressed) still lays out in full on each
+  change, and hardware frame captures of drag splits remain open.
   First-open and repeated-open inventory timing and combined-screen acceptance remain open.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
@@ -1174,6 +1205,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   replication, riding, steering and mixed-client ship acceptance remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
+- Server WIT 0.10 adds cell overlays: Experience-registered overlay types, turned to a face, and
+  item overlays drawn flat on a face, up to 12 per host cell, saved in the host's
+  `CinnabarOverlays` block entity. Cinnabar meshes them with terrain, draws their items with
+  block entities and picks them with the interaction ray; `on-interact` reports the click
+  position and the picked overlay. Text overlays (AE2's monitor amounts) are not implemented.
+  `meshing/overlays` measures a mixed section at 0.51 ms alone and 1.21 ms with 896 six-quad
+  overlays (16-core development PC), about 0.8 µs per overlay on mesh workers. Headless captures
+  of overlays on the developer client and vanilla-client
+  confirmation that the unknown block entity and hidden palette entries leave the host drawn alone
+  remain outstanding.
+- The local server's Dragonfly fork (`cinnabar-mc/dragonfly`, pinned in `tools/localserver/go.mod`)
+  requires unique network block hashes only when block ids are hashes; there, a colliding custom
+  block takes the smallest hidden `dragonfly:network_hash_salt` state that makes its hashes unique,
+  and clients learn the salted states with its definition.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.

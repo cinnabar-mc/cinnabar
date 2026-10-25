@@ -1,4 +1,6 @@
 use super::*;
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 
 #[test]
 fn review_first_bell_cue_starts_once() {
@@ -68,10 +70,13 @@ fn the_viewer_yaw_turns_the_model_front_toward_the_eye() {
 
 #[test]
 fn map_pixels_unpack_red_first_and_keys_track_revisions() {
-    assert_eq!(map_canvas(&[0x4433_2211]), vec![0x11, 0x22, 0x33, 0x44]);
-    assert_ne!(map_cache_key(1, 1), map_cache_key(1, 2));
-    assert_ne!(map_cache_key(1, 1), map_cache_key(2, 1));
-    assert_eq!(map_cache_key(5, 9), map_cache_key(5, 9));
+    assert_eq!(
+        maps::map_canvas(&[0x4433_2211]),
+        vec![0x11, 0x22, 0x33, 0x44]
+    );
+    assert_ne!(maps::map_cache_key(1, 1), maps::map_cache_key(1, 2));
+    assert_ne!(maps::map_cache_key(1, 1), maps::map_cache_key(2, 1));
+    assert_eq!(maps::map_cache_key(5, 9), maps::map_cache_key(5, 9));
 }
 
 /// Bell state must not accumulate for every bell ever seen.
@@ -120,7 +125,7 @@ fn framed_map_wire_colors_reach_the_rgba_canvas() {
         panic!("valid map pixels must reach the frame");
     };
     assert_eq!(
-        map_canvas(&event.pixels),
+        maps::map_canvas(&event.pixels),
         expected.concat(),
         "framed map must preserve wire colors and alpha"
     );
@@ -155,7 +160,7 @@ fn accepted_map_requests_stay_known_until_the_session_changes() {
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
-        .add_systems(Update, request_missing_maps);
+        .add_systems(Update, maps::request_missing_maps);
     app.update();
     assert_eq!(packets.drain().len(), 1);
     app.world_mut()
@@ -214,7 +219,7 @@ fn a_full_output_queue_does_not_mark_a_map_request_as_known() {
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
-        .add_systems(Update, request_missing_maps);
+        .add_systems(Update, maps::request_missing_maps);
     app.update();
     assert_eq!(
         packets.drain().len(),
