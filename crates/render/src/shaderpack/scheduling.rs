@@ -18,8 +18,8 @@ use render_scene::shaderpack::{ShaderPackRendering, ShaderPackRequest};
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ShaderPackSystems;
 
-/// Keeps loading, publication and cancellation alive until their owners have settled.
-pub(super) fn main_work_pending(world: &World) -> bool {
+/// Whether a load, publication or cancellation still has a main-world owner.
+fn main_owners_pending(world: &World) -> bool {
     world
         .get_resource::<ShaderPackRequest>()
         .is_some_and(|request| request.pack.is_some())
@@ -34,11 +34,23 @@ pub(super) fn main_work_pending(world: &World) -> bool {
             .is_some_and(ViewFailures::is_pending)
 }
 
+/// Keeps load owners and explicitly opted-in cameras active until they leave.
+pub(super) fn main_work_pending(
+    world: &World,
+    cameras: Query<(), With<ShaderPackRendering>>,
+) -> bool {
+    main_owners_pending(world) || !cameras.is_empty()
+}
+
 /// Extracts while a main-world load or an existing render owner still needs shader inputs.
-pub(super) fn extraction_pending(world: &World) -> bool {
+pub(super) fn extraction_pending(
+    world: &World,
+    cameras: Extract<Query<(), With<ShaderPackRendering>>>,
+) -> bool {
     world
         .get_resource::<MainWorld>()
-        .is_some_and(|main| main_work_pending(main))
+        .is_some_and(|main| main_owners_pending(main))
+        || !cameras.is_empty()
         || render_work_pending(world)
 }
 
