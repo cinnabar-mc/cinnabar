@@ -162,7 +162,7 @@ fn traversal_prefix_preserves_the_full_rounded_ray_at_large_corners() {
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
     let world = PaletteWorld::new(&store, &registry, 0, Default::default());
-    let origin = Vec3::new(8192.195_312_5, 0.5, 4096.5);
+    let origin = Vec3::new(8_192.195_312_5, 0.5, 4096.5);
     let direction = Vec3::new(
         f64::from(0.306_398_66_f32),
         0.0,
@@ -199,7 +199,7 @@ fn traversal_prefix_matches_the_full_ray_through_boundary_samples() {
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
     let world = PaletteWorld::new(&store, &registry, 0, Default::default());
-    let origin = Vec3::new(8192.195_312_5, 0.5, 4096.5);
+    let origin = Vec3::new(8_192.195_312_5, 0.5, 4096.5);
     for x_offset in [-0.1_f32, -0.01, -0.001, 0.0, 0.001, 0.01, 0.1] {
         let x = 0.306_398_66_f32 + x_offset;
         let direction = Vec3::new(f64::from(x), 0.0, f64::from(0.951_903_34_f32));
