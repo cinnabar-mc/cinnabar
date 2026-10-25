@@ -109,7 +109,7 @@ fn prepare(
                 .pack_catalog_base()
                 .context("JSON-UI engine is missing its carrier catalog")?,
         );
-        presentation.enable_touch_controls(cfg!(target_os = "android"));
+        presentation.enable_touch_controls(launcher::TOUCH_PRIMARY);
         render_scene::startup_timing::measure("interface_artwork", || {
             if let Some(images) = join(artwork)
                 && let Err(reason) = presentation.enable_oreui_originals(images)

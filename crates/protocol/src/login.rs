@@ -24,6 +24,7 @@ mod cache_status_ingress_tests;
 mod client_data;
 mod game_data;
 mod latency_probe;
+mod ordinary_ingress;
 mod outbound;
 mod pack_handoff;
 mod packet_trace;
@@ -73,6 +74,7 @@ pub struct PlaySession<R = bridge::FramedReader> {
     pending_blob_cache_events: VecDeque<WorldEvent>,
     cache_status: cache_status::SharedCacheStatus,
     pending_blob_prefetch: Option<(Packet, usize)>,
+    pending_ordinary: Option<(WorldIngress, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
     ingress_position: (u64, u32), // core frame and slot of the packet behind the last ingress
@@ -143,6 +145,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             pending_blob_cache_events: VecDeque::new(),
             cache_status: Default::default(),
             pending_blob_prefetch: None,
+            pending_ordinary: None,
             server_disconnect: None,
             server_transfer: None,
             ingress_position: (0, 0),
@@ -424,6 +427,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         }
         self.pending_blob_cache_events.clear();
         self.pending_blob_prefetch = None;
+        self.pending_ordinary = None;
         self.cache_status.lock().expect("cache status lock").reset();
     }
 
@@ -508,14 +512,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 return Ok(WorldIngress::Event(event));
             }
 
-            let resolver = self
-                .blob_cache
-                .as_mut()
-                .expect("enabled path owns a resolver");
-            // Retained ordinary work stops intake only while abandoning its blockers makes
-            // progress; a lane that cannot be unblocked keeps reading rather than spinning
-            // without ever awaiting the transport.
-            if resolver.ordinary_lane_needs_drain() && resolver.unblock_ordinary_lane()? {
+            let ordinary_blocked = self.pending_ordinary.is_some();
+            if ordinary_blocked && self.finish_ordinary_ingress(false)? {
                 continue;
             }
 
@@ -544,15 +542,35 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 continue;
             }
 
+            let transfer_armed = self
+                .blob_cache
+                .as_ref()
+                .expect("enabled cache")
+                .fast_transfer_reset_armed();
             let Some(inbound) =
-                blob_recovery::BlobRecovery::until(&mut self.blob_recovery, self.transport.recv())
-                    .await
+                blob_recovery::BlobRecovery::until(&mut self.blob_recovery, async {
+                    if ordinary_blocked {
+                        self.transport
+                            .recv_blob_body(
+                                crate::session_transport::MAX_READ_AHEAD_BYTES,
+                                transfer_armed,
+                            )
+                            .await
+                    } else {
+                        self.transport.recv().await.map(Some)
+                    }
+                })
+                .await
             else {
                 continue;
             };
             let raw = match inbound {
-                Ok(Inbound::Packet(raw)) => raw,
-                Ok(Inbound::Terminal(terminal)) => {
+                Ok(None) => {
+                    self.finish_ordinary_ingress(true)?;
+                    continue;
+                }
+                Ok(Some(Inbound::Packet(raw))) => raw,
+                Ok(Some(Inbound::Terminal(terminal))) => {
                     if self.absorb_terminal(terminal)? {
                         return boundary_wakeup();
                     }
@@ -560,7 +578,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 }
                 Err(error) => return Err(self.fail_session(error)),
             };
-            if bridge::latency_trace::active().is_some() {
+            if !ordinary_blocked && bridge::latency_trace::active().is_some() {
                 let origin = self.delivered_position();
                 self.blob_cache
                     .as_mut()
@@ -613,7 +631,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         self.blob_recovery = None;
                         self.cache_status.lock().expect("cache status lock").reset();
                     }
-                    resolver.accept_level_chunk_bytes(event, payload, packet_bytes)?;
+                    self.pending_ordinary =
+                        Some((WorldIngress::LevelChunk(event, payload), packet_bytes));
                     continue;
                 }
                 if reset_blob_cache_for_decoded_candidate(
@@ -654,14 +673,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         continue;
                     }
                 };
-                if let Some(event) = event
-                    && let Err(error) = self
-                        .blob_cache
-                        .as_mut()
-                        .expect("enabled path owns a resolver")
-                        .accept_world_event(event, packet_bytes)
-                {
-                    return Err(error.into());
+                if let Some(event) = event {
+                    self.pending_ordinary = Some((WorldIngress::Event(event), packet_bytes));
                 }
                 continue;
             }
@@ -669,14 +682,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             let decoded = decode_world_raw_with(raw, current_dimension, RawPacket::decode_parts);
             match decoded {
                 Ok(Some(event)) => {
-                    if let Err(error) = self
-                        .blob_cache
-                        .as_mut()
-                        .expect("enabled path owns a resolver")
-                        .accept_world_event(event, packet_bytes)
-                    {
-                        return Err(error.into());
-                    }
+                    self.pending_ordinary = Some((WorldIngress::Event(event), packet_bytes));
                 }
                 Ok(None) => {}
                 Err(ProtocolError::Session(error)) => return Err(self.fail_session(error)),

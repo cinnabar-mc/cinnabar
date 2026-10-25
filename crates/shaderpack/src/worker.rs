@@ -1,4 +1,4 @@
-//! CPU translation in a disposable process with memory, CPU and elapsed-time limits.
+//! Bounded CPU translation, isolated in a child process where the platform permits it.
 
 use crate::{Environment, OptionValues, PackTranslation, ShaderPack, TranslateConfig};
 use serde::{Deserialize, Serialize};
@@ -11,15 +11,17 @@ use std::{
 };
 
 mod allocator;
+mod in_process;
 mod result;
 pub use allocator::{BudgetAllocator, disable_for_host};
 use result::Decoder;
 
 /// Internal compiler entry point; it starts no window, renderer or account services.
 pub const FLAG: &str = "--shaderpack-compiler-worker";
-/// Maximum elapsed time for CPU translation, supplied to [`Running::poll`] by the host.
+/// Maximum elapsed time for CPU translation; hosts also supply elapsed time to [`Running::poll`].
 pub const TIME_LIMIT: Duration = Duration::from_secs(60);
-/// Maximum live heap in the worker, and committed process memory on Windows.
+/// Maximum live heap in a compiler process, also checked cooperatively across the iOS app.
+/// Windows additionally bounds committed process memory.
 const MEMORY_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 /// Maximum serialized request and output sizes, checked before deserialization.
 const REQUEST_BYTES: usize = 1024 * 1024;
@@ -27,7 +29,11 @@ const OUTPUT_BYTES: usize = 128 * 1024 * 1024;
 /// CBOR adds enum, tuple and collection containers around each accepted expression node.
 const RESULT_NESTING: usize = 4 * crate::expr::MAX_TREE_DEPTH as usize + 32;
 
-/// Inputs read only after the child has installed its resource limits.
+/// Whether shader compilation can use an isolated process. On iOS, a compiler crash takes
+/// down the app, as it did before process isolation; heap and time checks are cooperative.
+pub const COMPILER_PROCESS: bool = !cfg!(target_os = "ios");
+
+/// Inputs read after the compiler backend has started its resource checks.
 #[derive(Serialize, Deserialize)]
 pub struct Request {
     pub pack: PathBuf,
@@ -81,8 +87,18 @@ pub struct Output {
     pub options_warning: Option<String>,
 }
 
-/// One child owned until it exits or is killed and reaped; dropping it cannot detach work.
+/// One compiler, polled and retired the same way on every platform.
 pub struct Running {
+    backend: Backend,
+}
+
+enum Backend {
+    Process(Process),
+    InProcess(in_process::Running),
+}
+
+/// One child owned until it exits or is killed and reaped; dropping it cannot detach work.
+struct Process {
     child: Child,
     output: File,
     decoder: Option<Decoder>,
@@ -91,12 +107,50 @@ pub struct Running {
 }
 
 impl Running {
-    /// Starts `executable` in compiler mode and transfers the bounded request over stdin.
-    pub fn start(executable: &Path, request: &Request) -> Result<Self, String> {
-        let input = serde_json::to_vec(request).map_err(|error| error.to_string())?;
-        if input.len() > REQUEST_BYTES {
-            return Err("shader compiler request exceeds storage limit".into());
+    /// Starts the platform's compiler backend with the same bounded request.
+    /// Only platforms with compiler processes require an executable.
+    pub fn start(executable: Option<&Path>, request: &Request) -> Result<Self, String> {
+        if !COMPILER_PROCESS {
+            return Self::start_in_process(request);
         }
+        let input = request_bytes(request)?;
+        Ok(Self {
+            backend: Backend::Process(Process::start(
+                executable.ok_or("the isolated shader compiler is unavailable")?,
+                &input,
+            )?),
+        })
+    }
+
+    /// Starts cooperative compilation on a background thread, also available to host tests.
+    pub fn start_in_process(request: &Request) -> Result<Self, String> {
+        Ok(Self {
+            backend: Backend::InProcess(in_process::Running::start(request_bytes(request)?)?),
+        })
+    }
+
+    /// Returns a result only after owned work stops, including cancellation and expiry.
+    /// The caller supplies elapsed time; polling itself never sleeps or reads a clock.
+    pub fn poll(&mut self, elapsed: Duration, cancelled: bool) -> Option<Result<Response, String>> {
+        match &mut self.backend {
+            Backend::Process(process) => process.poll(elapsed, cancelled),
+            Backend::InProcess(thread) => thread.poll(elapsed, cancelled),
+        }
+    }
+}
+
+/// Encodes requests with the same admission limit for both backends.
+fn request_bytes(request: &Request) -> Result<Vec<u8>, String> {
+    let input = serde_json::to_vec(request).map_err(|error| error.to_string())?;
+    if input.len() > REQUEST_BYTES {
+        return Err("shader compiler request exceeds storage limit".into());
+    }
+    Ok(input)
+}
+
+impl Process {
+    /// Starts `executable` in compiler mode and transfers the bounded request over stdin.
+    fn start(executable: &Path, input: &[u8]) -> Result<Self, String> {
         let output = tempfile::tempfile().map_err(|error| error.to_string())?;
         let mut command = Command::new(executable);
         #[cfg(windows)]
@@ -133,7 +187,7 @@ impl Running {
             .stdin
             .take()
             .ok_or("shader compiler stdin missing")?;
-        stdin.write_all(&input).map_err(|error| error.to_string())?;
+        stdin.write_all(input).map_err(|error| error.to_string())?;
         Ok(running)
     }
 
@@ -181,7 +235,7 @@ impl Running {
     }
 }
 
-impl Drop for Running {
+impl Drop for Process {
     /// Stops and reaps only the compiler process this handle started.
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -212,7 +266,7 @@ pub fn run_stdio() -> i32 {
         let input =
             read_limited(io::stdin().lock(), REQUEST_BYTES).map_err(|error| error.to_string())?;
         let request: Request = serde_json::from_slice(&input).map_err(|error| error.to_string())?;
-        let result = translate(request);
+        let result = translate(request, &|| false);
         ciborium::into_writer(
             &result,
             LimitedWriter {
@@ -225,9 +279,11 @@ pub fn run_stdio() -> i32 {
     i32::from(result.is_err())
 }
 
-/// Opens, normalizes and translates one pack entirely within the child's limits.
-fn translate(request: Request) -> Result<Response, String> {
+/// Opens, normalizes and translates one pack within the active backend's limits.
+fn translate(request: Request, cancelled: &(impl Fn() -> bool + Sync)) -> Result<Response, String> {
+    check_translation(cancelled)?;
     let pack = ShaderPack::open(&request.pack).map_err(|error| error.to_string())?;
+    check_translation(cancelled)?;
     let saved = request
         .options
         .as_deref()
@@ -241,9 +297,9 @@ fn translate(request: Request) -> Result<Response, String> {
         Err(error) => return Err(error.to_string()),
     };
     if matches!(request.purpose, Purpose::Options) {
-        return Ok(Response::Options(Box::new(crate::OptionSession::new(
-            &pack, &saved,
-        ))));
+        let session = crate::OptionSession::new(&pack, &saved);
+        check_translation(cancelled)?;
+        return Ok(Response::Options(Box::new(session)));
     }
     let config = TranslateConfig {
         folder: pack.dimension_folder(&request.dimension, &request.environment),
@@ -251,10 +307,22 @@ fn translate(request: Request) -> Result<Response, String> {
         environment: request.environment,
         ..Default::default()
     };
-    let translation = pack.translate(&config);
+    let translation = pack
+        .translate_cancellable(&config, |_, _| {}, cancelled)
+        .ok_or("shader compilation interrupted")?;
     let mut compiled = prepare_translation(pack, config, translation);
+    check_translation(cancelled)?;
     compiled.options_warning = options_warning;
     Ok(Response::Render(Box::new(compiled)))
+}
+
+/// Stops at translation boundaries without returning a partially prepared result.
+fn check_translation(cancelled: &impl Fn() -> bool) -> Result<(), String> {
+    if cancelled() {
+        Err("shader compilation interrupted".into())
+    } else {
+        Ok(())
+    }
 }
 
 /// Finishes CPU preparation inside a bounded compiler or a trusted offline fixture.
