@@ -424,6 +424,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&keys),
                 button,
                 now_millis,
@@ -519,6 +520,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,
@@ -694,6 +696,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 keyboard_usage(input.key_code).map(semantic_input::PhysicalControl::KeyboardUsage),
                 now_millis,
@@ -841,6 +844,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,

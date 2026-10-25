@@ -80,7 +80,7 @@ fn data_driven_settings() -> ScreenSettings {
 
 impl UiRuntime {
     /// Visits the authoritative scene construction without allocating a stack.
-    pub(super) fn visit_scenes_in(
+    pub(in crate::ui_runtime) fn visit_scenes_in(
         &self,
         player_runtime: &player_state::PlayerState,
         host: SceneHost,

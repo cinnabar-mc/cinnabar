@@ -94,3 +94,44 @@ fn pack_screen_lists_named_effects_with_timers_and_a_close_button() {
     assert!(presentation.mob_effect_close_hit(point));
     assert!(!presentation.mob_effect_close_hit(UiPoint::new(1.0, 700.0).unwrap()));
 }
+
+#[test]
+fn a_pack_that_hides_the_game_behind_the_screen_stops_world_rendering() {
+    let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
+        eprintln!("skipping mob effect world policy test: missing fixture JSON-UI carrier");
+        return;
+    };
+    let player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply_local_effect(
+            runtime.session_id(),
+            1,
+            ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 1,
+                action: ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 100,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(runtime.toggle_mob_effect_screen(0));
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, None));
+    presentation.set_server_ui_pack(&super::super::ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/mob_effect_screen.json".into(),
+            br#"{"namespace":"mob_effect","mob_effect_screen":{"render_game_behind":false}}"#
+                .to_vec(),
+        )]],
+        ..Default::default()
+    });
+    assert!(!presentation.renders_game_behind(&player_runtime, &runtime, None));
+    runtime.close_mob_effect_screen();
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, None));
+}

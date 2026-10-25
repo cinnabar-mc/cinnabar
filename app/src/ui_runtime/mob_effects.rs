@@ -19,6 +19,7 @@ use client_shell::menu::{
 };
 use client_shell::physical_input::set_cursor_capture;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use client_ui::ui_runtime::scene_stack::Scene;
 use launcher::menu::settings_options::BindingId;
 use ui::UiPoint;
 
@@ -70,14 +71,12 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
             .is_some_and(|actor| actor.status.dead);
     let blocked = input.consent.as_ref().is_some_and(|consent| consent.0)
         || input.menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || input.runtime.chat_focused()
-        || input.runtime.inventory_open()
-        || input.runtime.server_forms().owns_input()
-        || input.runtime.data_driven_ui().owns_input()
-        || input.runtime.sign_editor().active().is_some()
-        || input.runtime.local_sleeping()
-        || input.runtime.emotes().is_open()
-        || input.runtime.credits().owns_input()
+        || input
+            .runtime
+            .screen_open_besides(&input.player, Some(Scene::MobEffects))
+        || input.presentation.as_deref().is_some_and(|presentation| {
+            presentation.mod_ui().mod_panel_open() || presentation.mod_ui().experience_modal_open()
+        })
         || actor_unavailable;
     let keyboard: Vec<_> = input.keyboard.read().cloned().collect();
     if blocked || !input.window.0.focused {
@@ -109,6 +108,7 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
             && command_macros::command(
                 input.menu.as_deref(),
                 &input.runtime,
+                &input.player,
                 chat_modifiers::held_chord(&input.modifiers),
                 client_shell::physical_input::keyboard_usage(event.key_code)
                     .map(semantic_input::PhysicalControl::KeyboardUsage),
@@ -178,6 +178,7 @@ fn mouse_binding_pressed(
             command_macros::command(
                 menu,
                 &input.runtime,
+                &input.player,
                 chat_modifiers::held_chord(held),
                 client_shell::physical_input::mouse_button_code(*button)
                     .map(semantic_input::PhysicalControl::MouseButton),

@@ -193,6 +193,29 @@ impl UiRuntime {
             .all(|scene| !scene.settings.absorbs_input)
     }
 
+    /// Whether a screen other than `own` is up over the world, whatever its pack input policy:
+    /// any scene the stack pushes above gameplay and its HUD overlays, launcher menus aside.
+    /// Shortcuts that open a screen, and command macros, check it so screens never open
+    /// over one another.
+    pub fn screen_open_besides(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        own: Option<Scene>,
+    ) -> bool {
+        let mut open = false;
+        let table = ScreenSettingsTable::default();
+        self.visit_scenes_in(
+            player_runtime,
+            SceneHost::of(None, self),
+            &table,
+            |scene, _| {
+                open |= !matches!(scene, Scene::Gameplay | Scene::Crosshair | Scene::Hud)
+                    && Some(scene) != own;
+            },
+        );
+        open
+    }
+
     /// Whether the top scene is one a touchscreen drives through the mouse pointer.
     pub fn top_scene_reads_only_pointer(
         &self,

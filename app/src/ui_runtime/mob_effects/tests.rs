@@ -233,3 +233,22 @@ fn a_frame_the_emote_wheel_consumed_does_not_open_the_screen() {
         "Z arrived in the batch the wheel consumed"
     );
 }
+
+#[test]
+fn the_emote_key_does_not_open_the_wheel_under_the_screen() {
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new(true);
+    h.press(KeyCode::KeyZ);
+    assert!(h.runtime().mob_effect_screen().is_open());
+    h.queue(KeyCode::KeyB);
+    h.queue(KeyCode::Escape);
+    h.app.update();
+    assert!(
+        !h.runtime().emotes().is_open(),
+        "B opened a wheel under the screen"
+    );
+    assert!(
+        !h.runtime().mob_effect_screen().is_open(),
+        "Escape belongs to the screen on top"
+    );
+}
