@@ -113,6 +113,7 @@ fn bow_world(held: bool) -> (World, client_session::CapturedPackets) {
     world
         .resource_mut::<InteractionOriginSnapshot>()
         .assist_direction(Vec3::Y);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
     world
         .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
