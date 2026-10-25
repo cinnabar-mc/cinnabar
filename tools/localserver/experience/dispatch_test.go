@@ -162,7 +162,7 @@ func (f *hostFixture) place(id string, pos BlockPos, data []byte) {
 	if !ok {
 		f.t.Fatalf("no registered block %q", id)
 	}
-	f.do(func(tx *world.Tx) { tx.SetBlock(pos.cube(), b, nil) })
+	f.do(func(tx *world.Tx) { tx.SetBlock(pos.cube(), b.inWorld(nil), nil) })
 	f.store.Place(b.t.exp, overworldKey(pos))
 	if data != nil {
 		if err := f.store.SetData(b.t.exp, overworldKey(pos), data, true); err != nil {

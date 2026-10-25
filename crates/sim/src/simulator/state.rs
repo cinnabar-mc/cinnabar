@@ -50,6 +50,11 @@ pub struct PlayerState {
     /// measures again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) climber: Option<super::scaffolding::ClimberContact>,
+    /// Whether the block at the feet cell was climbable after the previous
+    /// tick's move (`Actor::onClimbableBlock`), whatever the climbing
+    /// direction. Unreadable terrain keeps the last measurement.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) on_climbable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -98,6 +103,7 @@ impl PlayerState {
             collision_shape: None,
             fall_distance: 0.0,
             climber: None,
+            on_climbable: false,
         }
     }
 
@@ -105,6 +111,14 @@ impl PlayerState {
     #[must_use]
     pub const fn fall_distance(&self) -> f32 {
         self.fall_distance
+    }
+
+    /// Whether the latest tick ended with a climbable block at the feet cell
+    /// (`Actor::onClimbableBlock`), such as a ladder or vine, whether the
+    /// player climbs, holds or descends it.
+    #[must_use]
+    pub fn on_climbable_block(&self) -> bool {
+        self.on_climbable
     }
 
     /// Clears accumulated falling when a movement action starts or stops flight.

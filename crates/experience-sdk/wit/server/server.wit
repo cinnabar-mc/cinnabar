@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.9.0;
+package cinnabar:experience-server@0.10.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -139,13 +139,39 @@ interface types {
     record item-key { id: string, metadata: u16 }
     /// What a crafting recipe makes.
     record crafted { id: string, metadata: u16, count: u8 }
+
+    // 0.10: cell overlays. Every type above is unchanged, so the older worlds share them.
+
+    /// A look drawn in an overlay host's cell, never a block of the world: it has no item or
+    /// collision and is never placed or broken alone. Its name follows the block-name rule and
+    /// shares the blocks' namespace, so its id is `<experience id>:<name>`, which no block of the
+    /// Experience has. Its visual is authored with its front out of north (-z) and its top up;
+    /// an overlay turns it to its face. Its selection box, from the visual or the permutation
+    /// that sets one last, is what picks it; without one it is never picked. Its collision box
+    /// is ignored.
+    record overlay-type { name: string, states: list<state-def>, visual: visual, permutations: list<permutation> }
+    /// What `overlays` declares: the ids of this Experience's blocks that may carry overlays,
+    /// and its overlay types.
+    record overlay-registration { hosts: list<string>, types: list<overlay-type> }
+    /// One of this Experience's overlay types, by id, in these states; a state it does not name
+    /// takes its first value.
+    record overlay-visual { kind: string, states: list<block-state> }
+    /// An item drawn flat on the face as an inventory slot shows it, lit at full brightness and
+    /// never picked: `size` is its edge and `x` and `y` its centre, in pixels from the face's
+    /// centre, x to the right and y up as one looks at the face.
+    record overlay-item { item: item-key, size: f32, x: f32, y: f32 }
+    /// What an overlay draws.
+    variant overlay-look { visual(overlay-visual), item(overlay-item) }
+    /// One overlay of a cell: its slot, 0 to 11 and unique in the cell (overlays draw and are
+    /// picked in slot order), the face it turns to, and what it draws.
+    record overlay { slot: u8, face: face, look: overlay-look }
 }
 
 interface world-access {
     use types.{
         block-pos, player-id, callback-info, world-error, value-node, block-state, network,
         inventory, new-stack, item-key, crafted, world-handle, world-instance, world-instance-id,
-        player-location, position, store-key, simulation-step, schedule-handle,
+        player-location, position, store-key, simulation-step, schedule-handle, overlay,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
@@ -215,6 +241,20 @@ interface world-access {
         /// write, `ticks` (1 or more) game ticks after the callback commits; it then gets
         /// `on-scheduled-update`. The server keeps scheduled updates across a restart.
         schedule-update: func(pos: block-pos, ticks: u32) -> result<_, world-error>;
+        /// The overlays of the block at `pos` in slot order, with staged changes applied; read
+        /// like `block-states`. Empty for a block without any.
+        overlays: func(pos: block-pos) -> result<list<overlay>, world-error>;
+        /// Stages the whole overlay list of this Experience's overlay host at `pos`, written
+        /// where `set-block-state` writes; an empty list removes them all. The block keeps its
+        /// states, data and generation, and its neighbors get no update. Restaging a cell
+        /// replaces what was staged for it. `not-owned` for another's block; `unsupported-state`
+        /// for a block that is not an overlay host, a slot above 11 or used twice, a state the
+        /// overlay's type does not declare or a value it does not take, or an item's size, `x`
+        /// or `y` that is not finite, a size outside 0 (exclusive) to 16, or a centre more than
+        /// 8 pixels off the face's; `too-large` for more than 12 overlays; `unknown-block` for a
+        /// kind that is not one of this Experience's overlay types, or an item that is neither
+        /// the server's nor this Experience's.
+        set-overlays: func(pos: block-pos, overlays: list<overlay>) -> result<_, world-error>;
     }
 }
 
@@ -227,18 +267,27 @@ world server {
     import world-access;
     import diagnostics;
     use world-access.{callback};
-    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event, simulation-step, schedule-handle};
-    /// Declares the Experience's blocks and items; it runs once, at startup.
+    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event, simulation-step, schedule-handle, overlay-registration, pixel};
+    /// Declares the Experience's world definitions and startup instances; it runs once, at
+    /// startup.
     export world-definitions: func() -> result<world-registration, guest-error>;
+    /// Declares the Experience's overlay hosts and overlay types; it runs once, at startup,
+    /// after `register`.
+    export overlays: func() -> result<overlay-registration, guest-error>;
     /// Ordered observations. Move events retain the first and last position in one host tick.
     export on-player: func(ctx: borrow<callback>, player: player-id, event: player-event) -> result<_, guest-error>;
     /// One admitted simulation tick, followed by due scheduled callbacks in handle order.
     export on-tick: func(ctx: borrow<callback>, step: simulation-step) -> result<_, guest-error>;
     export on-timer: func(ctx: borrow<callback>, handle: schedule-handle, step: simulation-step) -> result<_, guest-error>;
+    /// Declares the Experience's blocks and items; it runs once, at startup.
     export register: func() -> result<registration, guest-error>;
     export on-place: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-break: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
-    export on-interact: func(ctx: borrow<callback>, player: player-id, pos: block-pos, clicked-face: face) -> result<_, guest-error>;
+    /// `player` used the block at `pos`, clicking `clicked-face`. `hit` is where the click met
+    /// the block, in pixels, when the client sent one within the cell. `target` is the slot of
+    /// the block's first overlay, in slot order, whose turned selection box holds `hit` once
+    /// grown by 0.032 pixels on each side; none without `hit` or when no overlay's box holds it.
+    export on-interact: func(ctx: borrow<callback>, player: player-id, pos: block-pos, clicked-face: face, hit: option<pixel>, target: option<u8>) -> result<_, guest-error>;
     export on-neighbor-changed: func(ctx: borrow<callback>, pos: block-pos, neighbor: block-pos) -> result<_, guest-error>;
     /// `player`'s client part sent `payload` on `channel`, revision `schema`. `ctx` has the
     /// snapshot of `player`'s focus (`callback.focus`); without one, every world read and write

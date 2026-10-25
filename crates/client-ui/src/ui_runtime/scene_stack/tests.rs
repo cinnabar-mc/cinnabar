@@ -486,3 +486,85 @@ fn a_form_over_a_container_ends_the_drag_in_flight() {
         "no distribution resumes without a held button"
     );
 }
+
+// The pack's mob effect screen absorbs gameplay input and closes when the player is hurt.
+#[test]
+fn carrier_mob_effect_screen_absorbs_input_and_closes_on_hurt() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let Some(carrier) = ui_engine::test_support::carrier() else {
+        eprintln!(
+            "skipping carrier_mob_effect_screen_absorbs_input_and_closes_on_hurt: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    let catalog = Catalog::from_files(
+        carrier
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .unwrap();
+    let table = ScreenSettingsTable::for_catalog(&catalog, &Context::retail(true));
+    let mut runtime = in_world(&mut player_runtime, Arc::new(table));
+    runtime
+        .apply_local_effect(
+            runtime.session_id(),
+            1,
+            protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 42,
+                action: protocol::ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 100,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(runtime.toggle_mob_effect_screen(0));
+    assert!(!runtime.gameplay_input(&player_runtime, None));
+    assert_eq!(
+        runtime.scenes(&player_runtime, host(None)).closes_on_hurt(),
+        Some(Scene::MobEffects)
+    );
+    runtime.note_player_hurt();
+    runtime.close_scenes_on_player_hurt(&mut player_runtime, None);
+    assert!(!runtime.mob_effect_screen().is_open());
+    assert!(runtime.gameplay_input(&player_runtime, None));
+}
+
+// Shortcut adapters see every runtime screen except their own, whatever its input policy.
+#[test]
+fn screen_open_besides_names_every_screen_but_the_caller() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
+    assert!(!runtime.screen_open_besides(&player_runtime, None));
+    runtime
+        .apply_local_effect(
+            runtime.session_id(),
+            1,
+            protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 42,
+                action: protocol::ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 100,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(runtime.toggle_mob_effect_screen(0));
+    assert!(runtime.screen_open_besides(&player_runtime, None));
+    assert!(runtime.screen_open_besides(&player_runtime, Some(Scene::Emote)));
+    assert!(!runtime.screen_open_besides(&player_runtime, Some(Scene::MobEffects)));
+    runtime.close_mob_effect_screen();
+    runtime.credits_mut().open(42, 1, 0);
+    assert!(runtime.screen_open_besides(&player_runtime, Some(Scene::MobEffects)));
+}

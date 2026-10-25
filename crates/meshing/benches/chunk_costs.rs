@@ -6,15 +6,15 @@
 use std::{hint::black_box, sync::Arc};
 
 use assets::{
-    BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties, Material,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureRef, VisualKind,
-    VisualSupport,
+    BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties, Material, ModelQuad,
+    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureRef,
+    VisualKind, VisualSupport,
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use meshing::{
-    BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, ChunkMesh, Face, MeshLightSample,
-    PackedBiomeRecord, biome_neighbour_index, mesh_sub_chunk_in_neighbourhood,
-    mesh_sub_chunk_in_neighbourhood_with_lighting,
+    BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, CellOverlay, ChunkMesh, Face, MeshLightSample,
+    MeshOptions, PackedBiomeRecord, biome_neighbour_index, mesh_sub_chunk_in_neighbourhood,
+    mesh_sub_chunk_in_neighbourhood_with_lighting, mesh_sub_chunk_in_neighbourhood_with_options,
 };
 use world::{
     BiomeStorage, DecodedBiomeColumn, MeshNeighbourhood, RawBiomeIds, RawBlockIds, SubChunk,
@@ -377,6 +377,174 @@ fn meshing_hashed(c: &mut Criterion) {
     group.finish();
 }
 
+/// The terrain cubes at ids 1 and 2 and, at id 3, a cable-bus part: a six-quad box two pixels
+/// deep against the north face it is authored on.
+fn overlay_assets() -> RuntimeAssets {
+    let base = RuntimeAssets::diagnostic();
+    let mut texture = base.texture_array().clone();
+    texture.layers = 1;
+    let cube = |material| BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
+        faces: [material; 6],
+        flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+        kind: VisualKind::Cube,
+        support: VisualSupport::VanillaFallback,
+        contributor_role: ContributorRole::Primary,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+    };
+    let part = BlockVisual {
+        flags: BlockFlags::empty(),
+        kind: VisualKind::Model,
+        model_template: 0,
+        ..cube(0)
+    };
+    let (low, high, depth) = (0, 256, 32);
+    let quad = |positions, face| ModelQuad {
+        positions,
+        uvs: [[0, 0], [4096, 0], [4096, 4096], [0, 4096]],
+        material: 0,
+        flags: face,
+    };
+    let model_quads = vec![
+        quad(
+            [
+                [low, low, low],
+                [high, low, low],
+                [high, low, depth],
+                [low, low, depth],
+            ],
+            1,
+        ),
+        quad(
+            [
+                [low, high, depth],
+                [high, high, depth],
+                [high, high, low],
+                [low, high, low],
+            ],
+            2,
+        ),
+        quad(
+            [
+                [low, low, depth],
+                [low, high, depth],
+                [low, high, low],
+                [low, low, low],
+            ],
+            3,
+        ),
+        quad(
+            [
+                [high, low, low],
+                [high, high, low],
+                [high, high, depth],
+                [high, low, depth],
+            ],
+            4,
+        ),
+        quad(
+            [
+                [high, low, low],
+                [low, low, low],
+                [low, high, low],
+                [high, high, low],
+            ],
+            5,
+        ),
+        quad(
+            [
+                [low, low, depth],
+                [high, low, depth],
+                [high, high, depth],
+                [low, high, depth],
+            ],
+            6,
+        ),
+    ];
+    base.with_block_overlay(
+        1,
+        &BlockOverlay {
+            visuals: vec![cube(0), cube(1), part],
+            light_properties: vec![LightProperties::OPAQUE_DARK; 3],
+            materials: vec![
+                Material {
+                    texture: TextureRef::new(1, 0).unwrap(),
+                    flags: 0,
+                    ..Material::unvaried()
+                };
+                2
+            ],
+            model_templates: vec![ModelTemplate {
+                quad_start: 0,
+                quad_count: 6,
+                flags: 0,
+            }],
+            model_quads,
+            textures: vec![texture],
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+/// The mixed terrain with an AE2-dense layer above it, 128 cable buses each carrying an arm on six
+/// faces and a part, against the same terrain without overlays.
+fn meshing_overlays(c: &mut Criterion) {
+    let assets = overlay_assets();
+    let classifier = BlockClassifier::new(AIR);
+    let empty = uniform_chunk(AIR);
+    let mixed = mixed_chunk();
+    let neighbourhood = surrounded_by(&mixed, &empty);
+    let light = MeshLightSample::try_new(11, 3).unwrap();
+    let sampler = move |_coordinate: [i32; 3]| light;
+    let overlays: Vec<_> = (0..16_u8)
+        .flat_map(|x| (0..8_u8).map(move |z| [x, 14, z * 2]))
+        .flat_map(|local| {
+            (0..7_u8).map(move |slot| CellOverlay {
+                local,
+                face: slot % 6,
+                network_value: 3,
+            })
+        })
+        .collect();
+    let mesh = |overlays: &[CellOverlay]| {
+        mesh_sub_chunk_in_neighbourhood_with_options(
+            &classifier,
+            &assets,
+            MODE,
+            &neighbourhood,
+            &sampler,
+            MeshOptions {
+                overlays,
+                ..Default::default()
+            },
+        )
+    };
+    let bare = mesh(&[]);
+    let dressed = mesh(&overlays);
+    assert_eq!(dressed.cube_quads(), bare.cube_quads());
+    assert_eq!(
+        dressed.model_refs().len() - bare.model_refs().len(),
+        overlays.len()
+    );
+    eprintln!(
+        "meshing/overlays: {} overlays add {} model references and {} lit quads",
+        overlays.len(),
+        dressed.model_refs().len() - bare.model_refs().len(),
+        dressed.model_lighting().len() - bare.model_lighting().len(),
+    );
+    let mut group = c.benchmark_group("meshing/overlays");
+    for (name, list) in [("without", &[][..]), ("with_896", &overlays[..])] {
+        group.bench_with_input(BenchmarkId::new("sampled_light", name), &list, |b, list| {
+            b.iter(|| black_box(mesh(black_box(*list))));
+        });
+    }
+    group.finish();
+}
+
 fn uniform_biome(id: i32) -> Arc<BiomeStorage> {
     let mut payload = vec![1];
     payload.extend(zig_zag_i32(id));
@@ -454,5 +622,11 @@ fn biome_records(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, meshing, meshing_hashed, biome_records);
+criterion_group!(
+    benches,
+    meshing,
+    meshing_hashed,
+    meshing_overlays,
+    biome_records
+);
 criterion_main!(benches);

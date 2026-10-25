@@ -490,6 +490,13 @@ impl UiPresentationRuntime {
         self.screens.containers.layouts()
     }
 
+    /// Controls the current container screen's layouts placed rather than spliced, for cache
+    /// tests.
+    #[cfg(test)]
+    pub fn engine_container_placed(&self) -> usize {
+        self.screens.containers.placed()
+    }
+
     /// The container frame the engine drew last build, if any.
     pub fn engine_container_frame(&self) -> Option<&EngineFrame> {
         self.projections.container.as_ref().map(|(frame, _)| frame)

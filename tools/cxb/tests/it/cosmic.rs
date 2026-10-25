@@ -1,3 +1,4 @@
+use super::drawing_context;
 use std::{fs, path::Path, process::Command};
 
 use experience_runtime::{
@@ -86,9 +87,14 @@ fn cosmic_runtime_child() {
         bundle: bundle.manifest.id.clone(),
         generation: INITIAL_BUNDLE_GENERATION,
     };
-    let mut client =
-        BundleHost::developer_in_process(bundle.component().unwrap(), owner, capabilities, 0)
-            .unwrap();
+    let mut client = BundleHost::developer_in_process(
+        bundle.component().unwrap(),
+        owner,
+        capabilities,
+        0,
+        drawing_context(0),
+    )
+    .unwrap();
     let (engine, _ticker) = load::engine().unwrap();
     let server = load::load(&engine, &package.join("server")).unwrap();
     assert_eq!(server.blocks.len(), 1);
@@ -188,6 +194,7 @@ fn cosmic_runtime_child() {
                     record: serde_json::to_vec(payload).unwrap(),
                 },
                 0,
+                &drawing_context(0),
             )
             .unwrap()
             .into_transaction();

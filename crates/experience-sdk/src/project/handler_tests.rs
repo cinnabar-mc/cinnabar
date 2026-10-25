@@ -19,9 +19,12 @@ mod shared { include!("../out/mod_shared.rs"); }
 use shared::{Ping, Pong, State};
 struct Client;
 static RECEIVED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static FRAMES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 #[client]
 impl ClientPart for Client {
     fn init() {}
+    /// Keeps presentation callbacks beside the generated message router.
+    fn frame() { FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
     /// Records the decoded response for the routing assertion.
     #[on_message]
     fn pong(pong: Pong) { RECEIVED.store(pong.request, std::sync::atomic::Ordering::Relaxed); }
@@ -46,6 +49,8 @@ fn routes_and_silently_drops_rejected_records() {
         assert_eq!(RECEIVED.load(std::sync::atomic::Ordering::Relaxed), 42);
     }
     assert_eq!(RECEIVED.load(std::sync::atomic::Ordering::Relaxed), 42);
+    <Client as client::bindings::Guest>::frame();
+    assert_eq!(FRAMES.load(std::sync::atomic::Ordering::Relaxed), 1);
     assert!(Pong::CONTROL);
     assert!(!State::CONTROL);
     let _send: fn(&Ping) -> Result<(), String> = client::send::<Ping>;

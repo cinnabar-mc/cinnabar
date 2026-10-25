@@ -106,7 +106,7 @@ fn dynamic_state(runtime: &AttachablesRuntime) -> (f32, f32) {
             .get(
                 runtime
                     .layout
-                    .named_slot(&runtime.assets, "variable.charge_amount"),
+                    .named_slot(&runtime.assets, "variable.counter"),
             )
             .unwrap_or(0.0),
         rig.clip_clocks

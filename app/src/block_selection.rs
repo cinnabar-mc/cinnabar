@@ -101,6 +101,7 @@ fn target(
         survival_reach(mode)
     };
     let registry = context.collisions.registry(stream.network_id_mode());
+    let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
     let world = PaletteWorld::new(
         stream.collision_store(),
         registry,
@@ -113,7 +114,8 @@ fn target(
                 .selected_stack()
                 .map(|item| item.block_runtime_id),
         ),
-    );
+    )
+    .with_cell_overlays(&overlay_ids);
     let vector = |value: Vec3| sim::Vec3::new(value.x as f64, value.y as f64, value.z as f64);
     let direct = world
         .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
@@ -143,7 +145,11 @@ fn target(
     ) {
         return None;
     }
-    let outline = world.block_outline(hit.block_pos, hit.runtime_id).ok()??;
+    // A picked cell overlay outlines its own box rather than its host's.
+    let outline = match hit.overlay {
+        Some(overlay) => overlay.outline,
+        None => world.block_outline(hit.block_pos, hit.runtime_id).ok()??,
+    };
     let point = |point: sim::Vec3| [point.x as f32, point.y as f32, point.z as f32];
     let assets = stream.runtime_assets();
     let shape = crack_shape_for_block(

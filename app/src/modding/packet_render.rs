@@ -416,36 +416,10 @@ pub(super) fn session(gameplay: &super::gameplay::GameplayContext<'_>) -> Drawin
         ),
     }
 }
-/// Publishes owner identity through the existing same-frame drawing authority.
-pub(super) fn publish_frame(
-    drawing: &Drawing,
-    gameplay: &super::gameplay::GameplayContext<'_>,
-    frame: &mut render_scene::mod_scene::retained::DrawingFrame,
-) {
-    let fence = session(gameplay);
-    frame.connection = fence.connection;
-    frame.dimension = fence.dimension;
-    let Some(stream) = gameplay
-        .world
-        .as_ref()
-        .and_then(|world| world.stream.as_ref())
-    else {
-        return;
-    };
-    for resources in &drawing.output.retained {
-        super::drawing_policy::publish_retained(resources, stream.authority().terrain(), frame);
-    }
-}
 /// Supports a packet-only configuration without introducing an empty component host.
 pub(super) fn publish_alone(scene: &mut render_scene::ModRenderScene, drawing: &Drawing) {
     drawing.publish_blocks(scene);
-    if scene.retained != drawing.output.retained
-        || !scene.passes.is_empty()
-        || scene.masks != drawing.output.masks
-        || !scene.vertices.is_empty()
-    {
-        scene.apply(&drawing.output, scene.generation().wrapping_add(1));
-    }
+    scene.apply_if_changed(&drawing.output);
 }
 
 #[cfg(test)]
@@ -496,6 +470,39 @@ mod tests {
         );
         assert!(drawing.output.retained.is_empty());
     }
+    #[test]
+    fn replayed_drawing_preserves_server_output_without_republishing() {
+        let mut drawing = Drawing::default();
+        drawing.update(
+            Some(scene()),
+            DrawingSession {
+                connection: 1,
+                permissions: mod_api::drawing::DrawingPermissions::ALL,
+                ..Default::default()
+            },
+        );
+        let server = Arc::new(draw::Resources::default());
+        let mut scene = render_scene::ModRenderScene::default();
+        scene.apply_server(
+            &RenderOutput {
+                retained: vec![Arc::clone(&server)],
+                ..Default::default()
+            },
+            1,
+        );
+        publish_alone(&mut scene, &drawing);
+        assert_eq!(scene.retained.len(), 2);
+        assert!(
+            scene
+                .retained
+                .iter()
+                .any(|layer| Arc::ptr_eq(layer, &server))
+        );
+        let generation = scene.generation();
+        publish_alone(&mut scene, &drawing);
+        assert_eq!(scene.generation(), generation);
+    }
+
     #[test]
     fn packet_only_output_uses_the_current_scene_generation() {
         let mut drawing = Drawing::default();

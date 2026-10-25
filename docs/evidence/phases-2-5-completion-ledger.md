@@ -702,7 +702,13 @@ group. Extent checks use conservative box and sphere bounds without revisiting v
 Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
 renderer is connected; actor root attachment uses the renderer publication and exact spawn
 references. Bone attachment, native output captures and hardware budgets remain incomplete
-and do not close any completion requirement.
+and do not close any completion requirement. Client parts reuse these imports and their
+host, with signed asset access, optional frames and session-scoped resource ownership.
+Epoch callbacks keep their native actor context, including actor-only retained snapshots.
+One bundle allocation ledger covers drawing, per-view instance capacity, masks and media;
+charges follow resident storage through its last GPU use. Celestial camera anchoring retains the geometry and byte budgets. Headless planet / star-cube
+rendering and F9 teardown cover the developer path; hardware qualification remains open in
+`plan.md`.
 
 Bounded procedural materials and SDK presets use a session animation phase.
 Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover

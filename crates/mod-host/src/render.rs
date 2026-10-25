@@ -5,18 +5,7 @@ use super::{State, cinnabar::extension::render as wit};
 use anyhow::{Result, bail};
 use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
-
-/// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
-static REVISION: AtomicU64 = AtomicU64::new(1);
-
-/// Allocates a process-unique identity across reloads and owners.
-fn next_revision() -> u64 {
-    REVISION.fetch_add(1, Ordering::Relaxed)
-}
+use std::sync::Arc;
 
 /// Preserves the admission category while legacy callers continue receiving plain detail.
 fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
@@ -26,7 +15,7 @@ fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
     }
 }
 
-pub(super) struct RenderState {
+pub(crate) struct RenderState {
     pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
     pub(super) retained: mod_render::retained::Store,
@@ -39,6 +28,7 @@ pub(super) struct RenderState {
     native_ribbons: Vec<mod_render::Ribbon>,
     native_generation: u64,
     combined: Option<RenderOutput>,
+    draw_limit: Option<usize>,
 }
 
 impl RenderState {
@@ -47,7 +37,7 @@ impl RenderState {
             masks: mod_render::masks::MaskStore::default(),
             committed: RenderOutput::default(),
             retained: Default::default(),
-            generation: next_revision(),
+            generation: mod_render::next_owner(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
             calls: 0,
@@ -56,7 +46,30 @@ impl RenderState {
             native_ribbons: Vec::new(),
             native_generation: 0,
             combined: None,
+            draw_limit: None,
         }
+    }
+
+    /// Applies a bundle ceiling before any guest drawing imports can run.
+    pub(crate) fn limit_draws(&mut self, limit: usize) {
+        self.draw_limit = Some(limit);
+        self.retained.limit_instances(limit);
+    }
+
+    /// Admits immediate and retained placements under the same per-bundle draw ceiling.
+    fn append_primitives(&mut self, primitives: Primitives) -> Result<(), String> {
+        let immediate = self.staged_primitives.draw_count() + primitives.draw_count();
+        if self
+            .draw_limit
+            .is_some_and(|limit| self.retained.instance_count() + immediate > limit)
+        {
+            return Err("bundle draw budget exceeded".into());
+        }
+        self.staged_primitives.append_checked(primitives)?;
+        if let Some(limit) = self.draw_limit {
+            self.retained.limit_instances(limit - immediate);
+        }
+        Ok(())
     }
 
     pub fn output(&self) -> &RenderOutput {
@@ -82,6 +95,9 @@ impl RenderState {
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
+        if let Some(limit) = self.draw_limit {
+            self.retained.limit_instances(limit);
+        }
     }
 
     /// Publishes masks, geometry and effects together after a successful callback.
@@ -97,7 +113,7 @@ impl RenderState {
             self.committed.passes = passes;
         }
         if changed {
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
     }
@@ -113,7 +129,7 @@ impl RenderState {
             changed = true;
         }
         if changed {
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
     }
@@ -126,7 +142,7 @@ impl RenderState {
     ) -> Result<(), mod_render::retained::DrawError> {
         self.retained.reconcile_entities(candidates, despawned)?;
         if self.publish_retained() {
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
         Ok(())
@@ -138,6 +154,7 @@ impl RenderState {
         if snapshot.geometry.is_empty()
             && snapshot.instances.is_empty()
             && snapshot.materials.is_empty()
+            && snapshot.entities.is_empty()
         {
             let changed = !self.committed.retained.is_empty();
             self.committed.retained.clear();
@@ -159,9 +176,12 @@ impl RenderState {
         self.retained.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
+        if let Some(limit) = self.draw_limit {
+            self.retained.limit_instances(limit);
+        }
         if native || self.committed != RenderOutput::default() {
             self.committed = RenderOutput::default();
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
             self.refresh_native_lines();
         }
     }
@@ -173,7 +193,7 @@ impl RenderState {
         }
         if ribbons != self.native_ribbons {
             self.native_ribbons = ribbons;
-            self.generation = next_revision();
+            self.generation = mod_render::next_owner();
         }
         self.refresh_native_lines();
     }
@@ -316,7 +336,7 @@ impl State {
             masks,
             source: spec.source.into(),
             shader: shader.into(),
-            revision: next_revision(),
+            revision: mod_render::next_owner(),
             enabled: true,
             params: [0.0; MAX_PASS_PARAMS],
         };
@@ -424,17 +444,14 @@ impl wit::Host for State {
                 .collect(),
             ..Default::default()
         };
-        Ok(self.render.staged_primitives.append_checked(primitives))
+        Ok(self.render.append_primitives(primitives))
     }
 
     fn draw(&mut self, primitives: wit::Primitives) -> Result<Result<(), String>> {
         if let Err(denied) = self.render_allowed()? {
             return Ok(Err(denied));
         }
-        Ok(self
-            .render
-            .staged_primitives
-            .append_checked(convert(primitives)))
+        Ok(self.render.append_primitives(convert(primitives)))
     }
 }
 
