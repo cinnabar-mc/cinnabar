@@ -49,6 +49,13 @@ fn checker() -> (Checker, Receiver<Request>, Sender<Response>) {
     )
 }
 
+/// Supplies an inert checker or a queued notice to exercise service publication without a network worker.
+pub(crate) fn service_fixture(message: Option<String>) -> Checker {
+    let mut checker = checker().0;
+    checker.message = message;
+    checker
+}
+
 #[test]
 fn absent_sources_disabled_checks_and_invalid_versions_never_queue_requests() {
     let (mut checker, incoming, _) = checker();

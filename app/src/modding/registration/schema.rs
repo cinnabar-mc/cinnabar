@@ -120,7 +120,7 @@ impl Registration {
                 && self.mods[..index].iter().any(|old| {
                     old.enabled
                         && old.grants.settings
-                        && super::selection::same_path(
+                        && launcher_host::mod_library::paths::same_path(
                             &mod_host::settings_companion(&old.component),
                             &mod_host::settings_companion(&entry.component),
                         )
@@ -128,10 +128,9 @@ impl Registration {
             {
                 return Err("active mods must not share a settings companion".into());
             }
-            if self.mods[..index]
-                .iter()
-                .any(|old| super::selection::same_path(&old.component, &entry.component))
-            {
+            if self.mods[..index].iter().any(|old| {
+                launcher_host::mod_library::paths::same_path(&old.component, &entry.component)
+            }) {
                 return Err("duplicate local extension identity".into());
             }
         }

@@ -1,5 +1,9 @@
 use super::*;
 use crate::modding::registration::selection;
+use launcher_host::{
+    mod_library::update::{PendingReload, install},
+    mod_updates::Downloaded,
+};
 
 const SOURCE: &str = "https://github.com/example/zoom/releases/latest/download/zoom.wasm";
 
@@ -66,7 +70,7 @@ fn automatic_install_preserves_registration_settings_and_existing_authority() {
         "zoom.wasm",
         &new,
     );
-    let message = install(&mods, &download).unwrap().message;
+    let message = install::<AppBackend>(&mods, &download).unwrap().message;
     assert!(message.contains("Updated renamed.wasm to v1.1.0"));
     assert_eq!(fs::read(&path).unwrap(), new);
     assert_eq!(selection::registered(&config)[0].entry, before);
@@ -103,7 +107,7 @@ fn wrong_versions_sources_invalid_components_and_cancellation_leave_original_int
             download.cancel_fixture();
         }
         assert!(
-            install(directory.path(), &download).is_err(),
+            install::<AppBackend>(directory.path(), &download).is_err(),
             "{version}, {source}, {valid}, {cancel}"
         );
         assert_eq!(fs::read(path).unwrap(), original);
@@ -124,19 +128,19 @@ fn replaced_or_removed_sources_cannot_receive_a_stale_download() {
         &component("1.1.0", SOURCE, true),
     );
     fs::write(&path, b"replacement selected by the user").unwrap();
-    assert!(install(directory.path(), &download).is_err());
+    assert!(install::<AppBackend>(directory.path(), &download).is_err());
     assert_eq!(
         fs::read(&path).unwrap(),
         b"replacement selected by the user"
     );
     fs::remove_file(&path).unwrap();
-    assert!(install(directory.path(), &download).is_err());
+    assert!(install::<AppBackend>(directory.path(), &download).is_err());
     assert!(!path.exists());
 }
 
 #[test]
 fn requested_update_worker_installs_and_acknowledges_completion_with_auto_install_disabled() {
-    use super::super::{Command, run};
+    use super::{Command, run};
     use crossbeam_channel::unbounded;
     let directory = tempfile::tempdir().unwrap();
     let mods = directory.path().join("mods");
@@ -151,11 +155,12 @@ fn requested_update_worker_installs_and_acknowledges_completion_with_auto_instal
     let (finished, completion) = unbounded();
     commands.send(Command::Update(download, finished)).unwrap();
     drop(commands);
-    run(
+    run::<AppBackend>(
         &mods,
         &directory.path().join("config"),
         &incoming,
         &outgoing,
+        crate::modding::RELOAD_INTERVAL,
         || Ok(None),
         |_| panic!("updates must not retire or remove the mod"),
     );
@@ -189,7 +194,7 @@ fn status(registration: &Path, state: &str) {
 
 #[test]
 fn reloading_waits_for_the_new_runtime_ack_and_preserves_grants() {
-    use super::super::scan;
+    use super::scan;
     use crossbeam_channel::unbounded;
     use std::time::Instant;
     let directory = tempfile::tempdir().unwrap();
@@ -208,10 +213,10 @@ fn reloading_waits_for_the_new_runtime_ack_and_preserves_grants() {
         "zoom.wasm",
         &component("1.1.0", SOURCE, true),
     );
-    let installed = install(&mods, &download).unwrap();
+    let installed = install::<AppBackend>(&mods, &download).unwrap();
     let (finished, completion) = unbounded();
     let now = Instant::now();
-    let pending = PendingReload::start(
+    let pending = PendingReload::start::<AppBackend>(
         &mods,
         &registration,
         installed,
@@ -297,7 +302,7 @@ fn automatic_packet_install_preserves_registration_and_authority() {
         "zoom.wasm",
         &next,
     );
-    install(directory.path(), &download).unwrap();
+    install::<AppBackend>(directory.path(), &download).unwrap();
     assert_eq!(fs::read(&path).unwrap(), next);
     assert_eq!(selection::registered(&config)[0].entry, before);
 }
