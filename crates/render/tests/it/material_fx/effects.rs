@@ -7,7 +7,7 @@ use crate::gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
 
 /// A `SNAPSHOT_SIDE`-wide texture of `format` whose left half is `left` and right half
 /// `right`, as RGBA8 or one 16-bit float channel.
-fn halves(
+pub(super) fn halves(
     gpu: &Gpu,
     format: wgpu::TextureFormat,
     left: [u8; 8],
@@ -367,4 +367,32 @@ fn particles_square_around_each_target_within_their_radius() {
     }";
     let none = particles(&gpu, hidden, 4, 1.0, &[[0.0, 0.0, 0.0, 1.0]]);
     assert!(none.chunks(4).all(|pixel| pixel[0] == none[0]));
+}
+
+#[test]
+fn the_scene_colour_reads_in_the_gamma_space_shade_returns() {
+    let Some(gpu) = Gpu::for_fixture("world material scene colour space") else {
+        return;
+    };
+    // A linear mid grey scene, as the host's colour target holds it.
+    let grey = [128, 128, 128, 255, 0, 0, 0, 0];
+    let colour = halves(&gpu, wgpu::TextureFormat::Rgba8Unorm, grey, grey);
+    let distance = halves(&gpu, wgpu::TextureFormat::R16Float, depth(TWO), depth(TWO));
+    let scene = Effects {
+        features: mod_render::world_material::Features {
+            scene: true,
+            ..Default::default()
+        },
+        scene: Some((&colour, &distance)),
+        ..Effects::default()
+    };
+    // Shade passes the scene through as its colour, which the host treats as gamma encoded
+    // like every Bedrock surface colour, so the host's own decode gives the grey back.
+    let through = "fn shade(input: WorldMaterialInput) -> Surface {
+        return Surface(scene_color(vec2<f32>(0.0)), 1.0, vec3<f32>(0.0));
+    }";
+    let frame = raster_effects(&gpu, through, &[], &[], &Inputs::default(), &scene);
+    let pixel = at(&frame, 0.5, 0.5);
+    // sRGB encoding of 128/255 is about 188/255.
+    assert!((185..=191).contains(&pixel[0]), "{pixel:?}");
 }

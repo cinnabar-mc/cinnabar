@@ -175,9 +175,15 @@ fn world_material_scene_pixel(offset: vec2<f32>) -> vec2<i32> {{
     let pixel = vec2<i32>(clamp(wanted, vec2<f32>(0.0), vec2<f32>(size - vec2<i32>(1))));
     return pixel;
 }}
-// The opaque colour already drawn `offset` pixels from this fragment, clamped to the screen.
+// sRGB-encodes a linear colour, the space `shade` returns its colours in.
+fn world_material_encode(linear: vec3<f32>) -> vec3<f32> {{
+    let c = clamp(linear, vec3<f32>(0.0), vec3<f32>(1.0));
+    return select(1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3<f32>(0.0031308));
+}}
+// The opaque colour already drawn `offset` pixels from this fragment, clamped to the screen,
+// in the space `shade` returns colours in.
 fn scene_color(offset: vec2<f32>) -> vec3<f32> {{
-    return textureLoad({SCENE_COLOR}, world_material_scene_pixel(offset), 0).rgb;
+    return world_material_encode(textureLoad({SCENE_COLOR}, world_material_scene_pixel(offset), 0).rgb);
 }}
 // The linear view depth, in blocks, of the opaque surface `offset` pixels from this fragment.
 fn scene_depth(offset: vec2<f32>) -> f32 {{

@@ -221,6 +221,8 @@ material's do. Ending the runtime clears the withdrawals.
   `scene_depth(offset)` read the view's opaque colour and linear depth in blocks, already drawn
   this frame, `offset` pixels from the fragment and clamped to the screen, and
   `fragment_depth()` the fragment's own depth, for refraction, heat haze and soft intersections.
+  `scene_color` returns the colour sRGB-encoded, the space `shade` returns colours in, so
+  passing it through as emission shows the world unchanged.
   Only premultiplied and additive classes may read it, since they draw after the opaque pass.
   While a published material reads the scene, each view copies its opaque colour (resolved
   when multisampled) and turns its depth into linear distance once the opaque pass and the
