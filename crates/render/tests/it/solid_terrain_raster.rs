@@ -1,5 +1,4 @@
-//! Culled solid cube runs must rasterise exactly the pixels of the two-sided cutout path, which
-//! discards back faces with one sample and gives them no coverage with several.
+//! Culled solid cube runs must rasterise exactly the pixels of the two-sided discard path.
 use crate::chunk_constants;
 use crate::gpu_snapshot;
 use crate::material_shader;
@@ -173,19 +172,15 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
     let sampler = gpu.device.create_sampler(&Default::default());
 
     let indices = chunk_constants::STATIC_QUAD_INDICES;
-    let source = |definitions: &[&str]| {
-        format!(
-            "{}\n{}",
-            shader_source::standalone(include_str!("../../src/chunk.wesl"), definitions),
-            RASTER_VERTEX.replace(
-                "RASTER_INDICES",
-                &indices.map(|index| format!("{index}u")).join(", ")
-            ),
-        )
-        .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
-    };
-    // Multisampled cutout terrain hides back faces through zero coverage instead of discard.
-    let variants = [(1, source(&[])), (4, source(&["ALPHA_TO_COVERAGE"]))];
+    let source = format!(
+        "{}\n{}",
+        shader_source::standalone(include_str!("../../src/chunk.wesl"), &[]),
+        RASTER_VERTEX.replace(
+            "RASTER_INDICES",
+            &indices.map(|index| format!("{index}u")).join(", ")
+        ),
+    )
+    .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
 
     let origin_point = Vec3::from_array(ORIGIN.map(|value| value as f32));
     let cameras = [
@@ -257,58 +252,48 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
             blend: None,
             write_depth: true,
         };
-        let raster = |cull_mode, samples: u32, alpha_to_coverage| RasterState {
+        let raster = |cull_mode| RasterState {
             primitive: wgpu::PrimitiveState {
                 cull_mode,
                 ..Default::default()
             },
-            multisample: wgpu::MultisampleState {
-                count: samples,
-                alpha_to_coverage_enabled: alpha_to_coverage,
-                ..Default::default()
-            },
             ..Default::default()
         };
+        let reference = gpu.render_with_state(
+            &source,
+            "raster_vertex",
+            &[draw("fragment", 0..quads.len() as u32)],
+            raster(None),
+        );
         let facing = sub_chunk_facing_faces(ORIGIN, eye.as_dvec3().to_array());
         let runs = layout.solid_runs(facing).collect::<Vec<_>>();
-        for (samples, source) in &variants {
-            let reference = gpu.render_with_state(
-                source,
-                "raster_vertex",
-                &[draw("fragment", 0..quads.len() as u32)],
-                raster(None, *samples, *samples > 1),
-            );
-            let solid_draws = runs
-                .iter()
-                .map(|run| draw("fragment_solid", run.clone()))
-                .collect::<Vec<_>>();
-            let culled = gpu.render_with_state(
-                source,
-                "raster_vertex",
-                &solid_draws,
-                raster(Some(wgpu::Face::Back), *samples, false),
-            );
-            let background = &reference[..4];
-            assert!(
-                reference
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .any(|pixel| pixel != background),
-                "camera {eye} sees terrain"
-            );
-            let mismatched = reference
+        let solid_draws = runs
+            .iter()
+            .map(|run| draw("fragment_solid", run.clone()))
+            .collect::<Vec<_>>();
+        let culled = gpu.render_with_state(
+            &source,
+            "raster_vertex",
+            &solid_draws,
+            raster(Some(wgpu::Face::Back)),
+        );
+        let background = &reference[..4];
+        assert!(
+            reference
                 .as_chunks::<4>()
                 .0
                 .iter()
-                .zip(culled.as_chunks::<4>().0.iter())
-                .filter(|(left, right)| left != right)
-                .count();
-            assert_eq!(
-                mismatched, 0,
-                "camera {eye} with runs {runs:?} at {samples} samples"
-            );
-        }
+                .any(|pixel| pixel != background),
+            "camera {eye} sees terrain"
+        );
+        let mismatched = reference
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(culled.as_chunks::<4>().0.iter())
+            .filter(|(left, right)| left != right)
+            .count();
+        assert_eq!(mismatched, 0, "camera {eye} with runs {runs:?}");
         culled_any |= runs.iter().map(|run| run.len()).sum::<usize>() < quads.len();
     }
     assert!(culled_any, "some camera must skip back-facing runs");

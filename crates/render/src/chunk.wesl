@@ -644,11 +644,6 @@ fn native_cube_colour(
 fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
-    // Under alpha to coverage a culled side covers no sample, exactly as a transparent texel
-    // does, which keeps `discard` and its depth-test constraints out of the multisampled program.
-    @if(ALPHA_TO_COVERAGE)
-    if (!material_face_is_visible(in.material_flags, front)) { return vec4(0.0); }
-    @if(!ALPHA_TO_COVERAGE)
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
     var sampled = sample_cube_texture(in, uv_dx, uv_dy);
     @if(!ALPHA_TO_COVERAGE)
@@ -667,9 +662,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
             cutout = cutout_mix(cutout, cube_alpha_footprint(in.next_texture, uv, uv_dx, uv_dy, sampled, in.material_flags), frame_blend);
         }
         coverage = cutout.coverage;
-        // A fragment covering no sample writes nothing, so it skips shading.
-        @if(!OPAQUE_OVERDRAW)
-        if (coverage <= 0.0) { return vec4(0.0); }
         if (sampled.a < TERRAIN_ALPHA_THRESHOLD && coverage > 0.0) { sampled = cutout.colour; }
     }
     @if(OPAQUE_OVERDRAW)
