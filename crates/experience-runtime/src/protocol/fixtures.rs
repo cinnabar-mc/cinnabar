@@ -20,6 +20,7 @@ struct Limits {
     max_client_sends: usize,
     max_client_send_bytes: usize,
     max_value_depth: usize,
+    max_blocks: usize,
     max_name_bytes: usize,
     max_state_values: usize,
     max_state_bits: u32,
@@ -481,7 +482,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "response_load_failed",
             pretty(&Response::LoadFailed {
-                reason: "server.wasm: SHA-256 does not match experience.toml".to_owned(),
+                reason: "server.wasm: SHA-256 does not match files.toml".to_owned(),
             }),
         ),
         (
@@ -583,6 +584,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 max_client_sends: MAX_CLIENT_SENDS,
                 max_client_send_bytes: MAX_CLIENT_SEND_BYTES,
                 max_value_depth: MAX_VALUE_DEPTH,
+                max_blocks: crate::limits::MAX_BLOCKS,
                 max_name_bytes: MAX_NAME_BYTES,
                 max_state_values: MAX_STATE_VALUES,
                 max_state_bits: MAX_STATE_BITS,

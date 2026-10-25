@@ -19,16 +19,18 @@ use crate::protocol::{ItemDef, PlacementState, StateDef, StateValues};
 fn returned_guest_lists_share_the_protocol_copy_ceiling() {
     let length = 32768;
     let count = crate::limits::MAX_FRAME_BYTES / length;
+    // Every string aliases the same bytes, just past the descriptors, in the module's one page.
+    let data = 1024 + count * 8;
+    assert!(data + length <= 65536);
     let mut stores = String::new();
     for index in 0..count {
         let descriptor = 1024 + index * 8;
         stores.push_str(&format!(
-            "i32.const {descriptor} i32.const 4096 i32.store \
+            "i32.const {descriptor} i32.const {data} i32.store \
              i32.const {} i32.const {length} i32.store ",
             descriptor + 4
         ));
     }
-    assert!(1024 + count * 8 <= 4096);
     let source = format!(
         r#"(component
         (core module $m

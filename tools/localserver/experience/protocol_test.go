@@ -27,6 +27,7 @@ type fixtureLimits struct {
 	MaxClientSendBytes  int    `json:"max_client_send_bytes"`
 	MaxValueDepth       int    `json:"max_value_depth"`
 	// The bounds on a block type, which the adapter checks again at registration.
+	MaxBlocks         int `json:"max_blocks"`
 	MaxNameBytes      int `json:"max_name_bytes"`
 	MaxStateValues    int `json:"max_state_values"`
 	MaxStateBits      int `json:"max_state_bits"`
@@ -377,6 +378,7 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxTells", maxTells, rust.MaxTells},
 		{"maxTellBytes", maxTellBytes, rust.MaxTellBytes},
 		{"maxClientSends", maxClientSends, rust.MaxClientSends},
+		{"maxBlocks", maxBlocks, rust.MaxBlocks},
 		{"maxNameBytes", maxNameBytes, rust.MaxNameBytes},
 		{"maxStateValues", maxStateValues, rust.MaxStateValues},
 		{"maxStateBits", maxStateBits, rust.MaxStateBits},

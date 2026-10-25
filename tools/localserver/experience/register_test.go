@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/png"
@@ -265,6 +266,36 @@ func TestReservedNamespaceFails(t *testing.T) {
 		t.Fatalf(`Register: %v; want an error saying that Experience id "minecraft" is reserved`, err)
 	}
 	assertNothingRegistered(t, loaded)
+}
+
+// An Experience may register at most maxBlocks blocks and maxItems items, as the runtime
+// admits; more fail before anything is registered, naming the Experience and the limit.
+func TestDeclarationCountsAreBounded(t *testing.T) {
+	path := writeTexture(t, "block.png", 1, 1)
+	blocks := make([]BlockDef, maxBlocks+1)
+	for i := range blocks {
+		blocks[i] = testBlock(fmt.Sprintf("many:block%d", i), path)
+	}
+	items := make([]ItemDef, maxItems+1)
+	for i := range items {
+		items[i] = ItemDef{ID: fmt.Sprintf("many:item%d", i), DisplayName: "Item", Icon: path, MaxStack: 64}
+	}
+	for _, tc := range []struct {
+		name   string
+		loaded Loaded
+		want   string
+	}{
+		{"blocks", Loaded{ID: "many", Blocks: blocks}, fmt.Sprintf(`"many" declares %d blocks; the limit is %d`, maxBlocks+1, maxBlocks)},
+		{"items", Loaded{ID: "many", Items: items}, fmt.Sprintf(`"many" declares %d items; the limit is %d`, maxItems+1, maxItems)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Register([]Loaded{tc.loaded})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Register: %v; want an error containing %s", err, tc.want)
+			}
+			assertNothingRegistered(t, []Loaded{tc.loaded})
+		})
+	}
 }
 
 // Breakable mining keeps its hardness and breaks as fast by hand as with any tool, which is the

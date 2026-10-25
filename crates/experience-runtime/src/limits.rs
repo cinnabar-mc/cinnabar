@@ -29,13 +29,27 @@ pub const MAX_CORE_INSTANCES: usize = 16;
 pub const MAX_WASM_STACK_BYTES: usize = 256 * 1024;
 /// Size of `server.wasm`.
 pub const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
-/// Size of `experience.toml`.
-pub const MAX_MANIFEST_BYTES: usize = 65_536;
+/// Size of `experience.toml`, which the runtime reads once per load. Besides the identity it holds
+/// the `[client]` table, whose declarations the client part bounds; cinnabar-cxb's
+/// `both_halves_read_an_experience_declaring_every_action` checks that the client's every action
+/// at the longest identifier fits.
+pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+/// Size of `files.toml`, the artifact's index, which the runtime reads once per load: room for
+/// [`MAX_ARTIFACT_ENTRIES`] entries of 512 bytes, a 64-digit hash and a path of over 400 bytes
+/// each.
+pub const MAX_INDEX_BYTES: usize = 4 * 1024 * 1024;
+/// Files and directories in an artifact, the manifest and the index included; the load walks no
+/// further. A block uses a geometry and some textures and an item an icon, so this leaves room
+/// for several files per block and item at [`MAX_BLOCKS`] and [`MAX_ITEMS`].
+pub const MAX_ARTIFACT_ENTRIES: usize = 8192;
 /// Bytes in an Experience's version; at least one is required, and none may be a control
 /// character.
 pub const MAX_VERSION_BYTES: usize = 64;
-/// Blocks one Experience may register.
-pub const MAX_BLOCKS: usize = 64;
+/// Blocks one Experience may register. Registration costs the server little per block: 256
+/// blocks and 512 items register in under 0.4 s, and the palette and resource pack the server
+/// then builds take 1.3 s and 146 KiB of 16×16 textures. Every state of each block is a palette
+/// entry, so a block's states (`MAX_STATE_BITS`) weigh more than the count of blocks.
+pub const MAX_BLOCKS: usize = 256;
 /// Bytes in a block's name, the part of its id after `<experience id>:`; at least one is
 /// required.
 pub const MAX_BLOCK_NAME_BYTES: usize = 32;
@@ -94,8 +108,8 @@ pub const MAX_REASON_BYTES: usize = 512;
 pub const MAX_LOGS: usize = 32;
 /// Bytes per log line.
 pub const MAX_LOG_BYTES: usize = 512;
-/// Items one Experience may register.
-pub const MAX_ITEMS: usize = 64;
+/// Items one Experience may register; see [`MAX_BLOCKS`] for their cost.
+pub const MAX_ITEMS: usize = 512;
 /// Bytes of an Experience's own data on one item stack.
 pub const MAX_ITEM_DATA_BYTES: usize = 8192;
 /// Items the adapter may list as the server's when it loads an Experience.
@@ -115,12 +129,14 @@ pub const MAX_NETWORK_BLOCKS: usize = 1024;
 /// flood stops before a member that would pass it and marks the network truncated.
 pub const MAX_NETWORK_DATA_BYTES: usize = 524_288;
 /// Encoded JSON bytes per IPC frame, excluding the 4-byte length prefix. The frame crosses a
-/// local pipe between the adapter and the runtime, and a callback request carries a network and
-/// an inventory: at the network bounds a request measured 2.37 MB, and an inventory whose every
+/// local pipe between the adapter and the runtime. A callback request carries a network and an
+/// inventory: at the network bounds a request measured 2.37 MB, and an inventory whose every
 /// slot holds MAX_ITEM_DATA_BYTES adds about 0.6 MB, 2.98 MB in all, which the Go adapter's
-/// TestNetworkAtItsBoundsFitsAFrame pins. Truncating real AE2 networks at a smaller frame would
-/// be worse.
-pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
+/// TestNetworkAtItsBoundsFitsAFrame pins; truncating real AE2 networks at a smaller frame would
+/// be worse. The `loaded` answer carries every block and item definition: AE2's 13 blocks
+/// answered 569 KB, 44 KB a block and 152 KB for its largest, and `MAX_BLOCKS` blocks shaped
+/// like its 38 KB cable answer 9.4 MB with `MAX_ITEMS` items, which a test pins.
+pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 // Hex doubles staged data, which may fill at most half of a result frame; the other half is
 // room for the remaining ops, client messages included.
@@ -137,3 +153,5 @@ const _: () = assert!(
 const _: () = assert!(2 * INVENTORY_SLOTS * MAX_ITEM_DATA_BYTES <= MAX_FRAME_BYTES / 4);
 // A network-wide read: each member's id and its states or data, then the staged writes.
 const _: () = assert!(2 * MAX_NETWORK_BLOCKS + MAX_STAGED_OPS <= MAX_HOST_CALLS);
+// An index of MAX_ARTIFACT_ENTRIES entries of 512 bytes fits its file.
+const _: () = assert!(MAX_ARTIFACT_ENTRIES * 512 <= MAX_INDEX_BYTES);

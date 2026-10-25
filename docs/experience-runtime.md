@@ -14,12 +14,17 @@ bedrock-local-server -dir <world> -addr 127.0.0.1:19132 \
   -experiences <artifacts> -experience-runtime <binary>
 ```
 
-Each immediate artifact directory contains `experience.toml`, `server.wasm` and
-`assets/`. The manifest declares `id`, `version`, `api`, `data-schema` and `[files]`,
-which indexes every other file with a lowercase SHA-256. Paths are relative,
-slash-separated and cannot contain traversal or symlinks. `[client]` is ignored by
-the server runtime; the bundle builder validates it separately. Other unknown keys
-are refused. See [manifest validation](../crates/experience-runtime/src/manifest.rs).
+Each immediate artifact directory contains `experience.toml`, `files.toml`,
+`server.wasm` and `assets/`. The manifest declares `id`, `version`, `api` and
+`data-schema`; `[client]` is ignored by the server runtime, and the bundle builder
+validates it separately. Other unknown keys are refused. The generated
+`files.toml` maps every other file's path to its lowercase SHA-256, one
+`"<path>" = "<sha256>"` line each, and loading refuses an unindexed, missing or
+changed file. Paths are relative, slash-separated and cannot contain traversal or
+symlinks. An artifact holds at most `MAX_ARTIFACT_ENTRIES` files and directories.
+Artifacts built when the manifest held this index as `[files]` are refused; move
+the table's entries to `files.toml`. See
+[manifest validation](../crates/experience-runtime/src/manifest.rs).
 
 The module must implement its declared server WIT. Client components, WASI,
 unknown imports and serialized native Wasmtime artifacts fail loading. Hashes
@@ -194,7 +199,7 @@ the adapter's mirrored commit limits are checked against generated fixtures.
 | --- | --- |
 | Fuel and deadlines | `CALLBACK_FUEL`, `REGISTER_FUEL`, `CALLBACK_DEADLINE`, `REGISTER_DEADLINE` |
 | Guest memory, stack, tables, instances | `MAX_MEMORY_BYTES`, `MAX_WASM_STACK_BYTES`, `MAX_TABLE_ELEMENTS`, `MAX_CORE_INSTANCES` |
-| Artifact and declarations | `MAX_COMPONENT_BYTES`, `MAX_MANIFEST_BYTES`, `MAX_BLOCKS`, `MAX_ITEMS`, `MAX_STATE_BITS`, `MAX_PERMUTATIONS` |
+| Artifact and declarations | `MAX_COMPONENT_BYTES`, `MAX_MANIFEST_BYTES`, `MAX_INDEX_BYTES`, `MAX_ARTIFACT_ENTRIES`, `MAX_BLOCKS`, `MAX_ITEMS`, `MAX_STATE_BITS`, `MAX_PERMUTATIONS` |
 | Callback work | `MAX_HOST_CALLS`, `MAX_STAGED_OPS`, `MAX_STAGED_DATA_BYTES`, `MAX_SCHEDULED_UPDATES`, `MAX_SCHEDULE_TICKS` |
 | Private/item data | `MAX_BLOCK_DATA_BYTES` per block or scoped record, `MAX_ITEM_DATA_BYTES` |
 | Messages and tells | `MAX_CLIENT_SENDS`, `MAX_CLIENT_SEND_BYTES`, `MAX_VALUE_DEPTH`, `MAX_TELLS`, `MAX_TELL_BYTES` |

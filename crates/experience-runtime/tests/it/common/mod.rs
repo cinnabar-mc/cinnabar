@@ -2,7 +2,7 @@
 //! the probe's callback requests. The probe selects a behavior by the interacted block's x; `p(x)`
 //! is that block and `up(x)` the one above.
 
-use experience_sdk::artifact::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
+use experience_sdk::artifact::{ASSETS_DIR, INDEX_FILE, MANIFEST_FILE, SERVER_WASM};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -455,8 +455,8 @@ pub fn hello_wasm() -> &'static [u8] {
     &WASM
 }
 
-/// A fresh probe artifact: the probe's `experience.toml` with real hashes, `server.wasm` and
-/// `assets/counter.png`. It is deleted when the returned guard drops.
+/// A fresh probe artifact: the probe's `experience.toml`, `server.wasm`, `assets/counter.png` and
+/// `files.toml` with their real hashes. It is deleted when the returned guard drops.
 pub fn probe_dir() -> TempDir {
     probe_dir_with(|_| {})
 }
@@ -476,30 +476,36 @@ pub fn probe_dir_with(edit: impl FnOnce(&Path)) -> TempDir {
     dir
 }
 
-/// Rewrites `[files]` with the SHA-256 of every file except the manifest.
+/// Rewrites `files.toml` with the SHA-256 of every file except the manifest and the index.
 pub fn rehash(dir: &Path) {
     let files: toml::Table = relative_files(dir)
         .into_iter()
-        .filter(|path| path != MANIFEST_FILE)
+        .filter(|path| path != MANIFEST_FILE && path != INDEX_FILE)
         .map(|path| {
             let hash = format!("{:x}", Sha256::digest(fs::read(dir.join(&path)).unwrap()));
             (path, toml::Value::String(hash))
         })
         .collect();
-    edit_manifest(dir, |manifest| {
-        manifest.insert("files".to_owned(), toml::Value::Table(files));
-    });
+    fs::write(dir.join(INDEX_FILE), toml::to_string(&files).unwrap()).expect("write index");
 }
 
 /// Applies `edit` to the parsed `experience.toml` and writes it back.
 pub fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut toml::Table)) {
-    let path = dir.join(MANIFEST_FILE);
-    let mut manifest: toml::Table = fs::read_to_string(&path)
-        .expect("read manifest")
+    edit_toml(&dir.join(MANIFEST_FILE), edit);
+}
+
+/// Applies `edit` to the parsed `files.toml` and writes it back.
+pub fn edit_index(dir: &Path, edit: impl FnOnce(&mut toml::Table)) {
+    edit_toml(&dir.join(INDEX_FILE), edit);
+}
+
+fn edit_toml(path: &Path, edit: impl FnOnce(&mut toml::Table)) {
+    let mut table: toml::Table = fs::read_to_string(path)
+        .expect("read TOML")
         .parse()
-        .expect("parse manifest");
-    edit(&mut manifest);
-    fs::write(&path, toml::to_string(&manifest).unwrap()).expect("write manifest");
+        .expect("parse TOML");
+    edit(&mut table);
+    fs::write(path, toml::to_string(&table).unwrap()).expect("write TOML");
 }
 
 /// A probe artifact whose `server.wasm` is [`LOOPING_REGISTER`] with the `server` world

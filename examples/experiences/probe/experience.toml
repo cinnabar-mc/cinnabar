@@ -21,6 +21,3 @@ id = "probe.items"
 schema = 1
 direction = "to_client"
 fields = [{ type = "list", max_items = 400, item = { type = "record", fields = [{ type = "integer", min = 0, max = 399 }, { type = "text", max_bytes = 16 }] } }]
-
-# Filled by the runtime test helper, because the hashes depend on the build.
-[files]
