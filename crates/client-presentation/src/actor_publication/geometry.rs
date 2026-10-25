@@ -156,26 +156,47 @@ impl HandRigBuilder {
 fn authored_rasters(
     assets: &assets::RuntimeEntityAssets,
 ) -> Arc<[(u32, render_api::render_state::RenderState)]> {
-    let render = assets.render_data();
-    render
-        .layers
+    render_rasters(assets.render_data())
+}
+
+/// Every raster a layer can draw with: its direct material and each resolved leaf of the
+/// Molang material selections, so a later choice never waits for its pipeline.
+fn render_rasters(
+    render: &assets::EntityRenderData,
+) -> Arc<[(u32, render_api::render_state::RenderState)]> {
+    let direct = render.layers.iter().map(|layer| {
+        (
+            layer.material,
+            layer.material_state,
+            layer.material_definition,
+        )
+    });
+    let selected = render
+        .material_selections
         .iter()
-        .filter_map(|layer| {
-            let raster = render
-                .materials
-                .get(layer.material_definition? as usize)?
-                .render_state();
-            Some((layer, raster))
+        .filter_map(|node| match node {
+            assets::EntityRenderMaterialSelection::Raster {
+                material,
+                state,
+                definition,
+            } => Some((*material, *state, *definition)),
+            _ => None,
+        });
+    direct
+        .chain(selected)
+        .filter_map(|(kind, state, definition)| {
+            let raster = render.materials.get(definition? as usize)?.render_state();
+            Some((kind, state, raster))
         })
-        .flat_map(|(layer, raster)| {
+        .flat_map(|(kind, state, raster)| {
             [
                 render_api::CombatVisuals::Modern,
                 render_api::CombatVisuals::Legacy112,
             ]
             .map(|profile| {
                 let material = render_model::ActorMaterial {
-                    kind: layer.material,
-                    state: layer.material_state,
+                    kind,
+                    state,
                     render_state: Some(raster),
                     glint: render_model::ActorGlint {
                         profile,
@@ -214,5 +235,34 @@ mod authored_raster_tests {
             assert!(words >= 2, "{layer:?}");
         }
         assert!(!rasters.is_empty());
+    }
+
+    #[test]
+    fn material_selection_leaves_are_published_without_a_direct_layer_material() {
+        use assets::entity::material::{EntityMaterialDefinition, EntityMaterialState};
+        let culled = EntityMaterialDefinition {
+            states: Box::new([EntityMaterialState::DisableCulling]),
+            ..Default::default()
+        };
+        let raster = culled.render_state();
+        assert_ne!(raster, EntityMaterialDefinition::default().render_state());
+        let render = assets::EntityRenderData {
+            materials: Box::new([EntityMaterialDefinition::default(), culled]),
+            material_selections: Box::new([assets::EntityRenderMaterialSelection::Raster {
+                material: assets::EntityRenderMaterial::Default,
+                state: None,
+                definition: Some(1),
+            }]),
+            ..Default::default()
+        };
+        let rasters = super::render_rasters(&render);
+        assert_eq!(
+            rasters
+                .iter()
+                .filter(|(_, published)| *published == raster)
+                .count(),
+            2,
+            "one word per combat profile"
+        );
     }
 }
