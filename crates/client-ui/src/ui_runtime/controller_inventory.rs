@@ -4,4 +4,6 @@
 //! inventory ledger and the current screen's authority.
 
 pub mod actions;
+mod lifetime;
 pub mod navigation;
+pub mod session;

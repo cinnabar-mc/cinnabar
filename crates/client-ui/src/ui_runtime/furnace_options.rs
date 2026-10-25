@@ -18,6 +18,11 @@ fn screen_options(mut options: FurnaceOptions) -> FurnaceOptions {
 impl UiRuntime {
     /// Starts one controller per window generation, retaining incoming updates separately.
     pub fn observe_inventory_window(&mut self, player: &player_state::PlayerState) {
+        let generation = player.inventory.ledger().storage_generation();
+        if self.container_storage_generation != generation {
+            self.advance_container_generation();
+            self.container_storage_generation = generation;
+        }
         self.screen
             .observe_window(player.inventory.ledger().storage_generation());
         if self.inventory_open() {

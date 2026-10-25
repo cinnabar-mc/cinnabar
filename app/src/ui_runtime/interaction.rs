@@ -4,6 +4,7 @@ mod chat;
 mod chat_coordinates;
 pub(crate) mod chat_modifiers;
 pub(super) mod command_macros;
+pub(crate) mod controller_inventory;
 mod drop_swing;
 pub(crate) mod input_capture;
 pub(crate) mod inventory;
@@ -96,6 +97,7 @@ pub(crate) fn drive_inventory_ui_actions(
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
     consent: Option<Res<client_state::ConsentInput>>,
+    controller: Option<Res<controller_inventory::ControllerInventoryInput>>,
 ) {
     let input_available = !consent.is_some_and(|consent| consent.0)
         && (driven.is_some()
@@ -171,6 +173,7 @@ pub(crate) fn drive_inventory_ui_actions(
         &notches,
         focus.as_deref_mut(),
         now_millis,
+        controller_inventory::effective_pointer(controller.as_deref()),
     );
 }
 
@@ -301,10 +304,11 @@ pub(crate) fn drive_chat_keyboard_input(
         Option<Res<crate::runtime::world::ClientWorld>>,
     ),
     mut focus: Option<ResMut<client_state::CursorFocus>>,
-    (window_events, mut window_cursor, mut semantic): (
+    (window_events, mut window_cursor, mut semantic, controller): (
         Option<Res<Messages<WindowEvent>>>,
         Local<MessageCursor<WindowEvent>>,
         Option<ResMut<crate::semantic_controls::SemanticInputRuntime>>,
+        Option<Res<controller_inventory::ControllerInventoryInput>>,
     ),
 ) {
     // Only the window event stream keeps keyboard and pointer events in arrival order.
@@ -488,7 +492,13 @@ pub(crate) fn drive_chat_keyboard_input(
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if (mouse_bindings && binding_mouse(menu.as_deref(), BindingId::Inventory, &mouse_buttons))
-            || binding_gamepad(menu.as_deref(), BindingId::Inventory, &gamepads)
+            || (binding_gamepad(menu.as_deref(), BindingId::Inventory, &gamepads)
+                // A face button a container role reads is that role's press, not a close.
+                && !controller_inventory::inventory_binding_is_contextual(
+                    menu.as_deref(),
+                    &runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                ))
         {
             runtime.toggle_inventory(&mut player_runtime, authority);
             dismissed |= !runtime.inventory_open();
@@ -562,6 +572,7 @@ pub(crate) fn drive_chat_keyboard_input(
                         menu.as_deref(),
                         focus.as_deref_mut(),
                         &time,
+                        controller_inventory::effective_pointer(controller.as_deref()),
                     );
                 }
             }
@@ -872,6 +883,7 @@ pub(crate) fn drive_chat_keyboard_input(
                         menu.as_deref(),
                         focus.as_deref_mut(),
                         &time,
+                        controller_inventory::effective_pointer(controller.as_deref()),
                     );
                     kept.retain(|candidate| *candidate != earlier);
                     consumed.push(earlier);
@@ -911,6 +923,7 @@ pub(crate) fn drive_chat_keyboard_input(
                         menu.as_deref(),
                         focus.as_deref_mut(),
                         &time,
+                        controller_inventory::effective_pointer(controller.as_deref()),
                     );
                 }
                 PressRoute::Screen { .. } => {

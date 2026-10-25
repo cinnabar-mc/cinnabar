@@ -1,7 +1,7 @@
 # Controller inventory and container UI specification
 
-Status: design plus implemented navigation/action foundations; app wiring and
-Bedrock controller acceptance remain incomplete. Researched 2026-10-25.
+Status: ordinary-cell controller routing and rendering are wired; recipe/widget
+integration and Bedrock controller acceptance remain incomplete. Researched 2026-10-25.
 
 ## 1. Scope and evidence rules
 
@@ -37,11 +37,11 @@ a separate license/attribution review. It is not authority for Bedrock transacti
 
 | Area | Finding and source |
 | --- | --- |
-| Inventory open/close | Implemented through persisted `BindingId::Inventory` in `app/src/ui_runtime/interaction.rs`. This is not slot interaction. |
+| Inventory open/close | Uses persisted `BindingId::Inventory` in `app/src/ui_runtime/interaction.rs`; controller UI roles take precedence over overlapping gameplay bindings while a supported container is open. Back reuses existing close cleanup. |
 | Main menu controller navigation | Implemented: D-pad focus and activation in `crates/client-shell/src/menu/input.rs`. Do not assume this routes into containers. |
 | Other controller-aware UI | Chat, emotes and server forms have separate paths; e.g. `app/src/ui_runtime/forms/interaction.rs`. These are integration precedents, not inventory coverage. |
-| Open-container input | `app/src/ui_runtime/interaction/inventory.rs::apply_inventory_pointer` reads `Window::cursor_position`, mouse edges, keyboard presses and wheel input. No gamepad navigation/cursor/action reducer is wired here. |
-| Inventory state | `crates/client-ui/src/ui_runtime/screen_state.rs` retains hover, pointer gestures, scroll/search and station state; no container gamepad navigation state is present. |
+| Open-container input | `app/src/ui_runtime/interaction/controller_inventory.rs` samples controller input before pointer dispatch; `apply_inventory_pointer` reads the effective OS or virtual GUI pointer instead of overwriting controller input with a stationary OS cursor. |
+| Inventory state | A retained Bevy-free controller session owns navigation and action edges. `UiRuntime` owns open-instance generation and publishes controller focus/cursor state through the inventory presentation snapshot. |
 | Focus infrastructure | `crates/json-ui/src/input/{focus,navigate,mapping}.rs` already understands authored focus metadata, overrides, containers, precedence and input-mode conditions. Reuse it. |
 | Visible targets | Engine container frames/hits and `crates/ui-screens/src/container_actions.rs::InventoryCellHit` address player/storage/armor/offhand/crafting/output/recipe/widget targets. |
 | Item operations | `crates/client-ui/src/ui_runtime/{inventory_actions,inventory_drag,interaction}.rs` and `crates/inventory/src/inventory_ledger/` already implement substantial pointer/semantic behavior. They are reusable owners, not proof every station is complete. |
@@ -52,15 +52,26 @@ Conclusion: **partially implemented**, not absent and not controller-complete.
 Opening inventory currently does not establish that D-pad, sticks, take/place,
 quick transfer or crafting are available without a mouse.
 
-The subsequent foundation implementation lives in
+The controller implementation lives in
 `crates/client-ui/src/ui_runtime/controller_inventory/`: a pure navigation reducer
-and semantic action dispatch through the existing ledger, with regression tests.
+and retained session, plus semantic action dispatch through the existing ledger.
 Dispatch requires a captured screen token and matching resolved/current semantic
-selections, including layout revision. These modules are registered but are not
-yet called by the app's gamepad inventory path. Physical bindings, effective
-virtual pointer routing, focus/cursor rendering, scroll reveal, magnet behavior
-and live controller-only acceptance remain open. No installed-app behavior is
-changed by these foundations alone.
+selections, including layout revision. App routing admits ordinary player,
+storage, equipment, crafting-input and crafting-output cells. Recipe/catalog rows
+and widgets are intentionally excluded rather than assigned positional identities.
+Authored focus metadata and a client-owned cross pointer share the dispatch GUI
+coordinates. Opening, interruptions and controller changes require neutral input;
+same-frame UI close retires the captured gameplay sample.
+
+The first routing policy is explicitly provisional: left stick moves the cursor,
+D-pad navigates, physical South takes/places, West takes half/places one, North
+quick-transfers and East goes Back, respecting saved face-button swaps. Gather and
+drop have no default physical binding. Cursor speed, radial deadzone and repeat
+timings are defined by `SESSION_SETTINGS` in the app adapter, independently of
+camera sensitivity. These are Cinnabar trial settings, not Bedrock defaults. Persisted cursor
+options, contextual prompts, recipe/widget activation, scroll reveal, virtualized
+neighbors, magnets and live controller-only acceptance remain open. Ordinary-cell
+routing does not establish complete survival/chest/workbench/furnace acceptance.
 
 Reuse existing ledger entry points, including `begin_target_gesture`,
 `begin_quick_move`, `begin_gather`, `begin_drop`, crafting/recipe-placement and

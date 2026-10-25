@@ -344,10 +344,15 @@ is a broader claim than the presence of these features.
   [controller inventory/UI specification](docs/reference/controller-inventory-ui.md)
   records the implementation audit, pinned Bedrock/Controlify evidence, native
   capture gates and staged delegation plan. Bevy-free navigation and semantic
-  action foundations now exist with focused regression coverage, including stale
-  target rejection and transformed/clipped focus geometry. App routing, physical
-  bindings, cursor/focus rendering, scroll reveal and magnets remain open; these
-  foundations do not yet enable controller-only inventory use or close parity.
+  action foundations now connect to app input and cursor/focus rendering for
+  ordinary inventory, storage, equipment and crafting cells. Regression coverage
+  includes stale targets, clipped geometry, open-instance generations, ownership
+  handoff, neutral-gated action edges and same-frame-close gameplay consumption.
+  Left-stick cursor, D-pad and swapped face-button roles use explicitly provisional
+  Cinnabar defaults, not measured Bedrock bindings/timings. Recipe/catalog/widget
+  activation, contextual prompts, persisted cursor options, scroll reveal,
+  virtualized neighbors and magnets remain open. Controller-only screen-family
+  acceptance and native capture evidence are missing; this does not close parity.
 
 macOS has a provisional, read-only Switch full-report adapter for `057e:2009`
 devices already streaming report `0x30`. The client enables Bevy's gamepad types,

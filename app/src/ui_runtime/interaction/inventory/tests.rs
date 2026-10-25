@@ -302,6 +302,7 @@ fn pointer_edge(
         &[],
         None,
         0,
+        super::EffectivePointer::Os,
     );
 }
 

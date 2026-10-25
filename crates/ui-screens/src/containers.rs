@@ -28,6 +28,7 @@ use inventory::inventory_ledger::InventoryTarget;
 /// First UI inventory slot of the personal 2x2 and the workbench 3x3 grids.
 const PERSONAL_CRAFT_SLOT: u8 = 28;
 const WORKBENCH_CRAFT_SLOT: u8 = 32;
+mod controller;
 mod held_stack;
 #[cfg(test)]
 mod held_stack_tests;
@@ -72,6 +73,11 @@ impl ScreenLayout {
     /// equal GUI px).
     pub fn hit(self, frame: &EngineFrame, gui: [f32; 2]) -> Option<InventoryCellHit> {
         let region = hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?;
+        self.region_hit(region)
+    }
+
+    /// Maps a laid-out region directly, including partially clipped/transformed cells.
+    pub fn region_hit(self, region: &json_ui::HitRegion) -> Option<InventoryCellHit> {
         if !matches!(self, ScreenLayout::Book) && region.pressed.as_deref() == Some(CLOSE_BUTTON) {
             return Some(InventoryCellHit::Widget(Widget::Close));
         }
@@ -152,6 +158,10 @@ pub struct ContainerInput<'a> {
     pub previous: Option<&'a EngineFrame>,
     /// The pointer in GUI px.
     pub pointer: Option<[f32; 2]>,
+    /// Directional selection, subordinate to any text editor's focus.
+    pub controller_focus: Option<&'a str>,
+    /// Draw the local virtual pointer only while a controller owns it.
+    pub controller_cursor: bool,
     /// The hovered item's full tooltip (name, enchantments, lore), which replaces its bound name.
     pub tooltip: Option<&'a str>,
     /// The scene's animation clocks.
@@ -201,6 +211,8 @@ impl ContainerScreen {
             title,
             previous,
             pointer,
+            controller_focus,
+            controller_cursor,
             tooltip,
             clocks,
             id_aux,
@@ -253,17 +265,27 @@ impl ContainerScreen {
                             .find(|region| region.kind == json_ui::HitKind::EditBox)
                     })
                     .map(|region| region.key.clone()),
-            },
+            }
+            .or_else(|| {
+                controller::focus(
+                    previous.map(|frame| &*frame.hits).unwrap_or_default(),
+                    screen.text_focused || screen.book.is_some(),
+                    controller_focus,
+                )
+            }),
             scroll: screen.container_scroll.clone(),
             ..ViewState::default()
         };
-        let overlay = held_stack(
+        let mut overlay = held_stack(
             source.player().inventory.ledger().cursor_stack(),
             items.cursor_icon,
             items.cursor_durability,
             pointer,
             &mut icons,
         );
+        if controller_cursor {
+            overlay.extend(controller::cursor(pointer));
+        }
         let art = ScreenArt {
             view: Some(&view),
             tooltip,

@@ -149,6 +149,15 @@ impl Navigation {
         self.output = Output::default();
     }
 
+    /// Acquires an existing pointer for action-only controller use, without moving
+    /// it or changing its selection. Subsequent neutral samples retain ownership.
+    pub fn acquire_cursor(&mut self) -> &Output {
+        if self.output.mode == Mode::Mouse && self.output.cursor.is_some() {
+            self.output.mode = Mode::Cursor;
+        }
+        &self.output
+    }
+
     /// Reduce one sample using caller time. Backwards time cancels/rearms safely.
     /// Repeat catches up elapsed deadlines, so focus results do not depend on FPS.
     pub fn update(&mut self, frame: Frame<'_>, input: Input) -> &Output {

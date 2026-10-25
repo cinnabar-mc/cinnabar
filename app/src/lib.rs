@@ -33,9 +33,9 @@ mod item_use;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod lifecycle;
 pub mod local_player;
-mod melee;
 #[cfg(target_os = "macos")]
 mod macos_gamepad;
+mod melee;
 #[cfg(not(target_arch = "wasm32"))]
 mod modding;
 pub mod movement;

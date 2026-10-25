@@ -119,11 +119,18 @@ pub(crate) fn finalize_semantic_input_after_ui_authority(
     mut route: ResMut<SemanticRouteState>,
     mut published: ResMut<SemanticInputSnapshot>,
     emote_input: Option<Res<client_state::ScreenInputConsumed>>,
+    controller: Option<
+        Res<crate::ui_runtime::interaction::controller_inventory::ControllerInventoryInput>,
+    >,
 ) {
     let routed = std::mem::take(&mut route.routed);
     if !routed {
         published.clear();
         return;
+    }
+    // The container screen took this frame's controller edges, even if it closed within the frame.
+    if controller.is_some_and(|input| input.consumed_gameplay_edges()) {
+        runtime.release_all(semantic_input::ReleaseReason::UiFocusTaken);
     }
     if emote_input.is_some_and(|consumed| consumed.0) {
         // Raw devices were sampled before the wheel could open and close. Retire
