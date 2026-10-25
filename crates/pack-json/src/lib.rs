@@ -106,8 +106,9 @@ fn fits_parse_budget(bytes: &[u8], budget: usize) -> bool {
     .is_some_and(|parsed| parsed <= budget)
 }
 
-/// Parses one complete pack document, accepting comments, a BOM and trailing
-/// commas. The requested type keeps its own shape and duplicate-key validation.
+/// Parses one complete pack document, accepting comments, a BOM, trailing commas
+/// and raw control characters in strings. The requested type keeps its own shape
+/// and duplicate-key validation.
 /// A document whose value tree could exceed [`MAX_PARSED_BYTES`] is an error.
 pub fn parse_jsonc<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error> {
     if !fits_parse_budget(bytes, MAX_PARSED_BYTES) {
@@ -143,7 +144,7 @@ pub fn normalize_jsonc(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(normalized)
 }
 
-/// Converts pack text and replaces comments and trailing commas with whitespace.
+/// Converts pack text, blanks comments and trailing commas, and escapes raw string controls.
 fn prepare_jsonc(bytes: &[u8]) -> Result<Vec<u8>, serde_json::Error> {
     #[cfg(test)]
     tests::PREPARE_CALLS.with(|calls| calls.set(calls.get() + 1));
@@ -151,7 +152,35 @@ fn prepare_jsonc(bytes: &[u8]) -> Result<Vec<u8>, serde_json::Error> {
     let stripped = strip_comments(text.as_bytes()).ok_or_else(|| {
         <serde_json::Error as serde::de::Error>::custom("unterminated string or block comment")
     })?;
-    Ok(strip_trailing_commas(&stripped))
+    Ok(escape_string_controls(&strip_trailing_commas(&stripped)))
+}
+
+/// Escapes raw U+0000–U+001F bytes inside strings without changing existing escape sequences.
+fn escape_string_controls(bytes: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(bytes.len());
+    let (mut in_string, mut escaped) = (false, false);
+    for &byte in bytes {
+        if in_string && !escaped && byte < b' ' {
+            output.extend_from_slice(&[
+                b'\\',
+                b'u',
+                b'0',
+                b'0',
+                b'0' + (byte >> 4),
+                b"0123456789abcdef"[usize::from(byte & 0xf)],
+            ]);
+            continue;
+        }
+        output.push(byte);
+        if escaped {
+            escaped = false;
+        } else if in_string && byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            in_string = !in_string;
+        }
+    }
+    output
 }
 
 /// Replaces comments outside strings with spaces while preserving line breaks.
