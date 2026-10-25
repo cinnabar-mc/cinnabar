@@ -99,8 +99,8 @@ fn extension_is_hidden_while_chat_or_inventory_owns_input() {
     for inventory in [false, true] {
         let mut presentation = presentation();
         let mut runtime = UiRuntime::new(1);
-        runtime.inventory_open = inventory;
-        runtime.chat_focused = !inventory;
+        runtime.session.inventory_open = inventory;
+        runtime.session.chat_focused = !inventory;
         let build = |presentation: &mut UiPresentationRuntime| {
             presentation
                 .build(

@@ -681,8 +681,8 @@ fn cards_cannot_bypass_inventory_chat_loading_server_or_player_hud_visibility() 
         let mut p = presentation(gate == 0);
         let mut runtime = UiRuntime::new(1);
         match gate {
-            1 => runtime.inventory_open = true,
-            2 => runtime.chat_focused = true,
+            1 => runtime.session.inventory_open = true,
+            2 => runtime.session.chat_focused = true,
             3 => p.loading_stage = Some(ui::LoadingStage::Connecting),
             4 => {
                 let mut options = launcher::menu::settings_options::SettingsOptions::default();

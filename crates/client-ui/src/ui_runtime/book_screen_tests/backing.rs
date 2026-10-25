@@ -70,7 +70,7 @@ fn held_book_uses_backing_behind_screen_prediction() {
                 true
             })
         );
-        assert!(runtime.screen.book.as_ref().unwrap().editable);
+        assert!(runtime.session.screen.book.as_ref().unwrap().editable);
         assert_eq!(packets.len(), 1);
         let transaction =
             protocol::test_support::transactions::observe_transaction(&packets[0]).unwrap();
@@ -123,7 +123,7 @@ fn screen_only_book_does_not_open() {
             "backing stone cannot use a book"
         ))
     );
-    assert!(runtime.screen.book.is_none());
+    assert!(runtime.session.screen.book.is_none());
 }
 
 /// An unrelated retained input does not prevent an admitted backing-book initialization.
@@ -159,7 +159,7 @@ fn held_book_opens_during_crafting_recovery() {
         })
     );
     assert_eq!(sent, 1);
-    assert!(runtime.screen.book.is_some());
+    assert!(runtime.session.screen.book.is_some());
 }
 
 /// Reading an initialized or written book still belongs to ordinary item use.
@@ -204,6 +204,9 @@ fn initialized_books_send_item_use_before_opening() {
             transaction.body,
             protocol::test_support::transactions::TransactionBody::ItemUse(_)
         ));
-        assert_eq!(runtime.screen.book.as_ref().unwrap().editable, editable);
+        assert_eq!(
+            runtime.session.screen.book.as_ref().unwrap().editable,
+            editable
+        );
     }
 }

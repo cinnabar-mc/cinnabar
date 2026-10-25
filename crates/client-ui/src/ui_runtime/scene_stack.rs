@@ -261,7 +261,7 @@ impl UiRuntime {
     }
 
     pub fn note_player_hurt(&mut self) {
-        self.hurt_pending = true;
+        self.session.hurt_pending = true;
     }
 }
 
@@ -337,7 +337,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         menu: Option<&dyn MenuScene>,
     ) {
-        if !std::mem::take(&mut self.hurt_pending) {
+        if !std::mem::take(&mut self.session.hurt_pending) {
             return;
         }
         let host = SceneHost::of(menu, self);

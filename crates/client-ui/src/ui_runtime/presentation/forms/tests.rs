@@ -823,7 +823,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
-    runtime.screen = launcher::menu::MenuScreen::Play;
+    runtime.session.screen = launcher::menu::MenuScreen::Play;
     let flat = World {
         options: Default::default(),
         id: "0123456789abcdef".to_owned(),

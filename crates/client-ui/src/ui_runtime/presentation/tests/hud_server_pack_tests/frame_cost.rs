@@ -34,7 +34,7 @@ fn offline_server_hud_publication_cost() {
             let index = sample as u64;
             let now = index * 8;
             if changing {
-                runtime.hud.set_actionbar(
+                runtime.session.hud.set_actionbar(
                     Arc::from(format!("Online: {} | Ping: {}ms", index % 7, index % 13)),
                     index + 100,
                     now,

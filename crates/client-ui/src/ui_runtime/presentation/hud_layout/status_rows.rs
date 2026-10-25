@@ -149,6 +149,7 @@ fn hearts(
 ) -> HeartPaint {
     let variant = runtime.gameplay_hud().heart_variant(now_tick);
     let damage = runtime
+        .session
         .local_actor_damage
         .filter(|damage| damage.flash_active());
     let hardcore = runtime.gameplay_hud().hardcore();

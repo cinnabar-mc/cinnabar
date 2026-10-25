@@ -20,7 +20,7 @@ impl UiPresentationRuntime {
     /// Only launcher scenes with no live overlay or continuously animated preview are retained.
     fn retainable_menu(&self, runtime: &UiRuntime) -> Option<&MenuView> {
         #[cfg(not(target_arch = "wasm32"))]
-        if runtime.experiences.active || runtime.experiences.holds_world_entry() {
+        if runtime.session.experiences.active || runtime.session.experiences.holds_world_entry() {
             return None;
         }
         let view = self.menu_view.as_deref()?;
@@ -54,15 +54,15 @@ impl UiPresentationRuntime {
                     .is_some_and(|event| event.countdown))
             && !(view.screen == MenuScreen::Home && self.player_preview_icon.is_some())
             && self.loading_stage.is_none()
-            && !runtime.chat_focused
-            && !runtime.inventory_open
-            && !runtime.local_sleeping
-            && !runtime.emotes.is_open()
-            && !runtime.sign_editor.is_open()
-            && !runtime.forms.owns_input()
-            && !runtime.credits.owns_input()
-            && runtime.hud.toasts().is_empty()
-            && runtime.hud.standing_toast().is_none()
+            && !runtime.session.chat_focused
+            && !runtime.session.inventory_open
+            && !runtime.session.local_sleeping
+            && !runtime.session.emotes.is_open()
+            && !runtime.session.sign_editor.is_open()
+            && !runtime.session.forms.owns_input()
+            && !runtime.session.credits.owns_input()
+            && runtime.session.hud.toasts().is_empty()
+            && runtime.session.hud.standing_toast().is_none()
             && !self.screens.mod_ui.mod_panel_painting()
             && !self.screens.mod_ui.experience_modal_open())
         .then_some(view)
@@ -188,7 +188,10 @@ mod mod_update_tests {
             "the toast slides in and updates over the menu"
         );
         runtime.retire_standing_toast(1_000);
-        runtime.hud.expire(1_000 + ui::TOAST_SLIDE_OUT_MILLIS);
+        runtime
+            .session
+            .hud
+            .expire(1_000 + ui::TOAST_SLIDE_OUT_MILLIS);
         assert!(presentation.retainable_menu(&runtime).is_some());
     }
 }

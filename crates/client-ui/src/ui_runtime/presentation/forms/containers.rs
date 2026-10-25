@@ -143,6 +143,7 @@ impl ContainerSource for ContainerAuthority<'_> {
         NameSources {
             components: self
                 .runtime
+                .session
                 .session_items
                 .clone()
                 .map(|items| items as Arc<dyn Any + Send + Sync>),

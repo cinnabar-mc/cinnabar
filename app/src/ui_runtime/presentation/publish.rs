@@ -150,12 +150,13 @@ pub(crate) fn prepare_ui_runtime(
         .cloned();
     if let Some(stream) = client_world.stream.as_mut() {
         stream.set_totem_tracking(totem_style.is_some());
-        runtime.player_roster.set_totem_annotations(
+        runtime.session.player_roster.set_totem_annotations(
             totem_style.as_ref(),
             stream.authority().player_totem_activations(),
         );
     } else {
         runtime
+            .session
             .player_roster
             .set_totem_annotations(None, std::iter::empty());
     }
@@ -450,6 +451,7 @@ pub(crate) fn prepare_ui_runtime(
         );
     }
     runtime
+        .session
         .player_roster
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
@@ -502,14 +504,20 @@ pub(crate) fn prepare_ui_runtime(
                 tag.set_cinnabar_badge(
                     authority
                         .actor_player_roster_identity(tag.runtime_id())
-                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
+                        .is_some_and(|(xuid, uuid)| {
+                            runtime.session.player_roster.has_badge(xuid, uuid)
+                        }),
                 );
                 if totem_style.as_ref().is_some_and(|style| style.show_nametag)
                     && let Some(actor) = authority.actor(tag.runtime_id())
                     && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
                 {
                     tag.set_counter_annotation(
-                        runtime.player_roster.totem_annotation(uuid).cloned(),
+                        runtime
+                            .session
+                            .player_roster
+                            .totem_annotation(uuid)
+                            .cloned(),
                     );
                 }
 

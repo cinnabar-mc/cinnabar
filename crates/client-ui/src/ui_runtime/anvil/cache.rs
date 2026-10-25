@@ -55,6 +55,7 @@ impl UiRuntime {
         }
         player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
             || self
+                .session
                 .hud
                 .experience()
                 .is_some_and(|xp| i64::from(xp.level) >= i64::from(preview.outcome.cost))
@@ -65,6 +66,7 @@ impl UiRuntime {
     pub fn anvil_preview(&self, player: &player_state::PlayerState) -> Option<Arc<AnvilPreview>> {
         let ledger = self.inventory_ledger(player);
         let mut cache = self
+            .session
             .anvil_cache
             .0
             .lock()

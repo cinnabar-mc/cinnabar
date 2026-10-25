@@ -393,6 +393,7 @@ fn attempt_connect(
     session
         .state
         .runtime
+        .session
         .experiences
         .select_destination(&address);
     menu.begin_join_progress(&address, local_world);

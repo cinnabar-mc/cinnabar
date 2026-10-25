@@ -352,7 +352,7 @@ impl SemanticHud {
         changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
         changed |= replace(
             &mut self.model.chat_local_player,
-            Arc::clone(&runtime.local_player_display_name),
+            Arc::clone(&runtime.session.local_player_display_name),
         );
         if reset
             || self.chat_options != Some(options)
