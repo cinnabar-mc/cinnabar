@@ -371,9 +371,14 @@ mod tests {
     /// Runs `filter` as the kernel does on system call `call` with `args` from the native
     /// architecture and returns its verdict.
     fn verdict(filter: &[sock_filter], call: libc::c_long, args: [u64; 6]) -> u32 {
+        verdict_on(filter, ARCH, call, args)
+    }
+
+    /// [`verdict`] for a call made through the ABI of audit architecture `arch`.
+    fn verdict_on(filter: &[sock_filter], arch: u32, call: libc::c_long, args: [u64; 6]) -> u32 {
         let mut data = [0u8; 64];
         data[0..4].copy_from_slice(&(call as u32).to_le_bytes());
-        data[4..8].copy_from_slice(&ARCH.to_le_bytes());
+        data[4..8].copy_from_slice(&arch.to_le_bytes());
         for (index, arg) in args.iter().enumerate() {
             let at = ARG0_LOW as usize + 8 * index;
             data[at..at + 8].copy_from_slice(&arg.to_le_bytes());
@@ -551,6 +556,30 @@ mod tests {
             libc::SYS_mq_getsetattr,
         ] {
             assert_eq!(helper(call, &[0, 0, 0]), EPERM, "{call}");
+        }
+    }
+
+    /// A call through a 32-bit compatibility ABI, or through x32 on x86-64, kills the process
+    /// whatever its number, so no call escapes the native table the filter checks.
+    #[test]
+    fn foreign_abis_kill_the_process() {
+        /// `AUDIT_ARCH_I386` and `AUDIT_ARCH_ARM`, the compatibility ABIs.
+        #[cfg(target_arch = "x86_64")]
+        const COMPAT: u32 = 0x4000_0003;
+        #[cfg(target_arch = "aarch64")]
+        const COMPAT: u32 = 0x4000_0028;
+        let filter = program(OWN);
+        for call in [libc::SYS_read, libc::SYS_getpid, libc::SYS_execve] {
+            assert_eq!(
+                verdict_on(&filter, COMPAT, call, [0; 6]),
+                SECCOMP_RET_KILL_PROCESS,
+                "{call}"
+            );
+        }
+        #[cfg(target_arch = "x86_64")]
+        for call in [libc::SYS_read, libc::SYS_execve] {
+            let x32 = call | X32_SYSCALL_BIT as libc::c_long;
+            assert_eq!(verdict(&filter, x32, [0; 6]), SECCOMP_RET_KILL_PROCESS);
         }
     }
 

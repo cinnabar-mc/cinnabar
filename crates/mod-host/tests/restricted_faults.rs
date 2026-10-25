@@ -7,6 +7,7 @@
 
 use mod_host::helper::restricted::{
     DATA_LIMIT_BYTES, DESCRIPTOR_LIMIT, LIMITS, contain, inherited_descriptors, lock_down,
+    missing_feature,
 };
 use std::{
     os::{fd::AsRawFd, unix::process::CommandExt},
@@ -15,6 +16,18 @@ use std::{
 
 /// The probe child's argument prefix: libtest takes it as one more name filter.
 const PROBE: &str = "probe-op:";
+
+/// Whether this system can lock a helper down. Otherwise it prints the missing feature, and
+/// the calling test skips.
+fn lockdown_supported() -> bool {
+    match missing_feature() {
+        None => true,
+        Some(missing) => {
+            eprintln!("skipping: missing {missing}");
+            false
+        }
+    }
+}
 
 /// Runs `op` in a contained child that locks itself down first, and returns its report.
 fn probe(op: &str) -> String {
@@ -293,6 +306,9 @@ fn run(op: &str) -> String {
 /// The filesystem is closed: no file read, directory listing or file creation.
 #[test]
 fn the_lockdown_denies_the_filesystem() {
+    if !lockdown_supported() {
+        return;
+    }
     for op in ["read-file", "list-directory", "write-file"] {
         let report = probe(op);
         assert!(report.starts_with("denied"), "{op}: {report}");
@@ -302,6 +318,9 @@ fn the_lockdown_denies_the_filesystem() {
 /// No socket of any family can be created, so no connection is possible.
 #[test]
 fn the_lockdown_denies_the_network() {
+    if !lockdown_supported() {
+        return;
+    }
     for op in ["tcp-connect", "udp-bind", "unix-socket"] {
         assert_eq!(probe(op), format!("denied {}", libc::EPERM), "{op}");
     }
@@ -311,6 +330,9 @@ fn the_lockdown_denies_the_network() {
 /// threads still start.
 #[test]
 fn the_lockdown_denies_processes_but_not_threads() {
+    if !lockdown_supported() {
+        return;
+    }
     for op in ["spawn", "fork", "ptrace", "unshare"] {
         let report = probe(op);
         assert!(report.starts_with("denied"), "{op}: {report}");
@@ -321,6 +343,9 @@ fn the_lockdown_denies_processes_but_not_threads() {
 /// Private writable memory stops at the data limit, and the descriptor limit holds.
 #[test]
 fn the_lockdown_bounds_memory_and_descriptors() {
+    if !lockdown_supported() {
+        return;
+    }
     assert!(probe("memory").starts_with("denied"));
     assert_eq!(probe("limits"), format!("nofile {DESCRIPTOR_LIMIT}"));
 }
@@ -329,6 +354,9 @@ fn the_lockdown_bounds_memory_and_descriptors() {
 /// its user and whose process id it knows.
 #[test]
 fn the_lockdown_denies_resource_limits_of_other_processes() {
+    if !lockdown_supported() {
+        return;
+    }
     assert_eq!(probe("prlimit-parent"), format!("denied {}", libc::EPERM));
     assert_eq!(probe("prlimit-self"), "allowed");
     assert_eq!(probe("prlimit-own-pid"), "allowed");
@@ -340,6 +368,9 @@ fn the_lockdown_denies_resource_limits_of_other_processes() {
 /// change its parent's priority, but it can still signal and renice itself.
 #[test]
 fn the_lockdown_denies_signals_to_other_processes() {
+    if !lockdown_supported() {
+        return;
+    }
     for op in [
         "signal-parent-check",
         "signal-parent",
@@ -361,6 +392,9 @@ fn the_lockdown_denies_signals_to_other_processes() {
 /// can still write.
 #[test]
 fn the_lockdown_denies_file_attribute_changes() {
+    if !lockdown_supported() {
+        return;
+    }
     use std::os::unix::fs::PermissionsExt;
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), b"probe").unwrap();
@@ -400,6 +434,9 @@ fn the_lockdown_denies_file_attribute_changes() {
 /// created or reached, so the helper shares no IPC object with another process of the user.
 #[test]
 fn the_lockdown_denies_ipc_objects() {
+    if !lockdown_supported() {
+        return;
+    }
     for op in [
         "shmget",
         "shm-info",
@@ -416,6 +453,9 @@ fn the_lockdown_denies_ipc_objects() {
 /// its memory, although `exec` resets the flag the parent set before it.
 #[test]
 fn the_lockdown_leaves_the_helper_undumpable() {
+    if !lockdown_supported() {
+        return;
+    }
     assert_eq!(probe("dumpable"), "dumpable 0");
 }
 
@@ -423,6 +463,9 @@ fn the_lockdown_leaves_the_helper_undumpable() {
 /// descriptor this test leaks into it, or the inherited environment.
 #[test]
 fn an_uncontained_launch_fails_its_audit() {
+    if !lockdown_supported() {
+        return;
+    }
     let file = std::fs::File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
     let leaked = file.as_raw_fd();
     // SAFETY: clearing close-on-exec on a descriptor this test owns.

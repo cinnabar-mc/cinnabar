@@ -230,6 +230,10 @@ fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_restricted_helper_compiles_and_runs_its_component_contained() {
+    if let Some(missing) = mod_host::helper::restricted::missing_feature() {
+        eprintln!("skipping: missing {missing}");
+        return;
+    }
     let (owner, capabilities) = principal();
     let mut helper = Helper::spawn_restricted(
         Path::new(env!("CARGO_BIN_EXE_mod-host")),

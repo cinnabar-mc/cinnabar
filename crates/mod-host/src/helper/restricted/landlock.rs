@@ -104,8 +104,8 @@ fn kernel_knows(field: Field, right: u64) -> Result<bool> {
     }
 }
 
-/// Restricts the calling thread, and the threads it creates, to no filesystem access.
-pub(super) fn restrict() -> Result<Lockdown> {
+/// The running kernel's Landlock ABI, or the reason it has none.
+pub(super) fn abi() -> std::io::Result<u32> {
     // SAFETY: the version query takes no attribute.
     let abi = unsafe {
         libc::syscall(
@@ -115,13 +115,20 @@ pub(super) fn restrict() -> Result<Lockdown> {
             CREATE_RULESET_VERSION,
         )
     };
-    if abi < 1 {
-        bail!(
-            "unavailable ({}); the helper cannot deny itself the filesystem",
-            std::io::Error::last_os_error()
-        );
+    match u32::try_from(abi) {
+        Ok(abi) if abi >= 1 => Ok(abi),
+        _ => Err(std::io::Error::last_os_error()),
     }
-    let abi = abi as u32;
+}
+
+/// Restricts the calling thread, and the threads it creates, to no filesystem access.
+pub(super) fn restrict() -> Result<Lockdown> {
+    let abi = match abi() {
+        Ok(abi) => abi,
+        Err(error) => {
+            bail!("unavailable ({error}); the helper cannot deny itself the filesystem")
+        }
+    };
     let (attr, size) = ruleset(kernel_knows)?;
     ensure!(
         attr.handled_access_fs & FS_ABI1 == FS_ABI1,

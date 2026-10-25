@@ -151,6 +151,15 @@ pub fn inherited_descriptors() -> Result<Vec<i32>> {
         .collect())
 }
 
+/// The kernel feature that restricted helpers need and this system lacks, named with the
+/// reason, or none. A lockdown fails without it; tests that lock a helper down skip with it.
+#[cfg(target_os = "linux")]
+pub fn missing_feature() -> Option<String> {
+    landlock::abi()
+        .err()
+        .map(|error| format!("kernel feature Landlock ({error})"))
+}
+
 /// Audits what the helper inherited and denies it everything it does not need. It must run on
 /// the main thread before any other thread starts, because Landlock restricts the calling
 /// thread and the threads it then creates.
