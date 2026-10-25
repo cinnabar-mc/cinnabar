@@ -232,7 +232,8 @@ interface player-state {
         /// Replicated health attribute maximum; absent when the server has supplied none.
         max-health: option<f32>,
     }
-    /// `totem` is a totem-of-undying activation on `runtime-id`, local or remote, and `death` a
+    /// `hurt` is a server hurt notice, with or without damage, as either starts the native damage
+    /// camera. `totem` is a totem-of-undying activation on `runtime-id`, local or remote, and `death` a
     /// server death notice. The stream reports no actor lifetimes: a mod keeping a count per actor
     /// resets it on `death`, and infers despawns and respawns itself from `read-actors`, which
     /// covers only nearby actors, and the local player's life from `read-world`.
