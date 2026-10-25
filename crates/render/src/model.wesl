@@ -130,6 +130,17 @@ fn rotate_cross(position: vec3<f32>, transform: u32) -> vec3<f32> {
     return rotated + vec3(0.5, 0.0, 0.5);
 }
 
+/// Turns a template-space position by a model turn: its quarter turns about x (bits 2-3), each
+/// taking +y to +z about the block centre, then its quarter turns about y (bits 0-1) as
+/// `rotate_cross` makes them. Overlays turn to their face this way.
+fn rotate_model_turn(position: vec3<f32>, turn: u32) -> vec3<f32> {
+    var turned = position;
+    for (var x_turn = 0u; x_turn < ((turn >> 2u) & 3u); x_turn += 1u) {
+        turned = vec3(turned.x, 1.0 - turned.z, turned.y);
+    }
+    return rotate_cross(turned, turn);
+}
+
 // Current lily-pad tessellator: unsigned wrapping position hash.
 fn lily_pad_rotation(position: vec3<i32>) -> u32 {
     let h = (bitcast<u32>(position.z) * 0x6ebfff5u) ^
@@ -315,7 +326,7 @@ fn model_corner_position(quad: ModelQuad, corner: u32) -> vec3<f32> {
         f32(packed_i16(quad.template_quad_base, component + 1u)),
         f32(packed_i16(quad.template_quad_base, component + 2u)),
     ) / 256.0;
-    return rotate_cross(template_position + quad.template_offset + quad.leaf_inset, quad.rotation) + quad.placement_offset;
+    return rotate_model_turn(template_position + quad.template_offset + quad.leaf_inset, quad.rotation) + quad.placement_offset;
 }
 
 /// Whether every authored corner UV of `quad` lies within a single tile, so the quad never repeats.
@@ -359,7 +370,7 @@ fn model_light_sample(quad: ModelQuad, corner: u32) -> u32 {
 /// The quad's authored shading normal, turned with the model.
 fn model_quad_normal(quad: ModelQuad) -> vec3<f32> {
     let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
-    return rotate_cross(normals[quad.quad_flags & 7u] + vec3(0.5,0.0,0.5), quad.rotation) - vec3(0.5,0.0,0.5);
+    return rotate_model_turn(normals[quad.quad_flags & 7u] + vec3(0.5), quad.rotation) - vec3(0.5);
 }
 
 fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
@@ -445,7 +456,7 @@ template_quad_base: u32, @if(ENHANCED)
 corner: u32, @if(ENHANCED)
 transform: u32) -> vec3<f32> {
     let component = corner * 3u;
-    return rotate_cross(vec3<f32>(
+    return rotate_model_turn(vec3<f32>(
         f32(packed_i16(template_quad_base, component)),
         f32(packed_i16(template_quad_base, component + 1u)),
         f32(packed_i16(template_quad_base, component + 2u)),

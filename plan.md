@@ -312,6 +312,10 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
+A fresh jump press ends a glide after its first ten ticks unless the player has
+Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
+input push, on live ticks and correction replay. Whether that push reads the glide
+flag before or after the same tick's stop check is unverified.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -1189,6 +1193,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   replication, riding, steering and mixed-client ship acceptance remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
+- Server WIT 0.10 adds cell overlays: Experience-registered overlay types, turned to a face, and
+  item overlays drawn flat on a face, up to 12 per host cell, saved in the host's
+  `CinnabarOverlays` block entity. Cinnabar meshes them with terrain, draws their items with
+  block entities and picks them with the interaction ray; `on-interact` reports the click
+  position and the picked overlay. Text overlays (AE2's monitor amounts) are not implemented.
+  `meshing/overlays` measures a mixed section at 0.51 ms alone and 1.21 ms with 896 six-quad
+  overlays (16-core development PC), about 0.8 µs per overlay on mesh workers. Headless captures
+  of overlays on the developer client and vanilla-client
+  confirmation that the unknown block entity and hidden palette entries leave the host drawn alone
+  remain outstanding.
+- The local server's Dragonfly fork (`cinnabar-mc/dragonfly`, pinned in `tools/localserver/go.mod`)
+  requires unique network block hashes only when block ids are hashes; there, a colliding custom
+  block takes the smallest hidden `dragonfly:network_hash_salt` state that makes its hashes unique,
+  and clients learn the salted states with its definition.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.

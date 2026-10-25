@@ -151,3 +151,20 @@ const (
 	// MAX_SCHEDULED_UPDATES.
 	maxScheduledUpdates = 64
 )
+
+// The overlay bounds, which registration and the commit check enforce again. Each must equal
+// its Rust constant, which TestCommitLimitsMatchRust checks against the limits fixture.
+const (
+	// maxOverlayTypes is the most overlay types one Experience declares: Rust's
+	// MAX_OVERLAY_TYPES.
+	maxOverlayTypes = 128
+	// maxCellOverlays is the most overlays one cell carries, in slots 0 to maxCellOverlays-1:
+	// Rust's MAX_CELL_OVERLAYS.
+	maxCellOverlays = 12
+	// maxOverlayItemSize is the widest an item overlay is, in pixels: Rust's
+	// MAX_OVERLAY_ITEM_SIZE.
+	maxOverlayItemSize = 16.0
+	// maxOverlayItemOffset is how far an item overlay's centre is from its face's centre on
+	// each axis, in pixels: Rust's MAX_OVERLAY_ITEM_OFFSET.
+	maxOverlayItemOffset = 8.0
+)

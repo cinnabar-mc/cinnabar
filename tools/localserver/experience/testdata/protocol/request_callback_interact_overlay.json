@@ -1,0 +1,144 @@
+{
+  "type": "callback",
+  "seq": 9,
+  "info": {
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 120,
+    "event_sequence": 77
+  },
+  "actor": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 4096,
+  "snapshot": [
+    {
+      "pos": {
+        "x": 3,
+        "y": 70,
+        "z": -2
+      },
+      "loaded": true,
+      "id": "benergistics:cable_bus",
+      "owned": true,
+      "data": null,
+      "states": [],
+      "overlays": [
+        {
+          "slot": 0,
+          "face": "down",
+          "look": {
+            "type": "visual",
+            "kind": "benergistics:glass_cable_arm",
+            "states": [
+              {
+                "name": "benergistics:dyed",
+                "value": {
+                  "type": "bool",
+                  "value": true
+                }
+              }
+            ]
+          }
+        },
+        {
+          "slot": 1,
+          "face": "up",
+          "look": {
+            "type": "visual",
+            "kind": "benergistics:glass_cable_arm",
+            "states": [
+              {
+                "name": "benergistics:dyed",
+                "value": {
+                  "type": "bool",
+                  "value": true
+                }
+              }
+            ]
+          }
+        },
+        {
+          "slot": 2,
+          "face": "north",
+          "look": {
+            "type": "visual",
+            "kind": "benergistics:glass_cable_arm",
+            "states": [
+              {
+                "name": "benergistics:dyed",
+                "value": {
+                  "type": "bool",
+                  "value": true
+                }
+              }
+            ]
+          }
+        },
+        {
+          "slot": 3,
+          "face": "west",
+          "look": {
+            "type": "visual",
+            "kind": "benergistics:glass_cable_arm",
+            "states": [
+              {
+                "name": "benergistics:dyed",
+                "value": {
+                  "type": "bool",
+                  "value": true
+                }
+              }
+            ]
+          }
+        },
+        {
+          "slot": 4,
+          "face": "east",
+          "look": {
+            "type": "visual",
+            "kind": "benergistics:glass_cable_arm",
+            "states": [
+              {
+                "name": "benergistics:dyed",
+                "value": {
+                  "type": "bool",
+                  "value": true
+                }
+              }
+            ]
+          }
+        },
+        {
+          "slot": 11,
+          "face": "south",
+          "look": {
+            "type": "item",
+            "id": "benergistics:certus_quartz_crystal",
+            "metadata": 0,
+            "size": 6.4,
+            "x": -0.25,
+            "y": 0.8
+          }
+        }
+      ]
+    }
+  ],
+  "network": null,
+  "inventory": null,
+  "call": {
+    "type": "interact",
+    "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+    "pos": {
+      "x": 3,
+      "y": 70,
+      "z": -2
+    },
+    "face": "north",
+    "hit": {
+      "x": 8.25,
+      "y": 7.5,
+      "z": 0.25
+    }
+  }
+}

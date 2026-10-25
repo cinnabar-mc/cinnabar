@@ -303,16 +303,18 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
         return None;
     }
     let quad = model_quads.get(template.quad_start.checked_add(quad_index)? as usize)?;
-    let mut centroid = quad.positions.iter().fold(Vec3::ZERO, |total, position| {
-        total
-            + Vec3::new(
-                f32::from(position[0]),
-                f32::from(position[1]),
-                f32::from(position[2]),
-            )
+    let bamboo = template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0;
+    let turn = if bamboo {
+        0
+    } else {
+        (model_ref[0] >> 12) & (meshing::MODEL_TURN_X_MASK | meshing::MODEL_TURN_Y_MASK)
+    };
+    let mut centroid = quad.positions.iter().fold(Vec3::ZERO, |total, &position| {
+        let [x, y, z] = meshing::turn_model_position(position, turn);
+        total + Vec3::new(f32::from(x), f32::from(y), f32::from(z))
     }) / (4.0 * 256.0);
     let has_offset = model_ref[0] & meshing::MODEL_REF_FLAG_RANDOM_OFFSET != 0;
-    if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+    if bamboo {
         let transform = model_ref[0] >> 12;
         let mut offset = assets::bamboo::quad_offset(transform, quad_index);
         if has_offset {
@@ -320,14 +322,6 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
             offset = std::array::from_fn(|axis| offset[axis] - default[axis]);
         }
         centroid += Vec3::from_array(offset);
-    } else {
-        let centered = centroid - Vec3::new(0.5, 0.0, 0.5);
-        centroid = match (model_ref[0] >> 12) & 3 {
-            1 => Vec3::new(-centered.z, centered.y, centered.x),
-            2 => Vec3::new(-centered.x, centered.y, -centered.z),
-            3 => Vec3::new(centered.z, centered.y, -centered.x),
-            _ => centered,
-        } + Vec3::new(0.5, 0.0, 0.5);
     }
     if has_offset {
         let base = model_ref[2] as usize;

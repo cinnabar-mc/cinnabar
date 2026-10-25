@@ -221,7 +221,9 @@ pub use block_entity::{
 pub use block_entity::{Oxidation, StatueModel, StatuePose};
 pub use block_entity::{SignFace, SignModel, SignMount};
 pub use block_entity::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees, skull_geometry};
-pub use block_entity::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
+pub use block_entity::{
+    StaticItemPlacement, StaticItemPlacements, matrix_rows, overlay_item_transform,
+};
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,
     star_brightness, sun_direction, sunrise_band,

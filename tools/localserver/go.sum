@@ -1,11 +1,11 @@
-github.com/HashimTheArab/dragonfly v0.0.0-20261024061022-1f3ee8b41e92 h1:dIx1bi/wmqqEv4SNIbpsVMMe2m/wv3z0l9LUS9zQf7o=
-github.com/HashimTheArab/dragonfly v0.0.0-20261024061022-1f3ee8b41e92/go.mod h1:PKKANu6EVI6ef+12YXyIfhknid6qHzEhaa3nC0GxtTg=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEosZ6A=
 github.com/cenkalti/backoff/v7 v7.0.0/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+github.com/cinnabar-mc/dragonfly v0.0.0-20261025014026-9a7514a7abd6 h1:kVkKjm7iUhd5PEsN0NdD9o3nKOx7LfY+ocqjUimm4Aw=
+github.com/cinnabar-mc/dragonfly v0.0.0-20261025014026-9a7514a7abd6/go.mod h1:PKKANu6EVI6ef+12YXyIfhknid6qHzEhaa3nC0GxtTg=
 github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59 h1:rBFry3/th+w69zgrrF3sn7j23iJVLHZ+1PJ/LiWlZhI=
 github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=

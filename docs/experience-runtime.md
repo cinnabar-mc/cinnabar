@@ -104,7 +104,8 @@ unavailable. Commit checks members and boundary changes.
 
 Server WIT 0.8 adds world definitions, player observations and scoped state.
 The SDK defaults the new exports to empty/no-op implementations. Rebuilt guests
-must declare `api = "0.9"`; existing 0.1–0.6 and 0.8 artifacts retain their frozen ABIs.
+must declare the current server API (`api = "0.10"`); existing 0.1–0.6, 0.8 and 0.9
+artifacts retain their frozen ABIs.
 
 | Type or operation | Contract |
 | --- | --- |
@@ -173,6 +174,31 @@ Server WIT 0.9 adds `on_tick` and `on_timer`; older artifacts receive neither.
 | Overload | Queue overflow drops and counts ticks and repeating occurrences. A failed one-shot stays due. Repeating timers keep at most one queued occurrence; missed periods are skipped, never replayed |
 | Limits | Active timers per mod and instance share `MAX_SCHEDULED_UPDATES`; delays use `MAX_SCHEDULE_TICKS` |
 
+## Cell overlays
+
+Server WIT 0.10 lets a block carry up to `MAX_CELL_OVERLAYS` (12) extra visuals in its own
+cell, such as a cable bus's parts or a drive's cells. The new `overlays` export declares which
+of the Experience's blocks are hosts and up to `MAX_OVERLAY_TYPES` (128) overlay types; 0.1–0.9
+artifacts keep working without overlays.
+
+| Rule | Contract |
+| --- | --- |
+| Overlay type | A look only overlays draw: states, visual and permutations checked as a block's, registered as a hidden block (no item, never placed). Its selection box, if any, picks it; without one it is never picked. Its collision is ignored |
+| Overlay | `slot` 0–11, unique in the cell; drawing and picking go in slot order. `face` turns the type's model, authored with its front out of north and its top up, to that face (side faces keep their top up, up and down faces put it north): [`overlay_face.rs`](../crates/block-transform/src/overlay_face.rs). Permutation rotations apply before the face turn |
+| Item overlay | `item` drawn flat on the face as an inventory slot shows it, at full brightness, `size` pixels wide (at most `MAX_OVERLAY_ITEM_SIZE`), centred `x`, `y` pixels right of and above the face's centre (at most `MAX_OVERLAY_ITEM_OFFSET`). Never picked |
+| `overlays(pos)` / `set-overlays(pos, list)` | Read or replace a host's whole list, at network reach. One host call and one staged op; the host keeps its states, data and generation. Another Experience's block: `not-owned`; not a host: `unsupported-state`; an unknown overlay type or item: `unknown-block`; a slot past 11 or twice, a state the type lacks, or an item too large or off the face: `unsupported-state`; more than 12: `too-large` |
+| Block changes | `set-block` clears a host's overlays; `set-block-state` keeps them |
+| `on-interact` | Gains `hit`, the click position in pixels when the client sent one inside the cell, and `target`, the slot of the first overlay in slot order whose turned selection box, grown by `OVERLAY_PICK_MARGIN` (0.032 px), holds `hit` |
+
+The adapter saves a host's overlays in its `CinnabarOverlays` block entity, which reaches clients
+with the chunk and on every change (format: [`cell_overlays.rs`](../crates/world/src/block_entity/cell_overlays.rs)).
+Cinnabar meshes block-state overlays with terrain, draws item overlays with block entities, and
+picks overlays with its interaction ray: the nearest hit is outlined and its face and position are
+what `UseItemOn` sends. Overlays show only while their host state is the cell's block. Vanilla
+clients get the overlay types as hidden palette entries and an unknown block entity, so they draw
+the host alone and pick only the host's own selection box: `hit` is where their click met that
+box, and `target` an overlay only when that point lies in its box.
+
 ## Blocks and items
 
 Paired declarations cover cubes and items; richer guests return `Registration`.
@@ -199,7 +225,8 @@ the adapter's mirrored commit limits are checked against generated fixtures.
 | --- | --- |
 | Fuel and deadlines | `CALLBACK_FUEL`, `REGISTER_FUEL`, `CALLBACK_DEADLINE`, `REGISTER_DEADLINE` |
 | Guest memory, stack, tables, instances | `MAX_MEMORY_BYTES`, `MAX_WASM_STACK_BYTES`, `MAX_TABLE_ELEMENTS`, `MAX_CORE_INSTANCES` |
-| Artifact and declarations | `MAX_COMPONENT_BYTES`, `MAX_MANIFEST_BYTES`, `MAX_INDEX_BYTES`, `MAX_ARTIFACT_ENTRIES`, `MAX_BLOCKS`, `MAX_ITEMS`, `MAX_STATE_BITS`, `MAX_PERMUTATIONS` |
+| Artifact and declarations | `MAX_COMPONENT_BYTES`, `MAX_MANIFEST_BYTES`, `MAX_INDEX_BYTES`, `MAX_ARTIFACT_ENTRIES`, `MAX_BLOCKS`, `MAX_ITEMS`, `MAX_STATE_BITS`, `MAX_PERMUTATIONS`, `MAX_OVERLAY_TYPES` |
+| Cell overlays | `MAX_CELL_OVERLAYS`, `MAX_OVERLAY_ITEM_SIZE`, `MAX_OVERLAY_ITEM_OFFSET`, `OVERLAY_PICK_MARGIN` ([`overlay_face.rs`](../crates/block-transform/src/overlay_face.rs), shared with the client) |
 | Callback work | `MAX_HOST_CALLS`, `MAX_STAGED_OPS`, `MAX_STAGED_DATA_BYTES`, `MAX_SCHEDULED_UPDATES`, `MAX_SCHEDULE_TICKS` |
 | Private/item data | `MAX_BLOCK_DATA_BYTES` per block or scoped record, `MAX_ITEM_DATA_BYTES` |
 | Messages and tells | `MAX_CLIENT_SENDS`, `MAX_CLIENT_SEND_BYTES`, `MAX_VALUE_DEPTH`, `MAX_TELLS`, `MAX_TELL_BYTES` |
@@ -265,15 +292,16 @@ before closing the server or worlds.
 
 | Axis | Current contract |
 | --- | --- |
-| Server WIT | 0.9; frozen 0.1–0.6 and 0.8 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
-| Adapter IPC | 9, `PROTOCOL_VERSION` in [protocol.rs](../crates/experience-runtime/src/protocol.rs); exact match required |
+| Server WIT | 0.10; frozen 0.1–0.6, 0.8 and 0.9 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
+| Adapter IPC | 10, `PROTOCOL_VERSION` in [protocol.rs](../crates/experience-runtime/src/protocol.rs); exact match required |
 | Manifest data schema | `DATA_SCHEMA` in [artifact.rs](../crates/experience-sdk/src/artifact.rs) |
 | Client WIT/wire | [Client compatibility](server-experiences.md#versions-and-wire); [shared drawing](server-experiences.md#drawing-and-signed-assets) |
 
 Server 0.1 has no client messages; 0.2 adds scalar messages; 0.3 adds nested records
 and epochs; 0.4 adds focus; 0.5 adds block states/visuals, items, inventories and
 networks; 0.6 adds recipes and scheduled updates; 0.8 adds worlds, player events
-and scoped state; 0.9 adds ticks and timers. Unsupported callbacks are rejected.
+and scoped state; 0.9 adds ticks and timers; 0.10 adds cell overlays and the click position of
+an interaction. Unsupported callbacks are rejected.
 
 A host runs one `experience-runtime serve` helper per artifact over private stdio.
 Frames are a little-endian u32 JSON length followed by JSON, bounded by
