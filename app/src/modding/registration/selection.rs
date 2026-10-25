@@ -273,7 +273,9 @@ pub(in crate::modding) fn grant_all(
         for capability in ModGrants::CAPABILITIES {
             (capability.set)(grants, true, requested.as_ref());
         }
-        grants.packets = packet;
+        // Wrapped packet mods share the component framing, so check their packet interface.
+        grants.packets =
+            packet || mod_host::packet_mod::CompiledPacketMod::compile(&bytes, grants).is_ok();
         Ok(())
     })
 }

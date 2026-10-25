@@ -755,15 +755,13 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
 
 #[test]
 fn bulk_grants_keep_frame_and_packet_sources_on_their_own_hosts() {
-    for packet in [false, true] {
+    let frame = wat::parse_str(fixture(false, "", "Hello")).unwrap();
+    let core = packet_bytes();
+    let adapted = mod_host::packet_mod::packet_mod_component(&core).unwrap();
+    for (bytes, packet) in [(frame, false), (core, true), (adapted, true)] {
         let root = tempfile::tempdir().unwrap();
         let config = root.path().join("config");
         let component = root.path().join("mod.wasm");
-        let bytes = if packet {
-            packet_bytes()
-        } else {
-            wat::parse_str(fixture(false, "", "Hello")).unwrap()
-        };
         fs::write(&component, bytes).unwrap();
         selection::select(&config, &component, true, "enable".into()).unwrap();
         selection::grant_all(&config, &component, "grant".into()).unwrap();
