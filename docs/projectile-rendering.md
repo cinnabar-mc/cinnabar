@@ -100,6 +100,11 @@ Open checks:
 - Abstract-arrow motion seeding (`lerpMotion`) applies to tridents too; Cinnabar seeds
   only the arrow class.
 - The native renderer's light sample point is unverified.
-- The third-person and paper-doll charge pose: the pack's `brandish_spear` arm pose is
-  gated on `variable.is_brandishing_spear`, which no pack script assigns and Cinnabar does
-  not provide.
+
+The charge pose is native too. The pack's third-person player state plays
+`brandish_spear`, gated on `variable.is_brandishing_spear` and posed by
+`variable.charge_amount`, which no pack script assigns. Vanilla's mob-variable update
+sets them every tick: an actor using a main-hand item with the spear use animation (the
+trident's) brandishes with `charge_amount = clamp(elapsed use ticks / 10, 0, 1)`, and a
+non-player mob holding a trident it is not using brandishes while its synched target id
+is not 0. The paper doll and first-person states do not play `brandish_spear`.
