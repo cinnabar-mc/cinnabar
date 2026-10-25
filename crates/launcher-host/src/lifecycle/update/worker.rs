@@ -520,7 +520,7 @@ pub(super) fn retained_manifest(
         &ready.stage,
         keys,
         Check {
-            switch_now: ready.notice.switching,
+            switch_now: ready.switch_from.is_some(),
             ..check
         },
         now,
@@ -645,14 +645,12 @@ fn publish(
             .and_then(|target| update_installer::target::access(&target))
             .is_ok_and(update_installer::target::Access::permits_update);
     if let Ok(mut state) = STATE.lock() {
-        let mut ready = Ready::new(stage, reader, selected, check.switch_now, writable);
-        if check.switch_now {
-            ready.switch_from = Some(update_manifest::build::Build {
-                version: check.current.into(),
-                number: check.current_build,
-                channel: None,
-            });
-        }
+        let switch_from = check.switch_now.then(|| update_manifest::build::Build {
+            version: check.current.into(),
+            number: check.current_build,
+            channel: None,
+        });
+        let mut ready = Ready::new(stage, reader, selected, switch_from, writable);
         ready.target = target;
         state.offer(ready, generation);
         if !verified && state.accepts_worker(generation) {

@@ -199,7 +199,7 @@ pub(super) fn manual_check<'a>(
         platform,
         current: &current.version,
         current_build: current.number,
-        switch_now: ready.notice.switching || ready.target.is_some(),
+        switch_now: ready.switch_from.is_some() || ready.target.is_some(),
     }
 }
 

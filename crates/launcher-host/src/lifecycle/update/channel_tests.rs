@@ -3,6 +3,29 @@
 use super::*;
 use launcher::menu::updates::Build;
 
+/// Changing the quit-time preference leaves a channel download and its progress running.
+#[test]
+fn quit_time_preference_changes_do_not_cancel_an_explicit_download() {
+    let mut state = State::new();
+    state.preferences.checks = false;
+    state.running = true;
+    let generation = state.generation;
+    state.download_progress(generation, 25, 100);
+    let download = state.download;
+    assert_eq!(
+        state.configure(Preferences {
+            install_on_quit: true,
+            ..state.preferences
+        }),
+        None
+    );
+    assert_eq!(state.generation, generation);
+    assert_eq!(state.status, Status::Downloading);
+    assert_eq!(state.download, download);
+    assert!(state.preferences.install_on_quit);
+    assert!(!state.preferences.checks);
+}
+
 /// An intentional channel change requests fresh metadata even with automatic checks off.
 #[test]
 fn changing_channels_requests_a_manual_check_without_enabling_automatic_checks() {

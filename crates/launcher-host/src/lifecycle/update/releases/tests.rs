@@ -120,7 +120,7 @@ fn nightly_offers_a_newer_beta_and_returns_to_a_newer_nightly() {
     });
     worker::offer_switch(&mut state);
     state.offer(
-        Ready::new(stage, reader, selected, false, true),
+        Ready::new(stage, reader, selected, None, true),
         state.generation,
     );
     assert_eq!(state.preferences.channel, Channel::Nightly);
@@ -160,7 +160,7 @@ fn nightly_offers_a_newer_beta_and_returns_to_a_newer_nightly() {
             .unwrap();
     let (stage, reader) = update_installer::stage::retain(&directory, &lease, &selected).unwrap();
     state.offer(
-        Ready::new(stage, reader, selected, false, true),
+        Ready::new(stage, reader, selected, None, true),
         state.generation,
     );
     assert_eq!(

@@ -36,7 +36,7 @@ Changing channels never silently downgrades: a slower channel waits for a newer 
 and build. Choose **Install Beta now** (or the selected channel's name) to download its older
 release, then **Restart and switch** to install it. **Wait for next Beta** keeps the current
 build and follows future Beta releases; installing the older release remains available.
-An older release always requires the restart action, even with install-on-quit enabled.
+Managed installation of an older release requires the restart action, even with install-on-quit enabled.
 The helper applies older-build consent only if the installed version and build still match
 the installation the download was prepared for. Otherwise it keeps the current installation.
 Unsupported or unwritable installations offer **Open installer** for manual installation. Numeric

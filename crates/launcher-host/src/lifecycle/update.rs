@@ -63,18 +63,19 @@ impl Ready {
         stage: PathBuf,
         reader: std::fs::File,
         selected: update_installer::stage::Selection,
-        switch_now: bool,
+        switch_from: Option<update_manifest::build::Build>,
         writable: bool,
     ) -> Self {
+        let switching = switch_from.is_some();
         Self {
             expires: selected.manifest.expires,
             stage,
-            switch_from: None,
+            switch_from,
             target: None,
             lease: Some(std::sync::Arc::new(reader)),
             notice: Notice {
                 release: Release::from(&selected.manifest),
-                switching: switch_now,
+                switching,
                 writable,
                 protocol_required: false,
             },
@@ -152,6 +153,13 @@ impl State {
     /// Clears old channel consent and requests an immediate check when the selection changes.
     fn configure(&mut self, preferences: Preferences) -> Option<bool> {
         if self.requested || self.preferences == preferences {
+            return None;
+        }
+        if self.preferences.channel == preferences.channel
+            && self.preferences.checks == preferences.checks
+        {
+            // Quit-time installation does not change an active download's channel or permission.
+            self.preferences = preferences;
             return None;
         }
         let channel_changed = self.preferences.channel != preferences.channel;
@@ -294,7 +302,7 @@ impl State {
                 && ready.expires > now
                 && (self.requested
                     || (ready.target.is_none()
-                        && !ready.notice.switching
+                        && ready.switch_from.is_none()
                         && self.preferences.install_on_quit
                         && !self.dismissed))
         })
