@@ -6,7 +6,9 @@ use sha2::{Digest, Sha256};
 use crate::{AssetError, RuntimeEntityAssets};
 mod alpha;
 mod eligibility;
-pub use alpha::{actor_multitexture_sources, actor_sources_keeping_alpha};
+pub use alpha::{
+    ActorMultitextureSources, actor_multitexture_sources, actor_sources_keeping_alpha,
+};
 pub use eligibility::{
     neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
 };

@@ -443,23 +443,23 @@ impl ActorArtworkPages {
         mut self,
         textures: &[assets::ActorTexture],
         bindings: &[assets::ActorArtworkBinding],
-        multitexture: &BTreeSet<u32>,
+        multitexture: &assets::ActorMultitextureSources,
     ) -> Self {
-        let sampled = |texture: &assets::ActorTexture| multitexture.contains(&texture.source);
-        let shared_size = multitexture::largest(textures.iter().filter(|texture| sampled(texture)));
-        let mut groups = BTreeMap::<(u16, u16, bool), Vec<usize>>::new();
+        let mut single = BTreeMap::<(u16, u16, bool), Vec<usize>>::new();
         for (index, texture) in textures.iter().enumerate() {
-            let multitexture = sampled(texture);
-            let (width, height) = if multitexture {
-                shared_size
-            } else {
-                (texture.width, texture.height)
-            };
-            groups
-                .entry((width, height, multitexture))
-                .or_default()
-                .push(index);
+            if !multitexture.contains(&texture.source) {
+                single
+                    .entry((texture.width, texture.height, false))
+                    .or_default()
+                    .push(index);
+            }
         }
+        // Each multitexture page holds whole sets of textures that draws sample together.
+        let groups = single.into_iter().chain(
+            multitexture::pack_pages(textures, multitexture)
+                .into_iter()
+                .map(|((width, height), indices)| ((width, height, true), indices)),
+        );
         let mut pages = self.pages.to_vec();
         let mut shared = Vec::new();
         let mut gpu_bytes = pages
