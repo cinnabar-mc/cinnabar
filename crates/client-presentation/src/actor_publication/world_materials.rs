@@ -26,29 +26,54 @@ pub(super) fn tag(
         else {
             continue;
         };
-        if let Some((tag, raster)) = world(submission.input.identity.layer, &actor.kind, scene) {
-            submission.material.world = tag;
+        if let Some(bound) = world(submission.input.identity.layer, &actor.kind, scene) {
+            submission.material.world = bound.tag;
             // The host owns depth, blend and pass: the class's raster replaces the Bedrock one
             // once the material's pipeline is ready, and the draw stays Bedrock's until then.
-            submission.material.world_raster = Some(raster);
+            submission.material.world_raster = Some(bound.raster);
+            grow_culling_bounds(submission, bound.reach_blocks);
         }
     }
 }
 
-/// The tag and host raster a draw of `layer` of an actor of `kind` takes: an entity's body and
+/// The binding a draw of `layer` of an actor of `kind` takes: an entity's body and
 /// render-controller layers when its identifier is bound, nothing otherwise.
 fn world(
     layer: u8,
     kind: &protocol::ActorKind,
     scene: &render_scene::world_material::WorldMaterialScene,
-) -> Option<(u8, render_api::render_state::RenderState)> {
+) -> Option<render_scene::world_material::BoundEntity> {
     if layer != render_model::ACTOR_LAYER_BODY && layer < ACTOR_LAYER_TEXTURE_BASE {
         return None;
     }
     let protocol::ActorKind::Entity { identifier } = kind else {
         return None;
     };
-    scene.entity(identifier.as_ref())
+    scene.bound_entity(identifier.as_ref())
+}
+
+/// Grows `submission`'s culling box by `reach` blocks on every side, so a draw its material
+/// moves or extends is not culled while any of it can be seen. The box is in model space, which
+/// the instance's smallest axis scale maps to the fewest blocks.
+fn grow_culling_bounds(
+    submission: &mut render_model::actor::frame::ActorRigSubmission,
+    reach: f32,
+) {
+    if !reach.is_finite() || reach <= 0.0 {
+        return;
+    }
+    let scale = (0..3)
+        .map(|axis| {
+            (0..3)
+                .map(|row| submission.world_from_actor[row][axis].powi(2))
+                .sum::<f32>()
+                .sqrt()
+        })
+        .fold(f32::INFINITY, f32::min);
+    let grow = reach / scale.max(1.0e-3);
+    for extent in &mut submission.culling_bounds.half_extents {
+        *extent += grow;
+    }
 }
 
 #[cfg(test)]

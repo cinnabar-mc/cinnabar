@@ -384,7 +384,10 @@ pub(crate) fn greedy_slice(
                 // Mixed biomes vary tint per block; one-block faces let the renderer blend
                 // it once per face rather than once per pixel.
                 || (output.split_tinted_faces
-                    && material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0);
+                    && material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0)
+                // A world material may move each corner of a face, so a bound block's faces
+                // stay one block wide and every block moves on its own.
+                || world != 0;
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;

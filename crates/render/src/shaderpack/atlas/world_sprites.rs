@@ -7,7 +7,7 @@
 
 use super::pack::SpriteRect;
 use super::upload::{LayerTextures, PBR_FORMAT, UploadedAtlas};
-use crate::world_material::{ShaderFamily, WorldMaterialGpu, WorldVariant, layout};
+use crate::world_material::{ShaderFamily, WorldMaterialGpu, WorldVariant};
 use bevy::{
     prelude::{Res, ResMut, Resource},
     render::{
@@ -51,7 +51,7 @@ fn descriptor(variant: WorldVariant) -> RenderPipelineDescriptor {
     };
     RenderPipelineDescriptor {
         label: Some("world material sprite pipeline".into()),
-        layout: vec![layout(variant.textures)],
+        layout: vec![variant.layout()],
         vertex: VertexState {
             shader: shader.clone(),
             entry_point: Some("world_sprite_vertex".into()),
@@ -258,6 +258,11 @@ pub(crate) fn render_world_sprites(
             else {
                 continue;
             };
+            // A sprite has no view to read the scene from, so such a block keeps its Bedrock
+            // sprite under a shader pack.
+            if variant.features.scene {
+                continue;
+            }
             let id = *pipelines
                 .ids
                 .entry(variant)

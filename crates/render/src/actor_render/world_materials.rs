@@ -5,7 +5,7 @@
 //! material's tagged word and the host's raster.
 
 use super::*;
-use crate::world_material::{ACTOR_SHADERS, ShaderFamily, WorldVariant, layout};
+use crate::world_material::{ACTOR_SHADERS, ShaderFamily, WorldVariant};
 
 /// The bind group a world material actor pipeline reads its frame, textures and sampler from.
 pub(crate) const WORLD_MATERIAL_GROUP: u32 = 2;
@@ -28,10 +28,15 @@ pub(crate) fn family() -> ShaderFamily {
     }
 }
 
-/// Points the fragment stage at `world`'s actor module and adds its bind group.
+/// Points the fragment stage at `world`'s actor module and adds its bind group; a material
+/// that displaces its vertices takes the vertex stage from that module too.
 fn specialize_world(world: WorldVariant, descriptor: &mut RenderPipelineDescriptor) {
     descriptor.layout.truncate(WORLD_MATERIAL_GROUP as usize);
-    descriptor.layout.push(layout(world.textures));
+    descriptor.layout.push(world.layout());
+    if world.features.displace {
+        descriptor.vertex.shader = world.shader(ACTOR_SHADERS);
+        descriptor.vertex.shader_defs.extend(world.defs());
+    }
     let fragment = descriptor
         .fragment
         .as_mut()
@@ -148,6 +153,7 @@ mod tests {
             textures: 2,
             blend: Blend::Premultiplied,
             depth: mod_render::world_material::publication::Depth::Test,
+            features: Default::default(),
         };
         let key = WorldActorKey::new(base(), variant);
         assert_eq!(
@@ -161,7 +167,7 @@ mod tests {
             .unwrap();
         assert_eq!(world, variant);
         assert_eq!(descriptor.layout.len(), WORLD_MATERIAL_GROUP as usize + 1);
-        assert_eq!(descriptor.layout[2], layout(2));
+        assert_eq!(descriptor.layout[2], variant.layout());
         let fragment = descriptor.fragment.as_ref().unwrap();
         assert_eq!(fragment.shader, variant.shader(ACTOR_SHADERS));
         assert_eq!(descriptor.vertex.shader, ACTOR_SHADER_HANDLE);
@@ -262,6 +268,7 @@ mod tests {
             textures: 1,
             blend: Blend::Cutout,
             depth: mod_render::world_material::publication::Depth::Test,
+            features: Default::default(),
         };
         let first = pipeline
             .request_world(&cache, WorldActorKey::new(base(), variant))

@@ -209,10 +209,14 @@ material's do. Ending the runtime clears the withdrawals.
 - **Vertex displacement** (`render_world_material_vertex`): the material's source also defines
   `fn displace(input: WorldVertexInput) -> vec3<f32>` (world position, normal, UV, phase), an
   offset in blocks that the host clamps on each axis to the declared `displacement-blocks`
-  (at most 2). Culling bounds of bound entities and of terrain sections holding bound blocks
-  grow by the bound. It cannot move hit boxes, collision, selection, positions, nametags,
-  entity shadows or anything gameplay reads; shader packs draw bound blocks undisplaced (their
-  atlas sprite has no geometry); the entity blob shadow stays under the entity's real position.
+  (at most 2). Bound entity and block draws run it per vertex (a bound block's faces stay one
+  block wide so each block moves on its own); a bound entity's culling box grows by its
+  material's reach and every terrain section holding bound blocks culls with bounds grown by
+  the widest reach any material may have. It cannot move hit boxes, collision, selection,
+  positions, nametags or anything gameplay reads. Shadows: the entity blob shadow stays under
+  the entity's real position; shader packs draw bound blocks as their atlas sprite, undisplaced,
+  in every pass including their shadow pass; Enhanced terrain draws bound blocks as Bedrock;
+  actor motion vectors use the undisplaced pose.
 - **Scene read** (`render_world_material_scene`): `scene_color(offset)` and
   `scene_depth(offset)` read the view's opaque colour and linear depth in blocks, already drawn
   this frame, `offset` pixels from the fragment and clamped to the screen, and

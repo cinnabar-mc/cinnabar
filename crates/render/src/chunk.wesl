@@ -400,6 +400,13 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.frame_blend_uv_limit = vec3(animation_sample.blend, greedy_uv_limit(width, height, uv_flags));
     out.current_texture = animation_sample.current_texture;
     out.normal = face_normal(face);
+    // A world material may move the drawn corner within its declared bound; positions read by
+    // shading and gameplay stay where the block is.
+    @if(WORLD_MATERIAL_DISPLACE)
+    {
+        let world_material_offset = world_material_displace(WorldVertexInput(world_position, out.normal, out.uv, world_material_phase()));
+        out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset + world_material_offset);
+    }
     out.material_flags = material.flags;
     @if(!ENHANCED)
     out.masks = material_mask_varyings(material);

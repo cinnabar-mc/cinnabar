@@ -49,6 +49,7 @@ fn fixture(count: usize) -> Fixture {
                 priority: ChunkUploadPriority::new(0.0),
                 token: None,
                 publication_permit: None,
+                world_materials: false,
             };
             (identity, instance)
         })

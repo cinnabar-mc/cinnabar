@@ -442,6 +442,12 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.uv = model_corner_uv(quad, material, corner);
     out.current_texture = frame.current;
     out.normal = model_quad_normal(quad);
+    // A world material may move the drawn corner within its declared bound.
+    @if(WORLD_MATERIAL_DISPLACE)
+    {
+        let world_material_offset = world_material_displace(WorldVertexInput(world, out.normal, out.uv, world_material_phase()));
+        out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset + world_material_offset);
+    }
     out.material_flags = material.flags;
     out.local_position = block_position;
     out.biome_record = u32(quad.chunk_origin.w);

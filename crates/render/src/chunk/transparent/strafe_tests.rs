@@ -77,6 +77,7 @@ pub(super) fn ocean_surface(key: SubChunkKey, shore: bool) -> ChunkRenderInstanc
         priority: ChunkUploadPriority::new(0.0),
         token: None,
         publication_permit: None,
+        world_materials: false,
     }
 }
 

@@ -560,6 +560,7 @@ mod tests {
             priority: render_scene::ChunkUploadPriority::new(0.0),
             token: None,
             publication_permit: None,
+            world_materials: false,
         }
     }
 

@@ -348,6 +348,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
+        world_materials: false,
     };
     let allocation = GpuChunkAllocation {
         cube_layout: CubeQuadLayout::default(),
@@ -425,6 +426,7 @@ fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
+        world_materials: false,
     };
     let allocation = GpuChunkAllocation {
         cube_layout: CubeQuadLayout::default(),
