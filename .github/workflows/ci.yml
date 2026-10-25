@@ -396,6 +396,13 @@ jobs:
           language: go
       - name: Build release Go core
         run: go build -trimpath -ldflags "$(bash packaging/common/core-ldflags.sh)" -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
+      - name: Compile Go proxy tests for 32-bit Windows
+        if: runner.os == 'Linux'
+        env:
+          GOOS: windows
+          GOARCH: '386'
+          CGO_ENABLED: '0'
+        run: go test -c -o "$RUNNER_TEMP/proxy-windows-386.test.exe" ./core/proxy
       - name: Test and vet Go core
         env:
           GOFLAGS: ${{ env.RACE_TEST_FLAGS }}
