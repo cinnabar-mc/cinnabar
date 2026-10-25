@@ -158,6 +158,7 @@ pub fn perform<B: Backend>(
         | Action::MoveDown(id)
         | Action::Permission(id, _, _)
         | Action::AllowRequested(id)
+        | Action::GrantAll(id)
         | Action::RevokeAll(id) => {
             B::apply(action, registration, Some(&path(id)?), request()).map(|()| String::new())
         }

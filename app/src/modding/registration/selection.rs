@@ -258,6 +258,23 @@ pub(in crate::modding) fn allow_requested(
     })
 }
 
+/// Grants all boolean capabilities and declared command names in one registration write.
+pub(in crate::modding) fn grant_all(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+) -> Result<(), String> {
+    let requested = mod_host::declarations(component)
+        .and_then(|declared| declared.requested)
+        .map_err(|error| error.to_string())?;
+    change_grants(directory, component, request_id, |grants| {
+        for capability in ModGrants::CAPABILITIES {
+            (capability.set)(grants, true, requested.as_ref());
+        }
+        Ok(())
+    })
+}
+
 /// Clears every capability in one write, even when the source cannot be read.
 pub(in crate::modding) fn revoke_all(
     directory: &Path,

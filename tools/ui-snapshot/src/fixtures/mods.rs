@@ -49,6 +49,18 @@ pub(super) const STATES: &[State] = &[
         fixture: show_all,
     },
     State {
+        name: "settings-mods-permissions-none",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: no_grants,
+    },
+    State {
+        name: "settings-mods-permissions-none-narrow",
+        size: [360, 900],
+        gui_scale: GUI_SCALE,
+        fixture: no_grants,
+    },
+    State {
         name: "settings-mods-permissions-narrow",
         size: [360, 900],
         gui_scale: GUI_SCALE,
@@ -259,6 +271,11 @@ pub fn requested_only() -> Fixture {
 /// Requested permissions precede the optional permissions in the expanded grid.
 pub fn show_all() -> Fixture {
     permissions(true, true, false, true)
+}
+
+/// An undeclared component with every permission off and the full grid open.
+pub fn no_grants() -> Fixture {
+    permissions(true, true, true, false)
 }
 
 /// A component without a declaration can only customize its grants.
