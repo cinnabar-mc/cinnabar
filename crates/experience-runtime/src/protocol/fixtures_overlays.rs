@@ -81,6 +81,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         }],
     };
     let loaded = Response::Loaded {
+        entities: Vec::new(),
         simulation: true,
         protocol: PROTOCOL_VERSION,
         id: "benergistics".to_owned(),

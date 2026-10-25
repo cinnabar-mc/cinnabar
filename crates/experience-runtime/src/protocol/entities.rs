@@ -220,6 +220,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
     let mut out = vec![(
         "response_loaded_entities",
         serde_json::to_string_pretty(&Response::Loaded {
+            overlays: None,
             entities: vec![definition, custom],
             protocol: PROTOCOL_VERSION,
             id: "probe".into(),
