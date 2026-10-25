@@ -270,6 +270,19 @@ pub(crate) fn lasting_error(
     }
 }
 
+/// Records `key`'s lasting pipeline `error` and logs it the first time, with the error text,
+/// so the session's "failed to compile" report can be traced to its cause.
+fn record_error(
+    failures: &render_scene::world_material::WorldMaterialFailures,
+    what: &str,
+    key: u64,
+    error: &bevy::shader::ShaderCacheError,
+) {
+    if failures.record(key) {
+        bevy::log::warn!(key, %error, "world material {what} pipeline failed to compile");
+    }
+}
+
 /// Records each world material pipeline that failed to compile for good, once, and logs it the
 /// first time with the error text, so the session's "failed to compile" report can be traced
 /// to its cause; its draws keep the base or fallback pipeline, and the main world reports the
@@ -285,9 +298,7 @@ pub(crate) fn record_failures(
             continue;
         };
         for key in gpu.keys_of(program) {
-            if failures.record(key) {
-                bevy::log::warn!(key, %error, "world material pipeline failed to compile");
-            }
+            record_error(failures, "material", key, error);
         }
     }
 }
@@ -619,8 +630,8 @@ pub(crate) fn dispatch_computes(
     }
 }
 
-/// Records each compute pipeline that failed to compile, once; materials keep reading its
-/// zeroed cells.
+/// Records each compute pipeline that failed to compile for good, once; materials keep reading
+/// its zeroed cells.
 pub(crate) fn record_compute_failures(
     gpu: Option<Res<WorldMaterialGpu>>,
     cache: Option<Res<PipelineCache>>,
@@ -629,12 +640,25 @@ pub(crate) fn record_compute_failures(
     let (Some(gpu), Some(cache), Some(failures)) = (gpu, cache, failures) else {
         return;
     };
-    for (key, entry) in &gpu.computes.entries {
-        if matches!(
-            cache.get_compute_pipeline_state(entry.pipeline()),
-            bevy::render::render_resource::CachedPipelineState::Err(_)
-        ) {
-            failures.record(*key);
+    record_compute_errors(
+        &cache,
+        gpu.computes
+            .entries
+            .iter()
+            .map(|(key, entry)| (*key, entry.pipeline())),
+        &failures,
+    );
+}
+
+/// Records each compute pipeline of `pipelines` that failed to compile for good, once.
+pub(crate) fn record_compute_errors(
+    cache: &PipelineCache,
+    pipelines: impl IntoIterator<Item = (u64, bevy::render::render_resource::CachedComputePipelineId)>,
+    failures: &render_scene::world_material::WorldMaterialFailures,
+) {
+    for (key, id) in pipelines {
+        if let Some(error) = lasting_error(cache.get_compute_pipeline_state(id)) {
+            record_error(failures, "compute", key, error);
         }
     }
 }

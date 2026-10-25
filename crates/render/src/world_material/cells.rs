@@ -260,6 +260,67 @@ impl Computes {
 mod tests {
     use super::*;
 
+    /// The showcase's compute steps, as its client part declares them.
+    const SHOWCASE_STEPS: [&str; 2] = [
+        include_str!("../../../../examples/experiences/material-fx/client/shaders/storm_step.wgsl"),
+        include_str!("../../../../examples/experiences/material-fx/client/shaders/fire_step.wgsl"),
+    ];
+
+    /// Each showcase compute compiles through the pipeline cache as the renderer queues it: the
+    /// entry and its layout queued in the frame the compute is published, before the module the
+    /// main world registers reaches the cache. Waiting for the module is not a failure, and once
+    /// it arrives the pipeline compiles.
+    #[test]
+    fn the_showcase_computes_compile_through_the_pipeline_cache_once_their_modules_arrive() {
+        let Some((device, _queue, _adapter)) = crate::scene_sampling::tests::fixture() else {
+            return;
+        };
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let mut cache = PipelineCache::new(device.clone(), false);
+        let failures = render_scene::world_material::WorldMaterialFailures::default();
+        let published: Vec<PublishedCompute> = SHOWCASE_STEPS
+            .iter()
+            .enumerate()
+            .map(|(key, source)| PublishedCompute {
+                key: key as u64 + 1,
+                compute: std::sync::Arc::new(compute::compose(source).unwrap()),
+                cells: 64,
+                params: [0.0; 16],
+            })
+            .collect();
+        let entries: Vec<(u64, ComputeEntry)> = published
+            .iter()
+            .map(|published| (published.key, ComputeEntry::new(&device, &cache, published)))
+            .collect();
+        let pipelines = || entries.iter().map(|(key, entry)| (*key, entry.pipeline()));
+        // Frames before the modules arrive.
+        for _ in 0..3 {
+            cache.process_queue();
+            crate::world_material::record_compute_errors(&cache, pipelines(), &failures);
+        }
+        for published in &published {
+            assert!(!failures.failed(published.key), "waiting is not failing");
+            cache.set_shader(
+                shader(published.compute.program()).id(),
+                crate::shader_safety::from_wgsl(
+                    published.compute.module(),
+                    format!("src/world_material/compute_{}.wgsl", published.key),
+                ),
+            );
+        }
+        for (key, entry) in &entries {
+            test_time::eventually("the compute pipeline compiles", || {
+                cache.process_queue();
+                crate::world_material::record_compute_errors(&cache, pipelines(), &failures);
+                assert!(!failures.failed(*key), "compute {key} failed");
+                matches!(
+                    cache.get_compute_pipeline_state(entry.pipeline()),
+                    bevy::render::render_resource::CachedPipelineState::Ok(_)
+                )
+            });
+        }
+    }
+
     #[test]
     fn a_frame_runs_computes_within_its_cell_budget() {
         let half = (MAX_FRAME_CELLS / 2) as u32;
