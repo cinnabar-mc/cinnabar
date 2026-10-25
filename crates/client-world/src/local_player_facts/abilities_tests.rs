@@ -77,21 +77,33 @@ fn retired_and_failed_repeat_bindings_cannot_be_resurrected_by_drain_or_clone() 
     assert!(runtime.local_abilities().is_none());
 }
 
-/// A confirmed mode switch changes mining immediately without rewriting wire evidence.
+/// A confirmed mode switch changes mining immediately and rewrites the mode-owned layer.
 #[test]
-fn creative_to_survival_keeps_abilities_but_stops_instant_destruction() {
+fn creative_to_survival_stops_instant_destruction_and_clears_base_instabuild() {
     use crate::game_mode_capabilities::ability_bit::INSTANT_BUILD;
     use protocol::PlayerGameMode::{Creative, Survival};
 
     let mut runtime = LocalPlayerFacts::new(7);
     runtime.publish_bootstrap_game_modes(Creative, Creative, false);
     runtime.bind_local_abilities(7, 4, 17, true);
-    let evidence = AbilitiesUpdate {
+    runtime.apply_local_abilities(7, 4, 1, base_update(INSTANT_BUILD, INSTANT_BUILD));
+    assert!(runtime.game_mode_capabilities().unwrap().instant_break);
+    assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Survival)));
+    assert!(!runtime.game_mode_capabilities().unwrap().instant_break);
+    assert_eq!(runtime.instabuild(), Some(false));
+    assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Creative)));
+    assert!(runtime.game_mode_capabilities().unwrap().instant_break);
+    assert_eq!(runtime.instabuild(), Some(true));
+}
+
+/// Builds received evidence with one base layer.
+fn base_update(abilities: u32, values: u32) -> AbilitiesUpdate {
+    AbilitiesUpdate {
         layers: AbilityLayersEvidence::Received(
             [AbilityLayerEvidence {
                 layer_type: 1,
-                abilities: INSTANT_BUILD,
-                values: INSTANT_BUILD,
+                abilities,
+                values,
                 fly_speed_bits: 0,
                 vertical_fly_speed_bits: 0,
                 walk_speed_bits: 0,
@@ -99,14 +111,96 @@ fn creative_to_survival_keeps_abilities_but_stops_instant_destruction() {
             .into(),
         ),
         ..update(17, 0)
-    };
-    runtime.apply_local_abilities(7, 4, 1, evidence.clone());
-    assert!(runtime.game_mode_capabilities().unwrap().instant_break);
+    }
+}
+
+/// Leaving creative takes away flight even when no ability update follows the mode change,
+/// and returning to creative grants it again without one.
+#[test]
+fn mode_change_reassigns_flight_over_retained_ability_layers() {
+    use crate::game_mode_capabilities::{FlightAuthority, ability_bit as b};
+    use protocol::PlayerGameMode::{Adventure, Creative, Survival};
+
+    let creative_layer = b::MAY_FLY | b::FLYING | b::INSTANT_BUILD | b::INVULNERABLE;
+    let mut runtime = LocalPlayerFacts::new(7);
+    runtime.publish_bootstrap_game_modes(Survival, Survival, false);
+    runtime.bind_local_abilities(7, 4, 17, true);
+    runtime.apply_game_mode_update(GameModeUpdate::Explicit(Creative));
+    runtime.apply_local_abilities(
+        7,
+        4,
+        1,
+        base_update(
+            creative_layer | b::NO_CLIP | b::BUILD,
+            creative_layer | b::BUILD,
+        ),
+    );
+    let creative = runtime.game_mode_capabilities().unwrap();
+    assert!(creative.can_fly && creative.flight.is_flying() && creative.invulnerable);
+
     assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Survival)));
-    assert!(!runtime.game_mode_capabilities().unwrap().instant_break);
-    assert_eq!(runtime.local_abilities(), Some(&evidence));
+    let survival = runtime.game_mode_capabilities().unwrap();
+    assert!(
+        !survival.can_fly,
+        "survival keeps the creative MayFly grant"
+    );
+    assert_eq!(survival.flight, FlightAuthority::Mutable(false));
+    assert!(!survival.invulnerable && survival.has_collision && survival.can_build);
+
     assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Creative)));
-    assert!(runtime.game_mode_capabilities().unwrap().instant_break);
+    let creative = runtime.game_mode_capabilities().unwrap();
+    assert!(creative.can_fly && creative.invulnerable && creative.has_collision);
+    assert_eq!(
+        creative.flight,
+        FlightAuthority::Mutable(false),
+        "creative leaves Flying as the previous mode set it"
+    );
+
+    assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Adventure)));
+    assert!(!runtime.game_mode_capabilities().unwrap().can_fly);
+    runtime.apply_local_abilities(7, 4, 2, base_update(b::MAY_FLY, b::MAY_FLY));
+    assert!(
+        runtime.game_mode_capabilities().unwrap().can_fly,
+        "a later ability update replaces the mode assignment"
+    );
+}
+
+/// Every mode change clears the spectator layer, while higher layers keep their grants.
+#[test]
+fn mode_change_clears_spectator_layer_and_keeps_higher_layers() {
+    use crate::game_mode_capabilities::ability_bit as b;
+    use protocol::PlayerGameMode::{Creative, Survival};
+
+    let layer = |layer_type, abilities, values| AbilityLayerEvidence {
+        layer_type,
+        abilities,
+        values,
+        fly_speed_bits: 0,
+        vertical_fly_speed_bits: 0,
+        walk_speed_bits: 0,
+    };
+    let mut runtime = LocalPlayerFacts::new(7);
+    runtime.publish_bootstrap_game_modes(Creative, Creative, false);
+    runtime.bind_local_abilities(7, 4, 17, true);
+    runtime.apply_local_abilities(
+        7,
+        4,
+        1,
+        AbilitiesUpdate {
+            layers: AbilityLayersEvidence::Received(
+                [layer(2, b::MINE, 0), layer(3, b::MAY_FLY, b::MAY_FLY)].into(),
+            ),
+            ..update(17, 0)
+        },
+    );
+    assert!(!runtime.game_mode_capabilities().unwrap().can_mine);
+    assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Survival)));
+    let survival = runtime.game_mode_capabilities().unwrap();
+    assert!(survival.can_mine, "the spectator layer was cleared");
+    assert!(
+        survival.can_fly,
+        "a command-layer MayFly grant outranks the base layer"
+    );
 }
 
 /// Builds an original Instabuild definition in one chosen ability layer.
