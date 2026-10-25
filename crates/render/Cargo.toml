@@ -14,6 +14,7 @@ reads = [
     "crates/assets/data/block-registry-v1001.bin",
     "crates/assets/data/block-registry-v2193.bin",
     "packaging/windows/dxc.json",
+    "examples/experiences/material-fx/client/shaders",
 ]
 
 [features]
