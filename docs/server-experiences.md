@@ -239,7 +239,11 @@ material's do. Ending the runtime clears the withdrawals.
   `set-compute` declares at most 65 536 cells of four numbers the host owns for the bundle; each
   frame `fn step(input: WorldCellInput) -> vec4<f32>` returns each cell's next value from the
   previous frame's cells, and a material naming the compute in `cells` reads them with
-  `cell(index)`. A bundle's computes update at most 262 144 cells a frame. Compute cannot write
+  `cell(index)`. A bundle's computes update at most 262 144 cells a frame, and a frame runs at
+most 1 048 576 cell updates across every bundle, before anything draws so every view reads the
+same cells; a compute past that waits, and the next frame starts with one left out so every
+compute steps in turn, and one whose pipeline fails to compile
+is reported once while its cells read zero. Compute cannot write
   any other cell, read textures, host buffers or the scene, and nothing reads its cells back
   to the guest. The guest functions keep the sandbox's per-pixel, per-vertex or per-cell bound
   (no loops, bounded expressions and texture reads).

@@ -130,4 +130,25 @@ impl WorldMaterialPresenter {
         }
         slots
     }
+
+    /// Reports, once each, the published computes whose native pipelines `failed` to compile;
+    /// materials keep reading their zeroed cells.
+    pub(super) fn note_compute_failures(&mut self, failed: impl Fn(u64) -> bool) {
+        let failures: Vec<(String, u32, u64)> = self
+            .computes
+            .iter()
+            .filter_map(|((bundle, id), cached)| {
+                let published = cached.outcome.as_ref().ok()?;
+                failed(published.key).then(|| (bundle.clone(), *id, cached.attempt))
+            })
+            .collect();
+        for (bundle, id, attempt) in failures {
+            self.report(
+                &bundle,
+                id,
+                attempt,
+                "compute failed to compile on this GPU",
+            );
+        }
+    }
 }

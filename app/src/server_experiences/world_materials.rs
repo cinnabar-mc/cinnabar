@@ -692,7 +692,7 @@ impl WorldMaterialPresenter {
 
     /// Reports, once each, the published materials whose native pipelines `failed` to compile;
     /// their draws keep the Bedrock material.
-    pub(super) fn note_compile_failures(&mut self, failed: impl Fn(u64) -> bool) {
+    pub(super) fn note_compile_failures(&mut self, failed: impl Fn(u64) -> bool + Copy) {
         let failures: Vec<(String, u32, u64)> = self
             .set
             .published()
@@ -707,6 +707,7 @@ impl WorldMaterialPresenter {
         for (bundle, id, attempt) in failures {
             self.report(&bundle, id, attempt, "failed to compile on this GPU");
         }
+        self.note_compute_failures(failed);
     }
 
     /// Logs a failure once per declaration attempt and keeps it for the diagnostics.
