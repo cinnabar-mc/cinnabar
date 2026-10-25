@@ -533,12 +533,32 @@ impl Resolved {
         }
     }
 
-    /// Each variant clones the material parsed so far, then applies its own fields.
+    /// Each variant clones the material parsed so far, then applies its own fields. Version 1
+    /// replaces inherited variants with a plain list; otherwise it adds `+variants` and then
+    /// removes the inherited or added variants that `-variants` names.
     fn apply_variants(&mut self, fields: &Map<String, Value>, modern: bool, depth: usize) {
         let plain = fields.get("variants").and_then(Value::as_array);
         if modern && plain.is_some() {
             self.variants.clear();
         }
+        self.add_variants(fields, plain, depth);
+        if modern && plain.is_none() {
+            let removed = fields.get("-variants").and_then(Value::as_array);
+            for name in removed.into_iter().flatten().filter_map(Value::as_str) {
+                self.variants
+                    .retain(|(existing, _)| existing.as_ref() != name);
+            }
+        }
+    }
+
+    /// Clones and applies each entry of the plain list, or of `+variants` when it is absent,
+    /// replacing an existing variant of the same name.
+    fn add_variants(
+        &mut self,
+        fields: &Map<String, Value>,
+        plain: Option<&Vec<Value>>,
+        depth: usize,
+    ) {
         let entries = plain.or_else(|| fields.get("+variants").and_then(Value::as_array));
         for entry in entries.into_iter().flatten().filter_map(Value::as_object) {
             for (name, value) in entry {
