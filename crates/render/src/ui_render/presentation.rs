@@ -2,7 +2,7 @@
 
 use super::composite::UiLayerTexture;
 use bevy::{
-    prelude::{Query, ResMut, Resource},
+    prelude::{ContainsEntity, Query, ResMut, Resource, With},
     render::{camera::ExtractedCamera, sync_world::MainEntity},
     window::PrimaryWindow,
 };
