@@ -251,7 +251,8 @@ fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
     let model_ref_index = geometry_streams[draw_ref_word];
     let quad_word = geometry_streams[draw_ref_word + 1u];
     // Draws tagged for a programmable world material draw only in that material's pass, or in
-    // the fallback pass while it is not ready; Enhanced terrain draws them as Bedrock.
+    // the fallback pass while it is not ready; Enhanced terrain draws them as Bedrock, and so
+    // does translucent terrain for a section whose materials are not ready.
     let world_tag = quad_word >> 26u;
     var world_hidden = false;
     @if(!ENHANCED)
@@ -260,6 +261,8 @@ fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
     { world_hidden = world_tag != world_material_tag(); }
     @if(WORLD_MATERIAL_FALLBACK)
     { world_hidden = world_tag == 0u; }
+    @if(WORLD_MATERIAL_AS_BEDROCK)
+    { world_hidden = false; }
     if (world_hidden) {
         return invalid_model_quad();
     }
