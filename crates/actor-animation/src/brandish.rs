@@ -25,8 +25,8 @@ pub(super) fn brandish_spear(
             (false, 0.0)
         };
     }
-    // Native reads the raw synched target id against 0 only, unlike `query.has_target`,
-    // which resolves the target. Vanilla servers clear the id to 0, so -1 counts as a target.
+    // Native compares the raw synched target id with 0 only; vanilla servers clear it to 0,
+    // so a -1 id still counts as a target.
     let targeting = matches!(
         actor.metadata().get(&ActorDataKey::Target.wire_value()),
         Some(protocol::ActorMetadataValue::Long(id)) if *id != 0
