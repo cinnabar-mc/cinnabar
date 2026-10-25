@@ -512,8 +512,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 return Ok(WorldIngress::Event(event));
             }
 
-            if self.pending_ordinary.is_some() {
-                self.finish_ordinary_ingress()?;
+            let ordinary_blocked = self.pending_ordinary.is_some();
+            if ordinary_blocked && self.finish_ordinary_ingress(false)? {
                 continue;
             }
 
@@ -542,15 +542,35 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 continue;
             }
 
+            let transfer_armed = self
+                .blob_cache
+                .as_ref()
+                .expect("enabled cache")
+                .fast_transfer_reset_armed();
             let Some(inbound) =
-                blob_recovery::BlobRecovery::until(&mut self.blob_recovery, self.transport.recv())
-                    .await
+                blob_recovery::BlobRecovery::until(&mut self.blob_recovery, async {
+                    if ordinary_blocked {
+                        self.transport
+                            .recv_blob_body(
+                                crate::session_transport::MAX_READ_AHEAD_BYTES,
+                                transfer_armed,
+                            )
+                            .await
+                    } else {
+                        self.transport.recv().await.map(Some)
+                    }
+                })
+                .await
             else {
                 continue;
             };
             let raw = match inbound {
-                Ok(Inbound::Packet(raw)) => raw,
-                Ok(Inbound::Terminal(terminal)) => {
+                Ok(None) => {
+                    self.finish_ordinary_ingress(true)?;
+                    continue;
+                }
+                Ok(Some(Inbound::Packet(raw))) => raw,
+                Ok(Some(Inbound::Terminal(terminal))) => {
                     if self.absorb_terminal(terminal)? {
                         return boundary_wakeup();
                     }
@@ -558,7 +578,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 }
                 Err(error) => return Err(self.fail_session(error)),
             };
-            if bridge::latency_trace::active().is_some() {
+            if !ordinary_blocked && bridge::latency_trace::active().is_some() {
                 let origin = self.delivered_position();
                 self.blob_cache
                     .as_mut()

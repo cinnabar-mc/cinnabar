@@ -93,6 +93,52 @@ fn cached_columns_keep_metadata_and_order_through_block_entity_updates() {
     assert_eq!(stats.cache_pinned_bytes, 0);
 }
 
+/// A decoded-event quota must leave a bounded path to the bodies behind the ordinary burst.
+#[test]
+fn cached_columns_survive_ordinary_burst_beyond_decoded_lane() {
+    let body = b"section body";
+    let biome = b"biome body";
+    let updates = crate::MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS + 16;
+    let mut packets = vec![full_column(4, body, biome)];
+    packets.extend((0..updates as i32).map(|y| block_entity_update(4, y)));
+    packets.push(Packet::new(SetTime {
+        time: wire::ZigZag32(42),
+    }));
+    let (mut session, send, _expires) = session(&packets, 0);
+    // Repeated cancellation retains the full lane, current decoded input and raw suffix.
+    for _ in 0..3 {
+        assert!(
+            poll_ingress(&mut session).is_pending(),
+            "ordinary capacity must wait for the requested bodies without retiring their metadata"
+        );
+    }
+    assert_eq!(
+        session.blob_cache_stats().ordinary_ready_events,
+        crate::MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS
+    );
+    send_packets(&send, &[body_response(body), body_response(biome)]);
+    let Poll::Ready(WorldIngress::LevelChunk(column, payload)) = poll_ingress(&mut session) else {
+        panic!("requested bodies behind raw ordinary input must complete the original column");
+    };
+    assert_eq!(column.mode, crate::LevelChunkMode::Inline { count: 1 });
+    assert_eq!(
+        payload.as_ref(),
+        [body.as_slice(), biome.as_slice(), b"inline tail"].concat()
+    );
+    for y in 0..updates as i32 {
+        assert!(
+            matches!(poll_ingress(&mut session), Poll::Ready(WorldIngress::Event(WorldEvent::BlockEntityUpdate(update))) if update.position[1] == y)
+        );
+    }
+    assert!(matches!(
+        poll_ingress(&mut session),
+        Poll::Ready(WorldIngress::Event(WorldEvent::SetTime(_)))
+    ));
+    assert!(poll_ingress(&mut session).is_pending());
+    assert_eq!(session.blob_cache_stats().abandoned_cached_transactions, 0);
+    assert_eq!(session.blob_cache_stats().recovery_requests, 0);
+}
+
 /// A ready multi-column reply carries the earlier column's ordering dependency to later updates.
 #[test]
 fn cached_columns_preserve_transitively_blocked_ordinary_work_without_spinning() {
@@ -148,7 +194,7 @@ fn cached_columns_preserve_transitively_blocked_ordinary_work_without_spinning()
     assert!(poll_ingress(&mut session).is_pending());
 }
 
-/// True event pressure retains the current input while older updates and recovery drain.
+/// A boundary beyond the full decoded lane drains recovery and older updates before resetting.
 #[test]
 fn cached_column_recovery_waits_for_ordinary_event_capacity() {
     let mut packets = vec![full_column(4, b"body", b"biome")];
@@ -157,6 +203,9 @@ fn cached_column_recovery_waits_for_ordinary_event_capacity() {
     packets.push(Packet::new(SetTime {
         time: wire::ZigZag32(42),
     }));
+    packets.push(Packet::new(
+        bedrock_protocol_1_26_51::packets::ChangeDimension::default(),
+    ));
     let (mut session, _send, _expires) = session(&packets, 0);
     assert!(matches!(
         poll_ingress(&mut session),
@@ -174,6 +223,10 @@ fn cached_column_recovery_waits_for_ordinary_event_capacity() {
         poll_ingress(&mut session),
         Poll::Ready(WorldIngress::Event(WorldEvent::SetTime(_)))
     ));
+    assert!(matches!(
+        poll_ingress(&mut session),
+        Poll::Ready(WorldIngress::Event(WorldEvent::ChangeDimension(_)))
+    ));
     assert!(poll_ingress(&mut session).is_pending());
     assert_eq!(session.blob_cache_stats().abandoned_cached_transactions, 1);
     assert_eq!(session.blob_cache_stats().ordinary_backpressure, 0);
@@ -182,7 +235,7 @@ fn cached_column_recovery_waits_for_ordinary_event_capacity() {
 /// Byte pressure follows the same recovery path without losing the current decoded item.
 #[test]
 fn cached_column_recovery_preserves_input_at_ordinary_byte_capacity() {
-    let (mut session, _send, _expires) = session(&[full_column(4, b"body", b"biome")], 0);
+    let (mut session, send, _expires) = session(&[full_column(4, b"body", b"biome")], 0);
     assert!(poll_ingress(&mut session).is_pending());
     let update = WorldEvent::BlockUpdates(vec![crate::BlockUpdateEvent {
         dimension: 0,
@@ -201,6 +254,12 @@ fn cached_column_recovery_preserves_input_at_ordinary_byte_capacity() {
         WorldIngress::Event(WorldEvent::SetTime(crate::SetTimeEvent { time: 42 })),
         half,
     ));
+    send_packets(
+        &send,
+        &[Packet::new(
+            bedrock_protocol_1_26_51::packets::ChangeDimension::default(),
+        )],
+    );
     assert!(matches!(
         poll_ingress(&mut session),
         Poll::Ready(WorldIngress::Event(WorldEvent::ChunkResync(_)))
@@ -217,6 +276,10 @@ fn cached_column_recovery_preserves_input_at_ordinary_byte_capacity() {
     assert!(matches!(
         poll_ingress(&mut session),
         Poll::Ready(WorldIngress::Event(WorldEvent::SetTime(_)))
+    ));
+    assert!(matches!(
+        poll_ingress(&mut session),
+        Poll::Ready(WorldIngress::Event(WorldEvent::ChangeDimension(_)))
     ));
     assert!(poll_ingress(&mut session).is_pending());
     assert!(session.pending_ordinary.is_none());

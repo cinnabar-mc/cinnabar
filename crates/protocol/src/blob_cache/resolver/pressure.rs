@@ -1,6 +1,11 @@
 use super::*;
 
 impl BlobCacheResolver {
+    /// Whether the next terrain packet confirms a backend boundary that bodies must not pass.
+    pub(crate) const fn fast_transfer_reset_armed(&self) -> bool {
+        self.fast_transfer_reset_armed
+    }
+
     /// Whether ordinary work remains retained, possibly behind an earlier cached column.
     #[must_use]
     pub fn ordinary_lane_needs_drain(&self) -> bool {

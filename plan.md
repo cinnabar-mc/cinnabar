@@ -271,8 +271,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   Late blob replies for retired transactions no longer discard valid, still-needed
   blobs in the same response. Verified requested bodies arriving after ordinary-lane
   retirement can warm the cache for recovery. Ordinary updates wait in their bounded lane
-  while missing bodies arrive; ordinary admission pressure can retire cached blockers
-  when that lane fills.
+  while missing bodies arrive. When that decoded lane fills, raw read-ahead reaches cache
+  bodies behind ordinary bursts within the existing byte budget, preserving their FIFO order.
+  Recovery can retire blockers at the raw byte frontier or a session boundary.
   Retained updates also preserve ordering with later cached terrain on the same column.
   Terrain requests use a packet origin that fits their absolute positions and leave distant
   columns queued for later packets.
