@@ -126,7 +126,7 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
     let pack = fixture_pack();
     fs::write(&source, forwarding_reactor(&pack)).unwrap();
     let mut requests = 0;
-    perform(
+    perform::<AppBackend>(
         Action::Import,
         &mods,
         &config,
@@ -144,7 +144,7 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
             .all(|permission| !permission.enabled)
     );
     let mut action = |action| {
-        perform(
+        perform::<AppBackend>(
             action,
             &mods,
             &config,

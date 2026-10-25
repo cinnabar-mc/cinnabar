@@ -5295,6 +5295,7 @@ dependencies = [
  "tracing",
  "update-installer",
  "update-manifest",
+ "ui",
  "url",
  "windows-sys 0.61.2",
  "zbus",

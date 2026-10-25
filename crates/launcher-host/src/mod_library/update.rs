@@ -1,10 +1,9 @@
 //! Replacement of an opted-in installed component, without changing registration or grants.
 
-use super::{installed, registered, same_path, selection};
+use super::{Backend, Selection, files::installed, paths::same_path};
+use crate::mod_updates::Downloaded;
 use crossbeam_channel::Sender;
 use launcher::mods::{Library, Status};
-use launcher_host::mod_updates::Downloaded;
-use mod_host::{declarations_snapshot, read_source, validate_source};
 use std::time::{Duration, Instant};
 use std::{
     fs,
@@ -14,13 +13,13 @@ use std::{
 
 /// Validates the exact download and atomically replaces its unchanged installed source.
 /// Existing registration, permission grants and settings companions retain their identities.
-pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<Installed, String> {
+pub fn install<B: Backend>(mods: &Path, download: &Downloaded) -> Result<Installed, String> {
     let (item, path) = selected(mods, download)?;
     let old =
-        read_source(&path).map_err(|error| format!("Could not read {}: {error}", item.file))?;
-    let bytes = read_source(download.path())
+        B::read_source(&path).map_err(|error| format!("Could not read {}: {error}", item.file))?;
+    let bytes = B::read_source(download.path())
         .map_err(|error| format!("Could not read mod update: {error}"))?;
-    validate(&old, &bytes, download)
+    validate::<B>(&old, &bytes, download)
         .map_err(|error| format!("Could not update {}: {error}", item.file))?;
     let permissions = fs::symlink_metadata(&path)
         .map_err(|error| error.to_string())?
@@ -36,7 +35,7 @@ pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<Installed, S
         .map_err(|error| format!("Could not stage {}: {error}", item.file))?;
     selected(mods, download)?;
     // Re-read immediately before replacement: an external editor may preserve file metadata.
-    let current = read_source(&path).map_err(|error| error.to_string())?;
+    let current = B::read_source(&path).map_err(|error| error.to_string())?;
     if current != old {
         return Err("The installed mod changed while its update was prepared.".into());
     }
@@ -55,13 +54,13 @@ pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<Installed, S
 }
 
 /// The installed file and its completion message, before any enabled instance reloads.
-pub(super) struct Installed {
+pub struct Installed {
     path: PathBuf,
-    message: String,
+    pub message: String,
 }
 
 /// Completion is held until the runtime acknowledges the freshly requested instance.
-pub(super) struct PendingReload {
+pub struct PendingReload {
     pub id: u64,
     deadline: Instant,
     message: String,
@@ -70,7 +69,7 @@ pub(super) struct PendingReload {
 
 impl PendingReload {
     /// Requests reload under a fresh registration request ID, preserving the existing grants.
-    pub fn start(
+    pub fn start<B: Backend>(
         mods: &Path,
         registration: &Path,
         installed: Installed,
@@ -78,19 +77,25 @@ impl PendingReload {
         finished: Sender<()>,
         now: Instant,
     ) -> Result<Option<Self>, String> {
-        if !registered(registration)
+        if !B::registered(registration)
             .iter()
-            .any(|entry| entry.entry.enabled && same_path(&entry.entry.component, &installed.path))
+            .any(|entry| entry.enabled() && same_path(entry.component(), &installed.path))
         {
             let _ = finished.send(());
             return Ok(None);
         }
-        let id = super::installed(mods)
+        let id = super::files::installed(mods)
             .into_iter()
             .find(|(_, path)| same_path(path, &installed.path))
             .map(|(item, _)| item.id)
             .ok_or("The updated mod file changed before reload.")?;
-        selection::reload(registration, &installed.path, request).map_err(|error| {
+        B::apply(
+            launcher::mods::Action::Reload(id),
+            registration,
+            Some(&installed.path),
+            request,
+        )
+        .map_err(|error| {
             format!("The update was installed, but reload could not start: {error}")
         })?;
         Ok(Some(Self {
@@ -137,19 +142,15 @@ fn selected(
 }
 
 /// Requires both snapshots to retain the exact opted-in source and the promised newer version.
-fn validate(old: &[u8], bytes: &[u8], download: &Downloaded) -> Result<(), String> {
-    let previous = declarations_snapshot(old)
-        .map_err(|error| error.to_string())?
-        .metadata;
-    let next = declarations_snapshot(bytes).map_err(|error| error.to_string())?;
-    next.requested
-        .map_err(|error| format!("invalid requested permissions: {error}"))?;
+fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Result<(), String> {
+    let previous = B::update_metadata(old, false)?;
+    let next = B::update_metadata(bytes, true)?;
     let matches_source = |metadata: &ui::mod_metadata::ModMetadata| {
         metadata.update_url.as_ref().is_some_and(|source| {
             source.repository().slug() == download.repository && source.asset() == download.asset
         })
     };
-    if !matches_source(&previous) || !matches_source(&next.metadata) {
+    if !matches_source(&previous) || !matches_source(&next) {
         return Err("The update source does not match the installed mod.".into());
     }
     let current = previous
@@ -157,7 +158,6 @@ fn validate(old: &[u8], bytes: &[u8], download: &Downloaded) -> Result<(), Strin
         .as_deref()
         .ok_or("The installed mod has no version.")?;
     let next_version = next
-        .metadata
         .version
         .as_deref()
         .ok_or("The update has no version.")?;
@@ -168,8 +168,5 @@ fn validate(old: &[u8], bytes: &[u8], download: &Downloaded) -> Result<(), Strin
     {
         return Err("The downloaded version does not match a newer release.".into());
     }
-    validate_source(bytes).map_err(|error| format!("invalid mod: {error:#}"))
+    B::validate_source(bytes).map_err(|error| format!("invalid mod: {error:#}"))
 }
-
-#[cfg(test)]
-mod tests;
