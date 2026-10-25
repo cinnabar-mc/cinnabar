@@ -1,8 +1,8 @@
 //! World material particles (`render_world_material_passes`): each view draws, after the
 //! translucent pass, `count` camera-facing pixel squares around every bound target of a
 //! material with particles, placed and coloured by its `particle` function within its radius,
-//! depth-tested against the scene. A view draws at most [`MAX_FRAME_PARTICLES`] squares; the
-//! targets past that wait for a later frame.
+//! depth-tested against the scene. A view draws at most [`MAX_FRAME_PARTICLES`] squares; when its
+//! targets need more, they take turns, each frame starting where the last one stopped.
 
 use bevy::prelude::{Entity, Query, Res, ResMut, Resource, World};
 use bevy::render::{
@@ -136,12 +136,13 @@ struct SlotTargets {
     group: BindGroup,
 }
 
-/// One view's particle resources, kept across frames: its uniform, each slot's targets, and
-/// this frame's draws (slot, squares, pipeline).
+/// One view's particle resources, kept across frames: its uniform, each slot's targets, this
+/// frame's draws (slot, squares, pipeline), and the target the next frame's admission starts at.
 struct ViewParticles {
     uniform: Buffer,
     slots: HashMap<u16, SlotTargets>,
     draws: Vec<(u16, u32, CachedRenderPipelineId)>,
+    cursor: usize,
 }
 
 /// Every view's particle draws and the pipelines they use.
@@ -164,16 +165,30 @@ fn scene_format(target: &ViewTarget, scene: Option<&SceneTarget>) -> (TextureFor
     }
 }
 
-/// The squares `targets` of a material drawing `count` around each may draw within `budget`,
-/// and how many targets that admits.
-pub(crate) fn admitted(targets: usize, count: u32, budget: &mut u32) -> usize {
-    if count == 0 {
-        return 0;
+/// Which of a view's targets draw this frame, given each one's squares in a stable order:
+/// starting at `cursor` and wrapping, every target whose squares still fit within
+/// [`MAX_FRAME_PARTICLES`] is admitted. Returns the admitted mask and the next frame's cursor:
+/// the first target passed over that a frame could hold, or `cursor` when none was. Each frame
+/// then starts with a target the last one left out, so every target that fits a frame on its
+/// own draws within a bounded number of frames.
+fn admit(counts: &[u32], cursor: usize) -> (Vec<bool>, usize) {
+    let mut admitted = vec![false; counts.len()];
+    if counts.is_empty() {
+        return (admitted, 0);
     }
-    let fits = (*budget / count) as usize;
-    let admitted = targets.min(fits);
-    *budget -= admitted as u32 * count;
-    admitted
+    let start = cursor % counts.len();
+    let mut budget = MAX_FRAME_PARTICLES;
+    let mut next = None;
+    for index in (start..counts.len()).chain(0..start) {
+        let count = counts[index];
+        if count <= budget {
+            admitted[index] = true;
+            budget -= count;
+        } else if next.is_none() && count <= MAX_FRAME_PARTICLES {
+            next = Some(index);
+        }
+    }
+    (admitted, next.unwrap_or(start))
 }
 
 /// Drops the `pipelines` whose material no slot of `gpu` holds any more.
@@ -222,6 +237,7 @@ pub(crate) fn prepare(
                 }),
                 slots: HashMap::new(),
                 draws: Vec::new(),
+                cursor: 0,
             });
         resources.draws.clear();
         resources.slots.retain(|slot, _| slots.contains(slot));
@@ -233,7 +249,8 @@ pub(crate) fn prepare(
         words.extend(world_from_view.x_axis.truncate().extend(0.0).to_array());
         words.extend(world_from_view.y_axis.truncate().extend(0.0).to_array());
         queue.write_buffer(&resources.uniform, 0, bytemuck::cast_slice(&words));
-        let mut budget = MAX_FRAME_PARTICLES;
+        let mut offered = Vec::new();
+        let mut counts = Vec::new();
         for slot in slots {
             let Some((variant, count)) = gpu.particles(slot) else {
                 continue;
@@ -246,7 +263,19 @@ pub(crate) fn prepare(
                 .flatten()
                 .copied()
                 .collect();
-            let admitted = admitted(origins.len(), count, &mut budget);
+            counts.extend(std::iter::repeat_n(count, origins.len()));
+            offered.push((slot, variant, count, origins));
+        }
+        let (admission, cursor) = admit(&counts, resources.cursor);
+        resources.cursor = cursor;
+        let mut admission = admission.into_iter();
+        for (slot, variant, count, origins) in offered {
+            let origins: Vec<[f32; 4]> = origins
+                .into_iter()
+                .zip(admission.by_ref())
+                .filter_map(|(origin, admitted)| admitted.then_some(origin))
+                .collect();
+            let admitted = origins.len();
             if admitted == 0 {
                 continue;
             }
@@ -300,11 +329,7 @@ pub(crate) fn prepare(
                     }
                 }
             };
-            queue.write_buffer(
-                &targets.buffer,
-                0,
-                bytemuck::cast_slice(&origins[..admitted]),
-            );
+            queue.write_buffer(&targets.buffer, 0, bytemuck::cast_slice(&origins));
             resources
                 .draws
                 .push((slot, admitted as u32 * count, pipeline));
@@ -386,16 +411,38 @@ pub(crate) fn draw(
 mod tests {
     use super::*;
 
+    /// Which targets a mask admits.
+    fn indices(admitted: &[bool]) -> Vec<usize> {
+        (0..admitted.len())
+            .filter(|index| admitted[*index])
+            .collect()
+    }
+
     #[test]
-    fn a_view_draws_particles_within_its_budget() {
-        let mut budget = MAX_FRAME_PARTICLES;
-        assert_eq!(admitted(3, 4096, &mut budget), 3);
-        assert_eq!(budget, MAX_FRAME_PARTICLES - 3 * 4096);
-        // Only whole targets fit; the rest wait.
-        assert_eq!(admitted(100, 4096, &mut budget), 13);
-        assert_eq!(budget, 0);
-        assert_eq!(admitted(1, 1, &mut budget), 0);
-        assert_eq!(admitted(5, 0, &mut MAX_FRAME_PARTICLES.clone()), 0);
+    fn targets_past_the_frame_budget_take_their_turn() {
+        // Twenty targets of 4096 squares; sixteen fit a frame.
+        let counts = [4096; 20];
+        let (first, cursor) = admit(&counts, 0);
+        assert_eq!(indices(&first), (0..16).collect::<Vec<_>>());
+        let (second, cursor) = admit(&counts, cursor);
+        assert_eq!(
+            indices(&second),
+            (0..12).chain(16..20).collect::<Vec<_>>(),
+            "the targets left out draw the next frame"
+        );
+        let (third, _) = admit(&counts, cursor);
+        assert_eq!(indices(&third), (0..8).chain(12..20).collect::<Vec<_>>());
+        // Smaller targets fill what a larger one leaves; one too large for any frame holds no
+        // turn.
+        let counts = [MAX_FRAME_PARTICLES, 1, MAX_FRAME_PARTICLES + 1, 1];
+        let (first, cursor) = admit(&counts, 0);
+        assert_eq!(indices(&first), [0]);
+        let (second, cursor) = admit(&counts, cursor);
+        assert_eq!(indices(&second), [1, 3]);
+        assert_eq!(cursor, 0);
+        // Targets that all fit keep their cursor.
+        assert_eq!(admit(&[3, 4], 1), (vec![true, true], 1));
+        assert_eq!(admit(&[], 5), (Vec::new(), 0));
     }
 
     /// An entity slot past the terrain mask's 64 bits keeps its particle pipeline, while a
