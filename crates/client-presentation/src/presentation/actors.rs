@@ -23,11 +23,15 @@ mod locator;
 pub use locator::actor_emitter_transform;
 mod admission;
 mod boat;
+mod thrown_trident;
 pub use admission::within_actor_candidate_cube;
 pub(crate) use admission::{
     actor_is_render_candidate, admit_frame_bounds, rig_may_replace_geometry, sample_candidate_scale,
 };
 use boat::boat_hurt_tilted;
+use thrown_trident::{
+    present_thrown_trident, thrown_trident_position, thrown_trident_world_from_actor,
+};
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
@@ -358,6 +362,7 @@ fn place(
     submission.world_from_actor = world_from_actor;
     submission.overlay_rgba8 =
         crate::presentation::combat::overlay(actor, render_api::DEFAULT_COMBAT_VISUALS);
+    present_thrown_trident(submission, actor);
     presentation.world_yaw_degrees = yaw;
     presentation.head_over_body =
         wrap_degrees(lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw);
@@ -393,7 +398,12 @@ pub(crate) fn sampled_rig_placement(
     let rows = glide_tilted(
         death_tilted(
             scaled_axes(
-                boat_hurt_tilted(rig_world_from_actor(position, yaw, scale), actor, alpha),
+                boat_hurt_tilted(
+                    thrown_trident_world_from_actor(actor, alpha, position, scale)
+                        .unwrap_or_else(|| rig_world_from_actor(position, yaw, scale)),
+                    actor,
+                    alpha,
+                ),
                 [authored[1], authored[2], authored[3]],
             ),
             actor.death_rotation_progress(alpha),
@@ -641,7 +651,11 @@ pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline:
             .actor(submission.input.identity.runtime_id)
             .map_or_else(
                 || stream.solved_light_at(feet),
-                |actor| stream.actor_light_at(actor, feet),
+                |actor| {
+                    let feet = thrown_trident_position(actor, &submission.world_from_actor)
+                        .unwrap_or(feet);
+                    stream.actor_light_at(actor, feet)
+                },
             );
         if let Some((block, sky)) = light {
             submission.light = render_model::pack_actor_light(block, sky);
@@ -834,71 +848,7 @@ mod selection_tests;
 mod sampled_scale_tests;
 
 #[cfg(test)]
-mod death_tests {
-    use super::*;
-
-    const IDENTITY: [[f32; 4]; 3] = [
-        [1.0, 0.0, 0.0, 5.0],
-        [0.0, 1.0, 0.0, 6.0],
-        [0.0, 0.0, 1.0, 7.0],
-    ];
-
-    #[test]
-    fn alive_is_untouched_and_finished_death_lies_on_its_side() {
-        assert_eq!(death_tilted(IDENTITY, None), IDENTITY);
-        let lying = death_tilted(IDENTITY, Some(1.0));
-        // The local up axis now points along world +/-X while the feet pivot stays fixed.
-        assert!(lying[0][1].abs() > 0.999 && lying[1][1].abs() < 1e-6);
-        assert_eq!([lying[0][3], lying[1][3], lying[2][3]], [5.0, 6.0, 7.0]);
-    }
-    #[test]
-    fn review_render_local_placement_keeps_axis_scaling_and_death_tilt() {
-        let old_feet = [1.0, 2.0, 3.0];
-        let new_feet = [4.0, 64.0, 2.0];
-        let axes = [2.0, 3.0, 4.0];
-        let mut canonical = local_diagnostic_presentation(
-            7,
-            0,
-            7,
-            render_api::PoseGeneration::new(5),
-            old_feet,
-            30.0,
-            0.0,
-        )
-        .unwrap();
-        canonical.head_over_body = 10.0;
-        canonical.submission.world_from_actor = death_tilted(
-            scaled_axes(canonical.submission.world_from_actor, axes),
-            Some(0.4),
-        );
-        let diagnostic = local_diagnostic_presentation(
-            7,
-            0,
-            7,
-            render_api::PoseGeneration::new(5),
-            new_feet,
-            90.0,
-            0.0,
-        )
-        .unwrap();
-        let local =
-            local_actor_presentation_for_visibility(7, 7, Some(canonical), Some(diagnostic), 90.0)
-                .unwrap();
-        let expected = death_tilted(
-            scaled_axes(rig_world_from_actor(new_feet, 80.0, 1.0), axes),
-            Some(0.4),
-        );
-        for (actual, expected) in local
-            .submission
-            .world_from_actor
-            .into_iter()
-            .flatten()
-            .zip(expected.into_iter().flatten())
-        {
-            assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
-        }
-    }
-}
+mod death_tests;
 
 #[cfg(test)]
 mod skin_dedupe_tests {

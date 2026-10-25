@@ -638,6 +638,11 @@ camera-driven choices live between ticks. Dynamic per-bone material rules, selec
 admission and in-world qualification remain incomplete. The samples omit the iron
 golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
+Thrown tridents draw their pack model placed by the native flight rotation, with the
+item foil when enchanted. The loyalty rope, the native trident material and light sample
+point, pole-only bone selection, abstract-arrow motion seeding for tridents and the
+trident charge (`brandish_spear`) arm pose in third person and the paper doll remain
+incomplete.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
