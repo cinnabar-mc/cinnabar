@@ -48,7 +48,12 @@ fn assert_fits(
     let mut view = view();
     if update_ready {
         view.updates.ready = Some(launcher::menu::updates::Ready {
-            version: launcher::PRODUCT_VERSION.into(),
+            release: launcher::menu::updates::Release {
+                version: launcher::PRODUCT_VERSION.into(),
+                build: 2,
+                channel: launcher::menu::updates::Channel::Beta,
+            },
+            switching: false,
             writable: true,
             protocol_required: false,
         });

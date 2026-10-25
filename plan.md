@@ -1015,6 +1015,10 @@ and other threads' stacks.
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and
 rollback acceptance on a desktop remains incomplete.
+Updates settings keep channel selection, fresh checks, measured download progress and
+restart actions together. Explicit older-channel switches retain signature and hash checks,
+require a restart action and bind consent to the installed version and build.
+Packaged channel-switch and downgrade acceptance on macOS, Linux and Windows remains incomplete.
 Launching a retained Linux manual download can offer installation into the existing
 script-managed AppDir, after revalidating its signed manifest and image. End-to-end
 desktop acceptance of this recovery path remains incomplete.

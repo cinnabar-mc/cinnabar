@@ -1,6 +1,6 @@
 //! Launcher-owned update choices and the small notice shared with presentation.
 
-use update_manifest::channel::Channel;
+pub use update_manifest::{build::Build, channel::Channel};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
@@ -9,11 +9,44 @@ pub enum Action {
     Later,
     Download,
     SwitchNow,
+    WaitForChannel,
+}
+
+/// Identifies a verified release independently of the user's saved channel preference.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Release {
+    pub version: String,
+    pub build: u64,
+    pub channel: Channel,
+}
+
+impl From<&update_manifest::Manifest> for Release {
+    /// Copies only the display identity from an authenticated manifest.
+    fn from(manifest: &update_manifest::Manifest) -> Self {
+        Self {
+            version: manifest.version.clone(),
+            build: manifest.build_number,
+            channel: Channel::parse(&manifest.channel).expect("verified release channel"),
+        }
+    }
+}
+
+impl Release {
+    /// Includes the build because successive Nightly publications can share a version.
+    pub fn title(&self) -> String {
+        format!(
+            "{} {} · Build {}",
+            self.channel.title(),
+            self.version,
+            self.build
+        )
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Ready {
-    pub version: String,
+    pub release: Release,
+    pub switching: bool,
     pub writable: bool,
     pub protocol_required: bool,
 }
@@ -30,11 +63,43 @@ impl Ready {
 
     /// Uses stronger wording after an outdated-client refusal without starting installation.
     pub fn title(&self) -> String {
-        if self.protocol_required {
-            format!("Update required to connect ({})", self.version)
-        } else {
-            format!("Update ready ({})", self.version)
+        let version = &self.release.version;
+        if self.switching {
+            return format!("Ready to switch to {}", self.release.title());
         }
+        if self.protocol_required {
+            format!("Update required to connect ({version})")
+        } else {
+            format!("Update ready ({version})")
+        }
+    }
+
+    /// Uses the same installation action in Settings and on the home card.
+    pub fn action_label(&self) -> &'static str {
+        if !self.writable {
+            "Open installer"
+        } else if self.switching {
+            "Restart and switch"
+        } else {
+            "Restart and update"
+        }
+    }
+}
+
+/// Actual artifact bytes received by the worker, including a resumed partial download.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DownloadProgress {
+    pub received_bytes: u64,
+    pub total_bytes: u64,
+}
+
+impl DownloadProgress {
+    /// Clamps progress for presentation and avoids a percentage for an unknown total.
+    pub fn percent(self) -> Option<u64> {
+        (self.total_bytes > 0).then(|| {
+            (u128::from(self.received_bytes.min(self.total_bytes)) * 100
+                / u128::from(self.total_bytes)) as u64
+        })
     }
 }
 
@@ -45,6 +110,7 @@ pub enum Status {
     Idle,
     Checking,
     Downloading,
+    Verifying,
     UpToDate,
     Failed,
 }
@@ -52,18 +118,27 @@ pub enum Status {
 impl Status {
     /// A running check or download cannot accept another manual check.
     pub fn is_busy(self) -> bool {
-        matches!(self, Self::Checking | Self::Downloading)
+        matches!(self, Self::Checking | Self::Downloading | Self::Verifying)
     }
 }
 
 /// Identifies the running client using the shared product version and publication number.
-pub fn installed_version() -> String {
-    let version = crate::PRODUCT_VERSION;
-    let build = update_manifest::build_number();
-    if build == 0 {
-        format!("Version {version}")
+pub fn installed_version(build: &Build) -> String {
+    let channel = build.channel.map_or(
+        if build.number == 0 {
+            "Development build"
+        } else {
+            "Release"
+        },
+        Channel::title,
+    );
+    if build.number == 0 {
+        format!("Running {channel} · Version {}", build.version)
     } else {
-        format!("Version {version} · Build {build}")
+        format!(
+            "Running {channel} {} · Build {}",
+            build.version, build.number
+        )
     }
 }
 
@@ -74,9 +149,13 @@ pub struct View {
     /// Only the client holding the updater role exposes update controls and notices.
     pub active: bool,
     pub ready: Option<Ready>,
+    pub running: Build,
+    pub target: Option<Release>,
+    pub download: Option<DownloadProgress>,
     pub status: Status,
     pub stable_available: bool,
     pub switch_available: bool,
+    pub waiting_for_channel: bool,
     pub message: Option<String>,
     /// Publishing tracks known to this view, in the persisted channel order.
     pub published_channels: [bool; Channel::ALL.len()],
@@ -129,8 +208,16 @@ impl View {
         }
         match self.status {
             Status::Checking => "Checking for updates…".into(),
-            Status::Downloading => "Downloading update…".into(),
+            Status::Downloading => self
+                .download
+                .and_then(DownloadProgress::percent)
+                .map_or_else(
+                    || "Downloading update…".into(),
+                    |percent| format!("Downloading update… {percent}%"),
+                ),
+            Status::Verifying => "Verifying update…".into(),
             Status::Failed => "Could not check or download updates. Try again.".into(),
+            Status::UpToDate if self.switch_available => "Keeping your current build.".into(),
             Status::UpToDate => "You're up to date.".into(),
             Status::Idle => "Check for the latest release.".into(),
         }
@@ -142,9 +229,13 @@ impl View {
             manual_pending: false,
             active: true,
             ready: None,
+            running: Build::current(),
+            target: None,
+            download: None,
             status: Status::Idle,
             stable_available: false,
             switch_available: false,
+            waiting_for_channel: false,
             message: None,
             published_channels: Channel::ALL.map(published),
         }
@@ -162,6 +253,26 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Resumed byte counts stay bounded, including totals too large for a u64 percentage product.
+    #[test]
+    fn download_percent_uses_measured_bytes_and_handles_unknown_totals() {
+        for (received_bytes, total_bytes, percent) in [
+            (0, 0, None),
+            (25, 100, Some(25)),
+            (101, 100, Some(100)),
+            (u64::MAX, u64::MAX, Some(100)),
+        ] {
+            assert_eq!(
+                DownloadProgress {
+                    received_bytes,
+                    total_bytes
+                }
+                .percent(),
+                percent
+            );
+        }
+    }
     #[test]
     fn unpublished_stable_stays_hidden_even_with_old_availability() {
         let mut view = View::default();
@@ -174,7 +285,12 @@ mod tests {
     #[test]
     fn protocol_requirement_changes_wording_without_authorizing_installation() {
         let notice = Ready {
-            version: "2.0.0".into(),
+            release: Release {
+                version: "2.0.0".into(),
+                build: 2,
+                channel: Channel::Beta,
+            },
+            switching: false,
             writable: false,
             protocol_required: true,
         };
@@ -187,7 +303,12 @@ mod tests {
     fn update_status_keeps_downloaded_offers_separate_from_checks() {
         let mut view = View {
             ready: Some(Ready {
-                version: crate::PRODUCT_VERSION.into(),
+                release: Release {
+                    version: crate::PRODUCT_VERSION.into(),
+                    build: 2,
+                    channel: Channel::Beta,
+                },
+                switching: false,
                 writable: true,
                 protocol_required: false,
             }),

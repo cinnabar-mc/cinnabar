@@ -124,7 +124,10 @@ fn nightly_offers_a_newer_beta_and_returns_to_a_newer_nightly() {
         state.generation,
     );
     assert_eq!(state.preferences.channel, Channel::Nightly);
-    assert_eq!(state.ready.as_ref().unwrap().channel, Channel::Beta);
+    assert_eq!(
+        state.ready.as_ref().unwrap().notice.release.channel,
+        Channel::Beta
+    );
     assert!(!state.switch_available);
     let restored = worker::retained_manifest(
         state.ready.as_ref(),
@@ -160,7 +163,10 @@ fn nightly_offers_a_newer_beta_and_returns_to_a_newer_nightly() {
         Ready::new(stage, reader, selected, false, true),
         state.generation,
     );
-    assert_eq!(state.ready.as_ref().unwrap().channel, Channel::Nightly);
+    assert_eq!(
+        state.ready.as_ref().unwrap().notice.release.channel,
+        Channel::Nightly
+    );
     assert_eq!(state.preferences.channel, Channel::Nightly);
 }
 
