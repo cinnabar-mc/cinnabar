@@ -7,6 +7,24 @@ use server_experience::world_material::{
 };
 
 impl State {
+    /// The world materials `command` would leave staged, checked against the bundle's memory,
+    /// or `None` when it declares no world material or binding.
+    pub(super) fn stage_world(
+        &self,
+        command: &Command,
+    ) -> Result<Option<server_experience::world_material::WorldMaterials>, String> {
+        let mut staged = self.world_staged.clone();
+        let changed = match command {
+            Command::WorldMaterial { id, material } => staged.set_material(*id, material.as_ref()),
+            Command::WorldBinding { id, binding } => staged.set_binding(*id, binding.as_ref()),
+            _ => return Ok(None),
+        };
+        changed
+            .and_then(|()| staged.check(self.capabilities.scope.memory_bytes))
+            .map_err(|error| error.to_string())?;
+        Ok(Some(staged))
+    }
+
     /// Validates the shader within the per-callback compile budget, after the declaration's
     /// own bounds, so a rejected source still spends an attempt. Redeclaring material `id`
     /// with only new parameters revalidates nothing and spends no compile.

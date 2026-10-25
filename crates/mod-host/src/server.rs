@@ -132,26 +132,10 @@ impl State {
         }
         // World declarations are refused here against the retained state, as the client's
         // apply would refuse the whole transaction.
-        let mut world = None;
-        if let Command::WorldMaterial { id, material } = &command {
-            let mut staged = self.world_staged.clone();
-            if let Err(error) = staged
-                .set_material(*id, material.as_ref())
-                .and_then(|()| staged.check(self.capabilities.scope.memory_bytes))
-            {
-                return Ok(Err(error.to_string()));
-            }
-            world = Some(staged);
-        } else if let Command::WorldBinding { id, binding } = &command {
-            let mut staged = self.world_staged.clone();
-            if let Err(error) = staged
-                .set_binding(*id, binding.as_ref())
-                .and_then(|()| staged.check(self.capabilities.scope.memory_bytes))
-            {
-                return Ok(Err(error.to_string()));
-            }
-            world = Some(staged);
-        }
+        let world = match self.stage_world(&command) {
+            Ok(world) => world,
+            Err(error) => return Ok(Err(error)),
+        };
         let size = serde_json::to_vec(&command)?.len() + usize::from(!self.commands.is_empty());
         if size > MAX_HOST_OUTPUT - self.bytes {
             return Ok(Err("host output budget exceeded".into()));
