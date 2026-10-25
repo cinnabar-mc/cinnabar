@@ -6,6 +6,12 @@ use std::path::Path;
 
 /// The client part's materials, compiled natively so the test reads the same table the guest
 /// declares from.
+/// The control channel's operations, numbered from `experience.toml` by the tool's build script.
+#[allow(dead_code)]
+mod operations {
+    include!(concat!(env!("OUT_DIR"), "/operations.rs"));
+}
+
 #[path = "../../../examples/experiences/material-fx/client/src/effects.rs"]
 #[allow(dead_code)]
 mod effects;
