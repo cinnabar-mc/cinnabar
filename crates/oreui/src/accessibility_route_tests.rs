@@ -250,9 +250,7 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
         settings_sections::SettingSection,
         settings_storage::{StorageAction, StorageFolder},
     };
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
+
     for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [240.0, 720.0], [400.0, 250.0]] {
         for (enabled, failed) in [(0, false), (0, true), (1, false), (1, true)] {
             let chip = if failed { "Failed" } else { "Loading…" };

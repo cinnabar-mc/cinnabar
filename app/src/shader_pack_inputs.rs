@@ -59,15 +59,11 @@ const QUART_BLOCKS: i32 = 4;
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct FrameTimeCounterPin(pub(crate) Option<f32>);
 
-/// Keeps [`ShaderPackFrameInputs`] in step with the game each frame. Builds without the
-/// `shaderpacks` feature register nothing, so they do no work.
+/// Samples the game for [`ShaderPackFrameInputs`] only while a pack requests it.
 pub(crate) struct ShaderPackInputsPlugin;
 
 impl Plugin for ShaderPackInputsPlugin {
     fn build(&self, app: &mut App) {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         app.init_resource::<ShaderPackFrameInputs>()
             .init_resource::<FrameTimeCounterPin>()
             .init_resource::<ShaderPackIdMaps>()
@@ -529,23 +525,9 @@ fn fraction(current: u16, maximum: u16) -> Option<f32> {
 mod tests {
     use super::*;
 
-    #[cfg(not(feature = "shaderpacks"))]
-    #[test]
-    fn builds_without_shaderpacks_install_no_shader_inputs() {
-        let mut app = App::new();
-        app.add_plugins(ShaderPackInputsPlugin);
-        app.update();
-        assert!(!app.world().contains_resource::<ShaderPackFrameInputs>());
-        assert!(!app.world().contains_resource::<ShaderPackIdMaps>());
-        assert!(!app.world().contains_resource::<ShaderPackActorIds>());
-    }
-
     /// Shader-only sampling follows the request, including before a pack becomes ready.
     #[test]
     fn world_sampling_stops_when_shaders_are_off() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         let mut app = App::new();
         app.init_resource::<WorldClock>()
             .init_resource::<Time<Real>>()
@@ -591,9 +573,6 @@ mod tests {
     /// A failed pack renders Vanilla, so it samples only the dimension the loader retries on.
     #[test]
     fn failed_packs_track_only_the_dimension() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         use render_scene::SkyKind;
         let mut app = App::new();
         app.init_resource::<WorldClock>()

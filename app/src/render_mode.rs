@@ -16,7 +16,7 @@ use bevy::{
     prelude::*,
     render::render_resource::TextureUsages,
 };
-use render_model::{SHADER_PACKS_ENABLED, enhanced_rendering_enabled};
+use render_model::enhanced_rendering_enabled;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
 use {
@@ -33,7 +33,6 @@ use {
 };
 
 pub(crate) mod authored_textures;
-#[cfg(feature = "shaderpacks")]
 mod shader_options;
 mod shader_pack;
 
@@ -122,7 +121,7 @@ fn save_render_mode(path: &Path, mode: RenderMode) -> Result<()> {
 fn compiled_render_mode(mode: RenderMode) -> RenderMode {
     match mode {
         RenderMode::Enhanced if enhanced_rendering_enabled() => mode,
-        RenderMode::ShaderPack if SHADER_PACKS_ENABLED => mode,
+        RenderMode::ShaderPack => mode,
         _ => RenderMode::Vanilla,
     }
 }
@@ -217,17 +216,13 @@ impl Plugin for RenderModePlugin {
                 )
                     .chain(),
             );
-        #[cfg(feature = "shaderpacks")]
         app.init_resource::<shader_options::ShaderOptionsHost>()
             .add_systems(
                 Update,
                 shader_options::drive_shader_options.after(apply_menu_render_mode),
             );
-        #[cfg(feature = "shaderpacks")]
-        {
-            shader_pack::import::configure(app);
-            shader_pack::removal::configure(app);
-        }
+        shader_pack::import::configure(app);
+        shader_pack::removal::configure(app);
     }
 }
 
@@ -553,7 +548,6 @@ mod tests {
     }
 
     /// A pack opts cameras in only once ready, a failure falls back, and Vanilla restores depth.
-    #[cfg(feature = "shaderpacks")]
     #[test]
     fn shader_pack_cameras_wait_for_a_ready_pack_and_restore_vanilla() {
         let mut app = App::new();
@@ -606,40 +600,6 @@ mod tests {
         assert_eq!(depth_usage(&app, camera), original);
     }
 
-    /// Stale settings and a ready pack cannot opt cameras into the disabled renderer.
-    #[cfg(not(feature = "shaderpacks"))]
-    #[test]
-    fn disabled_shader_packs_clear_stale_camera_opt_ins() {
-        let mut app = App::new();
-        app.init_resource::<RuntimeSettings>()
-            .insert_resource(shader_pack_status_ready())
-            .add_systems(Update, apply_render_mode_to_cameras);
-        let original = Camera3d::default().depth_texture_usages;
-        let camera = app
-            .world_mut()
-            .spawn((
-                Camera3d {
-                    depth_texture_usages: (TextureUsages::from(original)
-                        | TextureUsages::TEXTURE_BINDING)
-                        .into(),
-                    ..default()
-                },
-                FlyCamera::default(),
-                ShaderPackRendering,
-                VanillaDepthUsage(original),
-            ))
-            .id();
-        let mut stale = ui::UserSettings::default();
-        stale.video.render_mode = RenderMode::ShaderPack;
-        stale.video.shader_pack = Some("Dusk.zip".to_owned());
-        app.world_mut()
-            .resource_mut::<RuntimeSettings>()
-            .replace_user_settings(stale);
-        app.update();
-        assert!(app.world().get::<ShaderPackRendering>(camera).is_none());
-        assert_eq!(depth_usage(&app, camera), TextureUsages::from(original));
-    }
-
     #[test]
     fn a_failed_shader_pack_draws_vanilla() {
         let failed = ShaderPackStatus::Failed {
@@ -651,11 +611,7 @@ mod tests {
             RenderMode::Vanilla
         );
         let loading = ShaderPackStatus::Loading(PathBuf::from("Dusk.zip"));
-        let compiled = if SHADER_PACKS_ENABLED {
-            RenderMode::ShaderPack
-        } else {
-            RenderMode::Vanilla
-        };
+        let compiled = RenderMode::ShaderPack;
         assert_eq!(
             effective_render_mode(RenderMode::ShaderPack, Some(&loading)),
             compiled
@@ -666,14 +622,10 @@ mod tests {
         );
     }
 
-    /// Startup selects Shader pack only in builds that compile it; evidence runs stay Vanilla.
+    /// Startup accepts a selected shader pack; evidence runs stay Vanilla.
     #[test]
-    fn shader_pack_startup_follows_the_feature_and_evidence_runs() {
-        let compiled = if SHADER_PACKS_ENABLED {
-            RenderMode::ShaderPack
-        } else {
-            RenderMode::Vanilla
-        };
+    fn shader_pack_startup_respects_selection_and_evidence_runs() {
+        let compiled = RenderMode::ShaderPack;
         assert_eq!(
             startup_render_mode(Some(RenderMode::ShaderPack), None, None, true),
             compiled

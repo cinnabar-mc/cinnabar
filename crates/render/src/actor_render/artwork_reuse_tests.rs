@@ -110,7 +110,6 @@ fn rejected_generic_pages_keep_glint_available_for_player_bindings() {
 }
 
 /// Pages and glints allow the pack's raw view only while a pack draws; switching recreates them.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn artwork_allows_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};

@@ -146,7 +146,6 @@ fn superseded_pending_pixels_are_released_without_being_published() {
     );
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn pending_pages_restart_with_the_new_raw_view_formats() {
     use crate::actor::gpu::permits_raw_view;
@@ -190,7 +189,6 @@ fn changing_view_formats_restarts_pending_uploads_and_keeps_complete_pages() {
         let ready = gpu.page(0).unwrap();
         assert!(ready.source.shares_pixels_with(&pages.pages[0]));
         assert_eq!(ready.raw_views, ArtworkRawViews(raw));
-        #[cfg(feature = "shaderpacks")]
         assert_eq!(
             crate::actor::gpu::permits_raw_view(device.wgpu_device(), &ready._texture),
             raw
@@ -198,7 +196,6 @@ fn changing_view_formats_restarts_pending_uploads_and_keeps_complete_pages() {
     }
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn shaderpack_activation_keeps_pending_fallback_pages_native() {
     use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
@@ -248,7 +245,6 @@ fn shaderpack_activation_keeps_pending_fallback_pages_native() {
     }
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn channel_write_and_equal_depth_spans_are_retained_by_native_drawing() {
     use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
@@ -359,7 +355,6 @@ fn pending_retries_preserve_backoff_until_demanded_uploads_complete() {
     }
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn reduced_pending_pages_keep_the_requested_view_format() {
     let (device, queue) = device();

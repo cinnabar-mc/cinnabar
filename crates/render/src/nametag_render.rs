@@ -71,7 +71,7 @@ mod cosmetics_tests;
 #[path = "nametag_render/composition_tests.rs"]
 mod composition_tests;
 
-#[cfg(all(test, feature = "shaderpacks"))]
+#[cfg(test)]
 #[path = "nametag_render/overlay_tests.rs"]
 mod overlay_tests;
 

@@ -238,7 +238,7 @@ pub(crate) fn contiguous_ranges<'a, T: 'a, M: Copy + PartialEq + 'a>(
 }
 
 /// Registers the native material commands needed by isolated transparency raster fixtures.
-#[cfg(all(test, feature = "shaderpacks"))]
+#[cfg(test)]
 pub(crate) fn register_fixture_commands(app: &mut App) {
     use bevy::render::render_phase::AddRenderCommand;
     app.sub_app_mut(RenderApp)

@@ -207,7 +207,6 @@ fn label(depth_tested: bool) -> NametagRecord {
 }
 
 #[test]
-#[cfg(feature = "shaderpacks")]
 fn labels_keep_their_colour_after_ldr_and_hdr_world_replacement_and_retain_depth() {
     use crate::render_test_support::scene_raster::SIDE;
     for (hdr, reduced, msaa) in [false, true].into_iter().flat_map(|hdr| {
@@ -319,11 +318,10 @@ fn ordinary_views_do_not_warm_shader_pack_label_variants() {
             &mut ids,
         )
         .unwrap();
-    assert_eq!(ids.len(), if cfg!(feature = "shaderpacks") { 8 } else { 4 });
+    assert_eq!(ids.len(), 8);
 }
 
 /// Builds a noop view with compatible colour and depth for overlay preparation.
-#[cfg(feature = "shaderpacks")]
 fn overlay_world() -> (World, Entity) {
     use bevy::{
         camera::{CameraMainTextureUsages, ClearColorConfig},
@@ -388,7 +386,6 @@ fn overlay_world() -> (World, Entity) {
 
 /// Leaving the pack releases the full-screen label layer; returning prepares a fresh one.
 #[test]
-#[cfg(feature = "shaderpacks")]
 fn leaving_the_pack_releases_the_label_overlay() {
     use bevy::ecs::system::RunSystemOnce;
     use render_scene::shaderpack::ShaderPackRendering;
@@ -406,7 +403,6 @@ fn leaving_the_pack_releases_the_label_overlay() {
 
 /// Failed label overlays back off, then recover without reusing an incompatible layer.
 #[test]
-#[cfg(feature = "shaderpacks")]
 fn label_overlay_allocation_failure_backs_off_then_recovers() {
     let (mut world, view) = overlay_world();
     world

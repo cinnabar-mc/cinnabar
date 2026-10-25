@@ -107,9 +107,7 @@ mod queue_writes;
 mod screen_overlay_render;
 mod shader_asset;
 mod shader_safety;
-#[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
-#[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::geometry::{
     BlockEntityIdFn, CONSTANT_VERTEX_BUFFER, DEFAULT_GEOMETRY_BUDGET_BYTES,
     DRAW_ORIGIN_VERTEX_BUFFER, FRAME_EXPANSION_FACES, GEOMETRY_VERTEX_BUFFER, GeometryCategory,

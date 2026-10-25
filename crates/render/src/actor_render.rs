@@ -17,7 +17,6 @@ pub(crate) mod phase;
 pub(crate) mod pipeline;
 #[cfg(feature = "publication-test-support")]
 pub(crate) mod publication_test_support;
-#[cfg(feature = "shaderpacks")]
 pub(crate) mod shaderpack_source;
 mod skins;
 use crate::gpu_allocation;
@@ -200,7 +199,6 @@ pub(crate) struct ActorGpu {
     sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     /// Equal-depth overlays share the native depth surface with their producing layers.
-    #[cfg(feature = "shaderpacks")]
     pack_depth_dependency: bool,
     executed_instances: std::sync::atomic::AtomicU32,
     /// The immutable draw identity installed by the current queue pass.
@@ -304,7 +302,6 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
         main_manifest: std::sync::Arc::from([]),
         sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
-        #[cfg(feature = "shaderpacks")]
         pack_depth_dependency: false,
         executed_instances: std::sync::atomic::AtomicU32::new(0),
         queued_draw: None,
@@ -537,7 +534,6 @@ fn prepare_actor_resources(
                 // Coverage-only submissions follow the contiguous visible prefix at publication.
                 gpu.main_manifest = std::sync::Arc::from(&prepared.manifest[..main_count]);
             }
-            #[cfg(feature = "shaderpacks")]
             {
                 gpu.pack_depth_dependency = prepared.instances.iter().any(|instance| {
                     crate::actor::material::state(instance.material)
@@ -563,7 +559,6 @@ fn prepare_actor_resources(
             gpu.main_manifest = std::sync::Arc::from([]);
             gpu.sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
-            #[cfg(feature = "shaderpacks")]
             {
                 gpu.pack_depth_dependency = false;
             }
