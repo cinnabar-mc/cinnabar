@@ -79,6 +79,32 @@ pub(crate) fn draw<'w>(
     drew
 }
 
+/// Each section's bound blocks by entity, as [`bound_blocks`] lists them, with the mesh
+/// generation they were read from, so a section is scanned once per mesh.
+#[derive(Default)]
+pub(crate) struct SectionBlocks(std::collections::HashMap<Entity, (u64, BoundBlocks)>);
+
+/// A section's bound blocks with their slots, sorted, as [`bound_blocks`] lists them.
+type BoundBlocks = Box<[(u16, [i32; 3])]>;
+
+impl SectionBlocks {
+    /// Reads `instance`'s bound blocks unless they were read from its current mesh generation.
+    fn refresh(&mut self, entity: Entity, instance: &ChunkRenderInstance) {
+        match self.0.get(&entity) {
+            Some((generation, _)) if *generation == instance.generation => {}
+            _ => {
+                self.0
+                    .insert(entity, (instance.generation, bound_blocks(instance)));
+            }
+        }
+    }
+
+    /// The bound blocks last read for `entity`; none before its first [`Self::refresh`].
+    fn blocks(&self, entity: Entity) -> &[(u16, [i32; 3])] {
+        self.0.get(&entity).map_or(&[], |(_, blocks)| blocks)
+    }
+}
+
 /// Gathers, for each view, the blocks of its visible sections bound to a material with
 /// particles, at their centres, for the particle pass.
 pub(crate) fn gather_particles(
@@ -86,63 +112,83 @@ pub(crate) fn gather_particles(
     instances: Query<&ChunkRenderInstance>,
     materials: Option<Res<WorldMaterialGpu>>,
     mut targets: ResMut<crate::world_material::particles::ParticleTargets>,
+    mut cached: Local<SectionBlocks>,
 ) {
     targets.blocks.clear();
     let (Some(sections), Some(materials)) = (sections, materials) else {
+        cached.0.clear();
         return;
     };
     if !materials.has_particles() {
+        cached.0.clear();
         return;
     }
+    // Despawned sections leave no stale blocks behind.
+    cached.0.retain(|entity, _| instances.contains(*entity));
     let particle_slots = (0..64u16)
         .filter(|slot| materials.particles(*slot).is_some())
         .fold(0_u64, |mask, slot| mask | 1 << slot);
     for (view, draws) in sections.all_views() {
-        let mut blocks: std::collections::BTreeMap<u16, std::collections::BTreeSet<[i32; 3]>> =
-            Default::default();
-        for (entity, mask, _) in draws {
-            if mask & particle_slots == 0 {
-                continue;
-            }
-            if let Ok(instance) = instances.get(*entity) {
-                bound_blocks(instance, particle_slots, &mut blocks);
-            }
+        let emitting = || {
+            draws
+                .iter()
+                .filter(|(_, mask, _)| mask & particle_slots != 0)
+                .filter_map(|(entity, _, _)| Some((*entity, instances.get(*entity).ok()?)))
+        };
+        for (entity, instance) in emitting() {
+            cached.refresh(entity, instance);
         }
-        if blocks.is_empty() {
-            continue;
+        let lists = emitting().map(|(entity, _)| cached.blocks(entity));
+        let gathered = merge(lists, particle_slots);
+        if !gathered.is_empty() {
+            targets.blocks.insert(view, gathered);
         }
-        let gathered = blocks
-            .into_iter()
-            .map(|(slot, cells)| {
-                let origins = cells
-                    .into_iter()
-                    .map(|[x, y, z]| [x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5, 1.0])
-                    .collect();
-                (slot, origins)
-            })
-            .collect();
-        targets.blocks.insert(view, gathered);
     }
 }
 
-/// Adds to `blocks`, by slot, every block of `instance` whose geometry carries a slot in
-/// `particle_slots`, in world block coordinates. A bound block's cube faces stay one block wide,
-/// so each tagged cube quad names its own block; a tagged model draw names its model ref's
-/// block, so blocks drawn only as models count too.
-fn bound_blocks(
-    instance: &ChunkRenderInstance,
+/// The blocks of `lists` whose slot is in `particle_slots`, by slot, each once at its centre in
+/// block order.
+fn merge<'a>(
+    lists: impl IntoIterator<Item = &'a [(u16, [i32; 3])]>,
     particle_slots: u64,
-    blocks: &mut std::collections::BTreeMap<u16, std::collections::BTreeSet<[i32; 3]>>,
-) {
+) -> std::collections::BTreeMap<u16, Vec<[f32; 4]>> {
+    let mut blocks: Vec<(u16, [i32; 3])> = lists
+        .into_iter()
+        .flatten()
+        .copied()
+        .filter(|(slot, _)| particle_slots & (1 << slot) != 0)
+        .collect();
+    blocks.sort_unstable();
+    blocks.dedup();
+    let mut gathered = std::collections::BTreeMap::<u16, Vec<[f32; 4]>>::new();
+    for (slot, [x, y, z]) in blocks {
+        gathered.entry(slot).or_default().push([
+            x as f32 + 0.5,
+            y as f32 + 0.5,
+            z as f32 + 0.5,
+            1.0,
+        ]);
+    }
+    gathered
+}
+
+/// Every block of `instance` whose geometry carries a world material, with its slot, in world
+/// block coordinates, sorted and each once. A tagged cube quad names each block it covers; a
+/// tagged model draw names its model ref's block, so blocks drawn only as models count too.
+fn bound_blocks(instance: &ChunkRenderInstance) -> Box<[(u16, [i32; 3])]> {
+    let mut blocks = Vec::new();
     let mut add = |tag: u8, local: [u8; 3]| {
-        if tag == 0 || particle_slots & (1 << (tag - 1)) == 0 {
-            return;
+        if tag != 0 {
+            let block = std::array::from_fn(|axis| instance.origin[axis] + i32::from(local[axis]));
+            blocks.push((u16::from(tag - 1), block));
         }
-        let block = std::array::from_fn(|axis| instance.origin[axis] + i32::from(local[axis]));
-        blocks.entry(u16::from(tag - 1)).or_default().insert(block);
     };
     for quad in instance.cube_quads.iter() {
-        add(quad.world_material(), quad.origin());
+        if quad.world_material() != 0 {
+            for local in quad.blocks() {
+                add(quad.world_material(), local);
+            }
+        }
     }
     let draws = instance
         .model_draw_refs
@@ -153,6 +199,9 @@ fn bound_blocks(
             add(draw.world_material(), model.local());
         }
     }
+    blocks.sort_unstable();
+    blocks.dedup();
+    blocks.into_boxed_slice()
 }
 
 #[cfg(test)]
@@ -193,15 +242,60 @@ mod tests {
 
     #[test]
     fn blocks_drawn_only_as_models_are_particle_targets() {
-        let mut blocks = std::collections::BTreeMap::new();
-        bound_blocks(&model_section([16, 32, 48], 3), 0b100, &mut blocks);
-        let expected = std::collections::BTreeMap::from([(
-            2_u16,
-            std::collections::BTreeSet::from([[19, 36, 53]]),
-        )]);
-        assert_eq!(blocks, expected, "the model block emits from its own cell");
-        let mut other = std::collections::BTreeMap::new();
-        bound_blocks(&model_section([0; 3], 3), 0b011, &mut other);
-        assert!(other.is_empty(), "slots without particles gather nothing");
+        let blocks = bound_blocks(&model_section([16, 32, 48], 3));
+        let expected = std::collections::BTreeMap::from([(2_u16, vec![[19.5, 36.5, 53.5, 1.0]])]);
+        assert_eq!(
+            merge([&*blocks], 0b100),
+            expected,
+            "the model block emits from its own cell"
+        );
+        assert!(
+            merge([&*blocks], 0b011).is_empty(),
+            "slots without particles gather nothing"
+        );
+    }
+
+    #[test]
+    fn merged_bound_faces_emit_from_every_block_they_cover() {
+        let mut section = model_section([0, 16, 0], 0);
+        // One top face over three blocks along x, tagged with slot 0, and an untagged one.
+        section.cube_quads = Arc::from([
+            meshing::PackedQuad::new([1, 2, 3], meshing::Face::PositiveY, 3, 1, 0)
+                .with_world_material(1),
+            meshing::PackedQuad::new([0, 0, 0], meshing::Face::PositiveY, 2, 2, 0),
+        ]);
+        assert_eq!(
+            &*bound_blocks(&section),
+            [(0, [1, 18, 3]), (0, [2, 18, 3]), (0, [3, 18, 3])],
+            "untagged geometry and untagged model draws add nothing"
+        );
+    }
+
+    #[test]
+    fn cached_section_blocks_are_read_again_only_for_a_new_mesh() {
+        let entity = Entity::from_raw_u32(7).unwrap();
+        let mut cached = SectionBlocks::default();
+        let mut section = model_section([0; 3], 1);
+        cached.refresh(entity, &section);
+        let first = cached.blocks(entity).to_vec();
+        assert_eq!(first, [(0, [3, 4, 5])]);
+        // A frame with the same mesh generation reuses what was read.
+        section.model_draw_refs =
+            Arc::from([meshing::PackedModelDrawRef::new(0, 0).with_world_material(2)]);
+        cached.refresh(entity, &section);
+        assert_eq!(cached.blocks(entity), first.as_slice());
+        // A new mesh generation reads the section again.
+        section.generation += 1;
+        cached.refresh(entity, &section);
+        assert_eq!(cached.blocks(entity), [(1, [3, 4, 5])].as_slice());
+        // Sections merge into one list per slot in block order, each block once.
+        let other = bound_blocks(&model_section([16, 0, 0], 1));
+        assert_eq!(
+            merge([&*other, first.as_slice(), first.as_slice()], 0b1),
+            std::collections::BTreeMap::from([(
+                0_u16,
+                vec![[3.5, 4.5, 5.5, 1.0], [19.5, 4.5, 5.5, 1.0]]
+            )])
+        );
     }
 }
