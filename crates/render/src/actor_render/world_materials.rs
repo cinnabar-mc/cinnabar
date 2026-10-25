@@ -159,6 +159,7 @@ mod tests {
             blend: Blend::Premultiplied,
             depth: mod_render::world_material::publication::Depth::Test,
             features: Default::default(),
+            effects_pass: false,
         };
         let key = WorldActorKey::new(base(), variant);
         assert_eq!(
@@ -294,6 +295,7 @@ mod tests {
             blend: Blend::Cutout,
             depth: mod_render::world_material::publication::Depth::Test,
             features: Default::default(),
+            effects_pass: false,
         };
         let first = pipeline
             .request_world(&cache, WorldActorKey::new(base(), variant))

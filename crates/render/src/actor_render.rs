@@ -19,6 +19,7 @@ pub(crate) mod pipeline;
 pub(crate) mod publication_test_support;
 pub(crate) mod shaderpack_source;
 mod skins;
+pub(crate) mod world_effects;
 pub(crate) mod world_materials;
 use crate::gpu_allocation;
 use artwork::{GpuArtwork, draw_spans};

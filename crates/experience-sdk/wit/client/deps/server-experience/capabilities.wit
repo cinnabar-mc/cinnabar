@@ -139,10 +139,10 @@ interface world-material {
 @since(version = 1.7.0)
 interface world-material-effects {
     use world-material.{material-spec};
-    /// An outline drawn around each bound target: its geometry again, pushed out along its
-    /// normals by at most four texels and seen from behind, in the colour of the material's
-    /// `fn outline(input: WorldMaterialInput) -> vec3<f32>`.
-    record outline { width-texels: f32 }
+    /// An outline around what can be seen of each bound target, at most eight screen pixels
+    /// wide, in the colour of the material's `fn outline(input: WorldMaterialInput) -> vec3<f32>`
+    /// where the target meets the outline.
+    record outline { width-pixels: f32 }
     /// A blur of what the bound targets emit, at most four times as strong and sixteen
     /// screen pixels wide, added over the frame.
     record bloom { strength: f32, radius-pixels: f32 }

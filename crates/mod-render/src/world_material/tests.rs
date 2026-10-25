@@ -20,7 +20,7 @@ fn accepts_host_inputs_declared_textures_and_parameters() {
     assert!(library.contains("@group(3) @binding(3) var world_material_sampler"));
     let frame = frame_uniform(0.5, 3, &[0.25, 2.0, f32::NAN]);
     assert_eq!(
-        (frame[0], frame[1], frame[8], frame[9], frame[10]),
+        (frame[0], frame[1], frame[12], frame[13], frame[14]),
         (0.5, 3.0, 0.25, 2.0, 0.0)
     );
 }
@@ -210,10 +210,17 @@ fn each_feature_adds_its_functions_and_resources() {
         .cells,
         Some(1)
     );
-    let frame = frame_uniform_with_effects(0.25, 2, [0.5, f32::NAN, 2.0, 64.0], &[3.0]);
+    let frame = frame_uniform_with_effects(
+        0.25,
+        2,
+        [[0.5, f32::NAN, 2.0, 64.0], [3.0, 1.5, 6.0, 0.0]],
+        &[7.0],
+    );
     assert_eq!(
-        &frame[..9],
-        &[0.25, 2.0, 0.0, 0.0, 0.5, 0.0, 2.0, 64.0, 3.0]
+        &frame[..13],
+        &[
+            0.25, 2.0, 0.0, 0.0, 0.5, 0.0, 2.0, 64.0, 3.0, 1.5, 6.0, 0.0, 7.0
+        ]
     );
 }
 

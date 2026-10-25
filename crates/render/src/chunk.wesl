@@ -714,6 +714,19 @@ fn native_masked_cube_colour(
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return cube_fragment(in, front);
+}
+
+// The world material effects pass over a bound cube face.
+@if(WORLD_MATERIAL_EFFECTS)
+@fragment
+fn world_effects_fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> WorldEffectsOutput {
+    _ = cube_fragment(in, front);
+    return world_effects_output();
+}
+
+/// The colour of a cube fragment, discarding what its material does not draw.
+fn cube_fragment(in: VertexOutput, front: bool) -> vec4<f32> {
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
@@ -895,12 +908,15 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     {
         let world_fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
         let world_light = terrain_light_colour(in.native_light_levels) * in.native_ao_face;
-        let world_surface = world_material_resolve(WorldMaterialInput(
+        let world_input = WorldMaterialInput(
             in.uv, in.world_position, vec4(sampled.rgb * tint_gamma, sampled.a),
             vec4(world_light, in.native_ao_face),
             vec4(world_fog_gamma, distance_fog_amount(in.world_position)),
             vec4(0.0), world_material_phase(), quad_shape_normal(in.quad_shape),
-            normalize(view.world_position - in.world_position)));
+            normalize(view.world_position - in.world_position));
+        let world_surface = world_material_resolve(world_input);
+        @if(WORLD_MATERIAL_EFFECTS)
+        { world_effects_capture(world_input, world_surface.emission); }
         @if(WORLD_MATERIAL_CUTOUT)
         if (world_surface.coverage < 0.5) { discard; }
         texture = vec4(world_surface.color, world_surface.coverage);

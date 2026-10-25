@@ -25,7 +25,7 @@ fn every_effect() -> WorldEffects {
     WorldEffects {
         displacement_blocks: Some(0.5),
         scene: true,
-        outline: Some(WorldOutline { width_texels: 1.0 }),
+        outline: Some(WorldOutline { width_pixels: 1.0 }),
         bloom: Some(WorldBloom {
             strength: 1.0,
             radius_pixels: 4.0,
@@ -137,7 +137,7 @@ fn every_effect_publishes_with_its_permissions_and_its_cells() {
     let effects = glass(&presenter);
     assert_eq!(effects.displacement_blocks, Some(0.5));
     assert!(effects.scene);
-    assert_eq!(effects.outline_texels, Some(1.0));
+    assert_eq!(effects.outline_pixels, Some(1.0));
     assert_eq!(effects.cells, Some(0));
     let computes = &presenter.set().computes;
     assert_eq!(computes.len(), 1);
@@ -156,7 +156,7 @@ fn every_effect_publishes_with_its_permissions_and_its_cells() {
     assert!(alone.set().computes.is_empty());
     let effects = glass(&alone);
     assert_eq!(
-        (effects.cells, effects.outline_texels, effects.particles),
+        (effects.cells, effects.outline_pixels, effects.particles),
         (None, None, None)
     );
     assert!(effects.scene && effects.displacement_blocks.is_some());
@@ -221,7 +221,7 @@ fn effects_and_cells_are_charged_to_the_bundle() {
     let material = 4 * PIPELINE_CHARGE_BYTES
         + BIND_GROUP_CHARGE_BYTES
         + SCENE_CHARGE_BYTES
-        + BLOOM_CHARGE_BYTES;
+        + EFFECTS_PASS_CHARGE_BYTES;
     let rebuild = |presenter: &mut WorldMaterialPresenter, gpu_bytes: u64| {
         presenter.rebuild([BundleWorld {
             bundle: "example.bundle",

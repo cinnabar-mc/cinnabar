@@ -432,11 +432,14 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     @if(WORLD_MATERIAL)
     {
         let world_fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
-        let world_surface = world_material_resolve(WorldMaterialInput(
+        let world_input = WorldMaterialInput(
             uv, input.world_position, color, vec4(native_lighting, 1.0),
             vec4(world_fog_gamma, world_fog_amount(input.world_position, view.world_position)),
             overlay, world_material_phase(), normalize(input.world_normal),
-            normalize(view.world_position - input.world_position)));
+            normalize(view.world_position - input.world_position));
+        let world_surface = world_material_resolve(world_input);
+        @if(WORLD_MATERIAL_EFFECTS)
+        { world_effects_capture(world_input, world_surface.emission); }
         @if(WORLD_MATERIAL_CUTOUT)
         if (world_surface.coverage < 0.5) { discard; }
         color = vec4(world_surface.color, world_surface.coverage);
@@ -492,6 +495,15 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
 @fragment
 fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     return actor_colour(input, front);
+}
+
+// The world material effects pass: the surface's emission for bloom and its outline colour and
+// width, as the colour pass shaded the same fragment.
+@if(WORLD_MATERIAL_EFFECTS)
+@fragment
+fn world_effects_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> WorldEffectsOutput {
+    _ = actor_colour(input, front);
+    return world_effects_output();
 }
 
 @if(MASK_DISSOLVE && !MASK_DISSOLVE_MSAA)

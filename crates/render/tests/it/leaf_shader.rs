@@ -10,9 +10,10 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
     )));
     assert!(material.contains("return front || (flags & TWO_SIDED) != 0u;"));
     let chunk = include_str!("../../src/chunk.wesl");
+    // The colour pass, the world material effects pass that shades the same faces, and depth.
     assert_eq!(
         chunk.matches("@builtin(front_facing) front: bool").count(),
-        2
+        3
     );
     assert_eq!(
         chunk
@@ -27,7 +28,7 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
     for definitions in [&[][..], &["ENHANCED_SHADOW"][..]] {
         let source = shader_source::standalone(chunk, definitions);
         assert_eq!(
-            shader_source::alpha_discard_threshold(&source, "fragment"),
+            shader_source::alpha_discard_threshold(&source, "cube_fragment"),
             Some(0.5)
         );
         if definitions.contains(&"ENHANCED_SHADOW") {

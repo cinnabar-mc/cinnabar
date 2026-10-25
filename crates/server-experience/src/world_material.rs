@@ -19,8 +19,8 @@ pub const MAX_WORLD_MATERIAL_TEXTURES: usize = 4;
 pub const MAX_WORLD_MATERIAL_PARAMS: usize = 16;
 /// Provisional: the largest displacement a material may declare, in blocks on each axis.
 pub const MAX_DISPLACEMENT_BLOCKS: f32 = 2.0;
-/// Provisional: the widest outline a material may draw, in texels of its target.
-pub const MAX_OUTLINE_TEXELS: f32 = 4.0;
+/// Provisional: the widest outline a material may draw, in screen pixels.
+pub const MAX_OUTLINE_PIXELS: f32 = 8.0;
 /// Provisional: the strongest and widest bloom a material may ask for: a multiple of its
 /// emission and a blur radius in screen pixels.
 pub const MAX_BLOOM_STRENGTH: f32 = 4.0;
@@ -81,13 +81,12 @@ impl WorldMaterialSpec {
     }
 }
 
-/// An outline drawn around each bound target (`render_world_material_passes`): its geometry
-/// again, pushed out along its normals and seen from behind, in the colour the material's
-/// `outline` function gives.
+/// An outline drawn around what can be seen of each bound target (`render_world_material_passes`),
+/// `width_pixels` wide on screen, in the colour the material's `outline` function gives.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WorldOutline {
-    pub width_texels: f32,
+    pub width_pixels: f32,
 }
 
 /// A bloom of the material's emission (`render_world_material_passes`): the host blurs what
@@ -289,7 +288,7 @@ impl WorldAuthority<'_> {
         );
         if let Some(outline) = effects.outline {
             ensure!(
-                within(outline.width_texels, 0.0, MAX_OUTLINE_TEXELS),
+                within(outline.width_pixels, 0.0, MAX_OUTLINE_PIXELS),
                 "invalid world material outline"
             );
         }

@@ -40,8 +40,8 @@ const MediaGPUBytes = 16 << 20
 const WorldMaterialGPUBytes = 32 << 20
 
 // WorldMaterialEffectsGPUBytes is the GPU memory an offer adds when a bundle may read the
-// scene or draw extra passes: the client's shared scene (16 MiB) and bloom (8 MiB) charges,
-// with room for the extra pipelines and compute cells.
+// scene or draw extra passes: the client's shared scene (16 MiB) and effects-pass (16 MiB)
+// charges; the extra pipelines and compute cells share the world material memory.
 const WorldMaterialEffectsGPUBytes = 32 << 20
 
 // nonceBytes is the size of the Accept's server challenge and session, as the client checks them.

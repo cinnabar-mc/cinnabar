@@ -46,6 +46,8 @@ pub(crate) struct WorldVariant {
     pub depth: Depth,
     /// The guest functions and resources its module has beyond `shade`.
     pub features: abi::Features,
+    /// Whether its targets draw again in the effects pass, for a bloom or an outline.
+    pub effects_pass: bool,
 }
 
 impl WorldVariant {
@@ -56,6 +58,8 @@ impl WorldVariant {
             blend: published.blend,
             depth: published.depth,
             features: published.material.features,
+            effects_pass: published.effects.bloom.is_some()
+                || published.effects.outline_pixels.is_some(),
         })
     }
 
@@ -312,8 +316,8 @@ pub(crate) fn register_all_shaders(
 /// One material's GPU resources.
 struct Entry {
     variant: WorldVariant,
-    /// The effects row of its frame uniform.
-    effects: [f32; 4],
+    /// The effects rows of its frame uniform.
+    effects: [[f32; 4]; 2],
     /// One more than the material's slot, which its terrain quads carry.
     tag: u8,
     /// The compute whose cells its group binds.
@@ -346,6 +350,16 @@ impl WorldMaterialGpu {
     /// Whether any published material has resources.
     pub(crate) fn has_materials(&self) -> bool {
         !self.entries.is_empty()
+    }
+
+    /// The widest bloom radius and outline, in pixels, of the published materials that draw in
+    /// the effects pass; `None` when none does.
+    pub(crate) fn effects_reach(&self) -> Option<[f32; 2]> {
+        self.entries
+            .values()
+            .filter(|entry| entry.variant.effects_pass)
+            .map(|entry| [entry.effects[1][2], entry.effects[1][0]])
+            .reduce(|a, b| [a[0].max(b[0]), a[1].max(b[1])])
     }
 
     /// Whether any published material reads the scene, so views copy theirs.
@@ -440,7 +454,7 @@ pub(crate) fn prepare(
             if let Some(published) = published
                 && let Some(entry) = gpu.entries.get_mut(&published.key)
             {
-                entry.effects = published.effects.row();
+                entry.effects = published.effects.rows();
                 entry.tag = u8::try_from(slot + 1).unwrap_or(0);
             }
         }
@@ -546,7 +560,7 @@ fn create(
     );
     Some(Entry {
         variant,
-        effects: published.effects.row(),
+        effects: published.effects.rows(),
         tag: 0,
         cells: cells.map(|(key, _)| key),
         uniform,
@@ -658,25 +672,34 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
                     scene::prepare
                         .in_set(bevy::render::RenderSystems::PrepareBindGroups)
                         .after(bevy::render::view::prepare_view_targets),
+                    effects_pass::prepare
+                        .in_set(bevy::render::RenderSystems::PrepareBindGroups)
+                        .after(bevy::render::view::prepare_view_targets),
                 ),
-            );
+            )
+            .init_resource::<effects_pass::WorldEffectsViews>();
         let _ = render_app.world_mut().try_schedule_scope(
             bevy::core_pipeline::Core3d,
             |_, schedule| {
-                schedule.add_systems(
+                schedule.add_systems((
                     scene::copy_scene
                         .after(crate::scene_target::ScenePass::Opaque)
                         .after(crate::entity_shadow_render::EntityShadowLabel)
                         .after(crate::chunk::GpuCullLateLabel)
                         .before(crate::scene_target::ScenePass::Transparent)
                         .in_set(bevy::core_pipeline::Core3dSystems::MainPass),
-                );
+                    effects_pass::draw
+                        .after(crate::scene_target::ScenePass::Transparent)
+                        .before(crate::scene_target::ScenePass::Finish)
+                        .in_set(bevy::core_pipeline::Core3dSystems::MainPass),
+                ));
             },
         );
     }
 }
 
 pub(crate) mod cells;
+pub(crate) mod effects_pass;
 pub(crate) mod scene;
 
 #[cfg(test)]
@@ -807,6 +830,37 @@ mod tests {
         world.run_system_once(prepare).unwrap();
         let gpu = world.resource::<WorldMaterialGpu>();
         assert!(!gpu.has_materials() && gpu.slot(0).is_none());
+    }
+
+    /// Views make effects targets only while a material blooms or outlines, sized to the
+    /// widest of them.
+    #[test]
+    fn the_effects_pass_reaches_as_far_as_its_widest_material() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        world.init_resource::<WorldMaterialGpu>();
+        let mut scene =
+            WorldMaterialScene::with_bound_entities(&["example:a", "example:b", "example:c"]);
+        let set = std::sync::Arc::make_mut(&mut scene.set);
+        set.materials[0].as_mut().unwrap().effects.outline_pixels = Some(3.0);
+        set.materials[1].as_mut().unwrap().effects.bloom = Some(abi::publication::Bloom {
+            strength: 2.0,
+            radius_pixels: 9.0,
+        });
+        world.insert_resource(scene);
+        world.run_system_once(prepare).unwrap();
+        let gpu = world.resource::<WorldMaterialGpu>();
+        assert_eq!(gpu.effects_reach(), Some([9.0, 3.0]));
+        assert!(gpu.variant(0).unwrap().effects_pass && !gpu.variant(2).unwrap().effects_pass);
+        // Changed effects always come with a new key.
+        let mut plain = WorldMaterialScene::with_bound_entities(&["example:a"]);
+        let set = std::sync::Arc::make_mut(&mut plain.set);
+        set.revision = 2;
+        set.materials[0].as_mut().unwrap().key = 99;
+        world.insert_resource(plain);
+        world.run_system_once(prepare).unwrap();
+        assert_eq!(world.resource::<WorldMaterialGpu>().effects_reach(), None);
     }
 
     /// A material reading cells binds its compute's current cells once they exist, and a new
@@ -1009,6 +1063,50 @@ fn displace(input: WorldVertexInput) -> vec3<f32> { return input.normal * input.
                 }
                 crate::shader_source::composed(
                     &crate::material_shader::source(&format!("{source}\n{terrain_scene}")),
+                    &defs,
+                );
+            }
+        }
+        // The effects pass composes in every module, with and without an outline function.
+        for features in [
+            abi::Features::default(),
+            abi::Features {
+                outline: true,
+                ..Default::default()
+            },
+        ] {
+            let effects = mod_render::world_material::compose_with(
+                "fn shade(input: WorldMaterialInput) -> Surface { return Surface(input.base.rgb, 1.0, vec3<f32>(2.0)); }
+fn outline(input: WorldMaterialInput) -> vec3<f32> { return vec3<f32>(1.0, 0.5, 0.0); }",
+                0,
+                features,
+            )
+            .unwrap();
+            let defs = [
+                "WORLD_MATERIAL",
+                "WORLD_MATERIAL_CUTOUT",
+                "WORLD_MATERIAL_EFFECTS",
+            ];
+            crate::shader_source::composed(
+                &format!(
+                    "{}\n{}",
+                    include_str!("actor.wesl")
+                        .replace(
+                            "ACTOR_GPU_INSTANCE_WORDS",
+                            &format!("{}u", render_model::ACTOR_GPU_INSTANCE_WORDS),
+                        )
+                        .replace(
+                            "ACTOR_RIG_VERTEX_WORDS",
+                            &format!("{}u", render_model::ACTOR_RIG_VERTEX_WORDS),
+                        ),
+                    effects.library(crate::actor_render::world_materials::WORLD_MATERIAL_GROUP)
+                ),
+                &defs,
+            );
+            let library = effects.library(crate::chunk::world_materials::WORLD_MATERIAL_GROUP);
+            for source in [include_str!("chunk.wesl"), include_str!("model.wesl")] {
+                crate::shader_source::composed(
+                    &crate::material_shader::source(&format!("{source}\n{library}")),
                     &defs,
                 );
             }

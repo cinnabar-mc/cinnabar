@@ -863,7 +863,7 @@ fn displace(input: WorldVertexInput) -> vec3<f32> {{ return vec3<f32>({offset}, 
         let frame = mod_render::world_material::frame_uniform_with_effects(
             0.0,
             1,
-            [limit, 0.0, 0.0, 0.0],
+            [[limit, 0.0, 0.0, 0.0], [0.0; 4]],
             &[],
         );
         actor_raster::raster_world_material(

@@ -69,8 +69,8 @@ pub struct Effects {
     pub displacement_blocks: Option<f32>,
     /// Whether `shade` reads the view's opaque colour and depth.
     pub scene: bool,
-    /// The outline width in texels of the target.
-    pub outline_texels: Option<f32>,
+    /// The outline width in screen pixels.
+    pub outline_pixels: Option<f32>,
     pub bloom: Option<Bloom>,
     pub particles: Option<Particles>,
     /// The index in [`WorldMaterialSet::computes`] of the cells its functions read.
@@ -78,27 +78,36 @@ pub struct Effects {
 }
 
 impl Effects {
-    /// The effects row of the material's frame uniform: the displacement limit, the outline
-    /// width and the particle radius in blocks, and the particle count.
-    pub fn row(&self) -> [f32; 4] {
+    /// The effects rows of the material's frame uniform: the displacement limit and the
+    /// particle radius in blocks and the particle count; then the outline width in pixels and
+    /// the bloom strength and radius in pixels.
+    pub fn rows(&self) -> [[f32; 4]; 2] {
         [
-            self.displacement_blocks.unwrap_or(0.0),
-            self.outline_texels.unwrap_or(0.0) / 16.0,
-            self.particles
-                .map_or(0.0, |particles| particles.radius_blocks),
-            self.particles
-                .map_or(0.0, |particles| particles.count as f32),
+            [
+                self.displacement_blocks.unwrap_or(0.0),
+                self.particles
+                    .map_or(0.0, |particles| particles.radius_blocks),
+                self.particles
+                    .map_or(0.0, |particles| particles.count as f32),
+                0.0,
+            ],
+            [
+                self.outline_pixels.unwrap_or(0.0),
+                self.bloom.map_or(0.0, |bloom| bloom.strength),
+                self.bloom.map_or(0.0, |bloom| bloom.radius_pixels),
+                0.0,
+            ],
         ]
     }
 
-    /// How far, in blocks, what the material draws may reach past its target's own bounds.
+    /// How far, in blocks, what the material draws may reach past its target's own bounds;
+    /// outlines and bloom are drawn on screen around what is already seen.
     pub fn reach_blocks(&self) -> f32 {
         let displacement = self.displacement_blocks.unwrap_or(0.0);
-        let outline = self.outline_texels.unwrap_or(0.0) / 16.0;
         let particles = self
             .particles
             .map_or(0.0, |particles| particles.radius_blocks + 0.25);
-        displacement.max(outline + displacement).max(particles)
+        displacement.max(particles)
     }
 }
 

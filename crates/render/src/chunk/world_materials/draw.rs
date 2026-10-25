@@ -28,6 +28,14 @@ pub(in crate::chunk) struct WorldTerrainSections {
 }
 
 impl WorldTerrainSections {
+    /// The sections `view` draws with tagged geometry, with their slot masks and whether their
+    /// materials were ready when the view was queued.
+    pub(in crate::chunk) fn view(&self, view: Entity) -> &[(Entity, u64, bool)] {
+        self.views
+            .get(&view)
+            .map_or(&[], |(draws, _)| draws.as_slice())
+    }
+
     /// Takes `view`'s sections with ready translucent materials queued this frame.
     pub(in crate::chunk) fn take_translucent(&mut self, view: Entity) -> HashMap<Entity, u64> {
         self.translucent.remove(&view).unwrap_or_default()
@@ -141,7 +149,7 @@ fn plan_view(
 }
 
 /// Every slot in `mask`.
-fn slots(mask: u64) -> impl Iterator<Item = u16> {
+pub(in crate::chunk) fn slots(mask: u64) -> impl Iterator<Item = u16> {
     (0..64u16).filter(move |slot| mask & (1 << slot) != 0)
 }
 
@@ -202,6 +210,7 @@ pub(in crate::chunk) fn ready<'w>(
         base,
         world: variant,
         geometry,
+        effects: false,
     })?;
     Some((cache.get_render_pipeline(id)?, group, scene, variant))
 }
@@ -293,20 +302,23 @@ pub(in crate::chunk) fn queue_world_material_chunks(
                 continue;
             };
             for geometry in [Geometry::Cube, Geometry::Model] {
-                let key = WorldTerrainKey {
-                    base,
-                    world: variant,
-                    geometry,
-                };
-                if pipeline.world_ids.contains_key(&key) {
-                    continue;
-                }
-                let variants = match geometry {
-                    Geometry::Cube => &mut pipeline.world_variants,
-                    Geometry::Model => &mut pipeline.world_model_variants,
-                };
-                if let Ok(id) = variants.specialize(&pipeline_cache, key) {
-                    pipeline.world_ids.insert(key, id);
+                for effects in [false, variant.effects_pass] {
+                    let key = WorldTerrainKey {
+                        base,
+                        world: variant,
+                        geometry,
+                        effects,
+                    };
+                    if pipeline.world_ids.contains_key(&key) {
+                        continue;
+                    }
+                    let variants = match geometry {
+                        Geometry::Cube => &mut pipeline.world_variants,
+                        Geometry::Model => &mut pipeline.world_model_variants,
+                    };
+                    if let Ok(id) = variants.specialize(&pipeline_cache, key) {
+                        pipeline.world_ids.insert(key, id);
+                    }
                 }
             }
         }
@@ -374,7 +386,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
 /// Draws one section's tagged cube quads and model draws with the current pipeline of each
 /// geometry; its translucent model draws only when `translucent_models`.
 #[allow(clippy::too_many_arguments)]
-fn draw_section<'w>(
+pub(in crate::chunk) fn draw_section<'w>(
     pass: &mut TrackedRenderPass<'w>,
     arena: &'w ChunkGpuArena,
     allocation: &GpuChunkAllocation,

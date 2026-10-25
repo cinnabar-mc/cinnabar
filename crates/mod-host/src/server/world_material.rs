@@ -185,7 +185,7 @@ impl effects::Host for State {
             displacement_blocks: declared.displacement_blocks,
             scene: declared.scene,
             outline: declared.outline.map(|outline| WorldOutline {
-                width_texels: outline.width_texels,
+                width_pixels: outline.width_pixels,
             }),
             bloom: declared.bloom.map(|bloom| WorldBloom {
                 strength: bloom.strength,
