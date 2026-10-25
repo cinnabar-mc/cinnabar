@@ -12,7 +12,8 @@ const NEAR_LIGHT_COLUMN_RADIUS: i32 = NEAR_CAMERA_RADIUS + 1;
 /// Longest wait, in readiness polls, before a still-blocked revision is rechecked.
 pub(in crate::stream) const MAX_RECHECK_BACKOFF_POLLS: u64 = 32;
 
-/// Ready work leads during ordinary streaming; startup also rechecks higher-priority deferred work.
+/// Candidates awaiting dispatch checks lead deferred work during ordinary streaming.
+/// Startup also rechecks higher-priority deferred work.
 #[derive(Default)]
 pub(super) struct Lane {
     pub(super) ready: CandidateQueue,
@@ -221,8 +222,6 @@ pub(super) struct KeyedJobs<P, J, const L: usize> {
     pub(super) refresh: SchedulerRefresh<L>,
     /// Ordinary retries keep their order and cooldown across camera refreshes.
     pub(super) retries: rechecks::RecheckQueue,
-    /// Dependency changes await one readiness check per key without moving its lane owner.
-    pub(super) dependency_wakeups: [CandidateQueue; L],
     pub(super) in_flight: HashMap<SubChunkKey, J>,
 }
 
@@ -235,7 +234,6 @@ impl<P, J, const L: usize> Default for KeyedJobs<P, J, L> {
             lanes: std::array::from_fn(|_| Lane::default()),
             refresh: SchedulerRefresh::default(),
             retries: rechecks::RecheckQueue::default(),
-            dependency_wakeups: std::array::from_fn(|_| CandidateQueue::default()),
             in_flight: HashMap::new(),
         }
     }
@@ -278,7 +276,7 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
     }
 
     /// Finds current work waiting in this lane or the previous camera generation.
-    pub(super) fn deferred_candidate(
+    fn deferred_candidate(
         &self,
         lane: usize,
         key: SubChunkKey,
@@ -293,9 +291,10 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
             .copied()
     }
 
-    /// Returns one queued job to ready across camera generations, preserving
-    /// its pending age and ordinary retry history. Unrouted work keeps its existing ingress.
-    pub(super) fn wake_deferred(&mut self, lane: usize, key: SubChunkKey) {
+    /// Coalesces dependency changes into the lane's next dispatch checks across camera
+    /// generations. Pending age and ordinary retry history survive; readiness is checked at
+    /// dispatch, and unrouted work keeps its existing ingress.
+    pub(super) fn notify_deferred(&mut self, lane: usize, key: SubChunkKey) {
         let Some(mut candidate) = self.deferred_candidate(lane, key) else {
             return;
         };
@@ -305,23 +304,6 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         candidate.urgent |= self.pending[&key].urgent();
         self.retire_lane_ownership(&key);
         self.lanes[lane].ready.push(candidate);
-    }
-
-    /// Coalesces dependency changes while preserving deferred ownership and retry history.
-    pub(super) fn notify_deferred(&mut self, lane: usize, key: SubChunkKey) {
-        let Some(mut candidate) = self.deferred_candidate(lane, key) else {
-            return;
-        };
-        if self.dependency_wakeups[lane]
-            .get(&key)
-            .is_some_and(|queued| queued.revision == candidate.revision)
-        {
-            return;
-        }
-        if let Some(view) = self.refresh.view {
-            candidate.refresh_rank(view);
-        }
-        self.dependency_wakeups[lane].push(candidate);
     }
 
     /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.
@@ -366,9 +348,6 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
 
     /// Retires a key from both lane generations without scanning unrelated candidates.
     fn retire_lane_ownership(&mut self, key: &SubChunkKey) {
-        for wakeups in &mut self.dependency_wakeups {
-            wakeups.remove(key);
-        }
         for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
             lane.ready.remove(key);
             lane.deferred.remove(key);
@@ -382,9 +361,6 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         self.scan.clear();
         self.startup_scan.clear();
         self.retries.clear();
-        for wakeups in &mut self.dependency_wakeups {
-            wakeups.clear();
-        }
         for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
             lane.ready.clear();
             lane.deferred.clear();

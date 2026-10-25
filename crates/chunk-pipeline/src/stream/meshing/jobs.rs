@@ -102,7 +102,7 @@ impl WorldStream {
                 resident_candidates.push(candidate);
             }
         }
-        let mut already_probed: HashSet<_> = resident_candidates
+        let already_probed: HashSet<_> = resident_candidates
             .iter()
             .map(|(candidate, _, _)| candidate.key)
             .collect();
@@ -124,31 +124,10 @@ impl WorldStream {
         let now = Instant::now();
         self.prioritize_transfer_mesh_candidates(&mut resident_candidates);
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
-        already_probed.extend(
-            resident_candidates
-                .iter()
-                .map(|(candidate, _, _)| candidate.key),
-        );
         let mut probed = resident_candidates.into_iter().peekable();
         let mut ready_pops = 0;
-        let mut notification_budget = MAX_PENDING_SCHEDULER_SCANS_PER_POLL;
         let mut seen = HashSet::new();
         loop {
-            if dispatched < worker_budget && (!examined || !self.poll_budget_exhausted()) {
-                let other_best = self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .ready
-                    .peek()
-                    .copied()
-                    .into_iter()
-                    .chain(probed.peek().map(|(candidate, _, _)| *candidate))
-                    .max();
-                self.promote_mesh_dependency_wakeups(
-                    view,
-                    &already_probed,
-                    other_best,
-                    &mut notification_budget,
-                );
-            }
             // The ready lane yields in rank order beside the probed candidates, one pop at a
             // time, so work this call cannot dispatch stays queued rather than cycling through.
             let ready_first = ready_pops < MAX_PENDING_SCHEDULER_SCANS_PER_POLL

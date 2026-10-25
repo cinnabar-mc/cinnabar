@@ -273,6 +273,7 @@ mod dependency_lifecycle;
 mod filter_dominance;
 mod mesh_fairness;
 mod mesh_light_dependencies;
+mod notification_refresh;
 mod provenance;
 mod scheduling_priority;
 mod sky_boundary;

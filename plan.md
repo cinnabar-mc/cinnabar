@@ -243,10 +243,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   queue wait, worker time, upload, submission and present latency independently.
   Ordinary meshing now rechecks higher-priority deferred revisions within a bounded
   poll budget, with backoff while neighbours or light remain unavailable. Completed light
-  members coalesce dependency notifications without preparing geometry. Geometry dispatch
-  rechecks them within its existing work limit after accepted neighbour invalidations,
-  once worker capacity exists. A queued dependent returns to ready only when its known
-  halo is current, owed neighbours have arrived and output credit is available.
+  members coalesce dependency notifications into the existing dispatch lanes without
+  preparing geometry. The same bounded camera refresh orders notified and ordinary
+  candidates across queue generations. Geometry dispatch checks them within its existing
+  work limit once worker capacity exists; a job starts only when its known halo is current,
+  owed neighbours have arrived and output credit is available.
   This includes distant geometry outside direct camera
   probes. Hardware dirty-to-visible latency
   qualification remains open. Empty-section evidence and

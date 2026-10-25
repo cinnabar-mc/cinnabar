@@ -66,12 +66,19 @@ fn retired_mesh_releases_coalesced_dependency_notification() {
     for _ in 0..32 {
         stream.finish_accepted_light_completion(finished, 0, &direct, [false; 6], false);
     }
-    assert_eq!(
-        stream.mesh_jobs.dependency_wakeups[RESIDENT_MESH_LANE].len(),
-        1
+    assert!(
+        stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+            .ready
+            .get(&visible)
+            .is_some()
     );
     stream.mesh_jobs.remove_pending(&visible);
-    assert!(stream.mesh_jobs.dependency_wakeups[RESIDENT_MESH_LANE].is_empty());
+    assert!(
+        stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+            .ready
+            .get(&visible)
+            .is_none()
+    );
     meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
     assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
