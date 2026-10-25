@@ -50,6 +50,11 @@ pub const MAX_VERSION_BYTES: usize = 64;
 /// then builds take 1.3 s and 146 KiB of 16×16 textures. Every state of each block is a palette
 /// entry, so a block's states (`MAX_STATE_BITS`) weigh more than the count of blocks.
 pub const MAX_BLOCKS: usize = 256;
+/// Entity types, seats, properties and live instances are extension policy, not game limits.
+pub const MAX_ENTITY_TYPES: usize = 64;
+pub const MAX_ENTITY_SEATS: usize = 16;
+pub const MAX_ENTITY_PROPERTIES: usize = 32;
+pub const MAX_ENTITIES: usize = 256;
 /// Bytes in a block's name, the part of its id after `<experience id>:`; at least one is
 /// required.
 pub const MAX_BLOCK_NAME_BYTES: usize = 32;
@@ -110,6 +115,10 @@ pub const MAX_LOGS: usize = 32;
 pub const MAX_LOG_BYTES: usize = 512;
 /// Items one Experience may register; see [`MAX_BLOCKS`] for their cost.
 pub const MAX_ITEMS: usize = 512;
+/// Overlay types one Experience may declare. Each registers with the server as a hidden block
+/// whose every state is a palette entry, so its states weigh as a block's do (see
+/// [`MAX_BLOCKS`]); they do not count against [`MAX_BLOCKS`].
+pub const MAX_OVERLAY_TYPES: usize = 128;
 /// Bytes of an Experience's own data on one item stack.
 pub const MAX_ITEM_DATA_BYTES: usize = 8192;
 /// Items the adapter may list as the server's when it loads an Experience.

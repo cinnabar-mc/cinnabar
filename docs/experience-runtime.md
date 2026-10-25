@@ -45,6 +45,8 @@ entry point owns registration and registry replies; low-level guests can use
 | Callback | When and scope |
 | --- | --- |
 | `registration` / `register` | Startup; declares blocks and items, or plain cubes only |
+| `entity_definitions` | Startup; immutable actor identities, appearances, seats and properties |
+| `on_entity` | Ordered interactions, attacks, seat changes, steering and despawn observations |
 | `world_definitions` | Startup; immutable world definitions and optional startup instances |
 | `on_player` | Ordered join, leave, world-change and sampled move observations |
 | `on_place` | After player placement of an owned block |
@@ -104,7 +106,8 @@ unavailable. Commit checks members and boundary changes.
 
 Server WIT 0.8 adds world definitions, player observations and scoped state.
 The SDK defaults the new exports to empty/no-op implementations. Rebuilt guests
-must declare `api = "0.9"`; existing 0.1–0.6 and 0.8 artifacts retain their frozen ABIs.
+must declare the current server API (`api = "0.11"`); existing 0.1–0.6, 0.8, 0.9 and 0.10
+artifacts retain their frozen ABIs.
 
 | Type or operation | Contract |
 | --- | --- |
@@ -173,6 +176,31 @@ Server WIT 0.9 adds `on_tick` and `on_timer`; older artifacts receive neither.
 | Overload | Queue overflow drops and counts ticks and repeating occurrences. A failed one-shot stays due. Repeating timers keep at most one queued occurrence; missed periods are skipped, never replayed |
 | Limits | Active timers per mod and instance share `MAX_SCHEDULED_UPDATES`; delays use `MAX_SCHEDULE_TICKS` |
 
+## Cell overlays
+
+Server WIT 0.10 lets a block carry up to `MAX_CELL_OVERLAYS` (12) extra visuals in its own
+cell, such as a cable bus's parts or a drive's cells. The new `overlays` export declares which
+of the Experience's blocks are hosts and up to `MAX_OVERLAY_TYPES` (128) overlay types; 0.1–0.9
+artifacts keep working without overlays.
+
+| Rule | Contract |
+| --- | --- |
+| Overlay type | A look only overlays draw: states, visual and permutations checked as a block's, registered as a hidden block (no item, never placed). Its selection box, if any, picks it; without one it is never picked. Its collision is ignored |
+| Overlay | `slot` 0–11, unique in the cell; drawing and picking go in slot order. `face` turns the type's model, authored with its front out of north and its top up, to that face (side faces keep their top up, up and down faces put it north): [`overlay_face.rs`](../crates/block-transform/src/overlay_face.rs). Permutation rotations apply before the face turn |
+| Item overlay | `item` drawn flat on the face as an inventory slot shows it, at full brightness, `size` pixels wide (at most `MAX_OVERLAY_ITEM_SIZE`), centred `x`, `y` pixels right of and above the face's centre (at most `MAX_OVERLAY_ITEM_OFFSET`). Never picked |
+| `overlays(pos)` / `set-overlays(pos, list)` | Read or replace a host's whole list, at network reach. One host call and one staged op; the host keeps its states, data and generation. Another Experience's block: `not-owned`; not a host: `unsupported-state`; an unknown overlay type or item: `unknown-block`; a slot past 11 or twice, a state the type lacks, or an item too large or off the face: `unsupported-state`; more than 12: `too-large` |
+| Block changes | `set-block` clears a host's overlays; `set-block-state` keeps them |
+| `on-interact` | Gains `hit`, the click position in pixels when the client sent one inside the cell, and `target`, the slot of the first overlay in slot order whose turned selection box, grown by `OVERLAY_PICK_MARGIN` (0.032 px), holds `hit` |
+
+The adapter saves a host's overlays in its `CinnabarOverlays` block entity, which reaches clients
+with the chunk and on every change (format: [`cell_overlays.rs`](../crates/world/src/block_entity/cell_overlays.rs)).
+Cinnabar meshes block-state overlays with terrain, draws item overlays with block entities, and
+picks overlays with its interaction ray: the nearest hit is outlined and its face and position are
+what `UseItemOn` sends. Overlays show only while their host state is the cell's block. Vanilla
+clients get the overlay types as hidden palette entries and an unknown block entity, so they draw
+the host alone and pick only the host's own selection box: `hit` is where their click met that
+box, and `target` an overlay only when that point lies in its box.
+
 ## Blocks and items
 
 Paired declarations cover cubes and items; richer guests return `Registration`.
@@ -189,6 +217,50 @@ stack limits and offhand eligibility come from the adapter's item catalog.
 Own-item data persists with the stack and reaches clients; decode it as untrusted.
 Private block data does not enter chunk NBT.
 
+## Entities and seats
+
+Server WIT 0.11 adds registered entities in the mod's namespace. Definitions select
+an existing built-in appearance or indexed geometry, PNG and render-controller assets.
+The host validates resources before freezing its world registry and resource packs;
+helper restarts must return the same declarations.
+Collision boxes must be centered squares at the feet, with width and height that
+fit positive packet floats. Offset or rectangular boxes are refused at registration.
+Cinnabar resolves a built-in appearance from the actor's admitted constructor when
+its custom identity has no authored artwork, including server-pack overrides of that
+built-in appearance. Authored custom artwork takes priority.
+
+| Operation | Contract |
+| --- | --- |
+| `entities` | This mod's live actors in the current instance, including staged writes |
+| `spawn_entity` | Reserves a generation-bearing identity; unavailable during final leave |
+| `update_entity` | Stages position, rotation, velocity, label, scale, variant and declared properties; teleport selects immediate movement |
+| `despawn_entity` | Removes an owned actor and its occupied seats |
+| `mount_entity`, `dismount_entity` | Current live player only; occupied/invalid seats and boarding while riding another vehicle are refused |
+| `on_entity` | Interaction/attack hand and held item, rider changes, input and removal; player/world epoch fences still apply |
+
+Velocity supplies interpolation in blocks per tick; guest code owns movement rather
+than a second physics simulation. Teleports retain the requested velocity. Spawn
+identities retain their ordinal across coalesced block writes. Actors keep their
+current chunk resident and retain the prior owning chunk until membership migrates
+on the next framework tick. Deferred world tasks retry missing destinations even before
+that entity can tick; despawn cancels pending retries. Actors and seats are process-local: unload and shutdown
+release them and their chunk leases, and terrain saves exclude them. Player travel
+leaves actors in their original world and dismounts departing riders.
+Removal callbacks retain live entity snapshots while their world opening exists.
+After unload, they retain only the historical opening and private stores.
+Their private writes still check scope and revisions; entity spawns and world
+operations are unavailable in that historical callback.
+
+Seat offsets are relative to the actor. At most one seat steers; input supplies
+movement intent, look angles, jump and sneak rather than client vehicle coordinates.
+Sneaking dismounts. Late viewers receive links after both actors are introduced.
+Removal callbacks retain the removed opening after unload without live actor access.
+Operations share `MAX_STAGED_OPS` and `MAX_HOST_CALLS`; registration and snapshots use
+`MAX_ENTITY_TYPES`, `MAX_ENTITY_SEATS`, `MAX_ENTITY_PROPERTIES` and `MAX_ENTITIES`.
+These are mod execution limits. Mixed-client rendering and live riding acceptance
+remain incomplete. The probe's x=34 and x=35 counters create and enter its entity
+instance; interact with the ship to board and sneak to dismount.
+
 ## Budgets and limits
 
 Use the constants below rather than treating a denied operation as success.
@@ -199,7 +271,8 @@ the adapter's mirrored commit limits are checked against generated fixtures.
 | --- | --- |
 | Fuel and deadlines | `CALLBACK_FUEL`, `REGISTER_FUEL`, `CALLBACK_DEADLINE`, `REGISTER_DEADLINE` |
 | Guest memory, stack, tables, instances | `MAX_MEMORY_BYTES`, `MAX_WASM_STACK_BYTES`, `MAX_TABLE_ELEMENTS`, `MAX_CORE_INSTANCES` |
-| Artifact and declarations | `MAX_COMPONENT_BYTES`, `MAX_MANIFEST_BYTES`, `MAX_INDEX_BYTES`, `MAX_ARTIFACT_ENTRIES`, `MAX_BLOCKS`, `MAX_ITEMS`, `MAX_STATE_BITS`, `MAX_PERMUTATIONS` |
+| Artifact and declarations | `MAX_COMPONENT_BYTES`, `MAX_MANIFEST_BYTES`, `MAX_INDEX_BYTES`, `MAX_ARTIFACT_ENTRIES`, `MAX_BLOCKS`, `MAX_ITEMS`, `MAX_STATE_BITS`, `MAX_PERMUTATIONS`, `MAX_OVERLAY_TYPES` |
+| Cell overlays | `MAX_CELL_OVERLAYS`, `MAX_OVERLAY_ITEM_SIZE`, `MAX_OVERLAY_ITEM_OFFSET`, `OVERLAY_PICK_MARGIN` ([`overlay_face.rs`](../crates/block-transform/src/overlay_face.rs), shared with the client) |
 | Callback work | `MAX_HOST_CALLS`, `MAX_STAGED_OPS`, `MAX_STAGED_DATA_BYTES`, `MAX_SCHEDULED_UPDATES`, `MAX_SCHEDULE_TICKS` |
 | Private/item data | `MAX_BLOCK_DATA_BYTES` per block or scoped record, `MAX_ITEM_DATA_BYTES` |
 | Messages and tells | `MAX_CLIENT_SENDS`, `MAX_CLIENT_SEND_BYTES`, `MAX_VALUE_DEPTH`, `MAX_TELLS`, `MAX_TELL_BYTES` |
@@ -248,7 +321,7 @@ add a `blocks` map of each recorded Experience to its original block IDs.
 
 Server stdin accepts `pause`, `resume`, `experience reload <id>` and `stop`.
 Pause holds dispatch and commits. Reload clears strikes, restarts and quarantine,
-but must preserve ID, registered blocks/items in order and world declarations;
+but must preserve ID, registered blocks/items in order, entity schemas and world declarations;
 code and version may change. A failed reload leaves the Experience quarantined.
 
 Guest traps, budget failures and protocol violations count as strikes; guest
@@ -265,15 +338,16 @@ before closing the server or worlds.
 
 | Axis | Current contract |
 | --- | --- |
-| Server WIT | 0.9; frozen 0.1–0.6 and 0.8 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
-| Adapter IPC | 9, `PROTOCOL_VERSION` in [protocol.rs](../crates/experience-runtime/src/protocol.rs); exact match required |
+| Server WIT | 0.11; frozen 0.1–0.6, 0.8, 0.9 and 0.10 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
+| Adapter IPC | 10, `PROTOCOL_VERSION` in [protocol.rs](../crates/experience-runtime/src/protocol.rs); exact match required |
 | Manifest data schema | `DATA_SCHEMA` in [artifact.rs](../crates/experience-sdk/src/artifact.rs) |
 | Client WIT/wire | [Client compatibility](server-experiences.md#versions-and-wire); [shared drawing](server-experiences.md#drawing-and-signed-assets) |
 
 Server 0.1 has no client messages; 0.2 adds scalar messages; 0.3 adds nested records
 and epochs; 0.4 adds focus; 0.5 adds block states/visuals, items, inventories and
 networks; 0.6 adds recipes and scheduled updates; 0.8 adds worlds, player events
-and scoped state; 0.9 adds ticks and timers. Unsupported callbacks are rejected.
+and scoped state; 0.9 adds ticks and timers; 0.10 adds cell overlays and the click position of
+an interaction; 0.11 adds entities and seats. Unsupported callbacks are rejected.
 
 A host runs one `experience-runtime serve` helper per artifact over private stdio.
 Frames are a little-endian u32 JSON length followed by JSON, bounded by

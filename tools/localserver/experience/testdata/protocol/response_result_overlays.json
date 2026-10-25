@@ -1,0 +1,125 @@
+{
+  "type": "result",
+  "seq": 9,
+  "outcome": {
+    "type": "committed",
+    "ops": [
+      {
+        "type": "set_overlays",
+        "pos": {
+          "x": 3,
+          "y": 70,
+          "z": -2
+        },
+        "overlays": [
+          {
+            "slot": 0,
+            "face": "down",
+            "look": {
+              "type": "visual",
+              "kind": "benergistics:glass_cable_arm",
+              "states": [
+                {
+                  "name": "benergistics:dyed",
+                  "value": {
+                    "type": "bool",
+                    "value": true
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "slot": 1,
+            "face": "up",
+            "look": {
+              "type": "visual",
+              "kind": "benergistics:glass_cable_arm",
+              "states": [
+                {
+                  "name": "benergistics:dyed",
+                  "value": {
+                    "type": "bool",
+                    "value": true
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "slot": 2,
+            "face": "north",
+            "look": {
+              "type": "visual",
+              "kind": "benergistics:glass_cable_arm",
+              "states": [
+                {
+                  "name": "benergistics:dyed",
+                  "value": {
+                    "type": "bool",
+                    "value": true
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "slot": 3,
+            "face": "west",
+            "look": {
+              "type": "visual",
+              "kind": "benergistics:glass_cable_arm",
+              "states": [
+                {
+                  "name": "benergistics:dyed",
+                  "value": {
+                    "type": "bool",
+                    "value": true
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "slot": 4,
+            "face": "east",
+            "look": {
+              "type": "visual",
+              "kind": "benergistics:glass_cable_arm",
+              "states": [
+                {
+                  "name": "benergistics:dyed",
+                  "value": {
+                    "type": "bool",
+                    "value": true
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "slot": 11,
+            "face": "south",
+            "look": {
+              "type": "item",
+              "id": "benergistics:certus_quartz_crystal",
+              "metadata": 0,
+              "size": 6.4,
+              "x": -0.25,
+              "y": 0.8
+            }
+          }
+        ]
+      },
+      {
+        "type": "set_overlays",
+        "pos": {
+          "x": 4,
+          "y": 70,
+          "z": -2
+        },
+        "overlays": []
+      }
+    ]
+  }
+}

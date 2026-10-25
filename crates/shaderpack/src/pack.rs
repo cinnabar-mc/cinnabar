@@ -313,6 +313,7 @@ impl ShaderPack {
                     stages: vec![],
                     diagnostics: vec![],
                     reflection: None,
+                    geometry: None,
                     draw_buffers: vec![0],
                     consts: vec![],
                     released_overrides: 0,

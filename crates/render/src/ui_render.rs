@@ -78,6 +78,8 @@ mod model_depth;
 pub(crate) mod overlay;
 #[path = "ui_render/pipeline.rs"]
 pub(crate) mod pipeline;
+#[path = "ui_render/presentation.rs"]
+pub(crate) mod presentation;
 #[path = "ui_render/profile.rs"]
 pub(crate) mod profile;
 #[path = "ui_render/resources.rs"]
@@ -166,6 +168,13 @@ fn install_ui_render(app: &mut App) {
     );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
+        .init_resource::<presentation::UiFrameContent>()
+        .add_systems(
+            Render,
+            presentation::observe_ui_frame
+                .after(bevy::render::renderer::render_system)
+                .before(crate::device_poll::FrameSubmissions),
+        )
         .init_resource::<pipeline::UiPipeline>()
         .init_resource::<composite::UiCompositePipeline>()
         .init_resource::<backdrop::UiBackdropPipeline>()

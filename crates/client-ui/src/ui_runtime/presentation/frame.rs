@@ -238,6 +238,11 @@ impl UiPresentationRuntime {
                             runtime, nodes, next, metrics, content, now_millis,
                         )?;
                     }
+                    Scene::MobEffects => {
+                        self.append_mob_effect_screen(
+                            runtime, nodes, next, metrics, content, now_millis,
+                        )?;
+                    }
                     Scene::Loading => {
                         if let Some(stage) = self.loading_stage {
                             if !stage.is_world_entry() {
@@ -309,6 +314,9 @@ impl UiPresentationRuntime {
             }
             if !scenes.contains(&Scene::Emote) {
                 self.close_emote_screen();
+            }
+            if !scenes.contains(&Scene::MobEffects) {
+                self.close_mob_effect_screen();
             }
             if !scenes.contains(&Scene::SignEditor) {
                 self.hide_sign_editor();

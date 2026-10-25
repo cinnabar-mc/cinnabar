@@ -271,7 +271,7 @@ impl ActorStore {
         ropes
     }
 
-    fn actor_by_unique(&self, unique_id: i64) -> Option<&ActorSnapshot> {
+    pub(super) fn actor_by_unique(&self, unique_id: i64) -> Option<&ActorSnapshot> {
         self.actors.get(self.unique_to_runtime.get(&unique_id)?)
     }
 }

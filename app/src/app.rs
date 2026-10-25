@@ -30,7 +30,7 @@ use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait
 use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render_api::PublicationServiceConfig;
 use std::io::Write;
-use std::{ffi::OsStr, path::Path, sync::Arc};
+use std::{ffi::OsStr, sync::Arc};
 #[cfg(feature = "acceptance")]
 use {
     crate::acceptance::{model_witness::drive_model_witness, world_ready::emit_world_ready},
@@ -51,7 +51,7 @@ use startup::bind_direct_session_directory;
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 use client_presentation::{camera::FlyCameraUpdateSet, local_player::LocalPlayerFrameSet};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
@@ -191,7 +191,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ClientFrameSet::ActorPreparation),
         )
         // Build actions resolve before the tick they precede, so its movement sees the block.
-        .add_systems(
+    .add_systems(
             Update,
             produce_block_use
                 .after(ClientFrameSet::SemanticFinalize)
@@ -296,7 +296,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         timing.configure_menu(!args.connection_requested(), offscreen_startup);
     }
     let feedback = crate::startup_feedback::Feedback::start();
-    let app = App::new();
+    let app = render_scene::startup_timing::measure("application_create", App::new);
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
     #[cfg(feature = "developer-control")]
@@ -322,7 +322,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let far_terrain_dir = layout.far_terrain_cache_dir();
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
-    reclaim_stale_session_directories(&layout);
+    render_scene::startup_timing::measure("session_cleanup", || {
+        reclaim_stale_session_directories(&layout)
+    });
     let connection_requested = args.connection_requested();
     let socket_dir = if args.address.is_some() && !args.socket_dir_explicit {
         layout.direct_socket_dir(std::process::id())
@@ -335,6 +337,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // the upstream client-cache advertisement from the same cache it later
     // hands to the network session.
     let client_blob_cache = ClientBlobCacheOwner::persistent(layout.client_blob_cache_file());
+    let packet_mods = crate::modding::packets::from_environment();
+    let startup_cache = packet_mods.startup_cache(&client_blob_cache, &layout.user_config_root);
     // Bound before the core guard is declared so Rust's reverse local-drop
     // order always stops the core before releasing this directory, including
     // every startup `?` before the app takes ownership of the guard.
@@ -377,68 +381,49 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         &language,
         assets::carriers::startup::vanilla_source_manifest_json(),
     );
+    let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
+    feedback.progress(launcher::startup::Stage::PreparingInterface);
+    let mut preparing_interface = Some(startup::interface::PreparingInterface::start(
+        menu_assets.clone(),
+        hud_assets,
+        icon_assets,
+        carriers.ui?,
+        carriers.path.clone(),
+        layout.vanilla_pack_dir(),
+        args.gui_scale,
+    )?);
     let startup::AudioCarriers {
         catalog: audio_catalog,
         pcm,
         sound_bank,
     } = carriers.audio?;
-    let audio_device = if pcm.is_some() || sound_bank.is_some() {
-        client_audio::named_audio::AudioDevice::open_default_once()
-    } else {
-        client_audio::named_audio::AudioDevice::disabled()
-    };
+    let audio_device = render_scene::startup_timing::measure("audio_device", || {
+        if pcm.is_some() || sound_bank.is_some() {
+            client_audio::named_audio::AudioDevice::open_default_once()
+        } else {
+            client_audio::named_audio::AudioDevice::disabled()
+        }
+    });
     // The full engine supersedes the single-sample named path when a bank is present.
     let named_audio =
         client_audio::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = client_audio::audio::AudioEngine::new(sound_bank);
-    let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
-    feedback.progress(launcher::startup::Stage::PreparingInterface);
-    let font_runtime = menu_assets.fonts.clone().into_runtime();
-    let block_entity_font = Arc::clone(&font_runtime);
-    let font_dir = carriers.path.parent();
-    let font_runtime = oreui::fonts::install(font_runtime, font_dir.unwrap_or(Path::new(".")));
-    let world_icons = Arc::clone(icon_assets.runtime());
-    let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
-        font_runtime,
-        hud_assets.into_runtime(),
-        icon_assets.into_runtime(),
-    )
-    .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
-    // The gameplay HUD draws through the JSON-UI engine, so its carrier is required.
-    let json_ui = carriers.ui?;
-    json_ui
-        .join()
-        .and_then(|prepared| ui_presentation.enable_prepared_json_ui(prepared))
-        .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
-    let ui_catalog = crate::runtime::network::PackUiCatalog(
-        ui_presentation
-            .pack_catalog_base()
-            .context("JSON-UI engine is missing its carrier catalog")?,
-    );
-    ui_presentation.enable_touch_controls(cfg!(target_os = "android"));
-    // OreUI artwork is decoded once for every native screen.
-    if let Some(images) =
-        oreui::images::load_optional_oreui_images(carriers.path.parent().unwrap_or(Path::new(".")))
-        && let Err(reason) = ui_presentation.enable_oreui_originals(images)
-    {
-        bevy::log::warn!("OreUI originals disabled ({reason})");
-    }
-    let world_ui = startup::world::WorldUi {
-        menu: menu_assets.clone(),
-        icons: world_icons,
-        gui: ui_presentation.gui_model_preparation(),
-        vanilla_pack: layout.vanilla_pack_dir(),
-    };
-    ui_presentation.enable_player_preview();
-    ui_presentation.set_gui_scale_preference(args.gui_scale);
-    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = menu_assets.atmosphere.into_parts();
     let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
     let weather_textures = render_scene::WeatherTextureAssets::default();
     let asset_metrics = diagnostics::metrics::AssetMetrics::default();
 
-    let world_preparation =
-        startup::world::WorldPreparation::new(carriers.world, world_ui, connection_requested)?;
+    let mut world_input = Some(carriers.world);
+    let direct_interface = if connection_requested {
+        Some(
+            preparing_interface
+                .take()
+                .expect("interface preparation")
+                .finish(world_input.take().expect("world inputs"), true)?,
+        )
+    } else {
+        None
+    };
 
     let client_random_id = connection_requested
         .then(|| launcher_host::client_random_id::load(&layout.user_data_root))
@@ -455,7 +440,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                     &socket_dir,
                     address,
                     None,
-                    client_blob_cache.enables_upstream_client_cache(),
+                    startup_cache.enables_upstream_client_cache(),
                     false,
                 )
                 .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
@@ -484,8 +469,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
     // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
-    let local_player_skin =
-        client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
+    let local_player_skin = render_scene::startup_timing::measure("local_appearance", || {
+        client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name)
+    });
     let screenshots_dir = layout.screenshots_dir();
     #[cfg(feature = "shaderpacks")]
     let shader_compiler = {
@@ -499,18 +485,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         }
     };
     let renderer_data_root = layout.user_data_root.clone();
+    let pipeline_cache_dir = layout.pipeline_cache_dir();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
-    let menu = MenuRuntime::new_with_import_snapshot(
-        !connection_requested,
-        args.gui_scale,
-        args.display_name.clone(),
-        layout,
-        local_player_skin.clone(),
-        minecraft_import,
-    )
-    .with_language_assets(carriers.path.clone(), args.language.as_deref());
+    let menu = render_scene::startup_timing::measure("menu_services", || {
+        MenuRuntime::new_with_import_snapshot(
+            !connection_requested,
+            args.gui_scale,
+            args.display_name.clone(),
+            layout,
+            local_player_skin.clone(),
+            minecraft_import,
+        )
+        .with_language_assets(carriers.path.clone(), args.language.as_deref())
+    });
     crate::runtime::network::await_overlay_texture_device();
-    let packet_mods = crate::modding::packets::from_environment();
     let network = NetworkHandle::<PackApplication>::disconnected();
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
@@ -562,6 +550,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
+        pipeline_cache_dir,
         video_override: saved_settings.graphics_api(),
         graphics_api_revision: saved_settings.graphics_api_revision(),
     };
@@ -587,6 +576,23 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         logging::add_default_plugins(&mut app, plugins)
     });
     render_setup::finish(&mut app)?;
+    let (interface, world_preparation) = match direct_interface {
+        Some(ready) => ready,
+        None => render_setup::finish_prerequisite(
+            &mut app,
+            preparing_interface
+                .take()
+                .expect("interface preparation")
+                .finish(world_input.take().expect("world inputs"), false),
+        )?,
+    };
+    let startup::interface::Interface {
+        presentation: ui_presentation,
+        catalog: ui_catalog,
+        block_entity_font,
+    } = interface;
+    let mut ui_presentation = ui_presentation;
+    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     #[cfg(feature = "shaderpacks")]
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,
@@ -629,6 +635,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(present_mode_runtime)
     .insert_resource(
         SessionController::new(core_process)
+            .with_blob_cache(startup_cache)
             .with_client_random_id(client_random_id)
             .with_address(args.address.as_deref())
             .with_startup_endpoint(

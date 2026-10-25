@@ -47,6 +47,10 @@ mod frame_geometry;
 #[cfg(feature = "shaderpacks")]
 pub(crate) mod geometry;
 #[cfg(feature = "shaderpacks")]
+mod geometry_shader;
+#[cfg(all(test, feature = "shaderpacks"))]
+mod geometry_shader_tests;
+#[cfg(feature = "shaderpacks")]
 mod host_pipelines;
 #[cfg(feature = "shaderpacks")]
 mod ids;

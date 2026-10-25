@@ -185,6 +185,7 @@ fn unloaded_cell_is_unavailable() {
         owned: false,
         data: None,
         states: Vec::new(),
+        overlays: Vec::new(),
     };
     assert_eq!(
         outcome(&with_cell(interact(5), unloaded)),
@@ -359,6 +360,7 @@ fn non_canonical_player_ids_are_rejected_unrun() {
             player: shouted.clone(),
             pos: p(0),
             face: Face::Up,
+            hit: None,
         },
     );
     let malformed = [

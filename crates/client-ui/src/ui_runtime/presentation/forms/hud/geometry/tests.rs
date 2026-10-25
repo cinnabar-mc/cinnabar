@@ -153,7 +153,8 @@ fn keep_out_presentation(
     let bytes =
         assets::encode_ui_catalog([1; 32], carrier.atlas_pages(), &[], &[], &files).unwrap();
     let mut p = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
-    p.enable_json_ui(Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()))
+    // Keep-out bounds come from one paint, so every fixture image must be resident on it.
+    p.enable_json_ui_inline(Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()))
         .unwrap();
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255; 4]))

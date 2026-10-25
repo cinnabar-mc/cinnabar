@@ -1,3 +1,5 @@
+mod overlays;
+
 use experience_sdk::artifact::{ASSETS_DIR, DATA_SCHEMA, MAX_STACK_SIZE, SERVER_WASM};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -6,7 +8,7 @@ use serde_json::json;
 use wasmtime::Trap;
 use wasmtime::component::{Component, Linker};
 
-use super::{axes, engine, validate_blocks, validate_registration, wit};
+use super::{axes, block_type, engine, validate_blocks, validate_registration, wit};
 use crate::host::{Api, HostState};
 use crate::limits::{
     MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_BONES, MAX_CONDITION_TESTS, MAX_DISPLAY_NAME_BYTES,
@@ -230,6 +232,16 @@ fn rule_assets(dir: &Path) -> Manifest {
     }
 }
 
+/// The assets of the artifact `manifest` describes in `dir`, before any block is declared.
+fn assets<'a>(dir: &'a Path, manifest: &'a Manifest) -> block_type::Assets<'a> {
+    block_type::Assets {
+        root: dir,
+        files: &manifest.files,
+        id: &manifest.id,
+        geometries: std::collections::HashMap::new(),
+    }
+}
+
 /// Runs each case through `validate_blocks` against [`rule_assets`]. `None` means it is
 /// accepted; otherwise the refusal must contain the cause and, for a single block, name that
 /// block.
@@ -242,7 +254,7 @@ fn check_rules(cases: Vec<(&str, Vec<wit::BlockType>, Option<&str>)>) {
             [block] => Some(format!("block \"{}\"", block.def.id)),
             _ => None,
         };
-        let outcome = validate_blocks(dir.path(), &manifest, types);
+        let outcome = validate_blocks(&mut assets(dir.path(), &manifest), types);
         match (outcome.map_err(|error| format!("{error:#}")), refusal) {
             (Ok(_), None) => {}
             (Ok(_), Some(cause)) => failures.push(format!("{case}: accepted, not {cause:?}")),
@@ -1015,7 +1027,7 @@ fn item_rules_accept_limits_and_refuse_violations() {
             blocks: vec![cable()],
             items,
         };
-        let outcome = validate_registration(dir.path(), &manifest, registration)
+        let outcome = validate_registration(&mut assets(dir.path(), &manifest), registration)
             .map_err(|error| format!("{error:#}"));
         match (outcome, refusal) {
             (Ok(_), None) => {}
@@ -1030,8 +1042,7 @@ fn item_rules_accept_limits_and_refuse_violations() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 
     let (blocks, items) = validate_registration(
-        dir.path(),
-        &manifest,
+        &mut assets(dir.path(), &manifest),
         wit::Registration {
             blocks: vec![cable()],
             items: vec![item("cell")],
@@ -1059,7 +1070,7 @@ fn axes_put_placement_states_first() {
     let manifest = rule_assets(dir.path());
     let mut member = cable();
     member.network = true;
-    let blocks = validate_blocks(dir.path(), &manifest, vec![member]).unwrap();
+    let blocks = validate_blocks(&mut assets(dir.path(), &manifest), vec![member]).unwrap();
     assert!(blocks[0].network, "network membership reaches the adapter");
     let axes = axes(&blocks[0].states, &blocks[0].placement);
     let names: Vec<&str> = axes.iter().map(|axis| axis.name.as_str()).collect();

@@ -106,9 +106,8 @@ func registerTestExperiences() (*Registry, *server.Server, *resource.Pack, error
 	return reg, srv, pack, nil
 }
 
-// renamed is loaded as the Experience id, its blocks, their states and its items moved into that
-// namespace.
-// It renames no state in a visual, so it serves blocks without one.
+// renamed moves blocks, states, items, overlay hosts and types, and entities into a namespace.
+// Visuals are not rewritten, so blocks must have none and entities must use built-in appearances.
 func renamed(loaded Loaded, id string) Loaded {
 	out := loaded
 	out.ID = id
@@ -125,10 +124,34 @@ func renamed(loaded Loaded, id string) Loaded {
 		}
 		out.Blocks = append(out.Blocks, def)
 	}
+	if loaded.Overlays != nil {
+		overlays := OverlayRegistration{}
+		for _, host := range loaded.Overlays.Hosts {
+			overlays.Hosts = append(overlays.Hosts, move(host))
+		}
+		for _, def := range loaded.Overlays.Types {
+			def.ID = move(def.ID)
+			def.States = slices.Clone(def.States)
+			for i := range def.States {
+				def.States[i].Name = move(def.States[i].Name)
+			}
+			overlays.Types = append(overlays.Types, def)
+		}
+		out.Overlays = &overlays
+	}
 	out.Items = nil
 	for _, def := range loaded.Items {
 		def.ID = move(def.ID)
 		out.Items = append(out.Items, def)
+	}
+	out.Entities = nil
+	for _, def := range loaded.Entities {
+		def.ID = move(def.ID)
+		def.Properties = slices.Clone(def.Properties)
+		for i := range def.Properties {
+			def.Properties[i].ID = move(def.Properties[i].ID)
+		}
+		out.Entities = append(out.Entities, def)
 	}
 	return out
 }

@@ -2,6 +2,7 @@
 
 mod client;
 mod item_metadata;
+mod overlays;
 
 use item_metadata::server_item;
 
@@ -113,6 +114,7 @@ impl Fixture {
                 player: ACTOR.to_owned(),
                 pos: ANCHOR,
                 face: Face::Up,
+                hit: None,
             },
         };
         let lamp = [
@@ -126,6 +128,7 @@ impl Fixture {
             },
         ];
         let own = Catalog {
+            entities: Vec::new(),
             blocks: [
                 (COUNTER.to_owned(), Vec::new()),
                 (
@@ -142,6 +145,8 @@ impl Fixture {
             .into(),
             recipes: Vec::new(),
             worlds: Default::default(),
+            overlay_hosts: Default::default(),
+            overlays: Default::default(),
         };
         let (res, _) = prepare(&Arc::new(own), &request).unwrap();
         res
@@ -171,14 +176,18 @@ impl Fixture {
                 player: ACTOR.to_owned(),
                 pos: ANCHOR,
                 face: Face::Up,
+                hit: None,
             },
         };
         let own = Catalog {
+            entities: Vec::new(),
             blocks: [(COUNTER.to_owned(), Vec::new())].into(),
             items: [(CELL.to_owned(), 1)].into(),
             server: [server_item(STONE, 0, 64, false)].into(),
             recipes: Vec::new(),
             worlds: Default::default(),
+            overlay_hosts: Default::default(),
+            overlays: Default::default(),
         };
         prepare(&Arc::new(own), &request).map(|(res, _)| res)
     }
@@ -210,6 +219,7 @@ fn loaded(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
         owned,
         data: data.map(str::to_owned),
         states: Vec::new(),
+        overlays: Vec::new(),
     }
 }
 
@@ -1057,4 +1067,5 @@ fn malformed_inventories_are_refused() {
 
 mod worlds;
 
+mod entities;
 mod simulation;

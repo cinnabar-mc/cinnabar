@@ -1,0 +1,146 @@
+[
+  {
+    "name": "unit",
+    "collision": {
+      "min": {
+        "x": -0.5,
+        "y": 0,
+        "z": -0.5
+      },
+      "max": {
+        "x": 0.5,
+        "y": 1,
+        "z": 0.5
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "wide",
+    "collision": {
+      "min": {
+        "x": -1.25,
+        "y": 0,
+        "z": -1.25
+      },
+      "max": {
+        "x": 1.25,
+        "y": 0.75,
+        "z": 1.25
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "horizontal offset",
+    "collision": {
+      "min": {
+        "x": 0.5,
+        "y": 0,
+        "z": -0.5
+      },
+      "max": {
+        "x": 1.5,
+        "y": 1,
+        "z": 0.5
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "vertical offset",
+    "collision": {
+      "min": {
+        "x": -0.5,
+        "y": 1,
+        "z": -0.5
+      },
+      "max": {
+        "x": 0.5,
+        "y": 2,
+        "z": 0.5
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "rectangular",
+    "collision": {
+      "min": {
+        "x": -0.5,
+        "y": 0,
+        "z": -1.5
+      },
+      "max": {
+        "x": 0.5,
+        "y": 1,
+        "z": 1.5
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "empty",
+    "collision": {
+      "min": {
+        "x": -0.5,
+        "y": 0,
+        "z": -0.5
+      },
+      "max": {
+        "x": 0.5,
+        "y": 0,
+        "z": 0.5
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "width overflow",
+    "collision": {
+      "min": {
+        "x": -1e+308,
+        "y": 0,
+        "z": -1e+308
+      },
+      "max": {
+        "x": 1e+308,
+        "y": 1,
+        "z": 1e+308
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "height overflow",
+    "collision": {
+      "min": {
+        "x": -0.5,
+        "y": 0,
+        "z": -0.5
+      },
+      "max": {
+        "x": 0.5,
+        "y": 1e+308,
+        "z": 0.5
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "width underflow",
+    "collision": {
+      "min": {
+        "x": -1e-300,
+        "y": 0,
+        "z": -1e-300
+      },
+      "max": {
+        "x": 1e-300,
+        "y": 1,
+        "z": 1e-300
+      }
+    },
+    "valid": false
+  }
+]

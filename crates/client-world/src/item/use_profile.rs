@@ -383,6 +383,23 @@ mod tests {
     }
 
     #[test]
+    fn the_retail_trident_uses_the_native_spear_animation() {
+        let entries = protocol::vanilla_item_registry();
+        let trident = entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:trident")
+            .unwrap();
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([trident.clone()]),
+        }));
+        assert_eq!(
+            store.item_use_profile(trident.network_id).animation.fact(),
+            Some(assets::facts::ItemUseAnimationFact::Spear)
+        );
+    }
+
+    #[test]
     fn numeric_animation_admission_clears_when_the_registry_identity_changes() {
         let mut store = ItemStateStore::diagnostic();
         assert!(store.apply_registry(protocol::ItemRegistryEvent {

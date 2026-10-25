@@ -36,7 +36,9 @@ mod section;
 pub use door::{DoorFacing, DoorState};
 mod validate;
 
-pub use raycast::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, CameraBlockHit};
+pub use raycast::{
+    BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, CameraBlockHit, OverlayHit,
+};
 use validate::{validate_facts, validate_shapes};
 
 /// Surface friction of a block that declares no friction of its own.
@@ -649,6 +651,9 @@ pub struct PaletteWorld<'a> {
     dimension: i32,
     unloaded_collision_barriers: bool,
     actor_colliders: Option<std::sync::Arc<[Aabb]>>,
+    /// Resolves the block states of the cell overlays the interaction ray also picks; without
+    /// it overlays cannot be picked.
+    overlay_ids: Option<&'a (dyn world::BlockIds + Sync)>,
 }
 
 /// One internal collision instance before projection onto the public
@@ -710,6 +715,7 @@ impl<'a> PaletteWorld<'a> {
             dimension,
             unloaded_collision_barriers: false,
             actor_colliders: None,
+            overlay_ids: None,
         }
     }
 
@@ -717,6 +723,14 @@ impl<'a> PaletteWorld<'a> {
     #[must_use]
     pub fn with_actor_colliders(mut self, colliders: impl Into<std::sync::Arc<[Aabb]>>) -> Self {
         self.actor_colliders = Some(colliders.into());
+        self
+    }
+
+    /// Lets the interaction ray pick cell overlays (see [`world::CellOverlays`]), whose block
+    /// states `ids` resolves; the session's own registry view keeps them as the mesh draws them.
+    #[must_use]
+    pub fn with_cell_overlays(mut self, ids: &'a (dyn world::BlockIds + Sync)) -> Self {
+        self.overlay_ids = Some(ids);
         self
     }
 

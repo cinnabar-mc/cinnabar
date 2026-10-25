@@ -842,6 +842,7 @@ mod tests {
             sampler_classes: &NO_CLASSES,
             normalize_legacy: true,
             geometry: false,
+            vertex_clip: true,
         }
     }
 

@@ -1,6 +1,8 @@
 //! One background signed-release check and the launcher's explicit update decisions.
 
 mod announcements;
+#[cfg(test)]
+mod channel_tests;
 mod handoff;
 #[cfg(target_os = "linux")]
 mod manual;
@@ -15,7 +17,7 @@ use launcher::{
     install_layout::InstallLayout,
     menu::{
         settings_options::{SETTINGS_FILE, SettingsOptions},
-        updates::{Action, Preferences, Ready as Notice, Status, View},
+        updates::{Action, DownloadProgress, Preferences, Ready as Notice, Status, View},
     },
 };
 use std::{
@@ -47,8 +49,8 @@ struct Ready {
     expires: OffsetDateTime,
     stage: PathBuf,
     notice: Notice,
-    channel: Channel,
-    switch_now: bool,
+    /// Explicit older-build consent is valid only for this installed version and build.
+    switch_from: Option<update_manifest::build::Build>,
     /// The installed destination when this process runs from a downloaded manual package.
     target: Option<PathBuf>,
     /// Keeps the offered stage alive while a later download replaces the cache.
@@ -56,23 +58,32 @@ struct Ready {
 }
 
 impl Ready {
+    /// The verified offer always has a known publishing channel for its offline handoff.
+    fn channel(&self) -> Channel {
+        self.notice
+            .release
+            .channel
+            .expect("verified release channel")
+    }
+
     /// Presents the verified selection's version and expiry while retaining its own stage reader.
     fn new(
         stage: PathBuf,
         reader: std::fs::File,
         selected: update_installer::stage::Selection,
-        switch_now: bool,
+        switch_from: Option<update_manifest::build::Build>,
         writable: bool,
     ) -> Self {
+        let switching = switch_from.is_some();
         Self {
             expires: selected.manifest.expires,
             stage,
-            channel: Channel::parse(&selected.manifest.channel).expect("verified release channel"),
-            switch_now,
+            switch_from,
             target: None,
             lease: Some(std::sync::Arc::new(reader)),
             notice: Notice {
-                version: selected.manifest.version,
+                release: update_manifest::build::Build::from(&selected.manifest),
+                switching,
                 writable,
                 protocol_required: false,
             },
@@ -99,6 +110,9 @@ struct State {
     check_now: bool,
     manual_check: bool,
     status: Status,
+    target: Option<update_manifest::build::Build>,
+    download: Option<DownloadProgress>,
+    waiting_for_channel: bool,
     announcement: Option<Announcement>,
     startup: StartupPhase,
 }
@@ -149,6 +163,13 @@ impl State {
         if self.requested || self.preferences == preferences {
             return None;
         }
+        if self.preferences.channel == preferences.channel
+            && self.preferences.checks == preferences.checks
+        {
+            // Quit-time installation does not change an active download's channel or permission.
+            self.preferences = preferences;
+            return None;
+        }
         let channel_changed = self.preferences.channel != preferences.channel;
         if channel_changed {
             self.announcement = None;
@@ -157,6 +178,8 @@ impl State {
             self.switch_now = false;
             self.switch_available = false;
             self.message = None;
+            self.target = None;
+            self.waiting_for_channel = false;
         }
         if !preferences.checks {
             self.announcement = None;
@@ -166,7 +189,10 @@ impl State {
         } else {
             Status::Idle
         };
-        self.manual_check = false;
+        // Restoring saved preferences during startup is not a user-requested network check.
+        self.manual_check = channel_changed && self.startup == StartupPhase::Complete;
+        self.check_now |= self.manual_check;
+        self.download = None;
         self.preferences = preferences;
         self.generation += 1;
         Some(channel_changed)
@@ -188,11 +214,30 @@ impl State {
             return false;
         }
         self.switch_now = true;
+        self.waiting_for_channel = false;
         self.switch_available = false;
         self.message = Some("Downloading this channel's update…".into());
         self.dismissed = false;
         self.generation += 1;
         true
+    }
+
+    /// Keeps the selected subscription without authorizing its older release to install.
+    fn wait_for_channel(&mut self) {
+        if self.switch_available && !self.switch_now {
+            self.waiting_for_channel = true;
+        }
+    }
+
+    /// Accepts transfer measurements only from the current channel's worker.
+    fn download_progress(&mut self, generation: u64, received_bytes: u64, total_bytes: u64) {
+        if self.accepts_worker(generation) {
+            self.status = Status::Downloading;
+            self.download = Some(DownloadProgress {
+                received_bytes,
+                total_bytes,
+            });
+        }
     }
 
     /// Ends a worker's progress on every outcome without clearing a newer action's message.
@@ -201,6 +246,7 @@ impl State {
         if self.generation != generation {
             return true;
         }
+        self.download = None;
         self.status = if failed {
             Status::Failed
         } else if self.status.is_busy() {
@@ -220,7 +266,7 @@ impl State {
     /// Replaces an offer only for the active worker and clears its completed progress message.
     fn offer(&mut self, ready: Ready, generation: u64) {
         if self.accepts_worker(generation) {
-            if ready.channel == Channel::Stable {
+            if ready.channel() == Channel::Stable {
                 self.stable_available = true;
             }
             self.ready = Some(ready);
@@ -249,6 +295,9 @@ impl State {
             check_now: false,
             manual_check: false,
             status: Status::Idle,
+            target: None,
+            download: None,
+            waiting_for_channel: false,
             announcement: None,
             startup: StartupPhase::Preparing,
         }
@@ -261,6 +310,7 @@ impl State {
                 && ready.expires > now
                 && (self.requested
                     || (ready.target.is_none()
+                        && ready.switch_from.is_none()
                         && self.preferences.install_on_quit
                         && !self.dismissed))
         })
@@ -417,6 +467,9 @@ pub fn view() -> View {
         stable_available: state.stable_available,
         switch_available: state.switch_available,
         message: state.message.clone(),
+        target: state.target.clone(),
+        download: state.download,
+        waiting_for_channel: state.waiting_for_channel,
         ..View::default()
     }
 }
@@ -458,6 +511,10 @@ pub fn act(action: Action) -> bool {
             }
             Action::SwitchNow => {
                 switch = state.request_switch();
+                false
+            }
+            Action::WaitForChannel => {
+                state.wait_for_channel();
                 false
             }
         }

@@ -346,6 +346,16 @@ impl ContainerScreen {
             .sum()
     }
 
+    /// Controls the retained container screens' layouts placed rather than spliced unchanged
+    /// from their previous layout.
+    pub fn placed(&self) -> usize {
+        [&self.cache, &self.inventory]
+            .into_iter()
+            .flatten()
+            .map(|cache| cache.placed)
+            .sum()
+    }
+
     /// Screens the container paints have resolved from the catalog.
     pub fn resolves(&self) -> usize {
         self.resolves
@@ -410,6 +420,8 @@ struct ScreenCache {
     language: [usize; 3],
     /// Layouts run for this screen, for cache tests.
     layouts: usize,
+    /// Controls those layouts placed rather than spliced, for cache tests.
+    placed: usize,
 }
 
 impl ScreenCache {
@@ -482,6 +494,7 @@ impl ScreenCache {
                 resolutions: json_ui::ResolveCache::default(),
                 language: text.1,
                 layouts: 0,
+                placed: 0,
             });
         }
         let cached = cache.as_mut()?;
@@ -526,7 +539,8 @@ impl ScreenCache {
             cached.data = Some(data);
             cached.laid = None;
         }
-        // Hover, press and focus only filter the gated nodes; scroll lays out again.
+        // Hover, press and focus only filter the gated nodes; scroll lays out again. A data
+        // change lays out again but splices the subtrees it left unchanged.
         let fresh = |(laid_view, laid_layout, _): &(ViewState, json_ui::LayoutCacheKey, _)| {
             !text_changed && laid_view.scroll == view.scroll && *laid_layout == layout
         };
@@ -534,6 +548,7 @@ impl ScreenCache {
             let tree = cached.bound_tree()?;
             let mut render =
                 json_ui::render_bound_gated(tree, root, env, view, &mut cached.measures);
+            cached.placed += cached.measures.placed();
             // Long grids build only the cells around those in view: bind what this layout
             // newly shows and lay out again, before anything draws.
             for _ in 0..GRID_PASSES {
@@ -554,6 +569,7 @@ impl ScreenCache {
                     &mut cached.measures,
                 );
                 render = json_ui::render_bound_gated(tree, root, env, view, &mut cached.measures);
+                cached.placed += cached.measures.placed();
             }
             // Scroll views publish their end state; views reading it rebind next frame.
             if cached.binding.publish_scrolls(&render.report) && cached.binding.observes_scroll() {
@@ -890,57 +906,4 @@ fn survival_globals(data: &mut DataSource, title: &str) {
 mod texture_metadata_tests;
 
 #[cfg(test)]
-mod review_tests {
-    use super::*;
-    #[test]
-    fn review_container_layout_remeasures_after_language_or_scale_changes() {
-        struct Text(f64);
-        impl json_ui::TextMeasure for Text {
-            fn extent(&self, _: &str) -> [f64; 2] {
-                [self.0, 10.0]
-            }
-        }
-        struct NoTexture;
-        impl json_ui::TextureSource for NoTexture {
-            /// The measurement fixture has no image sources.
-            fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
-                None
-            }
-        }
-        let mut catalog = json_ui::Catalog::default();
-        catalog.apply_pack([("ui/_ui_defs.json", br#"{"ui_defs":["ui/chest.json"]}"#.as_slice()), ("ui/chest.json", br#"{"namespace":"chest","small_chest_screen":{"type":"screen","controls":[{"label":{"type":"label","text":"key","size":["default",10]}}]}}"#.as_slice())]);
-        let catalog = Arc::new(catalog);
-        let mut cache = None;
-        let (context, data, view) = (
-            json_ui::Context::desktop(),
-            DataSource::new(),
-            ViewState::default(),
-        );
-        for (generation, width) in [(0, 10.0), (1, 30.0)] {
-            let text = Text(width);
-            let env = json_ui::LayoutEnv {
-                text: &text,
-                textures: &NoTexture,
-            };
-            let rendered = ScreenCache::render(
-                &mut cache,
-                &catalog,
-                &catalog,
-                "chest.small_chest_screen",
-                &context,
-                &data,
-                &view,
-                [100.0; 2],
-                &env,
-                (1.0, [generation, 0, 0]),
-            )
-            .unwrap();
-            let label = rendered
-                .nodes
-                .iter()
-                .find(|node| node.name == "label")
-                .unwrap();
-            assert_eq!(label.dest.w, width);
-        }
-    }
-}
+mod review_tests;

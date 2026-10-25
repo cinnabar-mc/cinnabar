@@ -294,7 +294,9 @@ fn pack_failure_details_appear_only_in_shaders() {
     view.render_mode = ui::RenderMode::ShaderPack;
     view.shader_pack = Some("Dusk.zip".into());
     view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
-    view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+    view.renderer_issue = Some(launcher::menu::shader_pack_status::PackIssue::Failure(
+        "Pack failed: unknown bloomTint".into(),
+    ));
     assert!(
         !controls(&view)
             .1
@@ -475,7 +477,9 @@ fn the_selected_pack_shows_its_load_state_instead_of_its_file_name() {
     assert_eq!(shown.iter().filter(|text| *text == "Lumen").count(), 1);
     view.shader_pack_loading = true;
     assert!(labels(&view).iter().any(|text| text == "Loading…"));
-    view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+    view.renderer_issue = Some(launcher::menu::shader_pack_status::PackIssue::Failure(
+        "Pack failed: unknown bloomTint".into(),
+    ));
     let shown = labels(&view);
     assert!(shown.iter().any(|text| text == "Failed"));
     assert!(shown.iter().any(|text| text.contains("unknown bloomTint")));
@@ -543,4 +547,23 @@ fn removal_is_available_only_for_managed_entries_and_locks_while_pending() {
             .iter()
             .any(|action| matches!(action, MenuAction::RemoveShaderPackDialog(..)))
     );
+}
+
+#[test]
+fn partial_packs_show_their_active_state_and_program_diagnostics() {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some("Dusk.zip".into());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    view.renderer_issue = Some(launcher::menu::shader_pack_status::PackIssue::Warning(
+        "Some programs are unavailable: shadow".into(),
+    ));
+    let shown = texts(&view);
+    assert!(shown.iter().any(|text| text == "Active with warnings"));
+    assert!(!shown.iter().any(|text| text == "Failed"));
+    assert!(shown.iter().any(|text| text.contains("shadow")));
 }

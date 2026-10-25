@@ -10,6 +10,7 @@ pub(crate) fn press(
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
+    mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
 ) -> bool {
     let pressed = input.edge.pressed;
@@ -99,6 +100,7 @@ pub(crate) fn press(
             &mut player,
             &mut context,
             &mut runtime,
+            &mut item_use,
             &mut swings,
             &movement,
             &mut build,

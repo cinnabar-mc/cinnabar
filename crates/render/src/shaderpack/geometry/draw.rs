@@ -329,7 +329,7 @@ impl ViewDraws {
                 self.translucent_buffer = Some(device.create_buffer(&BufferDescriptor {
                     label: Some("shader-pack sorted translucent indices"),
                     size: contents.len() as u64,
-                    usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+                    usage: BufferUsages::INDEX | BufferUsages::STORAGE | BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 }));
             }
@@ -367,6 +367,37 @@ impl ViewDraws {
         }
         if let Some(buffer) = &self.indirect {
             queue.write_buffer(buffer, 0, &bytes);
+        }
+    }
+
+    /// Visits the original indexed commands without changing their page or origin selection.
+    pub(crate) fn emulation_inputs<'a>(
+        &'a self,
+        category: GeometryCategory,
+        pages: &'a [Buffer],
+        index_buffer: &'a Buffer,
+        origins: Option<&'a Buffer>,
+        visit: &mut dyn FnMut(crate::shaderpack::geometry_shader::Input<'a>),
+    ) {
+        let indices =
+            if category == GeometryCategory::Translucent && !self.translucent_indices.is_empty() {
+                self.translucent_buffer.as_ref().unwrap_or(index_buffer)
+            } else {
+                index_buffer
+            };
+        for run in &self.runs[category.index()] {
+            for command in &self.commands[run.commands.start as usize..run.commands.end as usize] {
+                visit(crate::shaderpack::geometry_shader::Input {
+                    vertices: &pages[run.page],
+                    indices: Some(indices),
+                    index_values: None,
+                    origins: origins.map(|b| &**b),
+                    first: command.first_index,
+                    count: command.index_count,
+                    base_vertex: command.base_vertex,
+                    instance: command.first_instance,
+                });
+            }
         }
     }
 

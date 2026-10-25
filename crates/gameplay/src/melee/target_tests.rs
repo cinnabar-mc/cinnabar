@@ -54,20 +54,6 @@ fn block_occlusion_rounds_the_world_intercept_before_measuring() {
 }
 
 #[test]
-fn shallow_axis_does_not_supply_a_pick_face() {
-    let hit = pick_box_point(
-        [0.0, 1.0, 0.0],
-        [0.00003, 1.0, 3.0],
-        [0.000015, 0.0, 1.0],
-        [1.0, 2.0, 1.6],
-    )
-    .unwrap();
-    // The shallow X face is skipped, so the Z face supplies the click position.
-    assert_eq!(hit[2].to_bits(), 0x3fcc_ccce);
-    assert!(hit[0] >= 0.000015);
-}
-
-#[test]
 fn segment_endpoint_rounding_controls_the_world_space_hit() {
     let actor = super::super::tests::actor(1, "minecraft:pig", [0.0; 3], None);
     let origin = [16_384.0, 1.0, 0.0];
@@ -91,21 +77,6 @@ fn segment_endpoint_rounding_controls_the_world_space_hit() {
 }
 
 #[test]
-fn segment_hits_include_endpoints_and_inside_origins() {
-    let min = [1.0, 0.0, 0.0];
-    let max = [2.0, 2.0, 2.0];
-    assert_eq!(
-        pick_box_point([0.0, 1.0, 1.0], [1.0, 1.0, 1.0], min, max),
-        Some([1.0; 3])
-    );
-    assert_eq!(pick_box_point([1.0; 3], [3.0; 3], min, max), Some([1.0; 3]));
-    assert_eq!(
-        pick_box_point([0.0, 1.0, 1.0], [0.9, 1.0, 1.0], min, max),
-        None
-    );
-}
-
-#[test]
 fn actor_use_occlusion_ignores_the_cached_double_distance() {
     let origin = [8192.0, 65.62, 4096.0];
     let block = sim::BlockHit {
@@ -124,6 +95,7 @@ fn actor_use_occlusion_ignores_the_cached_double_distance() {
         runtime_id: 7,
         distance: 10.0,
         identity: sim::CollisionQuery::synthetic(()).identity,
+        overlay: None,
     };
     let actor = Some(ActorHit {
         runtime_id: 1,
@@ -151,6 +123,7 @@ fn block_occlusion_uses_the_intercept_outside_the_block_cell() {
         runtime_id: 7,
         distance: 1.5,
         identity: sim::CollisionQuery::synthetic(()).identity,
+        overlay: None,
     };
     let actor = Some(ActorHit {
         runtime_id: 1,

@@ -132,12 +132,7 @@ fn boundary_fixture() -> (App, client_session::CapturedPackets) {
     let direction = (Vec3::new(15.5, 2.5, 14.5) - Vec3::from_array(EYE)).normalize();
     let rotation = Quat::from_rotation_arc(Vec3::NEG_Z, direction);
     let origin = frame_origin(world, Vec3::from_array(EYE), rotation);
-    let authority = world
-        .resource::<MovementTicker>()
-        .position_authority_identity();
-    world
-        .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&origin, authority);
+    retain_pick(world, &origin);
     world.insert_resource(origin);
     world.insert_resource(LocalViewPose::new(Vec3::from_array(EYE), rotation));
     world

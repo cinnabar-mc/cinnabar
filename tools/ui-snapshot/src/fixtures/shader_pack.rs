@@ -5,7 +5,8 @@ use launcher::menu::{
     settings_options::SettingId,
     settings_sections::SettingSection,
     shader_pack_status::{
-        LOADING_TOAST_DELAY, PackLoad, PackNotices, PackToast, failure_description,
+        LOADING_TOAST_DELAY, PackIssue, PackLoad, PackNotices, PackToast, failure_description,
+        warning_description,
     },
 };
 
@@ -49,7 +50,10 @@ pub(super) fn loaded() -> Fixture {
             pack: PACK,
             programs: None,
         },
-        PackLoad::Ready { pack: PACK },
+        PackLoad::Ready {
+            pack: PACK,
+            warnings: None,
+        },
     ])
 }
 
@@ -83,8 +87,19 @@ pub(super) fn settings_shaders(failed: bool) -> Fixture {
     view.shader_packs = Arc::from([PACK.to_owned(), "Lumen".to_owned()]);
     view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
     view.shader_options_available = true;
-    view.renderer_failure = failed.then(|| failure_description(REASON).into());
+    view.renderer_issue = failed.then(|| PackIssue::Failure(failure_description(REASON).into()));
     Fixture::Menu(Box::new(view))
+}
+
+/// Shows the usable selected pack with the reason one optional program was skipped.
+fn settings_shaders_partial() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(false) else {
+        unreachable!()
+    };
+    view.renderer_issue = Some(PackIssue::Warning(
+        warning_description("shadow: geometry emulation requires triangles input").into(),
+    ));
+    Fixture::Menu(view)
 }
 
 /// The Shaders tab with two packs and the folder import control.
@@ -230,6 +245,12 @@ pub(super) const STATES: &[State] = &[
         size: SHADER_PACK_ROW_SIZE,
         gui_scale: GUI_SCALE,
         fixture: || settings_shaders(true),
+    },
+    State {
+        name: "settings-shaders-partial",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_shaders_partial,
     },
 ];
 

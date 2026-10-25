@@ -517,7 +517,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/44/members/10",
+        "pointer": "/entity_rules/45/members/10",
         "domain": "actor",
         "identifier": "minecraft:leash_knot"
       },
@@ -526,7 +526,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/44/members/14",
+        "pointer": "/entity_rules/45/members/14",
         "domain": "actor",
         "identifier": "minecraft:falling_block"
       },
@@ -535,7 +535,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/44/members/16",
+        "pointer": "/entity_rules/45/members/16",
         "domain": "actor",
         "identifier": "minecraft:painting"
       },
@@ -544,7 +544,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/47/members/0",
+        "pointer": "/entity_rules/48/members/0",
         "domain": "actor",
         "identifier": "minecraft:evocation_fang"
       },
@@ -553,7 +553,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/47/members/1",
+        "pointer": "/entity_rules/48/members/1",
         "domain": "actor",
         "identifier": "minecraft:ice_bomb"
       },
@@ -562,7 +562,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/51/members/0",
+        "pointer": "/entity_rules/52/members/0",
         "domain": "actor",
         "identifier": "minecraft:painting"
       },
@@ -994,7 +994,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/18",
+        "pointer": "/entity_rules/55/members/18",
         "domain": "actor",
         "identifier": "minecraft:chalkboard"
       },
@@ -1003,7 +1003,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/35",
+        "pointer": "/entity_rules/55/members/35",
         "domain": "actor",
         "identifier": "minecraft:elder_guardian_ghost"
       },
@@ -1012,7 +1012,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/41",
+        "pointer": "/entity_rules/55/members/41",
         "domain": "actor",
         "identifier": "minecraft:evocation_fang"
       },
@@ -1021,7 +1021,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/44",
+        "pointer": "/entity_rules/55/members/44",
         "domain": "actor",
         "identifier": "minecraft:falling_block"
       },
@@ -1030,7 +1030,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/59",
+        "pointer": "/entity_rules/55/members/59",
         "domain": "actor",
         "identifier": "minecraft:ice_bomb"
       },
@@ -1039,7 +1039,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/61",
+        "pointer": "/entity_rules/55/members/61",
         "domain": "actor",
         "identifier": "minecraft:item"
       },
@@ -1048,7 +1048,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/56/members/0",
+        "pointer": "/entity_rules/57/members/0",
         "domain": "actor",
         "identifier": "minecraft:leash_knot"
       },
@@ -1057,7 +1057,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/6",
+        "pointer": "/entity_rules/55/members/6",
         "domain": "actor",
         "identifier": "minecraft:balloon"
       },
@@ -1066,7 +1066,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/69",
+        "pointer": "/entity_rules/55/members/69",
         "domain": "actor",
         "identifier": "minecraft:moving_block"
       },
@@ -1075,7 +1075,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/75",
+        "pointer": "/entity_rules/55/members/75",
         "domain": "actor",
         "identifier": "minecraft:painting"
       },
@@ -1084,7 +1084,7 @@
     {
       "reference": {
         "file": "registry-policy.json",
-        "pointer": "/entity_rules/54/members/89",
+        "pointer": "/entity_rules/55/members/89",
         "domain": "actor",
         "identifier": "minecraft:shield"
       },

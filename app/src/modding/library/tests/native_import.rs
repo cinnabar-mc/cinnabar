@@ -171,7 +171,7 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
     let old = app
         .world()
         .resource::<PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     assert_eq!(old.start(&identity, "{}", &[1]).len(), 2);
     assert!(
@@ -200,7 +200,7 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
     let relay = app
         .world()
         .resource::<PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     assert_eq!(relay.start(&identity, "{}", &[1]).len(), 2);
     assert!(
@@ -312,7 +312,7 @@ fn imported_external_reactor_keeps_native_menu_alive_after_explicit_consent() {
     let relay = app
         .world()
         .resource::<PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     let _ = relay.start(
         &protocol::session_wire::SessionIdentity {

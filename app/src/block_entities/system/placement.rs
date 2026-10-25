@@ -29,3 +29,28 @@ pub(super) fn held_placement(
         light,
     }
 }
+
+/// The placements of an overlay host's item overlays at `block`: each item flat on its face as
+/// an inventory slot shows it, at full brightness. An item on a face past east is left out.
+pub(super) fn overlay_item_placements<'a>(
+    items: &'a [(u8, world::OverlayItem)],
+    block: [i32; 3],
+    stream: &'a chunk_pipeline::WorldStream,
+) -> impl Iterator<Item = StaticItemPlacement> + 'a {
+    items.iter().filter_map(move |(face, item)| {
+        let stack = HeldItem {
+            identifier: Arc::clone(&item.name),
+            metadata: u32::from(item.damage.max(0).unsigned_abs()),
+        };
+        let mut placement = held_placement(&stack, [[0.0; 4]; 3], Some((15, 15)), Some(stream));
+        placement.world_from_item = render_model::overlay_item_transform(
+            block,
+            *face,
+            item.size,
+            item.x,
+            item.y,
+            placement.carried_block.is_some(),
+        )?;
+        Some(placement)
+    })
+}

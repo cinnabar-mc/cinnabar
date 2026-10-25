@@ -202,6 +202,9 @@ impl Simulator {
         let mut next = state.clone();
         next.position = next.position.rounded();
         next.velocity = next.velocity.rounded();
+        if input.glide_ascent && input.mode == MovementMode::Gliding {
+            next.velocity = travel::glide_ascent(next.velocity);
+        }
         next.swim_amount = water::advance_swim_amount(next.swim_amount, next.swim_pose_active);
         next.swim_pose_active = input.swim_pose_active.unwrap_or(matches!(
             input.mode,

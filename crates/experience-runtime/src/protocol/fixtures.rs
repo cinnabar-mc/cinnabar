@@ -10,6 +10,10 @@ use super::*;
 /// protocol's.
 #[derive(Serialize)]
 struct Limits {
+    max_entity_types: usize,
+    max_entity_seats: usize,
+    max_entity_properties: usize,
+    max_entities: usize,
     simulation_step_nanos: u64,
     max_frame_bytes: usize,
     protocol: u32,
@@ -42,6 +46,10 @@ struct Limits {
     max_recipe_input_items: usize,
     max_schedule_ticks: u32,
     max_scheduled_updates: usize,
+    max_overlay_types: usize,
+    max_cell_overlays: usize,
+    max_overlay_item_size: f32,
+    max_overlay_item_offset: f32,
 }
 
 /// A placement trait's state and its values, in the client's order.
@@ -122,6 +130,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     ),
                     state("benergistics:powered", StateValue::Bool(true)),
                 ],
+                overlays: Vec::new(),
             },
             Cell {
                 pos: neighbor,
@@ -130,6 +139,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 owned: false,
                 data: None,
                 states: Vec::new(),
+                overlays: Vec::new(),
             },
             Cell {
                 pos: BlockPos {
@@ -142,6 +152,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 owned: false,
                 data: None,
                 states: Vec::new(),
+                overlays: Vec::new(),
             },
         ],
         network: None,
@@ -175,6 +186,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             player: player.to_owned(),
             pos: controller,
             face: Face::Up,
+            hit: None,
         },
     );
     if let Request::Callback {
@@ -345,6 +357,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     player: player.to_owned(),
                     pos: controller,
                     face: Face::North,
+                    hit: None,
                 },
             )),
         ),
@@ -374,6 +387,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "response_loaded",
             pretty(&Response::Loaded {
+                entities: Vec::new(),
                 simulation: false,
                 protocol: PROTOCOL_VERSION,
                 id: "benergistics".to_owned(),
@@ -477,6 +491,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 }],
                 focus: true,
                 worlds: None,
+                overlays: None,
             }),
         ),
         (
@@ -574,6 +589,10 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "limits",
             pretty(&Limits {
+                max_entity_types: crate::limits::MAX_ENTITY_TYPES,
+                max_entity_seats: crate::limits::MAX_ENTITY_SEATS,
+                max_entity_properties: crate::limits::MAX_ENTITY_PROPERTIES,
+                max_entities: crate::limits::MAX_ENTITIES,
                 simulation_step_nanos: crate::limits::SIMULATION_STEP_NANOS,
                 max_frame_bytes: MAX_FRAME_BYTES,
                 protocol: PROTOCOL_VERSION,
@@ -606,6 +625,10 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 max_recipe_input_items: MAX_RECIPE_INPUT_ITEMS,
                 max_schedule_ticks: MAX_SCHEDULE_TICKS,
                 max_scheduled_updates: MAX_SCHEDULED_UPDATES,
+                max_overlay_types: crate::limits::MAX_OVERLAY_TYPES,
+                max_cell_overlays: block_transform::overlay_face::MAX_CELL_OVERLAYS,
+                max_overlay_item_size: block_transform::overlay_face::MAX_OVERLAY_ITEM_SIZE,
+                max_overlay_item_offset: block_transform::overlay_face::MAX_OVERLAY_ITEM_OFFSET,
             }),
         ),
         (
@@ -644,7 +667,9 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         ),
     ];
     fixtures.extend(super::fixtures_worlds::fixtures());
+    fixtures.extend(super::fixtures_overlays::fixtures());
     fixtures.extend(super::simulation::fixtures());
+    fixtures.extend(super::entities::fixtures());
     fixtures
 }
 

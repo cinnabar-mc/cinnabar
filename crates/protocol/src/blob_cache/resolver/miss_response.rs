@@ -54,7 +54,7 @@ impl BlobCacheResolver {
             let Some(transactions) = self.pending_by_hash.get(hash) else {
                 continue;
             };
-            for sequence in transactions {
+            for sequence in &transactions.transactions {
                 let addition = staged_additions.entry(*sequence).or_default();
                 *addition = addition.saturating_add(payload.len());
             }

@@ -70,14 +70,20 @@ impl BlobCacheStatus {
         self.classified_hashes
     }
 
-    pub(super) fn omit_outstanding(&mut self, pending_by_hash: &HashMap<u64, HashSet<u64>>) {
+    pub(super) fn omit_outstanding(&mut self, pending_by_hash: &mut HashMap<u64, PendingBlob>) {
         let missing = std::mem::take(&mut self.missing);
         let mut outstanding = Vec::new();
         let mut still_missing = Vec::with_capacity(missing.len());
         for hash in missing {
-            if pending_by_hash.contains_key(&hash) {
+            if pending_by_hash
+                .get(&hash)
+                .is_some_and(|pending| pending.status_outstanding)
+            {
                 outstanding.push(hash);
             } else {
+                if let Some(pending) = pending_by_hash.get_mut(&hash) {
+                    pending.status_outstanding = true;
+                }
                 still_missing.push(hash);
             }
         }

@@ -188,6 +188,7 @@ pub use block_entity::ChalkboardModel;
 pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
+pub use block_entity::LoyaltyRopeModel;
 pub use block_entity::ShulkerModel;
 pub use block_entity::{
     AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,
@@ -220,7 +221,9 @@ pub use block_entity::{
 pub use block_entity::{Oxidation, StatueModel, StatuePose};
 pub use block_entity::{SignFace, SignModel, SignMount};
 pub use block_entity::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees, skull_geometry};
-pub use block_entity::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
+pub use block_entity::{
+    StaticItemPlacement, StaticItemPlacements, matrix_rows, overlay_item_transform,
+};
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,
     star_brightness, sun_direction, sunrise_band,

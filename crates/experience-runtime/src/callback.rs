@@ -25,6 +25,7 @@ use crate::protocol::{
     Scalar, StateDef, StateValue, StateValues, bounded_reason,
 };
 use crate::value::{self, Refusal};
+use block_transform::overlay_face::MAX_CELL_OVERLAYS;
 
 /// The one block id outside its own namespace that an Experience may place.
 const AIR: &str = "minecraft:air";
@@ -111,6 +112,8 @@ pub struct CallbackRes {
     /// In the order they commit. A position has at most one `SetBlockData`, and it comes after
     /// any `SetBlock` there.
     ops: Vec<Op>,
+    /// Successful spawn reservations, unaffected by coalesced block writes or despawns.
+    spawned_entities: u64,
     /// Bytes this Experience may still add to its block data.
     budget: u64,
     /// Bytes the staged writes add to this Experience's block data; negative when they free
@@ -146,18 +149,23 @@ enum Reach {
     Network,
 }
 
-/// One snapshot cell. `owned` means it holds this Experience's block, which alone has data and
-/// states.
+/// One snapshot cell. `owned` means it holds this Experience's block, which alone has data,
+/// states and overlays.
 struct Slot {
     loaded: bool,
     id: String,
     owned: bool,
     data: Option<Vec<u8>>,
     states: Vec<BlockState>,
+    overlays: Vec<protocol::Overlay>,
 }
 
 /// The export a callback calls, with its arguments.
 enum Export<'a> {
+    Entity {
+        handle: wit::EntityHandle,
+        event: wit::EntityEvent,
+    },
     Tick(wit::SimulationStep),
     Timer {
         handle: wit::ScheduleHandle,
@@ -173,6 +181,8 @@ enum Export<'a> {
         player: &'a wit::PlayerId,
         pos: wit::BlockPos,
         face: wit::Face,
+        hit: Option<wit::Pixel>,
+        target: Option<u8>,
     },
     Neighbor {
         pos: wit::BlockPos,
@@ -218,8 +228,35 @@ fn prepare<'a>(
         return Err("not a callback".to_owned());
     };
     player_id("actor", actor.as_deref())?;
+    if let Some(context) = &info.context {
+        entities::check_context(own, context)?;
+    }
     let mut focused = None;
     let (anchor, export) = match call {
+        Call::Entity { handle, event } => {
+            if !snapshot.is_empty() {
+                return Err("entity observation has a block snapshot".into());
+            }
+            let principal = match event {
+                protocol::EntityEvent::Interact { player, .. }
+                | protocol::EntityEvent::Attacked { player, .. } => Some(player.as_str()),
+                protocol::EntityEvent::Mounted { rider }
+                | protocol::EntityEvent::Dismounted { rider } => Some(rider.player.as_str()),
+                protocol::EntityEvent::Steering { input } => Some(input.rider.player.as_str()),
+                protocol::EntityEvent::Despawned {} => None,
+            };
+            player_id("entity actor", principal)?;
+            if actor.as_deref() != principal {
+                return Err("entity actor differs from observation".into());
+            }
+            (
+                None,
+                Export::Entity {
+                    handle: (*handle).into(),
+                    event: entities::event(event.clone())?,
+                },
+            )
+        }
         Call::Tick { step } | Call::Timer { step, .. } => {
             if actor.is_some()
                 || !snapshot.is_empty()
@@ -265,12 +302,30 @@ fn prepare<'a>(
         }
         Call::Place { change } => (Some(change.pos), Export::Place(block_change(change)?)),
         Call::Break { change } => (Some(change.pos), Export::Break(block_change(change)?)),
-        Call::Interact { player, pos, face } => {
+        Call::Interact {
+            player,
+            pos,
+            face,
+            hit,
+        } => {
             player_id("player", Some(player))?;
+            if let Some(hit) = hit
+                && ![hit.x, hit.y, hit.z]
+                    .iter()
+                    .all(|axis| (0.0..=16.0).contains(axis))
+            {
+                return Err(format!("click position {hit:?} is not within the cell"));
+            }
+            let target = hit.and_then(|hit| {
+                let anchor = snapshot.iter().find(|cell| cell.pos == *pos)?;
+                overlays::target(own, &anchor.overlays, hit)
+            });
             let export = Export::Interact {
                 player,
                 pos: (*pos).into(),
                 face: (*face).into(),
+                hit: hit.map(Into::into),
+                target,
             };
             (Some(*pos), export)
         }
@@ -322,12 +377,34 @@ fn prepare<'a>(
         .map(|cell| {
             let data = decode(cell.data.as_deref())
                 .map_err(|error| format!("data of cell {:?}: {error}", cell.pos))?;
+            if !cell.overlays.is_empty() && !(cell.owned && own.overlay_hosts.contains(&cell.id)) {
+                return Err(format!(
+                    "cell {:?} has overlays but is not an overlay host of its own",
+                    cell.pos
+                ));
+            }
+            let slots = cell
+                .overlays
+                .iter()
+                .map(|overlay| usize::from(overlay.slot));
+            if !slots.is_sorted_by(|a, b| a < b)
+                || cell
+                    .overlays
+                    .last()
+                    .is_some_and(|overlay| usize::from(overlay.slot) >= MAX_CELL_OVERLAYS)
+            {
+                return Err(format!(
+                    "the overlays of cell {:?} are not in distinct slots in slot order",
+                    cell.pos
+                ));
+            }
             let slot = Slot {
                 loaded: cell.loaded,
                 id: cell.id.clone(),
                 owned: cell.owned,
                 data,
                 states: cell.states.clone(),
+                overlays: cell.overlays.clone(),
             };
             Ok((cell.pos, slot))
         })
@@ -362,6 +439,7 @@ fn prepare<'a>(
         network: network.clone(),
         inventory: inventory.clone(),
         ops: Vec::new(),
+        spawned_entities: 0,
         budget: *data_budget,
         added: 0,
         staged_data: 0,
@@ -541,6 +619,9 @@ impl CallbackRes {
         if let Some(index) = state_op(&self.ops, pos) {
             self.ops.remove(index);
         }
+        if let Some(index) = overlays::overlay_op(&self.ops, pos) {
+            self.ops.remove(index);
+        }
         stage(
             &mut self.ops,
             Op::SetBlock {
@@ -553,6 +634,7 @@ impl CallbackRes {
         slot.id = id;
         slot.owned = owned;
         slot.data = None;
+        slot.overlays.clear();
         Ok(Ok(()))
     }
 
@@ -899,8 +981,10 @@ impl From<protocol::Cause> for ChangeCause {
 }
 
 mod craft;
+mod entities;
 mod invoke;
 mod items;
+mod overlays;
 #[cfg(test)]
 mod tests;
 

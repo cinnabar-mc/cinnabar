@@ -42,7 +42,7 @@ fn engine(files: &[(String, Vec<u8>)]) -> FormEngine {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     engine.set_server_atlas(ServerAtlas::new(files, None, 1), 3);
     engine

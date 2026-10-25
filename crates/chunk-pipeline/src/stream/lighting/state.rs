@@ -1,5 +1,10 @@
 use super::super::*;
 
+#[cfg(test)]
+thread_local! {
+    pub(in crate::stream) static LIGHT_COLUMN_CEILING_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Light indexes, job scheduling and solver plumbing for resident sub-chunks.
 pub(in crate::stream) struct Lighting {
     pub(in crate::stream) tx: Sender<LightCompletion>,
@@ -20,6 +25,8 @@ pub(in crate::stream) struct Lighting {
     pub(in crate::stream) in_flight_batches: HashMap<u64, usize>,
     pub(in crate::stream) last_dispatched_batch: HashMap<SubChunkKey, u64>,
     pub(in crate::stream) waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
+    /// Pending jobs excluded by an adjacent solve, without declaring their light inputs changed.
+    pub(in crate::stream) exclusion_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     /// Cells changed since a key's current light was solved, when only block changes since then
     /// queued its relight; any other reason solves the whole key.
     pub(in crate::stream) changed_cells: HashMap<SubChunkKey, Vec<BlockPos>>,
@@ -47,6 +54,7 @@ impl Lighting {
             last_dispatched_batch: HashMap::new(),
             changed_cells: HashMap::new(),
             waiters: HashMap::new(),
+            exclusion_waiters: HashMap::new(),
         }
     }
 
@@ -71,6 +79,7 @@ impl Lighting {
             in_flight_batches,
             last_dispatched_batch,
             waiters,
+            exclusion_waiters,
             changed_cells,
         } = self;
         changed_cells.clear();
@@ -86,6 +95,7 @@ impl Lighting {
             std::mem::take(in_flight_batches),
             std::mem::take(last_dispatched_batch),
             std::mem::take(waiters),
+            std::mem::take(exclusion_waiters),
         );
         workers::detach(move || drop(retired));
     }
@@ -112,6 +122,7 @@ impl Lighting {
         self.jobs.clear_queued();
         self.priority_wakeups.clear();
         self.waiters.clear();
+        self.exclusion_waiters.clear();
     }
 
     pub(in crate::stream) fn remove_in_flight(
@@ -140,20 +151,22 @@ impl Lighting {
 
     pub(in crate::stream) fn remove_waiters_for(&mut self, key: SubChunkKey) {
         self.waiters.remove(&key);
+        self.exclusion_waiters.remove(&key);
         self.remove_waiter_target(key);
     }
 
     pub(in crate::stream) fn remove_waiter_target(&mut self, key: SubChunkKey) -> usize {
-        // Waiter edges are registered only for face-adjacent light dependencies:
-        // the upper skylight dependency and `register_untrusted_light_waiters`.
+        // Skylight, retained-boundary and active-solve dependencies are all face-adjacent.
         // Therefore `key` can occur only in a face neighbour's waiter set.
         let mut probes = 0;
         for source in key.mesh_dependents().filter(|source| *source != key) {
             probes += 1;
-            if let hashbrown::hash_map::Entry::Occupied(mut entry) = self.waiters.entry(source) {
-                entry.get_mut().remove(&key);
-                if entry.get().is_empty() {
-                    entry.remove();
+            for waiters in [&mut self.waiters, &mut self.exclusion_waiters] {
+                if let hashbrown::hash_map::Entry::Occupied(mut entry) = waiters.entry(source) {
+                    entry.get_mut().remove(&key);
+                    if entry.get().is_empty() {
+                        entry.remove();
+                    }
                 }
             }
         }
@@ -412,6 +425,12 @@ impl WorldStream {
         self.resident.contains(&key)
             && (self.known_air.contains(&key) || self.authority.terrain().contains_sub_chunk(key))
     }
+    /// Checks known halo inputs without retaining the light snapshots used by a mesh worker.
+    pub(in crate::stream) fn mesh_light_halo_is_ready(&self, center: SubChunkKey) -> bool {
+        center
+            .mesh_neighbourhood_dependents()
+            .all(|key| !matches!(self.light_source_state(key), LightSourceState::Stale))
+    }
     pub(in crate::stream) fn mesh_light_halo(&self, center: SubChunkKey) -> Option<MeshLightHalo> {
         let mut slots = std::array::from_fn(|_| None);
         for dx in -1_i8..=1 {
@@ -446,7 +465,21 @@ impl WorldStream {
             slots,
         })
     }
+    /// Captures an isolated section without sharing a column ceiling with other jobs.
+    #[cfg(any(test, feature = "benchmark-support"))]
     pub(in crate::stream) fn light_block_snapshot(&self, key: SubChunkKey) -> LightBlockSnapshot {
+        let top_sub_chunk_y = (key.dimension == 0)
+            .then(|| self.light_column_top_sub_chunk_y(key))
+            .flatten();
+        self.light_block_snapshot_with_top(key, top_sub_chunk_y)
+    }
+
+    /// Captures section-local blocks using the ceiling of this immutable column batch.
+    pub(in crate::stream) fn light_block_snapshot_with_top(
+        &self,
+        key: SubChunkKey,
+        top_sub_chunk_y: Option<i32>,
+    ) -> LightBlockSnapshot {
         let mut blocks = SectionSnapshot::default();
         for sample_key in key.mesh_dependents() {
             if !self.light_source_is_known(sample_key) {
@@ -465,10 +498,7 @@ impl WorldStream {
             1 => DimensionLightProfile::Nether,
             _ => DimensionLightProfile::End,
         };
-        let overworld_top_y = (key.dimension == 0)
-            .then(|| self.light_column_top_sub_chunk_y(key))
-            .flatten()
-            .and_then(|y| y.checked_mul(16)?.checked_add(15));
+        let overworld_top_y = top_sub_chunk_y.and_then(|y| y.checked_mul(16)?.checked_add(15));
         LightBlockSnapshot {
             dimension: key.dimension,
             blocks,
@@ -527,17 +557,19 @@ impl WorldStream {
         }
         true
     }
+    /// Registers stale boundary dependencies using the batch's shared column ceiling.
     pub(in crate::stream) fn register_untrusted_light_waiters(
         &mut self,
         target: SubChunkKey,
         retained_batch: &HashSet<SubChunkKey>,
+        top_sub_chunk_y: Option<i32>,
     ) {
         for neighbour in target.mesh_dependents().filter(|key| *key != target) {
             if !retained_batch.contains(&neighbour)
                 && self.light_source_is_known(neighbour)
                 && !self.light_is_current(neighbour)
                 && self.lighting.store.light(neighbour).is_some()
-                && self.prior_light_may_seed(target, neighbour)
+                && self.prior_light_may_seed(target, neighbour, top_sub_chunk_y)
             {
                 self.lighting
                     .waiters
@@ -584,14 +616,20 @@ impl WorldStream {
             });
         declared_top
             .into_iter()
-            .chain(self.light_column_sources(key).map(|source| source.y))
+            .chain(self.light_column_sources(key).map(|source| {
+                #[cfg(test)]
+                LIGHT_COLUMN_CEILING_VISITS.with(|visits| visits.set(visits.get() + 1));
+                source.y
+            }))
             .max()
     }
 
-    pub(in crate::stream) fn prior_light_may_seed(
+    /// Checks retained boundary light without walking the column again for skylight.
+    fn prior_light_may_seed(
         &self,
         target: SubChunkKey,
         neighbour: SubChunkKey,
+        top_sub_chunk_y: Option<i32>,
     ) -> bool {
         let Some(light) = self.lighting.store.light(neighbour) else {
             return false;
@@ -601,7 +639,8 @@ impl WorldStream {
         if block_may_seed {
             return true;
         }
-        if target.dimension != 0 || self.known_air_has_vertical_direct_sky(target) {
+        if target.dimension != 0 || self.known_air_has_vertical_direct_sky(target, top_sub_chunk_y)
+        {
             return false;
         }
         !light.channel(LightChannel::Sky).is_uniform()

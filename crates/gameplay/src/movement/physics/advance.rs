@@ -140,6 +140,7 @@ impl LocalPhysicsController {
                 Ok(choice) => {
                     input.mode = choice.mode;
                     input.sprinting = choice.sprinting;
+                    input.glide_ascent = choice.glide_ascent;
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
                     flight_request = choice.flight_request;
@@ -152,6 +153,7 @@ impl LocalPhysicsController {
                     // Missing terrain cannot turn an authoritative freeze into a blocked tick.
                     self.modes = previous_modes;
                     input.mode = self.modes.mode();
+                    input.glide_ascent = false;
                     input.sneaking = sneak_request;
                 }
                 Err(error) => mode_error = Some(error),

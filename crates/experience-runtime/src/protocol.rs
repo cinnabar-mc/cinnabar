@@ -19,8 +19,16 @@ use crate::limits::{
     MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
 
+mod entities;
 mod simulation;
+pub use entities::{
+    EntityAppearance, EntityArt, EntityBox, EntityDefinition, EntityEvent, EntityHand,
+    EntityHandle, EntityInput, EntityOp, EntityProperty, EntityPropertyDef, EntityRider,
+    EntityRotation, EntitySeat, EntitySnapshot, EntityState,
+};
 pub use simulation::{ScheduleHandle, SimulationContext, SimulationStep};
+mod overlays;
+pub use overlays::{Overlay, OverlayDef, OverlayLook, OverlayRegistration};
 mod player;
 mod recipes;
 mod visuals;
@@ -47,8 +55,10 @@ pub use visuals::{
 /// and visuals, items, the actor's inventory, the network scope and their ops; 6 server WIT 0.6's
 /// recipes in `load`, the `scheduled_update` call and the `schedule_update` op; 7 adds retained
 /// control delivery to `send_client`; 8 adds world lifecycle, player observations and scoped state;
-/// 9 adds instance simulation ticks and cancellable timers.
-pub const PROTOCOL_VERSION: u32 = 9;
+/// 9 adds instance simulation ticks and cancellable timers; 10 adds cell overlays to `loaded`,
+/// snapshot cells and the `set_overlays` op, and the click position to `interact`;
+/// 11 adds registered actors, seats, steering and entity observations.
+pub const PROTOCOL_VERSION: u32 = 11;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -85,8 +95,9 @@ pub struct Info {
 }
 
 /// One snapshot cell. `id` is empty when the cell is not loaded; `data` is lowercase hex.
-/// `states` are an owned block's state values.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `states` are an owned block's state values, and `overlays` an owned overlay host's overlays
+/// in slot order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Cell {
     pub pos: BlockPos,
@@ -95,6 +106,8 @@ pub struct Cell {
     pub owned: bool,
     pub data: Option<String>,
     pub states: Vec<BlockState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overlays: Vec<Overlay>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +153,10 @@ pub enum Scalar {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
+    Entity {
+        handle: EntityHandle,
+        event: EntityEvent,
+    },
     Tick {
         step: SimulationStep,
     },
@@ -157,10 +174,14 @@ pub enum Call {
     Break {
         change: Change,
     },
+    /// `hit` is where the player's click met the block, in pixels from its corner, when the
+    /// client sent one within the cell.
     Interact {
         player: String,
         pos: BlockPos,
         face: Face,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hit: Option<Pixel>,
     },
     Neighbor {
         pos: BlockPos,
@@ -279,6 +300,9 @@ pub enum FailKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
+    Entity {
+        action: EntityOp,
+    },
     Schedule {
         handle: ScheduleHandle,
         after: u32,
@@ -335,6 +359,12 @@ pub enum Op {
         pos: BlockPos,
         ticks: u32,
     },
+    /// The whole overlay list, in slot order, of the owned overlay host at `pos`, which keeps
+    /// its states, data and generation.
+    SetOverlays {
+        pos: BlockPos,
+        overlays: Vec<Overlay>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -361,6 +391,8 @@ pub enum Response {
     /// `focus` is set when the Experience's world takes its player's focus in client messages
     /// and epochs; the adapter gives none to one that does not.
     Loaded {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        entities: Vec<EntityDefinition>,
         protocol: u32,
         id: String,
         version: String,
@@ -371,6 +403,8 @@ pub enum Response {
         simulation: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         worlds: Option<WorldRegistration>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        overlays: Option<OverlayRegistration>,
     },
     LoadFailed {
         reason: String,
@@ -439,6 +473,7 @@ pub fn read_frame<T: DeserializeOwned>(r: &mut impl Read) -> io::Result<Option<T
 }
 
 mod fixtures;
+mod fixtures_overlays;
 mod fixtures_worlds;
 pub use fixtures::fixtures;
 

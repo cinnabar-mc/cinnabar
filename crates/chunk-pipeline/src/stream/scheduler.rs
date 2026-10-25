@@ -5,6 +5,25 @@ pub(super) mod rechecks;
 
 use candidates::CandidateQueue;
 
+/// The ranked queues refreshed and retired together for each lane generation.
+#[derive(Clone, Copy)]
+enum QueueKind {
+    Ready,
+    Notified,
+    Deferred,
+}
+
+impl QueueKind {
+    /// Visits every queue in refresh order; adding a kind requires updating this match.
+    fn all() -> impl Iterator<Item = Self> {
+        std::iter::successors(Some(Self::Ready), |kind| match kind {
+            Self::Ready => Some(Self::Notified),
+            Self::Notified => Some(Self::Deferred),
+            Self::Deferred => None,
+        })
+    }
+}
+
 pub(super) const NEAR_CAMERA_RADIUS: i32 = 4;
 /// Horizontal light halo around the directly prioritized mesh area.
 const NEAR_LIGHT_COLUMN_RADIUS: i32 = NEAR_CAMERA_RADIUS + 1;
@@ -12,11 +31,13 @@ const NEAR_LIGHT_COLUMN_RADIUS: i32 = NEAR_CAMERA_RADIUS + 1;
 /// Longest wait, in readiness polls, before a still-blocked revision is rechecked.
 pub(in crate::stream) const MAX_RECHECK_BACKOFF_POLLS: u64 = 32;
 
-/// Ready work leads during ordinary streaming; startup also rechecks higher-priority deferred work.
+/// Ready work leads deferred work; dependency notifications await a separate readiness check.
+/// All three queues share the same camera refresh and revision lifecycle.
 #[derive(Default)]
 pub(super) struct Lane {
     pub(super) ready: CandidateQueue,
     pub(super) deferred: CandidateQueue,
+    pub(super) notified: CandidateQueue,
     /// Promoted startup revisions: attempts and the poll before which a blocked one stays deferred.
     rechecks: HashMap<SubChunkKey, Recheck>,
     polls: u64,
@@ -32,14 +53,24 @@ struct Recheck {
 
 impl Lane {
     pub(super) fn is_empty(&self) -> bool {
-        self.ready.is_empty() && self.deferred.is_empty()
+        QueueKind::all().all(|kind| self.heap(kind).is_empty())
     }
 
-    fn heap_mut(&mut self, deferred: bool) -> &mut CandidateQueue {
-        if deferred {
-            &mut self.deferred
-        } else {
-            &mut self.ready
+    /// Borrows one ranked queue without changing its generation or ownership.
+    fn heap(&self, kind: QueueKind) -> &CandidateQueue {
+        match kind {
+            QueueKind::Ready => &self.ready,
+            QueueKind::Notified => &self.notified,
+            QueueKind::Deferred => &self.deferred,
+        }
+    }
+
+    /// Borrows the same queue for bounded refresh, retirement or insertion.
+    fn heap_mut(&mut self, kind: QueueKind) -> &mut CandidateQueue {
+        match kind {
+            QueueKind::Ready => &mut self.ready,
+            QueueKind::Notified => &mut self.notified,
+            QueueKind::Deferred => &mut self.deferred,
         }
     }
 
@@ -151,26 +182,20 @@ impl<const L: usize> SchedulerRefresh<L> {
             if refreshed && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 break;
             }
-            let Some((lane, deferred)) =
-                self.previous.iter().enumerate().find_map(|(index, lane)| {
-                    if !lane.ready.is_empty() {
-                        Some((index, false))
-                    } else if !lane.deferred.is_empty() {
-                        Some((index, true))
-                    } else {
-                        None
-                    }
-                })
-            else {
+            let Some((lane, kind)) = self.previous.iter().enumerate().find_map(|(index, lane)| {
+                QueueKind::all()
+                    .find(|&kind| !lane.heap(kind).is_empty())
+                    .map(|kind| (index, kind))
+            }) else {
                 break;
             };
             let mut candidate = self.previous[lane]
-                .heap_mut(deferred)
+                .heap_mut(kind)
                 .pop()
                 .expect("nonempty refresh queue");
             if is_current(candidate.key, candidate.revision) {
                 candidate.refresh_rank(view);
-                queues[lane].heap_mut(deferred).push(candidate);
+                queues[lane].heap_mut(kind).push(candidate);
                 refreshed = true;
             }
         }
@@ -274,6 +299,67 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         }
     }
 
+    /// Finds current work waiting in this lane or the previous camera generation.
+    pub(super) fn deferred_candidate(
+        &self,
+        lane: usize,
+        key: SubChunkKey,
+    ) -> Option<PendingSchedulerCandidate> {
+        let pending = self.pending.get(&key)?;
+        self.lanes[lane]
+            .deferred
+            .get(&key)
+            .or_else(|| self.refresh.previous[lane].ready.get(&key))
+            .or_else(|| self.refresh.previous[lane].deferred.get(&key))
+            .filter(|candidate| candidate.revision == pending.revision())
+            .copied()
+    }
+
+    /// Returns one proven-ready job across camera generations without replacing pending age
+    /// or ordinary retry history. Unrouted work keeps its existing ingress.
+    pub(super) fn wake_deferred(&mut self, lane: usize, key: SubChunkKey) {
+        let Some(mut candidate) = self.deferred_candidate(lane, key) else {
+            return;
+        };
+        if let Some(view) = self.refresh.view {
+            candidate.refresh_rank(view);
+        }
+        candidate.urgent |= self.pending[&key].urgent();
+        self.retire_lane_ownership(&key);
+        self.lanes[lane].ready.push(candidate);
+    }
+
+    /// Reports a revision's pending dependency check in either refresh generation.
+    pub(super) fn has_dependency_notification(
+        &self,
+        lane: usize,
+        key: SubChunkKey,
+        revision: u64,
+    ) -> bool {
+        [&self.lanes[lane], &self.refresh.previous[lane]]
+            .into_iter()
+            .any(|lane| {
+                lane.notified
+                    .get(&key)
+                    .is_some_and(|queued| queued.revision == revision)
+            })
+    }
+
+    /// Coalesces dependency changes across generations while preserving the deferred owner.
+    /// Readiness is checked only when this notification competes for geometry dispatch.
+    pub(super) fn notify_deferred(&mut self, lane: usize, key: SubChunkKey) {
+        let Some(mut candidate) = self.deferred_candidate(lane, key) else {
+            return;
+        };
+        if self.has_dependency_notification(lane, key, candidate.revision) {
+            return;
+        }
+        if let Some(view) = self.refresh.view {
+            candidate.refresh_rank(view);
+        }
+        self.lanes[lane].notified.push(candidate);
+    }
+
     /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.
     pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
         if self
@@ -317,8 +403,9 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
     /// Retires a key from both lane generations without scanning unrelated candidates.
     fn retire_lane_ownership(&mut self, key: &SubChunkKey) {
         for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
-            lane.ready.remove(key);
-            lane.deferred.remove(key);
+            for kind in QueueKind::all() {
+                lane.heap_mut(kind).remove(key);
+            }
             lane.rechecks.remove(key);
         }
     }
@@ -330,8 +417,9 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         self.startup_scan.clear();
         self.retries.clear();
         for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
-            lane.ready.clear();
-            lane.deferred.clear();
+            for kind in QueueKind::all() {
+                lane.heap_mut(kind).clear();
+            }
             lane.rechecks.clear();
         }
     }
@@ -398,7 +486,12 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
                 PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent());
             ingressed = true;
             let (lane, ready) = route(key, queued_revision, pending);
-            self.lanes[lane].heap_mut(!ready).push(candidate);
+            let kind = if ready {
+                QueueKind::Ready
+            } else {
+                QueueKind::Deferred
+            };
+            self.lanes[lane].heap_mut(kind).push(candidate);
         }
         let mut deferred_budget = MAX_PENDING_SCHEDULER_SCANS_PER_POLL;
         for lane in &mut self.lanes {

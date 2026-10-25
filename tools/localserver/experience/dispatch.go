@@ -125,13 +125,17 @@ type event struct {
 	// inventory and slots retain live player observations from their owning transaction.
 	inventory *Inventory
 	slots     []item.Stack
+	// entities retain owned actors from the same transaction as a player observation.
+	entities []EntitySnapshot
+	// ridingElsewhere retains occupancy outside this mod's actor snapshot.
+	ridingElsewhere bool
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and
 // an epoch are about their player: they run in the world that player is in, and have an anchor
 // and a snapshot only with that player's focus.
 func (c Call) anchored() bool {
-	return c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
+	return c.Entity == nil && c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
 }
 
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
@@ -166,6 +170,11 @@ func NewHost(
 		}
 	}
 	h.holder = &sinkHolder{h}
+	if reg != nil {
+		for _, t := range reg.entityTypes {
+			t.host = h
+		}
+	}
 	installedHooks.Store(h.holder)
 	return h
 }
@@ -282,9 +291,10 @@ func (h *Host) useOnBlock(
 		return false
 	}
 	b = b.placed(user, target, face, clickPos)
+	placed := b.inWorld(nil)
 	before := blockID(tx.Block(target))
-	placer.PlaceBlock(target, b, ctx)
-	if tx.Block(target) != world.Block(b) {
+	placer.PlaceBlock(target, placed, ctx)
+	if tx.Block(target) != placed {
 		return false
 	}
 	instance, ok := h.worlds.of(tx.World())
@@ -303,9 +313,10 @@ func (h *Host) useOnBlock(
 }
 
 // activate queues on-interact for the user's interaction. The clicked face comes from the
-// client unchecked, so a face out of range is ignored; the interaction stays consumed.
+// client unchecked, so a face out of range is ignored; the interaction stays consumed. A click
+// position within the cell becomes the call's hit, in pixels.
 func (h *Host) activate(
-	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, _ *item.UseContext,
+	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, ctx *item.UseContext,
 ) {
 	instance, ok := h.worlds.of(tx.World())
 	if u == nil || !ok {
@@ -318,9 +329,23 @@ func (h *Host) activate(
 	actor := u.H()
 	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
 		Interact: &InteractCall{
-			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace],
+			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace], Hit: hitOf(ctx),
 		},
 	}})
+}
+
+// hitOf is the click position that ctx carries, in pixels, when it lies within the cell.
+func hitOf(ctx *item.UseContext) *Pixel {
+	if ctx == nil || ctx.ClickPos == nil {
+		return nil
+	}
+	click := ctx.ClickPos.Mul(blockPixels)
+	for _, axis := range click {
+		if !(axis >= 0 && axis <= blockPixels) {
+			return nil
+		}
+	}
+	return &Pixel{X: float32(click[0]), Y: float32(click[1]), Z: float32(click[2])}
 }
 
 // neighbourUpdateTick queues on-neighbor-changed, at most once per position and
@@ -539,9 +564,10 @@ type cellState struct {
 	loaded bool
 	id     string
 	// owned is set for this Experience's own block with a store entry, which block holds with
-	// its states.
+	// its states, and overlays with its overlays when it is an overlay host.
 	owned    bool
 	block    Block
+	overlays *overlayList
 	token    Token
 	hasToken bool
 	dataLen  uint64
@@ -556,10 +582,11 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	if ev.call.Player != nil {
 		return h.observationSnapshot(d, *ev), nil
 	}
+	despawn := ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned"
 	if !h.playerCurrent(*ev) {
 		return snapshot{}, errStale
 	}
-	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil {
+	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil || ev.call.Entity != nil {
 		valid := false
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) {
 			if !h.playerCurrent(*ev) {
@@ -571,9 +598,15 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 				snap = h.read(tx, d, *ev)
 			}
 		})); err != nil {
+			if despawn && errors.Is(err, world.ErrWorldClosed) {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, err
 		}
 		if !valid {
+			if despawn {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, fmt.Errorf("%w: world instance changed", errStale)
 		}
 		return snap, nil
@@ -659,6 +692,7 @@ func (h *Host) readFixed(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		cell := Cell{Pos: blockPos(pos), Loaded: st.loaded, ID: st.id, Owned: st.owned}
 		if st.owned {
 			cell.States = st.block.states()
+			cell.Overlays = st.overlays.list()
 			if data, ok := h.store.Data(d.id, ev.instance.storeKey(pos)); ok {
 				s := hex.EncodeToString(data)
 				cell.Data = &s
@@ -688,10 +722,10 @@ func (h *Host) cellState(tx *world.Tx, exp string, instance worldInstance, pos c
 	}
 	st.loaded = true
 	st.id = blockID(b)
-	own, ok := b.(Block)
+	own, overlays, ok := ownBlock(b)
 	st.owned = ok && own.t.exp == exp && st.hasToken
 	if st.owned {
-		st.block = own
+		st.block, st.overlays = own, overlays
 	}
 	return st
 }
