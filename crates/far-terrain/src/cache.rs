@@ -32,11 +32,18 @@ mod admission_tests;
 
 #[derive(Debug)]
 struct PendingRegion {
-    /// No timestamp means the retained payload should be flushed immediately.
-    since: Option<Instant>,
+    /// Age of edits not yet submitted; absent when every retained version was submitted.
+    age: Option<BatchAge>,
     /// Payloads are kept here, not looked up at flush, so memory eviction cannot lose them.
     columns: BTreeMap<ColumnPos, Versioned>,
     in_flight: bool,
+}
+
+/// Retirement work can be immediately due without inventing a clock reading.
+#[derive(Clone, Copy, Debug)]
+enum BatchAge {
+    Immediate,
+    Since(Instant),
 }
 
 /// A world just left, which late summaries still reach.
@@ -467,8 +474,11 @@ impl FarTerrainCache {
             .iter()
             .filter(|(_, pending)| {
                 pending.columns.len() >= REGION_FLUSH_COLUMNS
-                    || pending.since.is_none_or(|since| {
-                        now.saturating_duration_since(since) >= REGION_FLUSH_AFTER
+                    || pending.age.is_some_and(|age| match age {
+                        BatchAge::Immediate => true,
+                        BatchAge::Since(since) => {
+                            now.saturating_duration_since(since) >= REGION_FLUSH_AFTER
+                        }
                     })
             })
             .map(|(region, _)| *region)
@@ -789,20 +799,25 @@ impl FarTerrainCache {
         {
             return false;
         }
-        let waiting = &mut self
+        let pending = self
             .pending
             .entry((namespace, RegionPos::of(pos)))
             .or_insert_with(|| PendingRegion {
-                since,
+                age: None,
                 columns: BTreeMap::new(),
                 in_flight: false,
-            })
-            .columns;
-        if waiting
+            });
+        if pending
+            .columns
             .get(&pos)
             .is_none_or(|queued| queued.version < column.version)
         {
-            waiting.insert(pos, column.clone());
+            pending.age = Some(match (pending.age, since) {
+                (Some(BatchAge::Immediate), _) | (_, None) => BatchAge::Immediate,
+                (Some(BatchAge::Since(first)), Some(_)) => BatchAge::Since(first),
+                (None, Some(now)) => BatchAge::Since(now),
+            });
+            pending.columns.insert(pos, column.clone());
         }
         true
     }
@@ -820,7 +835,10 @@ impl FarTerrainCache {
             .iter()
             .map(|(pos, column)| (region_index(*pos), column.clone()))
             .collect();
-        pending.in_flight = disk.write(key.0, key.1, columns);
+        if disk.write(key.0, key.1, columns) {
+            pending.in_flight = true;
+            pending.age = None;
+        }
     }
 
     /// Reads regions again whose columns memory dropped while still in focus, once per

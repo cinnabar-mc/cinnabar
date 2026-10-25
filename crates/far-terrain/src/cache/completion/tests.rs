@@ -60,7 +60,7 @@ fn partial_reads_keep_waiting_and_in_flight_versions() {
     cache.pending.insert(
         (namespace, RegionPos::of(a)),
         PendingRegion {
-            since: Some(Instant::now()),
+            age: Some(BatchAge::Since(Instant::now())),
             columns: BTreeMap::from([(a, column(6, 10)), (b, column(5, 10))]),
             in_flight: true,
         },
@@ -86,7 +86,7 @@ fn partial_acknowledgements_keep_newer_writes() {
     cache.pending.insert(
         (namespace, region),
         PendingRegion {
-            since: Some(Instant::now()),
+            age: Some(BatchAge::Since(Instant::now())),
             columns: BTreeMap::from([(a, column(5, 10)), (b, column(7, 10))]),
             in_flight: true,
         },

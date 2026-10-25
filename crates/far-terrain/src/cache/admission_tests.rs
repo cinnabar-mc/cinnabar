@@ -322,7 +322,7 @@ fn refused_writes_do_not_restore_older_terrain_after_eviction() {
     cache.pending.insert(
         (namespace, RegionPos::of(pos)),
         PendingRegion {
-            since: Some(now),
+            age: Some(BatchAge::Since(now)),
             in_flight: false,
             columns: BTreeMap::from([(
                 pos,
@@ -458,6 +458,76 @@ fn shutdown_resolves_and_drains_more_than_one_writeback_batch() {
             Some(surface(90).hash)
         );
     }
+}
+
+/// Edits after submission retain their own oldest batching age across acknowledgements.
+#[test]
+fn acknowledged_batches_do_not_age_newer_edits() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let (mut cache, namespace) = resolved_cache(root.path(), 42);
+    let pos = ColumnPos::new(0, 0);
+    cache.admit(0, pos, surface(90), now);
+    cache.flush_all();
+    cache.sync();
+    let first = now + REGION_FLUSH_AFTER;
+    let second = first + REGION_FLUSH_AFTER / 2;
+    cache.admit(0, pos, surface(100), first);
+    cache.admit(0, pos, surface(110), second);
+    cache.poll(second);
+    cache.sync();
+    assert_eq!(
+        stored(&mut cache, namespace, pos).unwrap().summary.hash,
+        surface(90).hash
+    );
+    cache.poll(first + REGION_FLUSH_AFTER);
+    cache.sync();
+    assert_eq!(
+        stored(&mut cache, namespace, pos).unwrap().summary.hash,
+        surface(110).hash
+    );
+    let next = first + REGION_FLUSH_AFTER * 2;
+    cache.admit(0, pos, surface(120), next);
+    cache.poll(next);
+    cache.sync();
+    assert_eq!(
+        stored(&mut cache, namespace, pos).unwrap().summary.hash,
+        surface(110).hash
+    );
+    cache.poll(next + REGION_FLUSH_AFTER);
+    cache.sync();
+    assert_eq!(
+        stored(&mut cache, namespace, pos).unwrap().summary.hash,
+        surface(120).hash
+    );
+}
+
+/// Untimed retirement work stays immediately due when later timed edits join its batch.
+#[test]
+fn retirement_batches_keep_their_immediate_flush_age() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache =
+        FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 100);
+    cache.enter_world("remote:cache.example:1", 42, 0);
+    for x in 0..=WORLD_PROBE_COLUMNS {
+        cache.admit(0, ColumnPos::new(x as i32, 0), surface(90), now);
+    }
+    cache.sync();
+    cache.poll_budgeted(now, &mut SummaryBudget::new(1, usize::MAX));
+    let namespace = cache.namespace().unwrap();
+    let pos = ColumnPos::new(WORLD_PROBE_COLUMNS as i32, 0);
+    cache.flush_all();
+    cache.sync();
+    cache.leave_world();
+    let late = now + REGION_FLUSH_AFTER / 2;
+    cache.admit(0, pos, surface(120), late);
+    cache.poll(late);
+    cache.sync();
+    assert_eq!(
+        stored(&mut cache, namespace, pos).unwrap().summary.hash,
+        surface(120).hash
+    );
 }
 
 /// Caller corruption and exhausted persisted clocks cannot wrap live ordering.
