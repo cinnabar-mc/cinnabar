@@ -8,7 +8,7 @@
 use super::*;
 use crate::server_experiences::world_materials::WorldMaterialPresenter;
 use mod_host::helper::Helper;
-use server_experience::{policy::DEVELOPER_ENV, policy::MAX_GUEST_MEMORY, screen::Files};
+use server_experience::{policy::DEVELOPER_ENV, policy::MAX_GUEST_MEMORY};
 use std::{process::Command as Process, sync::Once, time::Duration};
 
 /// The showcase's bundle id, namespace and channel, as its experience.toml declares them.
@@ -66,28 +66,45 @@ fn cargo_build(args: &[&str], target: &Path) {
     );
 }
 
-/// The showcase client part, built for wasm32 and turned into a component.
-fn client_component() -> Vec<u8> {
-    let target = target("material-fx-guests");
-    cargo_build(
-        &[
-            "--target",
-            "wasm32-unknown-unknown",
-            "-p",
-            "experience-material-fx-client",
-        ],
-        &target,
+/// The showcase's signed client part as the `material-fx` tool builds it for players, with its
+/// component and its signed files. Building it through the tool, not the guest alone, keeps
+/// the test on the bytes the client actually loads.
+fn client_part() -> server_experience::bundle::VerifiedBundle {
+    let out = target("material-fx-tool");
+    let output = Process::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+        .current_dir(root())
+        .args(["run", "--locked", "-p", "material-fx", "--", "--out"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "the material-fx tool failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    let module = std::fs::read(
-        target.join("wasm32-unknown-unknown/debug/experience_material_fx_client.wasm"),
+    let bytes = std::fs::read(out.join("cxb").join(format!("{ID}.cxb"))).unwrap();
+    let metadata = server_experience::bundle::offline::verify(&bytes).unwrap();
+    let offer = server_experience::manifest::PackageOffer {
+        id: metadata.manifest.id.clone(),
+        publisher_key: metadata.manifest.publisher_key.clone(),
+        digest: metadata.sha256,
+        bytes: metadata.bytes,
+        url: String::new(),
+    };
+    let scope = server_experience::manifest::Scope {
+        permissions: metadata.manifest.permissions.clone(),
+        origins: BTreeSet::new(),
+        memory_bytes: 0,
+        gpu_bytes: 0,
+        personal_mods: Default::default(),
+    };
+    server_experience::bundle::VerifiedBundle::read(
+        &bytes,
+        &offer,
+        &scope,
+        server_experience::policy::MAX_EXPANDED_BYTES,
     )
-    .unwrap();
-    wit_component::ComponentEncoder::default()
-        .module(&module)
-        .unwrap()
-        .validate(true)
-        .encode()
-        .unwrap()
+    .unwrap()
 }
 
 /// The developer helper binary.
@@ -99,19 +116,15 @@ fn helper() -> PathBuf {
         .join(format!("mod-host{}", std::env::consts::EXE_SUFFIX))
 }
 
-/// A PNG of one opaque grey texel.
-fn png() -> Vec<u8> {
-    let mut bytes = std::io::Cursor::new(Vec::new());
-    image::RgbaImage::from_pixel(1, 1, image::Rgba([128, 128, 128, 255]))
-        .write_to(&mut bytes, image::ImageFormat::Png)
-        .unwrap();
-    bytes.into_inner()
-}
-
 /// The showcase granted what its manifest asks for, its client part starting in the helper.
 fn showcase() -> Live<Helper> {
     developer();
-    let mut live = fixture_with::<Helper>(&[ID.into()], helper(), client_component(), |caps| {
+    let mut part = client_part();
+    let component = part
+        .take_component()
+        .expect("the client part has a component");
+    let files = part.take_screen_files();
+    let mut live = fixture_with::<Helper>(&[ID.into()], helper(), component, |caps| {
         caps.scope.permissions =
             BTreeSet::from([Permission::Messaging, Permission::RenderWorldMaterial]);
         caps.scope.memory_bytes = MAX_GUEST_MEMORY;
@@ -128,14 +141,7 @@ fn showcase() -> Live<Helper> {
             ],
         }];
     });
-    live.instances.get_mut(ID).unwrap().files = Arc::new(Files {
-        namespace: ID.into(),
-        templates: Default::default(),
-        textures: TEXTURES
-            .iter()
-            .map(|path| ((*path).to_owned(), png()))
-            .collect(),
-    });
+    live.instances.get_mut(ID).unwrap().files = Arc::new(files);
     live
 }
 

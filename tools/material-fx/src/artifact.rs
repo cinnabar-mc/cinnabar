@@ -27,26 +27,23 @@ impl Guests {
     /// Builds both halves for `wasm32-unknown-unknown` in release.
     pub fn build(root: &Path) -> Result<Self> {
         let target = root.join("target/experience-guests");
-        let status = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
-            .current_dir(root)
-            .args([
-                "build",
-                "--release",
-                "--locked",
-                "--target",
-                "wasm32-unknown-unknown",
-            ])
-            .args([
-                "-p",
-                "experience-material-fx",
-                "-p",
-                "experience-material-fx-client",
-            ])
-            .arg("--target-dir")
-            .arg(&target)
-            .status()
-            .context("running cargo for the showcase guests")?;
-        ensure!(status.success(), "building the showcase guests failed");
+        // One invocation per guest: built together, Cargo unifies the SDK's features, and the
+        // client part would then carry the server world's imports, which no client helper
+        // provides.
+        for package in ["experience-material-fx", "experience-material-fx-client"] {
+            let status = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+                .current_dir(root)
+                .args(["build", "--release", "--locked"])
+                .args(["--target", "wasm32-unknown-unknown", "-p", package])
+                .arg("--target-dir")
+                .arg(&target)
+                .status()
+                .context("running cargo for the showcase guests")?;
+            ensure!(
+                status.success(),
+                "building the showcase guest {package} failed"
+            );
+        }
         let module = |name: &str| {
             let path = target.join("wasm32-unknown-unknown/release").join(name);
             std::fs::read(&path).with_context(|| format!("reading {}", path.display()))
