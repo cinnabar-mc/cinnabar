@@ -99,6 +99,17 @@ If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
 Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
+[Temporal upscaling](docs/temporal-upscaling.md) adds an Upscaler choice. DLSS Super
+Resolution (opt-in `dlss` build, Vulkan) reconstructs the world from jittered frames, depth,
+camera motion vectors and hand masking, at DLAA or the quality mode nearest Render Resolution.
+Incomplete: per-object motion for actors, dropped items and block entities; a reactive mask for
+particles, clouds and weather; nametags and world UI drawn after reconstruction; hand
+silhouettes, which stay stair-stepped at reduced Render Resolution because hands are absent from
+the depth DLSS sees; DLSS packaging and NVIDIA notices; and FSR 3 as a cross-vendor temporal
+upscaler. Static hidden-window captures on an RTX 4070 Laptop match native colour at DLAA and
+Quality. Missing evidence: live captures of DLSS against FSR 1 in motion, and frame-cost
+measurements.
+
 ### Terrain, materials and biome acceptance
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh

@@ -54,6 +54,7 @@ impl SettingsOptions {
         settings.video.anti_aliasing_samples = self.value(SettingId::Msaa) as u32;
         settings.video.render_scale_percent = self.value(SettingId::RenderResolution) as u8;
         settings.video.render_scale_sharpen = self.value(SettingId::RenderScaleSharpen) != 0;
+        settings.video.upscaler = ui::Upscaler::from_value(self.value(SettingId::Upscaler));
         settings.video.motion_blur =
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));

@@ -3,6 +3,8 @@
 use std::num::NonZeroU32;
 
 mod device;
+#[cfg(feature = "dlss")]
+mod dlss;
 mod guarded;
 mod selection;
 
@@ -57,14 +59,22 @@ impl bevy::prelude::Plugin for RendererSetup {
 #[derive(bevy::prelude::Resource)]
 struct StartupFailure(anyhow::Error);
 
-/// Installs a successful renderer or retains its error without unwinding plugin setup.
+/// Installs a successful renderer and its temporal upscaler support in the main and render
+/// worlds, or retains its error without unwinding plugin setup.
 fn install_result(
     app: &mut bevy::prelude::App,
-    result: anyhow::Result<bevy::render::RenderPlugin>,
+    result: anyhow::Result<(
+        bevy::render::RenderPlugin,
+        render_scene::temporal::TemporalUpscalerSupport,
+    )>,
 ) {
     match result {
-        Ok(renderer) => {
+        Ok((renderer, upscalers)) => {
             app.add_plugins(renderer);
+            app.insert_resource(upscalers);
+            if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
+                render_app.insert_resource(upscalers);
+            }
             render::install_error_policy(app);
         }
         Err(error) => {

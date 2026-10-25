@@ -31,6 +31,8 @@ pub(crate) struct NativeUiTarget {
     seed_pipelines: UpscalePipelines,
     present_pipeline: CachedRenderPipelineId,
     seed_bindings: Mutex<Vec<(TextureViewId, u32, BindGroup)>>,
+    /// The copy binding of the last temporal reconstruction seeded from.
+    reconstruction_binding: Mutex<Option<(TextureViewId, BindGroup)>>,
     present_bindings: [BindGroup; 2],
 }
 
@@ -91,6 +93,7 @@ impl NativeUiTarget {
             seed_pipelines: pipelines.0,
             present_pipeline: pipelines.1,
             seed_bindings: Mutex::new(Vec::with_capacity(3)),
+            reconstruction_binding: Mutex::new(None),
             present_bindings,
         })
     }
@@ -140,6 +143,63 @@ impl NativeUiTarget {
             && self.textures[0].format() == target.main_texture_format()
             && self.extent() == extent
             && target.out_texture_view_format() == Some(self.output_format)
+    }
+
+    /// Copies an output-sized, linear temporal reconstruction of this frame's world into the
+    /// native scene in place of FSR 1. Returns false when it cannot, leaving `seed` to
+    /// reconstruct.
+    pub(crate) fn seed_reconstructed(
+        &self,
+        world: &World,
+        context: &mut RenderContext,
+        target: &ViewTarget,
+        source: &TextureView,
+    ) -> bool {
+        if !self.matches(context.render_device(), target, self.extent())
+            || crate::render_bounds::extent(source) != self.extent()
+        {
+            return false;
+        }
+        if self.is_ready() {
+            return true;
+        }
+        let (Some(cache), Some(upscale)) = (
+            world.get_resource::<PipelineCache>(),
+            world.get_resource::<UpscalePipeline>(),
+        ) else {
+            return false;
+        };
+        let Some(pipeline) = cache.get_render_pipeline(self.seed_pipelines.bilinear) else {
+            return false;
+        };
+        let mut held = self
+            .reconstruction_binding
+            .lock()
+            .expect("temporal reconstruction binding lock");
+        if held.as_ref().is_none_or(|(id, _)| *id != source.id()) {
+            // At equal sizes the bilinear filter samples texel centres: an exact copy.
+            let binding = upscale.binding(
+                context.render_device(),
+                cache,
+                source,
+                &self.sampler,
+                FsrConstants::new(self.extent(), self.extent(), None, false),
+            );
+            *held = Some((source.id(), binding));
+        }
+        let (_, binding) = held.as_ref().expect("bound above");
+        encode_blit(
+            world,
+            context,
+            &self.views[0],
+            pipeline,
+            binding,
+            "temporal reconstruction",
+        );
+        drop(held);
+        self.current.store(0, Ordering::Relaxed);
+        self.ready.store(true, Ordering::Relaxed);
+        true
     }
 
     /// Upscales the completed world once, before any native HUD or menu batches are encoded.
@@ -345,7 +405,36 @@ fn encode_blit(
 /// Includes device, extent and both formats so changed allocation requests retry immediately.
 type NativeUiRequest = (wgpu::Device, [u32; 2], TextureFormat, TextureFormat);
 
-/// Allocates only for an admitted scaled view whose real output still matches its marker.
+/// The output extent a view's screen UI composes at: a reduced view's marker, or the full
+/// output of a temporally upscaled view, whose world is reconstructed before UI even at 100%.
+fn native_extent(
+    target: &ViewTarget,
+    scaled: Option<&crate::render_scale::RenderScaleOutput>,
+    temporal: bool,
+) -> Option<[u32; 2]> {
+    scaled.map(|output| output.0.to_array()).or_else(|| {
+        target
+            .out_texture()
+            .filter(|_| temporal)
+            .map(|output| crate::render_bounds::extent(output))
+    })
+}
+
+/// Views that may own a native UI target, with what decides its extent.
+type NativeUiViews<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static ViewTarget,
+        Option<&'static crate::render_scale::RenderScaleOutput>,
+        Has<render_scene::temporal::TemporalUpscaling>,
+        Option<&'static NativeUiTarget>,
+    ),
+>;
+
+/// Allocates only for an admitted scaled or temporally upscaled view whose real output still
+/// matches it.
 #[allow(clippy::too_many_arguments)] // View admission and the two pipeline owners share one allocation boundary.
 pub(crate) fn prepare_native_ui_targets(
     mut commands: Commands,
@@ -356,24 +445,21 @@ pub(crate) fn prepare_native_ui_targets(
     mut upscale: Option<ResMut<UpscalePipeline>>,
     mut failed: Local<FailedRequests<NativeUiRequest>>,
     sharpen: Option<Res<crate::render_scale::RenderScaleSharpen>>,
-    views: Query<(
-        Entity,
-        &ViewTarget,
-        Option<&crate::render_scale::RenderScaleOutput>,
-        Option<&NativeUiTarget>,
-    )>,
+    views: NativeUiViews,
     removed: Query<Entity, (With<NativeUiTarget>, Without<ViewTarget>)>,
 ) {
     failed.retain(|entity| {
         views
             .get(entity)
-            .is_ok_and(|(_, _, scaled, _)| scaled.is_some())
+            .is_ok_and(|(_, target, scaled, temporal, _)| {
+                native_extent(target, scaled, temporal).is_some()
+            })
     });
     for entity in &removed {
         commands.entity(entity).remove::<NativeUiTarget>();
     }
-    for (entity, target, scaled, previous) in &views {
-        let extent = scaled.map(|output| output.0.to_array());
+    for (entity, target, scaled, temporal, previous) in &views {
+        let extent = native_extent(target, scaled, temporal);
         let admitted = extent.filter(|extent| {
             !extent.contains(&0)
                 && extent

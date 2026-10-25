@@ -22,6 +22,7 @@ pub mod actor_effects;
 pub mod antialiasing;
 mod bob;
 mod controls;
+pub mod cuts;
 mod detached;
 pub use detached::DetachedView;
 #[cfg(test)]
@@ -47,6 +48,7 @@ mod settings;
 mod shake;
 #[cfg(test)]
 mod spawn_tests;
+pub mod temporal;
 mod vehicle_look;
 
 pub use bob::{ViewEffect, WalkBobState, walk_bob_effect};
@@ -175,6 +177,7 @@ impl Plugin for CameraPresentationPlugin {
                 self.capture_on_start,
             ))
             .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<cuts::CameraCuts>()
             .init_resource::<antialiasing::CameraAntiAliasingSupport>()
             .init_resource::<CameraFovInputs>()
             .init_resource::<CameraFovState>()

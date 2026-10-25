@@ -13,7 +13,7 @@ use {
 use client_presentation::camera::{
     CameraPresentationPlugin, FlyCameraUpdateSet, spawn_fly_camera, update_camera_fov,
 };
-use client_presentation::camera::{antialiasing, motion_blur, overlay_publish};
+use client_presentation::camera::{antialiasing, cuts, motion_blur, overlay_publish, temporal};
 pub(crate) mod aim_assist;
 pub(crate) mod aim_highlight;
 mod facts;
@@ -129,8 +129,14 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .after(resolve_camera_pose)
                     .in_set(ClientFrameSet::Camera),
-                motion_blur::apply_camera_motion_blur
+                cuts::track_camera_cuts
                     .after(ClientFrameSet::Camera)
+                    .before(ClientFrameSet::Interaction),
+                (
+                    motion_blur::apply_camera_motion_blur,
+                    temporal::apply_temporal_upscaling,
+                )
+                    .after(cuts::track_camera_cuts)
                     .before(ClientFrameSet::Interaction),
             ),
         );

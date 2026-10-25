@@ -2,24 +2,13 @@
 
 use bevy::{prelude::*, render::render_resource::TextureUsages};
 use render_scene::CameraMotionBlur;
-use semantic_input::PerspectiveMode;
 
-use super::{CameraRig, CameraSettingsAuthority, FlyCamera, ServerCameraView};
-use crate::local_player::LocalViewPose;
+use super::{CameraSettingsAuthority, FlyCamera, cuts::CameraCuts};
 
-#[derive(Clone, Copy, PartialEq)]
-struct CameraAnchor {
-    player: u64,
-    server: u64,
-    perspective: PerspectiveMode,
-    rig: Option<CameraRig>,
-    death_rotation: Option<Quat>,
-}
-
-/// Tracks the camera anchors consumed by the rendered pose, independently of gameplay prediction.
+/// The last camera cut blurred across, so enabling blur or a new cut starts a fresh exposure.
 #[derive(Default)]
 pub struct MotionBlurHistory {
-    previous: Option<CameraAnchor>,
+    previous: Option<u64>,
     epoch: u64,
 }
 
@@ -27,8 +16,7 @@ pub struct MotionBlurHistory {
 pub fn apply_camera_motion_blur(
     mut commands: Commands,
     settings: Res<CameraSettingsAuthority>,
-    view: Res<LocalViewPose>,
-    server: Res<ServerCameraView>,
+    cuts: Res<CameraCuts>,
     time: Option<Res<Time<Real>>>,
     mut history: Local<MotionBlurHistory>,
     mut cameras: Query<(Entity, &mut Camera3d, Option<&mut CameraMotionBlur>), With<FlyCamera>>,
@@ -43,17 +31,10 @@ pub fn apply_camera_motion_blur(
         }
         return;
     }
-    let anchor = CameraAnchor {
-        player: view.camera_reanchor_epoch(),
-        server: server.camera_reanchor_epoch(),
-        perspective: settings.perspective(),
-        rig: settings.rig(),
-        death_rotation: settings.death_rotation(),
-    };
-    let reanchored = history.previous != Some(anchor);
+    let reanchored = history.previous != Some(cuts.epoch());
     if reanchored {
         history.epoch = history.epoch.wrapping_add(1);
-        history.previous = Some(anchor);
+        history.previous = Some(cuts.epoch());
     }
     let exposure_seconds = quality.shutter_angle_degrees() / 360.0 / ui::MOTION_BLUR_REFERENCE_FPS;
     for (entity, mut camera, blur) in &mut cameras {
@@ -84,6 +65,10 @@ pub fn apply_camera_motion_blur(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        camera::{ServerCameraView, cuts::track_camera_cuts},
+        local_player::LocalViewPose,
+    };
     use std::time::Duration;
 
     fn app() -> (App, Entity) {
@@ -91,8 +76,12 @@ mod tests {
         app.init_resource::<CameraSettingsAuthority>()
             .init_resource::<LocalViewPose>()
             .init_resource::<ServerCameraView>()
+            .init_resource::<CameraCuts>()
             .init_resource::<Time<Real>>()
-            .add_systems(PostUpdate, apply_camera_motion_blur);
+            .add_systems(
+                PostUpdate,
+                (track_camera_cuts, apply_camera_motion_blur).chain(),
+            );
         let entity = app
             .world_mut()
             .spawn((FlyCamera::default(), Camera3d::default()))

@@ -788,6 +788,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins((
         render::DepthSmaaPlugin,
         render::motion_blur::CameraMotionBlurPlugin,
+        render::TemporalUpscalingPlugin,
         render::FarTerrainRenderPlugin,
     ));
     app.add_plugins(

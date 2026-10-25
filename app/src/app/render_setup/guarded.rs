@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use super::device::{
-    backends, dxc_failed, flags, force_fallback, identity, instance, log, meets_requirements,
-    request_device, requested_adapter_name,
+    BackendInstance, backends, dxc_failed, flags, force_fallback, identity, instance, log,
+    meets_requirements, request_device, requested_adapter_name,
 };
 use super::selection::{
     Candidate, VideoFallback, eligible, probe_backend, rank, summary, try_candidates,
@@ -25,18 +25,20 @@ use bevy::{
 };
 use launcher::graphics_backend::{Backend, Platform, candidates};
 use launcher_host::renderer_startup::StartupGuard;
+use render_scene::temporal::TemporalUpscalerSupport;
 
 #[derive(Resource)]
 struct RendererGuard(StartupGuard);
 
-/// Applies explicit overrides, platform defaults and crash recovery before device creation.
+/// Applies explicit overrides, platform defaults and crash recovery before device creation, and
+/// reports which temporal upscalers the chosen device supports.
 pub(super) fn render_plugin(
     app: &mut App,
     root: &Path,
     video: Option<Backend>,
     graphics_api_revision: u64,
     settings: WgpuSettings,
-) -> Result<RenderPlugin> {
+) -> Result<(RenderPlugin, TemporalUpscalerSupport)> {
     let mut guard = StartupGuard::open(root)?;
     guard.refresh_settings(graphics_api_revision, video.is_some())?;
     if let Some(previous) = &guard.interrupted {
@@ -72,7 +74,7 @@ pub(super) fn render_plugin(
     let software = force_fallback(&settings);
     let crashed = guard.recovery.crashed_choice();
     let automatic = candidates(defaults, &supported, None, None, &[]);
-    let ((creation, chosen), fallback) = with_video_fallback(
+    let (((creation, upscalers), chosen), fallback) = with_video_fallback(
         environment.is_some(),
         video,
         crashed,
@@ -111,7 +113,7 @@ pub(super) fn render_plugin(
                             instance(backend, &settings, compiler, display)
                         };
                         let mut instance = create(compiler.clone());
-                        if dxc_failed(backend, &compiler, &instance) {
+                        if dxc_failed(backend, &compiler, &instance.wgpu) {
                             log(format_args!(
                                 "Renderer could not load DX12 with {compiler:?}; using FXC"
                             ));
@@ -120,7 +122,7 @@ pub(super) fn render_plugin(
                         }
                         let mut found = Vec::new();
                         for adapter in
-                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
+                            bevy::tasks::block_on(instance.wgpu.enumerate_adapters(flags(backend)))
                         {
                             if let Err(error) = meets_requirements(&adapter) {
                                 failures.push(format!(
@@ -187,10 +189,13 @@ pub(super) fn render_plugin(
     if let Some(fallback) = fallback {
         install_notice(app, notice(&fallback, chosen, platform));
     }
-    Ok(RenderPlugin {
-        render_creation: creation,
-        ..Default::default()
-    })
+    Ok((
+        RenderPlugin {
+            render_creation: creation,
+            ..Default::default()
+        },
+        upscalers,
+    ))
 }
 
 /// A failed saved Graphics API, shown once the menu is on screen.
@@ -245,29 +250,31 @@ fn cancel_on_exit(mut exits: MessageReader<AppExit>, mut guard: ResMut<RendererG
     }
 }
 
-/// Builds the renderer from a candidate already guarded by the selection loop.
+/// Builds the renderer from a candidate already guarded by the selection loop, with the
+/// temporal upscalers its device supports.
 async fn create_renderer(
-    instance: wgpu::Instance,
+    instance: BackendInstance,
     adapter: wgpu::Adapter,
     settings: &WgpuSettings,
-) -> Result<RenderCreation> {
+) -> Result<(RenderCreation, TemporalUpscalerSupport)> {
     let info = adapter.get_info();
     log(format_args!("Renderer creating device: {info:?}"));
     let started = std::time::Instant::now();
-    let (device, queue) = request_device(&adapter, settings).await?;
+    let (device, queue, upscalers) = request_device(&adapter, settings, instance.dlss).await?;
     if let Some(timing) = render_scene::startup_timing::current() {
         timing.record("device", started.elapsed());
     }
     log(format_args!(
-        "Renderer device ready; awaiting first presentation: {info:?}"
+        "Renderer device ready ({upscalers:?}); awaiting first presentation: {info:?}"
     ));
-    Ok(RenderCreation::manual(
+    let creation = RenderCreation::manual(
         RenderDevice::from(device),
         RenderQueue::new(queue),
         RenderAdapterInfo::new(info),
         RenderAdapter::new(adapter),
-        RenderInstance::new(instance),
-    ))
+        RenderInstance::new(instance.wgpu),
+    );
+    Ok((creation, upscalers))
 }
 
 /// Clears the guard only after a primary-window presentation and GPU completion.

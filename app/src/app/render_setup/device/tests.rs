@@ -81,7 +81,7 @@ fn window_texture_limits_rise_to_the_adapter_and_never_fall() {
 fn dx12_retries_with_fxc_only_when_its_dxc_cannot_load() {
     let settings = WgpuSettings::default();
     let fxc = wgpu::Dx12Compiler::Fxc;
-    let with_fxc = instance(Backend::Dx12, &settings, fxc.clone(), None);
+    let with_fxc = instance(Backend::Dx12, &settings, fxc.clone(), None).wgpu;
     if !has_dx12(&with_fxc) {
         eprintln!("missing fixture: a DX12 runtime");
         return;
@@ -94,7 +94,7 @@ fn dx12_retries_with_fxc_only_when_its_dxc_cannot_load() {
             .to_string_lossy()
             .into_owned(),
     };
-    let without_dxc = instance(Backend::Dx12, &settings, missing.clone(), None);
+    let without_dxc = instance(Backend::Dx12, &settings, missing.clone(), None).wgpu;
     assert!(dxc_failed(Backend::Dx12, &missing, &without_dxc));
     assert!(!dxc_failed(Backend::Vulkan, &missing, &without_dxc));
 }

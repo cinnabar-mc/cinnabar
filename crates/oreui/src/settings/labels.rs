@@ -34,6 +34,8 @@ impl Content<'_, '_> {
             "Sharpen the FSR-upscaled world when Render Resolution is below 100%. Turn off to keep FSR upscaling without sharpening.".to_owned()
         } else if id == SettingId::RenderResolution {
             launcher::menu::settings_options::render_resolution::DESCRIPTION.to_owned()
+        } else if id == SettingId::Upscaler {
+            "FSR 1 sharpens the reduced world after scaling. DLSS (NVIDIA RTX, Vulkan graphics API) rebuilds detail across frames, and at 100% Render Resolution acts as anti-aliasing (DLAA).".to_owned()
         } else if id == SettingId::GraphicsApi {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
         } else if id == SettingId::Vrr {

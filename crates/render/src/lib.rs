@@ -92,7 +92,11 @@ mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
 mod render_scale;
+mod temporal;
 pub use render_scale::{RenderScaleOutput, RenderScaleSharpen, RenderScaleSystems};
+#[cfg(feature = "dlss")]
+pub use temporal::DLSS_PROJECT_ID;
+pub use temporal::TemporalUpscalingPlugin;
 
 mod runtime_profile_phases;
 

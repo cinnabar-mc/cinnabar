@@ -458,9 +458,17 @@ pub(crate) fn ui_overlay(
         context,
         world,
     );
-    // Keep screen UI reachable in the reduced view if native composition is unavailable.
+    // A ready temporal upscaler reconstructs the world; FSR 1 covers everything else. Screen UI
+    // stays reachable in the reduced view if native composition is unavailable.
     let native = native.filter(|native| {
-        UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
+        UiTarget::new(target, Some(native)).is_native()
+            && (native.is_ready()
+                || crate::temporal::reconstruct(world, context, view_entity, target).is_some_and(
+                    |reconstruction| {
+                        native.seed_reconstructed(world, context, target, &reconstruction)
+                    },
+                )
+                || native.seed(world, context, target))
     });
     let target = UiTarget::new(target, native);
     let output_extent = if target.is_native() {

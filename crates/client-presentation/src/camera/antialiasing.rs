@@ -98,16 +98,36 @@ fn attachment_support(
     ))
 }
 
-/// World cameras whose coverage depends on settings and the shader-pack depth path.
+/// World cameras whose coverage depends on settings, the shader-pack depth path and temporal
+/// upscaling.
 type AntiAliasedCamera<'a> = (
     Entity,
     &'a mut Msaa,
     Option<&'a Smaa>,
     Has<render_scene::shaderpack::ShaderPackRendering>,
+    Has<render_scene::temporal::TemporalUpscaling>,
 );
 
+/// Temporal upscalers resolve edges themselves from single-sampled depth and motion, so their
+/// cameras draw without MSAA and SMAA. Writes only what differs.
+pub(super) fn disable_for_temporal_upscaling(
+    commands: &mut Commands,
+    entity: Entity,
+    msaa: Option<Mut<Msaa>>,
+    smaa: bool,
+) {
+    if let Some(mut msaa) = msaa
+        && *msaa != Msaa::Off
+    {
+        *msaa = Msaa::Off;
+    }
+    if smaa {
+        commands.entity(entity).remove::<Smaa>();
+    }
+}
+
 /// Updates world-camera coverage and spatial smoothing only when their settings change;
-/// shader-pack cameras draw single-sampled.
+/// shader-pack cameras draw single-sampled, and temporally upscaled cameras also skip SMAA.
 pub fn apply_camera_antialiasing(
     mut commands: Commands,
     settings: Res<CameraSettingsAuthority>,
@@ -115,7 +135,11 @@ pub fn apply_camera_antialiasing(
     mut cameras: Query<AntiAliasedCamera, With<FlyCamera>>,
 ) {
     let vanilla = support.msaa(settings.anti_aliasing_samples());
-    for (entity, mut msaa, smaa, shader_pack) in &mut cameras {
+    for (entity, mut msaa, smaa, shader_pack, temporal) in &mut cameras {
+        if temporal {
+            disable_for_temporal_upscaling(&mut commands, entity, Some(msaa), smaa.is_some());
+            continue;
+        }
         let desired = if shader_pack { Msaa::Off } else { vanilla };
         if *msaa != desired {
             *msaa = desired;
@@ -300,5 +324,54 @@ mod tests {
         app.update();
         assert!(app.world().get::<Smaa>(world_camera).is_none());
         assert_eq!(app.world().get::<Msaa>(world_camera).unwrap().samples(), 4);
+    }
+
+    #[test]
+    fn temporal_upscaling_cameras_draw_single_sampled_without_smaa_and_restore_both() {
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .insert_resource(CameraAntiAliasingSupport(
+                ui::AntiAliasingSupport::from_counts([1, 4]),
+            ))
+            .add_systems(Update, apply_camera_antialiasing);
+        let mut settings = ui::UserSettings::default();
+        settings.video.anti_aliasing_samples = 4;
+        settings.video.smaa_mode = ui::SmaaMode::Smaa;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &settings)
+            .unwrap();
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Msaa::Sample4))
+            .id();
+        app.update();
+        assert!(app.world().get::<Smaa>(camera).is_some());
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(render_scene::temporal::TemporalUpscaling {
+                upscaler: render_scene::temporal::TemporalUpscaler::Dlss,
+                reset_epoch: 0,
+                delta_seconds: 0.0,
+            });
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+        assert!(app.world().get::<Smaa>(camera).is_none());
+        app.world_mut().clear_trackers();
+        app.update();
+        assert!(
+            !app.world()
+                .entity(camera)
+                .get_ref::<Msaa>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(app.world().get::<Smaa>(camera).is_none());
+        app.world_mut()
+            .entity_mut(camera)
+            .remove::<render_scene::temporal::TemporalUpscaling>();
+        app.update();
+        assert_eq!(app.world().get::<Msaa>(camera).unwrap().samples(), 4);
+        assert!(app.world().get::<Smaa>(camera).is_some());
     }
 }

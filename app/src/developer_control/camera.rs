@@ -45,7 +45,7 @@ pub(super) fn configure(app: &mut App) {
         (
             drive_camera
                 .after(ClientFrameSet::Camera)
-                .before(client_presentation::camera::motion_blur::apply_camera_motion_blur)
+                .before(client_presentation::camera::cuts::track_camera_cuts)
                 .before(ClientFrameSet::Interaction),
             drive_camera_fov
                 .after(drive_camera)

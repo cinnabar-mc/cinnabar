@@ -191,10 +191,15 @@ fn sleeping_pose_is_shared_before_camera_publication_and_reanchors_only_on_trans
                         Transform::IDENTITY,
                     ))
                     .id();
-                app.add_systems(
-                    PostUpdate,
-                    crate::camera::motion_blur::apply_camera_motion_blur,
-                );
+                app.init_resource::<crate::camera::cuts::CameraCuts>()
+                    .add_systems(
+                        PostUpdate,
+                        (
+                            crate::camera::cuts::track_camera_cuts,
+                            crate::camera::motion_blur::apply_camera_motion_blur,
+                        )
+                            .chain(),
+                    );
                 let mut anchor = app
                     .world()
                     .resource::<LocalViewPose>()

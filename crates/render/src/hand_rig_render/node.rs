@@ -74,6 +74,7 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     } else {
         scene_target.color_attachment(target, false)
     })];
+    let temporal = crate::temporal::masks_hands(world, view_entity);
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("first-person animated rig"),
         color_attachments: &attachments,
@@ -81,7 +82,12 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
             view: &depth.view,
             depth_ops: Some(Operations {
                 load: LoadOp::Clear(0.0),
-                store: StoreOp::Discard,
+                // A temporally upscaled view masks the hand's motion from this depth.
+                store: if temporal {
+                    StoreOp::Store
+                } else {
+                    StoreOp::Discard
+                },
             }),
             stencil_ops: None,
         }),
@@ -96,5 +102,9 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     pass.set_bind_group(0, binding, &[]);
     pass.set_bind_group(1, &lightmap.bind_group, &[]);
     pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count.max(1));
+    drop(pass);
+    if temporal {
+        crate::temporal::mask_hand(world, context, view_entity, &depth.view);
+    }
     Ok(())
 }

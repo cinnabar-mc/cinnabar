@@ -72,6 +72,18 @@ mod screen_overlay_render {
     }
 }
 
+// No camera in this fixture requests temporal upscaling; worlds reconstruct with FSR 1.
+mod temporal {
+    pub(crate) fn reconstruct(
+        _: &bevy::prelude::World,
+        _: &mut bevy::render::renderer::RenderContext,
+        _: bevy::prelude::Entity,
+        _: &bevy::render::view::ViewTarget,
+    ) -> Option<bevy::render::render_resource::TextureView> {
+        None
+    }
+}
+
 mod shaderpack {
     /// Standalone UI views use the ordinary scene boundary without a shader pack.
     pub(crate) fn native_pass_enabled(

@@ -615,7 +615,8 @@ pub(super) fn ensure_depth(
                     sample_count: samples,
                     dimension: TextureDimension::D2,
                     format: CORE_3D_DEPTH_FORMAT,
-                    usage: TextureUsages::RENDER_ATTACHMENT,
+                    // Sampled by the temporal hand motion mask.
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 })
             })

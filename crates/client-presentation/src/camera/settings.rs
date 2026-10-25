@@ -19,6 +19,8 @@ pub struct CameraSettingsAuthority {
     anti_aliasing_samples: u32,
     motion_blur: ui::MotionBlurQuality,
     smaa_mode: ui::SmaaMode,
+    upscaler: ui::Upscaler,
+    render_scale_percent: u8,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     pub(super) freelook: bool,
@@ -94,6 +96,8 @@ impl Default for CameraSettingsAuthority {
             anti_aliasing_samples: settings.video.anti_aliasing_samples,
             motion_blur: settings.video.motion_blur,
             smaa_mode: settings.video.smaa_mode,
+            upscaler: settings.video.upscaler,
+            render_scale_percent: settings.video.render_scale_percent,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             freelook: false,
@@ -150,6 +154,8 @@ impl CameraSettingsAuthority {
         self.anti_aliasing_samples = settings.video.anti_aliasing_samples;
         self.motion_blur = settings.video.motion_blur;
         self.smaa_mode = settings.video.smaa_mode;
+        self.upscaler = settings.video.upscaler;
+        self.render_scale_percent = settings.video.render_scale_percent;
         if self.configured_perspective != settings.gameplay.default_perspective {
             self.configured_perspective = settings.gameplay.default_perspective;
             self.perspective = self.configured_perspective;
@@ -179,6 +185,16 @@ impl CameraSettingsAuthority {
     /// Returns the spatial filter preference independently of device sample counts.
     pub const fn smaa_mode(&self) -> ui::SmaaMode {
         self.smaa_mode
+    }
+
+    /// Returns the preferred world upscaler, before device support is considered.
+    pub const fn upscaler(&self) -> ui::Upscaler {
+        self.upscaler
+    }
+
+    /// Returns the saved world resolution as a percentage of the output.
+    pub const fn render_scale_percent(&self) -> u8 {
+        self.render_scale_percent
     }
 
     /// The Bedrock FOV setting is vertical for a full-window viewport. The

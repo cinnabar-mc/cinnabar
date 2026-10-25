@@ -145,6 +145,19 @@ pub const SMAA_CHOICES: &[SettingChoice] = &[
 /// An extra silhouette filter independent of vanilla's coverage sample count.
 pub const SMAA_OPTION: SettingDefinition = SettingId::Smaa.definition();
 
+/// Upscaler choices derived from [`ui::Upscaler::ALL`]; each radio index is the persisted value.
+pub const UPSCALER_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "upscaler_radio_fsr1",
+        label: ui::Upscaler::Fsr1.label(),
+    },
+    SettingChoice {
+        name: "upscaler_radio_dlss",
+        label: ui::Upscaler::Dlss.label(),
+    },
+];
+const _: () = assert!(UPSCALER_CHOICES.len() == ui::Upscaler::ALL.len());
+
 /// Controls background checks separately from the user's installation consent.
 pub const AUTO_UPDATE_OPTION: SettingDefinition = SettingId::AutoUpdateEnabled.definition();
 
@@ -543,10 +556,12 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 2), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
-    RenderResolution => "render_resolution", slider("Render Resolution", ui::MIN_RENDER_SCALE_PERCENT as i32, ui::MAX_RENDER_SCALE_PERCENT as i32, ui::DEFAULT_RENDER_SCALE_PERCENT as i32),
+    Upscaler => "upscaler", dropdown("Upscaler", UPSCALER_CHOICES, ui::DEFAULT_UPSCALER as i32),
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
-    RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
+    RenderResolution => "render_resolution", slider("Render Resolution", ui::MIN_RENDER_SCALE_PERCENT as i32, ui::MAX_RENDER_SCALE_PERCENT as i32, ui::DEFAULT_RENDER_SCALE_PERCENT as i32),
         [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
+    RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
+        [(SettingPanel::VideoGraphics, 14)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

@@ -59,6 +59,8 @@ pub fn run(
     );
     app.insert_non_send(commands)
         .insert_non_send(crate::browser_input::InputSource(input))
+        // WebGPU has no temporal upscaler; the render world defaults the same way.
+        .init_resource::<render_scene::temporal::TemporalUpscalerSupport>()
         .add_plugins((
             render::ActorRenderPlugin,
             render::AtmospherePlugin,
@@ -82,6 +84,7 @@ pub fn run(
         .add_plugins((
             render::DepthSmaaPlugin,
             render::motion_blur::CameraMotionBlurPlugin,
+            render::TemporalUpscalingPlugin,
             render::startup_presentation::StartupPresentationPlugin,
         ));
     frame::configure(&mut app);

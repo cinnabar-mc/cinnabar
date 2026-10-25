@@ -1,4 +1,4 @@
-use client_presentation::camera::{CameraSettingsAuthority, ServerCameraView, motion_blur};
+use client_presentation::camera::{CameraSettingsAuthority, ServerCameraView, cuts, motion_blur};
 use developer_control::camera::{Easing, Keyframe};
 use render_scene::CameraMotionBlur;
 use std::time::Duration;
@@ -21,9 +21,14 @@ fn app(path: CameraPath) -> (App, Entity) {
         .init_resource::<client_presentation::local_player::LocalViewPose>()
         .init_resource::<ServerCameraView>()
         .init_resource::<CameraSettingsAuthority>()
+        .init_resource::<cuts::CameraCuts>()
         .add_systems(
             Update,
-            motion_blur::apply_camera_motion_blur
+            (
+                cuts::track_camera_cuts,
+                motion_blur::apply_camera_motion_blur,
+            )
+                .chain()
                 .after(ClientFrameSet::Camera)
                 .before(ClientFrameSet::Interaction),
         );

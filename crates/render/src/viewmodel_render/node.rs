@@ -79,6 +79,7 @@ pub(crate) fn hand_view<const AFTER_PACK: bool>(
         return Ok(());
     };
     let attachments = [Some(scene_target.color_attachment(target, false))];
+    let temporal = crate::temporal::masks_hands(world, view_entity);
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera-local neutral empty hand"),
         color_attachments: &attachments,
@@ -86,7 +87,12 @@ pub(crate) fn hand_view<const AFTER_PACK: bool>(
             view: &depth.view,
             depth_ops: Some(Operations {
                 load: LoadOp::Clear(0.0),
-                store: StoreOp::Discard,
+                // A temporally upscaled view masks the hand's motion from this depth.
+                store: if temporal {
+                    StoreOp::Store
+                } else {
+                    StoreOp::Discard
+                },
             }),
             stencil_ops: None,
         }),
@@ -118,6 +124,9 @@ pub(crate) fn hand_view<const AFTER_PACK: bool>(
     }
     *drawn.0.lock().expect("hand drawn lock") = Some(token);
     drop(pass);
+    if temporal {
+        crate::temporal::mask_hand(world, context, view_entity, &depth.view);
+    }
     ViewmodelCompletionGate::observe_stage(3, 0, Some(token));
     Ok(())
 }

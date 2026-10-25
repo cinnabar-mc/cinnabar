@@ -1,11 +1,11 @@
-//! World-resolution help and saved percentage settings.
+//! World-resolution help, the saved percentage and upscaler settings.
 
 pub const DESCRIPTION: &str = "Lower values improve frame rate by rendering the world at a lower resolution. Menus and the HUD stay at native resolution. Applies to a single full-window game view.";
 
 #[cfg(test)]
 mod tests {
     use crate::menu::settings_options::{
-        SettingId, SettingsGroup, SettingsOptions, video_presets::VideoPreset,
+        SettingId, SettingsGroup, SettingsOptions, UPSCALER_CHOICES, video_presets::VideoPreset,
     };
 
     #[test]
@@ -109,5 +109,26 @@ mod tests {
             loaded.user_settings().video.render_scale_sharpen,
             ui::DEFAULT_RENDER_SCALE_SHARPEN
         );
+    }
+
+    #[test]
+    fn upscaler_defaults_to_fsr1_persists_each_choice_and_resets_with_video_settings() {
+        let legacy = SettingsOptions::decode(br#"{"values":{"render_resolution":50}}"#).unwrap();
+        assert_eq!(legacy.user_settings().video.upscaler, ui::DEFAULT_UPSCALER);
+        let index = SettingId::Upscaler.index();
+        for upscaler in ui::Upscaler::ALL {
+            assert_eq!(UPSCALER_CHOICES[upscaler as usize].label, upscaler.label());
+            let mut saved = SettingsOptions::default();
+            saved.set(index, upscaler as i32);
+            let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
+            assert_eq!(loaded.user_settings().video.upscaler, upscaler);
+            for preset in VideoPreset::ALL {
+                loaded.apply_video_preset(preset);
+                assert_eq!(loaded.user_settings().video.upscaler, upscaler);
+                assert_eq!(loaded.video_preset(), Some(preset));
+            }
+            loaded.reset_group(SettingsGroup::Video);
+            assert_eq!(loaded.user_settings().video.upscaler, ui::DEFAULT_UPSCALER);
+        }
     }
 }

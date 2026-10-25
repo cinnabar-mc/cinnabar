@@ -39,6 +39,9 @@ pub const ANTI_ALIASING_SAMPLE_COUNTS: [u32; 4] = [1, 2, 4, 8];
 /// Spatial silhouette smoothing is an opt-in addition to vanilla's MSAA setting.
 pub const DEFAULT_SMAA_MODE: SmaaMode = SmaaMode::Off;
 
+/// Spatial FSR 1 stays the default; DLSS is an opt-in for supported devices.
+pub const DEFAULT_UPSCALER: Upscaler = Upscaler::Fsr1;
+
 /// Motion blur exposure is fixed to this reference rate, independent of rendering cadence.
 pub const MOTION_BLUR_REFERENCE_FPS: f32 = 60.0;
 
@@ -132,6 +135,45 @@ impl SmaaMode {
     }
 }
 
+/// How the world image is reconstructed at output resolution.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[repr(i32)]
+pub enum Upscaler {
+    /// Spatial FSR 1 upscaling of the reduced world, with optional RCAS sharpening.
+    Fsr1 = 0,
+    /// NVIDIA DLSS temporal reconstruction; at native resolution it acts as DLAA.
+    Dlss = 1,
+}
+
+impl Default for Upscaler {
+    /// Uses the shared preference also used by saved Video settings.
+    fn default() -> Self {
+        DEFAULT_UPSCALER
+    }
+}
+
+impl Upscaler {
+    /// Every upscaler, in settings order; each index is the persisted value.
+    pub const ALL: [Self; 2] = [Self::Fsr1, Self::Dlss];
+
+    /// Labels shared by every Video settings host.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Fsr1 => "FSR 1",
+            Self::Dlss => "DLSS",
+        }
+    }
+
+    /// Decodes the validated integral setting, falling back to the default for unknown values.
+    pub const fn from_value(value: i32) -> Self {
+        if value == Self::Dlss as i32 {
+            Self::Dlss
+        } else {
+            DEFAULT_UPSCALER
+        }
+    }
+}
+
 /// The intersection of color and depth sample counts supported by the active device.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AntiAliasingSupport(u32);
@@ -201,6 +243,8 @@ pub struct VideoSettings {
     pub render_scale_percent: u8,
     /// Applies RCAS sharpening after FSR1 world upscaling.
     pub render_scale_sharpen: bool,
+    /// Reconstructs the world image at output resolution.
+    pub upscaler: Upscaler,
     pub motion_blur: MotionBlurQuality,
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
@@ -245,6 +289,7 @@ impl Default for VideoSettings {
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             render_scale_percent: DEFAULT_RENDER_SCALE_PERCENT,
             render_scale_sharpen: DEFAULT_RENDER_SCALE_SHARPEN,
+            upscaler: DEFAULT_UPSCALER,
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
@@ -384,6 +429,23 @@ mod antialiasing_tests {
         assert_eq!(support.select(7), 4);
         assert_eq!(support.select(32), 8);
         assert_eq!(AntiAliasingSupport::from_counts([]).select(0), 1);
+    }
+}
+
+#[cfg(test)]
+mod upscaler_tests {
+    use super::*;
+
+    #[test]
+    fn upscaler_defaults_to_fsr1_and_round_trips_setting_values() {
+        assert_eq!(UserSettings::default().video.upscaler, Upscaler::Fsr1);
+        assert_eq!(Upscaler::default(), DEFAULT_UPSCALER);
+        for (index, upscaler) in Upscaler::ALL.into_iter().enumerate() {
+            assert_eq!(upscaler as usize, index);
+            assert_eq!(Upscaler::from_value(upscaler as i32), upscaler);
+        }
+        assert_eq!(Upscaler::from_value(-1), DEFAULT_UPSCALER);
+        assert_eq!(Upscaler::from_value(2), DEFAULT_UPSCALER);
     }
 }
 

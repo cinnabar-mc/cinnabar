@@ -135,7 +135,15 @@ fn sleep_and_wake_clear_motion_blur_once_without_moving_physics() {
         view.set_subject_position(eye, feet);
         view.set_rotation(Quat::IDENTITY);
     }
-    app.add_systems(Update, crate::camera::motion_blur::apply_camera_motion_blur);
+    app.init_resource::<crate::camera::cuts::CameraCuts>()
+        .add_systems(
+            Update,
+            (
+                crate::camera::cuts::track_camera_cuts,
+                crate::camera::motion_blur::apply_camera_motion_blur,
+            )
+                .chain(),
+        );
     let camera = app
         .world_mut()
         .spawn((FlyCamera::default(), Camera3d::default()))

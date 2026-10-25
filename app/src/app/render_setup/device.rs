@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use bevy::render::settings::{WgpuSettings, WgpuSettingsPriority};
 use launcher::graphics_backend::{Adapter, Backend};
+use render_scene::temporal::TemporalUpscalerSupport;
 
 /// Converts the policy's backend to wgpu's flags without keeping a separate order table.
 pub(super) fn flags(backend: Backend) -> wgpu::Backends {
@@ -110,13 +111,23 @@ fn raise_window_texture_limits(limits: &mut wgpu::Limits, adapter: &wgpu::Limits
         .max(adapter.max_texture_dimension_2d);
 }
 
-/// Builds exactly one backend with the given DX12 shader compiler and the shipping display policy.
+/// A single-backend instance and whether it carries DLSS's instance extensions.
+#[derive(Clone)]
+pub(super) struct BackendInstance {
+    pub wgpu: wgpu::Instance,
+    /// Set only for a Vulkan instance that registered DLSS Super Resolution's extensions, the
+    /// precondition for opening its devices with DLSS's device extensions.
+    pub dlss: bool,
+}
+
+/// Builds exactly one backend with the given DX12 shader compiler and the shipping display
+/// policy. `dlss` builds try Vulkan with DLSS's instance extensions first.
 pub(super) fn instance(
     backend: Backend,
     settings: &WgpuSettings,
     dx12_shader_compiler: wgpu::Dx12Compiler,
     display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
-) -> wgpu::Instance {
+) -> BackendInstance {
     let mut descriptor = wgpu::InstanceDescriptor {
         backends: flags(backend),
         flags: settings.instance_flags,
@@ -136,7 +147,16 @@ pub(super) fn instance(
     descriptor.backend_options.dx12.latency_waitable_object =
         wgpu::wgt::Dx12UseFrameLatencyWaitableObject::from_env().unwrap_or_default();
     descriptor.backend_options.gl.gles_minor_version = settings.gles3_minor_version;
-    wgpu::Instance::new(descriptor)
+    #[cfg(feature = "dlss")]
+    if backend == Backend::Vulkan
+        && let Some(wgpu) = super::dlss::instance(&descriptor)
+    {
+        return BackendInstance { wgpu, dlss: true };
+    }
+    BackendInstance {
+        wgpu: wgpu::Instance::new(descriptor),
+        dlss: false,
+    }
 }
 
 /// Whether a DX12 instance needs FXC instead: wgpu leaves out the DX12 backend, logging only at
@@ -176,24 +196,42 @@ pub(super) fn force_fallback(settings: &WgpuSettings) -> bool {
     })
 }
 
-/// Opens a device for a candidate that already passed renderer capability checks.
+/// Opens a device for a candidate that already passed renderer capability checks, with DLSS's
+/// device extensions when its instance has DLSS's instance extensions. The support says which
+/// temporal upscalers the device can run; DLSS failures fall back to the usual device.
 pub(super) async fn request_device(
     adapter: &wgpu::Adapter,
     settings: &WgpuSettings,
-) -> Result<(wgpu::Device, wgpu::Queue)> {
+    #[cfg_attr(
+        not(feature = "dlss"),
+        expect(
+            unused_variables,
+            reason = "only DLSS builds register device extensions"
+        )
+    )]
+    dlss_instance: bool,
+) -> Result<(wgpu::Device, wgpu::Queue, TemporalUpscalerSupport)> {
     let (features, limits) = device_requirements(adapter, settings);
-    adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            label: settings.device_label.as_deref(),
-            required_features: features,
-            required_limits: limits,
-            // SAFETY: These are the same experimental features enabled by Bevy's renderer.
-            experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
-            memory_hints: settings.memory_hints.clone(),
-            trace: wgpu::Trace::Off,
-        })
+    let descriptor = wgpu::DeviceDescriptor {
+        label: settings.device_label.as_deref(),
+        required_features: features,
+        required_limits: limits,
+        // SAFETY: These are the same experimental features enabled by Bevy's renderer.
+        experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
+        memory_hints: settings.memory_hints.clone(),
+        trace: wgpu::Trace::Off,
+    };
+    #[cfg(feature = "dlss")]
+    if dlss_instance
+        && let Some((device, queue, dlss)) = super::dlss::request_device(adapter, &descriptor)
+    {
+        return Ok((device, queue, TemporalUpscalerSupport { dlss }));
+    }
+    let (device, queue) = adapter
+        .request_device(&descriptor)
         .await
-        .context("create renderer device")
+        .context("create renderer device")?;
+    Ok((device, queue, TemporalUpscalerSupport::default()))
 }
 
 /// Capabilities needed by terrain draws, texture views, material reads and MSAA shadows.

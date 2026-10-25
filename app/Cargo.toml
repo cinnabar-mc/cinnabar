@@ -44,6 +44,9 @@ enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Experimental Java (OptiFine/Iris) shader packs as a third Video renderer.
 shaderpacks = ["render/shaderpacks", "dep:shaderpack", "launcher/shaderpacks"]
+# NVIDIA DLSS Super Resolution: Vulkan instances and devices carry NGX's extensions. Building
+# needs the DLSS SDK; see docs/temporal-upscaling.md.
+dlss = ["render/dlss", "dep:dlss_wgpu"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
@@ -148,6 +151,7 @@ rayon.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 wgpu.workspace = true
+dlss_wgpu = { workspace = true, optional = true }
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
