@@ -1,9 +1,12 @@
 // Arena floor: dark riveted plates that carry pixel energy. A shockwave ring races out from the
 // impact point the server names and fades; in heartbeat mode the floor beats in double pulses
 // that quicken as the boss's health falls. The server sends the centre and start time on the
-// session clock as parameters, so nothing recompiles.
+// session clock as parameters, so nothing recompiles. The client part turns health into a beat
+// rate and keeps the beat's phase continuous when the rate changes, so a new health quickens
+// the beat from where it is instead of jumping.
 // params 0-1: impact x and z; param 2: impact start in session seconds; param 3: mode (0
-// shockwave, 1 heartbeat); param 4: boss health (0 to 1); params 5-6: heart x and z.
+// shockwave, 1 heartbeat); param 4: beats per second; params 5-6: heart x and z; param 7: the
+// beat's phase at session second zero.
 
 fn plates(texel: vec2<f32>) -> vec3<f32> {
     let inner = (texel % 8.0 + 8.0) % 8.0;
@@ -21,9 +24,7 @@ fn shade(input: WorldMaterialInput) -> Surface {
     let base = plates(texel);
     if param(input, 3u) > 0.5 {
         // Heartbeat: two pulses per beat, the beat faster as health falls.
-        let health = clamp(param(input, 4u), 0.0, 1.0);
-        let period = mix(0.45, 1.4, health);
-        let beat = fract(seconds(input) / period);
+        let beat = fract(seconds(input) * param(input, 4u) + param(input, 7u));
         let pulse = max(1.0 - abs(beat - 0.1) * 12.0, 0.0) + 0.6 * max(1.0 - abs(beat - 0.32) * 12.0, 0.0);
         let reach = distance(at, vec2<f32>(param(input, 5u), param(input, 6u)));
         let wave = fract(reach * 0.25 - beat * 2.0);

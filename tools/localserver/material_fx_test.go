@@ -44,8 +44,6 @@ func TestMaterialFxCommandsBecomeControlRecords(t *testing.T) {
 	}{
 		{"revoke", materialFxUnbind, 0},
 		{"restore", materialFxBind, 0},
-		{"heartbeat 40", materialFxHeartbeat, 400},
-		{"heartbeat off", materialFxHeartbeat, -1},
 		{"cut 40", materialFxCut, 400},
 		{"cut sweep", materialFxCut, -1},
 	} {
@@ -63,6 +61,11 @@ func TestMaterialFxCommandsBecomeControlRecords(t *testing.T) {
 	} {
 		if !ok(parseMaterialFx(strings.Fields(args))) {
 			t.Errorf("%q", args)
+		}
+	}
+	for args, health := range map[string]int64{"heartbeat 40": 400, "heartbeat off": -1} {
+		if command := parseMaterialFx(strings.Fields(args)); command.heartbeat == nil || *command.heartbeat != health {
+			t.Errorf("%q: %+v", args, command)
 		}
 	}
 	for _, bad := range []string{"heartbeat 101", "cut x", "dance", "boom now"} {

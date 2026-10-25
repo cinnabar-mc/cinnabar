@@ -190,8 +190,50 @@ pub const EFFECTS: [Effect; 20] = [
 /// Thousandths per block, the unit the server sends positions and times in.
 const MILLI: f32 = 1000.0;
 
+/// An animation phase `seconds * rate + offset` on the session clock, as the shaders compute it, whose rate the server
+/// changes. Changing the rate at a moment moves the offset so the phase carries on from where it
+/// was, instead of jumping to where the new rate would have put it since the clock began.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Phase {
+    /// Phase units per session second.
+    pub rate: f32,
+    /// The phase at session second zero.
+    pub offset: f64,
+}
+
+impl Phase {
+    /// A phase advancing at `rate` that is zero at session second `at`.
+    pub fn starting(at: f64, rate: f32) -> Self {
+        Self {
+            rate,
+            offset: -at * f64::from(rate),
+        }
+    }
+
+    /// Changes the rate to `rate` at session second `at`, keeping the phase there.
+    pub fn retime(&mut self, at: f64, rate: f32) {
+        self.offset += at * (f64::from(self.rate) - f64::from(rate));
+        self.rate = rate;
+    }
+}
+
+/// The portal's closeness, 1 at its face and 0 from twelve blocks away, for a player
+/// `distance` blocks from it.
+pub fn portal_near(distance: f32) -> f32 {
+    (1.0 - distance / 12.0).clamp(0.0, 1.0)
+}
+
+/// How fast the portal turns, in phase units per second, at closeness `near`.
+pub fn portal_rate(near: f32) -> f32 {
+    0.4 + 1.6 * near
+}
+
+/// Heartbeats per second at boss health `health` (0 to 1): faster as it falls.
+pub fn beat_rate(health: f32) -> f32 {
+    1.0 / (0.45 + (1.4 - 0.45) * health.clamp(0.0, 1.0))
+}
+
 /// What the server has said so far.
-#[derive(Default)]
 pub struct State {
     /// Materials declared so far, one bit per id; the host keeps them across callbacks.
     pub declared: u32,
@@ -200,8 +242,8 @@ pub struct State {
     cut: Option<i64>,
     /// The last shockwave: x, z and start (seconds).
     boom: [f32; 3],
-    /// The boss's health for the heartbeat, if it beats.
-    heartbeat: Option<f32>,
+    /// The heartbeat's phase in beats, if it beats.
+    heartbeat: Option<Phase>,
     /// The last liquid metal hit: x, y, z and start (seconds).
     hit: [f32; 4],
     /// The corruption's source and start, if it spreads.
@@ -213,8 +255,32 @@ pub struct State {
     /// Up to four players' x and z, and how many there are.
     players: [[f32; 2]; 4],
     player_count: f32,
-    /// The player's distance to the portal.
-    portal_distance: f32,
+    /// The player's closeness to the portal ([`portal_near`]) and its turning phase.
+    portal_near: f32,
+    portal_spin: Phase,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            declared: 0,
+            thermal: false,
+            cut: None,
+            boom: [0.0; 3],
+            heartbeat: None,
+            hit: [0.0; 4],
+            corruption: None,
+            centres: [[0.0; 3]; 5],
+            quarter: 0.0,
+            players: [[0.0; 2]; 4],
+            player_count: 0.0,
+            portal_near: 0.0,
+            portal_spin: Phase {
+                rate: portal_rate(0.0),
+                offset: 0.0,
+            },
+        }
+    }
 }
 
 impl State {
@@ -231,7 +297,16 @@ impl State {
                 &[ARENA]
             }
             operations::HEARTBEAT => {
-                self.heartbeat = (args[0] >= 0).then(|| args[0].min(1000) as f32 / 1000.0);
+                let at = args[1] as f64 / f64::from(MILLI);
+                let rate = beat_rate(args[0].min(1000) as f32 / 1000.0);
+                self.heartbeat = match (args[0] >= 0, self.heartbeat) {
+                    (false, _) => None,
+                    (true, Some(mut beat)) => {
+                        beat.retime(at, rate);
+                        Some(beat)
+                    }
+                    (true, None) => Some(Phase::starting(at, rate)),
+                };
                 &[ARENA]
             }
             operations::HIT => {
@@ -273,7 +348,9 @@ impl State {
                 &[SCREEN]
             }
             operations::PORTAL_DISTANCE => {
-                self.portal_distance = blocks(args[0]);
+                self.portal_near = portal_near(blocks(args[0]));
+                let at = args[1] as f64 / f64::from(MILLI);
+                self.portal_spin.retime(at, portal_rate(self.portal_near));
                 &[PORTAL]
             }
             _ => &[],
@@ -301,8 +378,19 @@ impl State {
             ARENA => {
                 let [x, z, start] = self.boom;
                 let centre = self.centres[0];
-                let (mode, health) = self.heartbeat.map_or((0.0, 1.0), |health| (1.0, health));
-                vec![x, z, start, mode, health, centre[0], centre[2]]
+                let (mode, beat) = self
+                    .heartbeat
+                    .map_or((0.0, Phase::default()), |beat| (1.0, beat));
+                vec![
+                    x,
+                    z,
+                    start,
+                    mode,
+                    beat.rate,
+                    centre[0],
+                    centre[2],
+                    beat.offset.rem_euclid(1.0) as f32,
+                ]
             }
             BLACK_HOLE => {
                 let [x, y, z] = self.centres[1];
@@ -335,10 +423,12 @@ impl State {
                     y,
                     z,
                     self.quarter,
-                    self.portal_distance,
+                    self.portal_near,
                     0.45,
                     0.15,
                     0.85,
+                    self.portal_spin.rate,
+                    self.portal_spin.offset as f32,
                 ]
             }
             _ => Vec::new(),

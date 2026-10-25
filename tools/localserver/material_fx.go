@@ -219,6 +219,8 @@ type materialFxCommand struct {
 	thermal bool
 	// corrupt starts the corruption at the wall's end now; cleanse stops it.
 	corrupt, cleanse bool
+	// heartbeat sets the heartbeat's boss health in thousandths now, or -1 stops it.
+	heartbeat *int64
 }
 
 // materialFxUsage lists the /materialfx commands.
@@ -248,10 +250,12 @@ func parseMaterialFx(args []string) materialFxCommand {
 		return materialFxCommand{cleanse: true}
 	case args[0] == "heartbeat" && len(args) == 2:
 		if args[1] == "off" {
-			return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxHeartbeat, -1)}}
+			off := int64(-1)
+			return materialFxCommand{heartbeat: &off}
 		}
 		if health, ok := number(args[1]); ok {
-			return materialFxCommand{controls: [][]cinnabarext.Scalar{materialFxRecord(materialFxHeartbeat, health*10)}}
+			health *= 10
+			return materialFxCommand{heartbeat: &health}
 		}
 	case args[0] == "cut" && len(args) == 2:
 		if args[1] == "sweep" {
