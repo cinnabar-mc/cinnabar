@@ -260,19 +260,22 @@ func (c *materialFxConn) radar() {
 }
 
 // followPortal sends the player's distance to the portal when it changed by a quarter block.
+// It sends on the reading goroutine, after releasing c.mu, so updates arrive in input order.
 func (c *materialFxConn) followPortal() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.gallery == nil || c.ext == nil {
+		c.mu.Unlock()
 		return
 	}
 	portal := materialFxPieces(*c.gallery)[materialFxPortalPiece]
 	distance := milli(portal.Sub(c.view.feet.Add(mgl32.Vec3{0, actorBurstEyeHeight, 0})).Len())
 	if abs64(distance-c.portalDistance) < 250 {
+		c.mu.Unlock()
 		return
 	}
 	c.portalDistance = distance
-	go c.send(materialFxRecord(materialFxPortalDistance, distance))
+	c.mu.Unlock()
+	c.send(materialFxRecord(materialFxPortalDistance, distance))
 }
 
 // hit ripples the liquid metal mob where it was struck and sends a shockwave across the arena
