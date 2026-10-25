@@ -346,7 +346,8 @@ is a broader claim than the presence of these features.
   capture gates and staged delegation plan. Bevy-free navigation and semantic
   action foundations now connect to app input and cursor/focus rendering for
   ordinary inventory, storage, equipment and crafting cells. Regression coverage
-  includes stale targets, clipped geometry, open-instance generations, ownership
+  includes stale targets, clipped geometry, item-region pointer aliases, nearest
+  cursor-to-D-pad acquisition, open-instance generations, ownership
   handoff, neutral-gated action edges and same-frame-close gameplay consumption.
   Left-stick cursor, D-pad and swapped face-button roles use explicitly provisional
   Cinnabar defaults, not measured Bedrock bindings/timings. Recipe/catalog/widget

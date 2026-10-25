@@ -32,8 +32,9 @@ pub struct Target {
 }
 
 /// Current geometry and semantic associations, all in GUI coordinates.
-/// Keys and identities in `targets` must each be unique. Retain non-slot hits:
-/// they carry focus mappings, containers, modal barriers and other controls.
+/// Keys must be unique. A cell's artwork/input aliases share its identity, but
+/// only one key per identity may take focus. Retain non-slot hits: they carry
+/// focus mappings, containers, modal barriers and other controls.
 pub struct Frame<'a> {
     pub generation: u64,
     pub geometry_revision: u64,
@@ -216,11 +217,24 @@ impl Navigation {
         }
         let direction = direction(input.directions);
         if let Some(direction) = direction {
+            let acquired = (self.view.focused.is_none()
+                && matches!(self.output.mode, Mode::Cursor | Mode::Mouse))
+            .then(|| {
+                self.output
+                    .cursor
+                    .and_then(|point| closest_key(&hits, point))
+            })
+            .flatten();
             self.output.mode = Mode::Focus;
-            self.focus(&frame, &hits, self.view.focused.clone());
+            self.focus(
+                &frame,
+                &hits,
+                acquired.clone().or_else(|| self.view.focused.clone()),
+            );
+            self.output.reveal_key = acquired.clone();
             let mut steps = 0;
             if self.held != Some(direction) {
-                steps = 1;
+                steps = u128::from(acquired.is_none());
                 self.next_repeat = input.now.checked_add(self.settings.repeat_delay);
             } else if let Some(deadline) =
                 self.next_repeat.filter(|deadline| input.now >= *deadline)
@@ -294,7 +308,10 @@ impl Navigation {
             frame
                 .targets
                 .iter()
-                .find(|target| target.identity == selection.target.identity)
+                .find(|target| {
+                    target.identity == selection.target.identity
+                        && admitted.iter().any(|hit| hit.key == target.key)
+                })
                 .map(|target| target.key.clone())
         } else {
             self.view.focused.clone()
@@ -307,8 +324,8 @@ impl Navigation {
                 }
                 self.output
                     .cursor
-                    .and_then(|point| json_ui::hit_test(hits, point))
-                    .is_some_and(|hit| hit.key == *key)
+                    .and_then(|point| pointer_key(frame, hits, point))
+                    .is_some_and(|pointed| pointed == *key)
             });
         if key.is_none() {
             if self.view.focused.is_some() {
@@ -344,15 +361,49 @@ impl Navigation {
 
     /// Pointer and directional input resolve through the same admitted target set.
     fn point_at(&mut self, frame: &Frame<'_>, hits: &[HitRegion]) {
-        let admitted = json_ui::focus_order(hits);
         let key = self
             .output
             .cursor
-            .and_then(|point| json_ui::hit_test(hits, point))
-            .filter(|hit| admitted.iter().any(|candidate| candidate.key == hit.key))
-            .map(|hit| hit.key.clone());
+            .and_then(|point| pointer_key(frame, hits, point));
         self.focus(frame, hits, key);
     }
+}
+
+/// Resolves the topmost region through the screen's semantic aliases, never through a blocker.
+fn pointer_key(frame: &Frame<'_>, hits: &[HitRegion], point: [f64; 2]) -> Option<String> {
+    let top = json_ui::hit_test(hits, point)?;
+    let admitted = json_ui::focus_order(hits);
+    if admitted.iter().any(|candidate| candidate.key == top.key) {
+        return Some(top.key.clone());
+    }
+    let alias = frame.targets.iter().find(|target| target.key == top.key)?;
+    admitted
+        .into_iter()
+        .filter(|candidate| {
+            candidate.contains(point)
+                && frame
+                    .targets
+                    .iter()
+                    .any(|target| target.key == candidate.key && target.identity == alias.identity)
+        })
+        .max_by_key(|candidate| candidate.key.len())
+        .map(|candidate| candidate.key.clone())
+}
+
+/// Acquires focus near an existing free cursor; this does not snap stick motion or release.
+fn closest_key(hits: &[HitRegion], point: [f64; 2]) -> Option<String> {
+    json_ui::focus_order(hits)
+        .into_iter()
+        .filter_map(|hit| {
+            let anchor = visible_point(hit)?;
+            Some((hit, (anchor[0] - point[0]).hypot(anchor[1] - point[1])))
+        })
+        .min_by(|(left, left_distance), (right, right_distance)| {
+            left_distance
+                .total_cmp(right_distance)
+                .then_with(|| left.order.cmp(&right.order))
+        })
+        .map(|(hit, _)| hit.key.clone())
 }
 
 /// Return an interior anchor of the painted rectangle clipped to its viewport.

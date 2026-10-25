@@ -505,12 +505,11 @@ pub(crate) fn drive_controller_inventory(
     };
     let owner = owner.unwrap_or_default();
 
-    // Only regions that take focus compete for a cell, so renderer children cannot shadow it.
+    // Keep semantic pointer aliases; the session selects one focusable key per cell.
     // The session interns identities, drops unsupported cells and their focus candidates.
     let cells: Vec<(String, InventoryCellHit)> = engine
         .hits
         .iter()
-        .filter(|hit| hit.takes_focus())
         .filter_map(|hit| Some((hit.key.clone(), view.engine_container_region_hit(hit)?)))
         .collect();
     let targets: Vec<Target> = cells

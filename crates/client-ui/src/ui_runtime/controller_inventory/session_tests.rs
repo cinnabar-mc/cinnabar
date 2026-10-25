@@ -236,6 +236,62 @@ fn stale_recipe_rows_never_become_action_selections() {
 }
 
 #[test]
+fn nonfocusable_item_regions_share_their_cells_action_target() {
+    let mut session = session();
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_inventory_open(true);
+    let cell = region();
+    let mut artwork = cell.clone();
+    artwork.key = "cell/artwork".into();
+    artwork.kind = HitKind::Custom;
+    artwork.focus = None;
+    artwork.order = 1;
+    let targets = [
+        navigation::Target {
+            key: artwork.key.clone(),
+            identity: 9,
+            hit: InventoryCellHit::Player(0),
+        },
+        navigation::Target {
+            key: cell.key.clone(),
+            identity: 4,
+            hit: InventoryCellHit::Player(0),
+        },
+    ];
+    let hits = [cell, artwork];
+    let sample = |session: &mut ControllerSession, runtime: &mut UiRuntime, input| {
+        let generation = runtime.container_generation();
+        session.step(
+            runtime,
+            navigation::Frame {
+                generation,
+                geometry_revision: 1,
+                bounds: bounds(),
+                hits: &hits,
+                targets: &targets,
+            },
+            input,
+        )
+    };
+    sample(&mut session, &mut runtime, input(0, false));
+    let mut mouse = input(1, false);
+    mouse.navigation.mouse = Some([15.0, 15.0]);
+    let hovered = sample(&mut session, &mut runtime, mouse);
+    assert_eq!(
+        hovered.navigation.selection.as_ref().unwrap().target.key,
+        "cell"
+    );
+    let released = sample(&mut session, &mut runtime, input(2, false));
+    assert_eq!(released.navigation.selection, hovered.navigation.selection);
+    let mut press = input(3, false);
+    press.actions[0] = true;
+    assert_eq!(
+        sample(&mut session, &mut runtime, press).actions,
+        [ContainerControllerAction::Primary]
+    );
+}
+
+#[test]
 fn text_entry_owns_input_even_if_caller_marks_container_active() {
     let mut session = session();
     let mut runtime = UiRuntime::new(1);

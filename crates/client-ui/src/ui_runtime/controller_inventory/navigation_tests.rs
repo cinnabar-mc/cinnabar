@@ -105,6 +105,80 @@ const NEUTRAL: [bool; 4] = [false; 4];
 const RIGHT: [bool; 4] = [false, false, false, true];
 
 #[test]
+fn stick_cursor_resolves_item_artwork_to_its_cell_and_retains_it_on_release() {
+    let mut slot = region(0, 95.0, 45.0);
+    slot.collection = Some("inventory_items".into());
+    let mut artwork = slot.clone();
+    artwork.key = format!("{}/artwork", slot.key);
+    artwork.kind = HitKind::Custom;
+    artwork.focus = None;
+    artwork.order = 1;
+    let mut targets = targets(std::slice::from_ref(&slot));
+    targets.push(Target {
+        key: artwork.key.clone(),
+        ..targets[0].clone()
+    });
+    let hits = [slot, artwork];
+    let mut nav = navigation();
+    sample(&mut nav, &hits, &targets, input(0, NEUTRAL));
+    let mut stick = input(1, NEUTRAL);
+    stick.axes = [1.0, 0.0];
+    let moving = sample(&mut nav, &hits, &targets, stick);
+    assert_eq!(moving.mode, Mode::Cursor);
+    assert_eq!(
+        moving
+            .selection
+            .as_ref()
+            .map(|selection| selection.target.hit),
+        Some(InventoryCellHit::Player(0))
+    );
+    let released = sample(&mut nav, &hits, &targets, input(2, NEUTRAL));
+    assert_eq!(released.selection, moving.selection);
+    let directional = sample(&mut nav, &hits, &targets, input(3, RIGHT));
+    assert_eq!(directional.selection, moving.selection);
+}
+
+#[test]
+fn dpad_acquires_the_closest_visible_cell_from_cursor_blank_space() {
+    let hits = [
+        region(0, 10.0, 10.0),
+        region(1, 150.0, 45.0),
+        region(2, 170.0, 45.0),
+    ];
+    let targets = targets(&hits);
+    let mut nav = navigation();
+    sample(&mut nav, &hits, &targets, input(0, NEUTRAL));
+    let mut stick = input(400, NEUTRAL);
+    stick.axes = [1.0, 0.0];
+    let moving = sample(&mut nav, &hits, &targets, stick);
+    assert!(moving.selection.is_none());
+    sample(&mut nav, &hits, &targets, input(401, NEUTRAL));
+    let directional = sample(&mut nav, &hits, &targets, input(402, RIGHT));
+    assert_eq!(
+        directional.selection.unwrap().target.hit,
+        InventoryCellHit::Player(1)
+    );
+    assert_eq!(directional.cursor, Some([155.0, 50.0]));
+}
+
+#[test]
+fn a_nonfocusable_interactive_child_does_not_fall_through_to_its_slot() {
+    let mut slot = region(0, 95.0, 45.0);
+    slot.collection = Some("inventory_items".into());
+    let mut overlay = slot.clone();
+    overlay.key = format!("{}/button", slot.key);
+    overlay.focus = None;
+    overlay.order = 1;
+    let targets = targets(std::slice::from_ref(&slot));
+    let hits = [slot, overlay];
+    let mut nav = navigation();
+    sample(&mut nav, &hits, &targets, input(0, NEUTRAL));
+    let mut stick = input(1, NEUTRAL);
+    stick.axes = [1.0, 0.0];
+    assert!(sample(&mut nav, &hits, &targets, stick).selection.is_none());
+}
+
+#[test]
 fn open_requires_release_then_press_is_immediate_and_repeat_has_exact_deadlines() {
     let hits: Vec<_> = (0..5)
         .map(|i| region(i, 10.0 + i as f64 * 20.0, 10.0))

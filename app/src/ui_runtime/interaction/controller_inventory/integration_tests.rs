@@ -229,6 +229,115 @@ fn pointer_hit(presentation: &UiPresentationRuntime, target: InventoryCellHit) -
         .unwrap_or_else(|| panic!("{target:?} has no physical hit point"))
 }
 
+/// Moves the virtual cursor to a rendered cell using only normalized stick input and caller time.
+fn move_stick_to_cell(harness: &mut Harness, target: InventoryCellHit) {
+    let presentation = &harness.app.world().resource::<UiPresentationResource>().0;
+    let physical = pointer_hit(presentation, target);
+    let desired = presentation
+        .inventory_gui_point(
+            UiPoint::new(physical[0], physical[1]).unwrap(),
+            VIEWPORT,
+            1.0,
+        )
+        .unwrap();
+    let bounds = presentation.inventory_gui_bounds(VIEWPORT, 1.0).unwrap();
+    let delta = [
+        f64::from(desired[0]) - bounds.w / 2.0,
+        f64::from(desired[1]) - bounds.h / 2.0,
+    ];
+    let distance = delta[0].hypot(delta[1]);
+    assert!(distance > 0.0);
+    set_pad(harness, &[], (-delta[1] / distance) as f32);
+    harness
+        .app
+        .world_mut()
+        .get_mut::<Gamepad>(harness.pad)
+        .unwrap()
+        .analog_mut()
+        .set(GamepadAxis::LeftStickX, (delta[0] / distance) as f32);
+    harness
+        .app
+        .world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(std::time::Duration::from_secs_f64(
+            distance / SESSION_SETTINGS.cursor_units_per_second,
+        ));
+    harness.app.update();
+    let runtime = harness.app.world().resource::<UiRuntimeResource>();
+    let point = runtime
+        .inventory_pointer_gui()
+        .expect("stick publishes its GUI pointer");
+    assert!(runtime.inventory_controller_cursor_visible());
+    assert_eq!(
+        harness
+            .app
+            .world()
+            .resource::<UiPresentationResource>()
+            .0
+            .engine_container_hit(point),
+        Some(target),
+    );
+    set_pad(harness, &[], 0.0);
+    harness
+        .app
+        .world_mut()
+        .get_mut::<Gamepad>(harness.pad)
+        .unwrap()
+        .analog_mut()
+        .set(GamepadAxis::LeftStickX, 0.0);
+    harness.app.update();
+}
+
+#[test]
+fn stick_cursor_primary_and_quick_transfer_act_on_the_rendered_item_cell() {
+    for button in [GamepadButton::South, GamepadButton::North] {
+        let Some(mut harness) = harness(
+            "stick_cursor_primary_and_quick_transfer_act_on_the_rendered_item_cell",
+            true,
+        ) else {
+            return;
+        };
+        // An empty transfer destination avoids needing the installed item-limit catalog.
+        let mut player = harness.app.world_mut().resource_mut::<PlayerRuntime>();
+        let source = player
+            .inventory
+            .ledger()
+            .displayed_stack(0)
+            .unwrap()
+            .clone();
+        let mut slots = vec![
+            NetworkItemStack::empty();
+            inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT as usize
+        ];
+        slots[0] = source;
+        player
+            .inventory
+            .ledger_mut()
+            .apply(&InventoryEvent::Content(InventoryContentEvent {
+                container: ContainerIdentity::window(0),
+                slots: slots.into(),
+                storage_item: NetworkItemStack::empty(),
+            }));
+        drop(player);
+        update_neutral(&mut harness);
+        move_stick_to_cell(&mut harness, InventoryCellHit::Player(0));
+        let before = request_count(&harness);
+        set_pad(&mut harness, &[button], 0.0);
+        harness.app.update();
+        assert_eq!(
+            request_count(&harness),
+            before + 1,
+            "{button:?} acts on stick selection"
+        );
+        harness.app.update();
+        assert_eq!(
+            request_count(&harness),
+            before + 1,
+            "held {button:?} does not repeat"
+        );
+    }
+}
+
 fn focused_hit(harness: &Harness) -> Option<InventoryCellHit> {
     let presentation = &harness.app.world().resource::<UiPresentationResource>().0;
     let runtime = &harness.app.world().resource::<UiRuntimeResource>();

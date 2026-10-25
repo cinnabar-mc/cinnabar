@@ -139,12 +139,30 @@ impl ControllerSession {
             input.navigation.directions = [false; 4];
             input.navigation.axes = [0.0; 2];
         }
-        let targets = self.targets(
+        let focusable: std::collections::HashSet<_> = frame
+            .hits
+            .iter()
+            .filter(|hit| hit.takes_focus())
+            .map(|hit| hit.key.as_str())
+            .collect();
+        let mut targets = self.targets(
             frame
                 .targets
                 .iter()
+                .filter(|target| focusable.contains(target.key.as_str()))
                 .map(|target| (target.key.clone(), target.hit)),
         );
+        let aliases: Vec<_> = frame
+            .targets
+            .iter()
+            .filter_map(|alias| {
+                let cell = targets.iter().find(|target| target.hit == alias.hit)?;
+                (cell.key != alias.key).then(|| navigation::Target {
+                    key: alias.key.clone(),
+                    ..cell.clone()
+                })
+            })
+            .collect();
         // Preserve authored routing and modal metadata, but do not let controls
         // outside this slice trap directional navigation between ordinary cells.
         let hits: Vec<_> = frame
@@ -160,6 +178,7 @@ impl ControllerSession {
                 hit
             })
             .collect();
+        targets.extend(aliases);
         let mut navigation = self
             .navigation
             .update(

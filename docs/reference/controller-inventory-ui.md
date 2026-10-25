@@ -60,7 +60,12 @@ selections, including layout revision. App routing admits ordinary player,
 storage, equipment, crafting-input and crafting-output cells. Recipe/catalog rows
 and widgets are intentionally excluded rather than assigned positional identities.
 Authored focus metadata and a client-owned cross pointer share the dispatch GUI
-coordinates. Opening, interruptions and controller changes require neutral input;
+coordinates. Nonfocusable item/input regions retain semantic aliases to the same
+cell as its directional focus control, including after stick release. From free
+cursor space between cells, the first D-pad press acquires the closest visible
+cell; subsequent presses follow authored directional rules. This handoff is a
+provisional Cinnabar policy, not a measured native snap/magnet algorithm.
+Opening, interruptions and controller changes require neutral input;
 same-frame UI close retires the captured gameplay sample.
 
 The first routing policy is explicitly provisional: left stick moves the cursor,
