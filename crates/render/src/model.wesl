@@ -758,6 +758,8 @@ sampled_bedrock: vec4<f32>) -> vec4<f32> {
     var base_tint = in.tint_gamma;
     var flags = in.material_flags;
     var world_glow = vec3(0.0);
+    @if(WORLD_MATERIAL_SCENE)
+    { world_material_set_fragment(in.clip_position.xy, view.clip_from_view[3][2] / max(in.clip_position.z, 1.0e-9)); }
     // A programmable world material replaces the tinted Bedrock colour before the host's
     // lightmap, face shade and fog; its emission adds after lighting like a glow mask.
     @if(WORLD_MATERIAL)

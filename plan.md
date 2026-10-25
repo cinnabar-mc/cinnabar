@@ -178,8 +178,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   in), developer-only and charged to the bundle's limits; withdrawing one drops its effects in
   one publication. Implemented: the contract, validation of each effect's functions and ranges,
   publication, charges and withdrawal (developer-control `experience_permission`), and vertex
-  displacement on bound entities and cube and model blocks with grown culling bounds.
-  Incomplete: scene read, the extra passes and compute are not drawn yet, there is no in-game
+  displacement on bound entities and cube and model blocks with grown culling bounds, and scene
+  read for blended entity and block materials from a per-view copy of the opaque colour and
+  linear depth. Incomplete: the extra passes and compute are not drawn yet, there is no in-game
   withdrawal control, and every range and charge is provisional.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.

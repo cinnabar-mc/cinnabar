@@ -4,6 +4,7 @@
 //! block cluster, so volumetric effects are checked from real viewpoints.
 
 mod blocks;
+mod effects;
 mod flat;
 mod mobs;
 mod scene;

@@ -321,6 +321,13 @@ impl WorldMaterialGpu {
         !self.entries.is_empty()
     }
 
+    /// Whether any published material reads the scene, so views copy theirs.
+    pub(crate) fn reads_scene(&self) -> bool {
+        self.entries
+            .values()
+            .any(|entry| entry.variant.features.scene)
+    }
+
     /// The variant of the material in `slot`.
     pub(crate) fn variant(&self, slot: u16) -> Option<WorldVariant> {
         self.slot(slot).map(|(variant, _)| variant)
@@ -529,14 +536,35 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
     if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
         render_app
             .init_resource::<WorldMaterialGpu>()
+            .init_resource::<scene::WorldSceneCopies>()
             .insert_resource(failures)
             .insert_resource(carried)
             .add_systems(
                 bevy::render::Render,
-                prepare.in_set(bevy::render::RenderSystems::PrepareResources),
+                (
+                    prepare.in_set(bevy::render::RenderSystems::PrepareResources),
+                    scene::prepare
+                        .in_set(bevy::render::RenderSystems::PrepareBindGroups)
+                        .after(bevy::render::view::prepare_view_targets),
+                ),
             );
+        let _ = render_app.world_mut().try_schedule_scope(
+            bevy::core_pipeline::Core3d,
+            |_, schedule| {
+                schedule.add_systems(
+                    scene::copy_scene
+                        .after(crate::scene_target::ScenePass::Opaque)
+                        .after(crate::entity_shadow_render::EntityShadowLabel)
+                        .after(crate::chunk::GpuCullLateLabel)
+                        .before(crate::scene_target::ScenePass::Transparent)
+                        .in_set(bevy::core_pipeline::Core3dSystems::MainPass),
+                );
+            },
+        );
     }
 }
+
+pub(crate) mod scene;
 
 #[cfg(test)]
 mod tests {
@@ -763,6 +791,54 @@ fn displace(input: WorldVertexInput) -> vec3<f32> { return input.normal * input.
                 &crate::material_shader::source(&format!("{source}\n{terrain_library}")),
                 &defs,
             );
+        }
+        // A material reading the scene composes in every translucent module.
+        let scene_reader = mod_render::world_material::compose_with(
+            "fn shade(input: WorldMaterialInput) -> Surface {
+    let soft = clamp(scene_depth(vec2<f32>(0.0)) - fragment_depth(), 0.0, 1.0);
+    return Surface(scene_color(input.normal.xy * 3.0), soft, vec3<f32>(0.0));
+}",
+            0,
+            abi::Features {
+                scene: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let scene_defs = [
+            "WORLD_MATERIAL",
+            "WORLD_MATERIAL_PREMULTIPLY",
+            "WORLD_MATERIAL_SCENE",
+        ];
+        crate::shader_source::composed(
+            &format!(
+                "{}\n{}",
+                include_str!("actor.wesl")
+                    .replace(
+                        "ACTOR_GPU_INSTANCE_WORDS",
+                        &format!("{}u", render_model::ACTOR_GPU_INSTANCE_WORDS),
+                    )
+                    .replace(
+                        "ACTOR_RIG_VERTEX_WORDS",
+                        &format!("{}u", render_model::ACTOR_RIG_VERTEX_WORDS),
+                    ),
+                scene_reader.library(crate::actor_render::world_materials::WORLD_MATERIAL_GROUP)
+            ),
+            &scene_defs,
+        );
+        let terrain_scene =
+            scene_reader.library(crate::chunk::world_materials::WORLD_MATERIAL_GROUP);
+        for source in [include_str!("chunk.wesl"), include_str!("model.wesl")] {
+            for gamma in [false, true] {
+                let mut defs = scene_defs.to_vec();
+                if gamma {
+                    defs.push("NATIVE_GAMMA_BLEND");
+                }
+                crate::shader_source::composed(
+                    &crate::material_shader::source(&format!("{source}\n{terrain_scene}")),
+                    &defs,
+                );
+            }
         }
         // The Bedrock fallback passes compose without any library.
         for source in [include_str!("chunk.wesl"), include_str!("model.wesl")] {

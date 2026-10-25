@@ -119,6 +119,11 @@ impl Specializer<RenderPipeline> for WorldTerrainSpecializer {
         }
         descriptor.label = Some("world material terrain pipeline".into());
         descriptor.layout.push(key.world.layout());
+        if key.world.features.scene {
+            descriptor
+                .layout
+                .push(crate::world_material::scene::scene_layout());
+        }
         descriptor.vertex.shader_defs.extend(key.world.defs());
         let fragment = descriptor.fragment.as_mut().expect("terrain colour");
         fragment.shader_defs.extend(key.world.defs());

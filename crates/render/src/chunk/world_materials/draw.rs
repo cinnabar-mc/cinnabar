@@ -161,7 +161,7 @@ pub(in crate::chunk) fn split_classes(
 /// Whether `world` has a compiled pipeline of both geometries for every material in `mask`.
 fn ready_mask(
     mask: u64,
-    world: &WorldMaterialGpu,
+    (world, scene): (&WorldMaterialGpu, Option<&BindGroup>),
     pipeline: &ChunkPipeline,
     cache: &PipelineCache,
     base: ChunkPipelineKey,
@@ -169,26 +169,41 @@ fn ready_mask(
     slots(mask).all(|slot| {
         [Geometry::Cube, Geometry::Model]
             .into_iter()
-            .all(|geometry| ready(slot, world, pipeline, cache, base, geometry).is_some())
+            .all(|geometry| ready(slot, (world, scene), pipeline, cache, base, geometry).is_some())
     })
 }
 
-/// The compiled pipeline and bind group of `slot`'s material for `geometry`, once both exist.
+/// A ready world material draw: its pipeline, its material group, the view's scene group
+/// when it reads the scene, and its variant.
+pub(in crate::chunk) type Ready<'w> = (
+    &'w RenderPipeline,
+    &'w BindGroup,
+    Option<&'w BindGroup>,
+    WorldVariant,
+);
+
+/// The compiled pipeline and bind groups of `slot`'s material for `geometry`, once they all
+/// exist; `scene` is the view's scene group, which a material reading the scene needs.
 pub(in crate::chunk) fn ready<'w>(
     slot: u16,
-    world: &'w WorldMaterialGpu,
+    (world, scene): (&'w WorldMaterialGpu, Option<&'w BindGroup>),
     pipeline: &ChunkPipeline,
     cache: &'w PipelineCache,
     base: ChunkPipelineKey,
     geometry: Geometry,
-) -> Option<(&'w RenderPipeline, &'w BindGroup, WorldVariant)> {
+) -> Option<Ready<'w>> {
     let (variant, group) = world.slot(slot)?;
+    let scene = if variant.features.scene {
+        Some(scene?)
+    } else {
+        None
+    };
     let id = *pipeline.world_ids.get(&WorldTerrainKey {
         base,
         world: variant,
         geometry,
     })?;
-    Some((cache.get_render_pipeline(id)?, group, variant))
+    Some((cache.get_render_pipeline(id)?, group, scene, variant))
 }
 
 /// The sections whose mesh changed since the queue last ran, and those that went away.
@@ -216,6 +231,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
         Option<Res<render_scene::world_material::WorldMaterialFailures>>,
         Option<Res<render_scene::world_material::WorldMaterialCarried>>,
     ),
+    scenes: Option<Res<crate::world_material::scene::WorldSceneCopies>>,
 ) {
     let sections = &mut *sections;
     sections.views.clear();
@@ -322,9 +338,14 @@ pub(in crate::chunk) fn queue_world_material_chunks(
                 BinnedRenderPhaseType::NonMesh,
             );
         }
+        // Readiness counts the view's scene group, which the opaque pass's own materials never
+        // read, so both passes agree on which sections draw their materials.
+        let scene = scenes
+            .as_deref()
+            .and_then(|scenes| scenes.group(view_entity));
         let plan = plan_view(
             draws,
-            |mask| ready_mask(mask, &world, pipeline, &pipeline_cache, base),
+            |mask| ready_mask(mask, (&world, scene), pipeline, &pipeline_cache, base),
             |slot| world.variant(slot).map(|variant| variant.blend),
         );
         if !plan.translucent.is_empty() {
@@ -463,8 +484,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWorldMaterialTerrain {
             world.variant(slot).map(|variant| variant.blend)
         });
         for slot in slots(opaque) {
-            let geometry = |geometry| ready(slot, world, pipeline, cache, base, geometry);
-            let (Some((cube, group, _)), Some((model, _, _))) =
+            let geometry = |geometry| ready(slot, (world, None), pipeline, cache, base, geometry);
+            let (Some((cube, group, _, _)), Some((model, _, _, _))) =
                 (geometry(Geometry::Cube), geometry(Geometry::Model))
             else {
                 continue;

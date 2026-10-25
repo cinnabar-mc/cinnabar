@@ -242,6 +242,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         SRes<PipelineCache>,
         crate::shaderpack::native_actors::NativeActorCoverage<'static>,
         Option<SRes<crate::world_material::WorldMaterialGpu>>,
+        Option<SRes<crate::world_material::scene::WorldSceneCopies>>,
     );
     type ViewQuery = (
         Entity,
@@ -260,8 +261,9 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let (gpu, tracker, witness, pipeline, cache, coverage, world) = params;
+        let (gpu, tracker, witness, pipeline, cache, coverage, world, scenes) = params;
         let world = world.map(|world| world.into_inner());
+        let scenes = scenes.map(|scenes| scenes.into_inner());
         let gpu = gpu.into_inner();
         if gpu.instance_count == 0 {
             return RenderCommandResult::Skip;
@@ -319,22 +321,36 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
                 material: span.material,
                 raster: span.raster,
             };
+            // A material reading the scene also needs this view's scene copy.
             let guest = render_model::actor::frame::actor_world_material(span.material)
                 .and_then(|slot| world?.slot(slot))
                 .and_then(|(variant, group)| {
+                    let scene = if variant.features.scene {
+                        Some(scenes?.group(view.0)?)
+                    } else {
+                        None
+                    };
                     let key = super::world_materials::WorldActorKey::new(key, variant);
                     Some((
                         cache.get_render_pipeline(pipeline.world_variant(key)?)?,
                         group,
+                        scene,
                     ))
                 });
-            if let Some((variant, group)) = guest {
+            if let Some((variant, group, scene)) = guest {
                 pass.set_render_pipeline(variant);
                 pass.set_bind_group(
                     super::world_materials::WORLD_MATERIAL_GROUP as usize,
                     group,
                     &[],
                 );
+                if let Some(scene) = scene {
+                    pass.set_bind_group(
+                        super::world_materials::WORLD_MATERIAL_GROUP as usize + 1,
+                        scene,
+                        &[],
+                    );
+                }
             } else {
                 let Some(id) = pipeline.draw_variant(
                     key.msaa,

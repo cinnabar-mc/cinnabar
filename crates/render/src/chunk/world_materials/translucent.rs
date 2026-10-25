@@ -152,6 +152,7 @@ impl RenderCommand<Transparent3d> for DrawInterleavedTerrain {
         Option<SRes<WorldMaterialGpu>>,
         SRes<ChunkPipeline>,
         SRes<TransparentModelSortRuntime>,
+        Option<SRes<crate::world_material::scene::WorldSceneCopies>>,
     );
     type ViewQuery = (
         Entity,
@@ -165,7 +166,11 @@ impl RenderCommand<Transparent3d> for DrawInterleavedTerrain {
         item: &Transparent3d,
         (view_entity, view_offset, msaa, camera): ROQueryItem<'w, '_, Self::ViewQuery>,
         allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (arena, cache, interleaved, world, pipeline, models): SystemParamItem<'w, '_, Self::Param>,
+        (arena, cache, interleaved, world, pipeline, models, scenes): SystemParamItem<
+            'w,
+            '_,
+            Self::Param,
+        >,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let (arena, cache, interleaved, pipeline) = (
@@ -174,6 +179,7 @@ impl RenderCommand<Transparent3d> for DrawInterleavedTerrain {
             interleaved.into_inner(),
             pipeline.into_inner(),
         );
+        let scene = scenes.and_then(|scenes| scenes.into_inner().group(view_entity));
         let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = item.extra_index() else {
             return RenderCommandResult::Skip;
         };
@@ -245,8 +251,8 @@ impl RenderCommand<Transparent3d> for DrawInterleavedTerrain {
                         WorldList::Cube => Geometry::Cube,
                         WorldList::Model | WorldList::TransparentModel => Geometry::Model,
                     };
-                    let Some((world_pipeline, material_group, _)) =
-                        ready(slot, world, pipeline, cache, base, geometry)
+                    let Some((world_pipeline, material_group, scene_group, _)) =
+                        ready(slot, (world, scene), pipeline, cache, base, geometry)
                     else {
                         continue;
                     };
@@ -287,6 +293,9 @@ impl RenderCommand<Transparent3d> for DrawInterleavedTerrain {
                     pass.set_render_pipeline(world_pipeline);
                     pass.set_bind_group(0, world_group, &[view_offset.offset]);
                     pass.set_bind_group(WORLD_MATERIAL_GROUP as usize, material_group, &[]);
+                    if let Some(scene_group) = scene_group {
+                        pass.set_bind_group(WORLD_MATERIAL_GROUP as usize + 1, scene_group, &[]);
+                    }
                     pass.set_index_buffer(buffer.slice(..), IndexFormat::Uint32);
                     pass.draw_indexed(indices, base_vertex, instances);
                 }
