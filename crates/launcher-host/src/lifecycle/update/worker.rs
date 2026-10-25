@@ -108,6 +108,7 @@ pub(super) fn start(force: bool) {
         }
         state.running = true;
         state.status = Status::Checking;
+        state.download = None;
         let check_now = std::mem::take(&mut state.check_now);
         let manual = std::mem::take(&mut state.manual_check);
         let mode = if manual {
@@ -369,6 +370,7 @@ fn run(
         if let Ok(mut state) = STATE.lock()
             && state.generation == generation
         {
+            state.target = Some(update_manifest::build::Build::from(&selected.manifest));
             set_switch_offer(&mut state, switch_available);
         }
         if !switch_now
@@ -403,8 +405,8 @@ fn run(
         let directory = if let Some(directory) = reused {
             directory
         } else {
-            set_status(generation, Status::Downloading);
             let mut download = Download::begin(&root, selected)?;
+            download_progress(generation, download.offset(), artifact.size as u64);
             let offset = download.offset();
             // Retain only the current partial transfer. A channel change can restart another digest safely.
             for entry in fs::read_dir(&root)? {
@@ -450,6 +452,7 @@ fn run(
                     );
                     if offset != 0 {
                         download.restart()?;
+                        download_progress(generation, download.offset(), artifact.size as u64);
                     }
                 }
                 if let Some(length) = response.content_length() {
@@ -461,9 +464,11 @@ fn run(
                 while let Some(chunk) = response.chunk().await? {
                     ensure!(active(generation), "update check cancelled");
                     download.write(&chunk)?;
+                    download_progress(generation, download.offset(), artifact.size as u64);
                 }
             }
             ensure!(active(generation), "update check cancelled");
+            set_status(generation, Status::Verifying);
             download.finish(&destination)?
         };
         ensure!(
@@ -496,6 +501,13 @@ fn set_status(generation: u64, status: Status) {
     }
 }
 
+/// Relays actual resumed and received bytes without allowing cancelled workers to change the view.
+fn download_progress(generation: u64, received: u64, total: u64) {
+    if let Ok(mut state) = STATE.lock() {
+        state.download_progress(generation, received, total);
+    }
+}
+
 /// Revalidates the offered files themselves, independently of the replaceable shared cache.
 pub(super) fn retained_manifest(
     ready: Option<&Ready>,
@@ -508,7 +520,7 @@ pub(super) fn retained_manifest(
         &ready.stage,
         keys,
         Check {
-            switch_now: ready.switch_now,
+            switch_now: ready.switch_from.is_some(),
             ..check
         },
         now,
@@ -603,7 +615,7 @@ pub(super) fn set_switch_offer(state: &mut State, available: bool) {
 pub(super) fn offer_switch(state: &mut State) {
     state.switch_available = true;
     state.message = Some(
-        "This channel has an older version. Wait for its next release, or choose Switch now."
+        "The selected release is older. Choose whether to install it now or wait for a newer release."
             .into(),
     );
 }
@@ -625,7 +637,7 @@ fn publish(
         check.current_build,
     )
     .unwrap_or(false);
-    let writable = newer
+    let writable = (newer || check.switch_now)
         && verified
         && target
             .clone()
@@ -633,7 +645,12 @@ fn publish(
             .and_then(|target| update_installer::target::access(&target))
             .is_ok_and(update_installer::target::Access::permits_update);
     if let Ok(mut state) = STATE.lock() {
-        let mut ready = Ready::new(stage, reader, selected, check.switch_now, writable);
+        let switch_from = check.switch_now.then(|| update_manifest::build::Build {
+            version: check.current.into(),
+            number: check.current_build,
+            channel: None,
+        });
+        let mut ready = Ready::new(stage, reader, selected, switch_from, writable);
         ready.target = target;
         state.offer(ready, generation);
         if !verified && state.accepts_worker(generation) {

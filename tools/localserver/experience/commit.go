@@ -46,6 +46,10 @@ func (messageTeller) tell(p world.Entity, text string) {
 // Once the result has applied, its client messages go out to the actor's client part.
 // Cancellation returns an error only when the transaction did not run.
 func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) error {
+	// Historical removals retain the same private-state authority as final leaves.
+	if context := snap.req.Info.Context; context != nil && context.OpeningClosed {
+		return h.commitLeave(d.id, ev, snap, ops)
+	}
 	if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
 		err := h.commitLeave(d.id, ev, snap, ops)
 		if err != nil {
@@ -107,6 +111,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		return nil, err
 	}
 	if err := slotsCurrent(actor, snap, plan.slots); err != nil {
+		return nil, err
+	}
+	if err := h.validateEntities(tx, exp, ev, snap, actor, ops); err != nil {
 		return nil, err
 	}
 	h.simulation.mu.Lock()
@@ -185,6 +192,7 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	if timers != nil {
 		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
 	}
+	h.applyEntities(tx, exp, ev, actor, ops)
 	var sends []*SendClientOp
 	for _, op := range ops {
 		switch {
@@ -346,6 +354,8 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 	tells, sends := 0, 0
 	for i, op := range ops {
 		switch {
+		case op.Entity != nil:
+			// Checked against the live world transaction before any mutation.
 		case op.Schedule != nil || op.CancelSchedule != nil:
 			// Checked together under the simulation lock before any mutation.
 		case op.World != nil:

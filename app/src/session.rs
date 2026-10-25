@@ -322,14 +322,22 @@ impl SessionResources<'_> {
     /// Ends the live session and fences a fresh generation. The core stops off
     /// the frame, and its directories go only once it has exited.
     fn retire(&mut self) -> u64 {
-        *self.network = NetworkHandle::<PackApplication>::disconnected();
+        let leave = bridge::leave_profile::LeaveProfile::current();
+        let _section = leave.section("session_retire");
+        let _span = bevy::log::info_span!("session.retire").entered();
+        {
+            let _section = leave.section("network_detach");
+            self.network.retire();
+        }
         let controller = &mut *self.controller;
         let directory = controller.directory.take();
         let join = controller.join.take();
         controller.pending = None;
-        controller
-            .core
-            .stop_detached(move || drop((join, directory)));
+        let core = leave.section("core_shutdown");
+        controller.core.stop_detached(move || {
+            let _core = core;
+            drop((join, directory));
+        });
         controller.connecting = false;
         controller.presence = None;
         controller.destination_identity = None;
@@ -339,9 +347,14 @@ impl SessionResources<'_> {
             self.far_terrain.as_mut(),
             self.state.client_world.stream.as_mut(),
         ) {
+            let _section = leave.section("far_terrain");
+            let _span = bevy::log::info_span!("session.retire_far_terrain").entered();
             far.retire_stream(stream);
         }
-        self.restore_startup_artwork();
+        {
+            let _section = leave.section("artwork_reset");
+            self.restore_startup_artwork();
+        }
         self.state.retire(generation);
         generation
     }
@@ -711,6 +724,11 @@ fn drive_intents(
         return;
     }
     if menu.take_disconnect_request() {
+        let leave = bridge::leave_profile::LeaveProfile::pending_presentation();
+        let _binding = leave.enter();
+        let _span = bevy::log::info_span!("session.leave").entered();
+        let _section = leave.section("transition");
+        leave.mark("session_stop_request");
         bridge::join_profile::JoinProfile::current().finish("cancelled");
         // Loading and pause screens retain the Play page that opened the session.
         let cancelled_join = menu.is_connecting();
@@ -722,6 +740,7 @@ fn drive_intents(
         } else {
             menu.show_after_disconnect();
         }
+        leave.menu_ready();
         return;
     }
     if menu.is_connecting() && session.state.client_world.stream.is_some() {

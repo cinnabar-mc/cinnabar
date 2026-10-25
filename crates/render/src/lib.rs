@@ -122,6 +122,7 @@ mod surface_capabilities;
 mod surface_lifecycle;
 mod transparent_phase;
 mod ui_render;
+pub use ui_render::presentation::UiFrameContent;
 #[cfg(all(test, target_os = "macos"))]
 mod upload_allocation_tests;
 mod upload_staging;

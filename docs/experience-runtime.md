@@ -45,6 +45,8 @@ entry point owns registration and registry replies; low-level guests can use
 | Callback | When and scope |
 | --- | --- |
 | `registration` / `register` | Startup; declares blocks and items, or plain cubes only |
+| `entity_definitions` | Startup; immutable actor identities, appearances, seats and properties |
+| `on_entity` | Ordered interactions, attacks, seat changes, steering and despawn observations |
 | `world_definitions` | Startup; immutable world definitions and optional startup instances |
 | `on_player` | Ordered join, leave, world-change and sampled move observations |
 | `on_place` | After player placement of an owned block |
@@ -104,7 +106,7 @@ unavailable. Commit checks members and boundary changes.
 
 Server WIT 0.8 adds world definitions, player observations and scoped state.
 The SDK defaults the new exports to empty/no-op implementations. Rebuilt guests
-must declare the current server API (`api = "0.10"`); existing 0.1–0.6, 0.8 and 0.9
+must declare the current server API (`api = "0.11"`); existing 0.1–0.6, 0.8, 0.9 and 0.10
 artifacts retain their frozen ABIs.
 
 | Type or operation | Contract |
@@ -215,6 +217,50 @@ stack limits and offhand eligibility come from the adapter's item catalog.
 Own-item data persists with the stack and reaches clients; decode it as untrusted.
 Private block data does not enter chunk NBT.
 
+## Entities and seats
+
+Server WIT 0.11 adds registered entities in the mod's namespace. Definitions select
+an existing built-in appearance or indexed geometry, PNG and render-controller assets.
+The host validates resources before freezing its world registry and resource packs;
+helper restarts must return the same declarations.
+Collision boxes must be centered squares at the feet, with width and height that
+fit positive packet floats. Offset or rectangular boxes are refused at registration.
+Cinnabar resolves a built-in appearance from the actor's admitted constructor when
+its custom identity has no authored artwork, including server-pack overrides of that
+built-in appearance. Authored custom artwork takes priority.
+
+| Operation | Contract |
+| --- | --- |
+| `entities` | This mod's live actors in the current instance, including staged writes |
+| `spawn_entity` | Reserves a generation-bearing identity; unavailable during final leave |
+| `update_entity` | Stages position, rotation, velocity, label, scale, variant and declared properties; teleport selects immediate movement |
+| `despawn_entity` | Removes an owned actor and its occupied seats |
+| `mount_entity`, `dismount_entity` | Current live player only; occupied/invalid seats and boarding while riding another vehicle are refused |
+| `on_entity` | Interaction/attack hand and held item, rider changes, input and removal; player/world epoch fences still apply |
+
+Velocity supplies interpolation in blocks per tick; guest code owns movement rather
+than a second physics simulation. Teleports retain the requested velocity. Spawn
+identities retain their ordinal across coalesced block writes. Actors keep their
+current chunk resident and retain the prior owning chunk until membership migrates
+on the next framework tick. Deferred world tasks retry missing destinations even before
+that entity can tick; despawn cancels pending retries. Actors and seats are process-local: unload and shutdown
+release them and their chunk leases, and terrain saves exclude them. Player travel
+leaves actors in their original world and dismounts departing riders.
+Removal callbacks retain live entity snapshots while their world opening exists.
+After unload, they retain only the historical opening and private stores.
+Their private writes still check scope and revisions; entity spawns and world
+operations are unavailable in that historical callback.
+
+Seat offsets are relative to the actor. At most one seat steers; input supplies
+movement intent, look angles, jump and sneak rather than client vehicle coordinates.
+Sneaking dismounts. Late viewers receive links after both actors are introduced.
+Removal callbacks retain the removed opening after unload without live actor access.
+Operations share `MAX_STAGED_OPS` and `MAX_HOST_CALLS`; registration and snapshots use
+`MAX_ENTITY_TYPES`, `MAX_ENTITY_SEATS`, `MAX_ENTITY_PROPERTIES` and `MAX_ENTITIES`.
+These are mod execution limits. Mixed-client rendering and live riding acceptance
+remain incomplete. The probe's x=34 and x=35 counters create and enter its entity
+instance; interact with the ship to board and sneak to dismount.
+
 ## Budgets and limits
 
 Use the constants below rather than treating a denied operation as success.
@@ -275,7 +321,7 @@ add a `blocks` map of each recorded Experience to its original block IDs.
 
 Server stdin accepts `pause`, `resume`, `experience reload <id>` and `stop`.
 Pause holds dispatch and commits. Reload clears strikes, restarts and quarantine,
-but must preserve ID, registered blocks/items in order and world declarations;
+but must preserve ID, registered blocks/items in order, entity schemas and world declarations;
 code and version may change. A failed reload leaves the Experience quarantined.
 
 Guest traps, budget failures and protocol violations count as strikes; guest
@@ -292,7 +338,7 @@ before closing the server or worlds.
 
 | Axis | Current contract |
 | --- | --- |
-| Server WIT | 0.10; frozen 0.1–0.6, 0.8 and 0.9 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
+| Server WIT | 0.11; frozen 0.1–0.6, 0.8, 0.9 and 0.10 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
 | Adapter IPC | 10, `PROTOCOL_VERSION` in [protocol.rs](../crates/experience-runtime/src/protocol.rs); exact match required |
 | Manifest data schema | `DATA_SCHEMA` in [artifact.rs](../crates/experience-sdk/src/artifact.rs) |
 | Client WIT/wire | [Client compatibility](server-experiences.md#versions-and-wire); [shared drawing](server-experiences.md#drawing-and-signed-assets) |
@@ -301,7 +347,7 @@ Server 0.1 has no client messages; 0.2 adds scalar messages; 0.3 adds nested rec
 and epochs; 0.4 adds focus; 0.5 adds block states/visuals, items, inventories and
 networks; 0.6 adds recipes and scheduled updates; 0.8 adds worlds, player events
 and scoped state; 0.9 adds ticks and timers; 0.10 adds cell overlays and the click position of
-an interaction. Unsupported callbacks are rejected.
+an interaction; 0.11 adds entities and seats. Unsupported callbacks are rejected.
 
 A host runs one `experience-runtime serve` helper per artifact over private stdio.
 Frames are a little-endian u32 JSON length followed by JSON, bounded by

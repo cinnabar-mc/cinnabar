@@ -2805,6 +2805,7 @@ dependencies = [
  "ui",
  "ui-engine",
  "ui-screens",
+ "update-manifest",
  "url",
  "uuid",
  "wasm-bindgen",
@@ -6762,6 +6763,7 @@ dependencies = [
  "tracing",
  "ui",
  "ui-engine",
+ "update-manifest",
 ]
 
 [[package]]
@@ -9377,6 +9379,7 @@ dependencies = [
  "ui",
  "ui-engine",
  "ui-screens",
+ "update-manifest",
 ]
 
 [[package]]
