@@ -397,11 +397,14 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
+	t.Parallel()
 	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "cancel_unload", "metadata_interrupt", "crash_reopen", "tick", "timer", "cancel_timer", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {
 				t.Run(pair[0]+"/"+pair[1], func(t *testing.T) {
+					// Each pair owns its fixture; the matrix exceeds the package timeout serially.
+					t.Parallel()
 					m := newLifecycleMatrix(t)
 					old, _ := m.f.request()
 					m.step(pair[0])

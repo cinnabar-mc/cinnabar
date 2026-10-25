@@ -42,6 +42,8 @@ pub struct ActorTickContext {
     /// A known first appearance is still awaiting its immutable model preparation.
     pub appearance_pending: bool,
     pub is_riding: bool,
+    /// A locked seat's facing in degrees; the rider's body faces along it.
+    pub seat_facing: Option<f32>,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub main_hand: Option<Arc<str>>,
     pub off_hand: Option<Arc<str>>,
@@ -73,6 +75,8 @@ pub struct ActorTickContext {
     pub main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
     /// The selected item declares the native spear animation tag.
     pub main_hand_is_spear: bool,
+    /// The main-hand item's use animation: its declared component, else its native one.
+    pub main_hand_use_animation: Option<assets::facts::ItemUseAnimationFact>,
     /// Selected melee component swing duration, in seconds.
     pub main_hand_swing_seconds: Option<f32>,
     /// Namespaced identifier of the actor being ridden.
@@ -183,6 +187,9 @@ pub(super) fn advance_motion(
     // Boats are not mobs: they face their own rotation without body-turn lag.
     if super::boat::is_boat(actor) {
         motion.body_yaw = actor.yaw();
+    }
+    if let Some(facing) = context.seat_facing {
+        motion.body_yaw = facing;
     }
     let baby_scale = if query::actor_flag(actor, ActorFlag::Baby.wire_value()) {
         BABY_MOVE_SPEED_SCALE
@@ -831,6 +838,9 @@ pub(super) fn apply_engine_variables(
         truth(!query::wearing_elytra(context)),
     );
     variables.set(engine.is_blocking, flag(ActorFlag::Blocking.wire_value()));
+    let (brandishing, charge) = super::brandish::brandish_spear(actor, context, input);
+    variables.set(engine.is_brandishing_spear, truth(brandishing));
+    variables.set(engine.charge_amount, charge);
     variables.set(
         engine.damage_nearby_mobs,
         flag(ActorFlag::DamageNearbyMobs.wire_value()),

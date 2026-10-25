@@ -124,6 +124,7 @@ fn actor_use_occlusion_ignores_the_cached_double_distance() {
         runtime_id: 7,
         distance: 10.0,
         identity: sim::CollisionQuery::synthetic(()).identity,
+        overlay: None,
     };
     let actor = Some(ActorHit {
         runtime_id: 1,
@@ -151,6 +152,7 @@ fn block_occlusion_uses_the_intercept_outside_the_block_cell() {
         runtime_id: 7,
         distance: 1.5,
         identity: sim::CollisionQuery::synthetic(()).identity,
+        overlay: None,
     };
     let actor = Some(ActorHit {
         runtime_id: 1,

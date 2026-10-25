@@ -79,6 +79,15 @@ pub struct ActorFrameInput {
     pub remote_emotes: Vec<RemoteEmote>,
 }
 
+impl ActorFrameInput {
+    /// Applies the local visibility preference before attachments and ground effects are sampled.
+    fn apply_cosmetic_visibility(&mut self, show_other_players: bool) {
+        if !show_other_players {
+            self.remote_hats.clear();
+        }
+    }
+}
+
 /// Render-only remote playback bound to one spawned actor, preventing runtime-ID reuse.
 #[derive(Clone, Copy, Debug)]
 pub struct RemoteEmote {
@@ -160,7 +169,7 @@ pub fn prepare_actor_render_frame(
     mut params: ActorFramePublication,
 ) {
     let state = &mut *params.state;
-    let Some(input) = state.input.take() else {
+    let Some(mut input) = state.input.take() else {
         if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
             placements.0.clear();
         }
@@ -169,6 +178,13 @@ pub fn prepare_actor_render_frame(
         }
         return;
     };
+    input.apply_cosmetic_visibility(
+        params
+            .presentation
+            .settings
+            .feel()
+            .show_other_player_cosmetics,
+    );
     let step = state
         .step
         .expect("actor preparation precedes final rendering");
@@ -524,6 +540,9 @@ mod culling_capacity_tests;
 
 #[cfg(test)]
 mod xp_orb_tests;
+
+#[cfg(test)]
+mod vehicle_motion_tests;
 
 #[cfg(test)]
 mod billboard_frame_tests;

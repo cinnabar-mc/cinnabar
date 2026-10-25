@@ -38,7 +38,8 @@ impl Actions for Screen {
 pub(super) enum ChildOutcome {
     Prepared,
     Quit,
-    Failed(i32),
+    /// The process ended without choosing an outcome: a panic, a native fault or a signal.
+    Crashed(Option<i32>),
     Unavailable,
 }
 
@@ -58,8 +59,7 @@ fn outcome(code: Option<i32>) -> ChildOutcome {
         Some(0) => ChildOutcome::Prepared,
         Some(EXIT_QUIT) => ChildOutcome::Quit,
         Some(EXIT_UNAVAILABLE) => ChildOutcome::Unavailable,
-        Some(code) => ChildOutcome::Failed(code),
-        None => ChildOutcome::Failed(-1),
+        code => ChildOutcome::Crashed(code),
     }
 }
 
@@ -106,8 +106,8 @@ mod tests {
         assert_eq!(outcome(Some(0)), ChildOutcome::Prepared);
         assert_eq!(outcome(Some(EXIT_QUIT)), ChildOutcome::Quit);
         assert_eq!(outcome(Some(EXIT_UNAVAILABLE)), ChildOutcome::Unavailable);
-        assert_eq!(outcome(Some(101)), ChildOutcome::Failed(101));
-        assert_eq!(outcome(None), ChildOutcome::Failed(-1));
+        assert_eq!(outcome(Some(101)), ChildOutcome::Crashed(Some(101)));
+        assert_eq!(outcome(None), ChildOutcome::Crashed(None));
     }
 
     /// The real setup screens drive the shared input state machine: focus wraps over Consent,

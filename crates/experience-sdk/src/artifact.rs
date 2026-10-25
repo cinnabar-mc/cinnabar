@@ -1,7 +1,10 @@
 //! Stable layout shared by the server artifact writer and runtime loader.
 
-/// The server artifact's generated manifest.
+/// The server artifact's manifest: its identity and the client part's declarations.
 pub const MANIFEST_FILE: &str = "experience.toml";
+/// The server artifact's generated index: every other file's `/`-separated path, mapped to its
+/// lowercase hex SHA-256.
+pub const INDEX_FILE: &str = "files.toml";
 /// The server guest's core WebAssembly module.
 pub const SERVER_WASM: &str = "server.wasm";
 /// Assets named by server registration are relative to this directory.

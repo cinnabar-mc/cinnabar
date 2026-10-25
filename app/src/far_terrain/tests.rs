@@ -201,6 +201,7 @@ fn exit_writes_retiring_summaries() {
         .add_systems(Last, finish_far_terrain_on_exit);
     app.world_mut().write_message(AppExit::Success);
     app.update();
+    drop(app);
 
     let mut reader = FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 0);
     join(&mut reader, now);
@@ -339,6 +340,7 @@ fn shutdown_progresses_all_retiring_inboxes_before_waiting() {
     );
     far.cache.leave_world();
     far.cache.sync();
+    drop(far);
 
     let mut reader = FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 0);
     join_world(&mut reader, SERVER, 0, now);

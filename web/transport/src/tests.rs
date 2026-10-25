@@ -132,6 +132,13 @@ async fn shared_control_fixtures_cover_both_channel_prefixes_and_events() {
     let contract: Value =
         serde_json::from_str(include_str!("../../../crates/bridge/data/contract.json")).unwrap();
     let fixtures = contract["relay"]["fixtures"].as_array().unwrap();
+    for fixture in fixtures
+        .iter()
+        .filter(|value| value.get("user_agent").is_some())
+    {
+        let hello: crate::control::Hello = serde_json::from_value(fixture.clone()).unwrap();
+        assert_eq!(serde_json::to_value(hello).unwrap(), *fixture);
+    }
     let welcome = fixtures
         .iter()
         .find(|fixture| fixture["type"] == RELAY_EVENT_WELCOME)

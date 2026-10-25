@@ -30,6 +30,7 @@ mod player_list_tests;
 mod service;
 mod sub_chunk_requests;
 mod terrain_generation;
+pub(crate) mod vehicle_look;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 pub(crate) use sub_chunk_requests::sub_chunk_request_center;
@@ -503,9 +504,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 player_runtime
                     .facts
                     .clear_actor_movement_authority(clock.session_generation());
-            }
-            if let Some(item_use) = item_use.as_deref_mut() {
-                item_use.adopt_server_using_item(flags.using_item);
             }
             let previous = player_runtime.facts.is_immobile();
             player_runtime

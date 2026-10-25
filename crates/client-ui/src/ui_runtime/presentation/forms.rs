@@ -37,6 +37,7 @@ pub(super) mod menu_caret;
 pub mod menu_latency;
 mod menu_title;
 pub mod menus;
+pub mod mob_effect_screen;
 mod mod_surfaces;
 pub mod model;
 pub mod npc;
@@ -138,6 +139,7 @@ pub(super) struct ScreenStates {
     /// The open chat's cached screen.
     chat: ui_screens::chat_screen::ChatScreen,
     emote: ui_screens::emote_screen::EmoteScreen,
+    mob_effects: ui_screens::mob_effect_screen::MobEffectScreen,
     /// The bed screen's hits and pointer.
     bed: oreui::BedScreen,
     /// The data-driven form's hits, pointer and scroll, and the form instance they belong to.
@@ -786,6 +788,7 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         ui_screens::sign_editor::SIGN_SCREEN,
         ui_screens::emote_screen::EMOTE_SCREEN,
         ui_screens::emote_screen::EMOTE_EQUIP_POPUP,
+        ui_screens::mob_effect_screen::MOB_EFFECT_SCREEN,
         ui_screens::npc::NPC_SCREEN,
         ui_screens::toast_screen::TOAST_SCREEN,
         ui_screens::credits_screen::CREDITS_SCREEN,

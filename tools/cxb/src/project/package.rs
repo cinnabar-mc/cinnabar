@@ -1,7 +1,7 @@
 //! One hash-indexed installation archive containing the existing runtime artifacts.
 
 use anyhow::{Context, Result, ensure};
-use experience_sdk::artifact::{ASSETS_DIR, DATA_SCHEMA, MANIFEST_FILE, SERVER_WASM};
+use experience_sdk::artifact::{ASSETS_DIR, DATA_SCHEMA, INDEX_FILE, MANIFEST_FILE, SERVER_WASM};
 use experience_sdk::project::Project;
 use serde::{Deserialize, Serialize};
 use server_experience::{bundle::offline, crypto, policy::MAX_EXPANDED_BYTES};
@@ -15,6 +15,7 @@ use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 const INDEX: &str = "package.json";
 const PACK: &str = "resource.mcpack";
+const FORMAT: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,9 +50,10 @@ pub(super) fn assemble(
         .map(|(path, data)| (path.clone(), crypto::digest(data)))
         .collect();
     let manifest = toml::to_string(
-        &serde_json::json!({"id": project.id, "version": version, "api": experience_sdk::project::server_api(), "data-schema": DATA_SCHEMA, "files": hashes}),
+        &serde_json::json!({"id": project.id, "version": version, "api": experience_sdk::project::server_api(), "data-schema": DATA_SCHEMA}),
     )?;
     files.insert(MANIFEST_FILE.into(), manifest.into_bytes());
+    files.insert(INDEX_FILE.into(), toml::to_string(&hashes)?.into_bytes());
     for (path, data) in &files {
         let dest = artifact.join(path);
         fs::create_dir_all(dest.parent().context("artifact parent missing")?)?;
@@ -78,7 +80,7 @@ pub(super) fn assemble(
         experience_sdk::project::go_module(&project.id).into_bytes(),
     );
     let index = Index {
-        format: 1,
+        format: FORMAT,
         id: project.id.clone(),
         files: entries
             .iter()
@@ -150,8 +152,13 @@ fn verify(bytes: &[u8]) -> Result<(Index, BTreeMap<String, Vec<u8>>)> {
     }
     let index: Index = serde_json::from_slice(entries.get(INDEX).context("missing package.json")?)?;
     ensure!(
-        index.format == 1 && experience_sdk::project::valid_name(&index.id),
-        "unsupported mod package or invalid ID"
+        index.format == FORMAT,
+        "mod package format {} is not {FORMAT}; rebuild it with this cinnabar-cxb",
+        index.format
+    );
+    ensure!(
+        experience_sdk::project::valid_name(&index.id),
+        "invalid mod package ID"
     );
     ensure!(
         index.files.len() + 1 == entries.len() && !index.files.contains_key(INDEX),
@@ -195,24 +202,25 @@ fn verify(bytes: &[u8]) -> Result<(Index, BTreeMap<String, Vec<u8>>)> {
         server.get("id").and_then(toml::Value::as_str) == Some(index.id.as_str()),
         "server identity differs from mod identity"
     );
-    let inventory = server
-        .get("files")
-        .and_then(toml::Value::as_table)
-        .context("server file index missing")?;
+    let inventory: BTreeMap<String, String> = toml::from_str(std::str::from_utf8(
+        entries
+            .get(&format!("server/{INDEX_FILE}"))
+            .context("missing server file index")?,
+    )?)?;
     let server_files = entries
         .iter()
         .filter_map(|(path, data)| path.strip_prefix("server/").map(|path| (path, data)))
-        .filter(|(path, _)| *path != MANIFEST_FILE)
+        .filter(|(path, _)| *path != MANIFEST_FILE && *path != INDEX_FILE)
         .collect::<BTreeMap<_, _>>();
     ensure!(
         inventory.len() == server_files.len(),
         "server inventory differs from artifact"
     );
-    for (path, hash) in inventory {
+    for (path, hash) in &inventory {
         ensure!(
             server_files
                 .get(path.as_str())
-                .is_some_and(|data| hash.as_str() == Some(crypto::digest(data).as_str())),
+                .is_some_and(|data| *hash == crypto::digest(data)),
             "server hash mismatch for {path}"
         );
     }

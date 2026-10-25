@@ -21,7 +21,7 @@ use ui::{UiAction, UiPoint};
 use ui_screens::emote_screen::EmoteHit;
 
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::{UiRuntime, scene_stack::Scene};
 use launcher::menu::settings_options::BindingId;
 use {
     crate::runtime::world::ClientWorld,
@@ -44,7 +44,7 @@ pub(crate) struct ObservedEmotes {
     modifiers: ButtonInput<KeyCode>,
 }
 
-use client_state::EmoteInputConsumed;
+use client_state::ScreenInputConsumed;
 
 #[derive(SystemParam)]
 pub(crate) struct EmoteInput<'w, 's> {
@@ -64,7 +64,7 @@ pub(crate) struct EmoteInput<'w, 's> {
     runtime: ResMut<'w, UiRuntimeResource>,
     presentation: Option<ResMut<'w, UiPresentationResource>>,
     observed: Local<'s, ObservedEmotes>,
-    consumed: ResMut<'w, EmoteInputConsumed>,
+    consumed: ResMut<'w, ScreenInputConsumed>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
 }
@@ -120,12 +120,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             .is_some_and(|actor| actor.status.dead);
     let blocked = input.consent.as_ref().is_some_and(|consent| consent.0)
         || input.menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || input.runtime.chat_focused()
-        || input.runtime.inventory_open()
-        || input.runtime.server_forms().owns_input()
-        || input.runtime.data_driven_ui().owns_input()
-        || input.runtime.sign_editor().active().is_some()
-        || input.runtime.local_sleeping()
+        || input
+            .runtime
+            .screen_open_besides(&input.player, Some(Scene::Emote))
         || actor_unavailable;
     if blocked {
         input.observed.modifiers.reset_all();
@@ -173,6 +170,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             command_macros::command(
                 input.menu.as_deref(),
                 &input.runtime,
+                &input.player,
                 chat_modifiers::held_chord(held),
                 client_shell::physical_input::mouse_button_code(*button)
                     .map(semantic_input::PhysicalControl::MouseButton),
@@ -224,6 +222,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             && command_macros::command(
                 input.menu.as_deref(),
                 &input.runtime,
+                &input.player,
                 chat_modifiers::held_chord(&input.observed.modifiers),
                 client_shell::physical_input::keyboard_usage(event.key_code)
                     .map(semantic_input::PhysicalControl::KeyboardUsage),

@@ -112,11 +112,14 @@ covered by this repository's license. Game assets are not included.
 
 | Path | Contents |
 | --- | --- |
-| `server/` | Server WASM, generated manifest and server/shared assets |
+| `server/` | Server WASM, generated manifest and `files.toml` index, server/shared assets |
 | `client/<id>.cxb` | Signed client bundle |
 | `resource.mcpack` | Generated block/item art |
 | `registry.json`, `messages/` | Shared definitions and Go bindings |
-| `package.json` | SHA-256 inventory |
+| `package.json` | Package format 2 and SHA-256 inventory |
+
+`mod install` refuses a package of another format; rebuild it with the installed
+`cinnabar-cxb`.
 
 The first build creates `.local/publisher.seed`; keep it private and stable.
 Install with `cinnabar-cxb mod install <file.cmod> --server <world>`. Start

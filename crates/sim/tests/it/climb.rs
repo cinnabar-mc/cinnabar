@@ -990,3 +990,90 @@ impl CollisionWorld for UnloadedClimberOrigin {
         )))
     }
 }
+
+/// A climbable column at `x = 0, z = 0`: a ladder with its thin collision face
+/// on the far side, or a vine with no collision. Everything else is air.
+struct ClimbableColumn {
+    ladder: bool,
+}
+
+impl ClimbableColumn {
+    fn climbable(block: [i32; 3]) -> bool {
+        block[0] == 0 && block[2] == 0
+    }
+
+    fn ladder_face(block: [i32; 3]) -> Aabb {
+        let y = f64::from(block[1]);
+        Aabb::new(Vec3::new(0.0, y, 0.8125), Vec3::new(1.0, y + 1.0, 1.0))
+    }
+}
+
+impl CollisionWorld for ClimbableColumn {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let faces = if self.ladder {
+            let floor = |value: f64| value.floor() as i32;
+            (floor(query.min.y)..=floor(query.max.y))
+                .map(|y| Self::ladder_face([0, y, 0]))
+                .filter(|face| face.intersects(query))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(CollisionQuery::synthetic(faces))
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        ClimbWorld {
+            flags: if Self::climbable(block) {
+                BlockPhysicsFlags::CLIMBABLE
+            } else {
+                BlockPhysicsFlags::PASSABLE
+            },
+        }
+        .block_physics(block)
+    }
+}
+
+/// Descends `world` from a fall for a few ticks, reporting whether each tick
+/// ended on a climbable block.
+fn descend(world: &ClimbableColumn, feet: Vec3) -> Vec<bool> {
+    let mut state = PlayerState::new(feet);
+    state.velocity.y = -1.0;
+    (0..4)
+        .map(|_| {
+            let tick = Simulator::default()
+                .tick(&mut state, MovementInput::default(), world)
+                .unwrap();
+            assert!(tick.movement.y < 0.0, "the player keeps descending");
+            state.on_climbable_block()
+        })
+        .collect()
+}
+
+/// Descending a ladder or vine keeps the feet on a climbable block, which
+/// vanilla's critical-hit gate reads, not only while climbing up.
+#[test]
+fn descending_a_ladder_or_vine_stays_on_a_climbable_block() {
+    for ladder in [true, false] {
+        let world = ClimbableColumn { ladder };
+        assert_eq!(
+            descend(&world, Vec3::new(0.5, 5.0, 0.5)),
+            [true; 4],
+            "ladder: {ladder}"
+        );
+    }
+}
+
+/// Only the feet cell counts: a body overlapping the column from the side is
+/// not on a climbable block.
+#[test]
+fn a_body_beside_a_climbable_column_is_not_on_it() {
+    for ladder in [true, false] {
+        let world = ClimbableColumn { ladder };
+        assert_eq!(
+            descend(&world, Vec3::new(-0.2, 5.0, 0.5)),
+            [false; 4],
+            "ladder: {ladder}"
+        );
+    }
+}

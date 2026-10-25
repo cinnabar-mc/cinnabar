@@ -46,18 +46,22 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `modal_ui` | Signed JSON-UI modal templates, values and collections |
 | `input` | Declared focused-modal actions, text and modifier changes |
 | `messaging` | Signed typed channels; client sends only `to_server` |
-| `scene` | Declarative scene objects; the app currently draws media-textured quads |
+| `scene` | Declarative objects sharing the bundle's drawing snapshot and budgets |
 | `media` | Playback of indexed signed descriptors |
 | `items` | Read-only session item catalog |
+| `world_draw` | Shared retained drawing, immediate primitives and local visual time/weather overrides |
+| `entity_observe`, `entity_highlight` | Current native actor references and masks |
+| `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
 
-The current client WIT does not import personal-mod world drawing, terrain,
-packet interception or local settings. Do not copy personal grants into a client
-part and expect those APIs to link.
+Client parts share the personal-mod drawing, render, environment and signed-asset
+imports. Terrain, packet interception and local settings remain personal-mod APIs.
+Client-part grants still come from the signed offer and consent.
 
 | Limit | Authority |
 | --- | --- |
 | Callback/session fuel and cadence | `CALLBACK_FUEL`, `SESSION_FUEL`, `CALLBACK_INTERVAL_MS` in [runtime.rs](../crates/server-experience/src/runtime.rs) |
 | Guest/session memory, output, bundles | `MAX_GUEST_MEMORY`, `MAX_SESSION_MEMORY`, `MAX_HOST_OUTPUT`, `MAX_BUNDLES` in [policy.rs](../crates/server-experience/src/policy.rs) |
+| Declarations and signed manifest | `MAX_ACTIONS`, `MAX_CHANNELS`, `MAX_FILES`, `MAX_MANIFEST_BYTES` in policy |
 | Typed messages, rates, queues, nesting | `MAX_MESSAGE_BYTES`, `MAX_MESSAGES_PER_SECOND`, `MAX_BYTES_PER_SECOND`, `MAX_BURST_BYTES`, `MAX_QUEUE_*`, `MAX_FIELD_DEPTH` in policy |
 | Screens and text | `MAX_TEMPLATE*`, `MAX_TEXTURE*`, `MAX_COLLECTION*`, `MAX_ROW_FIELDS`, `MAX_UI_*`, `MAX_EDIT_TEXT_BYTES` in policy |
 | Media | [media.rs](../crates/server-experience/src/media.rs) |
@@ -68,7 +72,8 @@ Per-session budgets prevent multiplying allowances by adding bundles. Initializa
 also consumes the aggregate budget; Ready waits for all initializers.
 
 A failed callback restarts its guest and counts a strike. Repeated failures stop
-that part; other parts continue. Fatal helper/session failures end the extension.
+that part; other parts continue. Unusable helper output stops its producer; malformed
+session framing ends the extension.
 No WASI, arbitrary network, filesystem, account tokens or raw packets are imported.
 
 ## Callbacks and registry confirmation
@@ -79,6 +84,7 @@ Implement [`ClientPart`](../crates/experience-sdk/src/client.rs).
 | --- | --- |
 | `init` | Initialize once after generated registry confirmation |
 | `#[on_message]` | Decoded to-client message; generated dispatch validates the declared channel |
+| `frame` | Optional presentation callback; coalesced while busy |
 | `epoch` | World epoch changed; state remains live |
 | `action`, `secondary_action` | Declared primary/secondary modal action, with collection row |
 | `modal_resized` | First drawn size or GUI-size change |
@@ -93,12 +99,33 @@ retains latest state plus ordered messages/actions. Queue overflow stops that pa
 After confirmation, latest epoch/modifiers/size/text/scroll state precedes queued
 events. Old-epoch events are discarded.
 
+## Drawing and signed assets
+
+Use the [shared drawing contract](../crates/mod-api/README.md) for retained meshes,
+materials, camera anchors, primitives and actor masks. References bind to the native
+connection, dimension and actor incarnation. World changes clear old presentation;
+stale references and dependent draws are dropped and counted without stopping the
+part. Frames rotate across ready producers within the shared callback allowance.
+
+Legacy objects and drawing publish in one immutable snapshot. Their draw and
+triangle limits combine. Each bundle's GPU ledger covers retained and immediate
+geometry, per-view instances, masks and media. Resident storage stays charged until
+its last GPU use; buffer growth waits for old storage to retire when needed.
+
+Low-level `[client].assets` declares signed drawing files beside `experience.toml`.
+Generated declarations expose `Asset` constants; `assets.read_range` streams larger
+files across callbacks. A file listed as a template, texture and asset is packaged
+once. Source-driven projects retain their generated `shared::assets` declarations.
+The [space client](../examples/experiences/space-client) shows a camera-anchored
+planet with signed textures and a bounded procedural material.
+
 ## Modal screens
 
 Low-level bundles declare `templates`, `actions` and `textures` in the signed
 manifest. `ui.open_screen` accepts only an indexed `ui/<name>.json`; `None`,
 `close_screen` or Escape closes it. The template namespace must match the bundle
-ID after replacing characters outside `[a-z0-9_]` with `_`.
+ID after replacing characters outside `[a-z0-9_]` with `_`. A bundle declares at
+most `MAX_ACTIONS` (1024) actions; a press costs one lookup in that set.
 Templates resolve against the shipped UI carrier, excluding server packs and
 trusted consent catalogs. Images resolve from indexed `textures/`, then the
 supported local art sources. URLs and paths outside `textures/` draw nothing.
@@ -132,6 +159,11 @@ publisher-signed manifest. Paths are portable lowercase relative paths; traversa
 links, duplicates, encryption and unsupported ZIP metadata are rejected. Only
 stored/deflate entries are accepted. Native Wasmtime artifacts are refused.
 Signatures establish the chosen publisher and integrity, not code safety.
+The signed manifest is at most `MAX_MANIFEST_BYTES` (4 MiB) and its payload,
+which the document hex-encodes, at most half of that: enough for `MAX_ACTIONS`
+actions at the 96-byte identifier limit and `MAX_FILES` index entries at the
+256-byte path limit, so those limits bind first. The client parses it once when
+it admits the bundle.
 
 `cinnabar-cxb build --experience <experience.toml> --component <guest.wasm>
 --publisher-seed <seed> --out <id>.cxb` reads identity/version and the `[client]`
@@ -151,8 +183,8 @@ Paired `mod run` prepares keys, installation and cache automatically.
 | --- | --- |
 | Handshake API | `API_VERSION` in [policy.rs](../crates/server-experience/src/policy.rs) |
 | Envelope versions | `WIRE_VERSION` through `MAX_WIRE_VERSION` in policy; v2 negotiates fragmentation and ceilings |
-| Client WIT | [capabilities.wit](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit), currently 1.4; older 1.x components still link |
-| Exported world | [server-bundle](../crates/experience-sdk/wit/client/client.wit) |
+| Client WIT | [capabilities.wit](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit), currently 1.5; older 1.x components still link |
+| Exported world | [server-bundle](../crates/mod-api/wit/client.wit) |
 | Canonical fields/domains/limits | [extension.json](../crates/server-experience/schema/extension.json) |
 
 Transport uses Bedrock `ScriptMessage` with `message_id = "cinnabar:extensions/v1"`.

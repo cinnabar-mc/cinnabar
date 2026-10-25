@@ -27,8 +27,9 @@ pub(super) struct ExperienceService {
     settings: Option<Settings>,
     generation: u64,
     attempted: bool,
+    deployment: Option<(String, String)>,
     download: Option<server_experience::download::Download>,
-    live: Option<super::live::Live>,
+    pub(super) live: Option<super::live::Live>,
     /// The session's items that client parts granted `items` read.
     items: client_ui::ui_runtime::session_data::SessionDataCache,
     /// This frame's keys pressed over a slot of the focused modal's inventory rows.
@@ -38,8 +39,42 @@ pub(super) struct ExperienceService {
     )>,
 }
 
+impl ExperienceService {
+    /// Drops every old helper and contribution before another signed deployment can run.
+    fn select_deployment(&mut self, grant: &server_experience::negotiation::Grant) -> bool {
+        let selected = (grant.session.clone(), grant.offer.digest.clone());
+        let changed = self
+            .deployment
+            .as_ref()
+            .is_some_and(|previous| previous != &selected);
+        if changed {
+            self.download = None;
+            self.live = None;
+            self.attempted = false;
+        }
+        self.deployment = Some(selected);
+        changed
+    }
+}
+
 /// Registers a silent controller; disk and network work wait for a valid marker.
 pub(crate) fn configure(app: &mut App) {
+    if !app.is_plugin_added::<render::ModRenderPlugin>() {
+        app.add_plugins(render::ModRenderPlugin);
+    }
+    app.init_resource::<crate::environment::ClientPartEnvironment>();
+    app.add_systems(
+        Update,
+        (
+            super::drawing::present,
+            crate::modding::anchors::publish_frame,
+        )
+            .chain()
+            .after(crate::modding::DrawingPublication)
+            .after(ClientFrameSet::ActorPublication)
+            .before(ClientFrameSet::UiPublication)
+            .before(crate::environment::update_atmosphere_frame),
+    );
     let menu = app.world().resource::<MenuRuntime>();
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
@@ -49,6 +84,7 @@ pub(crate) fn configure(app: &mut App) {
         settings: None,
         generation: 0,
         attempted: false,
+        deployment: None,
         download: None,
         live: None,
         items: Default::default(),
@@ -129,7 +165,7 @@ fn drive(
     mut runtime: ResMut<UiRuntimeResource>,
     mut presentation: ResMut<UiPresentationResource>,
     network: Res<NetworkHandle<PackApplication>>,
-    world: Res<crate::runtime::world::ClientWorld>,
+    drawing: super::drawing::Frame,
     fatal_error: Res<crate::runtime::shutdown::FatalError>,
     windows: Query<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -143,10 +179,12 @@ fn drive(
     driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let world = &drawing.world;
     let generation = runtime.session_id();
     let extension = &mut runtime.experiences;
     if service.generation != generation {
         service.generation = generation;
+        service.deployment = None;
         service.attempted = false;
         service.download = None;
         service.live = None;
@@ -393,7 +431,14 @@ fn drive(
             extension.session.disable();
         }
     }
-    if let Err(error) = advance_runtime(&mut service, extension, &network, generation, now_ms) {
+    if let Err(error) = advance_runtime(
+        &mut service,
+        extension,
+        &network,
+        generation,
+        now_ms,
+        &drawing,
+    ) {
         extension.session.disable();
         extension.active = false;
         service.download = None;
@@ -414,8 +459,15 @@ fn drive(
         .set_experience_labels(labels.as_deref().unwrap_or_default());
     presentation.set_experience_modal(service.live.as_ref().and_then(super::live::Live::modal));
     if let Some(error) = presentation.mod_ui().experience_modal_failure() {
-        bevy::log::warn!(%error, "client part screen rejected; server code disabled");
-        extension.session.disable();
+        bevy::log::warn!(%error, "client part screen rejected");
+        if let Some(live) = service.live.as_mut()
+            && live.reject_modal(error, now_ms)
+        {
+            extension.session.notice = Some(live.text());
+        } else {
+            extension.session.disable();
+        }
+        presentation.set_experience_modal(service.live.as_ref().and_then(super::live::Live::modal));
     }
     if matches!(extension.session.state, State::Disabled) {
         network.set_experience_enabled(false);
@@ -454,7 +506,6 @@ fn present_media(
             muted,
             local_us,
         );
-        let budget = live.gpu_budget_bytes();
         // Writes only on change, so an unchanged scene neither allocates nor re-extracts.
         if let Some(screens) = live.changed_screens()
             && let Some(scene) = scene.as_mut()
@@ -462,7 +513,6 @@ fn present_media(
         {
             scene.screens.clear();
             scene.screens.extend_from_slice(screens);
-            scene.gpu_budget_bytes = budget;
         }
     } else if let Some(scene) = scene.as_mut()
         && !scene.screens.is_empty()
@@ -492,6 +542,7 @@ fn advance_runtime(
     network: &NetworkHandle<PackApplication>,
     generation: u64,
     now_ms: u64,
+    drawing: &super::drawing::Frame,
 ) -> anyhow::Result<()> {
     let State::Granted(grant) = &extension.session.state else {
         service.download = None;
@@ -500,7 +551,9 @@ fn advance_runtime(
         while extension.pop().is_some() {}
         return Ok(());
     };
-    if !service.attempted {
+    let context = drawing.context(extension.epoch);
+    let deployment_changed = service.select_deployment(grant);
+    if !service.attempted && context.is_some() {
         service.attempted = true;
         if std::env::var(server_experience::policy::DEVELOPER_ENV).as_deref() != Ok("1") {
             extension.session.notice = Some(
@@ -518,28 +571,39 @@ fn advance_runtime(
         extension.session.notice =
             Some("Cinnabar: downloading approved experience. F9: cancel".into());
     }
-    if let Some(result) = service
-        .download
-        .as_ref()
-        .and_then(|download| download.poll())
+    if let Some(context) = &context
+        && let Some(result) = service
+            .download
+            .as_ref()
+            .and_then(|download| download.poll())
     {
         service.download = None;
         let client = std::env::current_exe()?;
         service.live = Some(super::live::Live::start(
             grant.clone(),
             result?,
-            extension.epoch,
+            context,
             now_ms,
             &mod_host::helper::developer_executable(&client),
             &mod_host::helper::media_executable(&client),
         )?);
         extension.active = true;
     }
+    if deployment_changed {
+        while extension.pop().is_some() {}
+    }
     if let Some(live) = &mut service.live {
         while let Some((received_ms, bytes)) = extension.pop() {
             live.receive(&bytes, received_ms, extension.epoch)?;
         }
-        for bytes in live.poll(extension.epoch, now_ms)? {
+        live.set_epoch(extension.epoch)?;
+        let context = drawing.context(live.drawing_epoch());
+        if let Some(context) = &context {
+            live.bind_drawing(context, |key| drawing.current(key))?;
+        }
+        for bytes in live.poll(extension.epoch, now_ms, context.is_some(), |key| {
+            drawing.current(key)
+        })? {
             let packet = protocol::experience_packet(bytes)
                 .ok_or_else(|| anyhow::anyhow!("outbound envelope too large"))?;
             anyhow::ensure!(
