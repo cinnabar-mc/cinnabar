@@ -151,8 +151,8 @@ impl HandRigBuilder {
     }
 }
 
-/// The (instance word, raster state) pairs a pack's resolved entity materials draw with, in
-/// both combat profiles, for the renderer to compile when the pack loads.
+/// The (instance word, raster state) pairs a pack's resolved entity materials draw with under
+/// every presentation variant, for the renderer to compile when the pack loads.
 fn authored_rasters(
     assets: &assets::RuntimeEntityAssets,
 ) -> Arc<[(u32, render_api::render_state::RenderState)]> {
@@ -189,23 +189,13 @@ fn render_rasters(
             Some((kind, state, raster))
         })
         .flat_map(|(kind, state, raster)| {
-            [
-                render_api::CombatVisuals::Modern,
-                render_api::CombatVisuals::Legacy112,
-            ]
-            .map(|profile| {
-                let material = render_model::ActorMaterial {
-                    kind,
-                    state,
-                    render_state: Some(raster),
-                    glint: render_model::ActorGlint {
-                        profile,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                };
-                (material.gpu_word(), raster)
-            })
+            render_model::ActorMaterial {
+                kind,
+                state,
+                render_state: Some(raster),
+                ..Default::default()
+            }
+            .presentation_rasters()
         })
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
@@ -256,13 +246,46 @@ mod authored_raster_tests {
             ..Default::default()
         };
         let rasters = super::render_rasters(&render);
-        assert_eq!(
-            rasters
-                .iter()
-                .filter(|(_, published)| *published == raster)
-                .count(),
-            2,
-            "one word per combat profile"
-        );
+        let selected = render_model::ActorMaterial {
+            render_state: Some(raster),
+            ..Default::default()
+        };
+        for pair in selected.presentation_rasters() {
+            assert!(rasters.contains(&pair), "{pair:?}");
+        }
+    }
+
+    #[test]
+    fn a_dyed_alpha_tested_authored_layer_publishes_its_legacy_dye_variant() {
+        use assets::entity::material::{EntityMaterialDefinition, EntityMaterialState};
+        let culled = EntityMaterialDefinition {
+            states: Box::new([EntityMaterialState::InvertCulling]),
+            ..Default::default()
+        };
+        let raster = culled.render_state();
+        let state = assets::EntityRenderMaterialState {
+            alpha_test: true,
+            ..Default::default()
+        };
+        let render = assets::EntityRenderData {
+            materials: Box::new([culled]),
+            material_selections: Box::new([assets::EntityRenderMaterialSelection::Raster {
+                material: assets::EntityRenderMaterial::Default,
+                state: Some(state),
+                definition: Some(0),
+            }]),
+            ..Default::default()
+        };
+        let dyed = render_model::ActorMaterial {
+            state: Some(state),
+            render_state: Some(raster),
+            color_mask: true,
+            glint: render_model::ActorGlint {
+                profile: render_api::CombatVisuals::Legacy112,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(super::render_rasters(&render).contains(&(dyed.gpu_word(), raster)));
     }
 }

@@ -52,6 +52,7 @@ mod artwork;
 mod cull;
 pub mod frame;
 mod glint;
+mod material_variants;
 pub mod skin_slots;
 pub use artwork::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
