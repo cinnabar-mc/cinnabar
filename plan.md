@@ -846,6 +846,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
   Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
   and exact cast/retrieve cadence remain incomplete.
+  Fishing-hook actor events 11-14 drive client bubbles, the approach wake (FishX/FishZ as an
+  offset from the hook) and lure splashes (FishX/FishZ as a world position), as observed in a
+  vanilla-server packet capture. Bite bubbles and wake and particle counts are provisional and
+  unverified against native rendering, so they remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
   explicit server fuel declarations keep priority. Named station responses retain
   accepted stacks at their window indices. Broader custom-fuel and matched server

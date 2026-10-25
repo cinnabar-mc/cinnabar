@@ -77,6 +77,14 @@ pub(super) fn metadata_i64(actor: &ActorSnapshot, key: u32) -> Option<i64> {
     }
 }
 
+/// A finite float under `key`; other types and non-finite values yield `None`.
+pub(super) fn metadata_f32(actor: &ActorSnapshot, key: u32) -> Option<f32> {
+    match actor.metadata.get(&key)? {
+        ActorMetadataValue::Float(value) if value.is_finite() => Some(*value),
+        _ => None,
+    }
+}
+
 /// Swell scale and flash for primed TNT with `fuse` ticks remaining (fractional between ticks).
 #[must_use]
 pub fn tnt_presentation(fuse: f32) -> (f32, bool) {

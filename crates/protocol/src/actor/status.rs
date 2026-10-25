@@ -43,6 +43,16 @@ pub enum ActorStatusKind {
     ActorGrowUp,
     /// Event 80 starts the held kinetic weapon's impact feedback.
     KineticDamageDealt,
+    /// Event 11: a bubble rises from the hook in the water.
+    FishHookBubble,
+    /// Event 12: a fish approaches the hook; the hook's FishX/FishZ actor data is its offset
+    /// from the hook.
+    FishHookFishPos,
+    /// Event 13: a fish bit the hook.
+    FishHookHookTime,
+    /// Event 14: a lure splash while the hook waits; the hook's FishX/FishZ actor data is its
+    /// world position.
+    FishHookTease,
 }
 
 /// One actor status event, addressed by runtime id (the wire carries no dimension).
@@ -141,6 +151,10 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
         ActorEventType::Feed => ActorStatusKind::Feed,
         ActorEventType::ActorGrowUp => ActorStatusKind::ActorGrowUp,
         ActorEventType::KineticDamageDealt => ActorStatusKind::KineticDamageDealt,
+        ActorEventType::FishHookBubble => ActorStatusKind::FishHookBubble,
+        ActorEventType::FishHookFishPos => ActorStatusKind::FishHookFishPos,
+        ActorEventType::FishHookHookTime => ActorStatusKind::FishHookHookTime,
+        ActorEventType::FishHookTease => ActorStatusKind::FishHookTease,
         _ => return None,
     };
     Some(ActorEvent::Status(ActorStatusEvent {
@@ -187,6 +201,37 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn fishing_hook_ids_normalize_by_runtime_id() {
+        for (event_id, kind) in [
+            (
+                ActorEventType::FishHookBubble,
+                ActorStatusKind::FishHookBubble,
+            ),
+            (
+                ActorEventType::FishHookFishPos,
+                ActorStatusKind::FishHookFishPos,
+            ),
+            (
+                ActorEventType::FishHookHookTime,
+                ActorStatusKind::FishHookHookTime,
+            ),
+            (
+                ActorEventType::FishHookTease,
+                ActorStatusKind::FishHookTease,
+            ),
+        ] {
+            assert_eq!(
+                normalize_actor_event(packet(event_id)),
+                Some(ActorEvent::Status(ActorStatusEvent {
+                    runtime_id: 9,
+                    kind,
+                    data: 4,
+                }))
+            );
+        }
     }
 
     #[test]
