@@ -27,14 +27,14 @@ textures = [
 # op 1 unbind: unbind every material
 # op 2 cut: wraith cut a/1000, or -1 to sweep
 # op 3 boom: shockwave at (a, b), started at c
-# op 4 heartbeat: heartbeat at boss health a/1000, or -1 to stop
+# op 4 heartbeat: heartbeat at boss health a/1000 from b, or a = -1 to stop
 # op 5 hit: liquid metal hit at (a, b, c), started at d
 # op 6 thermal: thermal vision on (a = 1) or off
 # op 7 corrupt: corruption from (a, b, c), started at d, or d = -1 to cleanse
 # op 8 layout: piece a (0 arena, 1 black hole, 2 painting, 3 screen, 4 portal) centred at (b, c, d)
 # op 9 facing: a quarter turns from south
 # op 10 radar: player a at (b, c) of d players
-# op 11 portal_distance: the player's distance to the portal, a
+# op 11 portal_distance: the player's distance to the portal, a, at b
 [[client.channels]]
 id = "materialfx.control"
 schema = 2

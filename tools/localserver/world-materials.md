@@ -35,7 +35,12 @@ From the repository root:
    This builds both guests for `wasm32-unknown-unknown`, writes the server artifact under
    `.local/material-fx/experiences/materialfx`, keys under `.local/material-fx/keys` (kept across
    runs, so a client that pinned the server keeps trusting it), the signed client part under
-   `.local/material-fx/cxb`, and prints the server command line.
+   `.local/material-fx/cxb`, and prints the server command line. Each run first clears the
+   `experiences` and `cxb` directories it wrote before, so no file of an older showcase
+   survives. The fixture world under `.local/material-fx/world` is kept, except when it was
+   installed with a block this build no longer has: the server refuses to open a world whose
+   installed Experience lost a block (the world may still hold it), so the tool deletes that
+   world, says so, and the server builds a new one.
 
 3. Build the server and runtime with `make local-server` if needed, then start the server
    with the printed command (it prints absolute binary paths), for example:
@@ -78,7 +83,10 @@ From the repository root:
 Every server-driven change is a parameter update that compiles nothing. Shockwaves, hits and the
 corruption start at a moment on the session clock, which follows the wall clock modulo 4096 s,
 so the server times them and every client agrees. The screen gets every player's position twice
-a second and the portal your distance whenever it changes by a quarter block.
+a second, and the portal your distance, with the moment you were there, whenever it changes by
+a quarter block. A new distance or boss health changes how fast the portal turns or the heart
+beats from that moment on: the client part keeps each animation's phase where it was, so it
+speeds up or slows down smoothly and never jumps to another frame.
 
 ## Layout
 
@@ -99,6 +107,9 @@ From where you stand, facing forward (right is your right hand):
 
 Everything except the black hole snaps to the 16-texel grid of its block or the 64-texel grid of
 its skin and uses a small palette, so even the traced 3D reads as Minecraft pixels.
+
+The ship in a bottle, the snow globe and the black hole are glass: the ground and blocks behind
+them stay drawn, and their Bedrock looks blend too.
 
 - **Ship in a bottle** (premultiplied). A glass cube with a one-texel frame and a glint, holding
   a floating island built of texel voxels: grass over dirt over a stone point, a cottage with a

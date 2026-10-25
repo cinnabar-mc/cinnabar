@@ -238,6 +238,8 @@ func (c *materialFxConn) run(command materialFxCommand) error {
 		c.send(materialFxRecord(materialFxCorrupt, milli(source[0]), milli(source[1]), milli(source[2]), materialFxNowMs(time.Now())))
 	case command.cleanse:
 		c.send(materialFxRecord(materialFxCorrupt, 0, 0, 0, -1))
+	case command.heartbeat != nil:
+		c.send(materialFxRecord(materialFxHeartbeat, *command.heartbeat, materialFxNowMs(time.Now())))
 	}
 	c.send(command.controls...)
 	return nil
@@ -292,7 +294,8 @@ func (c *materialFxConn) radar() {
 	}
 }
 
-// followPortal sends the player's distance to the portal when it changed by a quarter block.
+// followPortal sends the player's distance to the portal, and when they were there, whenever it
+// changed by a quarter block; the client part keeps the portal's turn continuous across it.
 // It sends on the reading goroutine, after releasing c.mu, so updates arrive in input order.
 func (c *materialFxConn) followPortal() {
 	c.mu.Lock()
@@ -308,7 +311,7 @@ func (c *materialFxConn) followPortal() {
 	}
 	c.portalDistance = distance
 	c.mu.Unlock()
-	c.send(materialFxRecord(materialFxPortalDistance, distance))
+	c.send(materialFxRecord(materialFxPortalDistance, distance, materialFxNowMs(time.Now())))
 }
 
 // hit ripples the liquid metal mob where it was struck and sends a shockwave across the arena

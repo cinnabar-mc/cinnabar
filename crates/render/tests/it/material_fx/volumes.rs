@@ -345,12 +345,25 @@ fn the_portal_tunnel_turns_and_burns_brighter_as_the_player_nears() {
         target: [1.0, 1.5, 0.5],
         fov: 40.0,
     };
+    // Closeness 1 at the face, 0 twelve blocks away, and the matching turn rate.
     let at = |distance: f32| {
+        let near = (1.0 - distance / 12.0).clamp(0.0, 1.0);
         view(
             &gpu,
             shader!("vortex"),
             &[stars()],
-            &[1.0, 1.5, 0.5, 0.0, distance, 0.45, 0.15, 0.85],
+            &[
+                1.0,
+                1.5,
+                0.5,
+                0.0,
+                near,
+                0.45,
+                0.15,
+                0.85,
+                0.4 + 1.6 * near,
+                0.0,
+            ],
             &camera,
             &scene,
         )
@@ -373,6 +386,59 @@ fn the_portal_tunnel_turns_and_burns_brighter_as_the_player_nears() {
         .filter(|p| u16::from(p[2]) > u16::from(p[1]) + 40 && p[0] > p[1])
         .count();
     assert!(violet > 2000, "the tunnel spirals in violet: {violet}");
+}
+
+/// Walking a quarter block closer changes the turn rate at that moment, and with the offset the
+/// client part moves to keep the phase there, the tunnel stays as it was instead of jumping to
+/// another frame. The closeness is held, so only the turn differs.
+#[test]
+fn the_portal_keeps_turning_smoothly_as_the_player_walks() {
+    let Some(gpu) = Gpu::for_fixture("material fx portal walk") else {
+        return;
+    };
+    let stars = texture(&gpu, 16, |_, _| [0, 0, 0, 255]);
+    let at = 1234.5_f32;
+    let scene = Scene {
+        lo: [0.0; 3],
+        hi: [2.0, 3.0, 1.0],
+        phase: phase(at),
+        ..Scene::default()
+    };
+    let camera = Camera {
+        eye: [1.0, 1.5, -4.0],
+        target: [1.0, 1.5, 0.5],
+        fov: 40.0,
+    };
+    let frame = |rate: f32, offset: f32| {
+        view(
+            &gpu,
+            shader!("vortex"),
+            std::slice::from_ref(&stars),
+            &[1.0, 1.5, 0.5, 0.0, 0.6, 0.45, 0.15, 0.85, rate, offset],
+            &camera,
+            &scene,
+        )
+    };
+    let (slow, fast) = (1.36_f32, 1.392_f32);
+    // The share of tunnel pixels that look the same in both frames.
+    let close = |a: [u8; 4], b: [u8; 4]| (0..3).all(|c| a[c].abs_diff(b[c]) <= 6);
+    let kept = |before: &[u8], after: &[u8]| {
+        let (mut same, mut lit) = (0, 0);
+        for (a, b) in pixels(before).zip(pixels(after)) {
+            if a != MISS {
+                lit += 1;
+                same += usize::from(close(a, b));
+            }
+        }
+        assert!(lit > 2000, "{lit}");
+        same as f32 / lit as f32
+    };
+    let before = frame(slow, 0.0);
+    let after = frame(fast, at * (slow - fast));
+    assert!(kept(&before, &after) >= 0.97, "{}", kept(&before, &after));
+    // Without the offset the new rate would have turned it since the clock began.
+    let jumped = frame(fast, 0.0);
+    assert!(kept(&before, &jumped) < 0.9, "{}", kept(&before, &jumped));
 }
 
 /// The perf budget: every copy of a raymarched block traces only its own block, within the

@@ -2,9 +2,11 @@
 // traced into a tunnel running away from the portal's face; its wall spirals in posterized
 // violet bands that twist towards a blazing eye, pixel sparks stream inward across the opening,
 // and stars from texture 0 sit deep behind. The closer the player, as the server reports, the
-// faster it turns and the brighter it burns.
+// faster it turns and the brighter it burns. The client part keeps the turn's phase continuous
+// when the speed changes, so walking closer speeds it up from where it is, never jumping.
 // params 0-2: the portal's centre; param 3: its facing in quarter turns from south; param 4: the
-// player's distance in blocks; params 5-7: tunnel colour.
+// player's closeness, 1 at the face to 0 twelve blocks away; params 5-7: tunnel colour; param 8:
+// turns per second; param 9: the turn's phase at session second zero.
 
 fn shade(input: WorldMaterialInput) -> Surface {
     let time = seconds(input);
@@ -22,8 +24,8 @@ fn shade(input: WorldMaterialInput) -> Surface {
         let sheen = select(0.0, 0.3, hash3(texel) > 0.94);
         return Surface(vec3<f32>(0.08, 0.04, 0.14) * (0.8 + 0.4 * hash3(floor(texel / 2.0))), 1.0, vec3<f32>(0.25, 0.1, 0.4) * sheen);
     }
-    let near = clamp(1.0 - param(input, 4u) / 12.0, 0.0, 1.0);
-    let spin = time * (0.4 + 1.6 * near);
+    let near = clamp(param(input, 4u), 0.0, 1.0);
+    let spin = time * param(input, 8u) + param(input, 9u);
     let d = -input.view;
     let inward = max(dot(d, facing), 0.05);
     let o = vec2<f32>(face.x, face.y * 0.75);
@@ -46,7 +48,7 @@ fn shade(input: WorldMaterialInput) -> Surface {
     colour = colour + vec3<f32>(star * select(0.0, 1.2, fade < 0.6));
     // Sparks on the opening, spiralling inward in polar texels.
     let r = length(face);
-    let polar = floor(vec2<f32>(r * 16.0 + time * (6.0 + 10.0 * near), (atan2(face.y, face.x) / TAU) * 64.0 + r * 10.0 - spin * 3.0));
+    let polar = floor(vec2<f32>(r * 16.0 + spin * 6.0, (atan2(face.y, face.x) / TAU) * 64.0 + r * 10.0 - spin * 3.0));
     let spark = hash2(polar) > 0.97 - near * 0.03;
     let eye = smoothstep(9.0, 16.0, depth);
     let glow = colour * (0.8 + near * 1.6) + vec3<f32>(1.0, 0.8, 1.0) * eye * 2.0;

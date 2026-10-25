@@ -49,7 +49,7 @@ fn the_shockwave_ring_sits_where_it_has_travelled_and_the_heartbeat_pulses() {
         "long after, only the plates remain: {brightest}"
     );
     // The heartbeat lights the floor red on its beat.
-    let heart = [4.0, 4.0, 0.0, 1.0, 0.3, 4.0, 4.0];
+    let heart = [4.0, 4.0, 0.0, 1.0, 1.36, 4.0, 4.0, 0.0];
     let beats = (0..16)
         .map(|step| {
             let frame = raster(
@@ -65,6 +65,28 @@ fn the_shockwave_ring_sits_where_it_has_travelled_and_the_heartbeat_pulses() {
     assert!(
         beats.iter().max() > beats.iter().min().map(|m| m + 1000).as_ref(),
         "{beats:?}"
+    );
+}
+
+/// A beat rate change at a moment, with the offset the client part moves to keep the phase
+/// there, leaves the floor as it was: the beat quickens from where it is.
+#[test]
+fn a_new_heartbeat_rate_carries_the_beat_on_from_where_it_was() {
+    let Some(gpu) = Gpu::for_fixture("material fx heartbeat change") else {
+        return;
+    };
+    let (at, slow, fast) = (3000.125_f32, 0.77_f32, 0.93_f32);
+    let offset = (f64::from(at) * f64::from(slow - fast)).rem_euclid(1.0) as f32;
+    let red = |rate: f32, offset: f32, seconds: f32| {
+        let params = [4.0, 4.0, 0.0, 1.0, rate, 4.0, 4.0, offset];
+        let frame = raster(&gpu, shader!("arena"), &[], &params, &floor(seconds));
+        pixels(&frame).filter(|p| p[0] > 180 && p[1] < 80).count()
+    };
+    let (before, after) = (red(slow, 0.0, at), red(fast, offset, at));
+    assert!(before > 1000, "the change falls on a beat: {before}");
+    assert!(
+        before.abs_diff(after) <= before / 50,
+        "the floor is unchanged at the moment of the change: {before} vs {after}"
     );
 }
 
