@@ -268,8 +268,13 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   credits. The shared output-memory limit is unchanged.
   Late blob replies for retired transactions no longer discard valid, still-needed
   blobs in the same response. Verified requested bodies arriving after ordinary-lane
-  retirement can warm the cache for recovery. Sustained high-speed hardware qualification
-  remains open.
+  retirement can warm the cache for recovery. Unresolved cached SubChunk replies have a
+  session recovery timer that retries exact missing heights and preserves valid late bodies.
+  Full cached columns retain their original biome and inline data while waiting for bodies;
+  SubChunk recovery cannot replace that complete payload. Fresh recovery replies can request
+  expired shared misses again. This interval is an internal liveness policy. Recovery of a
+  permanently missing full-column body and sustained high-speed hardware qualification
+  remain open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open. Column light
@@ -1139,7 +1144,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
   incomplete.
 - The Mods settings list starts with compact headers and opens one whole card at a time;
-  actions and permission details remain inside that card.
+  actions and permission details remain inside that card. Packet mods that read world data
+  need complete chunks, so their connections disable the blob cache on both login legs.
+  New packet grants take effect after reconnecting; sessions without packet mods retain
+  caching. Live server qualification remains incomplete.
   Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
