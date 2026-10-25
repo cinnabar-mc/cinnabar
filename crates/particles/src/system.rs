@@ -360,8 +360,38 @@ impl ParticleSystem {
         }
     }
 
-    /// Removes an invisible client-owned effect and its particles without running expiry events.
-    pub fn discard(&mut self, id: u64) {
+    /// Stops client-owned emission and retires its particles only when none can draw.
+    /// Missing or invalid visibility information retains the ordinary particle lifetime.
+    pub fn discard_hidden(&mut self, id: u64, view: Option<&crate::ParticleView>) {
+        self.stop(id);
+        let Some(view) = view else {
+            return;
+        };
+        if !view
+            .position
+            .iter()
+            .chain(&view.forward)
+            .all(|value| value.is_finite())
+            || !view.half_diagonal.is_finite()
+            || view.half_diagonal <= 0.0
+        {
+            return;
+        }
+        let Some(emitter) = self.emitter(id) else {
+            return;
+        };
+        let cos_limit = view.cos_limit();
+        if emitter.particles.iter().any(|particle| {
+            let position = if emitter.def.emitter.local_position {
+                let offset = super::emitter::transform(&emitter.basis, particle.pos);
+                std::array::from_fn(|axis| emitter.pos[axis] + offset[axis])
+            } else {
+                particle.pos
+            };
+            super::draw::particle_may_draw(view, cos_limit, position)
+        }) {
+            return;
+        }
         if let Ok(index) = self
             .emitters
             .binary_search_by_key(&id, |emitter| emitter.id)

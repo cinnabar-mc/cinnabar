@@ -136,7 +136,7 @@ fn first_person_local_cosmetics_schedule_no_attachment_emitter_or_ground_work() 
         hats.place_emitters(&batch, 0.5, &mut emitters);
         wearers.capture(&input, Some(&stream), &batch, false);
     });
-    assert_eq!(allocations.calls, 0);
+    assert_eq!(allocations, 0);
     assert!(batch.submissions.is_empty());
     assert!(batch.skin_layers.is_empty());
     assert!(emitters.is_empty());
@@ -193,7 +193,7 @@ fn visible_static_cosmetics_reuse_poses_textures_and_submission_storage() {
         );
         hats.place_emitters(&batch, 0.5, &mut emitters);
     });
-    assert_eq!(allocations.calls, 0);
+    assert_eq!(allocations, 0);
     let after = batch.submissions.last().unwrap();
     assert_eq!(before, *after, "unchanged GPU inputs need no new upload");
     assert!(std::sync::Arc::ptr_eq(

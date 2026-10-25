@@ -430,7 +430,7 @@ fn hud_cosmetic_emitters_share_the_player_frame_and_clear_with_its_owner() {
 }
 
 #[test]
-fn equipped_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
+fn cosmetic_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let catalog = player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
@@ -449,7 +449,7 @@ fn equipped_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
         presentation.set_cosmetic_motion(&motion);
         presentation.capture_hud_player(Some(&stream), false);
     });
-    assert_eq!(allocations.calls, 0);
+    assert_eq!(allocations, 0);
     assert!(!presentation.gui_models.live_player.hat_vertices[&item].is_empty());
     let (_, allocations) = test_alloc::count(|| {
         presentation.set_cosmetic_motion(&[(
@@ -460,8 +460,5 @@ fn equipped_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
             },
         )]);
     });
-    assert_eq!(
-        allocations.calls, 0,
-        "changing motion retains the equipped map"
-    );
+    assert_eq!(allocations, 0, "changing motion retains the equipped map");
 }

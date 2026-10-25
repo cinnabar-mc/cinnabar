@@ -47,6 +47,7 @@ impl GroundEffects {
         wearers: &[GroundEffectWearer],
         dt: f32,
         alpha: f32,
+        view: Option<&particles::ParticleView>,
     ) {
         let physics = local_source.map(|(physics, _)| physics);
         let identity = (
@@ -62,7 +63,7 @@ impl GroundEffects {
         }
         self.draining.retain(|(wearer, id)| {
             if !wearers.contains(wearer) {
-                system.discard(*id);
+                system.discard_hidden(*id, view);
             }
             system.contains_emitter(*id)
         });

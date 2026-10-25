@@ -583,8 +583,9 @@ Vertical follow and damping restrain jump and landing motion. Hidden local cloth
 revealing it fits the fabric to the current body and armor without replaying hidden frames.
 Equipped motion is sampled only for a submitted world attachment or a visible HUD preview.
 Attachment selection, texture lookup and HUD vertex storage are reused on steady frames.
-Self-collision, world collision, allocation-free animated poses and hardware performance
-qualification remain open.
+Animated attachment poses recycle storage after readers release their frame, preserving
+retained poses. Self-collision, world collision, allocation-free fabric and preview particles,
+GPU animation playback and hardware performance qualification remain open.
 Ground-following pets have per-wearer movement, collision-shape grounding, one-block
 hops with checked flight paths and landings, heading-aware animated body clearance,
 obstacle steering and distance-driven gait playback.
@@ -593,8 +594,8 @@ and optional tricks. Missing terrain freezes the follower; ordinary blockage nev
 teleports it. Owner teleports reset only onto checked ground. Broader terrain acceptance, swimming,
 flight, animation-triggered effects and performance qualification remain open.
 Restricted catalog ground effects emit alternating distance-triggered stamps and one-shot
-landing bursts for visible wearers. Hidden cosmetic emitters and their particles retire
-immediately. Local triggers use
+landing bursts for visible wearers. Hidden wearers stop emitting; their remaining particles retire immediately only when
+they are also outside the particle view. Visible trails finish normally. Local triggers use
 completed movement ticks; remote triggers use interpolated actor movement. Decals require
 continuous coplanar collision support and suppress effects at uneven terrain and ledges.
 Exact foot-pose timing and broader terrain and remote runtime acceptance remain incomplete.

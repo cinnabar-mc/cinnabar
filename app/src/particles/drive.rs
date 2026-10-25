@@ -696,6 +696,7 @@ fn drive_particles(
         cosmetic_placements
             .as_deref()
             .map_or(&[], |placements| &placements.0),
+        Some(&view),
     );
     ground.drive(
         &mut system,
@@ -710,6 +711,7 @@ fn drive_particles(
         ground_wearers.as_deref().map_or(&[], |wearers| &wearers.0),
         time.delta_secs(),
         actor_alpha.as_ref().map_or(0.0, |alpha| alpha.0),
+        Some(&view),
     );
     let camera = crate::runtime::telemetry::camera_sub_chunk_key(
         stream.current_dimension(),

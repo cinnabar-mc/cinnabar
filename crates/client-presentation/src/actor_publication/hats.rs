@@ -168,6 +168,7 @@ impl Attachment {
 pub(super) struct HatState {
     attachments: HashMap<(u64, u64, Item), Attachment>,
     local: Vec<Item>,
+    local_companions: bool,
     local_attachments: HashMap<Item, Attachment>,
     /// Submission indices of this frame's attachments, for emitter placement.
     drawn: Vec<(usize, Item)>,
@@ -190,6 +191,9 @@ impl HatState {
         self.speed = speed;
         self.frame = self.frame.wrapping_add(1);
         if self.local != items {
+            self.local_companions = items
+                .iter()
+                .any(|item| hats::rig(*item).companion().is_some());
             self.local.clear();
             self.local.extend_from_slice(items);
             self.local_attachments
@@ -239,11 +243,12 @@ impl HatState {
             self.attachments.clear();
             return;
         }
+        let hidden_local = frame.hidden_local.filter(|_| self.local_companions);
         let body_count = batch.submissions.len();
-        for index in 0..body_count + usize::from(frame.hidden_local.is_some()) {
+        for index in 0..body_count + usize::from(hidden_local.is_some()) {
             let hidden = index == body_count;
             let body = if hidden {
-                frame.hidden_local.expect("hidden body counted")
+                hidden_local.expect("hidden body counted")
             } else {
                 &batch.submissions[index]
             };
@@ -504,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_local_attachments_do_no_animation_or_cloth_work() {
+    fn hidden_local_cosmetics_do_no_animation_or_cloth_work() {
         let items = [
             render_model::hats::fixture::cloth(),
             render_model::hats::fixture::dragon_wings(),
@@ -516,7 +521,7 @@ mod tests {
                 state.advance(&items, 6.0, 1.0 / 120.0);
             }
         });
-        assert_eq!(allocations.calls, 0);
+        assert_eq!(allocations, 0);
         for attachment in state.local_attachments.values() {
             assert_eq!(attachment.motion, hats::Motion::default());
             assert!(attachment.cloth.fitted_placement().is_none());
@@ -534,10 +539,7 @@ mod tests {
         let (_, allocations) = test_alloc::count(|| {
             state.local_motion();
         });
-        assert_eq!(
-            allocations.calls, 0,
-            "a visible HUD reuses its motion storage"
-        );
+        assert_eq!(allocations, 0, "a visible HUD reuses its motion storage");
     }
 
     #[test]

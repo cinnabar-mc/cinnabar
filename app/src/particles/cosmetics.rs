@@ -58,6 +58,7 @@ impl CosmeticEmitters {
         &mut self,
         system: &mut ParticleSystem,
         placements: &[CosmeticEmitterPlacement],
+        view: Option<&particles::ParticleView>,
     ) {
         if self.instance != Some(system.instance()) {
             self.instance = Some(system.instance());
@@ -67,7 +68,7 @@ impl CosmeticEmitters {
         }
         self.draining.retain(|(key, id)| {
             if !placements.iter().any(|placement| placement.key == *key) {
-                system.discard(*id);
+                system.discard_hidden(*id, view);
             }
             system.contains_emitter(*id)
         });
@@ -88,11 +89,10 @@ impl CosmeticEmitters {
             if live.seen == pass {
                 return true;
             }
-            if !placements.iter().any(|placement| placement.key == *key) {
-                system.discard(live.id);
-                return false;
-            }
             system.stop(live.id);
+            if !placements.iter().any(|placement| placement.key == *key) {
+                system.discard_hidden(live.id, view);
+            }
             if system.contains_emitter(live.id) {
                 draining.push((*key, live.id));
             }

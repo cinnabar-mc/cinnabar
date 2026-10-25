@@ -124,13 +124,28 @@ fn discarding_hidden_effects_releases_particles_and_atlas_ownership_immediately(
     system.tick(0.05, &EmptyWorld);
     assert_eq!(system.live_particles(), 2);
     let tile = system.emitter(hidden).unwrap().texture;
-    system.discard(hidden);
+    let mut view = ParticleView {
+        position: [0.0, 0.0, 4.0],
+        right: [1.0, 0.0, 0.0],
+        up: [0.0, 1.0, 0.0],
+        forward: [0.0, 0.0, -1.0],
+        half_diagonal: 1.0,
+    };
+    system.discard_hidden(hidden, Some(&view));
+    assert_eq!(
+        system.live_particles(),
+        2,
+        "an absent wearer leaves visible particles alive"
+    );
+    assert!(!system.is_emitting(hidden));
+    view.position[2] = -4.0;
+    system.discard_hidden(hidden, Some(&view));
     assert_eq!(system.live_particles(), 1);
     assert_eq!(system.emitter_count(), 1);
     assert!(system.contains_emitter(visible));
     assert_eq!(system.atlas.placement_references(tile), 1);
-    system.discard(hidden);
-    system.discard(visible);
+    system.discard_hidden(hidden, Some(&view));
+    system.discard_hidden(visible, Some(&view));
     assert_eq!(system.live_particles(), 0);
     assert_eq!(system.emitter_count(), 0);
     assert_eq!(system.atlas.placement_references(tile), 0);

@@ -137,6 +137,7 @@ fn the_local_driver_drops_airborne_history_on_a_same_tick_position_authority_res
         &[wearer],
         0.05,
         1.0,
+        None,
     );
     let track = ground.tracks.get_mut(&wearer).unwrap();
     for y in [1.0, 0.9, 0.7, 0.5] {
@@ -154,6 +155,7 @@ fn the_local_driver_drops_airborne_history_on_a_same_tick_position_authority_res
         &[wearer],
         0.05,
         1.0,
+        None,
     );
     // The next completed grounded observation cannot consume the pre-teleport descent.
     physics.reanchor_network_position([0.0, protocol::PLAYER_NETWORK_OFFSET, 0.0], 101, true);
@@ -165,6 +167,7 @@ fn the_local_driver_drops_airborne_history_on_a_same_tick_position_authority_res
         &[wearer],
         0.05,
         1.0,
+        None,
     );
     assert_eq!(system.emitter_count(), 0);
     assert_eq!(ground.tracks[&wearer].tick, Some(101));
