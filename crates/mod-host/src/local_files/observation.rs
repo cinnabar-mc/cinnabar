@@ -117,13 +117,18 @@ impl ObservationCache {
     }
 }
 
+/// Volume and file number; Windows tunnels a replaced name's creation time, but not this.
+type FileNumber = (u64, u64);
+/// Metadata change time, when the file system reports one.
+type ChangeTime = Option<(i64, i64)>;
+
 /// File identity plus content and metadata change times; access times are deliberately excluded.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Identity {
-    file: (u64, u64), // volume and file number; Windows tunnels a replaced name's creation time
+    file: FileNumber,
     created: Option<std::time::SystemTime>,
     modified: Option<std::time::SystemTime>,
-    changed: Option<(i64, i64)>, // metadata change time
+    changed: ChangeTime,
     len: u64,
 }
 
@@ -155,7 +160,7 @@ impl Identity {
 
 /// Returns the volume and file number, plus the change time when the file system reports one.
 #[cfg(windows)]
-fn windows_identity(file: &File) -> io::Result<((u64, u64), Option<(i64, i64)>)> {
+fn windows_identity(file: &File) -> io::Result<(FileNumber, ChangeTime)> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandle,
