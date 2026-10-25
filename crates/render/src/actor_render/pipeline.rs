@@ -34,14 +34,21 @@ pub(crate) struct ActorPipeline {
         u32,
         render_api::render_state::RenderState,
     )>,
-    /// Programmable world material pipelines, which never gate readiness: their draws use the
-    /// base pipeline until they compile.
+    /// Programmable world material pipelines, which never gate readiness: their draws stay
+    /// Bedrock's until they compile.
     world_variants: Variants<RenderPipeline, super::world_materials::WorldActorSpecializer>,
     world_ids: std::collections::HashMap<
         (ActorPipelineContract, crate::world_material::WorldVariant),
         CachedRenderPipelineId,
     >,
+    /// The frame's world draws, as (tagged word, host raster), whose world material pipeline is
+    /// ready in every view; the others draw as Bedrock.
+    pub(super) world_ready: WorldReady,
 }
+
+/// (tagged instance word, host raster) pairs of world draws.
+pub(super) type WorldReady =
+    std::collections::BTreeSet<(u32, render_api::render_state::RenderState)>;
 
 /// Authored raster states by material index, as the session publishes them.
 type AuthoredRasters = std::sync::Arc<[(u32, render_api::render_state::RenderState)]>;
@@ -72,6 +79,7 @@ impl FromWorld for ActorPipeline {
                 descriptor.clone(),
             ),
             world_ids: Default::default(),
+            world_ready: Default::default(),
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
@@ -148,7 +156,7 @@ impl ActorPipeline {
     }
 
     /// The world material pipeline of `key`, requesting it once; `None` when it cannot be
-    /// specialized, in which case its draws keep the base pipeline.
+    /// specialized, in which case its draws stay Bedrock's.
     pub(super) fn request_world(
         &mut self,
         cache: &PipelineCache,
@@ -391,6 +399,10 @@ pub(super) fn prepare_actor_pipelines(
     if let Some(frame) = &frame {
         pipeline.adopt_session_rasters(&frame.authored_rasters);
     }
+    let world_pairs = frame
+        .as_deref()
+        .map(|frame| world_draw_pairs(&frame.rig))
+        .unwrap_or_default();
     let changed = frame.filter(bevy::ecs::change_detection::DetectChanges::is_changed);
     let mut has_view = false;
     let mut ready = true;
@@ -420,12 +432,8 @@ pub(super) fn prepare_actor_pipelines(
                     .is_none_or(|frame| pipeline.prewarm_frame(&cache, view, &frame.rig).is_some())
                 && pipeline.ready(&cache, msaa, camera.hdr, enhanced.is_some());
             // World material pipelines compile beside the base ones without gating loading.
-            if let (Some(world), Some(frame)) = (world.as_deref(), changed.as_ref()) {
-                for instance in frame.rig.instances.iter() {
-                    let Some(&raster) = frame.rig.rasters.get(instance.raster as usize) else {
-                        continue;
-                    };
-                    let material = instance.material;
+            if let Some(world) = world.as_deref() {
+                for &(material, raster) in &world_pairs {
                     let Some(variant) = render_model::actor::frame::actor_world_material(material)
                         .and_then(|slot| world.variant(slot))
                     else {
@@ -446,6 +454,35 @@ pub(super) fn prepare_actor_pipelines(
             }
         }
     }
+    // A world draw switches to its material only once every view can draw it, so each view
+    // draws an actor either way and its pass stays the one its raster selects.
+    let world_ready: WorldReady = world
+        .as_deref()
+        .filter(|_| has_view)
+        .map(|world| {
+            world_pairs
+                .iter()
+                .copied()
+                .filter(|&(material, raster)| {
+                    views.iter().all(|(camera, msaa, enhanced)| {
+                        super::world_materials::ready(
+                            &pipeline,
+                            &cache,
+                            world,
+                            ActorPipelineKey {
+                                msaa: *msaa,
+                                hdr: camera.hdr,
+                                enhanced: enhanced.is_some(),
+                                material,
+                                raster,
+                            },
+                        )
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    pipeline.world_ready = world_ready;
     if let Some(failures) = failures.as_deref() {
         crate::world_material::record_failures(
             &cache,
@@ -460,6 +497,14 @@ pub(super) fn prepare_actor_pipelines(
     readiness.publish_material_fallbacks(
         u32::try_from(pipeline.targets.fallback_count()).unwrap_or(u32::MAX),
     );
+}
+
+/// Distinct (tagged word, host raster) pairs a frame's world draws switch to once ready.
+fn world_draw_pairs(rig: &render_model::ActorRigRenderFrame) -> WorldReady {
+    rig.world_draws
+        .iter()
+        .filter_map(|draw| Some((draw.material, *rig.rasters.get(draw.raster as usize)?)))
+        .collect()
 }
 
 pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {

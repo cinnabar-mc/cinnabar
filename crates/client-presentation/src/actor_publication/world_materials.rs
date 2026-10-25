@@ -28,8 +28,9 @@ pub(super) fn tag(
         };
         if let Some((tag, raster)) = world(submission.input.identity.layer, &actor.kind, scene) {
             submission.material.world = tag;
-            // The host owns depth, blend and pass: the class's raster replaces the Bedrock one.
-            submission.material.render_state = Some(raster);
+            // The host owns depth, blend and pass: the class's raster replaces the Bedrock one
+            // once the material's pipeline is ready, and the draw stays Bedrock's until then.
+            submission.material.world_raster = Some(raster);
         }
     }
 }
