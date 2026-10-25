@@ -140,7 +140,8 @@ offer's GPU limit as the host enforces it.
 `param(input, index)`), a depth (`test`, or `always`, which also needs `render_through_walls`)
 and a blend class (`opaque`, `cutout`, `premultiplied`, `additive`). `shade` receives the UV, world
 position, Bedrock material colour (texture times tint), the light the host applies, the fog colour
-and amount, the actor overlay (zero for blocks), the animation phase, the unit surface normal
+and amount, the actor overlay (zero for blocks), the animation phase (Unix time modulo 4096 s
+over 4096, so a server can time an effect's start on the same clock), the unit surface normal
 and the unit direction from the surface to the camera; it returns colour, coverage and
 emission. The host validates it with the drawing-material sandbox (no resources,
 module state, overrides, entry points, loops, recursion or storage writes; bounded expressions and
