@@ -126,6 +126,12 @@ impl UiRuntime {
                 json(Some(ui_screens::emote_screen::EMOTE_SCREEN)),
             );
         }
+        if self.mob_effect_screen().is_open() {
+            visit(
+                Scene::MobEffects,
+                json(Some(ui_screens::mob_effect_screen::MOB_EFFECT_SCREEN)),
+            );
+        }
         if let Some(stage) = host.loading.filter(|_| host.menu.is_none()) {
             // Only the in-session dimension change keeps the server-restylable JSON-UI screen.
             let settings = if stage == ui::LoadingStage::ChangingDimension {

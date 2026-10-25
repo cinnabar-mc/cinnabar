@@ -27,6 +27,8 @@ pub enum Scene {
     Container,
     Chat,
     Emote,
+    /// Vanilla's list of the local player's active effects.
+    MobEffects,
     Loading,
     SignEditor,
     ServerForm,
@@ -46,6 +48,7 @@ impl Scene {
             Self::Bed
             | Self::Container
             | Self::Emote
+            | Self::MobEffects
             | Self::SignEditor
             | Self::ServerForm
             | Self::DataDriven
@@ -320,6 +323,7 @@ impl UiRuntime {
                 self.close_inventory(player_runtime);
             }
             Some(Scene::SignEditor) => self.sign_editor_mut().close_on_hurt(),
+            Some(Scene::MobEffects) => self.close_mob_effect_screen(),
             _ => {}
         }
     }

@@ -44,7 +44,7 @@ pub(crate) struct ObservedEmotes {
     modifiers: ButtonInput<KeyCode>,
 }
 
-use client_state::EmoteInputConsumed;
+use client_state::ScreenInputConsumed;
 
 #[derive(SystemParam)]
 pub(crate) struct EmoteInput<'w, 's> {
@@ -64,7 +64,7 @@ pub(crate) struct EmoteInput<'w, 's> {
     runtime: ResMut<'w, UiRuntimeResource>,
     presentation: Option<ResMut<'w, UiPresentationResource>>,
     observed: Local<'s, ObservedEmotes>,
-    consumed: ResMut<'w, EmoteInputConsumed>,
+    consumed: ResMut<'w, ScreenInputConsumed>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
 }

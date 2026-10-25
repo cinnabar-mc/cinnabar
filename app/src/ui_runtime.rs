@@ -13,6 +13,8 @@ pub mod forms;
 pub(crate) mod gameplay_touch;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod interaction;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod mob_effects;
 pub(crate) mod outbound;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod platform_back;

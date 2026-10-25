@@ -71,7 +71,7 @@ pub(crate) fn drive_world_inventory_keys(
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
     presentation: Option<Res<UiPresentationResource>>,
     mut runtime: ResMut<UiRuntimeResource>,
-    emote_input: Option<Res<client_state::EmoteInputConsumed>>,
+    emote_input: Option<Res<client_state::ScreenInputConsumed>>,
     swing: DropSwing,
     touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
     book_transport: (

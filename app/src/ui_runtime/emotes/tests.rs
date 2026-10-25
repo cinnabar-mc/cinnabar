@@ -150,7 +150,7 @@ impl Harness {
             .init_resource::<SemanticRouteState>()
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticInputSnapshot>()
-            .init_resource::<EmoteInputConsumed>()
+            .init_resource::<ScreenInputConsumed>()
             .insert_resource(UiRuntimeResource(runtime))
             .insert_resource(player)
             .add_systems(
@@ -241,7 +241,7 @@ fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory()
             !h.runtime().inventory_open(),
             "owned batch opened inventory with {trailing_key:?}"
         );
-        assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(h.app.world().resource::<ScreenInputConsumed>().0);
         assert!(
             h.app
                 .world()
@@ -260,7 +260,7 @@ fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory()
         // Consumption is frame-scoped, so a new physical chat edge still works.
         h.press(KeyCode::KeyT);
         assert!(h.runtime().chat_focused());
-        assert!(!h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(!h.app.world().resource::<ScreenInputConsumed>().0);
     }
 }
 
@@ -275,7 +275,7 @@ fn cancel_closing_frame_also_consumes_later_raw_ui_shortcuts() {
     assert!(!h.runtime().emotes().is_open());
     assert!(!h.runtime().inventory_open());
     assert!(!h.runtime().chat_focused());
-    assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+    assert!(h.app.world().resource::<ScreenInputConsumed>().0);
 }
 
 #[test]
