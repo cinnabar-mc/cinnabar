@@ -3,7 +3,7 @@
 use super::{
     ActorArtworkPageId, ActorTexturePage, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Layers per generic entity page, within every backend's array-layer limit.
 pub(super) const MAX_ACTOR_PAGE_LAYERS: usize = 256;
@@ -40,16 +40,68 @@ pub(super) fn push_page(
     ActorArtworkPageId::try_from(pages.len()).ok()
 }
 
+/// Reorders `members` so every member with a `companion` key follows the first member with the
+/// same key; members without one keep their order.
+pub(super) fn gather_companions(members: &mut [usize], companion: impl Fn(usize) -> Option<u32>) {
+    let mut first = BTreeMap::new();
+    let mut ordered: Vec<(usize, usize)> = members
+        .iter()
+        .enumerate()
+        .map(|(position, &member)| {
+            let lead =
+                companion(member).map_or(position, |key| *first.entry(key).or_insert(position));
+            (lead, member)
+        })
+        .collect();
+    ordered.sort_by_key(|(lead, _)| *lead);
+    for (slot, (_, member)) in members.iter_mut().zip(ordered) {
+        *slot = member;
+    }
+}
+
+/// Splits `members` into page chunks of at most `layers`. A run of adjacent members `together`
+/// joins is never split across pages: it moves whole to the next page, and a run larger than
+/// `layers` takes pages of its own at the backend layer limit, past the byte cap if it must.
+pub(super) fn page_chunks(
+    members: &[usize],
+    layers: usize,
+    together: impl Fn(usize, usize) -> bool,
+) -> Vec<&[usize]> {
+    let mut chunks = Vec::new();
+    let (mut open, mut run) = (0, 0);
+    for end in 1..=members.len() {
+        if end < members.len() && together(members[end - 1], members[end]) {
+            continue;
+        }
+        if end - open > layers && open < run {
+            chunks.push(&members[open..run]);
+            open = run;
+        }
+        if end - open > layers {
+            chunks.extend(members[open..end].chunks(MAX_ACTOR_PAGE_LAYERS));
+            open = end;
+        }
+        run = end;
+    }
+    if open < members.len() {
+        chunks.push(&members[open..]);
+    }
+    chunks
+}
+
 /// Pushes a same-size group split into capped pages, all at the one resolution the remaining
-/// budget allows for the whole group. Each chunk is built, fitted and placed before the next is
-/// built, so at most one full-resolution chunk is alive. `placed` receives each admitted chunk,
-/// its page id, `build`'s value, and whether the page kept the built pixels unchanged.
+/// budget allows for the whole group. Adjacent members `together` joins stay on one page (see
+/// [`page_chunks`]). Each chunk is built, fitted and placed before the next is built, so at most
+/// one full-resolution chunk is alive. `placed` receives each admitted chunk, its page id,
+/// `build`'s value, and whether the page kept the built pixels unchanged.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn push_group<'a, T>(
     pages: &mut Vec<ActorTexturePage>,
     gpu_bytes: &mut usize,
     members: &'a [usize],
     [width, height]: [u16; 2],
     multitexture: bool,
+    together: impl Fn(usize, usize) -> bool,
     mut build: impl FnMut(&'a [usize]) -> (ActorTexturePage, T),
     mut placed: impl FnMut(&'a [usize], ActorArtworkPageId, T, bool),
 ) {
@@ -68,7 +120,7 @@ pub(super) fn push_group<'a, T>(
     } else {
         page_layers(fitted_width, fitted_height)
     };
-    for chunk in members.chunks(layers) {
+    for chunk in page_chunks(members, layers, together) {
         let (built, value) = build(chunk);
         let page = built.fit_within(limit).into_owned();
         // Only unchanged pixels stay referenced; a downscaled chunk's original frees here.
