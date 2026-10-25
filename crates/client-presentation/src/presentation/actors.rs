@@ -30,7 +30,8 @@ pub(crate) use admission::{
 };
 use boat::boat_hurt_tilted;
 use thrown_trident::{
-    present_thrown_trident, thrown_trident_position, thrown_trident_world_from_actor,
+    present_thrown_trident, thrown_trident_admission_bounds, thrown_trident_position,
+    thrown_trident_world_from_actor,
 };
 mod tick_cache;
 pub use tick_cache::PoseConversions;
@@ -118,7 +119,8 @@ pub fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
-    let bounds = rig.culling_bounds();
+    let bounds = thrown_trident_admission_bounds(actor, rig.culling_bounds())
+        .unwrap_or_else(|| rig.culling_bounds());
     if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
         return false;
     }
@@ -399,7 +401,7 @@ pub(crate) fn sampled_rig_placement(
         death_tilted(
             scaled_axes(
                 boat_hurt_tilted(
-                    thrown_trident_world_from_actor(actor, alpha, position, scale)
+                    thrown_trident_world_from_actor(actor, alpha, position, scale, authored[2])
                         .unwrap_or_else(|| rig_world_from_actor(position, yaw, scale)),
                     actor,
                     alpha,

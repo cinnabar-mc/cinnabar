@@ -12,8 +12,12 @@ const POSITION: [f32; 3] = [1.0, 2.0, 3.0];
 const HEAD_PIXELS: f32 = 28.0;
 const BUTT_PIXELS: f32 = -3.0;
 
-/// Compiles an original pole model, with its pivot at the native origin, without game assets.
 fn world(yaw: f32, pitch: f32) -> client_world::WorldAuthority {
+    world_at(POSITION, yaw, pitch)
+}
+
+/// Compiles an original pole model, with its pivot at the native origin, without game assets.
+fn world_at(position: [f32; 3], yaw: f32, pitch: f32) -> client_world::WorldAuthority {
     let identifier = NativeEntityClass::ThrownTrident.identifier().unwrap();
     let entity = format!(
         r#"{{"format_version":"1.8.0","minecraft:client_entity":{{"description":{{
@@ -61,7 +65,7 @@ fn world(yaw: f32, pitch: f32) -> client_world::WorldAuthority {
                 kind: ActorKind::Entity {
                     identifier: identifier.into(),
                 },
-                position: POSITION,
+                position,
                 velocity: [0.0; 3],
                 pitch,
                 yaw,
@@ -119,6 +123,62 @@ fn thrown_tridents_point_their_head_along_their_flight_from_their_position() {
             point(BUTT_PIXELS).abs_diff_eq(butt, 1e-5),
             "yaw {yaw} pitch {pitch}: butt {} != {butt}",
             point(BUTT_PIXELS)
+        );
+    }
+}
+
+#[test]
+fn an_authored_y_axis_scale_keeps_the_native_pivot_on_the_actor() {
+    for (yaw, pitch) in [(0.0, 0.0), (-135.0, 30.0)] {
+        let world = world(yaw, pitch);
+        let rig = world.actor_rig(1).unwrap();
+        let actor = world.actor(1).unwrap().clone();
+        let (rows, _) = sampled_rig_placement(&rig, &actor, 0.5, [1.0, 1.0, 2.0, 1.0]).unwrap();
+        let pivot = Vec3::from_array(transform(&rows, [0.0, 24.0 / 16.0, 0.0]));
+        assert!(
+            pivot.abs_diff_eq(Vec3::from_array(POSITION), 1e-5),
+            "yaw {yaw} pitch {pitch}: pivot at {pivot}"
+        );
+        let lit = Vec3::from_array(thrown_trident_position(&actor, &rows).unwrap());
+        assert!(
+            lit.abs_diff_eq(Vec3::from_array(POSITION), 1e-5),
+            "yaw {yaw} pitch {pitch}: lit at {lit}"
+        );
+        let head = Vec3::from_array(transform(&rows, [0.0, HEAD_PIXELS / 16.0, 0.0]));
+        let expected = Vec3::from_array(POSITION) + flight(yaw, pitch) * 2.0 * 4.0 / 16.0;
+        assert!(
+            head.abs_diff_eq(expected, 1e-5),
+            "yaw {yaw} pitch {pitch}: head {head} != {expected}"
+        );
+    }
+}
+
+#[test]
+fn early_admission_keeps_a_level_trident_whose_shaft_reaches_into_view() {
+    let camera = Vec3::new(0.0, 2.0, 10.0);
+    let view = render_model::ActorCullView {
+        camera_position: camera,
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            90_f32.to_radians(),
+            1.0,
+            render_api::CAMERA_NEAR_PLANE_BLOCKS,
+        ) * glam::camera::rh::view::look_to_mat4(camera, -Vec3::Z, Vec3::Y),
+        max_distance: 100.0,
+    };
+    // Seven blocks ahead, the right frustum edge is at x = 7, and the upright fallback box
+    // at x = 8.4 lies wholly outside it. Flying toward +X, the trident's shaft trails 27
+    // pixels back from its position, into view.
+    for (x, visible) in [(8.4, true), (12.0, false)] {
+        let world = world_at([x, 2.0, 3.0], 90.0, 0.0);
+        let rig = world.actor_rig(1).unwrap();
+        let actor = world.actor(1).unwrap();
+        let (rows, _) = sampled_rig_placement(&rig, actor, 0.5, [1.0; 4]).unwrap();
+        let butt = transform(&rows, [0.0, BUTT_PIXELS / 16.0, 0.0]);
+        assert_eq!(butt[0] < 7.0, visible, "the fixture's butt is at {butt:?}");
+        assert_eq!(
+            super::super::rig_may_be_visible(&rig, actor, 0.5, Some(view), None, |_, _| false),
+            visible,
+            "trident at x = {x}"
         );
     }
 }
