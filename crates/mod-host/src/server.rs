@@ -37,13 +37,21 @@ impl DispatchResult {
 }
 
 wasmtime::component::bindgen!({
-    path: ["../experience-sdk/wit/session", "../experience-sdk/wit/client"],
+    path: ["../experience-sdk/wit/client/deps/server-experience", "../experience-sdk/wit/session", "../mod-api/wit"],
     world: "cinnabar:extension/server-bundle@0.1.0",
     imports: { default: trappable },
-    with: { "cinnabar:session/items@0.1.0": crate::runtime::cinnabar::session::items },
+    with: {
+        "cinnabar:session/items@0.1.0": crate::runtime::cinnabar::session::items,
+        "cinnabar:world-draw": crate::runtime::cinnabar::world_draw,
+        "cinnabar:extension/render@0.1.0": crate::runtime::cinnabar::extension::render,
+        "cinnabar:extension/environment@0.1.0": crate::runtime::cinnabar::extension::environment,
+    },
 });
 
 struct State {
+    presentation: crate::runtime::State,
+    scene: server_experience::runtime::Contributions,
+    scene_revision: u64,
     /// The session's items as the client last sent them; empty until it does.
     session: Arc<SessionData>,
     limits: StoreLimits,
@@ -62,6 +70,26 @@ struct State {
 }
 
 impl State {
+    /// Commits bounded legacy objects only after the guest callback succeeds.
+    fn commit_scene(&mut self) -> Result<()> {
+        let mut candidate = self.scene.clone();
+        for command in &self.commands {
+            if let Command::Scene { id, object } = command {
+                if let Some(object) = object {
+                    candidate.scene.insert(*id, object.clone());
+                } else {
+                    candidate.scene.remove(id);
+                }
+            }
+        }
+        candidate.check_scene_budget(0, 0)?;
+        if candidate.scene != self.scene.scene {
+            self.scene = candidate;
+            self.scene_revision = mod_render::next_owner();
+        }
+        Ok(())
+    }
+
     /// Reserves the serialized owner, epoch and empty command array before guest output.
     fn begin_output(&mut self) -> Result<()> {
         self.commands.clear();
@@ -330,6 +358,7 @@ struct Exports {
     /// 1.3's `scroll-changed`.
     scrolled: Option<Func>,
     shift: Option<Func>,
+    frame: Option<Func>,
 }
 
 impl Exports {
@@ -349,6 +378,10 @@ impl Exports {
         );
         let scrolled = find("scroll-changed");
         let shift = find("shift-changed");
+        let frame = find("frame");
+        if let Some(frame) = &frame {
+            frame.typed::<(), ()>(&*store)?;
+        }
         let (Some(init), Some(dispatch)) = (init, dispatch) else {
             anyhow::bail!("component lacks init or dispatch");
         };
@@ -389,9 +422,17 @@ impl Exports {
                 editing,
                 scrolled,
                 shift,
+                frame,
             },
         ))
     }
+}
+
+/// Identifies the drawing and legacy objects captured by one immutable snapshot.
+#[derive(Clone, Copy, PartialEq)]
+struct PresentationRevision {
+    drawing: (u64, Option<u32>, Option<[f32; 2]>),
+    scene: u64,
 }
 
 pub struct BundleHost {
@@ -403,6 +444,9 @@ pub struct BundleHost {
     active: bool,
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
+    presentation_sent: Option<PresentationRevision>,
+    presentation_pending: Option<crate::presentation::Pending>,
+    drawing_context: crate::presentation::Context,
     _ticker: crate::execution::EpochTicker,
 }
 
@@ -413,12 +457,13 @@ impl BundleHost {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         ensure!(
             std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
             "in-process server code is developer-only"
         );
-        Self::instantiate(bytes, owner, capabilities, epoch)
+        Self::instantiate(bytes, owner, capabilities, epoch, drawing)
     }
 
     /// Compiles inside the helper, with no WASI or precompiled native cache input.
@@ -427,12 +472,44 @@ impl BundleHost {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         ensure!(
             bytes.len() <= MAX_COMPONENT_BYTES && bytes.starts_with(b"\0asm"),
             "invalid component bytes"
         );
-        Self::launch(bytes, owner, capabilities, epoch)
+        Self::instantiate_with_assets(
+            bytes,
+            owner,
+            capabilities,
+            epoch,
+            Default::default(),
+            drawing,
+        )
+    }
+
+    /// Admits host-verified assets before guest initialization can read them.
+    pub(crate) fn instantiate_with_assets(
+        bytes: &[u8],
+        owner: Principal,
+        capabilities: Capabilities,
+        epoch: u64,
+        assets: std::collections::BTreeMap<String, Vec<u8>>,
+        drawing: crate::presentation::Context,
+    ) -> Result<Self> {
+        ensure!(
+            bytes.len() <= MAX_COMPONENT_BYTES && bytes.starts_with(b"\0asm"),
+            "invalid component bytes"
+        );
+        ensure!(
+            assets.values().map(Vec::len).sum::<usize>() as u64 <= capabilities.scope.memory_bytes,
+            "drawing asset memory budget exceeded"
+        );
+        ensure!(
+            assets.keys().all(|path| capabilities.assets.contains(path)),
+            "unowned drawing asset"
+        );
+        Self::launch(bytes, owner, capabilities, epoch, assets, drawing)
     }
 
     /// Links the current imports and earlier semver-compatible components, then runs `init`.
@@ -441,6 +518,8 @@ impl BundleHost {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        assets: std::collections::BTreeMap<String, Vec<u8>>,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         capabilities.scope.validate()?;
         ensure!(
@@ -451,8 +530,39 @@ impl BundleHost {
         let (engine, ticker) = crate::execution::engine()?;
         let component = Component::new(&engine, source)?;
         let mut linker = Linker::new(&engine);
-        ServerBundle::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        let (store, exports) = Self::start(&linker, &component, owner, capabilities, epoch)?;
+        cinnabar::server_experience::ui::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
+        cinnabar::server_experience::input::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
+        cinnabar::server_experience::messaging::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
+        cinnabar::server_experience::scene::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
+        cinnabar::server_experience::media::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
+        items::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        crate::runtime::State::link_presentation(&mut linker, |state: &mut State| {
+            &mut state.presentation
+        })?;
+        let (store, exports) = Self::start(
+            &linker,
+            &component,
+            owner,
+            capabilities,
+            epoch,
+            assets,
+            &drawing,
+        )?;
         let mut host = Self {
             store,
             exports,
@@ -460,6 +570,9 @@ impl BundleHost {
             component,
             active: true,
             last_fuel: 0,
+            presentation_sent: None,
+            presentation_pending: None,
+            drawing_context: drawing,
             _ticker: ticker,
         };
         host.last_fuel = host.fuel_used();
@@ -473,11 +586,24 @@ impl BundleHost {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        assets: std::collections::BTreeMap<String, Vec<u8>>,
+        drawing: &crate::presentation::Context,
     ) -> Result<(Store<State>, Exports)> {
+        drawing.check(epoch)?;
         let mut state = State {
+            scene: Default::default(),
+            scene_revision: mod_render::next_owner(),
+            presentation: crate::runtime::State::new(
+                drawing_grants(&capabilities),
+                String::new(),
+                Default::default(),
+            ),
             session: Arc::default(),
             limits: StoreLimitsBuilder::new()
-                .memory_size(capabilities.scope.memory_bytes as usize)
+                .memory_size(
+                    (capabilities.scope.memory_bytes as usize)
+                        .saturating_sub(assets.values().map(Vec::len).sum::<usize>()),
+                )
                 .table_elements(4096)
                 .instances(16)
                 .memories(1)
@@ -495,6 +621,9 @@ impl BundleHost {
             initializing: true,
             negotiation: None,
         };
+        state.presentation.render.limit_draws(MAX_DRAWS as usize);
+        state.presentation.bind_presentation(drawing)?;
+        state.presentation.asset_files = assets;
         state.begin_output()?;
         let mut store = Store::new(linker.engine(), state);
         store.limiter(|state| &mut state.limits);
@@ -504,6 +633,8 @@ impl BundleHost {
         let init = init.typed::<(), ()>(&store)?;
         init.call(&mut store, ())?;
         init.post_return(&mut store)?;
+        store.data_mut().commit_scene()?;
+        store.data_mut().presentation.commit_presentation();
         store.data_mut().initializing = false;
         Ok((store, exports))
     }
@@ -517,9 +648,21 @@ impl BundleHost {
     /// A 1.0 component skips `action` and `epoch` and returns an empty transaction.
     /// During registry negotiation, non-confirmation events return `NotReady` without running.
     /// The caller retains them and dispatches them normally after a successful confirmation.
-    pub fn dispatch(&mut self, event: &Event, epoch: u64) -> Result<DispatchResult> {
+    pub fn dispatch(
+        &mut self,
+        event: &Event,
+        epoch: u64,
+        drawing: &crate::presentation::Context,
+    ) -> Result<DispatchResult> {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
+        drawing.check(epoch)?;
+        let rebound = self.drawing_context.fence() != drawing.fence();
+        if rebound {
+            self.presentation_pending = None;
+            self.presentation_sent = None;
+        }
+        self.drawing_context = drawing.clone();
         let state = self.store.data_mut();
         if let Event::Action { id, .. }
         | Event::SecondaryAction { id, .. }
@@ -531,6 +674,12 @@ impl BundleHost {
         if let Event::Shift { .. } = event {
             ensure!(state.capabilities.may_read_input(), "input not granted");
         }
+        if rebound {
+            state.presentation.reset_presentation();
+            state.scene.scene.clear();
+            state.scene_revision = mod_render::next_owner();
+        }
+        state.presentation.bind_presentation(drawing)?;
         let previous_epoch = state.epoch;
         state.epoch = epoch;
         state.begin_output()?;
@@ -553,14 +702,18 @@ impl BundleHost {
                 return Ok(DispatchResult::NotReady(self.take_transaction()));
             }
         }
+        state.presentation.begin_presentation();
         crate::execution::arm(&mut self.store, CALLBACK_FUEL, false)?;
-        let called = self.call(event);
+        let called = self
+            .call(event)
+            .and_then(|()| self.store.data_mut().commit_scene());
         self.last_fuel = self.fuel_used();
         if let Err(error) = called {
             self.store.data_mut().commands.clear();
             self.restart();
             return Err(error);
         }
+        self.store.data_mut().presentation.commit_presentation();
         self.store.data_mut().negotiation = None;
         Ok(DispatchResult::Committed(self.take_transaction()))
     }
@@ -603,12 +756,23 @@ impl BundleHost {
         reason = "the server helper's stderr lines are drained into the client's log"
     )]
     fn restart(&mut self) {
+        self.presentation_pending = None;
+        self.presentation_sent = None;
         let state = self.store.data();
         let (owner, capabilities, epoch) =
             (state.owner.clone(), state.capabilities.clone(), state.epoch);
         let session = Arc::clone(&state.session);
         let bundle = owner.bundle.clone();
-        match Self::start(&self.linker, &self.component, owner, capabilities, epoch) {
+        let assets = state.presentation.asset_files.clone();
+        match Self::start(
+            &self.linker,
+            &self.component,
+            owner,
+            capabilities,
+            epoch,
+            assets,
+            &self.drawing_context,
+        ) {
             Ok((store, exports)) => {
                 (self.store, self.exports) = (store, exports);
                 self.store
@@ -639,6 +803,14 @@ impl BundleHost {
             state.gui = Some(*size);
         }
         match (event, &self.exports.events) {
+            (Event::Frame, _) => match &self.exports.frame {
+                Some(frame) => {
+                    let frame = frame.typed::<(), ()>(&*store)?;
+                    frame.call(&mut *store, ())?;
+                    frame.post_return(store)
+                }
+                None => Ok(()),
+            },
             (Event::Message { channel, record }, _) => {
                 let dispatch = self.exports.dispatch.typed::<(&str, &[u8]), ()>(&*store)?;
                 dispatch.call(&mut *store, (channel, record))?;
@@ -708,16 +880,75 @@ impl BundleHost {
         }
     }
 
-    /// Takes only successfully returned initialization or callback output.
+    /// Returns the guest's held references even while an older drawing snapshot is transferring.
+    pub(crate) fn drawing_references(&self) -> Vec<mod_render::retained::EntityKey> {
+        self.store
+            .data()
+            .presentation
+            .drawing_entity_keys()
+            .collect()
+    }
+
+    /// Streams changed legacy objects and drawing as one immutable scene revision.
+    pub(crate) fn take_presentation(
+        &mut self,
+        byte_allowance: usize,
+    ) -> Result<Option<Box<crate::presentation::Chunk>>> {
+        let state = self.store.data();
+        if !state.capabilities.has_presentation() {
+            return Ok(None);
+        }
+        let key = PresentationRevision {
+            drawing: state.presentation.presentation_key(),
+            scene: state.scene_revision,
+        };
+        if self.presentation_pending.is_none() && self.presentation_sent != Some(key) {
+            let mut output = state.presentation.presentation_output();
+            output.scene = state.scene.scene.clone();
+            self.presentation_pending = Some(crate::presentation::Pending::new(
+                &output,
+                state.capabilities.scope.memory_bytes,
+            )?);
+            self.presentation_sent = Some(key);
+        }
+        let Some(pending) = &mut self.presentation_pending else {
+            return Ok(None);
+        };
+        let chunk = pending.take(byte_allowance).map(Box::new);
+        if pending.complete() {
+            self.presentation_pending = None;
+        }
+        Ok(chunk)
+    }
+
+    /// Takes successful nonvisual commands; legacy objects travel only in scene snapshots.
     pub fn take_transaction(&mut self) -> Transaction {
         let state = self.store.data_mut();
         Transaction {
             owner: state.owner.clone(),
             epoch: state.epoch,
-            commands: std::mem::take(&mut state.commands),
+            commands: std::mem::take(&mut state.commands)
+                .into_iter()
+                .filter(|command| !matches!(command, Command::Scene { .. }))
+                .collect(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+/// Narrows the canonical personal drawing host to this bundle's consented capabilities.
+pub fn drawing_grants(capabilities: &Capabilities) -> crate::ModGrants {
+    let has = |permission| capabilities.scope.permissions.contains(&permission);
+    crate::ModGrants {
+        world_draw: has(Permission::WorldDraw),
+        entity_observe: has(Permission::EntityObserve),
+        entity_highlight: has(Permission::EntityHighlight),
+        render_through_walls: has(Permission::RenderThroughWalls),
+        render_material: has(Permission::RenderMaterial),
+        render_post: has(Permission::RenderPost),
+        environment: has(Permission::WorldDraw),
+        ..Default::default()
+    }
+}

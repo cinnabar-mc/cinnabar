@@ -1,5 +1,7 @@
 /// Canonical fishing-rod identity used by its cast presentation.
 pub const FISHING_ROD_IDENTIFIER: &str = "minecraft:fishing_rod";
+/// Canonical brush identity; a held brush keeps the attack button live during a use.
+pub const BRUSH_IDENTIFIER: &str = "minecraft:brush";
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
 /// Item atlas key whose variants are the tipped arrow icons.
@@ -13,6 +15,15 @@ pub fn harness_color(identifier: &str) -> Option<&str> {
         .strip_prefix("minecraft:")?
         .strip_suffix("_harness")
 }
+
+/// Suffix shared by the retail actor-placer (spawn egg) item identities.
+pub const SPAWN_EGG_SUFFIX: &str = "_spawn_egg";
+
+/// Legacy item names the client's vanilla item registration aliases to a retail identity.
+pub const LEGACY_ITEM_ALIASES: &[(&str, &str)] = &[(
+    "minecraft:fireball",
+    super::VanillaItem::FireCharge.identifier(),
+)];
 
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";

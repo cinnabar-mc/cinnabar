@@ -187,5 +187,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 5_225_287_854_792_396_798);
+    assert_eq!(digest, 15_669_327_629_649_414_563);
 }

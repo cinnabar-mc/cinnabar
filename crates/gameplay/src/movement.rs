@@ -54,7 +54,9 @@ pub use diagnostics::{
     CorrectionContext, CorrectionContextLine, CorrectionContextLog, CorrectionKind,
     CorrectionPacket, note_correction, note_motion,
 };
-pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
+pub use effects::{
+    BoostSpan, LocalMovementEffectTimeline, MeleeEffects, MiningEffects, MovementBoost,
+};
 use encoding::{HeldInput, input_flags};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -772,8 +774,8 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::FullRestored;
     }
 
+    /// The next movement tick to be simulated and queued.
     #[must_use]
-    #[cfg(any(test, feature = "test-support"))]
     pub const fn next_tick(&self) -> u64 {
         self.next_tick
     }
@@ -941,6 +943,8 @@ impl MovementTicker {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod anchor_probe_context_tests;
 #[cfg(test)]
 mod anchor_probe_tests;
 #[cfg(test)]

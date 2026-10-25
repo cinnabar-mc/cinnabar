@@ -3,14 +3,14 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 
 impl WorldAuthority {
     /// Reads the target's component proof without predicting unknown native interactions.
-    pub fn offered_throwable_use(
+    pub fn offered_use(
         &self,
         runtime_id: u64,
-        item: &protocol::VerifiedNetworkItemStack,
+        equipment: &crate::UseEquipment,
     ) -> assets::entity::offered_use::OfferedUse {
         self.actor(runtime_id).map_or(
             assets::entity::offered_use::OfferedUse::Unresolved,
-            |actor| self.actors.offered_throwable_use(actor, item),
+            |actor| self.actors.offered_use(actor, equipment),
         )
     }
 
@@ -101,6 +101,11 @@ impl WorldAuthority {
         stack: &protocol::NetworkItemStack,
     ) -> Option<crate::item::CanonicalItemStack> {
         self.actors.canonical_item_stack(stack)
+    }
+
+    /// Resolves a named block-entity stack with the same visual rules as actor equipment.
+    pub fn named_item_visual(&self, identifier: &str, metadata: u32) -> assets::ItemVisualRoute {
+        self.actors.named_item_visual(identifier, metadata)
     }
     /// Reads intrinsic shine admitted for the current numeric item identity.
     pub fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
@@ -301,6 +306,12 @@ impl WorldAuthority {
         self.actors.lifetime(runtime_id)
     }
 
+    /// Publishes StartGame's binding of the local player's mode to the world
+    /// default, which later default changes then reach.
+    pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
+        self.local_mode_follows_default = follows;
+    }
+
     /// Publishes the session's level mode before remote players are admitted.
     pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
         self.actors.apply_world_game_mode(mode);
@@ -416,6 +427,10 @@ impl WorldAuthority {
     /// Dying dragon body centers and ray parameters at the supplied frame fraction.
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
+    }
+    /// Loyalty ropes from thrown tridents to their present owners at the frame fraction.
+    pub fn loyalty_ropes(&self, partial_tick: f32) -> Vec<crate::LoyaltyRopeView> {
+        self.actors.loyalty_ropes(partial_tick)
     }
     /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {

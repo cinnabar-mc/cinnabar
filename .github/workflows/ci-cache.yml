@@ -130,19 +130,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       # Everything ci.yml's preflight and verify jobs compile, so their dependencies are cached too.
-      - run: cargo build -p architecture --locked
-      - run: cargo build -p devtool --locked
+      # Cargo's messages name every unit these builds use, fresh ones included; the save leaves
+      # out the rest, and keeps every unit if any of these builds failed.
+      - run: cargo build -p architecture --locked --message-format json-render-diagnostics >> "$RUNNER_TEMP/cargo-units.jsonl"
+      - run: cargo build -p devtool --locked --message-format json-render-diagnostics >> "$RUNNER_TEMP/cargo-units.jsonl"
       - continue-on-error: true
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: >-
+          cargo clippy --workspace --all-targets --locked --message-format json-render-diagnostics
+          -- -D warnings >> "$RUNNER_TEMP/cargo-units.jsonl"
       - continue-on-error: true
         run: |
-          cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
-          cargo clippy -p render --features shaderpacks --all-targets --locked -- -D warnings
-          cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
-          cargo clippy -p cinnabar --features shaderpacks --locked -- -D warnings
-          cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
+          {
+            cargo clippy -p render --features enhanced --all-targets --locked --message-format json-render-diagnostics -- -D warnings
+            cargo clippy -p render --features shaderpacks --all-targets --locked --message-format json-render-diagnostics -- -D warnings
+            cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked --message-format json-render-diagnostics -- -D warnings
+            cargo clippy -p cinnabar --features shaderpacks --locked --message-format json-render-diagnostics -- -D warnings
+            cargo clippy -p cinnabar --features reports --tests --locked --message-format json-render-diagnostics -- -D warnings
+          } >> "$RUNNER_TEMP/cargo-units.jsonl"
       - continue-on-error: true
-        run: cargo test -p cinnabar --features developer-control --lib --locked --no-run
+        run: >-
+          cargo test -p cinnabar --features developer-control --lib --locked --no-run
+          --message-format json-render-diagnostics >> "$RUNNER_TEMP/cargo-units.jsonl"
+      - name: Build Rust tests
+        id: build-tests
+        run: >-
+          cargo nextest run --workspace --locked --no-run
+          --cargo-message-format json-render-diagnostics >> "$RUNNER_TEMP/cargo-units.jsonl"
       - name: Test Rust workspace
         run: cargo nextest run --workspace --locked --no-fail-fast
       - name: Test Rust doc examples
@@ -156,6 +169,7 @@ jobs:
           key: ${{ steps.rust-cache.outputs.key }}
           bucket: ${{ steps.rust-cache.outputs.bucket }}
           paths: ${{ steps.rust-cache.outputs.paths }}
+          cargo-messages: ${{ steps.build-tests.outcome == 'success' && format('{0}/cargo-units.jsonl', runner.temp) || '' }}
       - name: Save Go build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
         continue-on-error: true

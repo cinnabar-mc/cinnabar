@@ -32,6 +32,8 @@ pub struct LocalMovementFacts {
     pub vertical_fly_speed: Option<f64>,
     pub creative_flight: bool,
     pub elytra_ready: bool,
+    /// Effective Instabuild ability after mode defaults and ability layers.
+    pub instabuild: bool,
     pub can_stand_on_snow: bool,
     pub depth_strider: u8,
     pub soul_speed: u8,
@@ -125,6 +127,7 @@ pub fn read(
         }),
         creative_flight: capabilities.is_some_and(|capabilities| capabilities.creative_inventory),
         elytra_ready,
+        instabuild: player.facts.instabuild().unwrap_or(false),
         can_stand_on_snow,
         depth_strider: boots_level(i16::from(Enchantment::Depthstrider.wire_value())),
         soul_speed: boots_level(i16::from(Enchantment::Soulspeed.wire_value())),

@@ -32,6 +32,7 @@ mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
+pub mod mob_effects;
 mod mod_inventory;
 pub mod platform_clipboard;
 pub mod player_roster;
@@ -196,6 +197,7 @@ pub struct UiRuntime {
     furnace_projection: Arc<std::sync::Mutex<presentation::forms::furnace_book::ProjectionCache>>,
     recipe_book_icons: Arc<std::sync::Mutex<presentation::forms::BookIconCache>>,
     emotes: emotes::EmoteState,
+    mob_effect_screen: mob_effects::MobEffectScreenState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
     /// One complete book commit, bounded by the protocol page limit plus signing.
@@ -312,6 +314,7 @@ impl UiRuntime {
             inventory_keys: interaction::InventoryKeys::default(),
             screen: screen_state::ScreenState::default(),
             emotes: emotes::EmoteState::default(),
+            mob_effect_screen: mob_effects::MobEffectScreenState::default(),
             client_packets: VecDeque::new(),
             book_packets: VecDeque::new(),
             local_actor_damage: None,
@@ -664,6 +667,7 @@ impl UiRuntime {
         }
         self.session_id = session_id;
         self.emotes.reset();
+        self.mob_effect_screen.close();
         self.client_packets.clear();
         self.book_packets.clear();
         self.data_driven.clear();

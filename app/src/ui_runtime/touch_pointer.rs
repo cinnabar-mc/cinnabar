@@ -128,6 +128,7 @@ pub(crate) fn emulate_ui_pointer(
     ui: Option<Res<UiRuntimeResource>>,
     player: Option<Res<client_state::PlayerRuntime>>,
     menu: Option<Res<MenuRuntime>>,
+    presentation: Option<Res<client_shell::ui_resources::UiPresentationResource>>,
     mut pointer: Local<TouchPointer>,
 ) {
     if mouse_cursor.read(&buttons).next().is_some()
@@ -138,9 +139,11 @@ pub(crate) fn emulate_ui_pointer(
     let Ok((entity, mut window)) = windows.single_mut() else {
         return;
     };
+    // A personal mod panel, including one a mod button opened, is operated by pointer too.
     let pointer_screen = ui
         .zip(player)
-        .is_some_and(|(ui, player)| takes_touch_pointer(&ui, &player, menu.as_deref()));
+        .is_some_and(|(ui, player)| takes_touch_pointer(&ui, &player, menu.as_deref()))
+        || presentation.is_some_and(|presentation| presentation.mod_ui().mod_panel_open());
     for input in touch_input.read() {
         pointer.queue(pointer_screen, input.id, input.phase, input.position);
     }

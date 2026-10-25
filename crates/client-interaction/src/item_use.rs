@@ -44,6 +44,44 @@ impl ItemUseRuntime {
         self.0.is_using()
     }
 
+    /// Whether an item in use makes the attack button do nothing now, as vanilla's build
+    /// action handler returns while the player uses an item. Derived from current state at each
+    /// admission point: the veto holds only while the selected slot still holds the item the
+    /// use started with, so any slot change, local or server-driven, ends it at once. A held
+    /// charged item, fishing rod or brush never vetoes, matching vanilla's exceptions.
+    pub fn vetoes_attack(
+        &self,
+        player_runtime: &client_state::PlayerRuntime,
+        stream: Option<&WorldStream>,
+    ) -> bool {
+        let Some(active) = self.0.active_selection() else {
+            return false;
+        };
+        let Some(selected) = player_runtime
+            .inventory
+            .selected_backing_stack_snapshot(player_runtime.facts.player_game_mode())
+        else {
+            return false;
+        };
+        let inventory::PlayerInventorySlot::Present(stack) = selected.state else {
+            return false;
+        };
+        if selected.slot != active.slot || stack.network_id != active.item.network_id() {
+            return false;
+        }
+        !stream
+            .and_then(|stream| stream.authority().canonical_item_stack(stack))
+            .is_some_and(|item| {
+                item.charged_projectile.is_some()
+                    || matches!(
+                        item.identifier.as_deref(),
+                        Some(
+                            assets::facts::FISHING_ROD_IDENTIFIER | assets::facts::BRUSH_IDENTIFIER
+                        )
+                    )
+            })
+    }
+
     /// Native attachables read remaining ticks, not the actor animation's elapsed seconds.
     pub fn render_input(
         &self,

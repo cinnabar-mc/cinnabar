@@ -179,6 +179,7 @@ fn load_then_callback_round_trip() {
             items: loaded.items,
             focus: loaded.focus,
             worlds: loaded.worlds,
+            overlays: loaded.overlays,
         }
     );
     session.send(&interact(0));

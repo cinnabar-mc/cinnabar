@@ -143,7 +143,7 @@ impl ControllerFrame {
             jump_down: self.jump_down,
             spinning: state.spin_attack_ticks.is_some(),
         };
-        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
+        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, state, *input);
         state.position = observed.feet;
         let choice = modes.select(self.intent, observed, world);
         let choice = match choice {
@@ -155,12 +155,14 @@ impl ControllerFrame {
                     forced_sneak: self.forced_sneak,
                     sprinting: input.sprinting,
                     flight_request: None,
+                    glide_ascent: false,
                 }
             }
             Err(error) => return Err(error.into()),
         };
         input.mode = self.mode_override.unwrap_or(choice.mode);
         input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
+        input.glide_ascent = choice.glide_ascent;
         modes.restore_mode(input.mode);
         input.horizontal_pose = modes.pose_flags().horizontal();
         input.swim_pose_active = Some(modes.pose_flags().swim_pose());

@@ -49,6 +49,22 @@ pub enum ItemUseAnimation {
     None,
     Bow,
     Crossbow,
+    /// Raised over the shoulder while charging a throw, as vanilla's trident is.
+    Spear,
+}
+
+impl ItemUseAnimation {
+    /// The native use animation this route draws with; `None` for an item without one.
+    #[must_use]
+    pub fn fact(self) -> Option<crate::facts::ItemUseAnimationFact> {
+        use crate::facts::ItemUseAnimationFact as Fact;
+        match self {
+            Self::None => None,
+            Self::Bow => Some(Fact::Bow),
+            Self::Crossbow => Some(Fact::Crossbow),
+            Self::Spear => Some(Fact::Spear),
+        }
+    }
 }
 
 /// Action selected independently from a declared use duration.

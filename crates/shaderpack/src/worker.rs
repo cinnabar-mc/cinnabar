@@ -19,7 +19,7 @@ use result::Decoder;
 pub const FLAG: &str = "--shaderpack-compiler-worker";
 /// Maximum elapsed time for CPU translation, supplied to [`Running::poll`] by the host.
 pub const TIME_LIMIT: Duration = Duration::from_secs(60);
-/// Maximum address space on Linux and committed process memory on Windows.
+/// Maximum live heap in the worker, and committed process memory on Windows.
 const MEMORY_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 /// Maximum serialized request and output sizes, checked before deserialization.
 const REQUEST_BYTES: usize = 1024 * 1024;
@@ -318,17 +318,21 @@ impl<W: Write> Write for LimitedWriter<W> {
     }
 }
 
+/// CPU time the worker may use: the elapsed limit on every thread its translation runs on.
+/// Process CPU time sums all threads, so a single-thread budget stops parallel compiles early.
+fn cpu_time_limit() -> Duration {
+    let threads = std::thread::available_parallelism().map_or(1, |threads| threads.get());
+    TIME_LIMIT.saturating_mul(threads.try_into().unwrap_or(u32::MAX))
+}
+
 /// Installs OS limits before any pack bytes are read; unavailable isolation fails closed.
+/// Memory is bounded by the heap budget, not address space, which counts reserved stacks and
+/// allocator arenas that a parallel compile never uses.
 #[cfg(unix)]
 fn resource_limits() -> io::Result<()> {
-    #[cfg(not(target_os = "macos"))]
-    let memory = libc::rlimit {
-        rlim_cur: MEMORY_LIMIT as _,
-        rlim_max: MEMORY_LIMIT as _,
-    };
     let cpu = libc::rlimit {
-        rlim_cur: TIME_LIMIT.as_secs() as _,
-        rlim_max: TIME_LIMIT.as_secs() as _,
+        rlim_cur: cpu_time_limit().as_secs() as _,
+        rlim_max: cpu_time_limit().as_secs() as _,
     };
     let output = libc::rlimit {
         rlim_cur: OUTPUT_BYTES as _,
@@ -340,10 +344,6 @@ fn resource_limits() -> io::Result<()> {
     };
     // SAFETY: setrlimit reads valid local structures and changes only this disposable child.
     unsafe {
-        #[cfg(not(target_os = "macos"))]
-        if libc::setrlimit(libc::RLIMIT_AS, &memory) != 0 {
-            return Err(io::Error::last_os_error());
-        }
         if libc::setrlimit(libc::RLIMIT_CPU, &cpu) != 0
             || libc::setrlimit(libc::RLIMIT_FSIZE, &output) != 0
             || libc::setrlimit(libc::RLIMIT_CORE, &core) != 0

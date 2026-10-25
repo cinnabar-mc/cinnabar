@@ -35,6 +35,7 @@ members = [
     "crates/experience-runtime",
     "examples/experiences/probe",
     "examples/experiences/terminal-client",
+    "examples/experiences/space-client",
     "examples/dragonfly-extension/client",
     "crates/input",
     "crates/developer-control",
@@ -140,6 +141,8 @@ wgpu = { version = "30.0.1", default-features = false, features = ["noop", "std"
 # builds agree on naga and nothing above it (wgpu, bevy_render) builds twice. `glsl-in` is the
 # Java shader-pack frontend; it adds only naga's GLSL parser and pp-rs.
 naga = { version = "30.0.1", features = ["glsl-in", "wgsl-in"] }
+# The pack loader uses preserved text and Iris recovery. Naga keeps its released token API.
+pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "949f1178cd660d3bcd1ec70181a10cf70e4b95b6" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 # Native bridge and session composition add OS I/O and the multithreaded runtime.
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
@@ -183,9 +186,6 @@ wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3
 wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
 
 wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
-
-# Iris conditions support option expressions and recover malformed conditional directives.
-pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "abbb47f83d69b8790c1a26c96ce68bc9d001664c" }
 
 [profile.dev]
 opt-level = 1

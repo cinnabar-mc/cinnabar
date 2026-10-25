@@ -12,6 +12,8 @@ pub const BLOCK_ENTITY_CARRIER_MAGIC: [u8; 8] = *b"MCBEBEN1";
 pub const BLOCK_ENTITY_CARRIER_VERSION: u32 = 1;
 /// Runtime texture sampled by the end crystal's additional beam effect.
 pub const CRYSTAL_BEAM_TEXTURE: &str = "textures/entity/endercrystal/endercrystal_beam";
+/// Runtime texture of the rope a returning loyalty trident draws to its owner.
+pub const LOYALTY_ROPE_TEXTURE: &str = "textures/entity/loyalty_rope";
 pub const MAX_BLOCK_ENTITY_ATLAS_SIDE: u32 = 4096;
 pub const MAX_BLOCK_ENTITY_PLACEMENTS: usize = 2048;
 pub const MAX_BLOCK_ENTITY_KEY_BYTES: usize = 256;

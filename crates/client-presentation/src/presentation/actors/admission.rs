@@ -56,7 +56,8 @@ pub(crate) fn rig_may_replace_geometry(
 
 /// Admits a placed remote before skin registration using conservative frame-selected boxes.
 /// Runtime skins cover their body and sampled persona boxes; catalog bodies cover base fallback.
-/// Unknown selected bounds fail open. The shared frame retains the sampled controller result.
+/// Unknown selected bounds fail open. Selected bounds pass through the presentation's model
+/// frame like the base box. The shared frame retains the sampled controller result.
 pub(crate) fn admit_frame_bounds(
     presentation: &mut super::ActorRigPresentation,
     rig: &actor_animation::ActorRigSnapshot<'_>,
@@ -79,6 +80,7 @@ pub(crate) fn admit_frame_bounds(
             presentation.submission.culling_bounds = bounds;
             return true;
         };
+        let selected = presentation.model_frame.culling_bounds(selected);
         presentation.submission.culling_bounds = selected;
         visible |= actor_rig_submission_is_visible(&presentation.submission, view);
         bounds = union(bounds, selected);
@@ -106,6 +108,7 @@ pub(crate) fn admit_frame_bounds(
             presentation.submission.culling_bounds = bounds;
             return true;
         };
+        let selected = presentation.model_frame.culling_bounds(selected);
         presentation.submission.culling_bounds = selected;
         visible |= actor_rig_submission_is_visible(&presentation.submission, view);
         bounds = union(bounds, selected);

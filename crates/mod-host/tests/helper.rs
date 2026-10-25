@@ -90,7 +90,11 @@ fn spawn(component: Vec<u8>, capabilities: Capabilities) -> Helper {
         component,
         owner,
         capabilities,
-        1,
+        mod_host::presentation::Context {
+            connection: 1,
+            epoch: 1,
+            ..Default::default()
+        },
     )
     .unwrap()
 }
@@ -115,6 +119,11 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
 fn call_record(helper: &mut Helper, channel: &str, record: &[u8]) -> Reply {
     helper
         .dispatch(Dispatch {
+            drawing: mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
             event: Event::Message {
                 channel: channel.into(),
                 record: record.to_vec(),
@@ -129,7 +138,7 @@ fn call_record(helper: &mut Helper, channel: &str, record: &[u8]) -> Reply {
 
 fn failure(reply: Reply) -> CallFailure {
     match reply {
-        Reply::Failed(failure) | Reply::Recovered { failure, .. } => failure,
+        Reply::Failed { failure, .. } | Reply::Recovered { failure, .. } => failure,
         Reply::NotReady { transaction, .. } | Reply::Committed { transaction, .. } => {
             panic!("committed {transaction:?}")
         }
@@ -138,7 +147,9 @@ fn failure(reply: Reply) -> CallFailure {
 
 fn count(reply: Reply) -> i64 {
     match reply {
-        Reply::Committed { transaction, fuel } => match transaction.commands.as_slice() {
+        Reply::Committed {
+            transaction, fuel, ..
+        } => match transaction.commands.as_slice() {
             _ if fuel == 0 || fuel >= CALLBACK_FUEL => panic!("used {fuel} fuel"),
             [Command::Collection { rows, .. }] => match rows[0]["#count"] {
                 screen::Value::Integer(count) => count,
@@ -146,7 +157,9 @@ fn count(reply: Reply) -> i64 {
             },
             other => panic!("{other:?}"),
         },
-        Reply::Failed(failure) | Reply::Recovered { failure, .. } => panic!("failed {failure:?}"),
+        Reply::Failed { failure, .. } | Reply::Recovered { failure, .. } => {
+            panic!("failed {failure:?}")
+        }
         Reply::NotReady { .. } => panic!("unexpected negotiation"),
     }
 }
@@ -250,6 +263,7 @@ fn recovery_messages_cross_helper_ipc_without_another_dispatch() {
         failure,
         transaction,
         confirmation: None,
+        ..
     } = call(&mut helper, "demo.fail")
     else {
         panic!("the failed dispatch must include recovery messages");
@@ -292,6 +306,7 @@ fn negotiation_readiness_and_recovery_cross_helper_ipc() {
     let Reply::NotReady {
         confirmation,
         transaction,
+        ..
     } = reply(&mut helper)
     else {
         panic!("startup must report pending registry negotiation");
@@ -314,6 +329,11 @@ fn negotiation_readiness_and_recovery_cross_helper_ipc() {
     ));
     helper
         .dispatch(Dispatch {
+            drawing: mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
             event: Event::Message {
                 channel: "demo.fail".into(),
                 record: Vec::new(),
@@ -327,6 +347,7 @@ fn negotiation_readiness_and_recovery_cross_helper_ipc() {
         confirmation,
         failure,
         transaction,
+        ..
     } = reply(&mut helper)
     else {
         panic!("a trap must report the fresh guest's negotiation");
@@ -340,7 +361,7 @@ fn negotiation_readiness_and_recovery_cross_helper_ipc() {
         call(&mut helper, "demo.waiting"),
         Reply::NotReady { .. }
     ));
-    let Reply::Failed(failure) = call_record(
+    let Reply::Failed { failure, .. } = call_record(
         &mut helper,
         "demo.registry",
         br#"[{"type":"text","value":"changed-server"}]"#,
@@ -351,6 +372,6 @@ fn negotiation_readiness_and_recovery_cross_helper_ipc() {
     assert_eq!(failure.reason, experience_sdk::REGISTRY_MISMATCH);
     assert!(matches!(
         call(&mut helper, "demo.waiting"),
-        Reply::Failed(_)
+        Reply::Failed { .. }
     ));
 }

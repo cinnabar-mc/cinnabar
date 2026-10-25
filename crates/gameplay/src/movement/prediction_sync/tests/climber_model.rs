@@ -13,16 +13,66 @@ impl Random {
     }
 }
 
-/// Static, seeded scaffold layers let movement regenerate different contact each tick.
-struct ContactWorld(u64);
+/// Static scaffold layers, with optional collision shapes around the teleport anchor.
+struct ContactWorld {
+    seed: u64,
+    collision: bool,
+}
+
+impl ContactWorld {
+    /// Selects scaffolding from the cell identity, independently of collision queries.
+    fn scaffolding(&self, block: [i32; 3]) -> bool {
+        let mut hash = self.seed;
+        for coordinate in block {
+            hash = hash
+                .wrapping_mul(0x9e37_79b9)
+                .wrapping_add(coordinate as u64);
+        }
+        hash.rotate_right(13) & 1 == 0
+    }
+}
 
 impl sim::CollisionWorld for ContactWorld {
-    /// Leaves travel unconstrained so contact and descent determine the result.
+    /// Returns the same shapes as the provenance query.
     fn collision_boxes(
         &self,
-        _query: sim::Aabb,
+        query: sim::Aabb,
     ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
-        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        let colliders = self.collision_boxes_with_provenance(query)?;
+        Ok(sim::CollisionQuery {
+            value: colliders
+                .value
+                .into_iter()
+                .map(|collider| collider.aabb)
+                .collect(),
+            identity: colliders.identity,
+        })
+    }
+
+    /// Emits ordinary scaffold cubes so contextual anchor queries must filter them.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::ProvenancedCollider>>, sim::WorldQueryError> {
+        let mut colliders = Vec::new();
+        if self.collision {
+            for x in query.min.x.floor() as i32..=query.max.x.floor() as i32 {
+                for y in query.min.y.floor() as i32..=query.max.y.floor() as i32 {
+                    for z in query.min.z.floor() as i32..=query.max.z.floor() as i32 {
+                        if self.scaffolding([x, y, z]) {
+                            let min = sim::Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+                            colliders.push(sim::ProvenancedCollider {
+                                aabb: sim::Aabb::new(min, min + sim::Vec3::ONE),
+                                block: Some([x, y, z]),
+                                runtime_id: None,
+                                cell_has_scaffolding: Some(true),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(sim::CollisionQuery::synthetic(colliders))
     }
 
     /// Selects scaffolding from the cell identity, independently of query order.
@@ -30,19 +80,13 @@ impl sim::CollisionWorld for ContactWorld {
         &self,
         block: [i32; 3],
     ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
-        let mut hash = self.0;
-        for coordinate in block {
-            hash = hash
-                .wrapping_mul(0x9e37_79b9)
-                .wrapping_add(coordinate as u64);
-        }
         Ok(sim::BlockPhysicsSample {
             layers: Box::new([sim::BlockPhysicsFacts {
                 friction: 0.6,
                 horizontal_speed_factor: 1.0,
                 vertical_speed_factor: 1.0,
                 fluid_height_blocks: 0.0,
-                flags: if hash.rotate_right(13) & 1 == 0 {
+                flags: if self.scaffolding(block) {
                     sim::BlockPhysicsFlags::SCAFFOLDING
                 } else {
                     sim::BlockPhysicsFlags::PASSABLE
@@ -67,6 +111,7 @@ struct ModelTick {
     input: sim::MovementInput,
     entry: u64,
     edits: Vec<Edit>,
+    /// Only the pose and spin bits changed by the accepted live write.
     server_flags: client_world::MovementFlagUpdate,
 }
 
@@ -185,12 +230,27 @@ fn check_replay(
 
 #[test]
 fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
-    for seed in 1..=32 {
+    // Run the existing input streams both without shapes and after a scaffold teleport.
+    for case in 0..64 {
+        let seed = case % 32 + 1;
         let mut random = Random(seed);
-        let world = ContactWorld(random.next());
+        let world = ContactWorld {
+            seed: random.next(),
+            collision: case >= 32,
+        };
         let mut physics = due_physics();
         let first = sim::MovementInput::default();
-        physics.advance(simulation_clock::TICK_DURATION, first, &world);
+        let teleported = physics.advance(simulation_clock::TICK_DURATION, first, &world);
+        if world.collision {
+            assert_eq!(
+                [
+                    teleported.samples[0].position[0],
+                    teleported.samples[0].position[2]
+                ],
+                [0.5, 0.5],
+                "seed={seed}: teleport must stay inside the scaffold column",
+            );
+        }
         let mut ticks = vec![ModelTick {
             input: first,
             entry: 0,
@@ -292,6 +352,7 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
             }
             let choices = random.next();
             let poses = physics.pose_flags();
+            let spinning = physics.state().unwrap().spin_attack_ticks.is_some();
             let server_flags = match choices % 8 {
                 0 => client_world::MovementFlagUpdate::default(),
                 1 => client_world::MovementFlagUpdate {
@@ -307,14 +368,14 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                     ..Default::default()
                 },
                 4 => client_world::MovementFlagUpdate {
-                    spinning: Some(physics.state().unwrap().spin_attack_ticks.is_none()),
+                    spinning: Some(!spinning),
                     ..Default::default()
                 },
                 5 => client_world::MovementFlagUpdate {
                     swimming: Some(poses.swimming),
                     crawling: Some(poses.crawling),
                     gliding: Some(poses.gliding),
-                    spinning: Some(physics.state().unwrap().spin_attack_ticks.is_some()),
+                    spinning: Some(spinning),
                     ..Default::default()
                 },
                 6 => client_world::MovementFlagUpdate {
@@ -345,7 +406,15 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                 input,
                 entry,
                 edits: std::mem::take(&mut pending),
-                server_flags,
+                // Matching server bits are no-ops, even if an earlier climber edit later
+                // changes the pose this reference run reaches before the write.
+                server_flags: client_world::MovementFlagUpdate {
+                    swimming: server_flags.swimming.filter(|flag| *flag != poses.swimming),
+                    crawling: server_flags.crawling.filter(|flag| *flag != poses.crawling),
+                    gliding: server_flags.gliding.filter(|flag| *flag != poses.gliding),
+                    spinning: server_flags.spinning.filter(|flag| *flag != spinning),
+                    ..Default::default()
+                },
             });
             let (expected, samples) = run_live_model(&ticks, &pending, &world);
             assert_eq!(

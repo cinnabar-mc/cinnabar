@@ -13,6 +13,8 @@ use crate::{
 #[derive(Debug)]
 pub struct MeshOutputBounds {
     with_models: u64,
+    /// Bytes one selected model can emit, every compound part included.
+    per_model: u64,
 }
 
 impl MeshOutputBounds {
@@ -46,12 +48,11 @@ impl MeshOutputBounds {
                 chain = 0;
             }
         }
+        let per_model = max_parts * part;
         Self {
             with_models: plain_bound()
-                + BLOCKS_PER_SUB_CHUNK as u64
-                    * MAX_SELECTED_MODEL_TEMPLATES as u64
-                    * max_parts
-                    * part,
+                + BLOCKS_PER_SUB_CHUNK as u64 * MAX_SELECTED_MODEL_TEMPLATES as u64 * per_model,
+            per_model,
         }
     }
 
@@ -75,6 +76,12 @@ impl MeshOutputBounds {
         } else {
             plain_bound()
         }
+    }
+
+    /// What `overlays` cell overlays can add to a sub-chunk's mesh: each draws one model.
+    #[must_use]
+    pub const fn for_overlays(&self, overlays: usize) -> u64 {
+        overlays as u64 * self.per_model
     }
 }
 
