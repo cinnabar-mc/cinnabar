@@ -105,7 +105,8 @@ impl ModHost {
         self.instance.presentation().1
     }
 
-    /// Supplies the installation's food table to `facts.read-item`; reloads keep it.
+    /// Supplies the installation's food table to `facts.read-item` and `facts.read-foods`;
+    /// reloads keep it.
     pub fn set_food_catalog(
         &mut self,
         catalog: Option<&std::sync::Arc<assets::RuntimeEquipmentCatalog>>,

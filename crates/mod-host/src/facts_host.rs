@@ -5,11 +5,13 @@ use super::{State, cinnabar::extension::facts as wit};
 use anyhow::{Result, bail};
 use std::sync::Arc;
 
-/// The installed food table and this callback's read count.
+/// The installed food table, its foods once listed, and this callback's read count.
 #[derive(Default)]
 pub(super) struct FactsState {
     reads: u32,
     food: Option<Arc<assets::RuntimeEquipmentCatalog>>,
+    /// The `read-foods` list of `food`, built by the first read after the table changes.
+    foods: Option<Arc<[wit::FoodItem]>>,
 }
 
 impl FactsState {
@@ -30,12 +32,44 @@ impl FactsState {
     /// Replaces the installation's food table; none leaves every item without food facts.
     pub fn set_food(&mut self, food: Option<Arc<assets::RuntimeEquipmentCatalog>>) {
         self.food = food;
+        self.foods = None;
     }
 
     /// The installation's food table, which a reloaded instance inherits.
     pub fn food(&self) -> Option<Arc<assets::RuntimeEquipmentCatalog>> {
         self.food.clone()
     }
+
+    /// The installed foods `read-foods` reports, listed once per food table.
+    fn foods(&mut self) -> Arc<[wit::FoodItem]> {
+        let food = self.food.as_deref();
+        Arc::clone(self.foods.get_or_insert_with(|| food_items(food)))
+    }
+}
+
+/// Converts one installed food definition.
+fn wit_food(food: &assets::CompiledItemFood) -> wit::Food {
+    wit::Food {
+        nutrition: food.nutrition,
+        saturation_modifier: food.saturation_modifier.get(),
+    }
+}
+
+/// Every installed food by the identifiers `read-item` resolves, sorted, without identifiers
+/// over [`mod_api::MAX_ITEM_IDENTIFIER_BYTES`] and keeping the first [`mod_api::facts::MAX_FOOD_ITEMS`].
+fn food_items(catalog: Option<&assets::RuntimeEquipmentCatalog>) -> Arc<[wit::FoodItem]> {
+    catalog
+        .map(assets::RuntimeEquipmentCatalog::installed_item_foods)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(identifier, _)| identifier.len() <= mod_api::MAX_ITEM_IDENTIFIER_BYTES)
+        .take(mod_api::facts::MAX_FOOD_ITEMS)
+        .map(|(identifier, definition)| wit::FoodItem {
+            identifier: identifier.into(),
+            metadata: None,
+            food: wit_food(definition),
+        })
+        .collect()
 }
 
 /// Resolves an identifier through the pinned item facts and installed food; none when neither
@@ -50,10 +84,7 @@ fn item_facts(
         .and_then(|facts| facts.by_identifier(identifier));
     let food = food
         .and_then(|catalog| catalog.installed_item_food(identifier))
-        .map(|food| wit::Food {
-            nutrition: food.nutrition,
-            saturation_modifier: food.saturation_modifier.get(),
-        });
+        .map(wit_food);
     if fact.is_none() && food.is_none() {
         return None;
     }
@@ -135,6 +166,14 @@ impl wit::Host for State {
             metadata,
             self.facts.food.as_deref(),
         )))
+    }
+
+    fn read_foods(&mut self) -> Result<Result<Vec<wit::FoodItem>, String>> {
+        self.facts.charge()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self.facts.foods().to_vec()))
     }
 
     fn read_effect(&mut self, effect_id: i32) -> Result<Result<Option<wit::EffectFacts>, String>> {

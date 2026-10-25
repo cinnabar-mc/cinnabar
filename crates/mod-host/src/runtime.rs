@@ -877,7 +877,8 @@ impl Instance {
         self.store.data_mut().session = session;
     }
 
-    /// Installs the installation's food table that `facts.read-item` reports.
+    /// Installs the installation's food table that `facts.read-item` and `facts.read-foods`
+    /// report.
     pub(super) fn set_food_catalog(&mut self, food: Option<Arc<assets::RuntimeEquipmentCatalog>>) {
         self.store.data_mut().facts.set_food(food);
     }

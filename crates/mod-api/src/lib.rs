@@ -256,6 +256,7 @@ const _: () = assert!(
     MAX_FACT_READS as usize
         >= PLAYER_STATE_INVENTORY_SLOTS + PLAYER_STATE_ARMOR_SLOTS + 1 + MAX_PLAYER_STATE_EFFECTS
 );
+pub mod facts;
 
 /// Total regular frame-callback fuel shared across all local mods.
 pub const TOTAL_MOD_FRAME_FUEL: u64 = 200_000;

@@ -340,21 +340,6 @@ impl RuntimeEquipmentCatalog {
             .map(|index| &self.item_food[index])
     }
 
-    /// Finds installed food for an item identifier, falling back to the pinned legacy name its
-    /// use profile aliases. Unknown identifiers have no food rather than an estimate.
-    pub fn installed_item_food(&self, identifier: &str) -> Option<&CompiledItemFood> {
-        self.item_food(identifier).or_else(|| {
-            let facts = crate::facts::ItemFacts::builtin().ok()?;
-            let profile = facts.use_profile(facts.by_identifier(identifier)?.use_profile?)?;
-            match profile {
-                crate::item_use::ItemUseProfile::Provisional { duration_alias, .. } => {
-                    self.item_food(duration_alias.as_deref()?)
-                }
-                crate::item_use::ItemUseProfile::Unresolved => None,
-            }
-        })
-    }
-
     /// Ticks the item can be used for, when the pack states it.
     #[must_use]
     pub fn item_use_ticks(&self, identifier: &str) -> Option<u32> {

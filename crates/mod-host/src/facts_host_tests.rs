@@ -14,28 +14,37 @@ fn state() -> State {
     )
 }
 
-/// An installed food table with one exact entry and one legacy-named entry.
-fn food() -> Arc<assets::RuntimeEquipmentCatalog> {
-    let entry = |identifier: &str, nutrition, saturation| assets::CompiledItemFood {
+/// One installed food definition.
+fn entry(identifier: &str, nutrition: u32, saturation: f32) -> assets::CompiledItemFood {
+    assets::CompiledItemFood {
         identifier: identifier.into(),
         nutrition,
         saturation_modifier: assets::ItemDisplayScalar::new(saturation).unwrap(),
-    };
+    }
+}
+
+/// An installed food table of `entries`, sorted by identifier.
+fn table(entries: &[assets::CompiledItemFood]) -> Arc<assets::RuntimeEquipmentCatalog> {
     let bytes = assets::encode_equipment_catalog_with_use_profiles(
         [1; 32],
         [2; 32],
         &[],
         &[],
         assets::EquipmentItemFacts {
-            item_food: &[
-                entry("minecraft:apple", 4, 0.3),
-                entry("minecraft:muttonCooked", 6, 0.8),
-            ],
+            item_food: entries,
             ..Default::default()
         },
     )
     .unwrap();
     Arc::new(assets::RuntimeEquipmentCatalog::decode(&bytes).unwrap())
+}
+
+/// An installed food table with one exact entry and one legacy-named entry.
+fn food() -> Arc<assets::RuntimeEquipmentCatalog> {
+    table(&[
+        entry("minecraft:apple", 4, 0.3),
+        entry("minecraft:muttonCooked", 6, 0.8),
+    ])
 }
 
 /// Durability comes from the pinned item facts; unknown identifiers have no facts.
@@ -91,6 +100,53 @@ fn item_facts_report_installed_food() {
     assert_eq!(mutton.nutrition, 6);
 }
 
+/// Listed foods use the identifiers `read-item` resolves and agree with it; without a table the
+/// list is empty, and a new table replaces it.
+#[test]
+fn foods_list_installed_food_under_resolvable_identifiers() {
+    let mut state = state();
+    assert!(state.read_foods().unwrap().unwrap().is_empty());
+    state.facts.set_food(Some(food()));
+    let foods = state.read_foods().unwrap().unwrap();
+    let identifiers: Vec<_> = foods.iter().map(|item| item.identifier.as_str()).collect();
+    assert_eq!(identifiers, ["minecraft:apple", "minecraft:cooked_mutton"]);
+    for item in &foods {
+        assert_eq!(item.metadata, None);
+        let read = state
+            .read_item(item.identifier.clone(), 0)
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .food
+            .unwrap();
+        assert_eq!(read.nutrition, item.food.nutrition);
+        assert_eq!(read.saturation_modifier, item.food.saturation_modifier);
+    }
+    state.facts.set_food(None);
+    assert!(state.read_foods().unwrap().unwrap().is_empty());
+}
+
+/// The list keeps the first `MAX_FOOD_ITEMS` foods by identifier and leaves out identifiers
+/// longer than `read-item` accepts.
+#[test]
+fn foods_are_bounded_for_the_guest() {
+    let long = format!("fixture:{}", "a".repeat(mod_api::MAX_ITEM_IDENTIFIER_BYTES));
+    let mut entries = vec![entry(&long, 1, 0.5)];
+    entries.extend(
+        (0..=mod_api::facts::MAX_FOOD_ITEMS)
+            .map(|index| entry(&format!("fixture:food_{index:04}"), 1, 0.5)),
+    );
+    let mut state = state();
+    state.facts.set_food(Some(table(&entries)));
+    let foods = state.read_foods().unwrap().unwrap();
+    assert_eq!(foods.len(), mod_api::facts::MAX_FOOD_ITEMS);
+    assert_eq!(foods[0].identifier, "fixture:food_0000");
+    assert_eq!(
+        foods[mod_api::facts::MAX_FOOD_ITEMS - 1].identifier,
+        format!("fixture:food_{:04}", mod_api::facts::MAX_FOOD_ITEMS - 1)
+    );
+}
+
 /// Potions, splash and lingering potions and tipped arrows report their potion's effects.
 #[test]
 fn item_facts_report_potion_effects_by_metadata() {
@@ -141,6 +197,7 @@ fn effect_facts_report_name_and_icon() {
 fn facts_are_granted_and_bounded_separately() {
     let mut denied = State::new(ModGrants::default(), String::new(), Default::default());
     assert!(denied.read_effect(1).unwrap().is_err());
+    assert!(denied.read_foods().unwrap().is_err());
     assert!(
         denied
             .read_item("minecraft:apple".into(), 0)
@@ -155,10 +212,14 @@ fn facts_are_granted_and_bounded_separately() {
             .is_err()
     );
     state.facts.begin();
-    for _ in 0..mod_api::MAX_FACT_READS {
-        state.read_effect(1).unwrap().unwrap();
+    for index in 0..mod_api::MAX_FACT_READS {
+        if index % 2 == 0 {
+            state.read_effect(1).unwrap().unwrap();
+        } else {
+            state.read_foods().unwrap().unwrap();
+        }
     }
-    assert!(state.read_effect(1).is_err(), "one more read traps");
+    assert!(state.read_foods().is_err(), "one more read traps");
     use crate::runtime::cinnabar::extension::player_state::Host as _;
     assert!(
         state.read_fps().unwrap().is_ok(),

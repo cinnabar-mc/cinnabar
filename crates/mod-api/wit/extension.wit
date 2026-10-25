@@ -56,6 +56,14 @@ interface facts {
     }
     /// None when neither the pinned item facts nor the installed food know the identifier.
     read-item: func(identifier: string, metadata: u32) -> result<option<item-facts>, string>;
+    /// One installed food definition; metadata none applies to every variant of the item.
+    record food-item { identifier: string, metadata: option<u32>, food: food }
+    /// Every item the installation's food table defines, by the identifiers `read-item`
+    /// resolves: a pinned legacy name is listed as the items that alias it. The table defines
+    /// food per identifier, so metadata is none. Sorted by identifier, at most
+    /// `facts::MAX_FOOD_ITEMS`, keeping the first; identifiers over `MAX_ITEM_IDENTIFIER_BYTES`
+    /// are left out. Empty while no food table is installed. One read.
+    read-foods: func() -> result<list<food-item>, string>;
     /// A status effect's localization key and HUD icon texture as JSON-UI names it, without an
     /// extension; the texture is empty for effects without a HUD icon.
     record effect-facts { name-key: string, texture: string }

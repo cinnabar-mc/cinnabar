@@ -52,7 +52,7 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
 | HUD surface, text metrics and vanilla elements | WIT `hud`; see [HUD surfaces](#hud-surfaces); retained output clears on quarantine/reload/unload |
 | Nametag style, actor annotations and tints, hurt overlay, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
-| Item, food, potion and effect facts | WIT `facts`; `player-state`, with its own per-callback read budget |
+| Item, food, potion and effect facts, and every installed food | WIT `facts`; `player-state`, with its own per-callback read budget |
 | Time/weather and local menu branding | WIT `environment`; changes presentation, not server state |
 | World primitives and post passes | WIT `render`; [render example](../../examples/mods/render-sample) |
 | Retained world drawing | [drawing WIT](../../crates/mod-api/wit/deps/world-draw/drawing.wit); separate material/depth/post/through-wall grants |
