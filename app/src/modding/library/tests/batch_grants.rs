@@ -57,7 +57,11 @@ fn grant_all_enables_capabilities_and_only_declared_command_names() {
                 for capability in mod_host::ModGrants::CAPABILITIES {
                     assert_eq!(
                         (capability.enabled)(grants),
-                        capability.name != "commands" || declared,
+                        match capability.name {
+                            "commands" => declared,
+                            "packets" => false,
+                            _ => true,
+                        },
                         "{}",
                         capability.name
                     );
