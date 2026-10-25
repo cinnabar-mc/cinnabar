@@ -113,7 +113,7 @@ const PRESET_OPTIONS: &[PresetOption] = &[
     },
     PresetOption {
         id: SettingId::DynamicLights,
-        values: [Fixed(1), Default, Default],
+        values: [Fixed(0), Default, Fixed(1)],
     },
 ];
 
