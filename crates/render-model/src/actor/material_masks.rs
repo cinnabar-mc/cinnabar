@@ -20,8 +20,9 @@ impl ActorMaterialMasks {
         strength: 0.0,
     };
 
-    /// Places `masks` beside a draw at `base`: a mask on another page than its base texture
-    /// cannot be sampled by the same draw and is left out.
+    /// Places `masks` beside a draw at `base`, preferring a pack mask's copy on the base's page:
+    /// a mask on another page than its base texture cannot be sampled by the same draw and is
+    /// left out.
     #[must_use]
     pub fn resolve(
         artwork: &ActorArtworkPages,
@@ -31,9 +32,18 @@ impl ActorMaterialMasks {
     ) -> Self {
         let layer = |source: Option<u32>| {
             source
-                .and_then(|source| artwork.variant_location(rig, source))
-                .filter(|location| location.page == base.page)
-                .map_or(u32::MAX, |location| location.layer)
+                .and_then(|source| {
+                    let copy = crate::is_pack_rig_id(rig)
+                        .then(|| artwork.pack_mask_layer(base.page, source))
+                        .flatten();
+                    copy.or_else(|| {
+                        artwork
+                            .variant_location(rig, source)
+                            .filter(|location| location.page == base.page)
+                            .map(|location| location.layer)
+                    })
+                })
+                .unwrap_or(u32::MAX)
         };
         Self {
             glow_layer: layer(masks.glow),
@@ -154,6 +164,60 @@ mod tests {
         );
         for source in 0..255 {
             assert!(artwork.variant_location(rig, source).is_some());
+        }
+    }
+
+    #[test]
+    fn a_mask_shared_past_one_page_is_repeated_beside_every_base() {
+        let texture = |source: u32| assets::ActorTexture {
+            source,
+            width: 1,
+            height: 1,
+            pixel_sha256: [0; 32],
+            rgba8: vec![source as u8; 4].into(),
+        };
+        // More same-size bases than one page holds, all drawn with one glow mask.
+        let bases: Vec<u32> = (0..300).collect();
+        let mut textures: Vec<_> = bases.iter().copied().map(texture).collect();
+        textures.push(texture(1000));
+        let binding = assets::ActorArtworkBinding {
+            rig: 0,
+            geometry_candidate: 0,
+            entity_symbol: 0,
+            geometry: 0,
+            render_controller: 0,
+            texture: 0,
+            material: "entity".into(),
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        };
+        let sharing = assets::ActorPageSharing {
+            companions: bases
+                .iter()
+                .chain(&[1000])
+                .map(|&source| (source, 0))
+                .collect(),
+            masks: [1000].into(),
+            ..Default::default()
+        };
+        let artwork =
+            ActorArtworkPages::default().with_pack_artwork(&textures, &[binding], &sharing);
+        assert!(artwork.pages().len() > 1, "the fixture must span pages");
+        let rig = crate::pack_rig_id(0);
+        let glow = assets::EntityMaterialMasks {
+            glow: Some(1000),
+            emissive: None,
+            strength: 1.0,
+        };
+        for &source in &bases {
+            let base = artwork.variant_location(rig, source).unwrap();
+            let masks = ActorMaterialMasks::resolve(&artwork, rig, base, &glow);
+            let page = &artwork.pages()[usize::from(base.page) - 1];
+            assert!(
+                masks.glow_layer < page.layers,
+                "base {source} keeps its mask"
+            );
+            let texel = masks.glow_layer as usize * 4;
+            assert_eq!(page.pixels()[texel], 1000u32 as u8, "the layer is the mask");
         }
     }
 }
