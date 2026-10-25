@@ -92,9 +92,10 @@ impl Layer {
     }
 
     /// Takes a newer publication of the same screen and collections, rebuilding only the
-    /// parts and embedded controls whose resolution reads a changed definition and updating
-    /// only the parts that read a changed binding or collection. Returns false when the layer
-    /// must be built anew.
+    /// parts and embedded controls whose resolution reads a changed definition, or that
+    /// floated on a binding no longer projected, and updating only the parts that read a
+    /// changed binding or collection. A removed binding reads as in a layer built for the new
+    /// publication. Returns false when the layer must be built anew.
     pub fn publish(
         &mut self,
         revision: u64,
@@ -115,7 +116,25 @@ impl Layer {
         if let Some((definitions, affected, change)) = redefined {
             self.redefine(definitions, &affected, change);
         }
-        let names = changed_bindings(&previous, &self.surface);
+        let unprojected: Vec<String> = previous
+            .bindings
+            .iter()
+            .filter(|(name, value)| value.projection().is_some() && !projected(&self.surface, name))
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in &unprojected {
+            self.projected.remove(name);
+        }
+        if !self.settle_floating() {
+            return false;
+        }
+        let mut names = changed_bindings(&previous, &self.surface);
+        names.extend(
+            unprojected
+                .iter()
+                .map(|name| projected_visible_name(name))
+                .filter(|companion| !self.surface.bindings.contains_key(companion)),
+        );
         for name in names {
             self.apply(&name);
         }
@@ -130,6 +149,35 @@ impl Layer {
             }
         }
         true
+    }
+
+    /// Rebuilds each part floating on a binding that is no longer projected, as a part built
+    /// for the current surface would not float on it. False, for the layer to be built anew,
+    /// when one cannot be rebuilt alone.
+    fn settle_floating(&mut self) -> bool {
+        let mut stranded = Vec::new();
+        for part in &self.parts {
+            if part
+                .spec
+                .floating
+                .as_ref()
+                .is_some_and(|floating| !projected(&self.surface, &floating.offset))
+            {
+                match part.spec.child {
+                    Some(child) => stranded.push(child),
+                    None => return false,
+                }
+            }
+        }
+        if stranded.is_empty() {
+            return true;
+        }
+        let Some(definitions) = self.definitions.take() else {
+            return false;
+        };
+        let rebuilt = self.rebuild_children(&definitions, &stranded);
+        self.definitions = Some(definitions);
+        rebuilt
     }
 
     /// Every part, embedded ones included.
@@ -245,7 +293,8 @@ impl Layer {
         true
     }
 
-    /// Writes binding `name`'s current value into each part that reads it.
+    /// Writes binding `name`'s current value into each part that reads it; an unbound name
+    /// reads as in a part built for the current surface.
     fn apply(&mut self, name: &str) {
         let value = self.surface.bindings.get(name).cloned();
         if value
@@ -259,7 +308,12 @@ impl Layer {
         {
             return;
         }
-        for part in self.parts_mut() {
+        let (surface, root) = (&self.surface, self.root);
+        let embedded = self
+            .embedded
+            .values_mut()
+            .filter_map(|embedded| embedded.part.as_mut());
+        for part in self.parts.iter_mut().chain(embedded) {
             if !part.spec.bindings.contains(name)
                 || part
                     .spec
@@ -275,7 +329,10 @@ impl Layer {
                 Some(value) => part.set_global(name, values::scalar(value)),
                 None => {
                     part.set_item(name, None);
-                    part.set_global(name, Scalar::Json(serde_json::Value::Null));
+                    match initial(&part.spec, surface, root, name) {
+                        Some(value) => part.set_global(name, value),
+                        None => part.unset_global(name),
+                    }
                 }
             }
         }
@@ -547,26 +604,11 @@ fn part(
     let mut data = DataSource::new();
     let mut items = Vec::new();
     for name in &spec.bindings {
-        let floating = spec.floating.as_ref();
-        if floating.is_some_and(|floating| floating.offset == *name) {
-            data.set_global(name, Scalar::Json(json!([root[0] * 0.5, root[1] * 0.5])));
-        } else if floating.is_some_and(|floating| floating.visible.as_ref() == Some(name)) {
-            data.set_global(name, Scalar::Bool(true));
-        } else if let Some(value) = surface.bindings.get(name) {
-            data.set_global(name, values::scalar(value));
-            if let SurfaceValue::Item(item) = value {
-                items.push((name.clone(), item.item.clone()));
-            }
-        } else if name == WIDTH {
-            data.set_global(name, Scalar::Num(root[0]));
-        } else if name == HEIGHT {
-            data.set_global(name, Scalar::Num(root[1]));
-        } else if name
-            .strip_suffix(ui::mod_panel::PROJECTED_VISIBLE_SUFFIX)
-            .and_then(|base| surface.bindings.get(base))
-            .is_some_and(|value| value.projection().is_some())
-        {
-            data.set_global(name, Scalar::Bool(false));
+        if let Some(value) = initial(&spec, surface, root, name) {
+            data.set_global(name, value);
+        }
+        if let Some(SurfaceValue::Item(item)) = surface.bindings.get(name) {
+            items.push((name.clone(), item.item.clone()));
         }
     }
     let collections = spec.collections.clone();
@@ -578,6 +620,39 @@ fn part(
         write_collection(&mut part, surface, name);
     }
     part
+}
+
+/// The value a part `spec` built for `surface` starts binding `name` at: a floating part's
+/// own offset and companion, a bound value, with items unresolved, the root size, or a
+/// projection's hidden companion. None leaves `name` unbound.
+fn initial(spec: &PartSpec, surface: &Surface, root: [f64; 2], name: &str) -> Option<Scalar> {
+    let floating = spec.floating.as_ref();
+    if floating.is_some_and(|floating| floating.offset == name) {
+        Some(Scalar::Json(json!([root[0] * 0.5, root[1] * 0.5])))
+    } else if floating.is_some_and(|floating| floating.visible.as_deref() == Some(name)) {
+        Some(Scalar::Bool(true))
+    } else if let Some(value) = surface.bindings.get(name) {
+        Some(values::scalar(value))
+    } else if name == WIDTH {
+        Some(Scalar::Num(root[0]))
+    } else if name == HEIGHT {
+        Some(Scalar::Num(root[1]))
+    } else if name
+        .strip_suffix(ui::mod_panel::PROJECTED_VISIBLE_SUFFIX)
+        .is_some_and(|base| projected(surface, base))
+    {
+        Some(Scalar::Bool(false))
+    } else {
+        None
+    }
+}
+
+/// Whether `surface` binds `name` to a projected value.
+fn projected(surface: &Surface, name: &str) -> bool {
+    surface
+        .bindings
+        .get(name)
+        .is_some_and(|value| value.projection().is_some())
 }
 
 /// Publishes one collection's filtered items to a part's grid.

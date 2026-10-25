@@ -86,9 +86,9 @@ struct Generated {
     incremental: bool,
 }
 
-/// One random control patch to `document`: representative edits and the invalid ones each
-/// rule exists for.
-fn generate(rng: &mut Rng, document: &Value, serial: usize) -> Generated {
+/// One random control patch to `document`, bound to `bound`: representative edits and the
+/// invalid ones each rule exists for, sometimes with binding changes and removals.
+fn generate(rng: &mut Rng, document: &Value, bound: &[String], serial: usize) -> Generated {
     let object = document.as_object().expect("document object");
     let locals: Vec<(&String, String)> = object
         .keys()
@@ -376,8 +376,27 @@ fn generate(rng: &mut Rng, document: &Value, serial: usize) -> Generated {
     }
     let mut patch = json!({"controls":controls});
     if rng.chance(15) {
-        let name = if rng.chance(20) { "bad name" } else { "#v0" };
+        let name = if rng.chance(20) {
+            "bad name".to_owned()
+        } else {
+            format!("#v{}", rng.below(CARDS))
+        };
         patch["binding_changes"] = json!({name: rng.below(9).to_string()});
+    }
+    // Bound names go, sometimes twice, unbound or also set by the same patch.
+    if rng.chance(20) {
+        let removed: Vec<String> = (0..1 + rng.below(2))
+            .map(|_| match rng.below(5) {
+                0 => "#unbound".to_owned(),
+                _ if bound.is_empty() => format!("#v{}", rng.below(CARDS)),
+                _ => bound[rng.below(bound.len())].clone(),
+            })
+            .collect();
+        patch["remove_bindings"] = json!(removed);
+    }
+    // Binding-only patches keep the index for the patches after them.
+    if rng.chance(5) {
+        patch.as_object_mut().unwrap().remove("controls");
     }
     Generated { patch, incremental }
 }
@@ -425,6 +444,8 @@ struct Tally {
     incremental: usize,
     whole_valid: usize,
     rejected: usize,
+    /// Admitted patches that removed bindings.
+    removed: usize,
 }
 
 /// Applies `patch` to `current` both ways and asserts identical results; returns the next
@@ -504,11 +525,15 @@ fn random_control_patch_sequences_admit_exactly_what_whole_validation_admits() {
                 index = HudIndex::new(&current).unwrap();
             }
             let document: Value = serde_json::from_str(&current.document).unwrap();
-            let generated = generate(&mut rng, &document, serial);
+            let bound: Vec<String> = current.bindings.keys().cloned().collect();
+            let generated = generate(&mut rng, &document, &bound, serial);
             let patch = generated.patch.to_string();
             if let Some((next, next_index)) =
                 step(&current, &index, &patch, generated.incremental, &mut tally)
             {
+                if next.bindings.len() < current.bindings.len() {
+                    tally.removed += 1;
+                }
                 current = next;
                 index = next_index;
                 if serial % 9 == 0 {
@@ -521,6 +546,7 @@ fn random_control_patch_sequences_admit_exactly_what_whole_validation_admits() {
     assert!(tally.incremental > 600, "{tally:?}");
     assert!(tally.whole_valid > 20, "{tally:?}");
     assert!(tally.rejected > 200, "{tally:?}");
+    assert!(tally.removed > 50, "{tally:?}");
 }
 
 #[test]
@@ -599,6 +625,22 @@ fn binding_patches_keep_the_index_and_stale_indexes_validate_whole() {
         .apply_hud(&current, &index)
         .unwrap();
     assert!(kept.describes(&next), "bindings leave the document indexed");
+    let (removed, kept) = SurfacePatch::parse(r##"{"remove_bindings":["#v1"]}"##)
+        .unwrap()
+        .apply_hud(&next, &kept)
+        .unwrap();
+    assert!(!removed.bindings.contains_key("#v1"));
+    assert!(
+        kept.describes(&removed),
+        "removals leave the document indexed"
+    );
+    let mut tally = Tally::default();
+    let patch = json!({"controls":{"c1":card(1, 0.5)},"remove_bindings":["#v2"],
+        "binding_changes":{"#v1":"1"}});
+    let (redefined, _) = step(&removed, &kept, &patch.to_string(), true, &mut tally).unwrap();
+    assert_eq!(tally.incremental, 1, "{tally:?}");
+    assert!(!redefined.bindings.contains_key("#v2"));
+    assert!(redefined.bindings.contains_key("#v1"));
     let patch = json!({"controls":{"c1":card(1, 0.5)}}).to_string();
     let stale = HudIndex::default();
     let (patched, rebuilt) = SurfacePatch::parse(&patch)

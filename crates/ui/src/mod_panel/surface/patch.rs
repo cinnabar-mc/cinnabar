@@ -10,8 +10,8 @@ use super::{HudIndex, Surface, SurfaceRole, SurfaceValue};
 /// Changing values and a few control definitions never need to carry the whole document.
 pub const MAX_SURFACE_PATCH_BYTES: usize = 64 * 1024;
 
-/// The binding and collection subset of a panel patch, plus replaced control definitions:
-/// omitted names keep their values.
+/// The binding and collection subset of a panel patch, plus binding removals and replaced
+/// control definitions: omitted names keep their values.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SurfacePatch {
@@ -20,6 +20,11 @@ pub struct SurfacePatch {
     /// document key; the patched document is admitted exactly as a whole one would be.
     #[serde(default)]
     pub controls: Option<BTreeMap<String, Option<Value>>>,
+    /// Removes the named bindings before `bindings` and `binding_changes` apply. Each must be
+    /// bound and named once, and not set by the same patch; at most the role's binding
+    /// budget. A removed name the document still reads draws as never bound.
+    #[serde(default)]
+    pub remove_bindings: Vec<String>,
     /// Replaces every binding.
     #[serde(default)]
     pub bindings: Option<BTreeMap<String, SurfaceValue>>,
@@ -48,7 +53,7 @@ impl SurfacePatch {
         if let Some(controls) = &self.controls {
             surface.document = super::definitions::patch(&surface.document, controls)?;
         }
-        self.apply_values(&mut surface)?;
+        self.apply_values(&mut surface, role)?;
         if redefined {
             surface.validate_as(role)?;
         } else {
@@ -83,19 +88,36 @@ impl SurfacePatch {
                 transitions: current.transitions.clone(),
                 collections: current.collections.clone(),
             };
-            self.apply_values(&mut surface)?;
+            self.apply_values(&mut surface, SurfaceRole::Hud)?;
             surface.validate_bindings_as(SurfaceRole::Hud)?;
             return Ok((surface, next));
         }
         let mut surface = current.clone();
         surface.document = super::definitions::patch(&surface.document, controls)?;
-        self.apply_values(&mut surface)?;
+        self.apply_values(&mut surface, SurfaceRole::Hud)?;
         let index = HudIndex::new(&surface)?;
         Ok((surface, index))
     }
 
-    /// Applies this patch's bindings, binding changes and collection orders to `surface`.
-    fn apply_values(self, surface: &mut Surface) -> Result<(), String> {
+    /// Applies this patch's binding removals, bindings, binding changes and collection orders
+    /// to `surface`, in that order, with `role`'s bound on removals.
+    fn apply_values(self, surface: &mut Surface, role: SurfaceRole) -> Result<(), String> {
+        if self.remove_bindings.len() > role.max_bindings() {
+            return Err("surface update removes too many bindings".into());
+        }
+        for name in &self.remove_bindings {
+            let set = |bindings: &Option<BTreeMap<String, SurfaceValue>>| {
+                bindings
+                    .as_ref()
+                    .is_some_and(|bindings| bindings.contains_key(name))
+            };
+            if set(&self.bindings) || set(&self.binding_changes) {
+                return Err("surface update both sets and removes a binding".into());
+            }
+            if surface.bindings.remove(name).is_none() {
+                return Err("surface update removes an unbound binding".into());
+            }
+        }
         if let Some(bindings) = self.bindings {
             surface.bindings = bindings;
         }
@@ -191,6 +213,102 @@ mod tests {
         )
         .unwrap();
         assert!(projected.apply(&current, SurfaceRole::Hud).is_err());
+    }
+
+    #[test]
+    fn binding_removals_apply_before_binding_changes_and_name_only_bound_names() {
+        let current = surface(json!({"#fps":"60","#cps":"0"}));
+        let apply = |patch: serde_json::Value| {
+            SurfacePatch::parse(&patch.to_string())
+                .and_then(|patch| patch.apply(&current, SurfaceRole::Hud))
+        };
+        let names = |surface: &Surface| surface.bindings.keys().cloned().collect::<Vec<_>>();
+        let removed = apply(json!({"remove_bindings":["#fps"]})).unwrap();
+        assert_eq!(names(&removed), ["#cps"]);
+        assert_eq!(
+            removed.document, current.document,
+            "the document still reads the removed name, as it may read any unbound one"
+        );
+        let changed =
+            apply(json!({"remove_bindings":["#fps"],"binding_changes":{"#rate":"1"}})).unwrap();
+        assert_eq!(names(&changed), ["#cps", "#rate"]);
+        let replaced = apply(json!({"remove_bindings":["#cps"],"bindings":{"#fps":"1"}})).unwrap();
+        assert_eq!(names(&replaced), ["#fps"]);
+        assert_eq!(apply(json!({"remove_bindings":[]})).unwrap(), current);
+        for (invalid, error) in [
+            (json!({"remove_bindings":["#missing"]}), "unbound"),
+            (json!({"remove_bindings":["fps"]}), "unbound"),
+            (json!({"remove_bindings":["#fps","#fps"]}), "unbound"),
+            (
+                json!({"remove_bindings":["#fps"],"binding_changes":{"#fps":"1"}}),
+                "both sets and removes",
+            ),
+            (
+                json!({"remove_bindings":["#fps"],"bindings":{"#fps":"1"}}),
+                "both sets and removes",
+            ),
+        ] {
+            let result = apply(invalid.clone());
+            assert!(
+                result.as_ref().is_err_and(|e| e.contains(error)),
+                "{invalid}: {result:?}"
+            );
+        }
+        assert!(SurfacePatch::parse(r##"{"remove_bindings":"#fps"}"##).is_err());
+        let projected = surface(json!({"#tag":{"project":{"world":[0,0,0]}}}));
+        let companion = json!({"binding_changes":{"#tag_visible":true}});
+        let mut freed = companion.clone();
+        freed["remove_bindings"] = json!(["#tag"]);
+        assert!(
+            SurfacePatch::parse(&companion.to_string())
+                .and_then(|patch| patch.apply(&projected, SurfaceRole::Hud))
+                .is_err()
+        );
+        assert_eq!(
+            names(
+                &SurfacePatch::parse(&freed.to_string())
+                    .and_then(|patch| patch.apply(&projected, SurfaceRole::Hud))
+                    .unwrap()
+            ),
+            ["#tag_visible"],
+            "removing a projection first frees its companion's name"
+        );
+    }
+
+    #[test]
+    fn binding_removals_are_bounded_by_the_role_binding_budget() {
+        let full: serde_json::Map<_, _> = (0..super::super::MAX_HUD_SURFACE_BINDINGS)
+            .map(|i| (format!("#row_{i}"), json!(i)))
+            .collect();
+        let current = surface(serde_json::Value::Object(full.clone()));
+        let removing = |names: Vec<String>, role| {
+            SurfacePatch {
+                remove_bindings: names,
+                ..Default::default()
+            }
+            .apply(&current, role)
+        };
+        let every: Vec<String> = full.keys().cloned().collect();
+        assert!(
+            removing(every.clone(), SurfaceRole::Hud)
+                .unwrap()
+                .bindings
+                .is_empty()
+        );
+        let mut excess = every.clone();
+        excess.push(every[0].clone());
+        assert_eq!(
+            removing(excess, SurfaceRole::Hud).unwrap_err(),
+            "surface update removes too many bindings"
+        );
+        assert_eq!(
+            removing(
+                every[..super::super::MAX_SURFACE_BINDINGS + 1].to_vec(),
+                SurfaceRole::Panel
+            )
+            .unwrap_err(),
+            "surface update removes too many bindings"
+        );
     }
 
     /// Applies a `controls` patch to `current` as a HUD surface.

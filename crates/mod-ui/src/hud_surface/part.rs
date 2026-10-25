@@ -25,8 +25,8 @@ pub(crate) struct Part {
     data: Arc<DataSource>,
     revision: u64,
     screen: CachedScreen,
-    /// Item bindings this part reads and the item each names.
-    items: Vec<(String, Option<SurfaceItem>)>,
+    /// Bound item bindings this part reads and the item each names.
+    items: Vec<(String, SurfaceItem)>,
     resolved: Vec<Option<IconRef>>,
     icons: Vec<IconRef>,
     laid: Option<Arc<[DrawNode]>>,
@@ -108,12 +108,32 @@ impl Part {
         self.revision += 1;
     }
 
-    /// Names the item an item binding draws; none draws nothing.
+    /// Removes one global, so the part reads it as unbound, as a part built without it does.
+    /// Retained bindings keep the last value a global answered, so the next prepare binds
+    /// afresh.
+    pub fn unset_global(&mut self, name: &str) {
+        if self.data.global_value(name).is_some() {
+            Arc::make_mut(&mut self.data).remove_global(name);
+            self.screen = CachedScreen::default();
+            self.revision += 1;
+        }
+    }
+
+    /// Names the item an item binding draws; none stops resolving the binding, leaving its
+    /// global to the caller.
     pub fn set_item(&mut self, name: &str, item: Option<SurfaceItem>) {
-        match self.items.iter_mut().find(|(binding, _)| binding == name) {
-            Some((_, current)) if *current == item => return,
-            Some((_, current)) => *current = item,
-            None => self.items.push((name.to_owned(), item)),
+        let position = self.items.iter().position(|(binding, _)| binding == name);
+        match (position, item) {
+            (Some(position), Some(item)) if self.items[position].1 == item => return,
+            (Some(position), Some(item)) => self.items[position].1 = item,
+            (Some(position), None) => {
+                self.items.remove(position);
+                if self.items.is_empty() {
+                    self.icons.clear();
+                }
+            }
+            (None, Some(item)) => self.items.push((name.to_owned(), item)),
+            (None, None) => return,
         }
         self.resolved.clear();
     }
@@ -263,9 +283,7 @@ impl Part {
         let mut changed = self.resolved.len() != self.items.len();
         self.resolved.resize(self.items.len(), None);
         for ((_, item), resolved) in self.items.iter().zip(&mut self.resolved) {
-            let next = item
-                .as_ref()
-                .and_then(|item| icon(&item.identifier, item.metadata));
+            let next = icon(&item.identifier, item.metadata);
             changed |= *resolved != next;
             *resolved = next;
         }

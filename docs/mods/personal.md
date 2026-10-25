@@ -75,9 +75,19 @@ assuming an import succeeded. Shared values and ceilings live in
 screens and never hit-tested. It takes the panel surface schema, `screen`,
 `document`, `bindings`, `collections` and `transitions`, without input actions,
 glass backdrops or `cinnabar_hud_control`. Empty text removes it.
-`hud.update-surface` takes `bindings` (replace all), `binding_changes` (sparse),
-`collection_order` and `controls`, which replaces or removes top-level control
-definitions of the document by name, without namespace:
+`hud.update-surface` takes `remove_bindings`, `bindings` (replace all),
+`binding_changes` (sparse), `collection_order` and `controls`.
+
+`remove_bindings:["#row_7","#row_8"]` unbinds names before the patch's other
+bindings apply, which frees room in the binding budget. Each name must be bound and
+listed once, the same patch must not also set it, and the list holds at most the
+512-binding limit; otherwise the whole patch is rejected. The document may still
+read a removed name: it then draws exactly as an unbound name does in a fresh
+`set-surface`, and a control that followed a removed projection stays at its
+authored place.
+
+`controls` replaces or removes top-level control definitions of the document by
+name, without namespace:
 
 ```json
 {"controls":{"armor_card":{"type":"panel","size":[60,20],"controls":[]},

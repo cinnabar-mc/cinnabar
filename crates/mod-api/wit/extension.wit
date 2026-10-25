@@ -11,13 +11,15 @@ interface hud {
     /// hit-tested. The JSON is a bounded surface: `screen`, `document`, `bindings`,
     /// `collections` and `transitions`, as panel surfaces. Empty text removes the layer.
     set-surface: func(json: string) -> result<_, string>;
-    /// Sparse patch of the current layer; omitted names keep their values. `bindings` replaces
-    /// every binding, `binding_changes` sets the named ones and `collection_order` reorders
-    /// collections. `controls` maps top-level control names of the document, without
-    /// namespace and optionally with an `@` base as a document key, to a replacement control
-    /// object, or to null to remove one. The patched document is validated as `set-surface`
-    /// validates a whole one, and only the controls whose resolution reads a replaced
-    /// definition, embedded ones included, are laid out again.
+    /// Sparse patch of the current layer; omitted names keep their values. `remove_bindings`
+    /// lists bound names to unbind first, each once, none also set by the patch and at most
+    /// the binding limit; a removed name the document still reads draws as never bound.
+    /// `bindings` then replaces every binding, `binding_changes` sets the named ones and
+    /// `collection_order` reorders collections. `controls` maps top-level control names of
+    /// the document, without namespace and optionally with an `@` base as a document key, to
+    /// a replacement control object, or to null to remove one. The patched document is
+    /// validated as `set-surface` validates a whole one, and only the controls whose
+    /// resolution reads a replaced definition, embedded ones included, are laid out again.
     update-surface: func(json: string) -> result<_, string>;
     /// The gameplay HUD root in GUI units and the GUI scale.
     record viewport { width: f32, height: f32, scale: f32 }

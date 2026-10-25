@@ -117,6 +117,52 @@ fn updates_patch_the_staged_surface_and_need_one() {
     assert_ne!(state.hud.surface_revision, revision);
 }
 
+/// Removals name bound bindings, apply before the patch's other bindings and keep the
+/// document and its index; a rejected removal keeps the committed surface.
+#[test]
+fn updates_remove_bound_bindings_before_setting_others() {
+    let mut state = state(hud());
+    assert!(set(
+        &mut state,
+        surface(json!({"#text":"a","#keep":1,"#tag":{"project":{"world":[0,0,0]}}}))
+    ));
+    let update = |state: &mut State, patch: serde_json::Value| {
+        state.writes = 0;
+        let result = surface::update(state, patch.to_string()).unwrap();
+        state.hud.commit();
+        result
+    };
+    let revision = state.hud.surface_revision;
+    for invalid in [
+        json!({"remove_bindings":["#missing"]}),
+        json!({"remove_bindings":["#text","#text"]}),
+        json!({"remove_bindings":["#text"],"binding_changes":{"#text":"b"}}),
+        json!({"remove_bindings":["#keep"],"bindings":{"#keep":2}}),
+    ] {
+        assert!(update(&mut state, invalid.clone()).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        state.hud.surface_revision, revision,
+        "rejected removals keep the committed surface"
+    );
+    let document = state.hud.surface.as_ref().unwrap().document.clone();
+    update(
+        &mut state,
+        json!({"remove_bindings":["#text","#tag"],"binding_changes":{"#tag_visible":true}}),
+    )
+    .unwrap();
+    let committed = Arc::clone(state.hud.surface.as_ref().unwrap());
+    assert_eq!(
+        committed.bindings.keys().collect::<Vec<_>>(),
+        ["#keep", "#tag_visible"]
+    );
+    assert_eq!(
+        committed.document, document,
+        "the document still reads #text"
+    );
+    assert!(state.hud.index.describes(&committed));
+}
+
 #[test]
 fn control_updates_replace_definitions_validated_as_a_whole_document() {
     let mut state = state(hud());

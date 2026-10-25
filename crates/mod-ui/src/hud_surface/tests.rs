@@ -445,3 +445,75 @@ fn unchanged_publication_allocates_nothing() {
     publish(&mut ui, &[(OTHER, 2, &second), (OWNER, 1, &first)]);
     assert!(ui.hud_surface_bindings(OWNER).is_some() && ui.hud_surface_bindings(OTHER).is_some());
 }
+
+/// [`surface`] with a label reading `#fps` over its own authored `#fps` property, and an eased
+/// `#b`.
+fn removable(bindings: Value) -> Arc<Surface> {
+    let mut surface = (*surface(bindings)).clone();
+    let mut document: Value = serde_json::from_str(&surface.document).unwrap();
+    document["root"]["controls"].as_array_mut().unwrap().push(
+        json!({"fps":{"type":"label","text":"#fps","#fps":"--","offset":[200,10],
+            "anchor_from":"top_left","anchor_to":"top_left",
+            "bindings":[{"binding_name":"#fps"}]}}),
+    );
+    surface.document = document.to_string();
+    surface.transitions = serde_json::from_value(json!({"#b":{"duration":0.5}})).unwrap();
+    Arc::new(surface)
+}
+
+/// A control reading a removed binding draws as in a surface published without it: unbound
+/// rather than null, and a control that floated on a removed projection, or one that became a
+/// plain value, stays in place.
+#[test]
+fn removed_bindings_draw_as_never_bound() {
+    let full = || {
+        let mut values = bindings();
+        values["#fps"] = json!("60");
+        values
+    };
+    let names = ["#a", "#b", "#helmet", "#tag", "#fps"];
+    let mut cases: Vec<(String, Value)> = names
+        .iter()
+        .map(|name| vec![*name])
+        .chain(std::iter::once(names.to_vec()))
+        .map(|removed| {
+            let mut without = full();
+            for name in &removed {
+                without.as_object_mut().unwrap().remove(*name);
+            }
+            (format!("removing {removed:?}"), without)
+        })
+        .collect();
+    let mut placed = full();
+    placed["#tag"] = json!([30, 30]);
+    cases.push(("placing #tag".into(), placed));
+    for (case, next) in cases {
+        let draw = |published: &[Arc<Surface>]| {
+            let mut ui = ModUi::default();
+            let mut harness = Harness::new();
+            harness.icon = Some(IconRef {
+                page: 0,
+                uv: [0, 0, 16, 16],
+                glint: false,
+                color_mask: None,
+            });
+            // An empty frame places the HUD root the layers lay out and project against.
+            harness.paint(&mut ui, false);
+            for (revision, surface) in (1..).zip(published) {
+                publish(&mut ui, &[(OWNER, revision, surface)]);
+                ui.set_hud_projection(Some(camera()), &|_| None);
+                harness.paint(&mut ui, false);
+            }
+            (
+                ui.hud_surface_bindings(OWNER).unwrap(),
+                harness.painted(),
+                harness.nodes.clone(),
+            )
+        };
+        let patched = draw(&[removable(full()), removable(next.clone())]);
+        let fresh = draw(&[removable(next)]);
+        assert_eq!(patched.0, fresh.0, "bindings after {case}");
+        assert_eq!(patched.1, fresh.1, "painted bounds after {case}");
+        assert!(patched.2 == fresh.2, "painted nodes after {case}");
+    }
+}

@@ -44,9 +44,9 @@ pub(in super::super) fn set(state: &mut State, json: String) -> Result<Result<()
     Ok(Ok(()))
 }
 
-/// Patches the staged or committed surface's bindings, collection order and control
-/// definitions; the last admitted document's index limits a control patch's revalidation to
-/// what it changes.
+/// Patches the staged or committed surface's bindings, including removals, collection order
+/// and control definitions; the last admitted document's index limits a control patch's
+/// revalidation to what it changes.
 pub(in super::super) fn update(state: &mut State, json: String) -> Result<Result<(), String>> {
     if let Err(error) = admit(state)? {
         return Ok(Err(error));
