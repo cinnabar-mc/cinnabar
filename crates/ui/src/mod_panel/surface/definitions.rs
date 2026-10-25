@@ -176,7 +176,7 @@ impl Definitions {
 /// is the caller's.
 pub(super) fn patch(
     document: &str,
-    controls: BTreeMap<String, Option<Value>>,
+    controls: &BTreeMap<String, Option<Value>>,
 ) -> Result<String, String> {
     let Value::Object(mut object) =
         serde_json::from_str(document).map_err(|error| format!("invalid surface JSON: {error}"))?
@@ -192,37 +192,63 @@ pub(super) fn patch(
     for key in object.keys().filter(|key| *key != "namespace") {
         keys.insert(local_reference(key, &namespace)?.0, key.clone());
     }
+    for edit in edits(&namespace, |local| keys.contains_key(local), controls)? {
+        if let Some(previous) = keys.remove(&edit.local) {
+            object.remove(&previous);
+        }
+        if let Some(body) = edit.body {
+            object.insert(edit.key.to_owned(), body.clone());
+        }
+    }
+    Ok(Value::Object(object).to_string())
+}
+
+/// One checked change to a top-level definition.
+pub(super) struct Edit<'a> {
+    /// The definition's local name.
+    pub local: String,
+    /// Its new document key, the local name with an optional `@` base.
+    pub key: &'a str,
+    /// Its new body, or none to remove it.
+    pub body: Option<&'a Value>,
+}
+
+/// Checks `controls`, in key order, as replacements (an object) or removals (`null`) of the
+/// local definitions of `namespace`, where `exists` names the current ones.
+pub(super) fn edits<'a>(
+    namespace: &str,
+    exists: impl Fn(&str) -> bool,
+    controls: &'a BTreeMap<String, Option<Value>>,
+) -> Result<Vec<Edit<'a>>, String> {
     let mut seen = BTreeSet::new();
+    let mut edits = Vec::with_capacity(controls.len());
     for (key, control) in controls {
         if key == "namespace" {
             return Err("surface update cannot replace the namespace".into());
         }
-        let (local, _) = local_reference(&key, &namespace)?;
+        let (local, _) = local_reference(key, namespace)?;
         if local.contains('.') {
             return Err("surface update control names carry no namespace".into());
         }
         if !seen.insert(local.clone()) {
             return Err("surface update repeats a control".into());
         }
-        let previous = keys.remove(&local);
-        match (previous, control) {
-            (previous, Some(control)) => {
-                if !control.is_object() {
-                    return Err("surface update control must be an object".into());
-                }
-                if let Some(previous) = previous {
-                    object.remove(&previous);
-                }
-                keys.insert(local, key.clone());
-                object.insert(key, control);
+        match control {
+            Some(control) if !control.is_object() => {
+                return Err("surface update control must be an object".into());
             }
-            (Some(previous), None) => {
-                object.remove(&previous);
+            None if !exists(&local) => {
+                return Err("surface update removes an unknown control".into());
             }
-            (None, None) => return Err("surface update removes an unknown control".into()),
+            _ => {}
         }
+        edits.push(Edit {
+            local,
+            key,
+            body: control.as_ref(),
+        });
     }
-    Ok(Value::Object(object).to_string())
+    Ok(edits)
 }
 
 #[cfg(test)]
@@ -241,7 +267,7 @@ mod tests {
         .to_string();
         let patched = patch(
             &document,
-            [
+            &[
                 ("card".to_owned(), Some(json!({"type":"label"}))),
                 ("new@base".to_owned(), Some(json!({}))),
                 ("old".to_owned(), None),
@@ -267,7 +293,7 @@ mod tests {
             ]
             .into(),
         ] {
-            assert!(patch(&document, controls).is_err());
+            assert!(patch(&document, &controls).is_err());
         }
     }
 

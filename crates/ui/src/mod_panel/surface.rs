@@ -8,6 +8,7 @@ pub mod backdrop;
 mod collection;
 pub mod definitions;
 pub mod hud_control;
+mod hud_index;
 pub mod local_player_head;
 mod paint_transform;
 mod patch;
@@ -16,6 +17,7 @@ mod static_templates;
 mod transition;
 mod value;
 pub use collection::{CollectionArt, CollectionDefinition, CollectionItem, SurfaceCollection};
+pub use hud_index::HudIndex;
 pub use patch::{MAX_SURFACE_PATCH_BYTES, SurfacePatch};
 use static_templates::{acyclic, authored, bound_expansion, local_reference, resolved_value};
 pub use transition::{MAX_TRANSITION_SECONDS, SurfaceTransition, TransitionEasing};
@@ -329,6 +331,18 @@ impl Surface {
     }
     /// Resolves only static local templates before validating the emitted tree.
     fn resolved_root(&self) -> Result<Value, String> {
+        self.resolved().map(|(root, _)| root)
+    }
+
+    /// [`Self::resolved_root`] and the document's parsed top-level members.
+    fn resolved(&self) -> Result<(Value, serde_json::Map<String, Value>), String> {
+        let object = self.static_definitions()?;
+        Ok((self.resolve_static()?, object))
+    }
+
+    /// Checks the authored document before anything resolves it: its bytes, screen, local
+    /// definitions, inheritance graph and expansion bound. Returns its parsed members.
+    fn static_definitions(&self) -> Result<serde_json::Map<String, Value>, String> {
         if self.document.len() > MAX_SURFACE_BYTES {
             return Err("surface document exceeds byte limit".into());
         }
@@ -343,9 +357,9 @@ impl Surface {
         }
         let document: Value = serde_json::from_str(&self.document)
             .map_err(|error| format!("invalid surface JSON: {error}"))?;
-        let object = document
-            .as_object()
-            .ok_or("surface document must be an object")?;
+        let Value::Object(object) = document else {
+            return Err("surface document must be an object".into());
+        };
         if object.get("namespace").and_then(Value::as_str) != Some(namespace) {
             return Err("surface document must contain its own namespace".into());
         }
@@ -369,26 +383,22 @@ impl Surface {
             authored(body, namespace, 0, &mut authored_nodes, &mut references)?;
             graph.insert(key.clone(), references);
         }
+        let references = |key: &str| graph.get(key).map(Vec::as_slice);
         for key in graph.keys() {
             acyclic(
                 key,
-                &graph,
+                &references,
                 &mut Vec::new(),
                 &mut std::collections::BTreeSet::new(),
             )?;
         }
         bound_expansion(name, namespace, &definitions)?;
-        let files = br#"{"ui_defs":["ui/extension_surface.json"]}"#;
-        let catalog = json_ui::Catalog::from_files([
-            ("ui/_global_variables.json", &b"{}"[..]),
-            ("ui/_ui_defs.json", &files[..]),
-            ("ui/extension_surface.json", self.document.as_bytes()),
-        ])
-        .map_err(|error| error.to_string())?
-        .with_paint_transforms();
-        if !catalog.diagnostics().is_empty() {
-            return Err(catalog.diagnostics().join("; "));
-        }
+        Ok(object)
+    }
+
+    /// Resolves a document [`Self::static_definitions`] admitted and checks the emitted tree.
+    fn resolve_static(&self) -> Result<Value, String> {
+        let catalog = catalog(&self.document)?;
         let resolved = json_ui::resolve_with_limits(
             &catalog,
             &self.screen,
@@ -408,6 +418,24 @@ impl Surface {
         let mut actions = Vec::new();
         node(&root, 0, &mut count, &mut actions, false, false)?;
         Ok(root)
+    }
+}
+
+/// Loads a surface document into a private catalog with paint transforms, rejecting any
+/// load diagnostic.
+fn catalog(document: &str) -> Result<json_ui::Catalog, String> {
+    let files = br#"{"ui_defs":["ui/extension_surface.json"]}"#;
+    let catalog = json_ui::Catalog::from_files([
+        ("ui/_global_variables.json", &b"{}"[..]),
+        ("ui/_ui_defs.json", &files[..]),
+        ("ui/extension_surface.json", document.as_bytes()),
+    ])
+    .map_err(|error| error.to_string())?
+    .with_paint_transforms();
+    if catalog.diagnostics().is_empty() {
+        Ok(catalog)
+    } else {
+        Err(catalog.diagnostics().join("; "))
     }
 }
 

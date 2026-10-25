@@ -85,9 +85,13 @@ definitions of the document by name, without namespace:
 ```
 
 A key may carry an `@` base as a document key does. The patched document is
-validated as a whole, exactly as `set-surface` validates one, and only the controls
-whose resolution reads a replaced definition, embedded ones included, are laid out
-again; everything else keeps its cache. Values, documents and limits live in
+admitted exactly as `set-surface` would admit it whole, with the same errors, but
+the host rechecks only the replaced definitions and the root children that read
+them, so patching a control every frame stays cheap. A patch to the root's own
+properties, a rejected patch, and documents with collections, a root base or an `@`
+inside a string value are validated whole. Only the controls whose resolution reads
+a replaced definition, embedded ones included, are laid out again; everything else
+keeps its cache. Values, documents and limits live in
 [`surface`](../../crates/ui/src/mod_panel/surface.rs): 512 bindings, 192 KiB of
 document and 64 KiB per update. Only the `screen` root draws on gameplay; other
 named controls in the document stay embeddable. The layer hides with the gameplay

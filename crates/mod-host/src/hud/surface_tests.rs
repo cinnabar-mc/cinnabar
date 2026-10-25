@@ -160,6 +160,37 @@ fn control_updates_replace_definitions_validated_as_a_whole_document() {
 }
 
 /// Parses one binding value.
+#[test]
+fn admitted_documents_stay_indexed_for_later_control_updates() {
+    let mut state = state(hud());
+    assert!(set(&mut state, surface(json!({"#text":"a"}))));
+    let committed = |state: &State| state.hud.surface.clone().unwrap();
+    assert!(state.hud.index.describes(&committed(&state)));
+    for offset in 0..3 {
+        state.writes = 0;
+        let root = json!({"type":"panel","controls":[{"text":{"type":"label","text":"#text",
+            "offset":[offset, 0],"bindings":[{"binding_name":"#text"}]}}]});
+        surface::update(&mut state, json!({"controls":{"root":root}}).to_string())
+            .unwrap()
+            .unwrap();
+        state.hud.commit();
+        let document: serde_json::Value =
+            serde_json::from_str(&committed(&state).document).unwrap();
+        assert_eq!(
+            document["root"]["controls"][0]["text"]["offset"],
+            json!([offset, 0])
+        );
+        assert!(
+            state.hud.index.describes(&committed(&state)),
+            "update {offset}"
+        );
+    }
+    let last = committed(&state);
+    assert!(set(&mut state, String::new()));
+    assert!(state.hud.surface.is_none());
+    assert!(!state.hud.index.describes(&last), "removal drops the index");
+}
+
 fn json_value(value: impl serde::Serialize) -> ui::mod_panel::SurfaceValue {
     serde_json::from_value(json!(value)).unwrap()
 }

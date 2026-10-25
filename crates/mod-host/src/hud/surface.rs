@@ -7,7 +7,7 @@ use super::admit;
 use anyhow::Result;
 use std::sync::Arc;
 use ui::mod_hud::{HiddenElements, VanillaElement};
-use ui::mod_panel::{LabelFont, Surface, SurfacePatch, SurfaceRole};
+use ui::mod_panel::{HudIndex, LabelFont, Surface, SurfacePatch};
 
 /// Largest `set-surface` JSON: a full document, 512 bindings and collection metadata.
 pub const MAX_HUD_SURFACE_JSON_BYTES: usize = 384 * 1024;
@@ -23,6 +23,7 @@ pub(in super::super) fn set(state: &mut State, json: String) -> Result<Result<()
     }
     if json.is_empty() {
         state.hud.pending_surface = Some(None);
+        state.hud.index = HudIndex::default();
         return Ok(Ok(()));
     }
     if json.len() > MAX_HUD_SURFACE_JSON_BYTES {
@@ -32,17 +33,20 @@ pub(in super::super) fn set(state: &mut State, json: String) -> Result<Result<()
         Ok(surface) => surface,
         Err(error) => return Ok(Err(format!("invalid HUD surface: {error}"))),
     };
-    if let Err(error) = surface
-        .validate_hud()
-        .and_then(|()| actor_authority(state, &surface))
+    let index = match HudIndex::new(&surface)
+        .and_then(|index| actor_authority(state, &surface).map(|()| index))
     {
-        return Ok(Err(error));
-    }
+        Ok(index) => index,
+        Err(error) => return Ok(Err(error)),
+    };
+    state.hud.index = index;
     state.hud.pending_surface = Some(Some(Arc::new(surface)));
     Ok(Ok(()))
 }
 
-/// Patches the staged or committed surface's bindings and collection order.
+/// Patches the staged or committed surface's bindings, collection order and control
+/// definitions; the last admitted document's index limits a control patch's revalidation to
+/// what it changes.
 pub(in super::super) fn update(state: &mut State, json: String) -> Result<Result<(), String>> {
     if let Err(error) = admit(state)? {
         return Ok(Err(error));
@@ -58,13 +62,14 @@ pub(in super::super) fn update(state: &mut State, json: String) -> Result<Result
     let Some(current) = current else {
         return Ok(Err("no HUD surface to update".into()));
     };
-    let next = match patch
-        .apply(current, SurfaceRole::Hud)
-        .and_then(|next| actor_authority(state, &next).map(|()| next))
+    let (next, index) = match patch
+        .apply_hud(current, &state.hud.index)
+        .and_then(|patched| actor_authority(state, &patched.0).map(|()| patched))
     {
-        Ok(next) => next,
+        Ok(patched) => patched,
         Err(error) => return Ok(Err(error)),
     };
+    state.hud.index = index;
     state.hud.pending_surface = Some(Some(Arc::new(next)));
     Ok(Ok(()))
 }

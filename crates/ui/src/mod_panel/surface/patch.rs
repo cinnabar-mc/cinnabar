@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Surface, SurfaceRole, SurfaceValue};
+use super::{HudIndex, Surface, SurfaceRole, SurfaceValue};
 
 /// Changing values and a few control definitions never need to carry the whole document.
 pub const MAX_SURFACE_PATCH_BYTES: usize = 64 * 1024;
@@ -17,7 +17,7 @@ pub const MAX_SURFACE_PATCH_BYTES: usize = 64 * 1024;
 pub struct SurfacePatch {
     /// Replaces (an object) or removes (`null`) top-level control definitions of the
     /// document, keyed by local name without namespace, optionally with an `@` base as a
-    /// document key; the patched document is validated as a whole.
+    /// document key; the patched document is admitted exactly as a whole one would be.
     #[serde(default)]
     pub controls: Option<BTreeMap<String, Option<Value>>>,
     /// Replaces every binding.
@@ -45,9 +45,57 @@ impl SurfacePatch {
     pub fn apply(self, current: &Surface, role: SurfaceRole) -> Result<Surface, String> {
         let mut surface = current.clone();
         let redefined = self.controls.is_some();
-        if let Some(controls) = self.controls {
+        if let Some(controls) = &self.controls {
             surface.document = super::definitions::patch(&surface.document, controls)?;
         }
+        self.apply_values(&mut surface)?;
+        if redefined {
+            surface.validate_as(role)?;
+        } else {
+            surface.validate_bindings_as(role)?;
+        }
+        Ok(surface)
+    }
+
+    /// [`Self::apply`] for a HUD surface, with the index of `current`'s document when one is
+    /// known. Returns the patched surface and the index of its document, with exactly the
+    /// result and error `apply` would give: a `controls` patch the index can check revalidates
+    /// only the definitions it changes and the root children reading them, and anything else
+    /// validates the whole document.
+    pub fn apply_hud(
+        self,
+        current: &Surface,
+        index: &HudIndex,
+    ) -> Result<(Surface, HudIndex), String> {
+        let Some(controls) = &self.controls else {
+            let kept = if index.describes(current) {
+                index.clone()
+            } else {
+                HudIndex::default()
+            };
+            return Ok((self.apply(current, SurfaceRole::Hud)?, kept));
+        };
+        if let Some((document, next)) = index.patched(current, controls) {
+            let mut surface = Surface {
+                screen: current.screen.clone(),
+                document,
+                bindings: current.bindings.clone(),
+                transitions: current.transitions.clone(),
+                collections: current.collections.clone(),
+            };
+            self.apply_values(&mut surface)?;
+            surface.validate_bindings_as(SurfaceRole::Hud)?;
+            return Ok((surface, next));
+        }
+        let mut surface = current.clone();
+        surface.document = super::definitions::patch(&surface.document, controls)?;
+        self.apply_values(&mut surface)?;
+        let index = HudIndex::new(&surface)?;
+        Ok((surface, index))
+    }
+
+    /// Applies this patch's bindings, binding changes and collection orders to `surface`.
+    fn apply_values(self, surface: &mut Surface) -> Result<(), String> {
         if let Some(bindings) = self.bindings {
             surface.bindings = bindings;
         }
@@ -61,12 +109,7 @@ impl SurfacePatch {
                 .ok_or("surface update names an unknown collection")?
                 .order = order;
         }
-        if redefined {
-            surface.validate_as(role)?;
-        } else {
-            surface.validate_bindings_as(role)?;
-        }
-        Ok(surface)
+        Ok(())
     }
 }
 

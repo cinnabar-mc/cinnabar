@@ -16,7 +16,7 @@ pub(crate) mod surface;
 mod update;
 pub use axis::{AxisExtent, AxisRoute};
 pub use surface::{
-    ActorPoint, CollectionArt, CollectionDefinition, CollectionItem, ItemValue,
+    ActorPoint, CollectionArt, CollectionDefinition, CollectionItem, HudIndex, ItemValue,
     MAX_HUD_SURFACE_BINDINGS, MAX_SURFACE_BINDINGS, MAX_SURFACE_NODES, MAX_SURFACE_PATCH_BYTES,
     MAX_TRANSITION_SECONDS, PROJECTED_VISIBLE_SUFFIX, ProjectValue, Projection, Surface,
     SurfaceCollection, SurfaceItem, SurfacePatch, SurfaceRole, SurfaceTransition, SurfaceValue,

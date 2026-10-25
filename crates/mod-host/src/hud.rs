@@ -24,6 +24,9 @@ pub(super) struct HudState {
     /// Process-unique identity of the committed surface.
     pub surface_revision: u64,
     pending_surface: Option<Option<Arc<ui::mod_panel::Surface>>>,
+    /// The index of the last admitted surface document, which lets a control patch to it
+    /// revalidate only what the patch changes.
+    index: ui::mod_panel::HudIndex,
     pub hidden: HiddenElements,
     pending_hidden: Option<HiddenElements>,
     pub local_messages: Vec<String>,
