@@ -12,6 +12,8 @@ const ANALOG_DEGREES_PER_UNIT_AT_UNIT_CURVE: f32 = 0.15;
 /// Multiplier at which the analog sensitivity slider reads 100%.
 const SLIDER_FULL_MULTIPLIER: f32 = 2.0;
 const ANALOG_REFERENCE_HZ: f32 = 60.0;
+/// Provisional controller feel, not a measured Bedrock parity value.
+const GAMEPAD_MAX_DEGREES_PER_SECOND: f32 = 240.0;
 const CINEMATIC_SECONDS_PER_E_FOLD: f32 = 0.06;
 
 /// Vanilla's derived game sensitivity, which sets the mouse look curve.
@@ -94,6 +96,13 @@ pub fn analog_degrees_per_routed_unit(multiplier: f32) -> f32 {
         1.0
     };
     analog_degrees_per_look_unit(multiplier / SLIDER_FULL_MULTIPLIER) / multiplier
+}
+
+/// Controller-only turn rate; retain the slider curve without sharing the touch speed.
+#[must_use]
+pub fn gamepad_degrees_per_routed_unit(multiplier: f32) -> f32 {
+    let full_slider_rate = analog_degrees_per_look_unit(1.0) * ANALOG_REFERENCE_HZ;
+    analog_degrees_per_routed_unit(multiplier) * (GAMEPAD_MAX_DEGREES_PER_SECOND / full_slider_rate)
 }
 
 /// Analog sticks report a per-frame delta; scale it so turn rate does not follow frame rate.
@@ -222,6 +231,25 @@ mod tests {
         assert_eq!(analog_frame_scale(InputMode::KeyboardMouse, 0.5), 1.0);
         assert!((analog_frame_scale(InputMode::GamePad, 1.0 / 60.0) - 1.0).abs() < 1e-6);
         assert!(analog_frame_scale(InputMode::GamePad, 1.0 / 120.0) < 1.0);
+    }
+
+    #[test]
+    fn full_controller_stick_turns_at_selected_rate_independently_of_frame_rate() {
+        for frames_per_second in [30, 60, 120, 144] {
+            let multiplier = SLIDER_FULL_MULTIPLIER;
+            let frame_turn = multiplier
+                * gamepad_degrees_per_routed_unit(multiplier)
+                * analog_frame_scale(InputMode::GamePad, 1.0 / frames_per_second as f32);
+            let second_turn = frame_turn * frames_per_second as f32;
+            assert!((second_turn - GAMEPAD_MAX_DEGREES_PER_SECOND).abs() < 0.001);
+        }
+        assert!(
+            gamepad_degrees_per_routed_unit(1.0)
+                < SLIDER_FULL_MULTIPLIER * gamepad_degrees_per_routed_unit(SLIDER_FULL_MULTIPLIER)
+        );
+        assert!(gamepad_degrees_per_routed_unit(f32::NAN).is_finite());
+        // Touch retains the pre-existing default curve.
+        assert!((analog_degrees_per_routed_unit(1.0) - 0.15).abs() < 1e-6);
     }
 
     #[test]

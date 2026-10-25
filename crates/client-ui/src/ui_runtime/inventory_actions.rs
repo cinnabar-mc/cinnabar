@@ -269,7 +269,16 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         action: PointerAction,
     ) {
-        let _ = match action {
+        let _ = self.run_pointer_action(player_runtime, action);
+    }
+
+    /// Shares existing gesture admission with semantic UI input without discarding refusal.
+    pub(super) fn run_pointer_action(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        action: PointerAction,
+    ) -> Outcome {
+        match action {
             PointerAction::Click(hit) => {
                 let before = place_snapshot(player_runtime, hit);
                 let result = self.click_hit(player_runtime, hit);
@@ -306,7 +315,7 @@ impl UiRuntime {
                 Ok(0)
             }
             PointerAction::Gather => self.inventory_ledger_mut(player_runtime).begin_gather(),
-        };
+        }
     }
 
     /// Lets a drag that continues from a press-time placement rebalance it.

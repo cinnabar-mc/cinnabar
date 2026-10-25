@@ -6,6 +6,7 @@ pub mod book_screen;
 mod boss;
 pub mod chat_completion;
 pub mod chat_send;
+pub mod controller_inventory;
 pub mod crafting_observation;
 pub mod credits;
 pub mod data_driven;

@@ -340,6 +340,27 @@ is a broader claim than the presence of these features.
 - [ ] `P3.4-INPUT-CAMERA` — Close semantic input, camera and device-specific behavior.
   Touch remains open even when an owner-deprioritized touch witness does not gate a
   narrower scenario verdict.
+  Controller container navigation/actions remain incomplete; the
+  [controller inventory/UI specification](docs/reference/controller-inventory-ui.md)
+  records the implementation audit, pinned Bedrock/Controlify evidence, native
+  capture gates and staged delegation plan. Bevy-free navigation and semantic
+  action foundations now exist with focused regression coverage, including stale
+  target rejection and transformed/clipped focus geometry. App routing, physical
+  bindings, cursor/focus rendering, scroll reveal and magnets remain open; these
+  foundations do not yet enable controller-only inventory use or close parity.
+
+macOS has a provisional, read-only Switch full-report adapter for `057e:2009`
+devices already streaming report `0x30`. The client enables Bevy's gamepad types,
+not its gilrs hardware plugin; gilrs' macOS backend also lacks this vendor-payload
+decoding. The adapter supplies its own Bevy event source without changing Linux.
+Nova Lite stick reports were witnessed locally; button mappings,
+disconnect/reconnect and in-client behavior still require live acceptance.
+Nominal 12-bit stick normalization is not factory/user SPI calibration. Genuine
+Nintendo controllers, mode initialization, rumble and IMU remain unverified or
+unsupported by this adapter; this does not close the device-specific parity gate.
+Controller camera scaling provisionally targets 240 degrees/second at full stick
+and 100% sensitivity, independently of mouse/touch scaling. This is a local feel
+adjustment, not a measured Bedrock turn-rate parity claim; live acceptance remains open.
 
 View Bobbing offers Off, Full and Minimal. Minimal retains first-person hand bobbing
 with a steady movement camera in both animation modes; hurt and death effects remain

@@ -216,7 +216,7 @@ pub fn update_look(
             look::mouse_turn_degrees(look_delta, window_width, settings.game_sensitivity())
         }
         semantic_input::InputMode::GamePad => {
-            look_delta * look::analog_degrees_per_routed_unit(feel.gamepad_look_sensitivity)
+            look_delta * look::gamepad_degrees_per_routed_unit(feel.gamepad_look_sensitivity)
         }
         semantic_input::InputMode::Touch => {
             look_delta * look::analog_degrees_per_routed_unit(feel.touch_look_sensitivity)

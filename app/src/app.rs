@@ -593,6 +593,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } = interface;
     let mut ui_presentation = ui_presentation;
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
+    #[cfg(target_os = "macos")]
+    app.add_plugins(crate::macos_gamepad::SwitchGamepadPlugin);
     #[cfg(feature = "shaderpacks")]
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,
