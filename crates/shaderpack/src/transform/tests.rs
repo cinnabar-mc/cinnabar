@@ -42,6 +42,7 @@ fn draft(
         sampler_classes: &SamplerClasses::default(),
         normalize_legacy: true,
         geometry: file.starts_with("gbuffers_"),
+        vertex_clip: true,
     };
     let draft = transform(&pp, stage, iface, &names).expect("transforms");
     (draft, pp.map)
