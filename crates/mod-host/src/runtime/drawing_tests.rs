@@ -221,6 +221,60 @@ fn event_geometry_commits_and_its_handles_survive_the_next_frame() {
     assert!(instance.render().0.retained.is_empty());
 }
 
+/// Draws `geometry` once at the camera with default material and blending.
+fn frame_draw(geometry: wit::Handle) -> wit::Instance {
+    wit::Instance {
+        geometry,
+        material: None,
+        params: Vec::new(),
+        anchor: wit::Anchor::Camera,
+        transform: wit::Transform {
+            translation: (0., 0., 0.),
+            rotation: (0., 0., 0., 1.),
+            scale: (1., 1., 1.),
+        },
+        tint: (1., 1., 1., 1.),
+        depth: wit::Depth::Test,
+        blend: wit::Blend::Premultiplied,
+        width: 1.,
+        width_mode: wit::WidthMode::World,
+        join: wit::Join::Bevel,
+        cap: wit::Cap::Butt,
+    }
+}
+
+/// A frame group drawn by a successful frame callback stays published until the next frame,
+/// rather than expiring in the same commit that publishes it.
+#[test]
+fn a_frame_group_drawn_by_a_frame_stays_published_after_its_commit() {
+    let mut instance = instance();
+    let mut geometry = None;
+    instance
+        .run(CALLBACK_FUEL, commit_event, |_, store| {
+            geometry = Some(store.data_mut().create_geometry(mesh(3))?.unwrap());
+            Ok(())
+        })
+        .unwrap();
+    let geometry = geometry.unwrap();
+    instance.begin_frame();
+    instance
+        .run(FRAME_FUEL, commit, |exports, store| {
+            store
+                .data_mut()
+                .replace_frame_group("frame".into(), vec![frame_draw(geometry)])?
+                .unwrap();
+            exports.frame(store)
+        })
+        .unwrap();
+    assert_eq!(instance.render().0.retained[0].instances.len(), 1);
+    // The group expires only when a later callback commits without redrawing it.
+    instance.begin_frame();
+    instance
+        .run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
+        .unwrap();
+    assert!(instance.render().0.retained[0].instances.is_empty());
+}
+
 #[test]
 fn retained_mutation_and_import_budgets_reset_for_each_event() {
     let mut instance = instance();

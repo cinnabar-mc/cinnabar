@@ -902,7 +902,8 @@ fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.motion.commit_frame();
     state.terrain.commit();
-    state.render.commit();
+    // Retained drawing is committed once, by `commit_event`, so frame groups survive.
+    state.render.commit_primitives();
     state.world.commit();
     state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
     state.camera_policy.committed_view_scale = (state.snapshot.is_some()
