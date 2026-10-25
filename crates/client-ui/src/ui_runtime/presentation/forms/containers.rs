@@ -458,6 +458,8 @@ impl UiPresentationRuntime {
             title: &title,
             previous,
             pointer: runtime.inventory_pointer_gui(),
+            controller_focus: runtime.inventory_controller_focus(),
+            controller_cursor: runtime.inventory_controller_cursor_visible(),
             tooltip: tooltip.as_deref(),
             clocks: &self.scene_clock,
             id_aux: &id_aux,
@@ -506,6 +508,15 @@ impl UiPresentationRuntime {
     pub fn engine_container_hit(&self, gui: [f32; 2]) -> Option<InventoryCellHit> {
         let (frame, layout) = self.projections.container.as_ref()?;
         layout.hit(frame, gui)
+    }
+
+    /// Resolves a current laid-out region without guessing an unclipped center point.
+    pub fn engine_container_region_hit(
+        &self,
+        region: &json_ui::HitRegion,
+    ) -> Option<InventoryCellHit> {
+        let (_, layout) = self.projections.container.as_ref()?;
+        layout.region_hit(region)
     }
 }
 

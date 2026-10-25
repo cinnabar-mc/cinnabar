@@ -87,6 +87,29 @@ impl BookEntry<'_> {
             Self::Furnace(recipe) => crate::furnace_book::output_stack(recipe),
         }
     }
+
+    /// Content identity of the entry, independent of its row: the same catalog item, group,
+    /// recipe output or furnace recipe keeps its key when filtering or sorting moves it.
+    pub fn identity(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::hash::DefaultHasher::new();
+        match self {
+            Self::Creative { item, .. } => (0u8, item.creative_network_id).hash(&mut hasher),
+            Self::Group { index, .. } => (1u8, *index).hash(&mut hasher),
+            Self::Recipe(_) => {
+                let stack = self.stack();
+                (
+                    2u8,
+                    stack.network_id,
+                    stack.metadata,
+                    stack.block_runtime_id,
+                )
+                    .hash(&mut hasher);
+            }
+            Self::Furnace(recipe) => (3u8, recipe.id).hash(&mut hasher),
+        }
+        hasher.finish()
+    }
 }
 
 /// The crafting screens' static variables.

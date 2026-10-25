@@ -12,6 +12,7 @@ struct OrdinaryInputSet;
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
+    app.init_resource::<crate::ui_runtime::interaction::controller_inventory::ControllerInventoryInput>();
     app.add_systems(
         bevy::prelude::Startup,
         (
@@ -60,12 +61,15 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             crate::ui_runtime::data_driven::drive_data_driven_input,
             crate::ui_runtime::emotes::drive_emote_input,
             crate::ui_runtime::mob_effects::drive_mob_effect_screen_input,
+            crate::ui_runtime::interaction::controller_inventory::sample_controller_pointer_ownership,
             drive_chat_ui_actions.in_set(OrdinaryInputSet),
             drain_inventory_authority,
             drive_chat_keyboard_input
                 .in_set(OrdinaryInputSet)
                 .before(client_state::ShellFrameSet::MenuInput),
-            drive_inventory_ui_actions.after(client_state::ShellFrameSet::MenuInput),
+            crate::ui_runtime::interaction::controller_inventory::drive_controller_inventory
+                .after(client_state::ShellFrameSet::MenuInput),
+            drive_inventory_ui_actions,
             drive_menu_services,
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
@@ -95,6 +99,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         client_state::ShellFrameSet::GameplayControls
             .after(crate::camera::update_cursor_capture)
             .before(client_interaction::camera::update_look),
+    )
+    .add_systems(
+        Update,
+        crate::ui_runtime::interaction::controller_inventory::hide_os_cursor_for_controller
+            .after(crate::camera::update_cursor_capture)
+            .in_set(client_state::ShellFrameSet::GameplayControls),
     )
     .add_systems(
         Update,

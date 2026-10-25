@@ -64,6 +64,21 @@ impl InventoryScreen {
 pub use screens::{WORKBENCH_GRID, WORKBENCH_OUTPUT};
 
 impl UiPresentationRuntime {
+    /// The full content viewport in the same GUI coordinates as container hit regions.
+    pub fn inventory_gui_bounds(
+        &self,
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+    ) -> Option<json_ui::RectOut> {
+        let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
+        Some(json_ui::RectOut {
+            x: 0.0,
+            y: 0.0,
+            w: f64::from(geometry.gui_width),
+            h: f64::from(geometry.gui_height),
+        })
+    }
+
     pub fn inventory_gui_point(
         &self,
         point: UiPoint,

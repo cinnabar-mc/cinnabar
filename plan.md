@@ -340,6 +340,42 @@ is a broader claim than the presence of these features.
 - [ ] `P3.4-INPUT-CAMERA` — Close semantic input, camera and device-specific behavior.
   Touch remains open even when an owner-deprioritized touch witness does not gate a
   narrower scenario verdict.
+  Controller container navigation/actions remain incomplete; the
+  [controller inventory/UI specification](docs/reference/controller-inventory-ui.md)
+  records the implementation audit, pinned Bedrock/Controlify evidence, native
+  capture gates and staged delegation plan. Bevy-free navigation and semantic
+  action foundations now connect to app input and cursor/focus rendering for
+  ordinary inventory, storage, equipment and crafting cells, recipe-book rows
+  (identified by content) and the recipe panel's controls. Regression coverage
+  includes stale targets, clipped geometry, item-region pointer aliases, nearest
+  cursor-to-D-pad acquisition, open-instance generations, ownership
+  handoff, neutral-gated action edges and same-frame-close gameplay consumption.
+  Left-stick cursor, D-pad and swapped face-button roles use explicitly provisional
+  Cinnabar defaults, not measured Bedrock bindings/timings. Other widget activation,
+  the fallback creative grid, search entry, contextual prompts, persisted cursor
+  options, scroll reveal, virtualized neighbors and magnets remain open.
+  Controller-only screen-family acceptance and native capture evidence are missing;
+  this does not close parity. Remaining controller recipe-book work:
+  - [ ] Scroll the recipe list from the controller and reveal focused off-screen
+    rows; only rows visible without scrolling are reachable today.
+  - [ ] Witness native `button.recipe_secondary` behavior and route HalfOrPlaceOne
+    on recipe rows; it is unresolved and does nothing.
+  - [ ] Measure the per-frame cost of rebuilding book entries for row identities
+    while a controller drives an open recipe book, and cache it if it hitches.
+  - [ ] Cover furnace recipe-row identity with a test fixture.
+
+macOS has a provisional, read-only Switch full-report adapter for `057e:2009`
+devices already streaming report `0x30`. The client enables Bevy's gamepad types,
+not its gilrs hardware plugin; gilrs' macOS backend also lacks this vendor-payload
+decoding. The adapter supplies its own Bevy event source without changing Linux.
+Nova Lite stick reports were witnessed locally; button mappings,
+disconnect/reconnect and in-client behavior still require live acceptance.
+Nominal 12-bit stick normalization is not factory/user SPI calibration. Genuine
+Nintendo controllers, mode initialization, rumble and IMU remain unverified or
+unsupported by this adapter; this does not close the device-specific parity gate.
+Controller camera scaling provisionally targets 240 degrees/second at full stick
+and 100% sensitivity, independently of mouse/touch scaling. This is a local feel
+adjustment, not a measured Bedrock turn-rate parity claim; live acceptance remains open.
 
 View Bobbing offers Off, Full and Minimal. Minimal retains first-person hand bobbing
 with a steady movement camera in both animation modes; hurt and death effects remain

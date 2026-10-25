@@ -6,6 +6,7 @@ pub mod book_screen;
 mod boss;
 pub mod chat_completion;
 pub mod chat_send;
+pub mod controller_inventory;
 pub mod crafting_observation;
 pub mod credits;
 pub mod data_driven;
@@ -153,6 +154,10 @@ pub struct UiRuntime {
     presentation_tick_anchor: Option<(u64, u64)>,
     chat_focused: bool,
     inventory_open: bool,
+    container_generation: u64,
+    inventory_controller_focus: Option<String>,
+    inventory_controller_cursor_visible: bool,
+    container_storage_generation: Option<u64>,
     hud: HudStore,
     death_reason: Arc<str>,
     death_rules: protocol::DeathRules,
@@ -259,6 +264,10 @@ impl UiRuntime {
             presentation_tick_anchor: None,
             chat_focused: false,
             inventory_open: false,
+            container_generation: 0,
+            inventory_controller_focus: None,
+            inventory_controller_cursor_visible: false,
+            container_storage_generation: None,
             score_owner_names: std::collections::BTreeMap::new(),
             known_player_names: Vec::new(),
             player_list_held: false,
@@ -369,7 +378,7 @@ impl UiRuntime {
             .inventory
             .publish_inventory_authority(authority);
         if authority != InventoryAuthority::Server {
-            self.inventory_open = false;
+            self.set_inventory_open(false);
         }
     }
 
@@ -507,7 +516,7 @@ impl UiRuntime {
         now_millis: u64,
     ) {
         if player_runtime.inventory.poll_inventory_timeout(now_millis) {
-            self.inventory_open = player_runtime
+            let open = player_runtime
                 .inventory
                 .ledger()
                 .personal_inventory_desired_open()
@@ -516,6 +525,7 @@ impl UiRuntime {
                     .ledger()
                     .storage_generation()
                     .is_some();
+            self.set_inventory_open(open);
             if !self.inventory_open {
                 self.inventory_pointer_gui = None;
             }
@@ -524,7 +534,7 @@ impl UiRuntime {
 
     pub fn inventory_transport_closed(&mut self, player_runtime: &mut player_state::PlayerState) {
         player_runtime.inventory.ledger_mut().transport_closed();
-        self.inventory_open = false;
+        self.set_inventory_open(false);
         self.inventory_pointer_gui = None;
     }
 
@@ -666,6 +676,7 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.container_storage_generation = None;
         self.emotes.reset();
         self.mob_effect_screen.close();
         self.client_packets.clear();
@@ -691,7 +702,8 @@ impl UiRuntime {
         self.chat_xuid = Arc::from("");
         self.local_player_display_name = Arc::from("");
         self.chat_focused = false;
-        self.inventory_open = false;
+        self.advance_container_generation();
+        self.set_inventory_open(false);
         self.score_owner_names.clear();
         self.known_player_names.clear();
         self.player_roster = Default::default();
@@ -754,7 +766,7 @@ impl UiRuntime {
             .inventory
             .ledger_mut()
             .request_personal_close();
-        self.inventory_open = false;
+        self.set_inventory_open(false);
         self.chat_focused = true;
         UiAuthorityTransition {
             consumes_text: true,
@@ -793,15 +805,15 @@ impl UiRuntime {
                 .inventory
                 .ledger_mut()
                 .request_storage_close();
-            self.inventory_open = false;
+            self.set_inventory_open(false);
         } else if self.inventory_open {
             player_runtime
                 .inventory
                 .ledger_mut()
                 .request_personal_close();
-            self.inventory_open = false;
+            self.set_inventory_open(false);
         } else {
-            self.inventory_open = self
+            let open = self
                 .local_runtime_id(player_runtime)
                 .is_some_and(|runtime_id| {
                     let mount = authority
@@ -815,6 +827,7 @@ impl UiRuntime {
                     let ledger = player_runtime.inventory.ledger_mut();
                     ledger.request_personal_open(mount.map_or(runtime_id, |mount| mount.runtime_id))
                 });
+            self.set_inventory_open(open);
         }
         self.screen.inventory = None;
         if self.inventory_open {
@@ -847,7 +860,7 @@ impl UiRuntime {
             .inventory
             .ledger_mut()
             .request_personal_close();
-        self.inventory_open = false;
+        self.set_inventory_open(false);
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: InputContext::Gameplay,

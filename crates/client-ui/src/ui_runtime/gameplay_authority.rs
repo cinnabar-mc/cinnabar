@@ -215,9 +215,10 @@ impl UiRuntime {
                 }
             };
             let ledger = player_runtime.inventory.ledger();
-            self.inventory_open = self.screen.book.is_some()
+            let open = self.screen.book.is_some()
                 || ledger.personal_inventory_desired_open()
                 || ledger.storage_inventory_desired_open();
+            self.set_inventory_open(open);
             if self.inventory_open {
                 self.chat_focused = false;
             }

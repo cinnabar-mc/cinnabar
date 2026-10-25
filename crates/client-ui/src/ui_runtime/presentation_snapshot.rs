@@ -11,6 +11,9 @@ struct CapturedUi {
     forms: ServerFormStore,
     open: bool,
     pointer: Option<[f32; 2]>,
+    controller_focus: Option<String>,
+    generation: u64,
+    controller_cursor: bool,
 }
 
 impl CapturedUi {
@@ -18,6 +21,15 @@ impl CapturedUi {
         std::mem::swap(&mut self.forms, &mut runtime.forms);
         std::mem::swap(&mut self.open, &mut runtime.inventory_open);
         std::mem::swap(&mut self.pointer, &mut runtime.inventory_pointer_gui);
+        std::mem::swap(
+            &mut self.controller_focus,
+            &mut runtime.inventory_controller_focus,
+        );
+        std::mem::swap(&mut self.generation, &mut runtime.container_generation);
+        std::mem::swap(
+            &mut self.controller_cursor,
+            &mut runtime.inventory_controller_cursor_visible,
+        );
     }
 }
 
@@ -45,6 +57,9 @@ impl UiRuntime {
                 forms: self.forms.clone(),
                 open: self.inventory_open,
                 pointer: self.inventory_pointer_gui,
+                controller_focus: self.inventory_controller_focus.clone(),
+                generation: self.container_generation,
+                controller_cursor: self.inventory_controller_cursor_visible,
             },
         }
     }

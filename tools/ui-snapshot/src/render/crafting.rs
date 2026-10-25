@@ -274,6 +274,8 @@ fn draw(
                 },
                 previous,
                 pointer,
+                controller_focus: None,
+                controller_cursor: false,
                 tooltip: None,
                 clocks: &scrolls,
                 id_aux: &[],

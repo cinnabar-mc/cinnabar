@@ -1,4 +1,5 @@
 //! Inventory input routing for world shortcuts, open screens and pointer gestures.
+use super::controller_inventory::EffectivePointer;
 use super::dispatch_bound_inventory_hotbar;
 use super::drop_swing::DropSwing;
 use crate::runtime::network::resource_packs::PackApplication;
@@ -78,8 +79,13 @@ pub(crate) fn drive_world_inventory_keys(
         Option<Res<client_interaction::movement::MovementTicker>>,
         Option<Res<NetworkHandle<PackApplication>>>,
     ),
+    controller: Option<Res<super::controller_inventory::ControllerInventoryInput>>,
 ) {
     if emote_input.is_some_and(|consumed| consumed.0) {
+        return;
+    }
+    // A frame the container screen owned never reaches a world shortcut, even if it closed.
+    if controller.is_some_and(|input| input.consumed_gameplay_edges()) {
         return;
     }
     let drop = binding_pressed(menu.as_deref(), BindingId::Drop, &keys, &mouse)
@@ -143,6 +149,7 @@ pub(super) fn apply_screen_presses(
     menu: Option<&client_shell::menu::MenuRuntime>,
     focus: Option<&mut client_state::CursorFocus>,
     time: &Time<Real>,
+    pointer: EffectivePointer,
 ) {
     let Some(presentation) =
         presentation.filter(|_| !buttons.is_empty() && runtime.inventory_open())
@@ -167,6 +174,7 @@ pub(super) fn apply_screen_presses(
         &[],
         focus,
         now_millis,
+        pointer,
     );
 }
 
@@ -184,6 +192,7 @@ pub(super) fn apply_inventory_pointer(
     notches: &[(f32, MouseScrollUnit)],
     mut focus: Option<&mut client_state::CursorFocus>,
     now_millis: u64,
+    pointer: EffectivePointer,
 ) {
     let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
     let secondary_pressed = mouse_buttons.just_pressed(MouseButton::Right);
@@ -205,7 +214,27 @@ pub(super) fn apply_inventory_pointer(
         player_runtime,
         presentation.engine_container_frame().is_some(),
     );
-    let Some(position) = window.cursor_position() else {
+    let physical_size = [window.physical_width(), window.physical_height()];
+    let resolved = match pointer {
+        EffectivePointer::Os => window
+            .cursor_position()
+            .and_then(|position| UiPoint::new(position.x, position.y).ok())
+            .map(|point| {
+                let gui =
+                    presentation.inventory_gui_point(point, physical_size, window.scale_factor());
+                (point, gui)
+            }),
+        // The controller's cursor stands in for the OS cursor, which may be stale or absent.
+        EffectivePointer::Virtual(gui) => presentation.engine_container_frame().and_then(|frame| {
+            let point = UiPoint::new(
+                frame.origin[0] + gui[0] * frame.scale,
+                frame.origin[1] + gui[1] * frame.scale,
+            )
+            .ok()?;
+            Some((point, Some(gui)))
+        }),
+    };
+    let Some((point, gui)) = resolved else {
         // A cancelled touch withdraws the pointer, so its release closes nothing.
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
@@ -214,16 +243,6 @@ pub(super) fn apply_inventory_pointer(
         runtime.screen_state_mut().pointer.reset();
         return;
     };
-    let Ok(point) = UiPoint::new(position.x, position.y) else {
-        runtime.set_inventory_pointer_gui(None);
-        runtime.screen_state_mut().hover = None;
-        runtime.screen_state_mut().container_close_armed = false;
-        runtime.screen_state_mut().container_scroll_drag = None;
-        runtime.screen_state_mut().pointer.reset();
-        return;
-    };
-    let physical_size = [window.physical_width(), window.physical_height()];
-    let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
     runtime.set_inventory_pointer_gui(gui);
     // A player mod's view, or a control of its overlay, owns the pointer (`modding`).
     let mod_owned = presentation

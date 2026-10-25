@@ -223,7 +223,7 @@ impl UiRuntime {
     pub fn open_book(&mut self, state: BookState) {
         self.screen.container_close_armed = false;
         self.screen.book = Some(state);
-        self.inventory_open = true;
+        self.set_inventory_open(true);
         self.chat_focused = false;
     }
 
