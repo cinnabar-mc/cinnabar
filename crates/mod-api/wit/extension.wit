@@ -214,6 +214,7 @@ interface player-state {
     record food {nutrition: u32, saturation-modifier: f32}
     record vitals {
         session: u64, dimension: s32,
+        /// Hunger, its maximum and saturation are attribute points: 20 is full vanilla hunger.
         hunger: option<f32>, max-hunger: option<f32>, saturation: option<f32>, held-food: option<food>,
     }
     record bounds { min: tuple<f32, f32, f32>, max: tuple<f32, f32, f32> }
