@@ -28,8 +28,8 @@ const _: () = assert!(DIAGNOSTIC_MATERIAL == 0);
 /// compared, so cells changed outside `hint` are still found; `hint` (the cells an update set)
 /// is checked first so an ordinary visible change is rejected without decoding a layer.
 /// The last argument holds the sorted water-filled values the liquid mesher reads and the sorted
-/// world material blocks the cube mesher reads; membership, tags and see-through must be
-/// unchanged.
+/// world material blocks the cube mesher reads; membership, tags, see-through and displacement
+/// must be unchanged.
 /// Unregistered values answer `false` without counting a registry miss.
 pub fn block_changes_preserve_meshes(
     classifier: BlockClassifier,
@@ -43,7 +43,7 @@ pub fn block_changes_preserve_meshes(
     let layers = previous.storages().len();
     let world = |value: u32| {
         crate::world_materials::find(world_materials, value)
-            .map(|block| (block.tag, block.see_through))
+            .map(|block| (block.tag, block.see_through, block.displaces))
     };
     if layers != replacement.storages().len() {
         return false;

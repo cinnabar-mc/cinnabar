@@ -158,6 +158,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             liquid_quads: Box::new([]),
             liquid_lighting: Box::new([]),
             connectivity: cave_connectivity(&facts, |_| true),
+            world_materials: false,
         };
     }
     let masks = VisibilityMasks::from_facts(&facts, options.world_materials);
@@ -197,6 +198,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         options.cutout_leaves,
     );
     let mut cube_streams = CubeQuadStreams::default();
+    let mut tagged_models = false;
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     // Greedy merging reads lighting only at the current slice's visible cells, which are
     // all rewritten before it runs, so one scratch serves every slice.
@@ -394,7 +396,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                         && quad.flags & assets::MODEL_QUAD_FLAG_CULL_FACE_MASK == 0;
                                 if (neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                                     && !inset_portal_face
-                                    && !crate::world_materials::see_through(
+                                    && !crate::world_materials::hides_no_other(
                                         options.world_materials,
                                         neighbour.network_value,
                                     ))
@@ -459,6 +461,8 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                 options.world_materials,
                                 entry.network_value,
                             );
+                            // A visible ref pushes at least one draw, all carrying its tag.
+                            tagged_models |= world != 0;
                             model_refs.push(PackedModelRef::new(
                                 pack_model_transform(
                                     [x as u8, y as u8, z as u8],
@@ -539,6 +543,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     } else {
         (Vec::new(), Vec::new())
     };
+    let world_materials = tagged_models || cube_streams.has_world_materials();
     let (quads, cube_lighting, layout) = cube_streams.finish();
     ChunkMesh {
         cube_streams: Box::new(CubeStreams {
@@ -556,6 +561,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         liquid_quads: liquid_quads.into_boxed_slice(),
         liquid_lighting: liquid_lighting.into_boxed_slice(),
         connectivity,
+        world_materials,
     }
 }
 use std::cell::OnceCell;

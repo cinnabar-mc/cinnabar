@@ -760,6 +760,8 @@ pub struct ChunkMesh {
     pub(crate) liquid_quads: Box<[PackedLiquidQuad]>,
     pub(crate) liquid_lighting: Box<[PackedQuadLighting]>,
     pub(crate) connectivity: FaceConnectivity,
+    /// Whether any cube quad or model draw carries a world material tag.
+    pub(crate) world_materials: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -854,6 +856,7 @@ impl ChunkMesh {
                 cube_lighting: cube_lighting.len(),
             });
         }
+        let world_materials = crate::world_materials::tagged(&cube_quads, &model_draw_refs, &[]);
         Ok(Self {
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
@@ -870,6 +873,7 @@ impl ChunkMesh {
             liquid_quads: liquid_quads.into_boxed_slice(),
             liquid_lighting: liquid_lighting.into_boxed_slice(),
             connectivity,
+            world_materials,
         })
     }
 
@@ -916,6 +920,11 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn with_transparent_model_draw_refs(mut self, draw_refs: Vec<PackedModelDrawRef>) -> Self {
+        self.world_materials = crate::world_materials::tagged(
+            self.cube_quads(),
+            &self.model_draw_refs.opaque,
+            &draw_refs,
+        );
         self.model_draw_refs.transparent = draw_refs.into_boxed_slice();
         self
     }

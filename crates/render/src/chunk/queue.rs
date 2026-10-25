@@ -410,6 +410,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
 
         let origin = chunk_origin(key);
         let cube_layout = pending.mesh.cube_layout();
+        let world_materials = pending.mesh.has_world_materials();
         let (
             cube_quads,
             cube_lighting,
@@ -434,11 +435,6 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let has_transparent_liquid = liquid_quads
             .first()
             .is_some_and(|quad| !quad.is_depth_writing());
-        let world_materials = cube_quads.iter().any(|quad| quad.world_material() != 0)
-            || model_draw_refs
-                .iter()
-                .chain(transparent_model_draw_refs.iter())
-                .any(|draw| draw.world_material() != 0);
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from(cube_quads),
