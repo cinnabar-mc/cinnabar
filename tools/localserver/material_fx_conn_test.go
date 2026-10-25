@@ -3,8 +3,16 @@ package main
 import (
 	"testing"
 
+	"github.com/df-mc/dragonfly/server/block"
+	"github.com/df-mc/dragonfly/server/block/cube"
+	"github.com/df-mc/dragonfly/server/block/model"
+	"github.com/df-mc/dragonfly/server/entity"
+	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/go-gl/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
@@ -32,5 +40,75 @@ func TestMaterialFxWarnsOnceWhileTheClientPartIsMissing(t *testing.T) {
 	c.send(materialFxRecord(materialFxBind))
 	if told != 2 {
 		t.Fatalf("told the player %d times after the client part went away again, want twice", told)
+	}
+}
+
+// materialFxTestBlock stands in for one of the Experience's gallery blocks.
+type materialFxTestBlock struct {
+	name string
+	hash uint64
+}
+
+func (b materialFxTestBlock) EncodeBlock() (string, map[string]any) { return b.name, nil }
+func (b materialFxTestBlock) Hash() (uint64, uint64)                { return b.hash, 0 }
+func (materialFxTestBlock) Model() world.BlockModel                 { return model.Solid{} }
+
+// Respawning the gallery elsewhere clears the previous gallery's blocks, keeps those the new
+// gallery reuses, and leaves alone any block a player has since put in an old gallery spot.
+func TestMaterialFxRespawnClearsThePreviousGallery(t *testing.T) {
+	registry := world.NewBlockRegistry()
+	registered := map[string]bool{}
+	for _, name := range materialFxBlocks(showcaseViewpoint{}) {
+		if !registered[name] {
+			registered[name] = true
+			registry.RegisterBlockState(world.BlockState{Name: name})
+			registry.RegisterBlock(materialFxTestBlock{name: name, hash: block.NextHash()})
+		}
+	}
+	registry.Finalize()
+	w := world.Config{Synchronous: true, Entities: entity.DefaultRegistry, Blocks: registry}.New()
+	t.Cleanup(func() { _ = w.Close() })
+	handle := world.EntitySpawnOpts{Position: mgl64.Vec3{0, 100, 0}}.New(player.Type, player.Config{Name: "tester"})
+	if err := w.Do(func(tx *world.Tx) { tx.AddEntity(handle) }).Err(); err != nil {
+		t.Fatal(err)
+	}
+	c := &materialFxConn{id: handle.UUID(), players: func(uuid.UUID) (*world.EntityHandle, bool) { return handle, true }}
+	viewAt := func(x float32, yaw float32) showcaseViewpoint {
+		return viewpointOf(&packet.PlayerAuthInput{Position: mgl32.Vec3{x, 64 + actorBurstEyeHeight, 0}, Yaw: yaw})
+	}
+	first, second := viewAt(0, 0), viewAt(3, 90)
+	c.placeBlocks(nil, first)
+	var built cube.Pos
+	for pos := range materialFxBlocks(first) {
+		if _, reused := materialFxBlocks(second)[pos]; !reused {
+			built = pos
+			break
+		}
+	}
+	if err := w.Do(func(tx *world.Tx) { tx.SetBlock(built, block.Stone{}, nil) }).Err(); err != nil {
+		t.Fatal(err)
+	}
+	c.placeBlocks(&first, second)
+	if err := w.Do(func(tx *world.Tx) {
+		blocks := materialFxBlocks(second)
+		for pos, name := range materialFxBlocks(first) {
+			got, _ := tx.Block(pos).EncodeBlock()
+			want := "minecraft:air"
+			if pos == built {
+				want = "minecraft:stone"
+			} else if replaced, ok := blocks[pos]; ok {
+				want = replaced
+			}
+			if got != want {
+				t.Fatalf("old %s at %v is %s, want %s", name, pos, got, want)
+			}
+		}
+		for pos, name := range blocks {
+			if got, _ := tx.Block(pos).EncodeBlock(); got != name {
+				t.Fatalf("new %s at %v is %s", name, pos, got)
+			}
+		}
+	}).Err(); err != nil {
+		t.Fatal(err)
 	}
 }
