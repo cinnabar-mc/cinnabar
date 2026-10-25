@@ -676,16 +676,10 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && in.visibility.y == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    // Under alpha to coverage hidden quads and culled sides cover no sample, exactly as a
-    // transparent texel does, which keeps `discard` out of the multisampled program.
-    @if(ALPHA_TO_COVERAGE)
-    if (in.visibility.x == 0u || (!front_facing && in.visibility.y == 0u)) { return vec4(0.0); }
-    @if(!ALPHA_TO_COVERAGE)
-    if (in.visibility.x == 0u) { discard; }
-    @if(!ALPHA_TO_COVERAGE)
-    if (!front_facing && in.visibility.y == 0u) { discard; }
     // Both views already hold the working colour space, so frames blend before the alpha test.
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
@@ -700,9 +694,6 @@ fn fragment(
         if (in.frame_blend > 0.0) {
             cutout = cutout_mix(cutout, model_alpha_footprint(in.next_texture, in.uv, dx, dy, sampled), in.frame_blend);
         }
-        // A fragment covering no sample writes nothing, so it skips shading.
-        @if(!OPAQUE_OVERDRAW)
-        if (cutout.coverage <= 0.0) { return vec4(0.0); }
         if (sampled.a < MODEL_ALPHA_THRESHOLD && cutout.coverage > 0.0) { sampled = cutout.colour; }
         sampled.a = cutout.coverage;
     }
