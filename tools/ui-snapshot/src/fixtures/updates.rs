@@ -6,10 +6,10 @@ use super::{Fixture, GUI_SCALE, MenuView, SIZE, SMALL_SIZE, State};
 pub(super) fn home(writable: bool, protocol_required: bool) -> Fixture {
     let mut view = MenuView::new(true, "Player".into());
     view.updates.ready = Some(launcher::menu::updates::Ready {
-        release: launcher::menu::updates::Build {
+        release: update_manifest::build::Build {
             version: next_version(),
             number: 2,
-            channel: Some(launcher::menu::updates::Channel::Beta),
+            channel: Some(update_manifest::channel::Channel::Beta),
         },
         switching: false,
         writable,
@@ -109,7 +109,8 @@ pub(super) fn mod_stage(phase: launcher::mods::UpdatePhase) -> Fixture {
 
 /// Shows update status with the selected sidebar tab scrolled into view.
 pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
-    use launcher::menu::updates::{Build, Channel, DownloadProgress, Status};
+    use launcher::menu::updates::{DownloadProgress, Status};
+    use update_manifest::{build::Build, channel::Channel};
     let section = launcher::menu::settings_sections::SettingSection::Updates.definition();
     let mut view = super::settings(section.name);
     view.updates.status = status;
@@ -140,7 +141,8 @@ pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
 
 /// Shows the older Beta choice while the installed client still runs Nightly.
 pub(super) fn switch_offer() -> Fixture {
-    use launcher::menu::updates::{Build, Channel, Status};
+    use launcher::menu::updates::Status;
+    use update_manifest::{build::Build, channel::Channel};
     let Fixture::Menu(mut view) = settings(Status::UpToDate) else {
         unreachable!()
     };

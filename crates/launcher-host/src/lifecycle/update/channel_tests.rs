@@ -1,7 +1,7 @@
 //! Channel changes preserve the user's check preference and bind older-build consent to one handoff.
 
 use super::*;
-use launcher::menu::updates::Build;
+use update_manifest::build::Build;
 
 /// Changing the quit-time preference leaves a channel download and its progress running.
 #[test]

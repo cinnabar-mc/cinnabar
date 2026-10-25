@@ -189,10 +189,10 @@ fn signed_out_home_has_a_direct_sign_in_action() {
 fn update_ready_notice_leaves_quit_and_play_reachable() {
     let mut view = view();
     view.updates.ready = Some(launcher::menu::updates::Ready {
-        release: launcher::menu::updates::Build {
+        release: update_manifest::build::Build {
             version: "2.0.0".into(),
             number: 2,
-            channel: Some(launcher::menu::updates::Channel::Beta),
+            channel: Some(update_manifest::channel::Channel::Beta),
         },
         switching: false,
         writable: true,

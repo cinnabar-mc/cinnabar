@@ -33,12 +33,13 @@ even with automatic checks off. This keeps automatic checks off for future launc
 Restoring the saved channel at startup respects that preference. Nightly follows whichever is
 newer out of Nightly and Beta, without changing the saved Nightly preference.
 Changing channels never silently downgrades: a slower channel waits for a newer app version
-and build. Choose **Install Beta now** (or the selected channel's name) to download its older
+and build. Choose **Install Beta now** to download an older Beta
 release, then **Restart and switch** to install it. **Wait for next Beta** keeps the current
 build and follows future Beta releases; installing the older release remains available.
 Managed installation of an older release requires the restart action, even with install-on-quit enabled.
 The helper applies older-build consent only if the installed version and build still match
-the installation the download was prepared for. Otherwise it keeps the current installation.
+the installation the download was prepared for. If a different installation is already at the
+chosen build or newer, the helper keeps it.
 Unsupported or unwritable installations offer **Open installer** for manual installation. Numeric
 prereleases use SemVer ordering, and successive builds use a signed monotonic build number.
 

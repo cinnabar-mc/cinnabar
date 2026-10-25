@@ -4,7 +4,7 @@ use super::{Content, services};
 use launcher::menu::{
     MenuAction,
     settings_options::{SettingId, layout::SettingPanel},
-    updates::{Action, Status, build_title, installed_version},
+    updates::{Action, Ready, Status, build_title, installed_version},
 };
 use ui_engine::engine::screen::PaintError;
 
@@ -45,10 +45,22 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         .target
         .as_ref()
         .map_or_else(|| "App updates".into(), build_title);
+    let ready = (!view.over_world)
+        .then_some(view.updates.ready.as_ref())
+        .flatten();
+    let ready_primary =
+        ready.filter(|_| !view.updates.status.is_busy() && view.updates.status != Status::Failed);
+    if let Some(ready) = ready_primary {
+        install(content, ready)?;
+    }
     services::action_row_text(
         content,
-        &target,
-        &status,
+        if ready_primary.is_some() {
+            "Check for newer releases"
+        } else {
+            &target
+        },
+        if ready_primary.is_some() { "" } else { &status },
         "Check now",
         (!view.over_world && !view.updates.status.is_busy())
             .then_some(MenuAction::Update(Action::CheckNow)),
@@ -79,18 +91,10 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         content.y += height + content.canvas.r(0.8);
     }
     if !view.over_world {
-        if let Some(ready) = &view.updates.ready {
-            services::action_row_text(
-                content,
-                &build_title(&ready.release),
-                if ready.writable {
-                    "Ready to install. Restart when you're ready."
-                } else {
-                    "Finish installation with the downloaded package."
-                },
-                ready.action_label(),
-                Some(MenuAction::Update(ready.action())),
-            )?;
+        if ready_primary.is_none()
+            && let Some(ready) = ready
+        {
+            install(content, ready)?;
         }
         if !view.updates.status.is_busy()
             && let Some(message) = &view.updates.message
@@ -136,6 +140,21 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         content.option(option.id)?;
     }
     Ok(())
+}
+
+/// Keeps the verified release and its installation action together without repeating its identity.
+fn install(content: &mut Content<'_, '_>, ready: &Ready) -> Result<(), PaintError> {
+    services::action_row_text(
+        content,
+        &build_title(&ready.release),
+        if ready.writable {
+            "Ready to install. Restart when you're ready."
+        } else {
+            "Finish installation with the downloaded package."
+        },
+        ready.action_label(),
+        Some(MenuAction::Update(ready.action())),
+    )
 }
 
 #[cfg(test)]

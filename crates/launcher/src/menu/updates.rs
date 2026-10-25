@@ -1,6 +1,6 @@
 //! Launcher-owned update choices and the small notice shared with presentation.
 
-pub use update_manifest::{build::Build, channel::Channel};
+use update_manifest::{build::Build, channel::Channel};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {

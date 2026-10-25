@@ -138,10 +138,10 @@ pub(super) fn ready(writable: bool) -> Ready {
         target: None,
         lease: None,
         notice: Notice {
-            release: launcher::menu::updates::Build {
+            release: update_manifest::build::Build {
                 version: "2.0.0".into(),
                 number: 2,
-                channel: Some(launcher::menu::updates::Channel::Beta),
+                channel: Some(update_manifest::channel::Channel::Beta),
             },
             switching: false,
             writable,
