@@ -21,6 +21,9 @@ type modEntityData struct {
 	previousLoader *world.Loader
 	retry          *world.Task
 	closed         bool
+
+	// publishedPosition follows Dragonfly's chunk membership, which changes only at a tick.
+	publishedPosition mgl64.Vec3
 }
 
 // modEntity is a transaction-scoped server-driven actor.
@@ -39,7 +42,7 @@ type entityConfig struct {
 
 // Apply retains the typed identity alongside the framework's position and rotation.
 func (c entityConfig) Apply(data *world.EntityData) {
-	data.Data = &modEntityData{state: c.state, instance: c.instance, revision: 1}
+	data.Data = &modEntityData{state: c.state, instance: c.instance, revision: 1, publishedPosition: data.Pos}
 }
 
 // stateData returns the mutable record owned by the current transaction.
@@ -143,6 +146,7 @@ func (e *modEntity) Tick(tx *world.Tx, _ int64) {
 		return
 	}
 	// Dragonfly migrates column membership before calling the entity's tick.
+	d.publishedPosition = e.Position()
 	if d.previousLoader != nil {
 		d.previousLoader.Close(tx)
 		d.previousLoader = nil
@@ -196,7 +200,7 @@ func (e *modEntity) pin() {
 
 // update publishes motion and metadata through Dragonfly before moving its riders.
 func (e *modEntity) update(state EntityState, teleport bool) {
-	viewers := e.tx.Viewers(e.Position())
+	viewers := e.tx.Viewers(e.stateData().publishedPosition)
 	e.data.Pos, e.data.Vel, e.data.Rot = state.Position.vec(), state.Velocity.vec(), cube.Rotation{state.Rotation.Yaw, state.Rotation.Pitch}
 	e.stateData().state = state
 	e.stateData().state.Properties = slices.Clone(state.Properties)

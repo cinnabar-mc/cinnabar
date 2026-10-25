@@ -393,3 +393,38 @@ func TestForeignVehicleFixtureRetainsAdmissionStatus(t *testing.T) {
 		}
 	}
 }
+
+// TestEntityConsecutiveChunkUpdatesReachPublishedViewers keeps clients current before migration.
+func TestEntityConsecutiveChunkUpdatesReachPublishedViewers(t *testing.T) {
+	for _, teleport := range []bool{false, true} {
+		t.Run(fmt.Sprint(teleport), func(t *testing.T) {
+			f := newEntityFixture(t)
+			viewer := &motionViewer{}
+			f.do(f.source, func(tx *world.Tx) {
+				loader := world.NewLoader(0, f.source, viewer)
+				loader.Move(tx, mgl64.Vec3{0, 70, 0})
+				loader.Load(tx, 1)
+				t.Cleanup(func() {
+					if err := f.source.Do(func(tx *world.Tx) { loader.Close(tx) }).Wait(context.Background()); err != nil {
+						t.Error(err)
+					}
+				})
+			})
+			handle := f.spawnEntity()
+			f.do(f.source, func(tx *world.Tx) {
+				actor, ok := f.h.findEntity(tx, "probe", handle)
+				if !ok {
+					t.Fatal("actor missing before movement")
+				}
+				state := actor.snapshot().State
+				for _, x := range []float64{32, 0} {
+					state.Position.X = x
+					actor.update(state, teleport)
+					if viewer.position != state.Position.vec() {
+						t.Fatalf("viewer position = %v after movement to %v", viewer.position, state.Position.vec())
+					}
+				}
+			})
+		})
+	}
+}
