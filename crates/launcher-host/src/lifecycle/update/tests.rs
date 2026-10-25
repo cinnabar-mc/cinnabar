@@ -86,7 +86,7 @@ fn checks_remain_periodic_when_the_clock_moves_back() {
 /// Release hints are channel-scoped and compare nightly build numbers before scheduling.
 #[test]
 fn release_notices_check_only_newer_builds_on_the_selected_channel() {
-    let release = |channel: &str, version: &str, build| bridge::CinnabarBuild {
+    let release = |channel: &str, version: &str, build| bridge::CinnabarRelease {
         channel: channel.into(),
         version: version.into(),
         build,
@@ -120,7 +120,7 @@ fn release_notices_check_only_newer_builds_on_the_selected_channel() {
 #[test]
 fn legacy_release_without_build_still_triggers_a_check() {
     let mut state = State::new();
-    let release = bridge::CinnabarBuild {
+    let release = bridge::CinnabarRelease {
         channel: "beta".into(),
         version: "1.2.3".into(),
         ..Default::default()
