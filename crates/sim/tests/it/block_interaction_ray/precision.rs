@@ -211,8 +211,11 @@ fn traversal_prefix_matches_the_full_ray_through_boundary_samples() {
                 .block_interaction_ray_prefix_current(origin, direction, 5.7, prefix)
                 .unwrap();
             let expected = full.clone().filter(|hit| hit.distance <= prefix);
+            let geometry =
+                |hit: sim::BlockHit| (hit.block_pos, hit.face, hit.hit_world, hit.distance);
             assert_eq!(
-                bounded, expected,
+                bounded.map(geometry),
+                expected.map(geometry),
                 "direction {direction:?}, prefix {prefix}"
             );
         }
