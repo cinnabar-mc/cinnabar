@@ -16,7 +16,8 @@ pub(super) enum ServerUseState {
     Idle,
     Start,
     Stop,
-    /// The movement tick reached this stop, but an earlier release still has priority.
+    /// The movement tick reached this stop; it applies once no real or queued release can
+    /// end the use first, so it is never dropped while the use runs.
     StopAfterInput,
 }
 
@@ -77,37 +78,34 @@ impl ItemUseRuntime {
         later: impl IntoIterator<Item = bool>,
     ) {
         self.observe_use_button(held);
-        let mut owned = self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.button_owned);
-        self.deferred_button_release = false;
-        for held in later {
-            if self.has_pending_release() || self.deferred_button_release {
-                break;
-            }
-            owned |= held && self.active.is_some();
-            self.deferred_button_release = owned && !held;
-        }
+        self.deferred_button_release = !self.has_pending_release()
+            && self.active.as_ref().is_some_and(|active| {
+                let mut owned = active.button_owned;
+                later.into_iter().any(|held| {
+                    let released = owned && !held;
+                    owned |= held;
+                    released
+                })
+            });
     }
 
-    /// Finishes or expires the queued edges; an unfulfilled projection cannot erase a stop.
-    /// A real observed release remains owned until its transaction is admitted.
+    /// Finishes or expires the queued edges; a stop they no longer protect applies now.
     pub fn finish_ordered_use_buttons(&mut self) {
-        let projected_release = std::mem::take(&mut self.deferred_button_release);
-        if projected_release
-            && self.server_using == ServerUseState::StopAfterInput
-            && !self.has_pending_release()
-        {
-            self.apply_server_use_stop();
-        }
+        self.deferred_button_release = false;
+        self.settle_server_stop();
     }
 
-    /// Applies a ticked server stop without inventing a local flag write or transaction.
-    fn apply_server_use_stop(&mut self) {
-        self.server_using = ServerUseState::Idle;
-        self.active = None;
-        self.riptide_release = None;
+    /// Applies a ticked stop unless a real or queued release still precedes it.
+    /// A release that ends the use consumes the stop with its transaction.
+    fn settle_server_stop(&mut self) {
+        if self.server_using == ServerUseState::StopAfterInput
+            && !self.deferred_button_release
+            && !self.is_releasing(self.button_held)
+        {
+            self.server_using = ServerUseState::Idle;
+            self.active = None;
+            self.riptide_release = None;
+        }
     }
 
     /// Takes the item-use flag the latest local start (`true`) or end
@@ -136,12 +134,8 @@ impl ItemUseRuntime {
         ) {
             // A release observed already, or in this frame's input, ends the use
             // with its transaction, as vanilla's input precedes its tick.
-            let releasing = self.deferred_button_release || self.is_releasing(self.button_held);
-            if releasing {
-                self.server_using = ServerUseState::StopAfterInput;
-            } else {
-                self.apply_server_use_stop();
-            }
+            self.server_using = ServerUseState::StopAfterInput;
+            self.settle_server_stop();
             return false;
         }
         if self.active.is_some() {

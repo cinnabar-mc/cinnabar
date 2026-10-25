@@ -96,6 +96,8 @@ struct Trial {
     full: bool,
     selection_barrier: bool,
     tick: u64,
+    /// A server clear that no later write or local start or end has superseded.
+    clear_owed: bool,
 }
 
 impl Trial {
@@ -144,8 +146,16 @@ impl Trial {
     }
 
     /// Checks accepted activity and both outstanding obligations after every event.
-    fn check(&self, seed: u64, step: usize, event: u64) {
+    fn check(&mut self, seed: u64, step: usize, event: u64) {
         let context = format!("seed={seed:#x}, step={step}, event={event}");
+        // Independent of the model: a running use keeps an unsuperseded clear pending.
+        if self.runtime.take_local_using_item().is_some() || !self.runtime.is_using() {
+            self.clear_owed = false;
+        }
+        assert!(
+            !self.clear_owed || self.runtime.has_server_using_item(),
+            "a server clear was dropped while its use still runs: {context}"
+        );
         assert_eq!(
             self.runtime.is_using(),
             self.model.owned.is_some(),
@@ -186,6 +196,7 @@ fn seeded_item_use_authority_matches_the_reference_interpreter() {
                     trial.runtime.adopt_server_using_item(Some(using));
                     trial.model.server = Some(using);
                     trial.model.stop_ticked = false;
+                    trial.clear_owed = !using;
                 }
                 2 => {
                     trial.final_held = !trial.final_held;
