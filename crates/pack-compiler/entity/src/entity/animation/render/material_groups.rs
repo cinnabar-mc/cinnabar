@@ -34,22 +34,15 @@ pub(super) struct Group {
 }
 
 /// The shader kind, shading features and interned definition one controller material selects.
-fn raster(
-    target: Option<&str>,
-    materials: &MaterialStates,
-    table: &mut MaterialTable,
-) -> Result<Raster, AssetError> {
-    let resolved = match target {
-        Some(target) => materials.resolve(target, table)?,
-        None => None,
-    };
-    Ok(Raster {
+fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut MaterialTable) -> Raster {
+    let resolved = target.and_then(|target| materials.resolve(target, table));
+    Raster {
         material: target.map_or(EntityRenderMaterial::Default, |name| {
             assets::facts::pack::rules().raster(name)
         }),
         state: resolved.map(|(state, _)| state),
         definition: resolved.map(|(_, definition)| definition),
-    })
+    }
 }
 
 pub(super) fn resolve(
@@ -81,8 +74,8 @@ pub(super) fn resolve(
             let target = aliases.get(&alias.to_ascii_lowercase())?;
             Some((pattern.to_ascii_lowercase(), target))
         })
-        .map(|(pattern, target)| Ok((pattern, raster(Some(target), materials, table)?)))
-        .collect::<Result<Vec<_>, AssetError>>()?;
+        .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
+        .collect::<Vec<_>>();
     let fallback = rules
         .iter()
         .rev()
@@ -198,16 +191,9 @@ fn uniform_selection(
     };
     let aliases = super::lowercase_map(description.get("materials"));
     let table = RefCell::new(table);
-    let failure = RefCell::new(None);
     let resolve_alias = |alias: &str| {
         let target = aliases.get(alias)?;
-        match raster(Some(target), materials, &mut table.borrow_mut()) {
-            Ok(raster) => Some(raster),
-            Err(error) => {
-                failure.borrow_mut().get_or_insert(error);
-                None
-            }
-        }
+        Some(raster(Some(target), materials, &mut table.borrow_mut()))
     };
     let selector = Selector {
         prefix: "material.",
@@ -232,9 +218,6 @@ fn uniform_selection(
         resolve: &resolve_alias,
     };
     let selection = selector.tree(expression);
-    if let Some(error) = failure.into_inner() {
-        return Err(error);
-    }
     Ok(selection.filter(|selection| {
         matches!(
             selection.as_ref(),

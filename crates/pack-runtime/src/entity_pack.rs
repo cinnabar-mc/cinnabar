@@ -142,6 +142,7 @@ fn compile_encoded(
             unparsable = skipped.unparsable,
             over_budget = skipped.over_budget,
             isolated = skipped.isolated,
+            unresolved_materials = skipped.unresolved_materials,
             rigs_without_artwork = compiled.fallbacks.len(),
             "server pack entities are incomplete"
         );

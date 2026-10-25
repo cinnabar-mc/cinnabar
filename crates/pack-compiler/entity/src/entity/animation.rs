@@ -52,6 +52,8 @@ pub(super) struct AnimationPayload {
     pub rig_animations: Box<[EntityRigAnimationBinding]>,
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
     pub render: EntityRenderData,
+    /// Materials left unresolved past their bounds; they draw as layers without one.
+    pub unresolved_materials: u32,
     pub outcomes: Box<[CompileReferenceOutcome<u32>]>,
 }
 
@@ -415,7 +417,7 @@ pub(super) fn compile(
     }
     let finalized_rigs = rig_payload.finalize(&name_index, &finalized.indices)?;
     outcomes.extend(finalized_rigs.outcomes);
-    let render = compile_render(
+    let (render, unresolved_materials) = compile_render(
         RenderSources {
             root,
             payloads,
@@ -441,6 +443,7 @@ pub(super) fn compile(
         rig_animations: finalized_rigs.animations,
         rig_controllers: finalized_rigs.controllers,
         render,
+        unresolved_materials,
         outcomes: outcomes.into_boxed_slice(),
     })
 }
