@@ -11,6 +11,7 @@ use assets::{
         grip::ItemGrip,
     },
     item_use::ItemUseProfile,
+    vocabulary::{Exceptions, Location, Reference},
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -276,11 +277,7 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
     }
     let profiles: UseTable = serde_json::from_slice(&read(&root.join(INPUTS[8]))?)?;
     check(profiles.version == 2, "item use schema")?;
-    let exceptions: serde_json::Value = serde_json::from_slice(&read(&root.join(INPUTS[10]))?)?;
-    check(
-        exceptions["schema"] == 1,
-        "item vocabulary exceptions schema",
-    )?;
+    let exceptions = Exceptions::parse(&read(&root.join(INPUTS[10]))?)?;
     let mut unresolved_profiles = Vec::new();
     let mut uses = Vec::new();
     for (name, profile) in profiles.entries {
@@ -289,18 +286,12 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
             fact_mut(&mut records, &names, &name)?.use_profile = Some(index);
         } else {
             check(
-                exceptions["entries"]
-                    .as_array()
-                    .ok_or("item vocabulary exceptions missing")?
-                    .iter()
-                    .any(|entry| {
-                        entry["reference"]["file"] == "item-use-profiles.json"
-                            && entry["reference"]["identifier"] == name
-                            && entry["reference"]["pointer"] == format!("/entries/{name}")
-                            && entry["reason"]
-                                .as_str()
-                                .is_some_and(|reason| !reason.is_empty())
-                    }),
+                exceptions.allows(&Reference {
+                    file: "item-use-profiles.json".into(),
+                    location: Location::Pointer(format!("/entries/{name}")),
+                    domain: "retail_item".into(),
+                    identifier: name.clone(),
+                }),
                 format!("unknown item-use source identity {name}"),
             )?;
             unresolved_profiles.push(name);

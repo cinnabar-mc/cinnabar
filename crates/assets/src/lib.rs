@@ -68,6 +68,7 @@ pub mod texture;
 pub mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
+pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
