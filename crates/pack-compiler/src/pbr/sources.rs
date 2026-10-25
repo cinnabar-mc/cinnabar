@@ -209,15 +209,7 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
     let height = set
         .heightmap
         .as_ref()
-        .map(|reference| {
-            layer(
-                pack,
-                path,
-                &TextureSetLayer::Image(reference.clone()),
-                &[1],
-                &mut source.height,
-            )
-        })
+        .map(|value| layer(pack, path, value, &[1], &mut source.height))
         .transpose()?;
     source.native_normal_size = [normal.width(), normal.height()];
     source.native_material_size = [material.width(), material.height()];
