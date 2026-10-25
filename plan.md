@@ -242,7 +242,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   normalized emission controls strength and maps to a provisional 2–8 block radius.
   Up to eight sources (the local player plus the nearest seven remote-player or dropped-item
   sources within the configured render distance) are uploaded and fade to zero at its edge.
-  The first-person hand and dropped item models use the same dynamic lightmap contribution.
+  The first-person hand keeps vanilla lighting; dropped item models receive the dynamic
+  lightmap contribution.
   The lightmap-based shader path is a prototype; rendered
   texture contrast and source blending still need visual acceptance. The strength/radius
   curve is an incomplete approximation pending a version-matched behavior reference;
