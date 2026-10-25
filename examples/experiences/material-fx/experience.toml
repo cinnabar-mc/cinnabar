@@ -1,5 +1,5 @@
 id = "materialfx"
-version = "0.1.0"
+version = "0.2.0"
 api = "0.6"
 data-schema = 1
 
@@ -8,17 +8,41 @@ data-schema = 1
 [client]
 permissions = ["messaging", "render_world_material"]
 namespace = "materialfx"
-textures = ["textures/noise.png", "textures/stars.png"]
+textures = [
+    "textures/noise.png",
+    "textures/stars.png",
+    "textures/diorama.png",
+    "textures/painting.png",
+    "textures/rune.png",
+    "textures/skybox.png",
+    "textures/lenticular.png",
+]
 
-# Server commands for the client part: an operation and its value.
-# 0 bind every material, 1 unbind every material (Bedrock looks), 2 damage flash of value/1000,
-# 3 status colour `value` (0 none, 1 poison, 2 burning, 3 frozen), 4 dissolve cut of value/1000,
-# or -1 to sweep.
+# Server commands for the client part: an operation and four integer arguments. Positions are
+# in thousandths of a block and times in milliseconds on the session clock (the wall clock
+# modulo 4096 s). Operations:
+#  0 bind every material              1 unbind every material
+#  2 wraith cut a/1000, or -1 to sweep
+#  3 shockwave at (a, b), started at c
+#  4 heartbeat at boss health a/1000, or -1 to stop
+#  5 liquid metal hit at (a, b, c), started at d
+#  6 thermal vision on (a = 1) or off
+#  7 corruption from (a, b, c), started at d, or d = -1 to cleanse
+#  8 layout: piece a (0 arena, 1 black hole, 2 painting, 3 screen, 4 portal) centred at (b, c, d)
+#  9 facing: a quarter turns from south
+# 10 radar: player a at (b, c) of d players
+# 11 the player's distance to the portal, a
 [[client.channels]]
 id = "materialfx.control"
-schema = 1
+schema = 2
 direction = "to_client"
-fields = [{ type = "choice", variants = 5 }, { type = "integer", min = -1, max = 1000 }]
+fields = [
+    { type = "choice", variants = 12 },
+    { type = "integer", min = -100000000, max = 100000000 },
+    { type = "integer", min = -100000000, max = 100000000 },
+    { type = "integer", min = -100000000, max = 100000000 },
+    { type = "integer", min = -100000000, max = 100000000 },
+]
 
 # Filled by `cargo run -p material-fx`, because the hashes depend on the build.
 [files]
