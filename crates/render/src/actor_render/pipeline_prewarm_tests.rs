@@ -1,5 +1,4 @@
 use bevy::ecs::system::RunSystemOnce;
-use std::collections::HashSet;
 
 use crate::actor::test_material::TestMaterial;
 use assets::EntityRenderMaterial;
@@ -95,14 +94,13 @@ fn generated_material_catalog_is_prewarmed_before_entities_arrive() {
 }
 
 #[test]
-fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
+fn authored_depth_and_channel_overrides_request_draw_and_motion_pipelines() {
     let (mut app, _) = crate::queue_review_support::app();
     let world = app.world_mut();
     world.init_resource::<ActorPipeline>();
     world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
         let cache = world.resource::<PipelineCache>();
         for msaa in [Msaa::Off, Msaa::Sample4] {
-            pipeline.prewarm(cache, msaa, false, false).unwrap();
             for bits in 0..256 {
                 let state = TestMaterial {
                     alpha_test: bits & 1 != 0,
@@ -117,6 +115,9 @@ fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
                 };
                 let material = state.word(EntityRenderMaterial::Default);
                 let raster = state.raster();
+                pipeline
+                    .prewarm_rasters(cache, (msaa, false, false), [(material, raster)])
+                    .unwrap();
                 assert!(
                     pipeline
                         .draw_variant(msaa, false, false, material, raster)
@@ -143,190 +144,87 @@ fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
 }
 
 #[test]
-fn late_dissolve_color_keeps_the_paired_depth_contract_with_overrides() {
-    let (mut app, _) = crate::queue_review_support::app();
-    let world = app.world_mut();
-    world.init_resource::<ActorPipeline>();
-    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
-        pipeline
-            .prewarm(world.resource::<PipelineCache>(), Msaa::Off, false, false)
-            .unwrap();
-        for cull in [false, true] {
-            for depth_write in [false, true] {
+fn late_dissolve_color_tests_paired_depth_for_equal_and_default_comparisons() {
+    for cull in [false, true] {
+        for depth_write in [false, true] {
+            let contract = |depth_equal| {
                 let state = TestMaterial {
-                    depth_equal: true,
+                    depth_equal,
                     cull,
                     depth_write,
                     ..Default::default()
                 };
-                let material = state.word(EntityRenderMaterial::DissolveColor)
-                    | crate::actor::material::LATE_DISSOLVE_COLOR;
-                assert!(
-                    pipeline
-                        .draw_variant(Msaa::Off, false, false, material, state.raster())
-                        .is_some()
-                );
-            }
-        }
-    });
-}
-
-#[test]
-fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
-    let (mut app, _) = crate::queue_review_support::app();
-    let world = app.world_mut();
-    world.init_resource::<ActorPipeline>();
-    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
-        let cache = world.resource::<PipelineCache>();
-        for msaa in [Msaa::Off, Msaa::Sample4] {
-            for hdr in [false, true] {
-                pipeline.prewarm(cache, msaa, hdr, false).unwrap();
-                for kind in [
-                    EntityRenderMaterial::Default,
-                    EntityRenderMaterial::DissolveDepth,
-                    EntityRenderMaterial::DissolveColor,
-                ] {
-                    for bits in 0..32 {
-                        let state = TestMaterial {
-                            cull: bits & 1 != 0,
-                            blend: bits & 2 != 0,
-                            depth_write: bits & 4 != 0,
-                            additive: bits & 8 != 0,
-                            additive_alpha: bits & 16 != 0,
-                            depth_always: true,
-                            ..Default::default()
-                        };
-                        let material = state.word(kind);
-                        assert!(
-                            pipeline
-                                .draw_variant(msaa, hdr, false, material, state.raster())
-                                .is_some(),
-                            "always-depth material must have a draw pipeline: {kind:?}, {bits}"
-                        );
-                        if kind == EntityRenderMaterial::DissolveColor {
-                            let paired = TestMaterial {
-                                depth_always: false,
-                                ..state
-                            };
-                            let word =
-                                paired.word(kind) | crate::actor::material::LATE_DISSOLVE_COLOR;
-                            assert!(
-                                pipeline
-                                    .draw_variant(msaa, hdr, false, word, paired.raster())
-                                    .is_some(),
-                                "paired color must retain its depth contract: {bits}"
-                            );
-                        }
-                    }
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    enhanced: false,
+                    material: state.word(EntityRenderMaterial::DissolveColor)
+                        | crate::actor::material::LATE_DISSOLVE_COLOR,
+                    raster: state.raster(),
                 }
-            }
+                .contract()
+            };
+            assert!(contract(true) == contract(false), "{cull} {depth_write}");
         }
-    });
+    }
 }
 
 #[test]
-fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
-    let (mut app, _) = crate::queue_review_support::app();
-    let world = app.world_mut();
-    world.init_resource::<ActorPipeline>();
-    world.init_resource::<render_scene::ActorRenderFrame>();
+fn unobservable_raster_fields_share_one_contract() {
+    // HDR views draw both passes to one format; elsewhere blending also selects the sorted
+    // pass's gamma-encoded target, which is observable.
+    let contract = |kind, state: TestMaterial| {
+        ActorPipelineKey {
+            msaa: Msaa::Off,
+            hdr: true,
+            enhanced: false,
+            material: state.word(kind),
+            raster: state.raster(),
+        }
+        .contract()
+    };
+    let variants = (0..16).map(|bits| TestMaterial {
+        blend: bits & 1 != 0,
+        additive: bits & 2 != 0,
+        disable_alpha_write: bits & 4 != 0,
+        disable_color_write: bits & 8 != 0,
+        ..Default::default()
+    });
+    let depth = variants
+        .clone()
+        .map(|state| contract(EntityRenderMaterial::DissolveDepth, state))
+        .collect::<Vec<_>>();
     assert!(
-        world
-            .resource::<render_scene::ActorRenderFrame>()
-            .rig
-            .instances
-            .is_empty()
+        depth.iter().all(|contract| *contract == depth[0]),
+        "a dissolve depth pass writes no colour, so blend and write masks do not matter"
     );
-    let (&msaa, view) = world
-        .query::<(&Msaa, &ExtractedCamera)>()
-        .single(world)
-        .unwrap();
-    let hdr = view.hdr;
-    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
-        let cache = world.resource::<PipelineCache>();
-        pipeline
-            .prewarm(cache, msaa, hdr, false)
-            .expect("an empty view prepares actor pipelines");
-        let mut descriptors = HashSet::new();
-        let kinds = [
+    let unwritten = [false, true].map(|blend| {
+        contract(
             EntityRenderMaterial::Default,
-            EntityRenderMaterial::Glint,
-            EntityRenderMaterial::Dragon,
-            EntityRenderMaterial::DissolveDepth,
-            EntityRenderMaterial::DissolveColor,
-        ];
-        for kind in kinds {
-            for cull in [false, true] {
-                for blend in [false, true] {
-                    for depth_write in [false, true] {
-                        for alpha_test in [false, true] {
-                            let state = TestMaterial {
-                                alpha_test,
-                                cull,
-                                blend,
-                                depth_write,
-                                ..Default::default()
-                            };
-                            let material = state.word(kind);
-                            let raster = state.raster();
-                            if motion::eligible(material, &raster) {
-                                let key = ActorPipelineKey {
-                                    msaa,
-                                    hdr,
-                                    enhanced: false,
-                                    material,
-                                    raster,
-                                };
-                                assert!(
-                                    pipeline.motion_variant(key).is_some(),
-                                    "motion must be prewarmed: {kind:?}, {material:#x}"
-                                );
-                            }
-                            descriptors.insert(
-                                pipeline.draw_variant(msaa, hdr, false, material, raster).expect(
-                                    "authored raster states are requested before an actor exists",
-                                ),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        assert_eq!(
-            descriptors.len(),
-            28,
-            "only distinct raster/depth contracts compile"
-        );
-        for kind in kinds {
-            for cull in [false, true] {
-                for depth_write in [false, true] {
-                    for additive_alpha in [false, true] {
-                        let state = TestMaterial {
-                            cull,
-                            depth_write,
-                            blend: true,
-                            additive: true,
-                            additive_alpha,
-                            ..Default::default()
-                        };
-                        descriptors.insert(
-                            pipeline
-                                .draw_variant(msaa, hdr, false, state.word(kind), state.raster())
-                                .expect("each additive kind is prepared before an actor exists"),
-                        );
-                    }
-                }
-            }
-        }
-        assert_eq!(
-            descriptors.len(),
-            52,
-            "additive source factors add eight contracts per raster kind"
-        );
-        let allocated = test_alloc::thread_allocations();
-        pipeline.prewarm(cache, msaa, hdr, false).unwrap();
-        assert_eq!(test_alloc::thread_allocations(), allocated);
+            TestMaterial {
+                blend,
+                disable_color_write: true,
+                ..Default::default()
+            },
+        )
     });
+    assert!(
+        unwritten[0] == unwritten[1],
+        "nothing blends without writes"
+    );
+    let written = [false, true].map(|blend| {
+        contract(
+            EntityRenderMaterial::Default,
+            TestMaterial {
+                blend,
+                ..Default::default()
+            },
+        )
+    });
+    assert!(
+        written[0] != written[1],
+        "blending is observable when colour is written"
+    );
 }
 
 #[test]
@@ -419,9 +317,12 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                         };
                         let material = state.word(kind);
                         let raster = state.raster();
+                        pipeline
+                            .prewarm_rasters(&cache, (msaa, false, false), [(material, raster)])
+                            .unwrap();
                         let id = pipeline
                             .draw_variant(msaa, false, false, material, raster)
-                            .expect("coverage variants are ready before actors exist");
+                            .expect("coverage variants are requested");
                         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
                         ActorPipelineSpecializer
                             .specialize(
@@ -464,7 +365,7 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                                     material,
                                     raster,
                                 })
-                                .expect("motion coverage is prepared before actors exist");
+                                .expect("motion coverage is requested with its draw");
                             let warmed = crate::queue_review_support::queued_descriptor(
                                 &mut cache, motion_id,
                             );
