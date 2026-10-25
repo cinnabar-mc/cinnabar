@@ -159,7 +159,8 @@ platforms refuse it. Between `fork` and `exec` the parent clears the environment
 descriptor but the three stdio pipes, sets `PR_SET_NO_NEW_PRIVS`, makes the child undumpable and
 killed with its parent, and sets resource limits: 1 GiB of private writable memory and of file
 size (`RLIMIT_DATA`, `RLIMIT_FSIZE`), 64 descriptors, and no core files, locked memory, message
-queues or real-time priority. Before reading the component, the helper audits that it holds no
+queues or real-time priority. Because `exec` makes an ordinary program dumpable again, the helper
+first makes itself undumpable once more. Before reading the component, it audits that it holds no
 other descriptor, no environment and those limits, then denies itself everything else: a
 Landlock ruleset that handles every right the kernel knows and grants none (no file or directory
 can be opened; TCP bind and connect on ABI 4, signals and abstract sockets outside itself on

@@ -1,10 +1,10 @@
 //! The restricted helper launch, on Linux. The parent clears the environment and, between
 //! `fork` and `exec`, closes every descriptor but the three stdio pipes, sets resource limits
-//! and forbids privilege gain; the helper then audits what it inherited and, before it reads
-//! the component, denies itself the filesystem and the network with Landlock and process
-//! creation, executables, sockets and kernel attack surface with a seccomp filter. Compilation
-//! of the component happens after this, so the compiler runs contained too. Other platforms
-//! have no restricted launch and refuse it.
+//! and forbids privilege gain; the helper then makes itself undumpable, audits what it
+//! inherited and, before it reads the component, denies itself the filesystem and the network
+//! with Landlock and process creation, executables, sockets and kernel attack surface with a
+//! seccomp filter. Compilation of the component happens after this, so the compiler runs
+//! contained too. Other platforms have no restricted launch and refuse it.
 
 use anyhow::{Context, Result, ensure};
 use std::process::Command;
@@ -79,6 +79,8 @@ fn prepare_child() -> std::io::Result<()> {
     unsafe {
         check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0))?;
         check(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))?;
+        // Covers the copy of the parent's memory until `exec`, which resets the flag for an
+        // ordinary executable; [`lock_down`] sets it again in the helper.
         check(libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0))?;
         if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) != 0 {
             // Kernels before 5.9: close what the limit below could still address.
@@ -121,6 +123,12 @@ pub fn inherited_descriptors() -> Vec<i32> {
 /// thread and the threads it then creates.
 #[cfg(target_os = "linux")]
 pub fn lock_down() -> Result<Lockdown> {
+    // SAFETY: plain prctl calls on constant arguments.
+    ensure!(
+        unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } == 0
+            && unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } == 0,
+        "the helper cannot make itself undumpable"
+    );
     let inherited = inherited_descriptors();
     ensure!(
         inherited.is_empty(),

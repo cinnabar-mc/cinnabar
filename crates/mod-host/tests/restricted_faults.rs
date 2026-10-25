@@ -134,6 +134,9 @@ fn run(op: &str) -> String {
             unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
             format!("nofile {}", limit.rlim_max)
         }
+        "dumpable" => format!("dumpable {}", unsafe {
+            libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0)
+        }),
         other => format!("unknown {other}"),
     }
 }
@@ -171,6 +174,13 @@ fn the_lockdown_denies_processes_but_not_threads() {
 fn the_lockdown_bounds_memory_and_descriptors() {
     assert!(probe("memory", true).starts_with("denied"));
     assert_eq!(probe("limits", true), format!("nofile {DESCRIPTOR_LIMIT}"));
+}
+
+/// The running helper stays undumpable, so processes of the same user cannot trace it or read
+/// its memory, although `exec` resets the flag the parent set before it.
+#[test]
+fn the_lockdown_leaves_the_helper_undumpable() {
+    assert_eq!(probe("dumpable", true), "dumpable 0");
 }
 
 /// A helper launched without containment refuses to lock down, so it never serves: it sees the
