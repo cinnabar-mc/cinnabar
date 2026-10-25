@@ -53,4 +53,17 @@ impl Experience for MaterialFx {
     }
 }
 
+impl experience_sdk::server::__private::Dispatch for MaterialFx {
+    /// The client part sends nothing back; any record it might is ignored.
+    fn dispatch(
+        _ctx: &experience_sdk::server::Callback,
+        _player: experience_sdk::server::PlayerId,
+        _channel: String,
+        _schema: u16,
+        _payload: Vec<experience_sdk::Value>,
+    ) -> Result<(), GuestError> {
+        Ok(())
+    }
+}
+
 experience_sdk::export_experience!(MaterialFx);
