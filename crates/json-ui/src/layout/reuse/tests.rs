@@ -69,8 +69,9 @@ fn button(name: &str, text: &str) -> ResolvedControl {
     )
 }
 
-/// A titled screen with a button outside and `rows` labelled buttons inside a scroll view.
-fn screen(title: &str, rows: &[String]) -> ResolvedControl {
+/// A titled screen with a button outside and `rows` labelled buttons inside a scroll view, which
+/// scrolls the control named `scrolled`: those buttons, or labels in a wrapper beside them.
+fn screen(title: &str, rows: &[String], scrolled: &str) -> ResolvedControl {
     let content = node(
         "content",
         "stack_panel",
@@ -80,12 +81,32 @@ fn screen(title: &str, rows: &[String]) -> ResolvedControl {
             .map(|(index, text)| button(&format!("row{index}"), text))
             .collect(),
     );
+    let shelf = node(
+        "shelf",
+        "panel",
+        json!({"size": [100, 100], "anchor_from": "top_left", "anchor_to": "top_left"}),
+        vec![node(
+            "alt",
+            "stack_panel",
+            json!({"size": [100, "100%c"], "orientation": "vertical", "anchor_from": "top_left", "anchor_to": "top_left"}),
+            (0..30)
+                .map(|index| {
+                    node(
+                        &format!("alt{index}"),
+                        "label",
+                        json!({"size": [100, 20], "text": format!("alt {index}")}),
+                        vec![],
+                    )
+                })
+                .collect(),
+        )],
+    );
     let view = node(
         "view",
         "scroll_view",
         json!({
             "size": [108, 100], "offset": [0, 40], "anchor_from": "top_left", "anchor_to": "top_left",
-            "scroll_content": "content", "scroll_view_port": "viewport", "scrollbar_track": "track",
+            "scroll_content": scrolled, "scroll_view_port": "viewport", "scrollbar_track": "track",
             "scrollbar_box": "box", "scroll_box_and_track_panel": "bars",
         }),
         vec![
@@ -93,7 +114,7 @@ fn screen(title: &str, rows: &[String]) -> ResolvedControl {
                 "viewport",
                 "panel",
                 json!({"size": [100, 100], "clips_children": true, "anchor_from": "top_left", "anchor_to": "top_left"}),
-                vec![content],
+                vec![content, shelf],
             ),
             // A fixed wrapper holds the bar panel, with the track and box outside it: only the
             // panel's role ties the wrapper to the scroll state.
@@ -192,24 +213,30 @@ fn spliced_gated_layouts_match_layouts_placing_every_control() {
         textures: &Fixed,
     };
     let mut cache = MeasureCache::default();
-    let mut tree = screen("title", &rows(30, None));
+    let mut tree = screen("title", &rows(30, None), "content");
     let mut placed = Vec::new();
-    for (step, (title, count, changed, offset)) in [
-        ("title", 30, None, 0.0),
-        ("title", 30, Some(2), 0.0),
-        ("longer title", 30, Some(2), 0.0),
-        ("longer title", 30, Some(3), 45.0),
-        ("longer title", 30, Some(3), 45.0),
-        ("t", 30, Some(29), 45.0),
+    for (step, (title, count, changed, offset, scrolled)) in [
+        ("title", 30, None, 0.0, "content"),
+        ("title", 30, Some(2), 0.0, "content"),
+        ("longer title", 30, Some(2), 0.0, "content"),
+        ("longer title", 30, Some(3), 45.0, "content"),
+        ("longer title", 30, Some(3), 45.0, "content"),
+        ("t", 30, Some(29), 45.0, "content"),
         // The content shrinks to fit, hiding the bars, then grows past the view again.
-        ("t", 3, None, 45.0),
-        ("t", 3, Some(1), 45.0),
-        ("t", 30, None, 45.0),
+        ("t", 3, None, 45.0, "content"),
+        ("t", 3, Some(1), 45.0, "content"),
+        ("t", 30, None, 45.0, "content"),
+        // Records again once the bars stay shown.
+        ("t", 30, Some(5), 45.0, "content"),
+        // The view scrolls labels inside an unchanged wrapper instead, then its rows again.
+        ("t", 30, None, 45.0, "alt"),
+        ("t", 30, Some(4), 45.0, "alt"),
+        ("t", 30, None, 45.0, "content"),
     ]
     .into_iter()
     .enumerate()
     {
-        let next = screen(title, &rows(count, changed));
+        let next = screen(title, &rows(count, changed), scrolled);
         if step > 0 {
             cache.update_tree(&mut tree, next.clone());
         }
@@ -225,7 +252,7 @@ fn spliced_gated_layouts_match_layouts_placing_every_control() {
         assert_eq!(report, cold_report, "step {step}: report");
         assert_eq!(
             report.scrolls["/root/view"].bar_visible,
-            Some(count > 3),
+            Some(count > 3 || scrolled == "alt"),
             "step {step}: bars"
         );
         assert!(

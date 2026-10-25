@@ -289,6 +289,7 @@ fn lay_out<'a>(
             emitting: true,
             taint: 0,
             inspected: 0,
+            roles_moved: false,
         }),
     };
     let key = child_key("", root, 0);
@@ -349,6 +350,8 @@ struct Reuse<'e> {
     taint: usize,
     /// Enclosing edit boxes, whose input metadata reads their laid-out descendants.
     inspected: usize,
+    /// A scroll view this layout opened names other role controls than the last did.
+    roles_moved: bool,
 }
 
 /// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
@@ -457,7 +460,7 @@ fn place_subtree<'a>(
                     .is_some_and(|frame| frame.metrics.is_some()),
         };
         let reused = old
-            .filter(|_| free && !governed)
+            .filter(|_| free && !governed && !reuse.roles_moved)
             .and_then(|old| reuse.placements.reuse(address, old, &inputs));
         (address, old, inputs, reuse.taint, reused)
     });
@@ -559,6 +562,13 @@ fn place_subtree<'a>(
         && measure::suppress(panel, frame.panel_hidden)
     {
         scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
+    }
+    // A scroll view whose roles moved to other controls splices nothing for the rest of the
+    // layout: an unchanged record may enclose a control that only now follows its state.
+    if let (Some(frame), Some(reuse), Some((address, ..))) = (&scroll, ctx.reuse.as_mut(), &entry)
+        && reuse.placements.roles_moved(*address, frame.roles())
+    {
+        reuse.roles_moved = true;
     }
     let opened_scroll = scroll.is_some();
     if let Some(frame) = scroll {

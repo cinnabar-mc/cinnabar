@@ -385,6 +385,11 @@ impl ScrollFrame {
         Adjusted::Kept
     }
 
+    /// The controls this view names in each role, in `ROLE_KEYS` order.
+    pub(super) fn roles(&self) -> [Option<usize>; 5] {
+        self.roles
+    }
+
     /// Whether `control` fills one of this view's roles, so its placement, visibility or
     /// report follows the view's scroll state rather than its own placement inputs.
     pub(super) fn governs(&self, control: &ResolvedControl) -> bool {

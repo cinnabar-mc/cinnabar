@@ -100,6 +100,8 @@ pub(super) struct Placements {
     view: Option<(ViewState, bool, crate::LayoutCacheKey)>,
     /// Controls the last layout placed rather than spliced.
     placed: usize,
+    /// Each scroll view's role controls when a layout last opened it, by record key.
+    scroll_roles: Memo<usize, [Option<usize>; 5]>,
     /// The last output's draws and hit regions, shared with it.
     draws: Retained<DrawNode>,
     hits: Retained<HitRegion>,
@@ -249,11 +251,19 @@ impl Placements {
         self.placed
     }
 
+    /// Notes the role controls of the scroll view keyed `view`; whether they differ from
+    /// the last layout's, or the view is new to it. Records made before a role moved can
+    /// enclose a control that now follows the view's state, so the caller splices nothing more.
+    pub(super) fn roles_moved(&mut self, view: usize, roles: [Option<usize>; 5]) -> bool {
+        self.scroll_roles.insert(view, roles) != Some(roles)
+    }
+
     /// A changed control can no longer be spliced, though its children may; a
     /// removed one's record goes.
     pub(super) fn forget(&mut self, address: usize, removed: bool) {
         if removed {
             self.records.remove(&address);
+            self.scroll_roles.remove(&address);
         } else if let Some(record) = self.records.get_mut(&address) {
             record.cacheable = false;
         }
