@@ -472,7 +472,7 @@ fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.hud.set_health(BoundedStat::new(30, 30));
+    runtime.session.hud.set_health(BoundedStat::new(30, 30));
     let paint = hud_layout::capture_hud_paint(
         &player_runtime,
         &runtime,
@@ -608,7 +608,7 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
         .facts
         .publish_player_game_mode(PlayerGameMode::Survival);
     full_stats(&mut player_runtime, &mut runtime, 1);
-    runtime.hud.set_experience(3, 0.5);
+    runtime.session.hud.set_experience(3, 0.5);
     build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(!named(presentation.hud_draw_nodes(), "full_progress_bar").is_empty());
     presentation.hud_frame_mut().mount_jump = Some(0.5);
@@ -778,9 +778,13 @@ fn titles_and_chat_carry_their_fades() {
     };
     let mut runtime = UiRuntime::new(1);
     runtime
+        .session
         .hud
         .set_durations(ui::TitleDurations::from_wire(10, 70, 20).unwrap());
-    runtime.hud.set_title(Arc::from("Victory"), 1, 1_000);
+    runtime
+        .session
+        .hud
+        .set_title(Arc::from("Victory"), 1, 1_000);
     runtime
         .apply(&mut player_runtime, chat_line(2, "gg"))
         .unwrap();
@@ -797,7 +801,10 @@ fn titles_and_chat_carry_their_fades() {
     assert_eq!(presentation.hud_fade(chat, 11.0), 0.0);
     // A re-sent title starts a fresh title control while preserving the chat fade.
     let passes = presentation.hud_passes();
-    runtime.hud.set_title(Arc::from("Victory"), 3, 2_000);
+    runtime
+        .session
+        .hud
+        .set_title(Arc::from("Victory"), 3, 2_000);
     build(&player_runtime, &mut presentation, &runtime, 2_100);
     assert_eq!(presentation.hud_passes(), passes + 1);
     let title = text(presentation.hud_draw_nodes(), "Victory").unwrap();
@@ -833,7 +840,7 @@ fn unchanged_hud_reuses_its_layout_across_frames() {
         first,
         "no re-bind while nothing changed"
     );
-    runtime.hud.set_experience(4, 0.1);
+    runtime.session.hud.set_experience(4, 0.1);
     build(&player_runtime, &mut presentation, &runtime, 80);
     assert_eq!(presentation.hud_passes(), first + 1);
 }
@@ -906,7 +913,7 @@ fn busy_session(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
         .facts
         .publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(player_runtime, &mut runtime);
-    runtime.hud.set_experience(12, 0.4);
+    runtime.session.hud.set_experience(12, 0.4);
     let rows: Vec<_> = (0..10)
         .map(|row| {
             (
@@ -949,7 +956,7 @@ fn busy_session(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
             )
             .unwrap();
     }
-    runtime.hud.set_title(Arc::from("Round 1"), 50, 0);
+    runtime.session.hud.set_title(Arc::from("Round 1"), 50, 0);
     full_stats(player_runtime, &mut runtime, 60);
     runtime
 }
@@ -990,7 +997,10 @@ fn hud_frame_timing() {
     let steady = started.elapsed() / frames;
     let started = std::time::Instant::now();
     for frame in 0..frames {
-        runtime.hud.set_experience(12, frame as f32 / frames as f32);
+        runtime
+            .session
+            .hud
+            .set_experience(12, frame as f32 / frames as f32);
         build_at(
             &player_runtime,
             &mut presentation,

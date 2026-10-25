@@ -653,7 +653,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(UiRuntimeResource({
         let mut ui_runtime = UiRuntime::new(0);
         if let Some(address) = &args.address {
-            ui_runtime.experiences.select_destination(address);
+            ui_runtime.session.experiences.select_destination(address);
         }
         ui_runtime.set_lang_catalog(lang_assets.into_runtime());
         ui_runtime.set_active_language(active_lang);

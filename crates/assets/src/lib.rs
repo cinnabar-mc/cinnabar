@@ -68,6 +68,7 @@ pub mod texture;
 pub mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
+pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
@@ -128,10 +129,8 @@ pub use compiled::{
     MAX_CARRIER_TEXTURE_PAGES, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, TEXTURE_LAYER_MASK,
     material_leaf_ao_exponent,
 };
-pub use effects::{
-    EFFECT_DESCRIPTORS, EffectDescriptor, effect_descriptor, effect_descriptor_by_identifier,
-    effect_registry_version,
-};
+pub use effects::{EFFECT_DESCRIPTORS, EffectDescriptor};
+pub use effects::{effect_descriptor, effect_descriptor_by_identifier, effect_registry_version};
 pub use entity::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
     CompiledEntityAssets, CompiledMolangExpression, ELYTRA_GEOMETRY_IDENTIFIER,

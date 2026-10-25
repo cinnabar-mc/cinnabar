@@ -88,7 +88,7 @@ fn own_tag_eligibility_uses_server_metadata_and_local_pose() {
         project_nametags(
             &mut NametagTextCache::default(),
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view(Vec3::ZERO),
             None,
             1.0,
@@ -102,7 +102,7 @@ fn own_tag_eligibility_uses_server_metadata_and_local_pose() {
     assert!(own_tag(&stream).unwrap().depth_tested);
     assert!(
         crate::ui_runtime::presentation::player_preview::PlayerPreviewPose::of_local_player(Some(
-            &stream
+            stream.authority().local_player_ui()
         ))
         .sneaking
     );

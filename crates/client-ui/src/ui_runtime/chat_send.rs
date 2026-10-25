@@ -9,7 +9,7 @@ use super::UiRuntime;
 
 impl UiRuntime {
     pub fn pending_chat_sends(&self) -> &VecDeque<ChatSendRequest> {
-        self.chat_sends.pending()
+        self.session.chat_sends.pending()
     }
 
     pub const fn dropped_unsent_chat_messages(&self) -> u64 {
@@ -18,27 +18,31 @@ impl UiRuntime {
 
     /// Sets the connection's login identity and its initial presentation name.
     pub fn set_chat_identity(&mut self, source_name: Arc<str>, xuid: Arc<str>) {
-        self.local_player_display_name = Arc::clone(&source_name);
-        self.chat_source_name = source_name;
-        self.chat_xuid = xuid;
+        self.session.local_player_display_name = Arc::clone(&source_name);
+        self.session.chat_source_name = source_name;
+        self.session.chat_xuid = xuid;
     }
 
     /// Updates the local actor's presentation name without changing outbound chat identity.
     pub fn set_local_player_display_name(&mut self, name: Arc<str>) {
-        self.local_player_display_name = name;
+        self.session.local_player_display_name = name;
     }
 
     /// Queues an editor submission after removing leading ASCII whitespace.
     pub fn queue_chat_send(&mut self, now_millis: u64) -> Result<ChatSendRequest, ChatSendError> {
         let message = self
+            .session
             .chat_editor
             .as_str()
             .trim_start_matches(|c| matches!(c, '\t'..='\r' | ' '));
-        let request = self.chat_sends.push(self.session_id, message, now_millis)?;
+        let request = self
+            .session
+            .chat_sends
+            .push(self.session.session_id, message, now_millis)?;
         self.chat_history.push(Arc::clone(&request.message));
-        self.chat_editor.clear();
-        self.chat_autocomplete.clear();
-        self.pending_chat_autocomplete_request = None;
+        self.session.chat_editor.clear();
+        self.session.chat_autocomplete.clear();
+        self.session.pending_chat_autocomplete_request = None;
         Ok(request)
     }
 
@@ -48,71 +52,81 @@ impl UiRuntime {
         message: &str,
         now_millis: u64,
     ) -> Result<ChatSendRequest, ChatSendError> {
-        let request = self.chat_sends.push(self.session_id, message, now_millis)?;
+        let request = self
+            .session
+            .chat_sends
+            .push(self.session.session_id, message, now_millis)?;
         self.chat_history.push(Arc::clone(&request.message));
         Ok(request)
     }
 
     /// The first queued message not yet handed to the transport.
     pub fn next_chat_packet(&self) -> Result<Option<(u64, Packet)>, ChatPacketError> {
-        self.chat_sends
+        self.session
+            .chat_sends
             .pending()
-            .get(self.in_flight_chat_sends)
+            .get(self.session.in_flight_chat_sends)
             .map(|request| {
-                chat_input_packet(&self.chat_source_name, &self.chat_xuid, &request.message)
-                    .map(|packet| (request.sequence, packet))
+                chat_input_packet(
+                    &self.session.chat_source_name,
+                    &self.session.chat_xuid,
+                    &request.message,
+                )
+                .map(|packet| (request.sequence, packet))
             })
             .transpose()
     }
 
     pub fn confirm_chat_send(&mut self, sequence: u64) -> bool {
-        self.chat_sends.confirm_front(sequence)
+        self.session.chat_sends.confirm_front(sequence)
     }
 
     /// Queued messages handed to the transport and awaiting its acknowledgement.
     pub const fn in_flight_chat_sends(&self) -> usize {
-        self.in_flight_chat_sends
+        self.session.in_flight_chat_sends
     }
 
     pub fn mark_chat_send_enqueued(&mut self, session: u64, sequence: u64) -> bool {
-        if session != self.session_id
+        if session != self.session.session_id
             || self
+                .session
                 .chat_sends
                 .pending()
-                .get(self.in_flight_chat_sends)
+                .get(self.session.in_flight_chat_sends)
                 .is_none_or(|request| request.session != session || request.sequence != sequence)
         {
             return false;
         }
-        self.in_flight_chat_sends += 1;
+        self.session.in_flight_chat_sends += 1;
         true
     }
 
     /// Acknowledgements arrive in send order, so only the oldest in-flight message confirms.
     pub fn acknowledge_chat_send(&mut self, session: u64, sequence: u64) -> bool {
-        if self.in_flight_chat_sends == 0
-            || session != self.session_id
+        if self.session.in_flight_chat_sends == 0
+            || session != self.session.session_id
             || !self.confirm_chat_send(sequence)
         {
             return false;
         }
-        self.in_flight_chat_sends -= 1;
+        self.session.in_flight_chat_sends -= 1;
         true
     }
 
     /// A failed write leaves every unacknowledged message queued for a later flush.
     pub fn fail_chat_send(&mut self, session: u64, sequence: u64) -> bool {
-        if session != self.session_id
+        if session != self.session.session_id
             || !self
+                .session
                 .chat_sends
                 .pending()
                 .iter()
-                .take(self.in_flight_chat_sends)
+                .take(self.session.in_flight_chat_sends)
                 .any(|request| request.sequence == sequence)
         {
             return false;
         }
-        self.in_flight_chat_sends = 0;
+        self.session.in_flight_chat_sends = 0;
         true
     }
 }

@@ -58,6 +58,13 @@ produce no extrusion edges, and the rear face samples the same pixel rather
 than a separately flipped image. Static item-frame/campfire placements retain
 their existing mesh path and do not inherit this dropped-item transform.
 
+Dropped block-item sprite policy belongs to `assets::facts::dropped_item_presentation`.
+Its declaration groups exact identifiers with registry membership checks, so new
+family members cannot silently miss the policy. The renderer applies that policy
+to compiled and retained item routes; Cross visuals still use sprites, and falling
+blocks keep their world geometry. Session artwork and model-source precedence
+remain independent of this classification.
+
 Ordinary block drawing uses the dropped display mode. Default
 block display has pixel translation `(0, 3, 0)` and scale 0.25;
 the mode correction translates down by 3/16, canceling

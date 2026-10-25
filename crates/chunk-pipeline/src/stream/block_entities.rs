@@ -1,27 +1,6 @@
 use super::*;
 
 impl WorldStream {
-    /// The decoded NBT of the block entity at `position` in the current dimension.
-    #[must_use]
-    pub fn block_entity_compound(&self, position: [i32; 3]) -> Option<Arc<world::NbtCompound>> {
-        let key = BlockEntityKey::new(
-            self.authority.current_dimension(),
-            position[0],
-            position[1],
-            position[2],
-        );
-        self.authority.terrain().block_entity(key)?.parsed()
-    }
-
-    /// The `CustomName` of the block entity at `position`, if it has one.
-    #[must_use]
-    pub fn block_entity_custom_name(&self, position: [i32; 3]) -> Option<String> {
-        let nbt = self.block_entity_compound(position)?;
-        nbt.string("CustomName")
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned)
-    }
-
     pub(super) fn refresh_block_entity_visual(&mut self, key: BlockEntityKey) {
         refresh_block_entity_visual(&self.authority, &mut self.block_entity_visuals, key);
     }

@@ -123,7 +123,7 @@ fn each_visible_hud_change_paints_once() {
         return;
     };
     fixture.next();
-    fixture.runtime.hud.set_experience(4, 0.1);
+    fixture.runtime.session.hud.set_experience(4, 0.1);
     fixture.paints_once("an experience binding");
     fixture.frame(|frame| frame.hotbar_stacks[3] = Some(item(5, 16)));
     fixture.paints_once("a hotbar stack");

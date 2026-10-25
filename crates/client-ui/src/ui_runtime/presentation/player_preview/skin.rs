@@ -6,15 +6,11 @@ use render_model::ActorSkinPixels;
 
 /// The local player's validated skin; off-world the launcher's paper doll wears the menu skin.
 pub fn local_preview_skin(
-    stream: Option<&chunk_pipeline::WorldStream>,
+    local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
     menu_skin: &render_model::ActorSkinPixels,
 ) -> Option<Arc<[u8]>> {
-    let pixels = match stream {
-        Some(stream) => match &stream
-            .authority()
-            .actor_player_profile(stream.local_player_runtime_id())?
-            .skin
-        {
+    let pixels = match local {
+        Some(local) => match &local.profile()?.skin {
             protocol::PlayerSkin::Standard(skin) => ActorSkinPixels {
                 width: skin.width,
                 height: skin.height,

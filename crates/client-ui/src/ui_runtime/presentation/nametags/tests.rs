@@ -411,7 +411,7 @@ fn projected_tags_keep_mount_names_and_hide_only_their_score() {
         project_nametags(
             cache,
             &boards,
-            stream,
+            stream.authority().nametag_ui(),
             view(Vec3::ZERO),
             None,
             1.0,
@@ -875,7 +875,7 @@ fn projection_limits_extraction_to_the_nearest_tags_and_reuses_their_text() {
         project_nametags(
             cache,
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view(Vec3::new(0.0, 1.62, 5.0)),
             None,
             0.5,

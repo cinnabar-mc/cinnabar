@@ -817,7 +817,8 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         }
         let mut ui = client_ui::ui_runtime::UiRuntime::new(1);
         if scope != "absent" {
-            ui.experiences.session.state = server_experience::session::State::Granted(grant);
+            ui.session.experiences.session.state =
+                server_experience::session::State::Granted(grant);
         }
         let mut source = request(&path, old_digest).source;
         source.grants.render_post = scope != "user_denied";
@@ -861,12 +862,14 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         if scope == "revoked_before_publish" {
             world
                 .resource_mut::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state = server_experience::session::State::Disabled;
         } else if scope == "expired_before_publish"
             && let server_experience::session::State::Granted(grant) = &mut world
                 .resource_mut::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state

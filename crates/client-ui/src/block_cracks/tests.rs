@@ -2,7 +2,7 @@ use chunk_pipeline::WorldStream;
 use client_world::CommittedUiEvent;
 use protocol::{BlockCrackAction, WorldBootstrap, WorldEvent};
 
-use {super::*, chunk_pipeline::BlockCrackStatus};
+use {super::*, client_world::BlockCrackStatus};
 
 fn event(position: [i32; 3], action: BlockCrackAction) -> BlockCrackEvent {
     BlockCrackEvent { position, action }
@@ -51,7 +51,7 @@ fn block_crack_production_stream_batches_consume_beyond_former_history_limit() {
             };
             consume_committed_block_crack(&mut ui, 9, sequence, dimension, event).unwrap();
         }
-        reconcile_world_block_cracks(&mut ui, &stream);
+        ui.project_block_cracks(stream.block_crack_snapshot());
         assert_eq!(ui.block_cracks_status().active, 0);
     }
     assert_eq!(ui.block_cracks_status().consumed, 1_280);
@@ -115,7 +115,7 @@ fn drain_cracks(ui: &mut UiRuntime, stream: &mut WorldStream) {
             consume_committed_block_crack(ui, 9, sequence, dimension, event).unwrap();
         }
     }
-    reconcile_world_block_cracks(ui, stream);
+    ui.project_block_cracks(stream.block_crack_snapshot());
 }
 
 #[test]

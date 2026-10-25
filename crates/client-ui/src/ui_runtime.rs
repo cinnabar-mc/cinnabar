@@ -43,6 +43,7 @@ pub mod scene_stack;
 pub mod scoreboard_adapter;
 pub mod screen_recipes;
 pub mod screen_state;
+pub mod session;
 pub mod session_data;
 pub mod sign_editor;
 pub mod use_on_identity_evidence;
@@ -58,26 +59,18 @@ pub use interaction::FastTransferAction;
 pub use interaction::dispatch_inventory_click;
 pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
 
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
-use protocol::{
-    ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, EquipmentEvent, InventoryAuthority,
-    UiEvent,
-};
+use protocol::{ActorAttribute, BlockCrackEvent, EquipmentEvent, InventoryAuthority, UiEvent};
 use semantic_input::InputContext;
 use ui::{
-    BossBarStore, ChatAutocompleteRequest, ChatAutocompleteState, ChatClipboard, ChatEditor,
-    ChatEditorError, ChatHistory, ChatPasteError, ChatRateLimit, ChatSendQueue, ChatStore,
-    HudStore, MAX_CHAT_INPUT_BYTES, ScoreboardStore,
+    BossBarStore, ChatAutocompleteRequest, ChatClipboard, ChatEditor, ChatEditorError, ChatHistory,
+    ChatPasteError, ChatStore, HudStore, ScoreboardStore,
 };
 
 use self::gameplay_hud::GameplayHudState;
 use inventory::inventory_ledger::PlayerInventoryLedger;
 use inventory::inventory_router::{EquipmentRoute, InventoryRouterError};
-
-const MAX_PENDING_CHAT_SENDS: usize = 32;
-const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
-const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
 
 pub use platform_clipboard::PlatformClipboard;
 
@@ -138,212 +131,55 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug)]
 pub struct UiRuntime {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub experiences: crate::experience_session::ExperienceSession,
-    pub player_roster: player_roster::PlayerRoster,
-    session_id: u64,
+    /// Server state is replaced as one value when the server session changes.
+    pub session: session::SessionUi,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
-    /// The open window's position and the block entity id found there.
-    storage_block: Option<([i32; 3], Arc<str>)>,
-    last_fifo_sequence: Option<u64>,
-    last_block_crack_sequence: Option<u64>,
-    last_local_millis: Option<u64>,
-    last_server_tick: Option<u64>,
-    /// Presentation tick and real millis anchor, independent of packet ordering.
-    presentation_tick_anchor: Option<(u64, u64)>,
-    chat_focused: bool,
-    inventory_open: bool,
-    hud: HudStore,
-    death_reason: Arc<str>,
-    death_rules: protocol::DeathRules,
     toast_display_millis: u64,
     /// Developer captures never draw toasts.
     hide_toasts: bool,
-    chat: ChatStore,
-    scoreboards: ScoreboardStore,
-    boss_bars: BossBarStore,
-    boss_responses: boss::Responses,
-    chat_editor: ChatEditor,
     chat_history: ChatHistory,
-    chat_input_revision: u64,
-    chat_autocomplete: ChatAutocompleteState,
-    chat_autocomplete_catalog: ChatAutocompleteCatalog,
-    chat_usage_hint: Option<Arc<str>>,
-    local_sleeping: bool,
-    wake_requested: bool,
-    sleep_status: Option<oreui::SleepStatus>,
-    chat_tab_cycling: bool,
-    chat_tab_start: Option<usize>,
-    pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
-    chat_sends: ChatSendQueue,
-    in_flight_chat_sends: usize,
-    chat_source_name: Arc<str>,
-    chat_xuid: Arc<str>,
-    local_player_display_name: Arc<str>,
     dropped_unsent_chat_messages: u64,
-    block_cracks: crate::block_cracks::BlockCracks,
-    gameplay_hud: GameplayHudState,
-    item_activation: Option<item_activation::ItemActivation>,
-    pending_totem_snapshots: VecDeque<(u64, Option<u32>)>,
-    activation_clock: item_activation::ActivationClock,
-    use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
-    forms: ServerFormStore,
-    data_driven: data_driven::DataDrivenUi,
-    credits: credits::CreditsState,
-    sign_editor: sign_editor::SignEditor,
-    inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
-    screen: screen_state::ScreenState,
     furnace_projection: Arc<std::sync::Mutex<presentation::forms::furnace_book::ProjectionCache>>,
     recipe_book_icons: Arc<std::sync::Mutex<presentation::forms::BookIconCache>>,
-    emotes: emotes::EmoteState,
-    mob_effect_screen: mob_effects::MobEffectScreenState,
-    /// Client packets the screens queue for the network flush.
-    client_packets: VecDeque<protocol::Packet>,
-    /// One complete book commit, bounded by the protocol page limit plus signing.
-    book_packets: VecDeque<protocol::Packet>,
-    local_actor_damage: Option<client_world::ActorDamageState>,
-    /// Last known life state also retains the dead-to-alive reason retirement history.
-    last_known_local_player_alive: Option<bool>,
-    local_player_health_available: bool,
-    local_player_respawn_ready: bool,
-    local_player_death_generation: u64,
-    last_selected_identity_change_millis: Option<u64>,
-    last_selected_identity: Option<(u8, i32, u32)>,
-    /// Local millis at which the held jump began charging the mounted jump
-    /// bar; `None` while jump is released or no mount is ridden.
-    mount_jump_hold_started_millis: Option<u64>,
     /// Startup-loaded localization catalog; survives session replacement
     /// because it is local pinned data, not server state.
     lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
     active_lang: Option<Arc<assets::RuntimeLangCatalog>>,
-    server_lang: Option<Arc<assets::ServerLangOverlay>>,
-    session_icons: Option<Arc<presentation::SessionIcons>>,
-    session_items: Option<Arc<item_facts::SessionItemComponents>>,
     /// Version-pinned local item facts survive replacement of server session state.
     food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
-    anvil_cache: anvil::cache::PreviewCache,
-    grindstone_cache: grindstone::PreviewCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
-    server_ui: Option<Arc<presentation::ServerUiPack>>,
-    session_glyphs: Option<Arc<presentation::SessionGlyphSheets>>,
-    /// Authoritative display names of real player/entity score owners,
-    /// refreshed from the world stream before committed events apply.
-    score_owner_names: std::collections::BTreeMap<i64, Arc<str>>,
-    /// Sorted usernames on the authoritative player list, the retained
-    /// answer for the `@a` selector.
-    known_player_names: Vec<Arc<str>>,
-    player_list_held: bool,
-    touch_player_list: bool,
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
     loading_screen: Option<ui::LoadingStage>,
-    hurt_pending: bool, // a health drop the scene stack has not yet answered
 }
 
 impl UiRuntime {
     pub fn new(session_id: u64) -> Self {
         Self {
+            session: session::SessionUi::new(session_id),
             item_fuel_catalog: None,
-            storage_block: None,
-            session_id,
-            #[cfg(not(target_arch = "wasm32"))]
-            experiences: Default::default(),
-            player_roster: Default::default(),
-            last_fifo_sequence: None,
-            last_block_crack_sequence: None,
-            last_local_millis: None,
-            last_server_tick: None,
-            presentation_tick_anchor: None,
-            chat_focused: false,
-            inventory_open: false,
-            score_owner_names: std::collections::BTreeMap::new(),
-            known_player_names: Vec::new(),
-            player_list_held: false,
-            touch_player_list: false,
             screen_settings: Arc::default(),
             loading_screen: None,
-            hurt_pending: false,
-            hud: HudStore::default(),
-            death_reason: Arc::from(""),
-            death_rules: protocol::DeathRules::default(),
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
             hide_toasts: false,
-            chat: ChatStore::default(),
-            scoreboards: ScoreboardStore::default(),
-            boss_bars: BossBarStore::default(),
-            boss_responses: boss::Responses::default(),
-            chat_editor: ChatEditor::new(MAX_CHAT_INPUT_BYTES)
-                .expect("the reviewed chat input bound is valid"),
             chat_history: ChatHistory::default(),
-            chat_input_revision: 0,
-            chat_autocomplete: ChatAutocompleteState::default(),
-            chat_autocomplete_catalog: ChatAutocompleteCatalog::default(),
-            chat_usage_hint: None,
-            local_sleeping: false,
-            wake_requested: false,
-            sleep_status: None,
-            chat_tab_cycling: false,
-            chat_tab_start: None,
-            pending_chat_autocomplete_request: None,
-            chat_sends: ChatSendQueue::new(
-                MAX_PENDING_CHAT_SENDS,
-                ChatRateLimit::new(MAX_CHAT_SENDS_PER_WINDOW, CHAT_RATE_WINDOW_MILLIS)
-                    .expect("the reviewed chat rate window is valid"),
-            )
-            .expect("the reviewed chat queue capacity is valid"),
-            in_flight_chat_sends: 0,
-            chat_source_name: Arc::from(""),
-            chat_xuid: Arc::from(""),
-            local_player_display_name: Arc::from(""),
             dropped_unsent_chat_messages: 0,
-            block_cracks: crate::block_cracks::BlockCracks::default(),
-            gameplay_hud: GameplayHudState::default(),
-            item_activation: None,
-            pending_totem_snapshots: VecDeque::new(),
-            activation_clock: item_activation::ActivationClock::default(),
-            use_on_identity_evidence:
-                use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
-            forms: ServerFormStore::default(),
-            data_driven: data_driven::DataDrivenUi::default(),
-            credits: credits::CreditsState::default(),
-            sign_editor: sign_editor::SignEditor::default(),
-            inventory_pointer_gui: None,
             inventory_keys: interaction::InventoryKeys::default(),
-            screen: screen_state::ScreenState::default(),
-            emotes: emotes::EmoteState::default(),
-            mob_effect_screen: mob_effects::MobEffectScreenState::default(),
-            client_packets: VecDeque::new(),
-            book_packets: VecDeque::new(),
-            local_actor_damage: None,
-            last_known_local_player_alive: None,
-            local_player_health_available: false,
-            local_player_respawn_ready: false,
-            local_player_death_generation: 0,
-            last_selected_identity_change_millis: None,
-            last_selected_identity: None,
-            mount_jump_hold_started_millis: None,
             furnace_projection: Arc::default(),
             recipe_book_icons: Arc::default(),
             lang_catalog: None,
             active_lang: None,
-            server_lang: None,
-            session_icons: None,
-            session_items: None,
             food_catalog: None,
             stack_facts: Default::default(),
-            anvil_cache: Default::default(),
-            grindstone_cache: Default::default(),
             item_name_generation: 0,
-            server_ui: None,
-            session_glyphs: None,
         }
     }
 
     pub const fn session_id(&self) -> u64 {
-        self.session_id
+        self.session.session_id
     }
 
     pub const fn inventory_authority(
@@ -369,7 +205,7 @@ impl UiRuntime {
             .inventory
             .publish_inventory_authority(authority);
         if authority != InventoryAuthority::Server {
-            self.inventory_open = false;
+            self.session.inventory_open = false;
         }
     }
 
@@ -416,27 +252,27 @@ impl UiRuntime {
     }
 
     pub const fn hud(&self) -> &HudStore {
-        &self.hud
+        &self.session.hud
     }
 
     pub const fn chat(&self) -> &ChatStore {
-        &self.chat
+        &self.session.chat
     }
 
     pub const fn scoreboards(&self) -> &ScoreboardStore {
-        &self.scoreboards
+        &self.session.scoreboards
     }
 
     pub const fn boss_bars(&self) -> &BossBarStore {
-        &self.boss_bars
+        &self.session.boss_bars
     }
 
     pub const fn chat_focused(&self) -> bool {
-        self.chat_focused
+        self.session.chat_focused
     }
 
     pub const fn inventory_open(&self) -> bool {
-        self.inventory_open
+        self.session.inventory_open
     }
 
     pub fn inventory_ledger<'a>(
@@ -447,15 +283,15 @@ impl UiRuntime {
     }
 
     pub const fn sign_editor(&self) -> &sign_editor::SignEditor {
-        &self.sign_editor
+        &self.session.sign_editor
     }
 
     pub fn sign_editor_mut(&mut self) -> &mut sign_editor::SignEditor {
-        &mut self.sign_editor
+        &mut self.session.sign_editor
     }
 
     pub const fn server_forms(&self) -> &ServerFormStore {
-        &self.forms
+        &self.session.forms
     }
 
     /// Answers one retained server form and stages its outbound
@@ -465,20 +301,22 @@ impl UiRuntime {
         identity: ServerFormIdentity,
         action: LocalFormAction,
     ) -> Result<(), FormRespondError> {
-        self.forms.respond(identity, action)
+        self.session.forms.respond(identity, action)
     }
 
     pub fn server_forms_mut(&mut self) -> &mut ServerFormStore {
-        &mut self.forms
+        &mut self.session.forms
     }
 
     pub fn data_driven_ui(&self) -> &data_driven::DataDrivenUi {
-        &self.data_driven
+        &self.session.data_driven
     }
 
     pub fn note_stream_dimension(&mut self, dimension: i32) {
-        self.forms.note_stream_dimension(dimension);
-        self.block_cracks.synchronize_dimension(Some(dimension));
+        self.session.forms.note_stream_dimension(dimension);
+        self.session
+            .block_cracks
+            .synchronize_dimension(Some(dimension));
     }
 
     /// Installs validated compiled fuel facts for subsequent inventory admission.
@@ -494,7 +332,7 @@ impl UiRuntime {
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
         }
-        if let Some((position, block_entity)) = &self.storage_block {
+        if let Some((position, block_entity)) = &self.session.storage_block {
             ledger.name_storage_block(*position, Some(&**block_entity));
         }
         ledger
@@ -507,7 +345,7 @@ impl UiRuntime {
         now_millis: u64,
     ) {
         if player_runtime.inventory.poll_inventory_timeout(now_millis) {
-            self.inventory_open = player_runtime
+            self.session.inventory_open = player_runtime
                 .inventory
                 .ledger()
                 .personal_inventory_desired_open()
@@ -516,32 +354,32 @@ impl UiRuntime {
                     .ledger()
                     .storage_generation()
                     .is_some();
-            if !self.inventory_open {
-                self.inventory_pointer_gui = None;
+            if !self.session.inventory_open {
+                self.session.inventory_pointer_gui = None;
             }
         }
     }
 
     pub fn inventory_transport_closed(&mut self, player_runtime: &mut player_state::PlayerState) {
         player_runtime.inventory.ledger_mut().transport_closed();
-        self.inventory_open = false;
-        self.inventory_pointer_gui = None;
+        self.session.inventory_open = false;
+        self.session.inventory_pointer_gui = None;
     }
 
     pub const fn inventory_pointer_gui(&self) -> Option<[f32; 2]> {
-        self.inventory_pointer_gui
+        self.session.inventory_pointer_gui
     }
 
     pub const fn screen_state(&self) -> &screen_state::ScreenState {
-        &self.screen
+        &self.session.screen
     }
 
     pub fn screen_state_mut(&mut self) -> &mut screen_state::ScreenState {
-        &mut self.screen
+        &mut self.session.screen
     }
 
     pub fn set_inventory_pointer_gui(&mut self, position: Option<[f32; 2]>) {
-        self.inventory_pointer_gui = position;
+        self.session.inventory_pointer_gui = position;
     }
 
     /// Whether a scene over the game, menus aside, takes gameplay input.
@@ -550,23 +388,23 @@ impl UiRuntime {
     }
 
     pub const fn chat_editor(&self) -> &ChatEditor {
-        &self.chat_editor
+        &self.session.chat_editor
     }
 
     pub fn chat_suggestions(&self) -> &[Arc<str>] {
-        self.chat_autocomplete.suggestions()
+        self.session.chat_autocomplete.suggestions()
     }
 
     pub const fn chat_selected_suggestion(&self) -> Option<usize> {
-        self.chat_autocomplete.selected_index()
+        self.session.chat_autocomplete.selected_index()
     }
 
     pub fn chat_usage_hint(&self) -> Option<&str> {
-        self.chat_usage_hint.as_deref()
+        self.session.chat_usage_hint.as_deref()
     }
 
     pub fn take_chat_autocomplete_request(&mut self) -> Option<ChatAutocompleteRequest> {
-        self.pending_chat_autocomplete_request.take()
+        self.session.pending_chat_autocomplete_request.take()
     }
 
     pub fn service_pending_chat_autocomplete(
@@ -580,9 +418,9 @@ impl UiRuntime {
     }
 
     pub fn insert_chat_text(&mut self, value: &str) -> Result<(), ChatEditorError> {
-        let before = self.chat_editor.clone();
-        self.chat_editor.insert(value)?;
-        if self.chat_editor != before {
+        let before = self.session.chat_editor.clone();
+        self.session.chat_editor.insert(value)?;
+        if self.session.chat_editor != before {
             self.note_chat_editor_change();
         }
         Ok(())
@@ -592,9 +430,9 @@ impl UiRuntime {
         &mut self,
         clipboard: &mut C,
     ) -> Result<(), ChatPasteError<C::Error>> {
-        let before = self.chat_editor.clone();
-        self.chat_editor.paste_from(clipboard)?;
-        if self.chat_editor != before {
+        let before = self.session.chat_editor.clone();
+        self.session.chat_editor.paste_from(clipboard)?;
+        if self.session.chat_editor != before {
             self.note_chat_editor_change();
         }
         Ok(())
@@ -640,106 +478,40 @@ impl UiRuntime {
         true
     }
 
-    pub fn project_block_cracks(&mut self, snapshot: chunk_pipeline::BlockCrackSnapshot) {
-        self.block_cracks.project(snapshot);
-        self.block_cracks
-            .report_status(self.session_id, self.block_cracks_status());
+    pub fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {
+        self.session.block_cracks.project(snapshot);
+        self.session
+            .block_cracks
+            .report_status(self.session.session_id, self.block_cracks_status());
     }
 
-    pub fn block_crack_snapshot(&self) -> Option<&chunk_pipeline::BlockCrackSnapshot> {
-        self.block_cracks.snapshot()
+    pub fn block_crack_snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
+        self.session.block_cracks.snapshot()
     }
 
-    pub fn block_cracks_status(&self) -> chunk_pipeline::BlockCrackStatus {
-        self.block_cracks.status()
+    pub fn block_cracks_status(&self) -> client_world::BlockCrackStatus {
+        self.session.block_cracks.status()
     }
 
     pub fn clear_disconnected_block_cracks(&mut self) {
-        self.block_cracks.synchronize_dimension(None);
-        self.block_cracks
-            .report_status(self.session_id, self.block_cracks_status());
+        self.session.block_cracks.synchronize_dimension(None);
+        self.session
+            .block_cracks
+            .report_status(self.session.session_id, self.block_cracks_status());
     }
 
     /// Resets UI session state for `session_id`; the session controller moves player authority with it.
     pub fn begin_session(&mut self, session_id: u64) {
-        if self.session_id == session_id {
+        if self.session.session_id == session_id {
             return;
         }
-        self.session_id = session_id;
-        self.emotes.reset();
-        self.mob_effect_screen.close();
-        self.client_packets.clear();
-        self.book_packets.clear();
-        self.data_driven.clear();
-        self.screen.reset_session();
-        self.anvil_cache = Default::default();
-        self.grindstone_cache = Default::default();
-        #[cfg(not(target_arch = "wasm32"))]
-        self.experiences.reset();
-        self.server_lang = None;
-        self.session_icons = None;
-        self.session_items = None;
-        self.item_name_generation = self.item_name_generation.wrapping_add(1);
-        self.server_ui = None;
-        self.session_glyphs = None;
-        self.last_fifo_sequence = None;
-        self.last_block_crack_sequence = None;
-        self.last_local_millis = None;
-        self.last_server_tick = None;
-        self.presentation_tick_anchor = None;
-        self.chat_source_name = Arc::from("");
-        self.chat_xuid = Arc::from("");
-        self.local_player_display_name = Arc::from("");
-        self.chat_focused = false;
-        self.inventory_open = false;
-        self.score_owner_names.clear();
-        self.known_player_names.clear();
-        self.player_roster = Default::default();
-        self.player_list_held = false;
-        self.touch_player_list = false;
-        self.hud.clear();
-        self.death_reason = Arc::from("");
-        self.death_rules = protocol::DeathRules::default();
-        self.chat.clear();
-        self.scoreboards.clear();
-        self.boss_bars.clear();
-        self.boss_responses = boss::Responses::default();
-        self.chat_editor.clear();
+        let dropped = self.session.chat_sends.pending().len();
+        self.session = self.session.next_session(session_id);
         self.chat_history.clear_navigation();
-        self.chat_input_revision = 0;
-        self.chat_tab_cycling = false;
-        self.chat_tab_start = None;
-        self.chat_autocomplete.begin_session(session_id);
-        self.chat_autocomplete_catalog = ChatAutocompleteCatalog::default();
-        self.chat_usage_hint = None;
-        self.local_sleeping = false;
-        self.wake_requested = false;
-        self.sleep_status = None;
-        self.pending_chat_autocomplete_request = None;
-        self.in_flight_chat_sends = 0;
-        let dropped = self.chat_sends.begin_session(session_id);
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
         self.dropped_unsent_chat_messages = self
             .dropped_unsent_chat_messages
             .saturating_add(dropped as u64);
-        self.block_cracks = crate::block_cracks::BlockCracks::default();
-        self.sign_editor = sign_editor::SignEditor::default();
-        self.gameplay_hud.clear();
-        self.item_activation = None;
-        self.pending_totem_snapshots.clear();
-        self.activation_clock = item_activation::ActivationClock::default();
-        self.use_on_identity_evidence.reset(session_id);
-        self.forms.clear();
-        self.credits = credits::CreditsState::default();
-        self.inventory_pointer_gui = None;
-        self.local_actor_damage = None;
-        self.last_known_local_player_alive = None;
-        self.local_player_health_available = false;
-        self.local_player_respawn_ready = false;
-        self.local_player_death_generation = 0;
-        self.hurt_pending = false;
-        self.last_selected_identity_change_millis = None;
-        self.last_selected_identity = None;
-        self.mount_jump_hold_started_millis = None;
     }
 
     pub fn open_chat(
@@ -754,8 +526,8 @@ impl UiRuntime {
             .inventory
             .ledger_mut()
             .request_personal_close();
-        self.inventory_open = false;
-        self.chat_focused = true;
+        self.session.inventory_open = false;
+        self.session.chat_focused = true;
         UiAuthorityTransition {
             consumes_text: true,
             requested_context: InputContext::UiFocused,
@@ -763,12 +535,12 @@ impl UiRuntime {
     }
 
     pub fn close_chat(&mut self) -> UiAuthorityTransition {
-        self.chat_focused = false;
-        self.chat_editor.clear();
+        self.session.chat_focused = false;
+        self.session.chat_editor.clear();
         self.chat_history.clear_navigation();
-        self.chat_autocomplete.clear();
-        self.chat_usage_hint = None;
-        self.pending_chat_autocomplete_request = None;
+        self.session.chat_autocomplete.clear();
+        self.session.chat_usage_hint = None;
+        self.session.pending_chat_autocomplete_request = None;
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: InputContext::Gameplay,
@@ -779,10 +551,10 @@ impl UiRuntime {
     pub fn toggle_inventory(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
-        authority: Option<&client_world::WorldAuthority>,
+        authority: Option<client_world::ui_read::InventoryUi<'_>>,
     ) -> UiAuthorityTransition {
-        self.screen.container_close_armed = false;
-        self.chat_focused = false;
+        self.session.screen.container_close_armed = false;
+        self.session.chat_focused = false;
         if player_runtime
             .inventory
             .ledger()
@@ -793,38 +565,40 @@ impl UiRuntime {
                 .inventory
                 .ledger_mut()
                 .request_storage_close();
-            self.inventory_open = false;
-        } else if self.inventory_open {
+            self.session.inventory_open = false;
+        } else if self.session.inventory_open {
             player_runtime
                 .inventory
                 .ledger_mut()
                 .request_personal_close();
-            self.inventory_open = false;
+            self.session.inventory_open = false;
         } else {
-            self.inventory_open = self
-                .local_runtime_id(player_runtime)
-                .is_some_and(|runtime_id| {
-                    let mount = authority
-                        .filter(|world| world.local_player_runtime_id() == runtime_id)
-                        .and_then(|world| {
-                            player_runtime
-                                .facts
-                                .mount_unique_id()
-                                .and_then(|mount| world.actor_by_unique_id(mount))
-                        });
-                    let ledger = player_runtime.inventory.ledger_mut();
-                    ledger.request_personal_open(mount.map_or(runtime_id, |mount| mount.runtime_id))
-                });
+            self.session.inventory_open =
+                self.local_runtime_id(player_runtime)
+                    .is_some_and(|runtime_id| {
+                        let mount = authority
+                            .filter(|world| world.local_player().runtime_id() == runtime_id)
+                            .and_then(|world| {
+                                player_runtime
+                                    .facts
+                                    .mount_unique_id()
+                                    .and_then(|mount| world.container_actor(mount))
+                            });
+                        let ledger = player_runtime.inventory.ledger_mut();
+                        ledger.request_personal_open(
+                            mount.map_or(runtime_id, |mount| mount.runtime_id),
+                        )
+                    });
         }
-        self.screen.inventory = None;
-        if self.inventory_open {
+        self.session.screen.inventory = None;
+        if self.session.inventory_open {
             self.observe_inventory_window(player_runtime);
         } else {
-            self.screen.search_focused = false;
+            self.session.screen.search_focused = false;
         }
         UiAuthorityTransition {
             consumes_text: false,
-            requested_context: if self.inventory_open {
+            requested_context: if self.session.inventory_open {
                 InputContext::UiFocused
             } else {
                 InputContext::Gameplay
@@ -836,9 +610,9 @@ impl UiRuntime {
         &mut self,
         player_runtime: &mut player_state::PlayerState,
     ) -> UiAuthorityTransition {
-        self.screen.container_close_armed = false;
-        self.screen.inventory = None;
-        self.screen.search_focused = false;
+        self.session.screen.container_close_armed = false;
+        self.session.screen.inventory = None;
+        self.session.screen.search_focused = false;
         player_runtime
             .inventory
             .ledger_mut()
@@ -847,7 +621,7 @@ impl UiRuntime {
             .inventory
             .ledger_mut()
             .request_personal_close();
-        self.inventory_open = false;
+        self.session.inventory_open = false;
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: InputContext::Gameplay,
@@ -856,38 +630,40 @@ impl UiRuntime {
 
     /// Applies an editor command and advances completion state only when its contents change.
     pub fn mutate_chat_editor(&mut self, mutate: impl FnOnce(&mut ChatEditor)) {
-        let before = self.chat_editor.clone();
-        mutate(&mut self.chat_editor);
-        if self.chat_editor != before {
+        let before = self.session.chat_editor.clone();
+        mutate(&mut self.session.chat_editor);
+        if self.session.chat_editor != before {
             self.note_chat_editor_change();
         }
     }
 
     fn replace_chat_editor(&mut self, value: &str) {
-        if self.chat_editor.as_str() == value
-            && self.chat_editor.cursor_byte() == self.chat_editor.len_bytes()
+        if self.session.chat_editor.as_str() == value
+            && self.session.chat_editor.cursor_byte() == self.session.chat_editor.len_bytes()
         {
             return;
         }
-        self.chat_editor.clear();
-        self.chat_editor
+        self.session.chat_editor.clear();
+        self.session
+            .chat_editor
             .insert(value)
             .expect("history and autocomplete entries obey the chat input bound");
         self.note_chat_editor_change();
     }
 
     fn note_chat_editor_change(&mut self) {
-        self.chat_usage_hint = None;
-        self.chat_tab_cycling = false;
-        self.chat_tab_start = None;
-        self.chat_input_revision = self.chat_input_revision.saturating_add(1);
-        self.pending_chat_autocomplete_request = self
+        self.session.chat_usage_hint = None;
+        self.session.chat_tab_cycling = false;
+        self.session.chat_tab_start = None;
+        self.session.chat_input_revision = self.session.chat_input_revision.saturating_add(1);
+        self.session.pending_chat_autocomplete_request = self
+            .session
             .chat_autocomplete
             .begin_input(
-                self.session_id,
-                self.chat_input_revision,
-                self.chat_editor.as_str(),
-                self.chat_editor.cursor_byte(),
+                self.session.session_id,
+                self.session.chat_input_revision,
+                self.session.chat_editor.as_str(),
+                self.session.chat_editor.cursor_byte(),
             )
             .expect("the editor enforces autocomplete input and cursor bounds");
     }
@@ -896,13 +672,13 @@ impl UiRuntime {
         &mut self,
         envelope: SequencedBlockCrackEvent,
     ) -> Result<(), UiRuntimeError> {
-        if envelope.session_id != self.session_id {
+        if envelope.session_id != self.session.session_id {
             return Err(UiRuntimeError::WrongSession {
-                expected: self.session_id,
+                expected: self.session.session_id,
                 actual: envelope.session_id,
             });
         }
-        if let Some(previous) = self.last_block_crack_sequence
+        if let Some(previous) = self.session.last_block_crack_sequence
             && envelope.fifo_sequence <= previous
         {
             return Err(UiRuntimeError::StaleBlockCrackSequence {
@@ -910,7 +686,7 @@ impl UiRuntime {
                 actual: envelope.fifo_sequence,
             });
         }
-        self.last_block_crack_sequence = Some(envelope.fifo_sequence);
+        self.session.last_block_crack_sequence = Some(envelope.fifo_sequence);
         Ok(())
     }
 
@@ -921,13 +697,13 @@ impl UiRuntime {
         local_millis: u64,
         server_tick: Option<u64>,
     ) -> Result<(), UiRuntimeError> {
-        if session_id != self.session_id {
+        if session_id != self.session.session_id {
             return Err(UiRuntimeError::WrongSession {
-                expected: self.session_id,
+                expected: self.session.session_id,
                 actual: session_id,
             });
         }
-        if let Some(previous) = self.last_fifo_sequence
+        if let Some(previous) = self.session.last_fifo_sequence
             && fifo_sequence <= previous
         {
             return Err(UiRuntimeError::StaleFifoSequence {
@@ -935,7 +711,7 @@ impl UiRuntime {
                 actual: fifo_sequence,
             });
         }
-        if let Some(previous) = self.last_local_millis
+        if let Some(previous) = self.session.last_local_millis
             && local_millis < previous
         {
             return Err(UiRuntimeError::NonMonotonicLocalTime {
@@ -943,7 +719,7 @@ impl UiRuntime {
                 actual: local_millis,
             });
         }
-        if let (Some(previous), Some(actual)) = (self.last_server_tick, server_tick)
+        if let (Some(previous), Some(actual)) = (self.session.last_server_tick, server_tick)
             && actual != 0
             && actual < previous
         {
@@ -978,6 +754,6 @@ impl UiRuntime {
 
     /// Expires retained HUD output when the app has admitted a valid viewport.
     pub fn expire_hud(&mut self, now: u64) {
-        self.hud.expire(now);
+        self.session.hud.expire(now);
     }
 }

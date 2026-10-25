@@ -6,13 +6,13 @@ use oreui::SleepStatus;
 impl UiRuntime {
     /// Tracks the local player's sleep; waking closes a chat opened from the bed.
     pub fn set_local_sleeping(&mut self, sleeping: bool) {
-        if sleeping == self.local_sleeping {
+        if sleeping == self.session.local_sleeping {
             return;
         }
-        self.local_sleeping = sleeping;
+        self.session.local_sleeping = sleeping;
         if !sleeping {
-            self.wake_requested = false;
-            if self.chat_focused {
+            self.session.wake_requested = false;
+            if self.session.chat_focused {
                 self.close_chat();
             }
         }
@@ -20,7 +20,7 @@ impl UiRuntime {
 
     /// Whether the bed screen owns input: the player lies in bed.
     pub const fn local_sleeping(&self) -> bool {
-        self.local_sleeping
+        self.session.local_sleeping
     }
 
     /// Decodes the `SleepingPlayers` compound; an undecodable one is skipped.
@@ -37,7 +37,7 @@ impl UiRuntime {
                 .and_then(|value| u32::try_from(value).ok())
                 .unwrap_or(0)
         };
-        self.sleep_status = Some(SleepStatus {
+        self.session.sleep_status = Some(SleepStatus {
             sleeping: count("sleepingPlayerCount"),
             required: count("overworldPlayerCount"),
             able: count("ableToSleep") != 0,
@@ -46,12 +46,12 @@ impl UiRuntime {
     }
 
     pub const fn sleep_status(&self) -> Option<SleepStatus> {
-        self.sleep_status
+        self.session.sleep_status
     }
 
     /// Queues one StopSleeping action; a no-op unless the local player is asleep.
     pub fn request_wake(&mut self) {
-        self.wake_requested |= self.local_sleeping;
+        self.session.wake_requested |= self.session.local_sleeping;
     }
 
     /// Sends a wake action when the local actor is known and the transport accepts it.
@@ -60,11 +60,11 @@ impl UiRuntime {
         runtime_id: Option<u64>,
         send: impl FnOnce(protocol::Packet) -> Result<(), E>,
     ) -> bool {
-        if self.wake_requested
+        if self.session.wake_requested
             && let Some(runtime_id) = runtime_id
             && send(protocol::stop_sleeping_packet(runtime_id)).is_ok()
         {
-            self.wake_requested = false;
+            self.session.wake_requested = false;
             true
         } else {
             false
@@ -74,7 +74,7 @@ impl UiRuntime {
     /// Consumes the retained request in focused state tests.
     #[cfg(test)]
     fn take_wake_request(&mut self) -> bool {
-        std::mem::take(&mut self.wake_requested)
+        std::mem::take(&mut self.session.wake_requested)
     }
 }
 

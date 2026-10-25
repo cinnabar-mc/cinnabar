@@ -143,6 +143,7 @@ impl ContainerSource for ContainerAuthority<'_> {
         NameSources {
             components: self
                 .runtime
+                .session
                 .session_items
                 .clone()
                 .map(|items| items as Arc<dyn Any + Send + Sync>),
@@ -208,6 +209,7 @@ pub fn container_screen_reference(
     runtime: &UiRuntime,
 ) -> Option<&'static str> {
     let block_entity = runtime
+        .session
         .storage_block
         .as_ref()
         .filter(|(position, _)| {
@@ -258,21 +260,21 @@ pub fn beacon_pyramid_level(
 pub fn observe_station_block(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     station_triggered: impl FnOnce([i32; 3]) -> Option<bool>,
     beacon_level: impl FnOnce([i32; 3]) -> Option<u8>,
     now_millis: u64,
 ) {
     let ledger = runtime.inventory_ledger(player_runtime);
-    let (Some(kind), Some(position), Some(stream)) =
-        (ledger.window_kind(), ledger.window_position(), stream)
+    let (Some(kind), Some(position), Some(world)) =
+        (ledger.window_kind(), ledger.window_position(), world)
     else {
         return;
     };
     if kind == WindowKind::Horse {
         let identifier = ledger
             .window_actor()
-            .and_then(|unique| stream.authority().actor_by_unique_id(unique))
+            .and_then(|unique| world.container_actor(unique))
             .and_then(|actor| match &actor.kind {
                 protocol::ActorKind::Entity { identifier } => Some(identifier.clone()),
                 protocol::ActorKind::Player { .. } => None,
@@ -280,13 +282,13 @@ pub fn observe_station_block(
         let equipment = ledger
             .window_actor()
             .map_or(MountEquipment::Unresolved, |unique| {
-                stream.authority().actor_mount_equipment(unique)
+                world.actor_mount_equipment(unique)
             });
         runtime.screen_state_mut().mount_identifier = identifier;
         runtime.screen_state_mut().mount_equipment = equipment;
         return;
     }
-    let nbt = stream.block_entity_compound(position);
+    let nbt = world.block_entity_compound(position.into());
     let integer = |key: &str| nbt.as_ref().and_then(|nbt| nbt.integer(key));
     match kind {
         // The level is not part of the beacon's block data; it comes from the blocks below.
