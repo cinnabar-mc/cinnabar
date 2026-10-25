@@ -393,3 +393,64 @@ fn bound_model_blocks_tag_every_model_draw_and_keep_their_template_quads() {
     }
     assert_eq!(bound.model_refs(), bedrock.model_refs(), "only the draws carry the tag");
 }
+
+/// A bound cube beside a same-tag block hides the face between them only when that block covers
+/// the whole face: a half slab leaves the cube's face showing, inside a section and across its
+/// boundary, while a double slab still hides it.
+#[test]
+fn bound_cubes_keep_faces_beside_same_tag_models_that_leave_them_open() {
+    let fixture = compiled_slab_fixture();
+    let bind = |neighbour: u32| {
+        let mut tags = vec![
+            meshing::WorldMaterialBlock::new(fixture.cube, 2, true),
+            meshing::WorldMaterialBlock::new(neighbour, 2, true),
+        ];
+        tags.sort_by_key(|block| block.network_value);
+        tags
+    };
+    let mesh = |neighbourhood: &world::MeshNeighbourhood<'_>, neighbour: u32| {
+        meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &BlockClassifier::new(fixture.air),
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            neighbourhood,
+            &meshing::lighting::FullBrightLightSampler,
+            meshing::MeshOptions {
+                world_materials: &bind(neighbour),
+                ..Default::default()
+            },
+        )
+    };
+    for (neighbour, covered) in [(fixture.lower, false), (fixture.full, true)] {
+        let inside = sub_chunk(vec![packed_storage(
+            2,
+            &[fixture.air, neighbour, fixture.cube],
+            &[([7, 8, 8], 1), ([8, 8, 8], 2)],
+        )]);
+        let within = mesh(&world::MeshNeighbourhood::new(&inside), neighbour);
+        assert_eq!(
+            has_face(&within, [8, 8, 8], Face::NegativeX),
+            !covered,
+            "inside the section beside {neighbour}"
+        );
+
+        let centre = sub_chunk(vec![packed_storage(
+            1,
+            &[fixture.air, fixture.cube],
+            &[([0, 8, 8], 1)],
+        )]);
+        let beside = sub_chunk(vec![packed_storage(
+            1,
+            &[fixture.air, neighbour],
+            &[([15, 8, 8], 1)],
+        )]);
+        let mut neighbourhood = world::MeshNeighbourhood::new(&centre);
+        assert!(neighbourhood.insert([-1, 0, 0], &beside));
+        let across = mesh(&neighbourhood, neighbour);
+        assert_eq!(
+            has_face(&across, [0, 8, 8], Face::NegativeX),
+            !covered,
+            "across the boundary beside {neighbour}"
+        );
+    }
+}
