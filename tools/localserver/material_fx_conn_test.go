@@ -49,6 +49,44 @@ func TestMaterialFxWarnsOnceWhileTheClientPartIsMissing(t *testing.T) {
 	}
 }
 
+// A command whose write fails ends the connection like a failed read: the radar stops and the
+// player's position leaves the shared list.
+func TestMaterialFxStopsTheRadarWhenACommandWriteFails(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		command := &packet.CommandRequest{CommandLine: "/materialfx"}
+		// The first gallery's actors go out; rebuilding it fails.
+		conn := &materialFxTestConn{packets: []packet.Packet{&packet.PlayerAuthInput{}, command, command}, failAfter: len(materialFxEntities)}
+		everyone := &materialFxPlayers{positions: map[uuid.UUID]mgl32.Vec3{}}
+		c := &materialFxConn{
+			Conn:     conn,
+			ext:      &experienceSender{send: func(uuid.UUID, string, string, uint16, []cinnabarext.Scalar) bool { return true }},
+			players:  func(uuid.UUID) (*world.EntityHandle, bool) { return nil, false },
+			everyone: everyone,
+			id:       uuid.New(),
+			done:     make(chan struct{}),
+		}
+		if _, err := c.ReadPacket(); err != nil {
+			t.Fatal(err)
+		}
+		if positions := everyone.snapshot(c.id, materialFxRadarPlayers); len(positions) != 1 {
+			t.Fatalf("the player is listed at %v, want one position", positions)
+		}
+		// The first command builds the gallery and starts the radar; the second fails to write.
+		if _, err := c.ReadPacket(); err != io.ErrClosedPipe {
+			t.Fatalf("ReadPacket returned %v, want the write error", err)
+		}
+		synctest.Wait()
+		select {
+		case <-c.done:
+		default:
+			t.Fatal("the connection is still open after its write failed")
+		}
+		if positions := everyone.snapshot(c.id, materialFxRadarPlayers); len(positions) != 0 {
+			t.Fatalf("the closed connection's player is still listed at %v", positions)
+		}
+	})
+}
+
 // materialFxTestBlock stands in for one of the Experience's gallery blocks.
 type materialFxTestBlock struct {
 	name string
@@ -119,10 +157,13 @@ func TestMaterialFxRespawnClearsThePreviousGallery(t *testing.T) {
 	}
 }
 
-// materialFxTestConn replays `packets` and accepts every write.
+// materialFxTestConn replays `packets` and accepts every write, or with `failAfter` set, that
+// many writes before failing the rest with io.ErrClosedPipe.
 type materialFxTestConn struct {
 	session.Conn
-	packets []packet.Packet
+	packets   []packet.Packet
+	failAfter int
+	writes    int
 }
 
 // ReadPacket returns the next queued packet, then io.EOF.
@@ -135,8 +176,14 @@ func (c *materialFxTestConn) ReadPacket() (packet.Packet, error) {
 	return pk, nil
 }
 
-// WritePacket drops `pk`.
-func (c *materialFxTestConn) WritePacket(packet.Packet) error { return nil }
+// WritePacket drops `pk`, or fails once `failAfter` writes have gone.
+func (c *materialFxTestConn) WritePacket(packet.Packet) error {
+	c.writes++
+	if c.failAfter > 0 && c.writes > c.failAfter {
+		return io.ErrClosedPipe
+	}
+	return nil
+}
 
 // Portal distances reach the client part in the order the player moved, even when sending an
 // earlier one is held up, so the last distance delivered is the player's current one.
