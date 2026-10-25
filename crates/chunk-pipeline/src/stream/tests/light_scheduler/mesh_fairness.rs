@@ -68,14 +68,14 @@ fn retired_mesh_releases_coalesced_dependency_notification() {
     }
     assert!(
         stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-            .ready
+            .notified
             .get(&visible)
             .is_some()
     );
     stream.mesh_jobs.remove_pending(&visible);
     assert!(
         stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-            .ready
+            .notified
             .get(&visible)
             .is_none()
     );

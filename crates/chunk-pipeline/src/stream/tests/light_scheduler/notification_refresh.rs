@@ -176,6 +176,78 @@ fn notified_mesh_retains_retry_history_until_queued_work_is_cleared() {
     assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 0);
 }
 
+/// Repeated notifications share one check across generations, then wake after their halo settles.
+#[test]
+fn previous_generation_notifications_coalesce_and_make_progress() {
+    let mut stream = lit_stream(1);
+    let before = stream.scheduler_view([8.0; 3]);
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(before, &mut stream.mesh_jobs.lanes, None, |_, _| true);
+    let visible = SubChunkKey::new(1, 12, 0, 0);
+    let ordinary = SubChunkKey::new(1, 16, 0, 0);
+    queue_mesh(&mut stream, before, visible, false);
+    queue_mesh(&mut stream, before, ordinary, true);
+    for offset in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL * 3 {
+        let key = SubChunkKey::new(1, -64 - i32::try_from(offset).unwrap(), 0, 0);
+        queue_mesh(&mut stream, before, key, true);
+    }
+    stream.mesh_jobs.scan.clear();
+    stream.mark_light_dirty_exact(visible).unwrap();
+    let neighbour = SubChunkKey::new(1, visible.x, 1, 0);
+    install_current_light(&mut stream, neighbour, 0, 0, false);
+    let direct = stream.lighting.direct_sky[&neighbour].clone();
+    stream.finish_accepted_light_completion(neighbour, 0, &direct, [false; 6], false);
+    let after = stream.scheduler_view([40.0, 8.0, 8.0]);
+    stream.mesh_jobs.refresh.refresh(
+        after,
+        &mut stream.mesh_jobs.lanes,
+        Some(Instant::now()),
+        |_, _| true,
+    );
+    for _ in 0..32 {
+        stream.finish_accepted_light_completion(neighbour, 0, &direct, [false; 6], false);
+    }
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs(after.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, ordinary);
+    stream.accept_mesh_completion(completion);
+    assert_eq!(
+        meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get),
+        0,
+        "a previous-generation notification was duplicated or checked by the retry rotation"
+    );
+
+    stream.poll_deadline = None;
+    let mut settled = false;
+    for _ in 0..8 {
+        if !stream
+            .mesh_jobs
+            .ingress(after, None, |_, _, _| (RESIDENT_MESH_LANE, false))
+        {
+            settled = true;
+            break;
+        }
+    }
+    assert!(settled);
+    assert_eq!(stream.dispatch_mesh_jobs(after.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_ne!(completion.key, visible);
+    stream.accept_mesh_completion(completion);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 1);
+    assert!(stream.mesh_jobs.pending.contains_key(&visible));
+
+    install_current_light(&mut stream, visible, 0, 0, false);
+    stream.finish_accepted_light_completion(neighbour, 0, &direct, [false; 6], false);
+    assert_eq!(stream.dispatch_mesh_jobs(after.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, visible);
+    stream.accept_mesh_completion(completion);
+}
+
 /// Adds a current geometry revision to one lane without scheduler ingress or worker activity.
 fn queue_mesh(stream: &mut WorldStream, view: SchedulerView, key: SubChunkKey, ready: bool) {
     stream

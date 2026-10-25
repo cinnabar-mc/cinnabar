@@ -5,6 +5,7 @@ pub(in crate::stream) mod overlays;
 mod removals;
 mod retries;
 pub(in crate::stream) mod types;
+mod wakeups;
 
 pub(in crate::stream) mod memory;
 

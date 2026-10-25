@@ -43,6 +43,14 @@ impl WorldStream {
                 self.mesh_jobs.retries.requeue(retry);
                 continue;
             }
+            if self.mesh_jobs.has_dependency_notification(
+                RESIDENT_MESH_LANE,
+                retry.key,
+                retry.revision,
+            ) {
+                self.mesh_jobs.retries.requeue(retry);
+                continue;
+            }
             if !self.mesh_jobs.retries.is_due(&retry) {
                 self.mesh_jobs.retries.requeue(retry);
                 continue;
