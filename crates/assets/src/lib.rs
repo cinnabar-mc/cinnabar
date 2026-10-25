@@ -73,12 +73,12 @@ pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorMultitextureSources,
-    ActorPoseMode, ActorTexture, MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES,
+    ActorPageSharing, ActorPoseMode, ActorTexture, MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES,
     MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, RuntimeActorCatalog,
-    actor_material_mask_sources,
-    actor_multitexture_sources, actor_sources_keeping_alpha, encode_actor_catalog,
-    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
-    neutral_actor_material_is_supported, neutral_actor_pose_mode,
+    actor_material_mask_sources, actor_multitexture_sources, actor_page_sharing,
+    actor_sources_keeping_alpha, encode_actor_catalog, neutral_actor_geometry_sampled_texels,
+    neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
+    neutral_actor_pose_mode,
 };
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,

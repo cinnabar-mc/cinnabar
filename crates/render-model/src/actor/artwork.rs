@@ -232,6 +232,7 @@ impl ActorArtworkPages {
                 &indices,
                 [width, height],
                 multitexture,
+                |_, _| false,
                 |indices| {
                     let page = ActorTexturePage {
                         width,
@@ -389,6 +390,7 @@ impl ActorArtworkPages {
                 &indices,
                 [width, height],
                 false,
+                |_, _| false,
                 |indices| {
                     hasher.update(width.to_le_bytes());
                     hasher.update(height.to_le_bytes());
@@ -436,15 +438,18 @@ impl ActorArtworkPages {
         (self, locations)
     }
     /// Appends session artwork under pack rig IDs, replacing its previous variant table.
-    /// Textures whose pack source is in `multitexture` share three-sampler pages.
+    /// Textures whose pack source is in `sharing.multitexture` share three-sampler pages, and
+    /// same-size companions in `sharing.companions` share one page.
     /// Call on startup pages so removed packs release their routes and pixel budget.
     #[must_use]
     pub fn with_pack_artwork(
         mut self,
         textures: &[assets::ActorTexture],
         bindings: &[assets::ActorArtworkBinding],
-        multitexture: &assets::ActorMultitextureSources,
+        sharing: &assets::ActorPageSharing,
     ) -> Self {
+        let multitexture = &sharing.multitexture;
+        let companion = |index: usize| sharing.companions.get(&textures[index].source).copied();
         let mut single = BTreeMap::<(u16, u16, bool), Vec<usize>>::new();
         for (index, texture) in textures.iter().enumerate() {
             if !multitexture.contains(&texture.source) {
@@ -468,13 +473,15 @@ impl ActorArtworkPages {
         let mut locations = BTreeMap::new();
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
-        for ((width, height, multitexture), indices) in groups {
+        for ((width, height, multitexture), mut indices) in groups {
+            page_budget::gather_companions(&mut indices, companion);
             push_group(
                 &mut pages,
                 &mut gpu_bytes,
                 &indices,
                 [width, height],
                 multitexture,
+                |a, b| companion(a).is_some_and(|key| companion(b) == Some(key)),
                 |indices| {
                     hasher.update(width.to_le_bytes());
                     hasher.update(height.to_le_bytes());

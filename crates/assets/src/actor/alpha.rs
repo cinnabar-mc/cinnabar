@@ -128,3 +128,169 @@ fn layer_sources<'a>(
         })
         .map(|candidate| candidate.source)
 }
+
+/// How a pack's entity sources must share artwork pages so one draw samples them together.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ActorPageSharing {
+    /// Sources each draw of a material sampling extra textures reads
+    /// ([`actor_multitexture_sources`]); a companion group holding one of them joins as one more
+    /// draw, so its masks share a page with the textures they mask.
+    pub multitexture: ActorMultitextureSources,
+    /// The base textures and masks of layers drawing Cinnabar material masks, each mapped to the
+    /// smallest source it must share a page with. Sources absent here share with nothing.
+    pub companions: BTreeMap<u32, u32>,
+}
+
+/// The page sharing `render`'s layers need: each layer drawing Cinnabar masks keeps every base
+/// texture it can draw with every mask it can select, and multitexture sampling spreads to the
+/// masks drawn over those textures.
+pub fn actor_page_sharing(render: &EntityRenderData) -> ActorPageSharing {
+    let mut parent = BTreeMap::<u32, u32>::new();
+    for layer in &render.layers {
+        let selected = render.material_nodes(layer).filter_map(|node| match node {
+            crate::EntityRenderMaterialSelection::Raster { masks, .. } => *masks,
+            _ => None,
+        });
+        let masks: BTreeSet<u32> = layer
+            .material_selection
+            .is_none()
+            .then_some(layer.material_masks)
+            .flatten()
+            .into_iter()
+            .chain(selected)
+            .filter_map(|index| render.material_masks.get(index as usize))
+            .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
+            .collect();
+        let Some(&first) = masks.first() else {
+            continue;
+        };
+        for source in layer_sources(render, layer).chain(masks.iter().copied()) {
+            join(&mut parent, first, source);
+        }
+    }
+    let sources: Vec<u32> = parent.keys().copied().collect();
+    let companions: BTreeMap<u32, u32> = sources
+        .into_iter()
+        .map(|source| (source, root(&mut parent, source)))
+        .collect();
+    let sampled = actor_multitexture_sources(render);
+    let shared: BTreeSet<u32> = companions
+        .iter()
+        .filter(|(source, _)| sampled.contains(source))
+        .map(|(_, root)| *root)
+        .collect();
+    let groups = shared.iter().map(|group| {
+        companions
+            .iter()
+            .filter(move |(_, root)| *root == group)
+            .map(|(source, _)| *source)
+            .collect::<Vec<_>>()
+    });
+    let multitexture =
+        ActorMultitextureSources::from_draws(sampled.draws().map(<[u32]>::to_vec).chain(groups));
+    ActorPageSharing {
+        multitexture,
+        companions,
+    }
+}
+
+/// The smallest source of `source`'s set, compressing the path to it.
+fn root(parent: &mut BTreeMap<u32, u32>, source: u32) -> u32 {
+    let mut root = *parent.entry(source).or_insert(source);
+    while parent[&root] != root {
+        root = parent[&root];
+    }
+    parent.insert(source, root);
+    root
+}
+
+/// Merges the sets of `a` and `b` under the smaller of their roots.
+fn join(parent: &mut BTreeMap<u32, u32>, a: u32, b: u32) {
+    let (a, b) = (root(parent, a), root(parent, b));
+    parent.insert(a.max(b), a.min(b));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render(layers: serde_json::Value) -> EntityRenderData {
+        serde_json::from_value(serde_json::json!({
+            "layers": layers,
+            "slots": [
+                { "first_candidate": 0, "candidate_count": 2 },
+                { "first_candidate": 2, "candidate_count": 1 },
+                { "first_candidate": 3, "candidate_count": 1 },
+            ],
+            "candidates": [
+                { "condition": null, "source": 4 },
+                { "condition": null, "source": 5 },
+                { "condition": null, "source": 6 },
+                { "condition": null, "source": 7 },
+            ],
+            "visibility": [],
+            "material_masks": [
+                { "glow": 2, "emissive": 3, "strength": 1.0 },
+                { "glow": 8, "strength": 1.0 },
+            ],
+        }))
+        .unwrap()
+    }
+
+    fn layer(
+        first_slot: u32,
+        slot_count: u16,
+        masks: Option<u32>,
+        multitexture: bool,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "material_masks": masks,
+            "material_state": multitexture.then(|| serde_json::json!({
+                "alpha_test": false,
+                "multitexture": true,
+            })),
+            "rig": 0,
+            "condition": null,
+            "first_slot": first_slot,
+            "slot_count": slot_count,
+            "first_visibility": 0,
+            "visibility_count": 0,
+            "color": null,
+            "overlay_color": null,
+            "on_fire_color": null,
+        })
+    }
+
+    #[test]
+    fn mask_layers_keep_every_base_with_every_mask() {
+        let sharing = actor_page_sharing(&render(serde_json::json!([
+            layer(0, 1, Some(0), false),
+            layer(2, 1, None, false),
+        ])));
+        assert_eq!(
+            sharing.companions,
+            BTreeMap::from([(2, 2), (3, 2), (4, 2), (5, 2)]),
+            "both base candidates share with both masks; the unmasked layer shares with nothing"
+        );
+        assert!(sharing.multitexture.draws().next().is_none());
+    }
+
+    #[test]
+    fn masks_over_multitexture_sources_share_their_pages() {
+        let sharing = actor_page_sharing(&render(serde_json::json!([
+            layer(1, 2, Some(1), true),
+            layer(0, 1, Some(0), false),
+        ])));
+        assert_eq!(
+            sharing
+                .multitexture
+                .draws()
+                .flatten()
+                .copied()
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([6, 7, 8])
+        );
+        assert_eq!(sharing.companions[&8], 6);
+        assert_eq!(sharing.companions[&4], 2);
+    }
+}
