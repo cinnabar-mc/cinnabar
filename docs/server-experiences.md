@@ -165,8 +165,9 @@ premultiplied and additive classes merged face by face into their section's ordi
 translucent order, so a bound face and the water or glass beside it draw back to front by the
 face metric ordinary translucent terrain uses. A block bound to a cutout, premultiplied or
 additive material hides no other block's faces, whatever its Bedrock look, as glass hides none:
-the ground under a glass effect still draws. Touching faces of blocks bound to the same material
-stay hidden, as glass hides glass. Until the material's pipelines are ready the block draws with
+the ground under a glass effect still draws. A face against a block bound to the same material
+stays hidden where that block covers the whole face, as glass hides glass; beside a slab or
+another partial shape it still draws. Until the material's pipelines are ready the block draws with
 its Bedrock material.
 Each material charges its shader source, parameters and decoded textures to the bundle's share of
 the signed memory limit, and its textures and pipelines to its share of the GPU limit; replaced

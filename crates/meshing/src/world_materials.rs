@@ -13,8 +13,8 @@ pub struct WorldMaterialBlock {
     pub tag: u8,
     /// Whether the material lets what lies behind the block show (cutout or blended). Such a
     /// block hides no face of a block with another tag or none, as glass hides no stone face,
-    /// whatever its Bedrock look; touching faces of blocks with the same tag stay hidden, as
-    /// glass hides glass.
+    /// whatever its Bedrock look; a face against a same-tag block that covers the whole face
+    /// stays hidden, as glass hides glass.
     pub see_through: bool,
 }
 
@@ -54,8 +54,8 @@ pub(crate) fn see_through(blocks: &[WorldMaterialBlock], network_value: u32) -> 
     find(blocks, network_value).is_some_and(|block| block.see_through)
 }
 
-/// Whether a face of block `cell` is hidden by block `neighbour` because both carry the same
-/// world material tag; untagged blocks never match.
+/// Whether blocks `cell` and `neighbour` carry the same world material tag, so the neighbour
+/// hides the face between them where it covers that whole face; untagged blocks never match.
 pub(crate) fn same_tag(blocks: &[WorldMaterialBlock], cell: u32, neighbour: u32) -> bool {
     let cell = tag(blocks, cell);
     cell != 0 && cell == tag(blocks, neighbour)

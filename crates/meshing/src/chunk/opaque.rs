@@ -166,7 +166,8 @@ pub(crate) struct VisibilityMasks {
     /// Voxels that hide their neighbours' faces: full occluders that no see-through world
     /// material shades.
     occluders: AxisColumns,
-    /// Voxels a world material shades, whose faces toward a same-tag neighbour stay hidden.
+    /// Voxels a world material shades whose geometry covers each of their faces ([`covers_faces`]):
+    /// they hide the faces a same-tag neighbour turns toward them.
     bound: AxisColumns,
 }
 
@@ -183,7 +184,7 @@ impl VisibilityMasks {
                 entry.emits_cube_geometry(),
                 entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                     && !bound.is_some_and(|block| block.see_through),
-                bound.is_some(),
+                bound.is_some() && covers_faces(entry),
             )
         };
         let all = |set: bool| {
@@ -309,7 +310,8 @@ pub(crate) fn exposed_columns<'a>(
                 let cell = facts.at(cell[0], cell[1], cell[2]).network_value;
                 if (culls_face(neighbour.flags)
                     && !crate::world_materials::see_through(world, neighbour.network_value))
-                    || crate::world_materials::same_tag(world, cell, neighbour.network_value)
+                    || (crate::world_materials::same_tag(world, cell, neighbour.network_value)
+                        && covers_faces(&neighbour))
                 {
                     faces &= !boundary_bit;
                 }
@@ -339,6 +341,12 @@ pub(crate) const fn face_offset(face: Face) -> [i8; 3] {
         Face::NegativeZ => [0, 0, -1],
         Face::PositiveZ => [0, 0, 1],
     }
+}
+
+/// Whether `entry`'s geometry covers each whole face of its block, as a full cube or a model
+/// that occludes full faces does; a same-tag neighbour hides a bound face only then.
+const fn covers_faces(entry: &ResolvedPaletteEntry) -> bool {
+    entry.emits_cube_geometry() || culls_face(entry.flags)
 }
 
 const fn culls_face(neighbour: BlockFlags) -> bool {
