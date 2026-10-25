@@ -60,9 +60,8 @@ const MAX_CLIENT_BLOB_PINNED_BYTES: usize = MAX_CLIENT_BLOB_PENDING_BYTES;
 /// pressure. `pop_ready` drains recovery ahead of cached output, and duplicate column recoveries
 /// coalesce, keeping the concrete queue bounded independently from the reservation count.
 pub const MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS: usize = 2_048;
-/// Ordinary decoded work is retained independently from cache transactions. The session receive
-/// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
-/// keeps direct resolver users bounded too.
+/// Ordinary decoded work is retained independently from cache transactions. At its quota,
+/// bounded raw read-ahead receives missing bodies while retaining later ordinary packets.
 pub const MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS: usize = 64;
 /// The transport retains at most 16 MiB of deferred raw packet data. Two frames of headroom cover
 /// decoded container allocation overhead without coupling ordinary traffic to cache limits.

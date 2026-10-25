@@ -78,9 +78,7 @@ impl Open {
         let State::Waiting(request) = &self.state else {
             return false;
         };
-        let result = compiler
-            .ok_or_else(|| "the isolated shader compiler is unavailable".to_owned())
-            .and_then(|compiler| shaderpack::worker::Running::start(compiler, request));
+        let result = shaderpack::worker::Running::start(compiler, request);
         self.state = match result {
             Ok(worker) => State::Loading(Mutex::new(worker), Instant::now()),
             Err(reason) => State::Failed(reason),

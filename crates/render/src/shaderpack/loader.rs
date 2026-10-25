@@ -292,8 +292,7 @@ pub(crate) fn load(
         environment: host_environment(),
         purpose: shaderpack::worker::Purpose::Render,
     };
-    let executable = compiler.ok_or("the isolated shader compiler is unavailable")?;
-    let mut worker = shaderpack::worker::Running::start(executable, &request)?;
+    let mut worker = shaderpack::worker::Running::start(compiler, &request)?;
     let compiled = loop {
         if let Some(result) = worker.poll(started.elapsed(), progress.is_cancelled()) {
             break result?.into_translation()?;

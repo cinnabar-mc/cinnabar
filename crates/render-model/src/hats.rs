@@ -130,10 +130,23 @@ impl HatRig {
     /// Evaluates hierarchy once with either attachment playback or companion playback.
     fn pose_sample(
         &self,
-        mut attachment: RenderBoneTransform,
+        attachment: RenderBoneTransform,
         motion: Motion,
         selection: Option<companion::Pose>,
     ) -> Arc<[RenderBoneTransform]> {
+        let mut poses = vec![attachment; self.parents.len()];
+        self.write_pose(attachment, motion, selection, &mut poses);
+        poses.into()
+    }
+
+    /// Evaluates one exact pose into exclusive storage retained by the attachment cache.
+    fn write_pose(
+        &self,
+        mut attachment: RenderBoneTransform,
+        motion: Motion,
+        selection: Option<companion::Pose>,
+        poses: &mut [RenderBoneTransform],
+    ) {
         let sample = |bone| {
             if let Some(rig) = &self.companion {
                 rig.sample(
@@ -165,7 +178,6 @@ impl HatRig {
             .playback
             .as_ref()
             .map_or(0.0, |clip| clip.curvature(motion.seconds));
-        let mut poses: Vec<RenderBoneTransform> = Vec::with_capacity(self.parents.len());
         for index in 0..self.parents.len() {
             let mut pose = attachment;
             if index == self.head {
@@ -208,9 +220,8 @@ impl HatRig {
                     * span_rotation)
                     .to_array();
             }
-            poses.push(pose);
+            poses[index] = pose;
         }
-        poses.into()
     }
 }
 
@@ -283,6 +294,8 @@ pub struct HatPoseCache {
     anchor: Option<(Item, Arc<crate::ActorAttachmentBindings>, Option<usize>)>,
     key: Option<(Item, RenderBoneTransform, Motion)>,
     pose: Arc<[RenderBoneTransform]>,
+    // Reuse only released frames so readers keep immutable pose snapshots.
+    retired: Vec<Arc<[RenderBoneTransform]>>,
 }
 impl HatPoseCache {
     /// Rebinds an equipped anchor only when its item or retained appearance changes.
@@ -338,7 +351,28 @@ impl HatPoseCache {
             );
         let key = (item, head, motion);
         if self.key != Some(key) {
-            self.pose = model.pose(head, motion);
+            if self.pose.len() != model.parents.len() {
+                self.pose = vec![head; model.parents.len()].into();
+                self.retired.clear();
+            } else if Arc::get_mut(&mut self.pose).is_none() {
+                if let Some(index) = self
+                    .retired
+                    .iter_mut()
+                    .position(|pose| Arc::get_mut(pose).is_some())
+                {
+                    std::mem::swap(&mut self.pose, &mut self.retired[index]);
+                } else {
+                    let replacement = vec![head; model.parents.len()].into();
+                    self.retired
+                        .push(std::mem::replace(&mut self.pose, replacement));
+                }
+            }
+            model.write_pose(
+                head,
+                motion,
+                None,
+                Arc::get_mut(&mut self.pose).expect("exclusive pose storage"),
+            );
             self.key = Some(key);
         }
         self.pose.clone()

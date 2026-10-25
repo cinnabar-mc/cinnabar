@@ -33,11 +33,19 @@ impl UiPresentationRuntime {
         &mut self,
         motion: &[(cosmetics::Item, render_model::hats::Motion)],
     ) {
-        let motion: std::collections::HashMap<_, _> = motion.iter().copied().collect();
-        if self.gui_models.live_player.hat_motion != motion {
-            self.gui_models.live_player.hat_motion = motion;
-            self.last_frame = None;
+        let retained = &mut self.gui_models.live_player.hat_motion;
+        if retained.len() == motion.len()
+            && motion
+                .iter()
+                .all(|(item, value)| retained.get(item) == Some(value))
+        {
+            return;
         }
+        retained.retain(|item, _| motion.iter().any(|(active, _)| active == item));
+        for &(item, value) in motion {
+            retained.insert(item, value);
+        }
+        self.last_frame = None;
     }
 
     /// Projects the full-body evaluation, never the separate first-person hand skeleton.
@@ -62,7 +70,10 @@ impl UiPresentationRuntime {
         let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.cape_vertices.clear();
-        live.hat_vertices.clear();
+        live.hat_vertices.retain(|item, vertices| {
+            vertices.clear();
+            self.menu_preview_model.cosmetics.contains(item)
+        });
         live.emitters.clear();
         live.emitter_owner = None;
         live.parts = [None; 6];

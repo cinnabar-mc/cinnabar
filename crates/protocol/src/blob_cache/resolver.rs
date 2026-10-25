@@ -213,14 +213,7 @@ impl BlobCacheResolver {
         value: ResolverReady,
         accounted_bytes: usize,
     ) -> Result<(), BlobCacheError> {
-        let retained_bytes = self
-            .retained_ordinary_bytes()?
-            .checked_add(accounted_bytes)
-            .and_then(|bytes| bytes.checked_add(size_of::<(u64, ImmediateReady)>()))
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
-        if self.immediate_ready.len() >= MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS
-            || retained_bytes > MAX_CLIENT_BLOB_ORDINARY_READY_BYTES
-        {
+        if !self.can_accept_ordinary(accounted_bytes)? {
             self.stats.ordinary_backpressure = self.stats.ordinary_backpressure.saturating_add(1);
             return Err(BlobCacheError::OrdinaryLaneFull {
                 events: self.immediate_ready.len(),
@@ -791,6 +784,10 @@ impl BlobCacheResolver {
                 .ready
                 .iter()
                 .any(|(earlier, transaction)| conflicts(earlier, &transaction.columns))
+            && !self
+                .immediate_ready
+                .iter()
+                .any(|(earlier, event)| conflicts(earlier, &event.columns))
     }
 
     fn take_ready_sequence(&mut self) -> Result<u64, BlobCacheError> {

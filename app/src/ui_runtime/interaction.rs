@@ -779,12 +779,15 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         match input.key_code {
             // Repeats keep editing the draft, but only a fresh press cancels or sends it.
-            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if input.repeat => {}
+            KeyCode::Escape if input.repeat => {}
             KeyCode::Escape => {
                 runtime.close_chat();
             }
-            KeyCode::Enter | KeyCode::NumpadEnter => {
+            _ if chat_modifiers::submit_key(input) => {
                 // Enter always sends; Tab completes.
+                if input.repeat {
+                    continue;
+                }
                 let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
                 if runtime.queue_chat_send(now_millis).is_ok() {
                     runtime.close_chat();

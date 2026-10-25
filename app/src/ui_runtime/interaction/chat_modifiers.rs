@@ -71,6 +71,13 @@ pub(crate) fn command_key(
             && named_control(menu, BindingId::Command) == named_control(None, BindingId::Command))
 }
 
+/// Recognizes hardware Enter and UIKit's Return text without a physical key code.
+pub(super) fn submit_key(input: &KeyboardInput) -> bool {
+    matches!(input.key_code, KeyCode::Enter | KeyCode::NumpadEnter)
+        || (matches!(input.key_code, KeyCode::Unidentified(_))
+            && matches!(input.text.as_deref(), Some("\n" | "\r")))
+}
+
 /// Whether `key` edits chat by whole words when the word-edit modifier is held.
 pub(crate) fn is_word_edit(key: KeyCode) -> bool {
     matches!(
