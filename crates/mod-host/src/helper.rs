@@ -508,9 +508,10 @@ pub fn serve_developer() -> Result<()> {
     serve()
 }
 
-/// The restricted helper entry point: locks the process down, then serves. A helper that
-/// cannot lock itself down exits before reading the component.
+/// The restricted helper entry point: checks that it runs one thread, locks the process down,
+/// then serves. A helper that cannot lock itself down exits before reading the component.
 pub fn serve_restricted() -> Result<()> {
+    restricted::ensure_single_threaded()?;
     restricted::lock_down()?;
     serve()
 }

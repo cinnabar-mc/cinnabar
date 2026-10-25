@@ -168,7 +168,7 @@ pub fn missing_feature() -> Option<String> {
 
 /// Audits what the helper inherited and denies it everything it does not need. It must run on
 /// the main thread before any other thread starts, because Landlock restricts the calling
-/// thread and the threads it then creates.
+/// thread and the threads it then creates; [`ensure_single_threaded`] checks that.
 #[cfg(target_os = "linux")]
 pub fn lock_down() -> Result<Lockdown> {
     // SAFETY: plain prctl calls on constant arguments.
@@ -205,6 +205,28 @@ pub fn lock_down() -> Result<Lockdown> {
     let lockdown = landlock::restrict().context("Landlock")?;
     seccomp::install().context("seccomp")?;
     Ok(lockdown)
+}
+
+/// Fails unless the calling process runs one thread, as listed in `/proc/self/task`, or when
+/// that listing is unavailable. Landlock restricts only the calling thread and the threads it
+/// creates afterwards, so the helper checks this before [`lock_down`].
+#[cfg(target_os = "linux")]
+pub fn ensure_single_threaded() -> Result<()> {
+    const LISTING: &str = "/proc/self/task";
+    let threads = std::fs::read_dir(LISTING)
+        .with_context(|| format!("cannot list {LISTING}"))?
+        .count();
+    ensure!(
+        threads == 1,
+        "the helper runs {threads} threads before its lockdown"
+    );
+    Ok(())
+}
+
+/// Restricted helpers are Linux-only.
+#[cfg(not(target_os = "linux"))]
+pub fn ensure_single_threaded() -> Result<()> {
+    anyhow::bail!("restricted server helpers are not implemented on this platform")
 }
 
 /// Restricted helpers are Linux-only.
@@ -269,6 +291,23 @@ mod tests {
             "{stdout}\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    /// A process running a second thread refuses to lock down, since Landlock would leave that
+    /// thread unrestricted.
+    #[test]
+    fn a_second_thread_fails_the_single_thread_check() {
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let (started, running) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            let _ = stopped.recv();
+        });
+        running.recv().unwrap();
+        let error = ensure_single_threaded().unwrap_err().to_string();
+        drop(stop);
+        thread.join().unwrap();
+        assert!(error.contains("threads before its lockdown"), "{error}");
     }
 
     /// A child that finds another parent once its death signal is armed, as when the one that

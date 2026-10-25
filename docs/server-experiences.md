@@ -162,7 +162,7 @@ writable memory and of file size (`RLIMIT_DATA`, `RLIMIT_FSIZE`), 64 descriptors
 files, locked memory, message queues or real-time priority. Because `exec` makes an ordinary
 program dumpable again, the helper first makes itself undumpable once more. Where `close_range`
 cannot mark them close-on-exec, the parent marks every descriptor up to its hard limit instead. Before reading the
-component, the helper audits that it holds no other descriptor (listing `/proc/self/fd`, so one
+component, the helper audits that it runs a single thread, so Landlock covers every thread, that it holds no other descriptor (listing `/proc/self/fd`, so one
 numbered above the new limit cannot escape, and failing without it), no environment and those
 limits, then denies itself everything else: a Landlock ruleset that handles every right the kernel
 knows and grants none (no file or directory can be opened; TCP bind and connect on ABI 4, signals
