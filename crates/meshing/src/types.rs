@@ -224,6 +224,16 @@ impl PackedModelRef {
         }
     }
 
+    /// The block this ref draws, as its x, y and z within the section.
+    #[must_use]
+    pub const fn local(self) -> [u8; 3] {
+        [
+            (self.packed_transform & 15) as u8,
+            ((self.packed_transform >> 4) & 15) as u8,
+            ((self.packed_transform >> 8) & 15) as u8,
+        ]
+    }
+
     #[must_use]
     pub const fn words(self) -> [u32; 4] {
         [
