@@ -97,7 +97,7 @@ From the repository root:
 | `/materialfx refract <0-100>` | How strongly the lens window bends the world behind it (70 at first) |
 | `/materialfx pulse` | A ring of light ripples out across the force field |
 | `/materialfx outline` | Toggles the boss's outline |
-| `/materialfx bloom` | Toggles bloom on every emissive piece |
+| `/materialfx bloom` | Toggles a three-pixel bloom on every emissive piece (off at first, so pixel art stays crisp at a distance) |
 | `/materialfx storm` | The storm's particles spin up and fly outward for three seconds |
 | `/materialfx ignite` / `extinguish` | Fire catches at the fire wall's bottom right and spreads across it, or goes out, leaving char |
 

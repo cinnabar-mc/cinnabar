@@ -95,7 +95,7 @@ func (l *materialFxPacketListener) Accept() (session.Conn, error) {
 		return nil, err
 	}
 	id, _ := uuid.Parse(conn.IdentityData().Identity)
-	return &materialFxConn{Conn: conn, players: l.players, ext: l.ext, everyone: l.everyone, id: id, done: make(chan struct{})}, nil
+	return &materialFxConn{Conn: conn, players: l.players, ext: l.ext, everyone: l.everyone, id: id, done: make(chan struct{}), bloomOff: true}, nil
 }
 
 // Disconnect unwraps this fixture before delegating to the original listener.
@@ -121,7 +121,7 @@ type materialFxConn struct {
 	gallery *showcaseViewpoint
 	thermal bool
 	// outline and bloom are whether the boss's outline and the emissive pieces' bloom are off;
-	// both start on.
+	// the outline starts on and bloom off, as the client part starts them.
 	outlineOff, bloomOff bool
 	// portalDistance is the distance last sent, in thousandths.
 	portalDistance int64

@@ -78,7 +78,7 @@ fn phase(seconds: f32) -> f32 {
 }
 
 #[test]
-fn the_grass_tops_sway_in_whole_texels_while_their_bottoms_stay() {
+fn the_grass_tops_sway_in_whole_texels_while_their_bottoms_and_the_field_edge_stay() {
     let Some(gpu) = Gpu::for_fixture("waving grass") else {
         return;
     };
@@ -94,7 +94,13 @@ fn the_grass_tops_sway_in_whole_texels_while_their_bottoms_stay() {
     };
     let mut swayed = 0.0_f32;
     for seconds in [10.0, 11.3, 12.7, 14.1] {
-        let frame = displacement(&gpu, grass, &[1.0, 1.2, 1.0], 0.25, &side(seconds));
+        let frame = displacement(
+            &gpu,
+            grass,
+            &[1.0, 1.2, 0.0, 1.0, 0.0, 0.0],
+            0.25,
+            &side(seconds),
+        );
         let (bottom, top) = (offset_at(&frame, 0.3, 0.02), offset_at(&frame, 0.3, 0.98));
         assert!(size(bottom) < 0.02, "the bottom stays: {bottom:?}");
         assert!(whole_texels(top), "{top:?}");
@@ -103,11 +109,20 @@ fn the_grass_tops_sway_in_whole_texels_while_their_bottoms_stay() {
             "within the declared reach: {top:?}"
         );
         assert!(top[1].abs() < 0.02, "the grass never stretches up: {top:?}");
+        // The field's edge, 3.5 blocks across from its centre, stays on the ground around it.
+        let edge = offset_at(&frame, 0.875, 0.98);
+        assert!(size(edge) < 0.02, "the edge stays: {edge:?}");
         swayed = swayed.max(size(top));
     }
     assert!(swayed >= 1.0 / 16.0, "the wind moves the tops");
     // Without wind nothing moves.
-    let calm = displacement(&gpu, grass, &[0.0, 1.2, 1.0], 0.25, &side(10.0));
+    let calm = displacement(
+        &gpu,
+        grass,
+        &[0.0, 1.2, 0.0, 1.0, 0.0, 0.0],
+        0.25,
+        &side(10.0),
+    );
     assert!(size(offset_at(&calm, 0.3, 0.98)) < 0.02);
 }
 
