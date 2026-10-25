@@ -175,6 +175,7 @@ pub fn advance_actor_frame(
         server_camera,
         view,
         camera,
+        pack_cameras: _,
     } = presentation;
     let session_id = client_world
         .stream
