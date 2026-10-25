@@ -73,8 +73,10 @@ fn distant_requests_encode_the_prepared_origin_after_send_rejection() {
         let sent = flush_sub_chunk_requests(&mut stream, 1, center, |receipt, packet| {
             assert_eq!(packet, expected);
             assert_eq!(
-                protocol::decode_batch(protocol::encode(&packet).unwrap()).unwrap(),
-                [expected.clone()]
+                protocol::decode_batch(protocol::encode(&packet).unwrap())
+                    .unwrap()
+                    .as_slice(),
+                std::slice::from_ref(&expected)
             );
             if reject {
                 Err(client_session::PacketSendError::Full(packet))
