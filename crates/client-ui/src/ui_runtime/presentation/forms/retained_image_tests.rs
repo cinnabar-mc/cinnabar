@@ -35,7 +35,12 @@ fn retained_menu_publishes_requested_original_image_pixels() {
         ..Default::default()
     })));
     let player = player_state::PlayerState::new(0);
-    let mut presentation = crate::test_support::mini_engine_presentation();
+    // Waits for the host's deferred image work; under inline work the original never publishes.
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    presentation
+        .enable_json_ui(crate::test_support::mini_carrier())
+        .unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
     view.screen = MenuScreen::Settings;
     let animations = launcher::menu::settings_options::SETTINGS_OPTIONS

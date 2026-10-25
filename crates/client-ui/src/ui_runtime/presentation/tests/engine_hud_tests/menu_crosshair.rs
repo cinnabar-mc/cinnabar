@@ -16,7 +16,7 @@ fn presentation(cursor: Cursor) -> UiPresentationRuntime {
         UiPresentationRuntime::with_hud(fixture_font(), crate::test_support::fixture_hud())
             .unwrap();
     presentation
-        .enable_json_ui(crate::test_support::mini_carrier())
+        .enable_json_ui_inline(crate::test_support::mini_carrier())
         .unwrap();
     presentation.hud_frame_mut().first_person = true;
     if matches!(cursor, Cursor::Custom) {
