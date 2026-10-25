@@ -25,15 +25,15 @@ fn materials(index: u32) -> MaterialGpu {
     @if(!PACKED_TERRAIN) return materials_data[index];
     @if(PACKED_TERRAIN) {
         if (index >= materials_length()) { var empty: MaterialGpu; return empty; }
-        let base = index * 6u;
-        return MaterialGpu(terrain_word(3u, base + 0u), terrain_word(3u, base + 1u), terrain_word(3u, base + 2u), terrain_word(3u, base + 3u), terrain_word(3u, base + 4u), terrain_word(3u, base + 5u));
+        let base = index * MATERIAL_RECORD_WORDS;
+        return MaterialGpu(terrain_word(3u, base + 0u), terrain_word(3u, base + 1u), terrain_word(3u, base + 2u), terrain_word(3u, base + 3u), terrain_word(3u, base + 4u), terrain_word(3u, base + 5u), terrain_word(3u, base + 6u), terrain_word(3u, base + 7u), terrain_word(3u, base + 8u), terrain_word(3u, base + 9u));
     }
 }
 
 // Returns the record count without including adjacent packed tables.
 fn materials_length() -> u32 {
     @if(!PACKED_TERRAIN) return arrayLength(&materials_data);
-    @if(PACKED_TERRAIN) return terrain_length(3u) / 6u;
+    @if(PACKED_TERRAIN) return terrain_length(3u) / MATERIAL_RECORD_WORDS;
 }
 
 const NO_MASK: u32 = MATERIAL_NO_MASK;
