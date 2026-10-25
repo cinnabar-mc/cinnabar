@@ -490,15 +490,10 @@ impl BlockUseRuntime {
     }
 }
 
-/// Whether a held repeat sends its transaction: block items always do, and any other hand
-/// repeats only a block's own use. Buckets never do, as some bucket kinds skip held repeats;
-/// other items' own uses on blocks are not predicted, so they do not repeat yet.
-pub fn repeats_while_held(
-    item: &VerifiedNetworkItemStack,
-    bucket: bool,
-    local_use: LocalUse,
-) -> bool {
-    item.block_runtime_id() != 0 || (local_use == LocalUse::Interact && !bucket)
+/// Block items and non-bucket hands may repeat even when their local use fails.
+/// Bucket item repeats remain disabled until their per-kind eligibility is implemented.
+pub fn repeats_while_held(item: &VerifiedNetworkItemStack, bucket: bool) -> bool {
+    item.block_runtime_id() != 0 || !bucket
 }
 
 /// The cell and state a switch use predicts within the observed world.

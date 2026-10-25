@@ -519,19 +519,18 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
     );
 }
 
-/// Any hand repeats a block's own use while held, swinging and predicting success like the
-/// press; other non-block uses and buckets still do not repeat.
+/// Non-bucket hands can repeat independently of the local result; successful interactions
+/// still swing and predict success, while bucket item repeats remain disabled.
 #[test]
 fn held_block_uses_repeat_for_any_hand() {
     let empty = verified(NetworkItemStack::empty());
     let tool = verified(network_item(2, 0));
     let block = verified(network_item(2, 77));
     for item in [&empty, &tool] {
-        assert!(super::repeats_while_held(item, false, LocalUse::Interact));
-        assert!(!super::repeats_while_held(item, true, LocalUse::Interact));
-        assert!(!super::repeats_while_held(item, false, LocalUse::Nothing));
+        assert!(super::repeats_while_held(item, false));
+        assert!(!super::repeats_while_held(item, true));
     }
-    assert!(super::repeats_while_held(&block, false, LocalUse::Nothing));
+    assert!(super::repeats_while_held(&block, false));
     let observed =
         crate::interaction_authority::FrozenBlockObservation::fixture([2, 63, 0], 3, empty);
     let packets = use_packets(

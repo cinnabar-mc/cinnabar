@@ -936,8 +936,9 @@ suites pass. A headless local-server bridge comparison reproduces the old fall a
 the fixed player supported; live native-client and wider placement acceptance remain open.
 Direction/face/intercept retention, repeat timing and reset behavior across slot/item
 changes, unavailable selection and deferred presses still need confirmation. Empty hands
-and non-block items repeat a block's own interaction; bucket repeats and item-specific
-uses on blocks remain incomplete. Preserve the explicit incomplete scope in the
+and non-block items send due held attempts even when local use fails, allowing server-owned
+interactions such as crop harvesting. Bucket repeat eligibility and prediction of
+item-specific uses on blocks remain incomplete. Preserve the explicit incomplete scope in the
 [held-placement reference](docs/reference/held-block-placement.md).
 
 See [inventory ownership](docs/architecture/inventory.md),

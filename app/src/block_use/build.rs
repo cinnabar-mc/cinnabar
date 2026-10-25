@@ -238,11 +238,7 @@ pub(crate) fn advance(
         .as_deref()
         .is_some_and(assets::facts::has_bucket_name);
     if trigger == ItemUseTrigger::SimulationTick
-        && !gameplay::block_use::repeats_while_held(
-            &observed.selection.item,
-            bucket,
-            plan.local_use,
-        )
+        && !gameplay::block_use::repeats_while_held(&observed.selection.item, bucket)
     {
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return false;
