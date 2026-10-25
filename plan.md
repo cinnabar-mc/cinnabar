@@ -1203,8 +1203,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Personal panels and HUD editor surfaces can bind the host local player's name
 - Mods draw their HUDs as JSON-UI surfaces over gameplay: each top-level control is
   painted and cached on its own, item and projected values resolve on the host,
-  named controls embed in the same mod's panels, and mods read text metrics and the
-  HUD root and hide vanilla crosshair, effects, sidebar and hunger. Offline paint,
+  named controls embed in the same mod's panels, updates replace single control
+  definitions and rebuild only the controls reading them, and mods read text metrics,
+  the HUD root, their panel's layout and their callback's remaining fuel and hide
+  vanilla crosshair, effects, sidebar and hunger. Offline paint,
   cache and benchmark regressions and ui-snapshot fixtures cover them; displayed-frame
   pacing and populated-world acceptance remain pending. Packet extensions now
   negotiate bounded detached-view and passive camera effects through the shared

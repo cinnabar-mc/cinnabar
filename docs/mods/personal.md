@@ -60,6 +60,7 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | Nearby terrain | [Terrain reference](../mod-terrain-api.md) |
 | Block search and fullbright | `terrain.find-blocks` drawn with world drawing; `environment.set-fullbright` |
 | Attack/use filtering | Opt-in `filter-actions` export through `mod_api::filtered_player_mod`; `controls` |
+| Remaining callback fuel | WIT `budget`; no grant: it reads only the running callback's own allowance |
 
 Callbacks publish only after success. Session changes, reload, revocation and traps
 invalidate scoped handles and outputs. Check typed errors rather than silently
@@ -127,6 +128,10 @@ scale and a `reference_size` fitted to a small window. `panel.read-layout`, with
 `controls`, reports the open panel root's size in panel units, the HUD GUI units one
 panel unit spans and the root's offset from the HUD root, so a pointer `p` from
 `input.read-controls` lies at `(p - offset) / scale` in panel units.
+
+`budget.remaining-fuel` returns the fuel left in the running callback, roughly the
+instructions it may still execute. It needs no grant and exposes no game state; use
+it to spread large work, such as encoding a document, over later callbacks.
 
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or

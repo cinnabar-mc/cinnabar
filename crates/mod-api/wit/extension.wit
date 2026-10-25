@@ -318,6 +318,14 @@ interface panel {
     read-layout: func() -> option<panel-layout>;
 }
 
+/// Introspection of the running callback's own execution allowance. It reads no game state
+/// and grants no game capability, so it needs no grant.
+interface budget {
+    /// Fuel left in the running callback, about the WebAssembly instructions it may still
+    /// execute before it traps. Mods use it to spread large work over later callbacks.
+    remaining-fuel: func() -> u64;
+}
+
 /// Settings belong to the selected component's fixed companion file.
 interface settings {
     load: func() -> result<string, string>;
@@ -752,6 +760,7 @@ world extension {
     import panel;
     import settings;
     import render;
+    import budget;
     import cinnabar:world-draw/drawing@0.1.0;
     /// Creates the initial retained UI state.
     export init: func();

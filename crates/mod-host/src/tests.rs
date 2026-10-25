@@ -1,4 +1,5 @@
 mod action_filter;
+mod budget;
 
 /// A minimal panel surface whose screen namespace is `name`, so tests can tell panels apart.
 pub(crate) fn panel_surface(name: &str) -> serde_json::Value {
