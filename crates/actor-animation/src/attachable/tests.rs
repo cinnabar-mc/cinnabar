@@ -408,10 +408,7 @@ fn owner_variables_copy_by_name_between_catalogs_with_different_slots() {
     let owner_layout = VariableLayout::new(&owner);
     let target_layout = VariableLayout::new(&target);
     let mut values = owner_layout.fresh(1);
-    values.set(
-        owner_layout.named_slot(&owner, "variable.counter"),
-        0.75,
-    );
+    values.set(owner_layout.named_slot(&owner, "variable.counter"), 0.75);
     let inherited = ActorAnimationVariables::new(Some(&owner), &values, 77, 0);
     let mut copied = target_layout.fresh(1);
     inherited.copy_to(&target, &target_layout, &mut copied);
