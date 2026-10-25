@@ -6,8 +6,7 @@ use launcher::menu::settings_options::SettingId;
 use std::{collections::BTreeSet, sync::Arc};
 
 use json_ui::{Catalog, hud_context};
-use mod_ui::crosshair::CrosshairRenderer;
-use ui::UiNode;
+use ui::{UiNode, mod_hud::VanillaElement};
 use ui_engine::{
     engine::screen::{CustomRenderer, PaintFrame},
     text_metrics::TextMetrics,
@@ -18,8 +17,11 @@ use super::super::{UiPresentationError, UiPresentationRuntime, hud_layout};
 use super::preview_renderer::PreviewRenderer;
 use crate::ui_runtime::UiRuntime;
 
+mod elements;
 mod geometry;
 mod semantic;
+use elements::Drawn;
+pub(in crate::ui_runtime::presentation) use elements::HudElements;
 pub(in crate::ui_runtime::presentation) use semantic::SemanticHud;
 #[cfg(test)]
 #[path = "hud/reference.rs"]
@@ -91,8 +93,10 @@ impl UiPresentationRuntime {
             || self.screens.mod_ui.mod_panel_open()
                 && (crosshair || !self.screens.mod_ui.mod_panel_shows_gameplay_hud())
         {
+            self.hud_elements.hide_all();
             return Ok(true);
         }
+        let hidden = self.screens.mod_ui.hidden_hud_elements();
         let context = self.screens.hud.context(
             renderer.context(),
             ui_screens::hud_placement::HudPlacement::from_settings(
@@ -115,18 +119,20 @@ impl UiPresentationRuntime {
         let frame = &self.hud_frame;
         let catalog = self.mod_hud_bindings.catalog(renderer.catalog());
         let options = self.screens.chat.settings.options();
+        let mut sidebar_shown = false;
         let model = if crosshair {
             None
         } else {
             let sidebar_key = (
                 runtime.scoreboards().revision(),
                 self.scoreboard_owner_names.revision(),
-                self.screens.mod_ui.mod_scoreboard_hidden(),
+                hidden.contains(VanillaElement::Sidebar),
             );
             let sidebar = self
                 .scoreboard
-                .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
-                .filter(|_| !sidebar_key.2);
+                .refresh(runtime.scoreboards(), &self.scoreboard_owner_names);
+            sidebar_shown = sidebar.is_some();
+            let sidebar = sidebar.filter(|_| !sidebar_key.2);
             let mut changes = self.hud_cache.refresh(
                 player_runtime,
                 runtime,
@@ -134,7 +140,7 @@ impl UiPresentationRuntime {
                 sidebar,
                 sidebar_key,
                 options,
-                self.screens.mod_ui.mod_effect_icons_hidden(),
+                hidden.contains(VanillaElement::StatusEffects),
                 renderer.catalog(),
             );
             let touch_inventory = self.screens.touch.enabled();
@@ -160,37 +166,32 @@ impl UiPresentationRuntime {
             self.hud_textures.as_ref(),
             self.screens.chat.settings.options(),
         );
-        if let Some(style) = self.screens.mod_ui.mod_hunger_overlay() {
-            paint.hunger.set_overlay(
-                style,
-                runtime.gameplay_hud().saturation(),
-                frame.selected_food.as_ref(),
-            );
-        }
         let player_preview = frame.player_preview;
         self.hud_frame.now_millis = captured_clock;
         // Packs may replace the native cursor renderer with ordinary image controls.
         // Gate the whole overlay so these controls obey the same camera and HUD settings.
         if crosshair && paint.crosshair.is_none() {
+            self.hud_elements.observe_crosshair(&[], false);
             return Ok(true);
         }
+        let drawn_elements = Drawn::of(&paint, sidebar_shown);
         if !crosshair {
             // Legacy HUDs embed this renderer; the separate overlay already draws it.
             // Inverting the same pixels twice restores the world behind the cursor.
             paint.crosshair = None;
         }
-        if self.screens.mod_ui.mod_effect_icons_hidden() {
+        if hidden.contains(VanillaElement::StatusEffects) {
             paint.effects.clear();
             paint.java_effects.clear();
         }
-        let crosshair_spec = if self.mod_hud_visible(player_runtime, runtime) {
-            self.screens.mod_ui.mod_crosshair().cloned()
-        } else {
-            None
-        };
+        if hidden.contains(VanillaElement::Hunger) {
+            paint.hunger.sprites = None;
+        }
+        // A hidden crosshair still lays out, for its bounds, but none of its draws are kept.
+        let hide_crosshair = crosshair && hidden.contains(VanillaElement::Crosshair);
+        let rollback = (nodes.len(), *next);
         let drew = &self.hud_renderers[usize::from(crosshair)];
-        let renderers_unchanged =
-            drew.preview == player_preview && drew.crosshair == crosshair_spec;
+        let renderers_unchanged = drew.preview == player_preview;
         let translate = |key: &str| runtime.translation(key);
         let preview_view = std::cell::Cell::new(None);
         let mut preview = PreviewRenderer {
@@ -198,11 +199,7 @@ impl UiPresentationRuntime {
             view: Some(&preview_view),
             ..PreviewRenderer::default()
         };
-        let mut custom_crosshair = CrosshairRenderer {
-            spec: crosshair_spec.as_ref(),
-            visible: paint.crosshair.is_some(),
-        };
-        let mut renderers: [&mut dyn CustomRenderer; 2] = [&mut custom_crosshair, &mut preview];
+        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut preview];
         let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
@@ -235,7 +232,16 @@ impl UiPresentationRuntime {
             },
             &mut paint_frame,
         )?;
-        if !crosshair {
+        if hide_crosshair {
+            nodes.truncate(rollback.0);
+            *next = rollback.1;
+        }
+        if crosshair {
+            self.hud_elements
+                .observe_crosshair(self.screens.hud.crosshair.nodes(), true);
+        } else {
+            self.hud_elements
+                .observe_hud(self.screens.hud.hud.nodes(), &drawn_elements);
             // Touch selects hotbar slots through the HUD's own laid-out cells.
             self.screens.touch.hud_session = drawn.as_ref().map(|_| runtime.session_id());
             self.screens.touch.hud_keep_out = self.screens.hud.editor_keep_out;
@@ -248,7 +254,6 @@ impl UiPresentationRuntime {
             drew.view = preview_view.get();
         }
         drew.preview = player_preview;
-        drew.crosshair = crosshair_spec;
         if let Some(view) = drew.view {
             self.hud_preview_view = view;
             self.player_preview_view = view;
@@ -262,7 +267,6 @@ impl UiPresentationRuntime {
 #[derive(Default)]
 pub(in crate::ui_runtime::presentation) struct HudRendererInputs {
     preview: Option<ui::IconRef>,
-    crosshair: Option<ui::mod_hud::Crosshair>,
     view: Option<super::super::player_preview::PreviewView>,
 }
 

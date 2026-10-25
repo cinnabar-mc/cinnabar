@@ -291,7 +291,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-extensions"
 path = "crates/client-extensions"
-allowed_dependencies = ["assets", "client-state", "client-ui", "client-world", "inventory", "mod-api", "mod-host", "mod-render", "mod-ui", "player-state", "protocol", "render-api", "render-model", "server-experience", "ui"]
+allowed_dependencies = ["assets", "client-state", "client-ui", "client-world", "inventory", "mod-api", "mod-host", "mod-render", "mod-ui", "player-state", "protocol", "render-model", "server-experience", "ui"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "client-interaction", "client-shell", "client-presentation", "client-audio", "render"]
 
 [[crates]]
@@ -447,7 +447,7 @@ forbidden_dependencies = ["bevy", "wgpu", "asset-compiler"]
 [[crates]]
 name = "mod-api"
 path = "crates/mod-api"
-allowed_dependencies = ["render-api"]
+allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 # Sandboxed mod render contract: WGSL admission and camera-independent primitive geometry.
@@ -461,7 +461,7 @@ forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["assets", "experience-sdk", "mod-api", "mod-render", "render-api", "server-experience", "ui", "test-alloc", "test-time"]
+allowed_dependencies = ["assets", "experience-sdk", "mod-api", "mod-render", "server-experience", "ui", "test-alloc", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -1420,81 +1420,6 @@ reason = "French locale prefix used to select settings translations, not a game 
 path = "crates/assets/src/sound_events.rs"
 literal = "stone"
 reason = "Fallback audio material key in sounds.json, independent of the block identifier vocabulary."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:arrow"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:clock"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:diamond_boots"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:diamond_chestplate"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:diamond_helmet"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:diamond_leggings"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:diamond_pickaxe"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:diamond_sword"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:ender_pearl"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:golden_apple"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:potion"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:shield"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:stone"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:torch"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
-
-[[identifier_literal_exceptions]]
-path = "crates/mod-host/src/hud/samples.rs"
-literal = "minecraft:totem_of_undying"
-reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
 
 [[identifier_literal_exceptions]]
 path = "crates/mod-ui/src/mod_hud_editor/feedback.rs"

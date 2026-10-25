@@ -50,13 +50,15 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | Camera, item use, movement and attack requests | WIT `gameplay`; frame-local policies expire even when a callback is deferred |
 | Controls, settings and personal panels | WIT `input`, `settings`, `panel`; settings use a bounded companion file |
 | Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
-| HUD cards and crosshair | WIT `hud`; retained output clears on quarantine/reload/unload |
+| HUD surface, text metrics and vanilla elements | WIT `hud`; see [HUD surfaces](#hud-surfaces); retained output clears on quarantine/reload/unload |
+| Nametag style, actor annotations and tints, hurt overlay, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
+| Item, food, potion and effect facts | WIT `facts`; `player-state`, with its own per-callback read budget |
 | Time/weather and local menu branding | WIT `environment`; changes presentation, not server state |
 | World primitives and post passes | WIT `render`; [render example](../../examples/mods/render-sample) |
 | Retained world drawing | [drawing WIT](../../crates/mod-api/wit/deps/world-draw/drawing.wit); separate material/depth/post/through-wall grants |
 | Entity masks | [Mask reference](../mod-entity-masks.md) |
 | Nearby terrain | [Terrain reference](../mod-terrain-api.md) |
-| Block highlights and fullbright | `render` highlights and `environment.set-fullbright`; local retained presentation |
+| Block search and fullbright | `terrain.find-blocks` drawn with world drawing; `environment.set-fullbright` |
 | Attack/use filtering | Opt-in `filter-actions` export through `mod_api::filtered_player_mod`; `controls` |
 
 Callbacks publish only after success. Session changes, reload, revocation and traps
@@ -65,6 +67,53 @@ assuming an import succeeded. Shared values and ceilings live in
 [`mod-api`](../../crates/mod-api/src/lib.rs),
 [drawing limits](../../crates/mod-api/src/drawing.rs) and
 [host limits](../../crates/mod-host/src/lib.rs).
+
+## HUD surfaces
+
+`hud.set-surface` publishes the mod's JSON-UI layer over gameplay, below vanilla
+screens and never hit-tested. It takes the panel surface schema, `screen`,
+`document`, `bindings`, `collections` and `transitions`, without input actions,
+glass backdrops or `cinnabar_hud_control`. Empty text removes it.
+`hud.update-surface` takes `bindings` (replace all), `binding_changes` (sparse)
+and `collection_order`. Values, documents and limits live in
+[`surface`](../../crates/ui/src/mod_panel/surface.rs): 512 bindings and 192 KiB of
+document. Only the `screen` root draws on gameplay; other named controls in the
+document stay embeddable. The layer hides with the gameplay HUD, under F1, screens
+and panels that hide it, and several mods' layers draw in load order.
+
+Each top-level control of the root is laid out, painted and cached on its own, so
+a binding change repaints only the controls that read it. A root that draws
+itself, a `stack_panel` root or sizes measured from children or siblings keep the
+root as one cached control.
+
+Surfaces in HUDs and panels accept two host-resolved values:
+
+```json
+{"#helmet":{"item":{"identifier":"minecraft:diamond_helmet","metadata":0}},
+ "#home":{"project":{"world":[10.5,64,-3]}},
+ "#target":{"project":{"actor":42,"offset":[0,2.1,0]}}}
+```
+
+Bind an item value to an `inventory_item_renderer` node's `#item_renderer_data`;
+unknown items draw nothing. A projected value becomes the point's `[x, y]` GUI
+offset from the root's top left every frame, using the actor's interpolated feet;
+bind it to `#offset`. The host also publishes `#home_visible`, true only while the
+point is in front of the camera, inside the root and, for an actor, present. Actor
+points need `players` for players and `entities` for other actors. When a control's
+own `#offset` and `#visible` are its only projected bindings, the host moves its
+cached artwork instead of painting it again.
+
+A panel node `{"type":"custom","renderer":"cinnabar_hud_control","control":"armor"}`
+draws the named control `armor` of the same mod's HUD document, with the HUD's
+bindings. `"control_binding":"#item_card"` reads the name from a text binding or a
+collection field instead. The control's laid-out size is fitted uniformly to the
+node and centred, so authored padding frames a preview.
+
+`hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
+`hud.measure-text` returns a line's width at text scale 1 in the `native` or
+`sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
+status effects, sidebar or hunger row; `hud.read-elements` reports whether vanilla
+draws each this frame, ignoring hiding, and its bounds in GUI units when laid out.
 
 ## Action filtering
 
@@ -78,7 +127,8 @@ Suppressing a release retains the hold; suppressing a fresh press blocks that
 gesture until physical release. Traps, invalid verdicts, owner changes, absorbing
 UI, suspension and session changes clear continuity and change the epoch. The host
 owns projection and lifecycle only; the module owns every filtering rule.
-`input.set-click-limits` remains a frozen legacy cap.
+Pulses from `gameplay.pulse-attack` and `item-use.pulse-use` reach the filter as
+repeats on a physically held control.
 
 ## Touch buttons
 

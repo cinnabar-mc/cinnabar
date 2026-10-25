@@ -6,8 +6,6 @@ pub(super) struct Environment {
     pub pending_time: Option<Option<u32>>,
     pub weather_override: Option<super::cinnabar::extension::environment::Weather>,
     pub pending_weather: Option<Option<super::cinnabar::extension::environment::Weather>>,
-    pub click_limits: [Option<u32>; 2],
-    pub pending_click_limits: Option<[Option<u32>; 2]>,
     pub fullbright: bool,
     pub pending_fullbright: Option<bool>,
     pub writes: u32,
@@ -48,9 +46,6 @@ impl Environment {
         }
         if let Some(value) = self.pending_weather.take() {
             self.weather_override = value;
-        }
-        if let Some(value) = self.pending_click_limits.take() {
-            self.click_limits = value;
         }
         if let Some(ticks) = self.pending_time.take() {
             self.time_override = ticks;

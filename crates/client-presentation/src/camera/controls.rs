@@ -176,7 +176,7 @@ pub fn update_look(
 ) {
     let death_view = settings.death_view();
     let camera_locked = input_locks.blocks(protocol::ClientInputLock::Camera);
-    let held = (input.phase(Action::Freelook).held || settings.detached_view().is_some())
+    let held = (input.phase(Action::Freelook).held || settings.captures_look())
         && (!camera_locked || settings.freelook)
         && !auto_fly.presentation_paused()
         && !death_view;
@@ -280,26 +280,7 @@ pub fn update_movement(
         return;
     }
 
-    if let Some(mode @ super::DetachedView::Fly { .. }) = settings.detached_view() {
-        let movement = input_locks.movement(input.movement());
-        let vertical = f32::from(u8::from(
-            input.phase(Action::Jump).held && !input_locks.blocks(protocol::ClientInputLock::Jump),
-        )) - f32::from(u8::from(
-            input.phase(Action::Sneak).held
-                && !input_locks.blocks(protocol::ClientInputLock::Sneak),
-        ));
-        let next = mode.advance(
-            view.detached_eye(),
-            view.look_rotation(),
-            movement,
-            vertical,
-            time.delta_secs(),
-        );
-        view.move_detached_eye(next);
-        return;
-    }
-
-    if local_physics.is_some_and(|physics| physics.is_active()) {
+    if local_physics.is_some_and(|physics| physics.is_active()) || settings.captures_movement() {
         return;
     }
 

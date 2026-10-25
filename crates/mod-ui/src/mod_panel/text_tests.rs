@@ -15,7 +15,7 @@ fn text_field(value: &str, min_chars: usize, max_chars: usize) -> ModUi {
         live: false,
         navigation_keys: false,
     }];
-    panel.sections.clear();
+    panel.surface = crate::test_support::sample_surface(&panel.controls);
     let mut ui = ModUi::default();
     ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
         .unwrap();
@@ -451,14 +451,17 @@ fn native_field_focus_border_is_retained_until_dismissal() {
     let engine = field_engine();
     let font = ui_engine::test_support::fixture_font();
     let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
-    for theme in [
-        ui::mod_panel::Theme::Default,
-        ui::mod_panel::Theme::Monochrome,
+    for colors in [
+        None,
+        Some(ui::mod_panel::WidgetColors {
+            accent: Some([0.2, 0.9, 0.4, 1.]),
+            surface: Some([0.9, 0.9, 0.9, 1.]),
+            ..Default::default()
+        }),
     ] {
-        for dark in [true, false] {
+        {
             let mut ui = text_field("0000", 1, 24);
-            ui.mod_panel.as_mut().unwrap().panel.theme = theme;
-            ui.mod_panel.as_mut().unwrap().panel.dark = dark;
+            ui.mod_panel.as_mut().unwrap().panel.widget_colors = colors;
             // Establish the viewport before placing the focused field.
             paint_field(&mut ui, &engine, &font, &mut layouts, 0.);
             ui.mod_panel

@@ -107,15 +107,14 @@ fn identity_surface() -> Surface {
         // Host values must replace extension attempts to claim another identity.
         bindings: [(identity::NAME.into(), SurfaceValue::Text("Forged".into())),
             (identity::AVAILABLE.into(), SurfaceValue::Bool(true))].into(),
-        collections: Default::default(), transitions: Default::default(), previews: Default::default(),
-    }
+        collections: Default::default(), transitions: Default::default(),    }
 }
 
 /// A personal panel with a portrait, native name and original neutral fallback artwork.
 fn presentation() -> UiPresentationRuntime {
     let mut presentation = mini_engine_presentation();
     let mut panel = mod_ui::test_support::sample_panel();
-    panel.surface = Some(identity_surface());
+    panel.surface = identity_surface();
     presentation
         .mod_ui_mut()
         .set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))

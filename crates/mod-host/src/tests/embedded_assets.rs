@@ -34,7 +34,9 @@ fn component(title: &str) -> Vec<u8> {
         .replace("(export \"time\" (func $lower-time))", "(export \"open\" (func $lower-open)) (export \"time\" (func $lower-time))")
         .replacen("(func (export \"init\")", "(func (export \"init\") i32.const 1 i32.const 256 call $open", 1);
     let mut bytes = wat::parse_str(source).unwrap();
-    let bundle = serde_json::json!({"panel":{"title":title,"toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}).to_string();
+    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+        "surface":super::panel_surface(title)},"surfaces":{}})
+    .to_string();
     section(&mut bytes, mod_api::PANEL_BUNDLE_SECTION, bundle.as_bytes());
     section(&mut bytes, mod_api::PANEL_FONT_SECTION, title.as_bytes());
     bytes
@@ -51,7 +53,7 @@ fn embedded_bundle_is_available_to_init_without_granting_denied_controls() {
         ..Default::default()
     };
     let host = ModHost::load_snapshot_with_grants(&path, &source, granted).unwrap();
-    assert_eq!(host.panel().unwrap().title, "Local");
+    assert_eq!(host.panel().unwrap().surface.screen, "Local.root");
     assert!(host.panel_open(), "init saw the preloaded panel");
     assert_eq!(host.panel_font_source(), Some(b"Local".as_slice()));
     let denied = ModHost::load_snapshot_with_grants(&path, &source, ModGrants::default()).unwrap();
@@ -76,13 +78,13 @@ fn reload_changes_both_embedded_assets_and_invalid_candidates_keep_previous() {
     .unwrap();
     std::fs::write(&path, component("Second")).unwrap();
     assert!(host.reload_if_changed().unwrap());
-    assert_eq!(host.panel().unwrap().title, "Second");
+    assert_eq!(host.panel().unwrap().surface.screen, "Second.root");
     assert_eq!(host.panel_font_source(), Some(b"Second".as_slice()));
     assert!(host.panel_open());
     let mut invalid = component("Invalid");
     section(&mut invalid, mod_api::PANEL_FONT_SECTION, b"duplicate");
     std::fs::write(&path, invalid).unwrap();
     assert!(host.reload_if_changed().is_err());
-    assert_eq!(host.panel().unwrap().title, "Second");
+    assert_eq!(host.panel().unwrap().surface.screen, "Second.root");
     assert_eq!(host.panel_font_source(), Some(b"Second".as_slice()));
 }

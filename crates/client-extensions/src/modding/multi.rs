@@ -8,8 +8,9 @@ use serde::Deserialize;
 use {
     mod_api::MAX_LOADED_MODS,
     mod_host::{
-        CameraDelta, ControlFrame, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
-        GameplaySnapshot, ModCue, ModGrants, ModHost, PlayerStateSnapshot,
+        CameraDelta, ControlEvent, ControlFrame, GameplayCameraRig, GameplayMob,
+        GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, ModCue, ModGrants,
+        ModHost, PlayerStateSnapshot,
     },
 };
 
@@ -19,11 +20,29 @@ pub struct ModHosts {
     hosts: Vec<ModHost>,
     panel_selection: usize,
     budget: mod_host::CallbackBudget,
-    hud_claims: mod_host::HudClaims,
     label: Option<String>,
     label_inputs: Vec<String>,
     label_rebuilds: u64,
-    hud_merge: ui::mod_hud::HudMergeCache,
+    presentation_sources: Vec<u64>,
+    presentation: std::sync::Arc<ui::mod_presentation::Presentation>,
+    /// Label metrics every host's `measure-text` reads.
+    label_metrics: Option<std::sync::Arc<mod_ui::LabelMetrics>>,
+}
+
+/// Measures `measure-text` widths with the presenter's label metrics.
+struct LabelWidths(std::sync::Arc<mod_ui::LabelMetrics>);
+
+impl mod_host::HudTextMeasure for LabelWidths {
+    fn width(&self, text: &str, font: ui::mod_panel::LabelFont) -> Option<f32> {
+        self.0.width(text, font)
+    }
+}
+
+/// Wraps label metrics for a host.
+fn label_widths(
+    metrics: std::sync::Arc<mod_ui::LabelMetrics>,
+) -> std::sync::Arc<dyn mod_host::HudTextMeasure> {
+    std::sync::Arc::new(LabelWidths(metrics))
 }
 
 /// Selects an ordered set of components and packages, each with its own grants.
@@ -149,11 +168,12 @@ impl ModHosts {
             hosts: std::iter::once(host).chain(remaining).collect(),
             panel_selection: 0,
             budget: mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
-            hud_claims: Default::default(),
             label: None,
             label_inputs: Vec::new(),
             label_rebuilds: 0,
-            hud_merge: Default::default(),
+            presentation_sources: Vec::new(),
+            presentation: Default::default(),
+            label_metrics: None,
         }
     }
 
@@ -161,7 +181,6 @@ impl ModHosts {
     /// exclusive camera and time output to the first active instance publishing that output.
     pub fn begin_frame(&mut self) {
         self.budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
-        self.hud_claims.reset();
         for index in 0..self.host_count() {
             self.host_mut(index).begin_frame();
         }
@@ -181,10 +200,9 @@ impl ModHosts {
                     || self.host(earlier).weather_override().is_some())
         });
         let budget = self.budget.clone();
-        let claims = self.hud_claims.clone();
         let host = self.host_mut(index);
         if host.is_active() {
-            host.set_frame_authority(budget, camera, environment, index, claims);
+            host.set_frame_authority(budget, camera, environment, index);
         }
     }
 
@@ -217,8 +235,40 @@ impl ModHosts {
     }
 
     /// Appends a host at the lowest load precedence without changing panel selection.
-    pub fn push(&mut self, host: ModHost) {
+    pub fn push(&mut self, mut host: ModHost) {
+        host.set_text_measure(self.label_metrics.clone().map(label_widths));
         self.hosts.push(host);
+    }
+
+    /// Records the last painted HUD root, its vanilla element states and its label metrics
+    /// for every host's next HUD reads.
+    pub fn observe_hud(
+        &mut self,
+        viewport: Option<ui::mod_hud::HudViewport>,
+        elements: ui::mod_hud::ElementStates,
+        label_metrics: Option<std::sync::Arc<mod_ui::LabelMetrics>>,
+    ) {
+        let changed = match (&self.label_metrics, &label_metrics) {
+            (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
+            (None, None) => false,
+            _ => true,
+        };
+        if changed {
+            self.label_metrics = label_metrics;
+        }
+        for host in &mut self.hosts {
+            host.observe_hud(viewport, elements);
+            if changed {
+                host.set_text_measure(self.label_metrics.clone().map(label_widths));
+            }
+        }
+    }
+
+    /// Vanilla HUD elements any active host hides.
+    pub fn hidden_hud_elements(&self) -> ui::mod_hud::HiddenElements {
+        self.hosts.iter().fold(Default::default(), |hidden, host| {
+            hidden.union(host.hidden_hud_elements())
+        })
     }
 
     /// Consumes a collection containing exactly one host when its runtime is removed.
@@ -236,13 +286,51 @@ impl ModHosts {
         self.hosts.iter_mut()
     }
 
-    /// Combines distinct HUD slots in precedence order within all shared presentation limits.
-    pub fn merged_hud(&mut self) -> Option<std::sync::Arc<ui::mod_hud::Hud>> {
-        self.hud_merge.update(
+    /// Every active mod's presentation merged in load order, rebuilt only when a committed
+    /// presentation or the set of contributing mods changes.
+    pub fn merged_presentation(&mut self) -> std::sync::Arc<ui::mod_presentation::Presentation> {
+        let sources = || {
             self.hosts
                 .iter()
-                .filter_map(|host| Some((host.hud_revision()?, host.hud()?))),
-        )
+                .filter(|host| host.is_active() && !host.presentation().is_empty())
+        };
+        if !sources()
+            .map(ModHost::presentation_revision)
+            .eq(self.presentation_sources.iter().copied())
+        {
+            self.presentation_sources = sources().map(ModHost::presentation_revision).collect();
+            self.presentation = std::sync::Arc::new(ui::mod_presentation::Presentation::merge(
+                sources().map(|host| {
+                    let grants = host.grants();
+                    (
+                        ui::mod_presentation::ActorGrants {
+                            players: grants.players,
+                            entities: grants.entities,
+                        },
+                        host.presentation(),
+                    )
+                }),
+            ));
+        }
+        std::sync::Arc::clone(&self.presentation)
+    }
+
+    /// The earliest active mod with chat actions owns every clickable span and its clicks.
+    pub fn chat_action_owner(&self) -> Option<usize> {
+        (0..self.host_count()).find(|&index| {
+            let host = self.host(index);
+            host.is_active() && !host.presentation().chat_actions.is_empty()
+        })
+    }
+
+    /// Supplies the installation's food table to every loaded mod's `facts` reads.
+    pub fn set_food_catalog(
+        &mut self,
+        catalog: Option<&std::sync::Arc<assets::RuntimeEquipmentCatalog>>,
+    ) {
+        for host in &mut self.hosts {
+            host.set_food_catalog(catalog);
+        }
     }
 
     /// Counts every loaded component.
@@ -300,16 +388,6 @@ impl ModHosts {
     /// Only the earliest active, granted, explicitly exporting component filters actions.
     pub fn action_filter_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&i| self.host(i).action_filter_identity().is_some())
-    }
-
-    /// The earliest card publisher owns the retained card surface.
-    pub fn hud_owner(&self) -> Option<usize> {
-        (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
-    }
-
-    /// The earliest cursor publisher owns the retained cursor replacement.
-    pub fn crosshair_owner(&self) -> Option<usize> {
-        (0..self.host_count()).find(|&index| self.host(index).crosshair().is_some())
     }
 
     /// The mod whose package draws beside the container screens and receives their input.
@@ -417,9 +495,14 @@ impl ModHosts {
     }
 }
 
-/// The controls one mod sees: keys reserved by an earlier mod are withheld, and only the
-/// panel owner receives panel events.
-fn claim_controls(frame: &ControlFrame, claimed: &[String], panel_owner: bool) -> ControlFrame {
+/// The controls one mod sees: keys reserved by an earlier mod are withheld, only the panel
+/// owner receives panel events, and only the chat-action owner receives chat clicks.
+fn claim_controls(
+    frame: &ControlFrame,
+    claimed: &[String],
+    panel_owner: bool,
+    chat_events: &[ControlEvent],
+) -> ControlFrame {
     let free = |keys: &[String]| -> Vec<String> {
         keys.iter()
             .filter(|key| !claimed.contains(key))
@@ -433,11 +516,16 @@ fn claim_controls(frame: &ControlFrame, claimed: &[String], panel_owner: bool) -
         panel_open: frame.panel_open,
         keys_pressed: free(&frame.keys_pressed),
         keys_held: free(&frame.keys_held),
-        events: if panel_owner {
-            frame.events.clone()
-        } else {
-            Vec::new()
-        },
+        events: frame
+            .events
+            .iter()
+            .filter(|_| panel_owner)
+            .chain(chat_events)
+            .take(ui::mod_panel::MAX_PANEL_EVENTS)
+            .cloned()
+            .collect(),
+        pointer: frame.pointer.filter(|_| panel_owner),
+        wheel: if panel_owner { frame.wheel } else { 0.0 },
     }
 }
 
@@ -454,6 +542,10 @@ pub struct FrameInput<'a> {
     pub fps: Option<f32>,
     pub sidebar: Option<&'a mod_host::SidebarSnapshot>,
     pub chat: &'a [mod_host::ObservedChatMessage],
+    /// Clicked chat-action spans, reported only to [`ModHosts::chat_action_owner`].
+    pub chat_events: &'a [ControlEvent],
+    /// Camera, relayed position and use-control facts; each import checks its own grant.
+    pub gameplay_facts: mod_host::GameplayFacts,
 }
 
 /// Runs each mod once in load order with its own grants and merges what they commit.
@@ -511,6 +603,7 @@ pub fn run_frame_callbacks(
         (None, Vec::new(), None)
     };
     let owner = runtime.panel_owner();
+    let chat_owner = runtime.chat_action_owner();
     let mut claimed = Vec::new();
     for index in 0..runtime.host_count() {
         let host = runtime.host(index);
@@ -541,7 +634,12 @@ pub fn run_frame_callbacks(
             Vec::new()
         };
         let movement = if grants.movement { movement } else { None };
-        let mut controls = claim_controls(input.controls, &claimed, index == owner);
+        let chat_events = if chat_owner == Some(index) {
+            input.chat_events
+        } else {
+            &[]
+        };
+        let mut controls = claim_controls(input.controls, &claimed, index == owner, chat_events);
         controls.panel_open = input.controls.panel_open && index == owner;
         controls.gameplay = snapshot.is_some() || movement.is_some();
         claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
@@ -560,7 +658,8 @@ pub fn run_frame_callbacks(
             input.chat.to_vec(),
         );
         let observed = observed
-            .and_then(|()| host.observe_modules(input.modules.cloned().unwrap_or_default()));
+            .and_then(|()| host.observe_modules(input.modules.cloned().unwrap_or_default()))
+            .and_then(|()| host.observe_gameplay(input.gameplay_facts));
         if let Err(error) = observed {
             failed(index, format!("{error:#}"));
             continue;
@@ -608,16 +707,16 @@ pub struct Merged {
     pub rig: Option<GameplayCameraRig>,
     pub preserve_teleport_rotation: bool,
     pub view_scale: Option<[f32; 2]>,
-    pub hurt_style: Option<render_api::HurtCameraStyle>,
-    pub item_use_delay_fix: Option<(u64, i32)>,
+    pub view_tilt: Option<mod_api::native_camera::ViewTilt>,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
     pub weather_override: Option<[f32; 2]>,
-    pub click_limits: [Option<u32>; 2],
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     pub jump_pulse: bool,
     pub jump_cancel: bool,
+    /// Every mod's sprint and sneak intents combined; any mod holding one holds it.
+    pub movement_intents: Option<GameplayMovementIntents>,
     pub commands: Vec<String>,
     pub cues: Vec<ModCue>,
 }
@@ -627,6 +726,16 @@ impl Merged {
     pub fn absorb(&mut self, host: &mut ModHost) {
         self.jump_pulse |= host.take_jump_pulse();
         self.jump_cancel |= host.take_jump_cancel();
+        if let Some(intents) = host.movement_intents() {
+            let merged = self
+                .movement_intents
+                .get_or_insert(GameplayMovementIntents {
+                    sprint: false,
+                    sneak: false,
+                });
+            merged.sprint |= intents.sprint;
+            merged.sneak |= intents.sneak;
+        }
         let interaction = host.take_interaction();
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
@@ -635,16 +744,9 @@ impl Merged {
         self.rig = self.rig.or(host.camera_rig());
         self.preserve_teleport_rotation |= host.preserves_teleport_rotation();
         self.view_scale = self.view_scale.or(host.camera_view_scale());
-        self.hurt_style = self.hurt_style.or(host.camera_hurt_style());
-        self.item_use_delay_fix = self.item_use_delay_fix.or(host.item_use_delay_fix());
+        self.view_tilt = self.view_tilt.or(host.camera_view_tilt());
         self.time_override = self.time_override.or(host.time_override());
         self.weather_override = self.weather_override.or(host.weather_override());
-        for (cap, next) in self.click_limits.iter_mut().zip(host.click_limits()) {
-            *cap = match (*cap, next) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
-        }
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
     }

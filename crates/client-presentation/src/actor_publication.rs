@@ -116,14 +116,10 @@ pub struct ActorPresentationState<'w, 's> {
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
-/// Optional validated cosmetic tint of already active native actor damage overlays.
+/// Mod colours for native actor damage overlays and mod-chosen per-actor overlay tints.
 #[derive(Resource, Default)]
 pub struct ActorPresentationStyle {
-    pub hurt_color: Option<[f32; 4]>,
-    pub hurt_armor_color: Option<[f32; 4]>,
-    /// Native admitted ray target; never a guest-provided actor identity.
-    pub attackable_actor: Option<u64>,
-    pub attackable_color: Option<[f32; 4]>,
+    pub presentation: std::sync::Arc<ui::mod_presentation::Presentation>,
 }
 
 /// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.

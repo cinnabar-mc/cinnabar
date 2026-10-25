@@ -14,7 +14,6 @@ impl Instance {
     ) {
         let state = self.store.data_mut();
         state.render.revoke();
-        state.block_highlights.revoke();
         state.grants = grants;
         state.drawing_policy = Some(session);
         state

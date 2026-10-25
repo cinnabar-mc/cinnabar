@@ -290,6 +290,7 @@ impl ModHost {
             )
             .context("reload rejected; previous mod retained")?;
         candidate.set_session(Arc::clone(&self.session));
+        candidate.set_food_catalog(self.instance.food_catalog());
         self.instance = candidate;
         self.admitted_digest = digest;
         self.drawing_restart = DrawingRestart::None;

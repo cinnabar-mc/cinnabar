@@ -30,11 +30,7 @@ impl crate::ModUi {
         panel: &Panel,
     ) -> Result<(), String> {
         let route = prepared.route(panel);
-        if route.is_none()
-            && !prepared.native_template.as_ref().is_some_and(|template| {
-                panel.surface.is_none() && template::same_template(template, panel)
-            })
-        {
+        if route.is_none() {
             return Err("panel does not match its prepared catalog".into());
         }
         panel.validate_values()?;
@@ -116,8 +112,6 @@ impl PreparedOwner {
 
 /// Immutable catalogs and resolved roots prepared on the local component loading worker.
 pub struct PreparedPanelUi {
-    /// Host-rendered controls have no authored route, but still retain their admitted schema.
-    native_template: Option<Panel>,
     routes: Vec<Arc<PreparedRoute>>,
 }
 
@@ -139,20 +133,15 @@ impl PreparedPanelUi {
             .keys()
             .map(|id| bundle.route_panel(id).expect("validated route"))
             .collect();
-        if let Some(surface) = &bundle.panel.surface
-            && !panels.iter().any(|panel| {
-                template::same_template(panel, &bundle.panel)
-                    && panel
-                        .surface
-                        .as_ref()
-                        .is_some_and(|source| same_document(source, surface))
-            })
-        {
+        if !panels.iter().any(|panel| {
+            template::same_template(panel, &bundle.panel)
+                && same_document(&panel.surface, &bundle.panel.surface)
+        }) {
             panels.push(bundle.panel.clone());
         }
         let mut routes = Vec::with_capacity(panels.len());
         for panel in panels {
-            let (catalog, _) = template::catalog(&panel, [0.0; 2], 0, 0, 1, None)?;
+            let catalog = template::catalog(&panel, [0.0; 2], None)?;
             let catalog = Arc::new(catalog);
             let resolution = json_ui::resolve(&catalog, SCREEN, &Context::default());
             if !resolution.diagnostics.is_empty() {
@@ -166,24 +155,16 @@ impl PreparedPanelUi {
                 tree,
             }));
         }
-        Ok(Arc::new(Self {
-            native_template: bundle.panel.surface.is_none().then(|| bundle.panel.clone()),
-            routes,
-        }))
+        Ok(Arc::new(Self { routes }))
     }
 
     /// Matches only the exact validated source and its original control action schema.
     pub fn route(&self, panel: &Panel) -> Option<Arc<PreparedRoute>> {
-        let source = panel.surface.as_ref()?;
         self.routes
             .iter()
             .find(|route| {
                 template::same_template(&route.panel, panel)
-                    && route
-                        .panel
-                        .surface
-                        .as_ref()
-                        .is_some_and(|original| same_document(original, source))
+                    && same_document(&route.panel.surface, &panel.surface)
             })
             .cloned()
     }
@@ -198,13 +179,8 @@ impl PreparedRoute {
             Context::default(),
             Arc::clone(&self.tree),
         );
-        if let Some(surface) = &self.panel.surface {
-            for name in surface.collections.keys() {
-                screen.virtualize_clipped_grid(
-                    name,
-                    ui::mod_panel::SurfaceCollection::INITIAL_WINDOW,
-                );
-            }
+        for name in self.panel.surface.collections.keys() {
+            screen.virtualize_clipped_grid(name, ui::mod_panel::SurfaceCollection::INITIAL_WINDOW);
         }
         screen
     }

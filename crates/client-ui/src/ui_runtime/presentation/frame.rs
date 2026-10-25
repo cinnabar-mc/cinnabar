@@ -176,7 +176,7 @@ impl UiPresentationRuntime {
                                 metrics,
                                 content,
                             );
-                            self.append_mod_widgets(
+                            self.append_hud_surfaces(
                                 player_runtime,
                                 runtime,
                                 nodes,

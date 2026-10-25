@@ -113,7 +113,7 @@ pub struct ChatInput<'a> {
     /// The keyboard-selected suggestion.
     pub selected_suggestion: Option<usize>,
     /// Chat text the personal HUD turns into extension actions.
-    pub annotations: &'a [ui::mod_hud::ChatAction],
+    pub annotations: &'a [ui::mod_presentation::ChatAction],
     pub clocks: &'a BTreeMap<String, f64>,
     pub now_millis: u64,
 }

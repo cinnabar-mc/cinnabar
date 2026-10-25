@@ -1,14 +1,19 @@
 mod action_filter;
+
+/// A minimal panel surface whose screen namespace is `name`, so tests can tell panels apart.
+pub(crate) fn panel_surface(name: &str) -> serde_json::Value {
+    serde_json::json!({"screen":format!("{name}.root"),
+        "document":serde_json::json!({"namespace":name,"root":{"type":"panel"}}).to_string()})
+}
 #[path = "tests/camera.rs"]
 mod camera;
 mod collection_reveal;
 use super::*;
-mod block_highlights;
 mod drawing_policy;
 mod embedded_assets;
 mod fullbright;
 mod gameplay;
-mod hud;
+mod hud_surface;
 mod item_use;
 mod player_state;
 mod prepared_settings;
@@ -124,12 +129,14 @@ fn prepared_panel_bundle_survives_reload_and_rejects_denied_hosts() {
         },
     )
     .unwrap();
-    let bundle = serde_json::json!({"panel":{"title":"Local","toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}).to_string();
+    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+        "surface":panel_surface("Local")},"surfaces":{}})
+    .to_string();
     host.set_panel_bundle(&bundle).unwrap();
-    assert_eq!(host.panel().unwrap().title, "Local");
+    assert_eq!(host.panel().unwrap().surface.screen, "Local.root");
     std::fs::write(&path, fixture("", "Reloaded")).unwrap();
     assert!(host.reload_if_changed().unwrap());
-    assert_eq!(host.panel().unwrap().title, "Local");
+    assert_eq!(host.panel().unwrap().surface.screen, "Local.root");
     let mut denied = ModHost::load(&path).unwrap();
     assert!(denied.set_panel_bundle(&bundle).is_err());
     assert!(denied.panel().is_none());
@@ -514,7 +521,7 @@ fn load_with_view_closed(
 /// Queues a real lifecycle notification after another guest has reserved the event lane.
 fn defer_view_closed(host: &mut ModHost) -> CallbackBudget {
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)

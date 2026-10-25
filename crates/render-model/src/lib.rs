@@ -69,10 +69,10 @@ pub use item_geometry::{
     textured_cube_vertices,
 };
 pub use nametag::{
-    MAX_NAMETAG_RECORDS, NAMETAG_ALPHA_CUTOFF, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
-    NAMETAG_DIM_TEXT_ALPHA, NAMETAG_LINE_PITCH_PX, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,
-    NametagLabel, NametagRecord, NametagScene, java_nametag_line_backgrounds,
-    nametag_line_backgrounds, nametag_line_left,
+    MAX_NAMETAG_RECORDS, NAMETAG_ALPHA_CUTOFF, NAMETAG_ANNOTATION_TEXT, NAMETAG_ATLAS_SIDE,
+    NAMETAG_BLOCKS_PER_FONT_PIXEL, NAMETAG_DIM_TEXT_ALPHA, NAMETAG_LINE_PITCH_PX,
+    NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect, NametagLabel, NametagRecord, NametagScene,
+    java_nametag_line_backgrounds, nametag_line_backgrounds, nametag_line_left,
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use presentation::{

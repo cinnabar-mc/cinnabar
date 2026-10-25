@@ -317,3 +317,15 @@ fn dormant_input_discards_old_edges_and_observes_only_next_attachment_edges() {
         [ButtonState::Released]
     );
 }
+
+#[test]
+fn wheel_notches_scroll_up_positive_and_scale_pixel_wheels() {
+    let mut scroll = AccumulatedMouseScroll {
+        unit: MouseScrollUnit::Line,
+        delta: Vec2::new(0.0, 2.0),
+    };
+    assert_eq!(wheel_notches(&scroll), 2.0);
+    scroll.unit = MouseScrollUnit::Pixel;
+    scroll.delta.y = -24.0;
+    assert_eq!(wheel_notches(&scroll), -1.5);
+}

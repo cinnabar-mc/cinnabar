@@ -128,13 +128,11 @@ fn clip(position: Vec3, rotation: Quat) -> Mat4 {
 }
 
 /// Sets every styling field so additions require an explicit bounds-test choice.
-fn extended_style() -> ui::mod_hud::NametagStyle {
-    ui::mod_hud::NametagStyle {
+fn extended_style() -> ui::mod_presentation::NametagStyle {
+    ui::mod_presentation::NametagStyle {
         hide: false,
         hide_players: false,
         opacity: 1.0,
-        replace_own_text_color: true,
-        replace_text_color: true,
         shadow: true,
         show_self: true,
         show_when_hud_hidden: true,
@@ -178,17 +176,18 @@ fn badges_counters_and_cosmetic_extensions_keep_painted_edge_fragments_admitted(
     tag.cinnabar_badge = true;
     assert!(cache.intersects_view(&tag, clip, Quat::IDENTITY, &font, &mut layouts, None));
     tag.cinnabar_badge = false;
-    tag.set_counter_annotation(
-        ui::mod_hud::TotemCounterStyle::default()
-            .annotation(200)
-            .map(Arc::new),
-    );
+    tag.set_annotation(Some(spans(
+        &["-200"],
+        [0.3, 1., 0.3, 1.],
+        ui::mod_presentation::SpanPosition::After,
+    )));
     assert!(cache.intersects_view(&tag, clip, Quat::IDENTITY, &font, &mut layouts, None));
-    tag.set_counter_annotation(None);
-    let style = serde_json::from_value(
-        serde_json::json!({"border_color": [1., 1., 1., 1.], "border_width": 3.0}),
-    )
-    .unwrap();
+    tag.set_annotation(None);
+    let style = ui::mod_presentation::NametagStyle {
+        border_color: Some([1.; 4]),
+        border_width: 3.0,
+        ..Default::default()
+    };
     assert!(cache.intersects_view(
         &tag,
         clip,
@@ -293,47 +292,42 @@ fn admission_bounds_cover_the_production_quads_for_every_label_extension() {
     ] {
         let forward = rotation * Vec3::NEG_Z;
         for (sneaking, depth_tested) in [(false, false), (true, true), (false, true)] {
-            for separate in [false, true] {
-                for before in [false, true] {
-                    let mut tag = anchor("AAAA\nB");
-                    tag.sneaking = sneaking;
-                    tag.depth_tested = depth_tested;
-                    tag.camera_forward_y = forward.y;
-                    tag.cinnabar_badge = true;
-                    tag.set_counter_annotation(Some(Arc::new(ui::mod_hud::CounterAnnotation {
-                        prefix: Arc::from("Count: "),
-                        value: Arc::from("123"),
-                        prefix_color: [255; 4],
-                        value_color: [255; 4],
-                        separate,
-                        before,
-                    })));
-                    let style = extended_style();
-                    let mut painted = scene_with_font(&[tag.clone()], &font);
-                    style_scene(&mut painted, &style, None);
-                    for record in &painted.records {
-                        let corners = record
-                            .world_corners(rotation)
-                            .unwrap()
-                            .map(Vec3::from_array);
-                        let center = (corners[0] + corners[2]) * 0.5;
-                        let camera = center - forward * 2.0;
-                        let clip = glam::camera::rh::proj::directx::perspective_infinite_reverse(
-                            0.001, 1.0, 0.025,
-                        ) * Mat4::from_rotation_translation(rotation, camera).inverse();
-                        tag.view_depth = forward.dot(tag.position - camera);
-                        assert!(
-                            cache.intersects_view(
-                                &tag,
-                                clip,
-                                rotation,
-                                &font,
-                                &mut layouts,
-                                Some(&style)
-                            ),
-                            "rotation {rotation:?}, sneak {sneaking}, separate {separate}, before {before}, record {record:?}"
-                        );
-                    }
+            for position in [
+                ui::mod_presentation::SpanPosition::Before,
+                ui::mod_presentation::SpanPosition::After,
+                ui::mod_presentation::SpanPosition::Above,
+            ] {
+                let mut tag = anchor("AAAA\nB");
+                tag.sneaking = sneaking;
+                tag.depth_tested = depth_tested;
+                tag.camera_forward_y = forward.y;
+                tag.cinnabar_badge = true;
+                tag.set_annotation(Some(spans(&["Count: ", "123"], [1.; 4], position)));
+                let style = extended_style();
+                let mut painted = scene_with_font(&[tag.clone()], &font);
+                style_scene(&mut painted, &style, None);
+                for record in &painted.records {
+                    let corners = record
+                        .world_corners(rotation)
+                        .unwrap()
+                        .map(Vec3::from_array);
+                    let center = (corners[0] + corners[2]) * 0.5;
+                    let camera = center - forward * 2.0;
+                    let clip = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+                        0.001, 1.0, 0.025,
+                    ) * Mat4::from_rotation_translation(rotation, camera).inverse();
+                    tag.view_depth = forward.dot(tag.position - camera);
+                    assert!(
+                        cache.intersects_view(
+                            &tag,
+                            clip,
+                            rotation,
+                            &font,
+                            &mut layouts,
+                            Some(&style)
+                        ),
+                        "rotation {rotation:?}, sneak {sneaking}, position {position:?}, record {record:?}"
+                    );
                 }
             }
         }

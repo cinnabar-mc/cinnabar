@@ -45,7 +45,7 @@ fn frame() -> ActionFrame {
 #[test]
 fn filter_returns_a_verdict_even_when_ordinary_frame_fuel_is_empty() {
     let (_dir, mut host) = host("", "local.get $count", true);
-    host.set_frame_authority(CallbackBudget::new(0), false, false, 0, Default::default());
+    host.set_frame_authority(CallbackBudget::new(0), false, false, 0);
     let verdict = host.filter_actions(frame()).unwrap();
     assert_eq!(verdict.accepted, [true]);
     assert!(host.is_active());

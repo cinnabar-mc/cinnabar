@@ -20,7 +20,8 @@ const MAX_POSITION_AGE: Duration = Duration::from_millis(250);
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 const SHOW_BIT: u64 = 1 << 32;
 
-/// Feet position last successfully relayed upstream, not a server acknowledgement.
+/// Feet position last successfully relayed upstream, not a server acknowledgement. Mods read
+/// it through `gameplay.read-relayed-position`; it is witnessed only while packets are delayed.
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
 pub(crate) struct RealPositionSnapshot {
     pub position: Option<[f32; 3]>,
@@ -170,18 +171,17 @@ impl Worker {
         }
     }
 }
-/// The first active, granted nonzero-delay owner also owns its position witness opt-in.
-fn requested(extension: Option<&ModRuntime>) -> (u32, bool) {
+/// The first active, granted nonzero delay; while it lasts the relayed position is witnessed.
+fn requested(extension: Option<&ModRuntime>) -> u32 {
     let Some(runtime) = extension.filter(|runtime| !runtime.suspended) else {
-        return (0, false);
+        return 0;
     };
     (0..runtime.hosts.host_count())
         .map(|index| runtime.hosts.host(index))
         .filter(|host| host.is_active() && host.grants().packet_delay)
-        .find(|host| host.packet_delay_ms() != 0)
-        .map_or((0, false), |host| {
-            (host.packet_delay_ms(), host.show_real_position())
-        })
+        .map(mod_host::ModHost::packet_delay_ms)
+        .find(|delay| *delay != 0)
+        .unwrap_or(0)
 }
 pub(super) fn publish_packet_delay(
     extension: Option<Res<ModRuntime>>,
@@ -199,7 +199,7 @@ pub(super) fn publish_packet_delay(
     }) {
         *worker = None;
     }
-    let (delay, show) = requested(extension.as_deref());
+    let delay = requested(extension.as_deref());
     if worker.is_none()
         && delay != 0
         && let Some(endpoint) = endpoint
@@ -208,7 +208,7 @@ pub(super) fn publish_packet_delay(
     }
     *snapshot = RealPositionSnapshot::default();
     if let Some(worker) = worker.as_ref() {
-        worker.publish(delay, show);
+        worker.publish(delay, true);
         *snapshot = worker.shared.snapshot(Instant::now());
     }
 }
@@ -279,13 +279,13 @@ mod tests {
         super::super::configure_set(&mut app, mods);
         let mut runtime = app.world_mut().resource_mut::<ModRuntime>();
         assert_eq!(runtime.hosts.host_count(), 4);
-        assert_eq!(requested(Some(&runtime)), (200, false));
+        assert_eq!(requested(Some(&runtime)), 200);
         runtime.suspended = true;
-        assert_eq!(requested(Some(&runtime)), (0, false));
+        assert_eq!(requested(Some(&runtime)), 0);
     }
 
     #[test]
-    fn multiple_mods_keep_the_visual_flag_with_the_selected_delay_owner() {
+    fn a_trapped_delay_owner_passes_the_delay_to_the_next_mod() {
         let directory = tempfile::tempdir().unwrap();
         let mut app = App::new();
         let package = include_str!("../../../crates/mod-api/wit/extension.wit")
@@ -296,30 +296,34 @@ mod tests {
             .trim_end_matches(';');
         let (name, version) = package.split_once('@').unwrap();
         let gameplay_interface = format!("{name}/gameplay@{version}");
-        let entries = [(0, true, false), (200, false, true), (400, true, false)]
+        let entries = [(0, false), (200, true), (400, false)]
             .into_iter()
             .enumerate()
-            .map(|(index, (delay, show, trap))| {
+            .map(|(index, (delay, trap))| {
                 let path = directory.path().join(format!("delay-{index}.wat"));
-                let init = format!(
-                    "i32.const {delay} i32.const 256 call $delay i32.const {} i32.const 256 call $show",
-                    u8::from(show)
-                );
+                let init = format!("i32.const {delay} i32.const 256 call $delay");
                 let source = include_str!("../../../crates/mod-host/src/tests/gameplay.wat")
                     .replace("$GAMEPLAY", &gameplay_interface)
                     .replace("$INIT", &init)
                     .replace("$FRAME", if trap { "unreachable" } else { "" });
                 std::fs::write(&path, source).unwrap();
-                (path, mod_host::ModGrants { packet_delay: true, ..Default::default() })
+                (
+                    path,
+                    mod_host::ModGrants {
+                        packet_delay: true,
+                        ..Default::default()
+                    },
+                )
             })
             .collect();
         super::super::configure_set(&mut app, entries);
         let mut runtime = app.world_mut().resource_mut::<ModRuntime>();
-        assert_eq!(requested(Some(&runtime)), (200, false));
+        assert_eq!(runtime.hosts.host_count(), 3);
+        assert_eq!(requested(Some(&runtime)), 200);
         assert!(runtime.hosts.host_mut(1).frame(false).is_err());
-        assert_eq!(requested(Some(&runtime)), (400, true));
+        assert_eq!(requested(Some(&runtime)), 400);
         runtime.suspended = true;
-        assert_eq!(requested(Some(&runtime)), (0, false));
+        assert_eq!(requested(Some(&runtime)), 0);
     }
     #[test]
     fn absent_offline_ui_and_network_clear_the_published_witness() {

@@ -369,7 +369,6 @@ mod tests {
     fn surface(document: Value) -> Surface {
         Surface {
             collections: Default::default(),
-            previews: Default::default(),
             transitions: Default::default(),
             screen: "local.root".into(),
             document: document.to_string(),

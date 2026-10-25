@@ -85,7 +85,7 @@ fn suppressed_release_and_press_preserve_hold_and_unrelated_snapshots() {
             (Action::Jump, true),
         ],
     );
-    state.filter(&mut input, Some(1), 0, false, |_| {
+    state.filter(&mut input, Some(1), 0, [false; 2], |_| {
         decide(&[true, false, false], [false; 2])
     });
     assert_eq!(
@@ -107,11 +107,11 @@ fn retained_release_completes_before_a_new_press() {
         [false; 2],
         &[(Action::Attack, true), (Action::Attack, false)],
     );
-    state.filter(&mut first, Some(1), 0, false, |_| {
+    state.filter(&mut first, Some(1), 0, [false; 2], |_| {
         decide(&[true, false], [false; 2])
     });
     let mut next = ordered([false; 2], &[(Action::Jump, true), (Action::Attack, true)]);
-    state.filter(&mut next, Some(1), 1, false, |f| {
+    state.filter(&mut next, Some(1), 1, [false; 2], |f| {
         assert_eq!(f.logical, [true, false]);
         decide(&[true], [false; 2])
     });
@@ -135,11 +135,13 @@ fn retained_release_completes_before_a_new_press() {
 fn explicit_releases_keep_both_channels_consistent() {
     let mut state = ActionFilterState::default();
     let mut first = ordered([true; 2], &[(Action::Attack, false), (Action::Use, false)]);
-    state.filter(&mut first, Some(1), 0, false, |_| {
+    state.filter(&mut first, Some(1), 0, [false; 2], |_| {
         decide(&[false, false], [false; 2])
     });
     let mut next = ordered([false; 2], &[(Action::Jump, true)]);
-    state.filter(&mut next, Some(1), 1, false, |_| decide(&[], [true; 2]));
+    state.filter(&mut next, Some(1), 1, [false; 2], |_| {
+        decide(&[], [true; 2])
+    });
     let events = next.ordered.unwrap().events;
     assert_eq!(events.len(), 3);
     assert!(!events[0].buttons.held(Action::Attack));
@@ -151,18 +153,18 @@ fn explicit_releases_keep_both_channels_consistent() {
 fn suppressed_press_remains_blocked_across_failure_until_release() {
     let mut state = ActionFilterState::default();
     let mut first = ordered([false; 2], &[(Action::Attack, true)]);
-    state.filter(&mut first, Some(1), 0, false, |_| {
+    state.filter(&mut first, Some(1), 0, [false; 2], |_| {
         decide(&[false], [false; 2])
     });
     state.reset();
     let mut held = ordered([true, false], &[]);
-    state.filter(&mut held, None, 1, false, |_| panic!("no owner"));
+    state.filter(&mut held, None, 1, [false; 2], |_| panic!("no owner"));
     assert_eq!(held.phases[Action::Attack as usize], ActionPhase::default());
     let mut end = ordered([true, false], &[(Action::Attack, false)]);
-    state.filter(&mut end, None, 2, false, |_| panic!("no owner"));
+    state.filter(&mut end, None, 2, [false; 2], |_| panic!("no owner"));
     assert!(end.ordered.unwrap().events.is_empty());
     let mut press = ordered([false; 2], &[(Action::Attack, true)]);
-    state.filter(&mut press, None, 3, false, |_| panic!("no owner"));
+    state.filter(&mut press, None, 3, [false; 2], |_| panic!("no owner"));
     assert!(press.phases[Action::Attack as usize].pressed);
 }
 #[test]
@@ -170,11 +172,11 @@ fn failure_and_malformed_verdict_complete_retained_release_without_new_presses()
     for malformed in [false, true] {
         let mut state = ActionFilterState::default();
         let mut first = ordered([true, false], &[(Action::Attack, false)]);
-        state.filter(&mut first, Some(1), 0, false, |_| {
+        state.filter(&mut first, Some(1), 0, [false; 2], |_| {
             decide(&[false], [false; 2])
         });
         let mut idle = ordered([false; 2], &[]);
-        state.filter(&mut idle, Some(1), 1, false, |_| {
+        state.filter(&mut idle, Some(1), 1, [false; 2], |_| {
             if malformed {
                 decide(&[true], [false; 2])
             } else {
@@ -196,7 +198,7 @@ fn ownership_and_authority_changes_reconcile_before_the_new_callback() {
         let mut state = ActionFilterState::default();
         let mut first = ordered([true, false], &[(Action::Attack, false)]);
         let mut epoch = 0;
-        state.filter(&mut first, Some(1), 0, false, |f| {
+        state.filter(&mut first, Some(1), 0, [false; 2], |f| {
             epoch = f.epoch;
             decide(&[false], [false; 2])
         });
@@ -216,7 +218,7 @@ fn ownership_and_authority_changes_reconcile_before_the_new_callback() {
             &mut next,
             Some(if reset == 0 { 2 } else { 1 }),
             1,
-            false,
+            [false; 2],
             |f| {
                 assert_ne!(f.epoch, epoch);
                 assert_eq!(f.logical, [false; 2]);
@@ -232,7 +234,7 @@ fn authorized_repeat_is_independent_of_physical_edges_and_rejection_keeps_hold()
     for accept in [true, false] {
         let mut state = ActionFilterState::default();
         let mut input = ordered([true, false], &[]);
-        let admitted = state.filter(&mut input, Some(1), 0, true, |f| {
+        let admitted = state.filter(&mut input, Some(1), 0, [true, false], |f| {
             assert_eq!(
                 f.transitions,
                 [ActionTransition {
@@ -243,13 +245,18 @@ fn authorized_repeat_is_independent_of_physical_edges_and_rejection_keeps_hold()
             );
             decide(&[accept], [false; 2])
         });
-        assert_eq!(admitted, accept);
+        assert_eq!(admitted, [accept, false]);
         assert!(input.phases[Action::Attack as usize].held);
         assert_eq!(input.phases[Action::Attack as usize].pressed, accept);
     }
     let mut state = ActionFilterState::default();
     let mut released = ordered([false; 2], &[]);
-    assert!(!state.filter(&mut released, Some(1), 0, true, |_| panic!("unheld repeat")));
+    assert_eq!(
+        state.filter(&mut released, Some(1), 0, [true; 2], |_| panic!(
+            "unheld repeat"
+        )),
+        [false; 2]
+    );
 }
 #[test]
 fn phase_only_devices_preserve_masks_and_idle_physical_holds_skip_callbacks() {
@@ -262,7 +269,7 @@ fn phase_only_devices_preserve_masks_and_idle_physical_holds_skip_callbacks() {
         },
         Default::default(),
     );
-    state.filter(&mut input, Some(1), 0, false, |_| {
+    state.filter(&mut input, Some(1), 0, [false; 2], |_| {
         decide(&[true], [false; 2])
     });
     let mut idle = frame(
@@ -272,7 +279,7 @@ fn phase_only_devices_preserve_masks_and_idle_physical_holds_skip_callbacks() {
         },
         Default::default(),
     );
-    state.filter(&mut idle, Some(1), 1, false, |_| panic!("idle hold"));
+    state.filter(&mut idle, Some(1), 1, [false; 2], |_| panic!("idle hold"));
     assert!(idle.phases[Action::Attack as usize].held);
     let mut release = frame(
         ActionPhase {
@@ -281,13 +288,54 @@ fn phase_only_devices_preserve_masks_and_idle_physical_holds_skip_callbacks() {
         },
         Default::default(),
     );
-    state.filter(&mut release, Some(1), 2, false, |_| {
+    state.filter(&mut release, Some(1), 2, [false; 2], |_| {
         decide(&[false], [false; 2])
     });
     assert!(release.phases[Action::Attack as usize].held);
     let mut done = frame(Default::default(), Default::default());
-    state.filter(&mut done, Some(1), 3, false, |_| decide(&[], [true, false]));
+    state.filter(&mut done, Some(1), 3, [false; 2], |_| {
+        decide(&[], [true, false])
+    });
     assert!(done.phases[Action::Attack as usize].released);
+}
+
+/// Use pulses reach the filter as item-use repeats after attack's, each decided on its own.
+#[test]
+fn item_use_repeats_are_decided_beside_attack_repeats() {
+    let mut state = ActionFilterState::default();
+    let mut input = ordered([true, true], &[]);
+    let admitted = state.filter(&mut input, Some(1), 0, [true; 2], |f| {
+        assert_eq!(
+            f.transitions,
+            FilterAction::ALL.map(|action| ActionTransition {
+                action,
+                kind: TransitionKind::Repeat,
+                held_after: true,
+            })
+        );
+        decide(&[false, true], [false; 2])
+    });
+    assert_eq!(admitted, [false, true]);
+    assert!(!input.phases[Action::Attack as usize].pressed);
+    let item_use = input.phases[Action::Use as usize];
+    assert!(item_use.pressed && item_use.held);
+    let events = &input.ordered.as_ref().unwrap().events;
+    assert_eq!(events.len(), 1);
+    assert_eq!((events[0].action, events[0].pressed), (Action::Use, true));
+    let mut unowned = ActionFilterState::default();
+    let mut passthrough = ordered([false, true], &[]);
+    assert_eq!(
+        unowned.filter(&mut passthrough, None, 0, [true; 2], |_| panic!("no owner")),
+        [false, true],
+        "without a filter a held control admits its own repeat"
+    );
+    let mut failed = ActionFilterState::default();
+    let mut dropped = ordered([true, true], &[(Action::Attack, false)]);
+    assert_eq!(
+        failed.filter(&mut dropped, Some(1), 0, [false, true], |_| None),
+        [false; 2]
+    );
+    assert!(!dropped.phases[Action::Use as usize].pressed);
 }
 
 /// Failures restore physical input while dropping callback-generated pulses.
@@ -295,7 +343,10 @@ fn phase_only_devices_preserve_masks_and_idle_physical_holds_skip_callbacks() {
 fn failed_callback_cannot_publish_an_earlier_mod_pulse() {
     let mut state = ActionFilterState::default();
     let mut input = ordered([true, false], &[]);
-    assert!(!state.filter(&mut input, Some(1), 0, true, |_| None));
+    assert_eq!(
+        state.filter(&mut input, Some(1), 0, [true, false], |_| None),
+        [false; 2]
+    );
     assert!(input.phases[Action::Attack as usize].held);
     assert!(!input.phases[Action::Attack as usize].pressed);
 }
@@ -305,11 +356,11 @@ fn failed_callback_cannot_publish_an_earlier_mod_pulse() {
 fn duplicate_physical_press_does_not_restart_a_suppressed_hold() {
     let mut state = ActionFilterState::default();
     let mut first = ordered([false; 2], &[(Action::Attack, true)]);
-    state.filter(&mut first, Some(1), 0, false, |_| {
+    state.filter(&mut first, Some(1), 0, [false; 2], |_| {
         decide(&[false], [false; 2])
     });
     let mut duplicate = ordered([true, false], &[(Action::Attack, true)]);
-    state.filter(&mut duplicate, Some(1), 1, false, |_| {
+    state.filter(&mut duplicate, Some(1), 1, [false; 2], |_| {
         decide(&[true], [false; 2])
     });
     assert_eq!(
@@ -340,7 +391,7 @@ fn releasing_one_binding_preserves_another_binding_hold() {
             buttons: buttons([true, false]),
         },
     ];
-    state.filter(&mut input, Some(1), 0, false, |f| {
+    state.filter(&mut input, Some(1), 0, [false; 2], |f| {
         assert!(f.transitions.iter().all(|t| t.held_after));
         decide(&[true, true], [false; 2])
     });
@@ -367,7 +418,7 @@ fn accepted_momentary_edges_preserve_the_raw_projection() {
         event.buttons = buttons([false; 2]);
     }
     let original = input.phases[Action::Attack as usize];
-    state.filter(&mut input, Some(1), 0, false, |f| {
+    state.filter(&mut input, Some(1), 0, [false; 2], |f| {
         Some(ActionVerdict::passthrough(f))
     });
     assert_eq!(input.phases[Action::Attack as usize], original);
@@ -384,7 +435,7 @@ fn phase_only_release_with_another_binding_held_keeps_the_hold() {
         ..Default::default()
     };
     let mut press = frame(held, Default::default());
-    state.filter(&mut press, Some(1), 0, false, |f| {
+    state.filter(&mut press, Some(1), 0, [false; 2], |f| {
         Some(ActionVerdict::passthrough(f))
     });
     let mut release = frame(
@@ -395,7 +446,7 @@ fn phase_only_release_with_another_binding_held_keeps_the_hold() {
         },
         Default::default(),
     );
-    state.filter(&mut release, Some(1), 1, false, |f| {
+    state.filter(&mut release, Some(1), 1, [false; 2], |f| {
         assert!(f.transitions.iter().all(|t| t.held_after));
         Some(ActionVerdict::passthrough(f))
     });
@@ -407,7 +458,7 @@ fn phase_only_release_with_another_binding_held_keeps_the_hold() {
         },
         Default::default(),
     );
-    state.filter(&mut idle, Some(1), 2, false, |_| panic!("idle hold"));
+    state.filter(&mut idle, Some(1), 2, [false; 2], |_| panic!("idle hold"));
     assert!(idle.phases[Action::Attack as usize].held);
 }
 
@@ -417,15 +468,15 @@ fn repeat_does_not_revive_a_suppressed_press() {
     for owner in [Some(1), None] {
         let mut state = ActionFilterState::default();
         let mut first = ordered([false; 2], &[(Action::Attack, true)]);
-        state.filter(&mut first, Some(1), 0, false, |_| {
+        state.filter(&mut first, Some(1), 0, [false; 2], |_| {
             decide(&[false], [false; 2])
         });
         assert!(!first.phases[Action::Attack as usize].held);
         let mut repeat = ordered([true, false], &[]);
-        let admitted = state.filter(&mut repeat, owner, 1, true, |f| {
+        let admitted = state.filter(&mut repeat, owner, 1, [true, false], |f| {
             Some(ActionVerdict::passthrough(f))
         });
-        assert!(!admitted);
+        assert_eq!(admitted, [false; 2]);
         assert_eq!(
             repeat.phases[Action::Attack as usize],
             ActionPhase::default()
@@ -439,12 +490,12 @@ fn device_change_hold_without_an_edge_is_not_suppressed() {
     for owner in [Some(1), None] {
         let mut state = ActionFilterState::default();
         let mut neutral = frame(Default::default(), Default::default());
-        state.filter(&mut neutral, owner, 0, false, |f| {
+        state.filter(&mut neutral, owner, 0, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         for time in 1..3 {
             let mut mouse = ordered([true, false], &[]);
-            state.filter(&mut mouse, owner, time, false, |f| {
+            state.filter(&mut mouse, owner, time, [false; 2], |f| {
                 Some(ActionVerdict::passthrough(f))
             });
             assert!(mouse.phases[Action::Attack as usize].held);
@@ -458,7 +509,7 @@ fn edge_free_controller_hold_after_a_device_change_is_not_suppressed() {
     for owner in [Some(1), None] {
         let mut state = ActionFilterState::default();
         let mut mouse = ordered([false; 2], &[]);
-        state.filter(&mut mouse, owner, 0, false, |f| {
+        state.filter(&mut mouse, owner, 0, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         let held = ActionPhase {
@@ -467,7 +518,7 @@ fn edge_free_controller_hold_after_a_device_change_is_not_suppressed() {
         };
         for time in 1..3 {
             let mut controller = frame(held, Default::default());
-            state.filter(&mut controller, owner, time, false, |f| {
+            state.filter(&mut controller, owner, time, [false; 2], |f| {
                 Some(ActionVerdict::passthrough(f))
             });
             assert!(controller.phases[Action::Attack as usize].held);
@@ -486,12 +537,12 @@ fn controller_hold_resumes_after_a_neutral_desktop_frame() {
             ..Default::default()
         };
         let mut controller = frame(pressed, Default::default());
-        state.filter(&mut controller, owner, 0, false, |f| {
+        state.filter(&mut controller, owner, 0, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         assert!(controller.phases[Action::Attack as usize].held);
         let mut desktop = ordered([false; 2], &[]);
-        state.filter(&mut desktop, owner, 1, false, |f| {
+        state.filter(&mut desktop, owner, 1, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         let held = ActionPhase {
@@ -500,7 +551,7 @@ fn controller_hold_resumes_after_a_neutral_desktop_frame() {
         };
         for time in 2..4 {
             let mut controller = frame(held, Default::default());
-            state.filter(&mut controller, owner, time, false, |f| {
+            state.filter(&mut controller, owner, time, [false; 2], |f| {
                 Some(ActionVerdict::passthrough(f))
             });
             assert!(controller.phases[Action::Attack as usize].held);
@@ -514,7 +565,7 @@ fn controller_release_only_sample_after_desktop_input_keeps_its_hold() {
     for owner in [Some(1), None] {
         let mut state = ActionFilterState::default();
         let mut desktop = ordered([false; 2], &[]);
-        state.filter(&mut desktop, owner, 0, false, |f| {
+        state.filter(&mut desktop, owner, 0, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         let released = ActionPhase {
@@ -523,7 +574,7 @@ fn controller_release_only_sample_after_desktop_input_keeps_its_hold() {
             ..Default::default()
         };
         let mut controller = frame(released, Default::default());
-        state.filter(&mut controller, owner, 1, false, |f| {
+        state.filter(&mut controller, owner, 1, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         assert!(controller.phases[Action::Attack as usize].held);
@@ -532,7 +583,7 @@ fn controller_release_only_sample_after_desktop_input_keeps_its_hold() {
             ..Default::default()
         };
         let mut next = frame(held, Default::default());
-        state.filter(&mut next, owner, 2, false, |f| {
+        state.filter(&mut next, owner, 2, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         assert!(next.phases[Action::Attack as usize].held);
@@ -544,7 +595,7 @@ fn controller_release_only_sample_after_desktop_input_keeps_its_hold() {
 fn phase_only_rapid_taps_from_rest_keep_their_release() {
     let mut state = ActionFilterState::default();
     let mut rest = frame(Default::default(), Default::default());
-    state.filter(&mut rest, Some(1), 0, false, |f| {
+    state.filter(&mut rest, Some(1), 0, [false; 2], |f| {
         Some(ActionVerdict::passthrough(f))
     });
     let tapped = ActionPhase {
@@ -553,7 +604,7 @@ fn phase_only_rapid_taps_from_rest_keep_their_release() {
         held: true,
     };
     let mut input = frame(tapped, Default::default());
-    state.filter(&mut input, Some(1), 1, false, |f| {
+    state.filter(&mut input, Some(1), 1, [false; 2], |f| {
         assert_eq!(
             f.transitions.iter().map(|t| t.kind).collect::<Vec<_>>(),
             [
@@ -574,14 +625,14 @@ fn mouse_hold_survives_a_neutral_controller_sample() {
         let mut state = ActionFilterState::default();
         let passthrough = |f: &ActionFilterFrame| Some(ActionVerdict::passthrough(f));
         let mut mouse = ordered([false; 2], &[(Action::Attack, true)]);
-        state.filter(&mut mouse, owner, 0, false, passthrough);
+        state.filter(&mut mouse, owner, 0, [false; 2], passthrough);
         assert!(mouse.phases[Action::Attack as usize].held);
         let mut controller = frame(Default::default(), Default::default());
-        state.filter(&mut controller, owner, 1, false, passthrough);
+        state.filter(&mut controller, owner, 1, [false; 2], passthrough);
         let mut controller = frame(Default::default(), Default::default());
-        state.filter(&mut controller, owner, 2, false, passthrough);
+        state.filter(&mut controller, owner, 2, [false; 2], passthrough);
         let mut back = ordered([true, false], &[]);
-        state.filter(&mut back, owner, 3, false, passthrough);
+        state.filter(&mut back, owner, 3, [false; 2], passthrough);
         assert!(back.phases[Action::Attack as usize].held);
         assert!(back.ordered.unwrap().initial_buttons.held(Action::Attack));
     }
@@ -599,12 +650,12 @@ fn owner_change_keeps_a_suppressed_phase_only_hold_blocked() {
             ..Default::default()
         };
         let mut first = frame(press, Default::default());
-        state.filter(&mut first, Some(1), 0, false, |_| {
+        state.filter(&mut first, Some(1), 0, [false; 2], |_| {
             decide(&[false], [false; 2])
         });
         assert!(!first.phases[Action::Attack as usize].held);
         let mut second = frame(press, Default::default());
-        state.filter(&mut second, next, 1, false, |f| {
+        state.filter(&mut second, next, 1, [false; 2], |f| {
             Some(ActionVerdict::passthrough(f))
         });
         assert_eq!(
@@ -625,12 +676,12 @@ fn aggregate_release_on_a_device_change_reaches_the_filter() {
         ..Default::default()
     };
     let mut controller = frame(pressed, Default::default());
-    state.filter(&mut controller, Some(1), 0, false, |f| {
+    state.filter(&mut controller, Some(1), 0, [false; 2], |f| {
         Some(ActionVerdict::passthrough(f))
     });
     let mut desktop = ordered([false; 2], &[(Action::Jump, true)]);
     desktop.phases[Action::Attack as usize].released = true;
-    state.filter(&mut desktop, Some(1), 1, false, |f| {
+    state.filter(&mut desktop, Some(1), 1, [false; 2], |f| {
         assert_eq!(
             f.transitions,
             [ActionTransition {
@@ -659,7 +710,7 @@ fn coalesced_tap_on_a_second_binding_keeps_the_held_binding() {
         ..Default::default()
     };
     let mut first = frame(pressed, Default::default());
-    state.filter(&mut first, Some(1), 0, false, |f| {
+    state.filter(&mut first, Some(1), 0, [false; 2], |f| {
         Some(ActionVerdict::passthrough(f))
     });
     let tapped = ActionPhase {
@@ -668,7 +719,7 @@ fn coalesced_tap_on_a_second_binding_keeps_the_held_binding() {
         held: true,
     };
     let mut second = frame(tapped, Default::default());
-    state.filter(&mut second, Some(1), 1, false, |f| {
+    state.filter(&mut second, Some(1), 1, [false; 2], |f| {
         assert!(f.transitions.iter().all(|t| t.held_after));
         Some(ActionVerdict {
             accepted: f

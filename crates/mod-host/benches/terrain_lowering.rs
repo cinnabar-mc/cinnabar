@@ -213,6 +213,7 @@ fn observe(host: &mut ModHost) {
         world: "fixture".into(),
         position: (16., 64., 16.),
         alive: true,
+        runtime_id: 1,
     };
     host.observe_presentation(Some(world), None, None, Vec::new())
         .unwrap();

@@ -76,6 +76,9 @@ grants! {
     /// Allows read-only current-session local inventory and status effect snapshots.
     #[permission("Player status", false)]
     pub player_state: bool,
+    /// Allows reading the local wall-clock time and UTC offset.
+    #[permission("Clock", false)]
+    pub clock: bool,
     /// Allows this instance to replace visual time and local menu branding.
     #[permission("Environment", false)]
     pub environment: bool,
@@ -151,7 +154,7 @@ grants! {
     /// Allows a package's vanilla inventory requests: creative takes and recipe fills.
     #[permission("Inventory requests", true)]
     pub inventory: bool,
-    /// Allows retained full-block highlights of matching loaded blocks.
+    /// Allows a packet mod's explicit full-block highlights in its render frame.
     #[permission("Block highlights", false)]
     pub block_highlights: bool,
     /// Allows retained local fullbright lighting, without altering server light data.

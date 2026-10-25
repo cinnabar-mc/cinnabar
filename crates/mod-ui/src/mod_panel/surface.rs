@@ -1,8 +1,9 @@
 //! Shared JSON-UI loading and scalar bindings for extension-authored surfaces.
 
+use crate::hud_surface::scalar;
 use json_ui::{Catalog, Context, DataSource, Scalar};
 use serde_json::json;
-use ui::mod_panel::{Panel, Surface, SurfaceValue};
+use ui::mod_panel::{Panel, Surface};
 
 /// Loads the validated document in a private catalog and checks its root resolution.
 pub(in super::super) fn catalog(surface: &Surface) -> Result<Catalog, String> {
@@ -47,10 +48,7 @@ pub(in super::super) fn viewport(data: &mut DataSource, size: [f64; 2]) {
 
 /// Reuses native control formatting in immutable tile metadata, only when panel values change.
 pub(super) fn collections(panel: &Panel, data: &mut DataSource) {
-    let Some(surface) = &panel.surface else {
-        return;
-    };
-    for (name, collection) in &surface.collections {
+    for (name, collection) in &panel.surface.collections {
         let items = collection
             .order
             .iter()
@@ -105,16 +103,6 @@ pub(super) fn collections(panel: &Panel, data: &mut DataSource) {
                     .div_ceil(collection.definition.columns)
             ])),
         );
-    }
-}
-
-/// Converts an admitted scalar through the same representation in globals and tile fields.
-fn scalar(value: &SurfaceValue) -> Scalar {
-    match value {
-        SurfaceValue::Bool(value) => Scalar::Bool(*value),
-        SurfaceValue::Number(value) => Scalar::Num(*value),
-        SurfaceValue::Text(value) => Scalar::Text(value.clone()),
-        SurfaceValue::Vector(value) => Scalar::Json(json!(value)),
     }
 }
 

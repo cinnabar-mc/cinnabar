@@ -277,6 +277,13 @@ pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
                 && event.value.is_finite()),
         "invalid panel events"
     );
+    ensure!(
+        frame
+            .pointer
+            .is_none_or(|(x, y)| x.is_finite() && y.is_finite())
+            && frame.wheel.is_finite(),
+        "invalid panel pointer"
+    );
     Ok(())
 }
 
@@ -322,6 +329,8 @@ pub(super) fn read_selected(
         } else {
             Vec::new()
         },
+        pointer: frame.pointer,
+        wheel: frame.wheel,
     }))
 }
 
@@ -392,6 +401,9 @@ impl cinnabar::extension::panel::Host for State {
         if !key_valid(&panel.toggle_key) {
             return Ok(Err("invalid panel toggle key".into()));
         }
+        if let Err(error) = super::hud::surface::actor_authority(self, &panel.surface) {
+            return Ok(Err(error));
+        }
         self.controls.pending_panel = Some(Some(panel));
         Ok(Ok(()))
     }
@@ -416,10 +428,14 @@ impl cinnabar::extension::panel::Host for State {
                 "panel update schema differs from the registered bundle".into(),
             ));
         }
-        match PanelPatch::parse(&json).and_then(|patch| match &self.controls.bundle {
-            Some(bundle) => patch.apply_bundle(current, bundle),
-            None => patch.apply(current, &std::collections::BTreeMap::new()),
-        }) {
+        match PanelPatch::parse(&json)
+            .and_then(|patch| match &self.controls.bundle {
+                Some(bundle) => patch.apply_bundle(current, bundle),
+                None => patch.apply(current, &std::collections::BTreeMap::new()),
+            })
+            .and_then(|panel| {
+                super::hud::surface::actor_authority(self, &panel.surface).map(|()| panel)
+            }) {
             Ok(panel) => {
                 self.controls.pending_panel = Some(Some(panel));
                 Ok(Ok(()))

@@ -669,7 +669,6 @@ fn frame_authority_preserves_the_full_session_loading_budget() {
         false,
         false,
         0,
-        crate::HudClaims::default(),
     );
     host.set_session(session_sized(4_000, 3_000, 1)).unwrap();
     assert!(host.is_active());
@@ -680,11 +679,11 @@ fn frame_authority_preserves_the_full_session_loading_budget() {
 
 #[test]
 fn deferred_lifecycle_notifications_coalesce_and_run_after_the_lanes_reset() {
-    use crate::{CallbackBudget, CallbackOutcome, HudClaims};
+    use crate::{CallbackBudget, CallbackOutcome};
     use server_experience::runtime::{CALLBACK_FUEL, LOAD_FUEL};
     let (_dir, mut host) = probe();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     assert!(budget.reserve(CALLBACK_FUEL).is_some());
     assert!(budget.reserve(LOAD_FUEL).is_some());
     let mut first = layout();
@@ -716,7 +715,7 @@ fn deferred_lifecycle_notifications_coalesce_and_run_after_the_lanes_reset() {
 
 #[test]
 fn view_closure_is_delivered_even_when_the_layout_callback_uses_the_event_lane() {
-    use crate::{CallbackBudget, CallbackOutcome, HudClaims};
+    use crate::{CallbackBudget, CallbackOutcome};
     let (_dir, mut host) = probe();
     host.dispatch(vec![
         ModEvent::ScreenChanged(Some(layout())),
@@ -724,7 +723,7 @@ fn view_closure_is_delivered_even_when_the_layout_callback_uses_the_event_lane()
     ])
     .unwrap();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     let before = value(&host, "#view_closed").cloned();
     assert_eq!(
         host.dispatch(vec![ModEvent::ScreenChanged(None)]).unwrap(),
@@ -757,7 +756,6 @@ fn ordinary_events_keep_their_callback_allowance_under_frame_authority() {
         false,
         false,
         0,
-        crate::HudClaims::default(),
     );
     host.dispatch(vec![
         ModEvent::ScreenChanged(Some(layout())),
@@ -782,7 +780,7 @@ fn edit(value: &str) -> ModEvent {
 fn deferred_edit_text_coalesces_and_survives_same_screen_geometry_changes() {
     let (_dir, mut host) = probe();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     assert_eq!(
         host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), edit("dir")])
             .unwrap(),
@@ -814,7 +812,7 @@ fn departing_screens_and_views_discard_deferred_edits() {
     }] {
         let (_dir, mut host) = probe();
         let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-        host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+        host.set_frame_authority(budget.clone(), false, false, 0);
         host.dispatch(vec![
             ModEvent::ScreenChanged(Some(layout())),
             edit("old-screen"),
@@ -833,7 +831,7 @@ fn departing_screens_and_views_discard_deferred_edits() {
 fn deferred_edits_reject_undeclared_controls_and_unbounded_text_before_queueing() {
     let (_dir, mut host) = probe();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)
@@ -859,7 +857,7 @@ fn replacement_quarantine_and_revocation_discard_the_old_guests_deferred_text() 
     for transition in 0..3 {
         let (directory, mut host) = probe();
         let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-        host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+        host.set_frame_authority(budget.clone(), false, false, 0);
         host.dispatch(vec![
             ModEvent::ScreenChanged(Some(layout())),
             edit("old-guest"),
@@ -886,7 +884,7 @@ fn replacement_quarantine_and_revocation_discard_the_old_guests_deferred_text() 
 fn deferred_edits_keep_one_latest_value_for_each_declared_control() {
     let (_dir, mut host) = probe();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)
@@ -919,7 +917,7 @@ fn escaping_cancels_deferred_edits_before_actions_and_closes_their_view() {
     host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), open.clone()])
         .unwrap();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)

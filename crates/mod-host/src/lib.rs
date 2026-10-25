@@ -12,6 +12,8 @@ pub use declarations::{
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod action_filter;
+mod block_search;
+pub use block_search::{BlockSearch, BlockSearchSource, FoundBlocks, refresh_block_searches};
 mod callback_budget;
 mod callbacks;
 pub use callback_budget::{CallbackBudget, CallbackOutcome};
@@ -19,9 +21,8 @@ pub use runtime::cinnabar::extension::action_filter::{
     ActionFrame, ActionVerdict, FilteredAction, Held as ActionHeld, Transition as ActionTransition,
     TransitionKind,
 };
-mod exclusive;
-pub use exclusive::HudClaims;
 mod component_assets;
+mod exclusive;
 mod execution;
 mod load;
 pub mod local_files;
@@ -37,12 +38,13 @@ mod settings;
 mod terrain;
 pub use settings::{SettingsSnapshot, settings_companion};
 
+pub use runtime::HudTextMeasure;
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
-    CameraRig as GameplayCameraRig, Mob as GameplayMob,
-    MovementSnapshot as GameplayMovementSnapshot, MovementToggles, Player as GameplayPlayer,
-    Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+    CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig, Mob as GameplayMob,
+    MovementIntents as GameplayMovementIntents, MovementSnapshot as GameplayMovementSnapshot,
+    Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, Bounds as ActorObservationBounds,
@@ -50,7 +52,7 @@ pub use runtime::cinnabar::extension::player_state::{
     Effect as PlayerStateEffect, Food as FoodObservation, Item as PlayerStateItem,
     Motion as MotionObservation, ObservedActor, Sidebar as SidebarSnapshot, SidebarRow,
     Slot as PlayerStateSlot, Snapshot as PlayerStateSnapshot, Vitals as VitalsObservation,
-    WorldObservation,
+    WorldObservation, WorldTime as WorldTimeObservation,
 };
 pub use runtime::cinnabar::extension::{
     events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
@@ -68,6 +70,18 @@ pub use terrain::{
     TerrainCheck, TerrainDescriptors, TerrainMetadata, TerrainRefresh, TerrainScheduler,
     TerrainSource, terrain_query_size, terrain_region_bytes,
 };
+
+/// Client facts the gameplay capabilities read, captured once per frame for every mod. Each
+/// import still checks its own grant and gameplay frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GameplayFacts {
+    /// The presented camera pose, including third-person and rig offsets.
+    pub camera: Option<GameplayCameraPose>,
+    /// The local feet position last relayed to the server, in a connected world.
+    pub relayed_position: Option<GameplayVector3>,
+    /// A physical binding holds the use control.
+    pub use_held: bool,
+}
 
 /// Successfully committed local interaction requests, consumed once per frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -161,6 +175,8 @@ pub fn empty_controls() -> ControlFrame {
         keys_pressed: Vec::new(),
         keys_held: Vec::new(),
         events: Vec::new(),
+        pointer: None,
+        wheel: 0.0,
     }
 }
 

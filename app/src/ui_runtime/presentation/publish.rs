@@ -14,6 +14,7 @@ mod commit;
 mod cooldowns;
 mod loading;
 mod menu_icons;
+mod roster;
 use client_ui::ui_runtime::presentation::{
     ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
     player_preview,
@@ -143,22 +144,11 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
     prepared.0 = None;
-    let totem_style = presentation
-        .mod_ui()
-        .mod_actor_style()
-        .and_then(|style| style.totems.as_ref())
-        .cloned();
-    if let Some(stream) = client_world.stream.as_mut() {
-        stream.set_totem_tracking(totem_style.is_some());
-        runtime.player_roster.set_totem_annotations(
-            totem_style.as_ref(),
-            stream.authority().player_totem_activations(),
-        );
-    } else {
-        runtime
-            .player_roster
-            .set_totem_annotations(None, std::iter::empty());
-    }
+    let mod_presentation = std::sync::Arc::clone(presentation.mod_ui().mod_presentation());
+    runtime.player_roster.set_annotations(roster::annotations(
+        &mod_presentation,
+        client_world.stream.as_ref(),
+    ));
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.advance_item_activation(now_millis);
     runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
@@ -300,8 +290,6 @@ pub(crate) fn prepare_ui_runtime(
         && settings.value(SettingId::HideHud) == 0
         && settings.value(SettingId::HidePaperdoll) == 0
         && !menu_visible;
-    // A visible control preview may need the local model while the gameplay doll stays hidden.
-    let control_preview_player = presentation.control_preview_needs_player(runtime.session_id());
     let emote_preview = runtime
         .emotes()
         .playback()
@@ -321,7 +309,7 @@ pub(crate) fn prepare_ui_runtime(
                 })
                 .flatten()
         });
-    if hud_doll || runtime.emotes().is_open() || control_preview_player {
+    if hud_doll || runtime.emotes().is_open() {
         presentation.capture_hud_player_with_emote(
             client_world.stream.as_ref(),
             doll_state.is_some_and(|state| state.swimming),
@@ -360,11 +348,7 @@ pub(crate) fn prepare_ui_runtime(
         ready: preview_ready,
         skin,
         pose,
-        shown: runtime.inventory_open()
-            || menu_visible
-            || hud_doll
-            || runtime.emotes().is_open()
-            || control_preview_player,
+        shown: runtime.inventory_open() || menu_visible || hud_doll || runtime.emotes().is_open(),
         hands: first_person && !hide_hand && !hand_rig.hand_is_active() && !java_held_item,
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
@@ -454,23 +438,15 @@ pub(crate) fn prepare_ui_runtime(
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
     presentation.prepare_nametag_layout(&runtime);
-    let tag_style_owned = presentation
-        .mod_ui()
-        .mod_actor_style()
-        .and_then(|style| style.nametags.as_ref())
-        .cloned();
-    let tag_style = tag_style_owned.as_ref();
-    let show_counter_self = totem_style
-        .as_ref()
-        .is_some_and(|style| style.show_self && style.show_nametag)
-        && client_world.stream.as_ref().is_some_and(|stream| {
-            let authority = stream.authority();
-            authority
-                .totem_activations(authority.local_player_runtime_id())
-                .is_some_and(|count| count != 0)
-        });
+    let tag_style = mod_presentation.nametag_style.as_ref();
+    // An annotation on the local player shows its own tag, as other annotated players' tags do.
+    let annotated_self = client_world.stream.as_ref().is_some_and(|stream| {
+        mod_presentation
+            .nametag(stream.authority().local_player_runtime_id(), true)
+            .is_some()
+    });
     let show_self_tag = (tag_style.is_some_and(|style| style.show_self)
-        || show_counter_self
+        || annotated_self
         || settings.value(SettingId::F5SelfVisuals) != 0)
         && !tag_style.is_some_and(|style| style.hide_players)
         && !first_person;
@@ -504,14 +480,17 @@ pub(crate) fn prepare_ui_runtime(
                         .actor_player_roster_identity(tag.runtime_id())
                         .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
                 );
-                if totem_style.as_ref().is_some_and(|style| style.show_nametag)
-                    && let Some(actor) = authority.actor(tag.runtime_id())
-                    && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
-                {
-                    tag.set_counter_annotation(
-                        runtime.player_roster.totem_annotation(uuid).cloned(),
-                    );
-                }
+                tag.set_annotation(
+                    authority
+                        .actor(tag.runtime_id())
+                        .and_then(|actor| {
+                            mod_presentation.nametag(
+                                tag.runtime_id(),
+                                matches!(actor.kind, protocol::ActorKind::Player { .. }),
+                            )
+                        })
+                        .cloned(),
+                );
 
                 presentation.nametag_intersects_view(tag, clip_from_world, rotation)
             };
@@ -566,6 +545,20 @@ pub(crate) fn prepare_ui_runtime(
             tags
         })
         .unwrap_or_default();
+    let hud_camera = cameras.single().ok().map(|(_, transform, projection)| {
+        (projection.get_clip_from_view() * GlobalTransform::from(*transform).to_matrix().inverse())
+            .to_cols_array()
+    });
+    let actor_stream = client_world.stream.as_ref();
+    presentation
+        .mod_ui_mut()
+        .set_hud_projection(hud_camera, &|runtime_id| {
+            let actor = actor_stream?.authority().actor(runtime_id)?;
+            Some(mod_ui::ProjectedActor {
+                feet: actor.interpolated_position(actor_partial.0.clamp(0.0, 1.0))?,
+                player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+            })
+        });
     presentation.set_nametag_local_actor(
         client_world
             .stream

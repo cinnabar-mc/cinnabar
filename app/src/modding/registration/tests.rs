@@ -23,9 +23,14 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         .trim_start_matches("package ")
         .trim_end_matches(';');
     let (name, version) = package.split_once('@').unwrap();
-    let panel = format!(
-        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"capture_key":{capture_key},"controls":[{{"kind":"toggle","id":"enabled","label":"Enabled","value":{enabled}}}]}}"#
-    );
+    let controls = vec![ui::mod_panel::Control::Toggle {
+        id: "enabled".into(),
+        label: "Enabled".into(),
+        value: enabled,
+    }];
+    let panel = serde_json::json!({"toggle_key":"ShiftRight","capture_key":capture_key,
+        "surface":mod_ui::test_support::sample_surface(&controls),"controls":controls})
+    .to_string();
     let template = include_str!("../../../../crates/mod-host/src/tests/guest.wat");
     template
         .replace("(component", &format!("(component (import \"{name}/panel@{version}\" (instance $panel (export \"set-content\" (func (param \"json\" string) (result (result (error string))))))) (alias export $panel \"set-content\" (func $set-panel))"))
@@ -38,7 +43,7 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         .replace("(core func $lower-label", "(core func $lower-panel (canon lower (func $set-panel) (memory $memory) (realloc $realloc))) (core func $lower-label")
         .replace("(import \"host\" \"time\"", "(import \"host\" \"panel\" (func $panel (param i32 i32 i32))) (import \"host\" \"time\"")
         .replace("(export \"time\" (func $lower-time))", "(export \"panel\" (func $lower-panel)) (export \"time\" (func $lower-time))")
-        .replace("(data (i32.const 0)", &format!("(data (i32.const 1024) \"{}\") (data (i32.const 0)", panel.replace('"', "\\22")))
+        .replace("(data (i32.const 0)", &format!("(data (i32.const 1024) \"{}\") (data (i32.const 0)", panel.replace('\\', "\\5c").replace('"', "\\22")))
         .replacen("(func (export \"init\")", &format!("(func (export \"init\") i32.const 1024 i32.const {} i32.const 512 call $panel", panel.len()), 1)
 }
 
@@ -306,15 +311,20 @@ fn status_messages_are_bounded_and_unloading_preserves_saved_camera_settings() {
     let mut world = World::new();
     let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
     let fov = camera.horizontal_fov_degrees();
-    let hurt_style = camera.hurt_camera_style();
+    let hurt_shake = camera.hurt_shake_intensity();
     camera.set_view_scale(0.25, 0.25);
-    camera.set_hurt_camera_style(Some(render_api::HurtCameraStyle::new(2.0, true).unwrap()));
+    camera.set_view_tilt(Some(client_presentation::camera::ViewTilt {
+        roll_degrees: 14.0,
+        pitch_degrees: 0.0,
+        suppress_hurt_shake: true,
+    }));
     world.insert_resource(camera);
     presentation::clear_presentation(&mut world);
     let camera = world.resource::<client_presentation::camera::CameraSettingsAuthority>();
     assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
     assert_eq!(camera.horizontal_fov_degrees(), fov);
-    assert_eq!(camera.hurt_camera_style(), hurt_style);
+    assert_eq!(camera.view_tilt(), None);
+    assert_eq!(camera.hurt_shake_intensity(), hurt_shake);
 }
 
 #[test]

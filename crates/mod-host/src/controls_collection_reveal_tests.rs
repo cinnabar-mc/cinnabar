@@ -6,16 +6,14 @@ use std::sync::Arc;
 
 /// An admitted native collection with immutable items and no control authority of its own.
 fn panel() -> Panel {
-    serde_json::from_value(
-        json!({"title":"Collection", "toggle_key":"F10", "dark":true,
+    serde_json::from_value(json!({"toggle_key":"F10",
         "controls":[], "surface":{"screen":"list.root", "document":json!({
             "namespace":"list", "root":{"type":"panel", "controls":[
                 {"tiles":{"type":"panel", "cinnabar_collection":"modules"}}]}}).to_string(),
         "collections":{"modules":{"definition":{"columns":1,"viewport":[108,80],
             "template":{"screen":"tile.root", "document":json!({"namespace":"tile",
                 "root":{"type":"panel", "size":[100,40]}}).to_string()},
-            "items":vec![json!({});33]}, "order":(0..33).collect::<Vec<_>>()}}}}),
-    )
+            "items":vec![json!({});33]}, "order":(0..33).collect::<Vec<_>>()}}}}))
     .unwrap()
 }
 
@@ -40,21 +38,13 @@ fn collection_reveal_host_validates_and_commits_requests_atomically() {
     .to_string();
     state.update_content(request.clone()).unwrap().unwrap();
     assert!(
-        state
-            .controls
-            .panel
-            .as_ref()
-            .unwrap()
-            .surface
-            .as_ref()
-            .unwrap()
-            .collections["modules"]
+        state.controls.panel.as_ref().unwrap().surface.collections["modules"]
             .reveal
             .is_none()
     );
     state.controls.commit();
     let accepted = state.controls.panel.clone().unwrap();
-    let first = accepted.surface.as_ref().unwrap().collections["modules"]
+    let first = accepted.surface.collections["modules"]
         .reveal
         .as_ref()
         .unwrap();
@@ -88,15 +78,7 @@ fn collection_reveal_host_validates_and_commits_requests_atomically() {
     assert_eq!(state.controls.panel.as_ref(), Some(&accepted));
     state.update_content(request).unwrap().unwrap();
     state.controls.commit();
-    let repeated = state
-        .controls
-        .panel
-        .as_ref()
-        .unwrap()
-        .surface
-        .as_ref()
-        .unwrap()
-        .collections["modules"]
+    let repeated = state.controls.panel.as_ref().unwrap().surface.collections["modules"]
         .reveal
         .as_ref()
         .unwrap();

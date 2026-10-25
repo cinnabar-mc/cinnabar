@@ -89,15 +89,16 @@ impl ActionFilterState {
     /// Calls one owner only when edges or retained holds need decisions, then atomically
     /// projects its verdict. Missing/invalid verdicts restore source-backed input. Suppressed
     /// gestures remain suppressed until their release; failure never manufactures a press.
-    /// Returns whether the separately authorized repeat was admitted.
+    /// `repeat` requests one separately authorized press per action, in `FilterAction` order;
+    /// returns which of them were admitted.
     pub fn filter(
         &mut self,
         input: &mut ActionSnapshot,
         owner: Option<u64>,
         time_us: u64,
-        repeat: bool,
+        repeat: [bool; 2],
         mut decide: impl FnMut(&ActionFilterFrame) -> Option<ActionVerdict>,
-    ) -> bool {
+    ) -> [bool; 2] {
         let physical_lost = self.physical_lost
             || self.generation != Some(input.authority_generation)
             || input.authority_released
@@ -189,13 +190,13 @@ impl ActionFilterState {
             })
             .collect();
         // Repeat authority is independent of filtering and never extends beyond physical release.
-        let repeat = repeat
-            && !invalid
-            && input.phases[Action::Attack as usize].held
-            && !input.phases[Action::Attack as usize].pressed;
-        if repeat {
+        let repeat = FilterAction::ALL.map(|a| {
+            let phase = input.phases[a.action() as usize];
+            repeat[a.index()] && !invalid && phase.held && !phase.pressed
+        });
+        for a in FilterAction::ALL.into_iter().filter(|a| repeat[a.index()]) {
             transitions.push(ActionTransition {
-                action: FilterAction::Attack,
+                action: a,
                 kind: TransitionKind::Repeat,
                 held_after: true,
             });
@@ -211,7 +212,7 @@ impl ActionFilterState {
             self.logical = Some(logical);
             self.physical = Some(physical_end);
             self.suppressed = std::array::from_fn(|i| physical_end[i] && !logical[i]);
-            return false;
+            return [false; 2];
         }
         let callable = owner.is_some()
             && !input.authority_released
@@ -234,8 +235,10 @@ impl ActionFilterState {
             verdict.release = [true; 2];
         }
         // A failed owner cannot publish a mod-generated edge from its earlier frame callback.
-        if failed && repeat {
-            *verdict.accepted.last_mut().expect("observed repeat") = false;
+        if failed {
+            let repeats = repeat.iter().filter(|r| **r).count();
+            let observed = verdict.accepted.len() - repeats;
+            verdict.accepted[observed..].fill(false);
         }
         let mut held = logical;
         let mut edges = [ActionPhase::default(); 2];
@@ -304,18 +307,15 @@ impl ActionFilterState {
             }
         }
         // A repeat continues an owned gesture; it cannot revive a suppressed or released one.
-        let admitted = repeat && verdict.accepted[decision] && held[FilterAction::Attack.index()];
-        if admitted {
-            let buttons = ActionButtons::new(input.phases.map(|p| p.held));
-            emit(
-                &mut output,
-                &mut edges,
-                &mut held,
-                FilterAction::Attack,
-                true,
-                true,
-                buttons,
-            );
+        let mut admitted = [false; 2];
+        for a in FilterAction::ALL.into_iter().filter(|a| repeat[a.index()]) {
+            let i = a.index();
+            admitted[i] = verdict.accepted[decision] && held[i];
+            decision += 1;
+            if admitted[i] {
+                let buttons = ActionButtons::new(input.phases.map(|p| p.held));
+                emit(&mut output, &mut edges, &mut held, a, true, true, buttons);
+            }
         }
         if let Some(ordered) = &mut input.ordered {
             ordered.initial_buttons = project(initial, logical);

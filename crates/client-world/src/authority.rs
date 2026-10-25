@@ -66,7 +66,6 @@ mod synchronized_audio_tests;
 mod terrain;
 #[cfg(test)]
 mod tests;
-mod totems;
 #[cfg(test)]
 mod world_spawn_tests;
 pub use biomes::BiomeCommitReport;
@@ -107,7 +106,6 @@ pub struct WorldAuthority {
     actors: ActorStore,
     combat_evidence: VecDeque<ActorCombatEvidence>,
     combat_revision: u64,
-    totems: Option<totems::Tracking>,
     block_events: block_events::BlockEvents,
     map_images: map_data::MapImages,
     pending_sign_edit: Option<SignEditRequest>,
@@ -195,7 +193,6 @@ impl WorldAuthority {
             combat_evidence: VecDeque::new(),
             local_mode_follows_default: false,
             combat_revision: 0,
-            totems: None,
             block_events: block_events::BlockEvents::default(),
             map_images: map_data::MapImages::default(),
             pending_sign_edit: None,

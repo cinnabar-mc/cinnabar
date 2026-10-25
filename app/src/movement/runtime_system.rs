@@ -15,7 +15,10 @@ use protocol::PlayerInputMode;
 use semantic_input::Action;
 use {
     crate::runtime::world::ClientWorld,
-    client_presentation::{camera::AutoFly, local_player::LocalViewPose},
+    client_presentation::{
+        camera::{AutoFly, CameraSettingsAuthority},
+        local_player::LocalViewPose,
+    },
     client_state::{PlayerRuntime, RuntimeSettings, SemanticInputSnapshot},
 };
 
@@ -26,13 +29,11 @@ use client_interaction::movement::{
 
 use client_interaction::movement::LocomotionState;
 
-/// Reads user movement settings and any native extension policy in one system parameter.
+/// Reads user movement settings and the camera's movement capture in one system parameter.
 #[derive(SystemParam)]
 pub(crate) struct MovementSettings<'w> {
-    camera: Option<Res<'w, client_presentation::camera::CameraSettingsAuthority>>,
+    camera: Option<Res<'w, CameraSettingsAuthority>>,
     settings: Option<Res<'w, RuntimeSettings>>,
-    #[cfg(not(target_arch = "wasm32"))]
-    mods: Option<Res<'w, crate::modding::ModRuntime>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -91,20 +92,6 @@ pub(crate) fn advance_local_physics(
         .as_deref()
         .map(|settings| settings.user_settings_update().1.gameplay)
         .unwrap_or_default();
-    #[cfg(not(target_arch = "wasm32"))]
-    let gameplay = {
-        let mut gameplay = gameplay;
-        if let Some(policy) = settings
-            .mods
-            .as_deref()
-            .and_then(|mods| mods.movement_toggles())
-        {
-            gameplay.toggle_sprint = policy.toggle_sprint;
-            gameplay.toggle_sneak = policy.toggle_sneak;
-            gameplay.always_sprint = policy.always_sprint;
-        }
-        gameplay
-    };
     let mut frame = gameplay::movement::PhysicsFrameInput {
         delta: time.delta(),
         now: time.elapsed(),
@@ -137,12 +124,11 @@ pub(crate) fn advance_local_physics(
             },
         ),
     };
-    if settings.camera.as_deref().is_some_and(|camera| {
-        matches!(
-            camera.detached_view(),
-            Some(client_presentation::camera::DetachedView::Fly { .. })
-        )
-    }) {
+    if settings
+        .camera
+        .as_deref()
+        .is_some_and(CameraSettingsAuthority::captures_movement)
+    {
         frame.movement = [0.0; 2];
         frame.raw_movement = [0.0; 2];
         frame.analogue_movement = [0.0; 2];

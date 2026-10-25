@@ -147,7 +147,7 @@ fn custom_panel_texture_collection_resolves_static_template_parameters() {
     )
     .unwrap();
     let panel: ui::mod_panel::Panel = serde_json::from_value(json!({
-        "title":"Fixture", "toggle_key":"F8", "dark":true, "controls":[],
+        "toggle_key":"F8", "controls":[],
         "surface":{
             "screen":"fixture.root",
             "document":json!({

@@ -20,9 +20,8 @@ fn sliding_panel(x: f64, exit: Option<f64>) -> Panel {
         "anchor_from":"top_left","anchor_to":"top_left",
         "bindings":[{"binding_name":"#slide","binding_name_override":"#offset"}],
         "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.control:0","mapping_type":"pressed"}]});
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         collections: Default::default(),
-        previews: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"slider":button}]
@@ -38,7 +37,7 @@ fn sliding_panel(x: f64, exit: Option<f64>) -> Panel {
                 exit: exit.map(|x| SurfaceValue::Vector(vec![x, 20.0])),
             },
         )]),
-    });
+    };
     panel
 }
 
@@ -249,8 +248,6 @@ fn panel_motion_preference_snaps_geometry_and_resumes_future_value_changes() {
     assert!(!presentation.mod_ui().mod_panel_motion_active());
     panel
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#slide".into(), SurfaceValue::Vector(vec![0.0, 20.0]));
     presentation
@@ -272,8 +269,6 @@ fn panel_motion_preference_snaps_geometry_and_resumes_future_value_changes() {
     assert_eq!(button_x(&presentation), settled - 100.0);
     panel
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#slide".into(), SurfaceValue::Vector(vec![100.0, 20.0]));
     presentation

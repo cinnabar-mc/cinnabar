@@ -135,7 +135,7 @@ fn capture_titles(
     }
 }
 
-/// Adds the hovered item's tooltip, optional nutrition, and bundle contents in display order.
+/// Adds the hovered item's tooltip, mod tooltip lines, and bundle contents in display order.
 fn capture_tooltip(
     player_runtime: &player_state::PlayerState,
     items: &ItemResolver<'_>,
@@ -169,24 +169,17 @@ fn capture_tooltip(
                 name.as_deref(),
             )
         };
-        if presentation
-            .mod_ui()
-            .mod_hunger_overlay()
-            .is_some_and(|style| style.tooltips)
-            && let Some(food) = identifier
-                .as_deref()
-                .and_then(|identifier| runtime.food_properties(identifier))
-        {
-            window_text
-                .tooltip
-                .push(presentation::hud_layout::TooltipLine {
-                    text: format!(
-                        "Nutrition: {}  Saturation: {:.1}",
-                        food.nutrition(),
-                        food.nutrition() as f32 * food.saturation_modifier() * 2.
-                    ),
-                    color: [255, 170, 0, 255],
-                });
+        if let Some(identifier) = identifier.as_deref() {
+            window_text.tooltip.extend(
+                presentation
+                    .mod_ui()
+                    .mod_presentation()
+                    .tooltip_lines(identifier, stack.metadata)
+                    .map(|line| presentation::hud_layout::TooltipLine {
+                        text: line.text.clone(),
+                        color: line.color.map(|channel| (channel * 255.).round() as u8),
+                    }),
+            );
         }
         if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
             .and_then(|id| runtime.inventory_ledger(player_runtime).bundle_contents(id))

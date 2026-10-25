@@ -40,23 +40,31 @@ pub(super) struct GameplayContext<'w> {
 const _: () = assert!(mod_api::BEDROCK_TICKS_PER_SECOND == simulation_clock::TICKS_PER_SECOND);
 
 impl GameplayContext<'_> {
-    /// Reads the real server clock in this scope; visual time overrides never enter this observation.
-    pub(super) fn world_day(
+    /// Reads the server world clock in this session: the absolute ticks the server set, advanced
+    /// at the native rate while its daylight cycle runs. Visual time overrides never enter it.
+    pub(super) fn world_time(
         &self,
         world: &mod_host::WorldObservation,
-    ) -> Option<mod_host::module_observations::WorldDay> {
+    ) -> Option<mod_host::WorldTimeObservation> {
         let clock = self.clock.as_deref()?;
         if world.session == 0 || clock.session_generation() != world.session {
             return None;
         }
-        Some(mod_host::module_observations::WorldDay {
+        clock.server_time()?;
+        let time = client_presentation::environment::visual_world_time(
+            *clock,
+            self.time.as_ref()?.elapsed_secs_f64(),
+        )
+        .floor();
+        Some(mod_host::WorldTimeObservation {
             session: world.session,
-            dimension: world.dimension,
-            day: clock.world_day(self.time.as_ref()?.elapsed_secs_f64())?,
+            time: (time.is_finite() && time.abs() < i64::MAX as f64).then_some(time as i64)?,
+            daylight_cycle: clock.daylight_cycle_enabled(),
         })
     }
 
-    /// Native packet frames share the current input snapshot and connected-world fences.
+    /// Native packet frames share the current input snapshot and connected-world fences. The
+    /// native camera fills in the look and real time since the previous frame.
     pub(super) fn native_frame(
         &self,
         allowed: bool,
@@ -92,10 +100,16 @@ impl GameplayContext<'_> {
                     .real_time
                     .as_ref()
                     .map_or(0.0, |time| time.delta_secs().min(1.0)),
+                look_delta: [0.0; 2],
+                move_axes: [0.0; 2],
+                ascend: false,
+                descend: false,
+                elapsed: 0.0,
                 players: Vec::new(),
                 suspended: true,
             });
         };
+        let input = self.input.as_deref();
         Some(mod_api::native_frame::Frame {
             version: mod_api::native_frame::VERSION,
             session: snapshot.session,
@@ -105,6 +119,13 @@ impl GameplayContext<'_> {
             pitch: snapshot.pitch,
             attack_held: snapshot.attack_held,
             seconds: snapshot.frame_seconds,
+            look_delta: [0.0; 2],
+            move_axes: input.map_or([0.0; 2], |input| {
+                input.raw_movement().map(|axis| axis.clamp(-1.0, 1.0))
+            }),
+            ascend: input.is_some_and(|input| input.phase(semantic_input::Action::Jump).held),
+            descend: input.is_some_and(|input| input.phase(semantic_input::Action::Sneak).held),
+            elapsed: 0.0,
             suspended: false,
             players: snapshot
                 .players
@@ -144,14 +165,8 @@ impl GameplayContext<'_> {
             dimension: authority.current_dimension(),
             position: (position.x, position.y, position.z),
             alive: ui.hud().health().is_none_or(|health| health.current() > 0),
+            runtime_id: authority.local_player_runtime_id(),
         })
-    }
-
-    /// Layout editing requires the same current connected world as player presentation.
-    pub(super) fn hud_editor_session(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<u64> {
-        self.world.as_ref()?.stream.as_ref()?;
-        let session = self.clock.as_ref()?.session_generation();
-        (session == ui.session_id()).then_some(session)
     }
 
     /// Local facts stay readable while a screen owns input, but never without a live session.
@@ -261,6 +276,12 @@ impl GameplayContext<'_> {
             jump_held: self.input.as_ref()?.snapshot()?.phases
                 [semantic_input::Action::Jump as usize]
                 .held,
+            sprint_held: self.input.as_ref()?.snapshot()?.phases
+                [semantic_input::Action::Sprint as usize]
+                .held,
+            sneak_held: self.input.as_ref()?.snapshot()?.phases
+                [semantic_input::Action::Sneak as usize]
+                .held,
             eligible: true,
             knockback_sequence: physics.knockback_sequence(),
         })
@@ -337,6 +358,39 @@ impl GameplayContext<'_> {
         };
         let eye = Vec3::new(frame.eye.x, frame.eye.y, frame.eye.z);
         nearest_mobs(stream.authority().remote_actors(), eye)
+    }
+
+    /// Captures the facts gameplay capabilities read: the last presented camera and the use
+    /// control while gameplay owns input, and the relayed feet position in a connected world.
+    pub(super) fn facts(
+        &self,
+        input_owned: bool,
+        camera: Option<&GlobalTransform>,
+        relayed: Option<[f32; 3]>,
+    ) -> mod_host::GameplayFacts {
+        let camera = camera.filter(|_| input_owned).and_then(|camera| {
+            let (_, rotation, position) = camera.to_scale_rotation_translation();
+            let (yaw, pitch, _) = rotation.to_euler(EulerRot::YXZ);
+            (position.is_finite() && yaw.is_finite() && pitch.is_finite()).then(|| {
+                mod_host::GameplayCameraPose {
+                    position: vector(position),
+                    yaw,
+                    pitch,
+                }
+            })
+        });
+        mod_host::GameplayFacts {
+            camera,
+            relayed_position: relayed
+                .map(Vec3::from_array)
+                .filter(|position| position.is_finite())
+                .map(vector),
+            use_held: input_owned
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.phase(semantic_input::Action::Use).held),
+        }
     }
 
     /// Called only for a successfully committed, once-consumed current-frame delta.

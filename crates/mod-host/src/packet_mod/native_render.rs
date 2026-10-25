@@ -136,6 +136,11 @@ mod tests {
             pitch: 0.,
             attack_held: false,
             seconds: 0.016,
+            look_delta: [0.0; 2],
+            move_axes: [0.0; 2],
+            ascend: false,
+            descend: false,
+            elapsed: 0.0,
             players: Vec::new(),
             suspended: true,
         };
@@ -178,6 +183,11 @@ mod tests {
                 pitch: 0.,
                 attack_held: false,
                 seconds: 0.016,
+                look_delta: [0.0; 2],
+                move_axes: [0.0; 2],
+                ascend: false,
+                descend: false,
+                elapsed: 0.0,
                 players: Vec::new(),
                 suspended: true,
             };

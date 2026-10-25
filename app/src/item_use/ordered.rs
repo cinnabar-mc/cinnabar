@@ -71,20 +71,13 @@ pub(crate) fn press(
         .is_none_or(|caps| caps.can_use_items);
     let held = allowed && input.edge.buttons.held(Action::Use);
     runtime.observe_use_button(held);
-    let scope = context.client_world.stream.as_ref().map(|stream| {
-        (
-            stream.authority().actor_session_id(),
-            stream.current_dimension(),
-        )
-    });
-    let delay_fix_enabled = scope.is_some()
-        && context
-            .delay_fix
-            .as_ref()
-            .is_some_and(|policy| policy.scope == scope);
-    runtime.set_delay_fix(delay_fix_enabled);
-    runtime.observe_selected_slot(player.selected_hotbar_slot());
-    let mut pending = gameplay::item_use::PendingUseInput::new(allowed && input.edge.pressed);
+    // A frame with an admitted pulse has no physical use press, so its press edge is the pulse.
+    let pressed = allowed && input.edge.pressed;
+    let mut pending = if context.pulse.as_ref().is_some_and(|policy| policy.pulse) {
+        gameplay::item_use::PendingUseInput::pulse(pressed)
+    } else {
+        gameplay::item_use::PendingUseInput::new(pressed)
+    };
     runtime.with_pending_input(&mut pending, |runtime| {
         if !runtime.has_work(held) {
             return;
@@ -95,7 +88,6 @@ pub(crate) fn press(
         let policy = frame::FramePolicy {
             held,
             before_flush: release_facing.assisted && runtime.is_releasing(held),
-            delay_fix_enabled,
             aim_rotation: input.context.aim,
             release_facing,
             sample: None,

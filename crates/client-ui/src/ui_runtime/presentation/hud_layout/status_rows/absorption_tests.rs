@@ -274,16 +274,13 @@ fn absorption_invalid_gui_scale_generates_no_cells() {
     }
 }
 
-/// The ordinary HUD starts with alpha blending until a module requests an inverse overlay.
+/// The ordinary HUD captures its hunger row artwork.
 #[test]
-fn captured_hunger_starts_without_an_inverse_overlay() {
+fn captured_hunger_has_row_artwork() {
     let mut runtime = UiRuntime::new(1);
     runtime
         .hud
         .set_stats(None, ui::BoundedStat::new(20, 20), None, None);
     let hunger = hunger(&runtime, None);
     assert!(hunger.sprites.is_some());
-    assert!(!hunger.inverse_overlay);
-    assert_eq!(hunger.saturation_overlay, None);
-    assert_eq!(hunger.food_saturation_preview, None);
 }

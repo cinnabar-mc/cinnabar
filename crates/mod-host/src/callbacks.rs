@@ -68,10 +68,9 @@ impl ModHost {
         camera: bool,
         environment: bool,
         owner: usize,
-        hud: HudClaims,
     ) {
         self.instance
-            .set_frame_authority(budget, camera, environment, owner, hud);
+            .set_frame_authority(budget, camera, environment, owner);
     }
 
     /// Whether this instance currently publishes exclusive camera output in this frame.
@@ -127,9 +126,9 @@ impl ModHost {
         self.instance.observe_modules(observations)
     }
 
-    /// The session and dimension of the last successful gameplay delay-fix request.
-    pub fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
-        self.instance.item_use_delay_fix()
+    /// Supplies client facts for the next frame callback only; each import checks its grant.
+    pub fn observe_gameplay(&mut self, facts: GameplayFacts) -> Result<()> {
+        self.instance.observe_gameplay(facts)
     }
 
     /// Whether the last successful gameplay callback opted in to preserving teleport aim.
@@ -142,9 +141,9 @@ impl ModHost {
         self.instance.camera_view_scale()
     }
 
-    /// Current-frame damage styling; absence restores the player's camera preferences.
-    pub fn camera_hurt_style(&self) -> Option<render_api::HurtCameraStyle> {
-        self.instance.camera_hurt_style()
+    /// Current-frame view tilt; absence restores the native view and damage shake.
+    pub fn camera_view_tilt(&self) -> Option<mod_api::native_camera::ViewTilt> {
+        self.instance.camera_view_tilt()
     }
 
     /// Consumes a successful callback's jump request once.

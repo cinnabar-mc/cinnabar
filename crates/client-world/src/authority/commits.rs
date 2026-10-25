@@ -211,23 +211,11 @@ impl WorldAuthority {
                     {
                         Some((status.runtime_id, super::ActorCombatKind::Death))
                     }
-                    _ => None,
-                };
-                let totem = match &event {
                     ActorEvent::Status(status)
                         if status.kind == protocol::ActorStatusKind::TotemActivate =>
                     {
-                        Some((status.runtime_id, true))
+                        Some((status.runtime_id, super::ActorCombatKind::Totem))
                     }
-                    ActorEvent::Status(status)
-                        if status.kind == protocol::ActorStatusKind::Death =>
-                    {
-                        Some((status.runtime_id, false))
-                    }
-                    _ => None,
-                };
-                let attributes_runtime = match &event {
-                    ActorEvent::Attributes(update) => Some(update.runtime_id),
                     _ => None,
                 };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
@@ -274,20 +262,6 @@ impl WorldAuthority {
                             dimensions,
                         });
                     }
-                }
-                if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some(runtime_id) = attributes_runtime
-                    && self
-                        .actors
-                        .get(runtime_id)
-                        .is_some_and(|actor| actor.status.dead)
-                {
-                    self.observe_totem_status(runtime_id, false);
-                }
-                if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some((runtime_id, activated)) = totem
-                {
-                    self.observe_totem_status(runtime_id, activated);
                 }
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some((runtime_id, kind)) = combat
@@ -461,9 +435,6 @@ impl WorldAuthority {
                             .set_local_health(self.local_player_runtime_id, health);
                         if let Ok(health) = u16::try_from(health) {
                             self.publish_local_life(sequence, [health == 0]);
-                        }
-                        if health <= 0 {
-                            self.observe_totem_status(self.local_player_runtime_id, false);
                         }
                         UiEvent::Hud(protocol::HudEvent::Health { health })
                     }

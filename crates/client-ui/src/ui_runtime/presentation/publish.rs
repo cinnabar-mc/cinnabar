@@ -139,10 +139,6 @@ pub fn capture_hud_frame(
     frame.viewmodel_pitch_degrees = stream
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .map_or(0.0, |actor| actor.pitch);
-    frame.selected_food = selected
-        .stack
-        .and_then(|stack| stream?.authority().canonical_item_stack(stack)?.identifier)
-        .and_then(|identifier| runtime.food_properties(&identifier));
     frame.selected_item_name = equipment.selected_item_name;
     frame.holding_filled_map = equipment.holding_filled_map;
     frame.mount_jump = mount_jump;

@@ -32,12 +32,11 @@ fn scroll_panel() -> Panel {
         "scroll_view_port":"viewport","scroll_content":"content","scrollbar_track":"track","scrollbar_box":"box",
         "scroll_box_and_track_panel":"bar","scrollbar_track_button":"mod.scroll_track","scroll_speed":25,"always_handle_pointer":true,
         "controls":[{"viewport":viewport},{"bar":bar}]});
-    panel.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
-        transitions: Default::default(),
+    panel.surface = Surface { collections: Default::default(),        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{"type":"screen","size":["100%","100%"],"controls":[{"list":list}]}}).to_string(),
         bindings: std::collections::BTreeMap::from([("#content_height".into(), SurfaceValue::Number(200.))]),
-    });
+    };
     panel
 }
 
@@ -104,8 +103,6 @@ fn wheel_reaches_clipped_controls_and_content_resize_clamps_the_offset() {
     );
     panel
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#content_height".into(), SurfaceValue::Number(50.));
     presentation
@@ -116,8 +113,6 @@ fn wheel_reaches_clipped_controls_and_content_resize_clamps_the_offset() {
     assert_eq!(offset(&presentation), 0.);
     panel
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#content_height".into(), SurfaceValue::Number(200.));
     presentation

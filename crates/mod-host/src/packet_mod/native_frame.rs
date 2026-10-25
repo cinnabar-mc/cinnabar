@@ -70,7 +70,7 @@ impl PacketMod {
                     || effects
                         .as_ref()
                         .is_none_or(|effects| effects.rotation.is_none()
-                            && effects.detached.is_none()
+                            && effects.view.is_none()
                             && effects.look.is_none()
                             && effects.movement.is_none()),
                 "active camera effects without gameplay input"
@@ -162,6 +162,11 @@ mod tests {
             pitch: 0.0,
             attack_held: false,
             seconds: 0.015625,
+            look_delta: [0.0; 2],
+            move_axes: [0.0; 2],
+            ascend: false,
+            descend: false,
+            elapsed: 0.0,
             players: Vec::new(),
             suspended: false,
         }
@@ -203,7 +208,7 @@ mod tests {
 
     #[test]
     fn general_camera_callback_negotiates_without_player_observation() {
-        let output = r#"{"detached":{"kind":"orbit","distance":4.0},"hurt_intensity":0.0,"preserve_teleport_rotation":true}"#;
+        let output = r#"{"view":{"position":[1.0,65.0,2.0],"yaw":0.5,"pitch":0.0,"velocity":[0.0,0.0,0.0]},"view_tilt":{"roll":14.0,"pitch":0.0,"suppress_hurt_shake":true},"preserve_teleport_rotation":true}"#;
         let mut wat = module_source(output, output.len());
         wat = wat.replace("\"frame\"", "\"camera-frame\"");
         // The legacy fixture checks the init bit before returning any effect.
@@ -232,10 +237,22 @@ mod tests {
         });
         let effects = guest.frame(Some(&observation)).unwrap().unwrap();
         assert_eq!(
-            effects.detached,
-            Some(mod_api::native_camera::DetachedView::Orbit { distance: 4.0 })
+            effects.view,
+            Some(mod_api::native_camera::ViewPose {
+                position: [1.0, 65.0, 2.0],
+                yaw: 0.5,
+                pitch: 0.0,
+                velocity: [0.0; 3],
+            })
         );
-        assert_eq!(effects.hurt_intensity, Some(0.0));
+        assert_eq!(
+            effects.view_tilt,
+            Some(mod_api::native_camera::ViewTilt {
+                roll: 14.0,
+                pitch: 0.0,
+                suppress_hurt_shake: true,
+            })
+        );
         assert!(effects.preserve_teleport_rotation);
         assert_eq!(guest.frame(None).unwrap(), None);
     }

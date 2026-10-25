@@ -2560,7 +2560,6 @@ dependencies = [
  "mod-ui",
  "player-state",
  "protocol",
- "render-api",
  "render-model",
  "serde",
  "serde_json",
@@ -5943,7 +5942,6 @@ dependencies = [
 name = "mod-api"
 version = "0.1.28"
 dependencies = [
- "render-api",
  "serde",
  "serde_json",
  "wit-bindgen",
@@ -5962,7 +5960,6 @@ dependencies = [
  "mod-api",
  "mod-render",
  "png",
- "render-api",
  "rustix 1.1.4",
  "serde",
  "serde_json",
