@@ -5684,6 +5684,7 @@ version = "0.1.28"
 dependencies = [
  "anyhow",
  "cinnabar-cxb",
+ "developer-control",
  "experience-runtime",
  "experience-sdk",
  "image",

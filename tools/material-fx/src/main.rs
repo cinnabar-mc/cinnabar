@@ -11,15 +11,19 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use material_fx::{artifact, command};
+use material_fx::{artifact, command, permission};
 
-const USAGE: &str = "usage: material-fx --out <dir> [--user-data <client user data dir>]";
+const USAGE: &str = "usage: material-fx --out <dir> [--user-data <client user data dir>]\n       material-fx permission <vertex|scene|passes> <withdraw|restore> [--endpoint <file>]";
 /// A checkout-built client keeps its user data in the workspace's `.local`, so the bundle is
 /// seeded there unless `--user-data` names another client's directory.
 const CHECKOUT_USER_DATA: &str = ".local";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|first| first == "permission") {
+        println!("{}", permission::run(&workspace_root(), &args[1..])?);
+        return Ok(());
+    }
     let (mut out, mut user_data) = (None, None);
     let mut args = args.iter();
     while let Some(flag) = args.next() {

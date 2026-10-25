@@ -11,6 +11,7 @@ reads = ["examples/experiences/material-fx"]
 [dependencies]
 anyhow.workspace = true
 cinnabar-cxb = { path = "../cxb" }
+developer-control = { path = "../../crates/developer-control" }
 experience-sdk = { path = "../../crates/experience-sdk", default-features = false }
 image.workspace = true
 serde_json = "1"
