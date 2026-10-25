@@ -35,13 +35,22 @@ pub struct Lockdown {
 }
 
 /// Makes `command` launch contained: no environment, only the stdio descriptors, the
-/// helper's resource limits, no privilege gain, and death with the parent.
+/// helper's resource limits, no privilege gain, and death with the parent. The kernel sends
+/// the death signal when the thread that spawns the command exits, so that thread must outlive
+/// the helper's use; the supervisor spawns from the thread that owns the helper's pipes.
 #[cfg(target_os = "linux")]
 pub fn contain(command: &mut Command) {
+    contain_expecting(command, std::process::id() as libc::pid_t);
+}
+
+/// [`contain`], with the child refusing to run unless its parent is still process `parent`
+/// once its death signal is armed: a parent that died before then would never send it.
+#[cfg(target_os = "linux")]
+fn contain_expecting(command: &mut Command, parent: libc::pid_t) {
     use std::os::unix::process::CommandExt;
     command.env_clear();
     // SAFETY: the closure makes only async-signal-safe raw system calls.
-    unsafe { command.pre_exec(prepare_child) };
+    unsafe { command.pre_exec(move || prepare_child(parent)) };
 }
 
 /// Restricted launch is Linux-only; elsewhere the command is left as is and
@@ -65,9 +74,10 @@ pub const LIMITS: [(libc::__rlimit_resource_t, u64); 7] = [
     (libc::RLIMIT_RTPRIO, 0),
 ];
 
-/// Runs in the child between `fork` and `exec`: only raw system calls, no allocation.
+/// Runs in the child between `fork` and `exec`: only raw system calls, no allocation. Fails
+/// with `ESRCH` when the child's parent is no longer `parent`.
 #[cfg(target_os = "linux")]
-fn prepare_child() -> std::io::Result<()> {
+fn prepare_child(parent: libc::pid_t) -> std::io::Result<()> {
     let check = |status: libc::c_int| {
         if status == 0 {
             Ok(())
@@ -78,6 +88,9 @@ fn prepare_child() -> std::io::Result<()> {
     // SAFETY: plain system calls on constant arguments and fully initialized structs.
     unsafe {
         check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0))?;
+        if libc::getppid() != parent {
+            return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+        }
         check(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))?;
         // Covers the copy of the parent's memory until `exec`, which resets the flag for an
         // ordinary executable; [`lock_down`] sets it again in the helper.
@@ -183,4 +196,25 @@ pub fn lock_down() -> Result<Lockdown> {
 #[cfg(not(target_os = "linux"))]
 pub fn lock_down() -> Result<Lockdown> {
     anyhow::bail!("restricted server helpers are not implemented on this platform")
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    /// A child that finds another parent once its death signal is armed, as when the one that
+    /// launched it died first, refuses to run; under its real parent it runs.
+    #[test]
+    fn a_child_orphaned_before_its_death_signal_refuses_to_run() {
+        let launch = |parent| {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "no-such-test"]);
+            contain_expecting(&mut command, parent);
+            command.output()
+        };
+        let orphaned = launch(libc::pid_t::MAX).unwrap_err();
+        assert_eq!(orphaned.raw_os_error(), Some(libc::ESRCH));
+        let output = launch(std::process::id() as libc::pid_t).unwrap();
+        assert!(output.status.success(), "{output:?}");
+    }
 }
