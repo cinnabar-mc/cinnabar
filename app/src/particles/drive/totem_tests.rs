@@ -85,6 +85,7 @@ fn route(system: &mut ParticleSystem, stream: &WorldStream, runtime_id: u64) {
             position: [0.0; 3],
             height: None,
             eating_position: [0.0; 3],
+            fish_position: None,
         },
     );
 }

@@ -621,6 +621,7 @@ mod tests {
             position: [1.0, 64.0, 1.0],
             height: Some(2.0),
             eating_position: [0.0; 3],
+            fish_position: None,
         };
         let (event, hurt) = status_request(
             &tables,
@@ -671,6 +672,7 @@ mod tests {
             position: [1.0, 64.0, 1.0],
             height: Some(4.0),
             eating_position: [0.0; 3],
+            fish_position: None,
         };
         assert!(
             status_request(

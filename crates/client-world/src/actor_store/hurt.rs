@@ -2,7 +2,7 @@ use assets::facts::entity::NativeEntityClass;
 use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 use protocol_ids::{ActorDataKey, Attribute};
 
-use super::{ActorApplyResult, ActorSnapshot, ActorStore};
+use super::{ActorApplyResult, ActorSnapshot, ActorStore, entities};
 
 /// Completed actor ticks the hurt tint and damage animations stay active.
 pub const HURT_DURATION_TICKS: u8 = render_api::BEDROCK_112.hurt_ticks;
@@ -34,6 +34,10 @@ pub struct ActorStatusNotice {
     pub height: Option<f32>,
     /// Eating attachment for Feed; actor feet for other kinds.
     pub eating_position: [f32; 3],
+    /// For FishHookFishPos and FishHookTease, the fish or splash on the hook's water surface,
+    /// from the hook's FishX/FishZ actor data (an offset from the hook while a fish approaches,
+    /// a world position for a lure splash).
+    pub fish_position: Option<[f32; 3]>,
 }
 
 /// A dropped item flying to the actor that collected it.
@@ -247,6 +251,25 @@ impl ActorSnapshot {
     }
 }
 
+/// Lure splashes and approaching fish stay within a few blocks of the hook, so a farther point
+/// is stale data from the previous phase.
+const MAX_FISH_DISTANCE: f32 = 16.0;
+
+/// World point on the hook's water surface for a fish or lure splash, from the hook's FishX/FishZ
+/// data: an offset from the hook while a fish approaches, a world position for a lure splash.
+fn fish_surface(actor: &ActorSnapshot, kind: ActorStatusKind) -> Option<[f32; 3]> {
+    let fish_x = entities::metadata_f32(actor, ActorDataKey::FishX.wire_value())?;
+    let fish_z = entities::metadata_f32(actor, ActorDataKey::FishZ.wire_value())?;
+    let [hook_x, hook_y, hook_z] = actor.position;
+    let [x, z] = match kind {
+        ActorStatusKind::FishHookFishPos => [hook_x + fish_x, hook_z + fish_z],
+        ActorStatusKind::FishHookTease => [fish_x, fish_z],
+        _ => return None,
+    };
+    let distance = (x - hook_x).hypot(z - hook_z);
+    (distance <= MAX_FISH_DISTANCE).then_some([x, hook_y, z])
+}
+
 impl ActorStore {
     pub(super) fn apply_status(&mut self, event: ActorStatusEvent) -> ActorApplyResult {
         let Some(actor) = self.actors.get_mut(&event.runtime_id) else {
@@ -264,6 +287,7 @@ impl ActorStore {
                 } else {
                     actor.position
                 },
+                fish_position: fish_surface(actor, event.kind),
             });
         }
         match event.kind {
@@ -562,6 +586,67 @@ mod tests {
         assert!(!status_now.overlay_active());
         store.apply(1, 3, status(ActorStatusKind::Hurt));
         assert!(store.get(7).unwrap().status.overlay_active());
+    }
+
+    /// A fishing hook at `position` whose FishX/FishZ actor data is `fish`.
+    fn fishing_hook(position: [f32; 3], fish: [f32; 2]) -> ActorStore {
+        let mut store = ActorStore::new(1, 0);
+        let protocol::ActorEvent::Spawn(mut hook) = spawn() else {
+            unreachable!();
+        };
+        hook.position = position;
+        hook.metadata = std::sync::Arc::from([
+            protocol::ActorMetadata {
+                key: ActorDataKey::FishX.wire_value(),
+                value: ActorMetadataValue::Float(fish[0]),
+            },
+            protocol::ActorMetadata {
+                key: ActorDataKey::FishZ.wire_value(),
+                value: ActorMetadataValue::Float(fish[1]),
+            },
+        ]);
+        store.apply(1, 1, protocol::ActorEvent::Spawn(hook));
+        store
+    }
+
+    #[test]
+    fn fish_approach_offset_is_the_surface_point_from_the_hook() {
+        let mut store = fishing_hook([165.6, 64.0, 418.1], [3.5, -2.0]);
+        store.apply(1, 2, status(ActorStatusKind::FishHookFishPos));
+        store.apply(1, 3, status(ActorStatusKind::FishHookBubble));
+        let [hook_x, hook_y, hook_z] = store.get(7).unwrap().position;
+        let notices = store.take_status_notices();
+        assert_eq!(
+            notices[0].fish_position,
+            Some([hook_x + 3.5, hook_y, hook_z - 2.0])
+        );
+        assert_eq!(notices[1].fish_position, None);
+    }
+
+    #[test]
+    fn lure_splash_position_is_the_world_point_from_the_hook_data() {
+        let hook = [165.6, 64.0, 418.1];
+        let mut store = fishing_hook(hook, [hook[0] + 4.0, hook[2] - 3.0]);
+        store.apply(1, 2, status(ActorStatusKind::FishHookTease));
+        let [hook_x, hook_y, hook_z] = store.get(7).unwrap().position;
+        let notices = store.take_status_notices();
+        assert_eq!(
+            notices[0].fish_position,
+            Some([hook_x + 4.0, hook_y, hook_z - 3.0])
+        );
+    }
+
+    /// FishX/FishZ values left over from another phase lie far from the hook and are dropped.
+    #[test]
+    fn stale_fish_points_far_from_the_hook_are_dropped() {
+        let hook = [165.6, 64.0, 418.1];
+        let mut approach = fishing_hook(hook, [167.0, 415.0]);
+        approach.apply(1, 2, status(ActorStatusKind::FishHookFishPos));
+        assert_eq!(approach.take_status_notices()[0].fish_position, None);
+
+        let mut splash = fishing_hook(hook, [0.0, 0.0]);
+        splash.apply(1, 2, status(ActorStatusKind::FishHookTease));
+        assert_eq!(splash.take_status_notices()[0].fish_position, None);
     }
 
     #[test]

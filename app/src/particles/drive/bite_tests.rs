@@ -84,6 +84,7 @@ fn feed_notices_scatter_only_admitted_food_and_do_not_duplicate_local_bites() {
                     position: [0.0; 3],
                     height: None,
                     eating_position: [0.0; 3],
+                    fish_position: None,
                 },
             );
             system.tick(0.001, &EmptyWorld);

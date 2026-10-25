@@ -51,6 +51,10 @@ mod snowball_tests;
 mod totem_tests;
 
 #[cfg(test)]
+#[path = "drive/fishing_tests.rs"]
+mod fishing_tests;
+
+#[cfg(test)]
 #[path = "drive/break_tests.rs"]
 mod break_tests;
 
@@ -422,6 +426,53 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 && let Some(tile) = item_tile(icons, &identifier, (notice.data & 0xffff) as u32)
             {
                 system.spawn(&eating_item_request(notice.eating_position, tile));
+            }
+        }
+        ActorStatusKind::FishHookBubble => {
+            burst(
+                system,
+                assets::facts::ParticleEffect::BasicBubbleParticle.identifier(),
+                notice.position,
+                3,
+                seed,
+            );
+        }
+        ActorStatusKind::FishHookFishPos => {
+            if let Some(fish) = notice.fish_position {
+                burst(
+                    system,
+                    assets::facts::ParticleEffect::WaterWakeParticle.identifier(),
+                    fish,
+                    1,
+                    seed,
+                );
+            }
+        }
+        ActorStatusKind::FishHookHookTime => {
+            burst(
+                system,
+                assets::facts::ParticleEffect::BasicBubbleParticle.identifier(),
+                notice.position,
+                6,
+                seed,
+            );
+            burst(
+                system,
+                assets::facts::ParticleEffect::WaterWakeParticle.identifier(),
+                notice.position,
+                6,
+                seed.wrapping_add(1),
+            );
+        }
+        ActorStatusKind::FishHookTease => {
+            if let Some(splash) = notice.fish_position {
+                burst(
+                    system,
+                    assets::facts::ParticleEffect::WaterSplashParticle.identifier(),
+                    splash,
+                    3,
+                    seed,
+                );
             }
         }
         _ => {}
