@@ -232,6 +232,70 @@ fn cached_column_recovery_waits_for_ordinary_event_capacity() {
     assert_eq!(session.blob_cache_stats().ordinary_backpressure, 0);
 }
 
+/// A decoded dimension boundary drains the full lane even if no more old-world bodies arrive.
+#[test]
+fn cached_column_recovery_reaches_retained_dimension_boundary() {
+    assert_dimension_boundary_progress(crate::MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS);
+}
+
+/// A dimension change must not overtake and discard earlier blocked updates below the quota.
+#[test]
+fn cached_column_recovery_orders_dimension_boundary_before_ordinary_capacity() {
+    assert_dimension_boundary_progress(1);
+}
+
+/// Checks boundary progress, old-update ordering and epoch isolation with or without late bodies.
+fn assert_dimension_boundary_progress(updates: usize) {
+    for late_bodies in [false, true] {
+        let mut packets = vec![full_column(4, b"body", b"biome")];
+        packets.extend((0..updates as i32).map(|y| block_entity_update(4, y)));
+        packets.push(Packet::new(
+            bedrock_protocol_1_26_51::packets::ChangeDimension::default(),
+        ));
+        if late_bodies {
+            packets.extend([body_response(b"body"), body_response(b"biome")]);
+        }
+        let (mut session, send, _expires) = session(&packets, 0);
+        assert!(
+            matches!(
+                poll_ingress(&mut session),
+                Poll::Ready(WorldIngress::Event(WorldEvent::ChunkResync(_)))
+            ),
+            "a retained dimension boundary must recover without reading later bodies or waiting for input"
+        );
+        assert_eq!(session.blob_cache_stats().ordinary_ready_events, updates);
+        for y in 0..updates as i32 {
+            assert!(matches!(
+                poll_ingress(&mut session),
+                Poll::Ready(WorldIngress::Event(WorldEvent::BlockEntityUpdate(update)))
+                    if update.position[1] == y
+            ));
+        }
+        assert!(matches!(
+            poll_ingress(&mut session),
+            Poll::Ready(WorldIngress::Event(WorldEvent::ChangeDimension(_)))
+        ));
+        send_packets(
+            &send,
+            &[Packet::new(SetTime {
+                time: wire::ZigZag32(42),
+            })],
+        );
+        assert!(matches!(
+            poll_ingress(&mut session),
+            Poll::Ready(WorldIngress::Event(WorldEvent::SetTime(time))) if time.time == 42
+        ));
+        assert!(poll_ingress(&mut session).is_pending());
+        let stats = session.blob_cache_stats();
+        assert_eq!(stats.abandoned_cached_transactions, 1);
+        assert_eq!(stats.reconstructed_level_chunks, 0);
+        assert_eq!(stats.pending_transactions, 0);
+        assert_eq!(stats.ordinary_ready_events, 0);
+        assert_eq!(stats.cache_pinned_bytes, 0);
+        assert_eq!(stats.ordinary_backpressure, 0);
+    }
+}
+
 /// Byte pressure follows the same recovery path without losing the current decoded item.
 #[test]
 fn cached_column_recovery_preserves_input_at_ordinary_byte_capacity() {

@@ -84,21 +84,33 @@ async fn blob_intake_respects_raw_byte_capacity() {
 /// A body's bytes after a world or backend boundary must never resolve the previous cache epoch.
 #[tokio::test]
 async fn blob_intake_stops_before_dimension_and_fast_transfer_boundaries() {
-    for terrain_boundary in [false, true] {
-        let boundary = if terrain_boundary {
-            terrain()
-        } else {
-            Packet::new(packets::ChangeDimension::default())
-        };
-        let boundary_id = if terrain_boundary {
-            PacketId::LevelChunk
-        } else {
-            PacketId::ChangeDimension
-        };
+    for (boundary_id, boundary, transfer_armed) in [
+        (
+            PacketId::ChangeDimension,
+            Packet::new(packets::ChangeDimension::default()),
+            false,
+        ),
+        (
+            PacketId::Transfer,
+            Packet::new(packets::Transfer::default()),
+            false,
+        ),
+        (
+            PacketId::Disconnect,
+            Packet::new(packets::Disconnect::default()),
+            false,
+        ),
+        (PacketId::LevelChunk, terrain(), true),
+        (
+            PacketId::SubChunk,
+            Packet::new(packets::SubChunk::default()),
+            true,
+        ),
+    ] {
         let mut transport = transport(&[ordinary(1), boundary, body_response()]);
         assert!(
             transport
-                .recv_blob_body(1024, terrain_boundary)
+                .recv_blob_body(1024, transfer_armed)
                 .await
                 .unwrap()
                 .is_none()
