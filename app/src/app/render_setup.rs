@@ -33,6 +33,7 @@ pub(super) fn primary_window(
 /// Initializes the renderer after winit has supplied the real display connection.
 pub(super) struct RendererSetup {
     pub data_root: std::path::PathBuf,
+    pub pipeline_cache_dir: std::path::PathBuf,
     pub graphics_api_revision: u64,
     pub video_override: Option<launcher::graphics_backend::Backend>,
 }
@@ -50,6 +51,9 @@ impl bevy::prelude::Plugin for RendererSetup {
             settings,
         );
         install_result(app, result);
+        app.add_plugins(render::PipelineCompilationPlugin {
+            cache_dir: self.pipeline_cache_dir.clone(),
+        });
     }
 }
 
@@ -88,6 +92,17 @@ pub(super) fn finish(app: &mut bevy::prelude::App) -> anyhow::Result<()> {
         Some(failure) => Err(failure.0.context("Renderer startup failed")),
         None => Ok(()),
     }
+}
+
+/// Preserves graphics recovery when a non-renderer prerequisite fails before the event loop.
+pub(super) fn finish_prerequisite<T>(
+    app: &mut bevy::prelude::App,
+    result: anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    if result.is_err() {
+        guarded::cancel_startup(app);
+    }
+    result
 }
 
 #[cfg(test)]

@@ -113,6 +113,7 @@ impl Plugin for ChunkRenderPlugin {
             app.world().resource::<TransparentWitnessEvidence>().clone();
 
         crate::pipeline_warmup::register::<ChunkPipeline>(app);
+        crate::pipeline_warmup::register_pending::<ChunkGpuTextureAssets>(app);
         let render_app = app.sub_app_mut(RenderApp);
         crate::device_poll::install(render_app);
         render_app
@@ -185,7 +186,9 @@ impl Plugin for ChunkRenderPlugin {
                     queue_transparent_chunks
                         .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
-                    prepare_chunk_texture_assets.in_set(ChunkPublicationStage::Attributes),
+                    prepare_chunk_texture_assets
+                        .in_set(ChunkPublicationStage::Attributes)
+                        .run_if(render_scene::startup_work::world_work_allowed),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_biome_tints
                         .in_set(ChunkPublicationStage::Attributes)

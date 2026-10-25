@@ -49,6 +49,29 @@ fn closing_the_window_before_presentation_does_not_poison_recovery() {
 }
 
 #[test]
+fn interface_startup_failure_does_not_poison_graphics_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    let pending = pending_attempt(Backend::Vulkan);
+    guard.begin(pending.clone()).unwrap();
+    let mut app = App::new();
+    install_guard(&mut app, guard);
+    assert!(super::super::finish_prerequisite(&mut app, Ok(())).is_ok());
+    assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
+    let failure = super::super::finish_prerequisite::<()>(
+        &mut app,
+        Err(anyhow::anyhow!("invalid required interface carrier")),
+    )
+    .unwrap_err();
+    assert_eq!(failure.to_string(), "invalid required interface carrier");
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+}
+
+#[test]
 fn unfinished_startup_without_an_exit_message_remains_recoverable() {
     let dir = tempfile::tempdir().unwrap();
     let mut guard = StartupGuard::open(dir.path()).unwrap();

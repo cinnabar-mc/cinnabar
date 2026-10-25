@@ -28,6 +28,7 @@ struct BuildPlan {
     block_network_id: u32,
     change: Option<protocol::PredictedSlotChange>,
     cooldown: Option<client_world::ResolvedUseCooldown>,
+    repeats_while_held: bool,
 }
 
 impl BuildInput {
@@ -86,6 +87,17 @@ fn prepare(
         .item_use_profile(observed.selection.item.network_id())
         .cooldown;
     let ready = cooldown.is_none_or(|cooldown| item_use.cooldown_ready(cooldown, tick));
+    let bucket = stream
+        .authority()
+        .item_identifier(observed.selection.item.network_id())
+        .as_deref()
+        .is_some_and(assets::facts::has_bucket_name);
+    let traits = context
+        .ui
+        .inventory_ledger(player_runtime)
+        .item_facts()
+        .get(observed.selection.item.network_id())
+        .traits;
     let prepared = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),
@@ -158,10 +170,17 @@ fn prepare(
         for (position, _, _) in predicted.iter().flatten() {
             world.primary_runtime_id(*position).ok()?;
         }
-        Some((local_use, destination, predicted))
+        let repeats_while_held = gameplay::block_use::repeats_while_held(
+            &observed.selection.item,
+            bucket,
+            local_use,
+            surroundings.clicked,
+            traits,
+        );
+        Some((local_use, destination, predicted, repeats_while_held))
     })
     .ok()?;
-    let (local_use, destination, predicted) = prepared.value?;
+    let (local_use, destination, predicted, repeats_while_held) = prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
     // The tick has not simulated yet, so its swing reads the effects in force before it.
@@ -191,6 +210,7 @@ fn prepare(
             block_network_id,
             change,
             cooldown,
+            repeats_while_held,
         },
     })
 }
@@ -232,18 +252,7 @@ pub(crate) fn advance(
     let Some(stream) = context.client_world.stream.as_ref() else {
         return false;
     };
-    let bucket = stream
-        .authority()
-        .item_identifier(observed.selection.item.network_id())
-        .as_deref()
-        .is_some_and(assets::facts::has_bucket_name);
-    if trigger == ItemUseTrigger::SimulationTick
-        && !gameplay::block_use::repeats_while_held(
-            &observed.selection.item,
-            bucket,
-            plan.local_use,
-        )
-    {
+    if trigger == ItemUseTrigger::SimulationTick && !plan.repeats_while_held {
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return false;
     }

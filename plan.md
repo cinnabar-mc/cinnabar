@@ -940,8 +940,9 @@ suites pass. A headless local-server bridge comparison reproduces the old fall a
 the fixed player supported; live native-client and wider placement acceptance remain open.
 Direction/face/intercept retention, repeat timing and reset behavior across slot/item
 changes, unavailable selection and deferred presses still need confirmation. Empty hands
-and non-block items repeat a block's own interaction; bucket repeats and item-specific
-uses on blocks remain incomplete. Preserve the explicit incomplete scope in the
+and hoes or pickaxes send due crop attempts even when local use fails, allowing server-owned
+harvesting. Other unpredicted item-specific uses remain suspended to preserve success timing. Bucket repeat eligibility and prediction of
+item-specific uses on blocks remain incomplete. Preserve the explicit incomplete scope in the
 [held-placement reference](docs/reference/held-block-placement.md).
 
 See [inventory ownership](docs/architecture/inventory.md),
@@ -1065,7 +1066,7 @@ qualification remain incomplete.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
-Menu launches defer world resources until the first completed menu frame. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected.
+Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
