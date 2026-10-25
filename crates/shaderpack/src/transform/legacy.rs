@@ -48,6 +48,18 @@ pub(super) fn sampler_name(name: &str) -> &str {
     }
 }
 
+/// Uses the shared stage rewrites for a scalar or vector interface identifier.
+pub(crate) fn interface_identifier(name: &str, version: u32) -> Result<String, TransformError> {
+    let normalized = rewrite(&crate::token::lex(name), StageKind::Geometry, version)?;
+    match normalized.toks.as_slice() {
+        [token] if token.ident().is_some() => Ok(token.ident().unwrap().to_owned()),
+        _ => Err(TransformError::new(
+            "unsupported geometry interface identifier",
+            0,
+        )),
+    }
+}
+
 /// Result of the legacy pass.
 pub(super) struct Legacy {
     pub toks: Vec<Tok>,

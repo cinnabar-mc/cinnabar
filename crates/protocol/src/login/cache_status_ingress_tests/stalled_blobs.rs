@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
 
+mod ordered_columns;
+
 thread_local! {
     static TIMERS: RefCell<VecDeque<oneshot::Receiver<()>>> = const { RefCell::new(VecDeque::new()) };
 }

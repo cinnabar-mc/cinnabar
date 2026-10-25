@@ -61,7 +61,14 @@ fn a_slow_load_stands_a_progress_toast_that_its_outcome_replaces() {
         })
     );
     assert_eq!(
-        notices.observe(PackLoad::Ready { pack: "Dusk.zip" }, SLOW + at(900), true),
+        notices.observe(
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: None
+            },
+            SLOW + at(900),
+            true
+        ),
         Some(PackToast::Outcome {
             title: "Shader pack Dusk loaded".to_owned(),
             message: String::new(),
@@ -69,7 +76,10 @@ fn a_slow_load_stands_a_progress_toast_that_its_outcome_replaces() {
     );
     for millis in [1_000, 5_000] {
         let quiet = notices.observe(
-            PackLoad::Ready { pack: "Dusk.zip" },
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: None,
+            },
             SLOW + at(millis),
             true,
         );
@@ -85,7 +95,14 @@ fn a_quick_load_reports_only_its_outcome() {
         None
     );
     assert_eq!(
-        titles(notices.observe(PackLoad::Ready { pack: "Lumen" }, at(120), true)),
+        titles(notices.observe(
+            PackLoad::Ready {
+                pack: "Lumen",
+                warnings: None
+            },
+            at(120),
+            true
+        )),
         Some(("Shader pack Lumen loaded".to_owned(), String::new()))
     );
 }
@@ -171,4 +188,18 @@ fn pack_labels_drop_only_a_zip_extension() {
     assert_eq!(pack_label("Lumen"), "Lumen");
     assert_eq!(pack_label(".zip"), ".zip");
     assert_eq!(pack_label("Lumen v2.zipped"), "Lumen v2.zipped");
+}
+
+#[test]
+fn ready_pack_reports_skipped_programs_without_claiming_the_pack_failed() {
+    let mut notices = PackNotices::default();
+    let load = PackLoad::Ready {
+        pack: "Dusk.zip",
+        warnings: Some("shadow: geometry output is unsupported"),
+    };
+    let toast = notices.observe(load, Duration::ZERO, true).unwrap();
+    assert!(matches!(toast,PackToast::Outcome{message,..} if message.contains("shadow:")));
+    let description = warning_description("shadow: geometry output is unsupported");
+    assert!(description.contains("Supported passes continue running"));
+    assert!(description.contains("shadow:"));
 }

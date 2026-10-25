@@ -1,4 +1,4 @@
-use super::super::jobs::FACING_REST;
+use super::super::jobs::{FACING_REST, GeometryCategory};
 use super::*;
 use std::sync::Arc;
 

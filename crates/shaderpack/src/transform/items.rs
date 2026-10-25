@@ -35,7 +35,7 @@ pub(super) const QUALIFIERS: &[&str] = &[
 /// A top-level declaration: `layout(...) quals type[arr] a[arr] = init, b;`, a block
 /// `quals Name { members } inst;`, or a struct definition.
 #[derive(Debug, Clone)]
-pub(super) struct Decl {
+pub(crate) struct Decl {
     pub layout: Vec<Tok>,
     pub quals: Vec<String>,
     /// The type name; `"struct"` / `"block"` for those forms; empty for `layout(...) in;`.
@@ -62,7 +62,7 @@ pub(super) enum Item {
 }
 
 /// Splits the token stream into top-level statements and function definitions.
-pub(super) fn split_items(toks: &[Tok]) -> Vec<Vec<Tok>> {
+pub(crate) fn split_items(toks: &[Tok]) -> Vec<Vec<Tok>> {
     let mut items = vec![];
     let mut cur: Vec<Tok> = vec![];
     let mut brace = 0i32;
@@ -188,7 +188,7 @@ pub(super) fn size_unsized_arrays(src: &[Tok]) -> Vec<Tok> {
 }
 
 /// Parses one top-level statement as a declaration; `None` for prototypes and anything else.
-pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
+pub(crate) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
     let mut i = 0;
     let mut layout = vec![];
     let mut quals = vec![];
@@ -367,7 +367,7 @@ pub(super) fn mat_cols(ty: &str) -> Option<(u32, &'static str)> {
 }
 
 /// The integer value of `key = N` inside a layout qualifier.
-pub(super) fn layout_key(layout: &[Tok], key: &str) -> Option<u32> {
+pub(crate) fn layout_key(layout: &[Tok], key: &str) -> Option<u32> {
     let i = layout.iter().position(|t| t.ident() == Some(key))?;
     if let (
         Some(e),

@@ -1,7 +1,7 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P},
+    facts::{BlockFact, BlockProperty as P, ItemTraits},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
@@ -490,15 +490,21 @@ impl BlockUseRuntime {
     }
 }
 
-/// Whether a held repeat sends its transaction: block items always do, and any other hand
-/// repeats only a block's own use. Buckets never do, as some bucket kinds skip held repeats;
-/// other items' own uses on blocks are not predicted, so they do not repeat yet.
+/// Allows failed crop attempts with empty hands, hoes and pickaxes. Other non-block
+/// uses need a predicted block interaction until their successful-use timing is modeled.
 pub fn repeats_while_held(
     item: &VerifiedNetworkItemStack,
     bucket: bool,
     local_use: LocalUse,
+    clicked: BlockFact,
+    traits: ItemTraits,
 ) -> bool {
-    item.block_runtime_id() != 0 || (local_use == LocalUse::Interact && !bucket)
+    let passive_crop_use = clicked.family == ModelFamily::Crop
+        && (item.is_empty()
+            || traits.contains(ItemTraits::HOE)
+            || traits.contains(ItemTraits::PICKAXE));
+    item.block_runtime_id() != 0
+        || (!bucket && (local_use == LocalUse::Interact || passive_crop_use))
 }
 
 /// The cell and state a switch use predicts within the observed world.

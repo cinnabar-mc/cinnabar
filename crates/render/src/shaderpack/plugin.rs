@@ -105,6 +105,7 @@ fn drive_loader(
     request: Res<ShaderPackRequest>,
     inputs: Res<ShaderPackFrameInputs>,
     mut status: ResMut<ShaderPackStatus>,
+    mut warnings: Option<ResMut<render_scene::shaderpack::ShaderPackWarnings>>,
     mut settled: ResMut<ShaderPackSettledRevision>,
     mut loaded: ResMut<LoadedShaderPack>,
     mut progress: ResMut<ShaderPackLoadProgress>,
@@ -232,6 +233,9 @@ fn drive_loader(
     settled.0 = revision;
     match outcome {
         Ok(pack) => {
+            if let Some(warnings) = warnings.as_deref_mut() {
+                warnings.0.clone_from(&pack.warnings);
+            }
             loaded.0 = Some(Arc::new(pack));
             *status = ShaderPackStatus::Ready(path);
         }
@@ -593,6 +597,16 @@ impl TerrainDraws for ViewTerrain<'_> {
         self.geometry.draw(pass, category, self.view, shadow)
     }
 
+    fn emulation_inputs<'a>(
+        &'a self,
+        category: GeometryCategory,
+        shadow: bool,
+        visit: &mut dyn FnMut(super::geometry_shader::Input<'a>),
+    ) {
+        self.geometry
+            .emulation_inputs(category, self.view, shadow, visit);
+    }
+
     fn layout(&self) -> super::geometry::TerrainLayout {
         self.geometry.layout()
     }
@@ -872,6 +886,7 @@ fn admit_cameras(
 pub(super) fn build(app: &mut App) {
     app.init_resource::<ShaderPackRequest>()
         .init_resource::<ShaderPackStatus>()
+        .init_resource::<render_scene::shaderpack::ShaderPackWarnings>()
         .init_resource::<ShaderPackLoadProgress>()
         .init_resource::<ShaderPackSettledRevision>()
         .init_resource::<ShaderPackFrameInputs>()
