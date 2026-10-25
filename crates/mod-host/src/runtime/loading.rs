@@ -123,26 +123,7 @@ impl Instance {
         state: State,
     ) -> Result<Self> {
         let mut store = Store::new(pre.engine(), state);
-        store.limiter(|state| &mut state.limits);
-        let initial = FRAME_FUEL;
-        crate::execution::arm(&mut store, initial, true)?;
-        let instance = pre.instantiate(&mut store)?;
-        let (init, exports) = exports::Exports::find(&mut store, &instance)?;
-        let instantiated = initial - store.get_fuel().unwrap_or(0).min(initial);
-        let mut armed = initial;
-        if exports.loads_session() {
-            armed = LOAD_FUEL;
-            crate::execution::arm(&mut store, armed, true)?;
-        }
-        init.call(&mut store, ())?;
-        init.post_return(&mut store)?;
-        commit(&mut store);
-        let last_fuel = armed - store.get_fuel().unwrap_or(0).min(armed)
-            + if exports.loads_session() {
-                instantiated
-            } else {
-                0
-            };
+        let (exports, last_fuel) = Self::initialize(&pre, &mut store)?;
         Ok(Self {
             store,
             pre,
@@ -153,6 +134,34 @@ impl Instance {
             filter_identity: super::action_filter::next_identity(),
             consecutive_frame_overruns: 0,
         })
+    }
+
+    /// Initializes admitted code in a fresh store, retaining its host state even on failure.
+    pub(super) fn initialize(
+        pre: &wasmtime::component::InstancePre<State>,
+        store: &mut Store<State>,
+    ) -> Result<(exports::Exports, u64)> {
+        store.limiter(|state| &mut state.limits);
+        let initial = FRAME_FUEL;
+        crate::execution::arm(store, initial, true)?;
+        let instance = pre.instantiate(&mut *store)?;
+        let (init, exports) = exports::Exports::find(store, &instance)?;
+        let instantiated = initial - store.get_fuel().unwrap_or(0).min(initial);
+        let mut armed = initial;
+        if exports.loads_session() {
+            armed = LOAD_FUEL;
+            crate::execution::arm(store, armed, true)?;
+        }
+        init.call(&mut *store, ())?;
+        init.post_return(&mut *store)?;
+        commit(store);
+        let last_fuel = armed - store.get_fuel().unwrap_or(0).min(armed)
+            + if exports.loads_session() {
+                instantiated
+            } else {
+                0
+            };
+        Ok((exports, last_fuel))
     }
 
     /// Initializes a replacement through the bounded loading lane with its full guest limits.

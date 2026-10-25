@@ -52,6 +52,38 @@ pub(super) struct HudState {
     source_totem_uses: Option<u32>,
 }
 impl HudState {
+    /// Discards a failed callback without consuming editor input or replacing retained output.
+    pub(super) fn rollback(&mut self) {
+        let Self {
+            revision: _,
+            content: _,
+            crosshair: _,
+            pending_content,
+            pending_crosshair,
+            editor_request: _,
+            editor_result: _,
+            pending_editor,
+            result_read,
+            local_messages: _,
+            pending_messages,
+            source_snapshot: _,
+            source_sidebar: _,
+            sources_dirty: _,
+            resolved: _,
+            source_actors: _,
+            source_world: _,
+            source_motion: _,
+            source_clock: _,
+            source_day: _,
+            source_totem_uses: _,
+        } = self;
+        *pending_content = None;
+        *pending_crosshair = None;
+        *pending_editor = None;
+        *result_read = false;
+        pending_messages.clear();
+    }
+
     /// Coalesces unread resets for ordinary edits and replaces them for history restores.
     pub(super) fn deliver_editor_result(&mut self, mut result: EditorResult) {
         if result.saved && !result.replace_pending_reset {

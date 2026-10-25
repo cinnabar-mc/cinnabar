@@ -569,7 +569,7 @@ fn aggregate_frame_fuel_stops_later_callbacks_without_quarantining_skipped_mods(
         |index, _| failures.push(index),
     );
     assert_eq!(failures, [0, 1]);
-    assert!(!runtime.host(0).is_active() && !runtime.host(1).is_active());
+    assert!(runtime.host(0).is_active() && runtime.host(1).is_active());
     assert!(runtime.host(2).is_active());
     assert_eq!(runtime.budget.remaining(), 0);
     assert_eq!(runtime.host(2).last_fuel_used(), 0);

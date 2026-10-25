@@ -171,9 +171,22 @@ impl RenderState {
 
     pub fn revoke(&mut self) {
         self.native_ribbons.clear();
-        let native = self.combined.take().is_some();
         self.masks.revoke();
         self.retained.revoke();
+        self.clear_output();
+    }
+
+    /// Invalidates guest handles while retaining the current trusted drawing observations.
+    pub(super) fn restart_guest(&mut self) {
+        self.masks.restart_guest();
+        self.retained.restart_guest();
+        self.clear_output();
+        self.compiles_left = MAX_RENDER_PASSES as u32;
+    }
+
+    /// Drops old guest output while retaining outlines supplied by the native host.
+    fn clear_output(&mut self) {
+        let native = self.combined.take().is_some();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
         if let Some(limit) = self.draw_limit {

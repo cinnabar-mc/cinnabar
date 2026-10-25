@@ -81,12 +81,33 @@ pub(super) struct ControlState {
 }
 
 impl ControlState {
-    /// Keeps native edits and their displayed values when admitted code restarts after fuel loss.
-    pub(super) fn recover_input(&mut self, previous: &mut Self) {
-        self.panel.clone_from(&previous.panel);
-        self.open = previous.open && self.panel.is_some();
-        self.text_events = std::mem::take(&mut previous.text_events);
-        self.field_events = std::mem::take(&mut previous.field_events);
+    /// Discards failed guest writes while retaining committed preferences and native input.
+    pub(super) fn rollback(&mut self) {
+        let Self {
+            frame: _,
+            text_events: _,
+            field_events: _,
+            text_events_in_frame: _,
+            panel: _,
+            bundle: _,
+            open: _,
+            keys: _,
+            interaction: _,
+            dirty_settings: _,
+            settings: _,
+            pending_panel,
+            pending_open,
+            pending_keys,
+            pending_settings,
+            pending_interaction,
+            reads: _,
+            writes: _,
+        } = self;
+        *pending_panel = None;
+        *pending_open = None;
+        *pending_keys = None;
+        *pending_settings = None;
+        *pending_interaction = InteractionOutput::default();
     }
 
     pub(super) fn settings(&self) -> &str {

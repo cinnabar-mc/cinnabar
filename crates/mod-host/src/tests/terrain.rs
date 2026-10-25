@@ -215,6 +215,10 @@ fn denied_or_trapped_reads_subscribe_nothing() {
 fn terrain_compute_remains_bounded() {
     let mut host = load("(loop $forever br $forever)", true);
     assert!(run(&mut host).is_err());
+    assert!(host.is_active());
+    for _ in 1..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
+        assert!(run(&mut host).is_err());
+    }
     assert!(!host.is_active());
 }
 

@@ -9,8 +9,8 @@ use ui::mod_touch::{MAX_QUEUED_TOUCH_PRESSES, TouchButton};
 static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 pub(super) struct TouchState {
-    /// Identifies this component instance to the host, so a tap is never delivered to a
-    /// replacement instance or another mod presenting the same button id.
+    /// Identifies this admitted mod across automatic guest recovery. An intentional
+    /// replacement or another mod gets a different owner even for the same button id.
     owner: u64,
     pub committed: Vec<TouchButton>,
     pending: Option<Vec<TouchButton>>,

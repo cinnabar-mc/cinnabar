@@ -238,6 +238,22 @@ impl MaskStore {
         self.session = DrawingSession::default();
     }
 
+    /// Drops guest selections and handles while retaining trusted candidates and authority.
+    pub fn restart_guest(&mut self) {
+        let Self {
+            owner: _,
+            next_slot: _,
+            session: _,
+            targets,
+            candidates: _,
+            committed,
+            staged,
+        } = self;
+        targets.clear();
+        *staged = None;
+        *committed = Arc::from([]);
+    }
+
     /// Allocates a token in a namespace shared by masks and target references.
     fn allocate(&mut self) -> DrawingHandle {
         self.next_slot = self

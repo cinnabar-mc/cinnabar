@@ -19,8 +19,8 @@ impl Instance {
         error.context("mod quarantined after a guest trap")
     }
 
-    /// Rebuilds admitted code on the loading lane, preserving committed preferences and inputs.
-    /// Returns true only when a fresh guest replaced the trapped component.
+    /// Moves complete host state into a fresh store and reinitializes admitted guest code.
+    /// Returns true only after the bounded loading lane admitted a successful restart.
     pub(crate) fn recover_frame_fuel(&mut self) -> Result<bool> {
         if self.status != InstanceStatus::Recovering || !self.can_reload() {
             return Ok(false);
@@ -31,50 +31,97 @@ impl Instance {
                 "loading callback deferred"
             );
         }
-        let previous = self.store.data();
-        let mut state = State::new(
-            previous.grants.clone(),
-            previous.controls.settings().to_owned(),
-            previous.declared.clone(),
+        self.begin_frame();
+        self.store.data_mut().rollback_callback();
+        self.store.data_mut().render.restart_guest();
+        let panel = self.store.data().controls.panel.clone();
+        let open = self.panel_open();
+        // This placeholder is never entered or published; both result paths restore real state.
+        let placeholder = Store::new(
+            self.pre.engine(),
+            State::new(ModGrants::default(), String::new(), Declared::default()),
         );
-        state.drawing_policy = previous.drawing_policy;
-        if let Some(mut policy) = state.drawing_policy {
-            state
-                .render
-                .retained
-                .bind_session(policy.connection, policy.dimension);
-            policy.permissions = state.grants.drawing_permissions();
-            state.render.masks.bind(policy);
-        }
-        state.controls.panel = previous
-            .controls
-            .bundle
-            .as_ref()
-            .map(|bundle| bundle.panel.clone());
-        state.controls.bundle = previous.controls.bundle.clone();
-        state.session = Arc::clone(&previous.session);
-        state.layout = previous.layout.clone();
-        state.exclusive = previous.exclusive.clone();
-        let candidate = Self::instantiate(self.pre.clone(), state);
-        let mut candidate = match candidate {
-            Ok(candidate) => candidate,
+        let previous = std::mem::replace(&mut self.store, placeholder);
+        self.store = Store::new(self.pre.engine(), previous.into_data());
+        match Self::initialize(&self.pre, &mut self.store) {
+            Ok((exports, fuel)) => {
+                self.exports = exports;
+                self.last_fuel = fuel;
+                self.status = InstanceStatus::Running;
+                self.filter_identity = super::action_filter::next_identity();
+            }
             Err(error) => {
                 self.quarantine();
                 return Err(error.context("mod quarantined after frame fuel recovery failed"));
             }
-        };
-        candidate.callback_budget = self.callback_budget.clone();
-        candidate.consecutive_frame_overruns = self.consecutive_frame_overruns;
-        let previous = self.store.data_mut();
-        let state = candidate.store.data_mut();
-        state.controls.recover_input(&mut previous.controls);
-        state.hud.editor_result = previous.hud.editor_result.take();
-        state.events.modifiers = previous.events.modifiers;
-        // These host observations were supplied for the upcoming frame, not the failed one.
-        std::mem::swap(&mut state.player_state, &mut previous.player_state);
-        state.world.recover_input_and_limits(&mut previous.world);
-        *self = candidate;
+        }
+        // Init can author defaults before it has a frame to read queued native edits.
+        self.store.data_mut().controls.panel = panel;
+        self.set_panel_open(open);
         Ok(true)
+    }
+}
+
+impl State {
+    /// Drops failed retained writes after `begin_frame` clears frame-local staging.
+    /// Exhaustive matching requires an explicit recovery decision for new host fields.
+    fn rollback_callback(&mut self) {
+        let Self {
+            exclusive: _,
+            terrain: _,
+            limits: _,
+            pressed: _,
+            label: _,
+            hud,
+            pending,
+            writes,
+            grants: _,
+            environment,
+            motion: _,
+            snapshot: _,
+            gameplay_reads,
+            camera_writes,
+            pending_camera: _,
+            camera_delta: _,
+            packet_delay_ms: _,
+            pending_packet_delay: _,
+            packet_delay_writes,
+            show_real_position: _,
+            pending_show_real_position: _,
+            controls,
+            world: _,
+            camera_policy: _,
+            item_use_policy: _,
+            player_state: _,
+            render: _,
+            drawing_policy: _,
+            presentation_epoch: _,
+            asset_files: _,
+            declared: _,
+            layout: _,
+            session: _,
+            screens: _,
+            pending_screens,
+            calls,
+            output,
+            block_highlights: _,
+            inventory,
+            events: _,
+            touch,
+        } = self;
+        *pending = None;
+        *pending_screens = None;
+        *writes = 0;
+        *gameplay_reads = 0;
+        *camera_writes = 0;
+        *packet_delay_writes = 0;
+        *calls = 0;
+        *output = 0;
+        hud.rollback();
+        controls.rollback();
+        environment.rollback();
+        inventory.begin();
+        touch.begin_callback();
     }
 }
 
