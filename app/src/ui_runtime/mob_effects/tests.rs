@@ -252,3 +252,17 @@ fn the_emote_key_does_not_open_the_wheel_under_the_screen() {
         "Escape belongs to the screen on top"
     );
 }
+
+#[test]
+fn a_batch_rejected_by_focus_return_does_not_open_the_screen() {
+    let mut h = Harness::new(true);
+    let mut focus = client_state::CursorFocus::default();
+    // Lost and regained in one event batch: the window reports focus, the batch is rejected.
+    focus.0.focus_changed(false);
+    focus.0.focus_changed(true);
+    assert!(!focus.0.available());
+    h.app.insert_resource(focus);
+    h.queue(KeyCode::KeyZ);
+    h.app.update();
+    assert!(!h.runtime().mob_effect_screen().is_open());
+}

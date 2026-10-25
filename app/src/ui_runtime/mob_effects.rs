@@ -48,11 +48,14 @@ pub(crate) struct MobEffectInput<'w, 's> {
     modifiers: Local<'s, ButtonInput<KeyCode>>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     consumed: ResMut<'w, client_state::ScreenInputConsumed>,
+    driven: Option<Res<'w, client_state::DrivenInput>>,
 }
 
 /// Runs after the emote wheel, which clears [`client_state::ScreenInputConsumed`] each frame,
-/// and before chat, inventory and menu input see the frame. A frame the wheel already consumed
-/// is drained without acting on it.
+/// and before chat, inventory and menu input see the frame. Its gates follow the wheel's in the
+/// same order: another owner closes the screen; unavailable desktop input, then a frame the
+/// wheel consumed, is drained without acting on it; then macros take precedence over the
+/// binding.
 pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
     let pointer_presses = if let Some(events) = input.window_events.as_deref() {
         ordered_pointer_presses(input.window_cursor.read(events))
@@ -79,9 +82,21 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         })
         || actor_unavailable;
     let keyboard: Vec<_> = input.keyboard.read().cloned().collect();
-    if blocked || !input.window.0.focused {
+    if blocked {
         input.modifiers.reset_all();
         input.runtime.close_mob_effect_screen();
+        return;
+    }
+    // Focus lost and regained in one batch leaves the window focused but the batch rejected.
+    if input.driven.is_none()
+        && (!input.window.0.focused || input.focus.as_ref().is_some_and(|focus| !focus.available()))
+    {
+        input.modifiers.reset_all();
+        input.keys.reset_all();
+        input.mouse.reset_all();
+        input.motion.delta = Vec2::ZERO;
+        input.consumed.0 |= input.runtime.mob_effect_screen().is_open();
+        set_cursor_capture(&mut input.window.1, false);
         return;
     }
     if input.consumed.0 {
