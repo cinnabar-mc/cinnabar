@@ -1,7 +1,16 @@
 //! Validated render output of a personal mod: sandboxed post passes and world primitives.
 
+pub mod block_highlights;
+mod budget;
 pub mod geometry;
+pub mod position_box;
+mod primitive_ranges;
+pub use budget::{GpuAllocation, GpuLedger, GpuReservation};
+pub use primitive_ranges::PrimitiveRanges;
+mod merge;
+pub use merge::RenderMerge;
 mod identity;
+pub use identity::next_owner;
 pub mod masks;
 pub mod material;
 pub mod retained;
@@ -9,8 +18,7 @@ pub mod shader;
 
 use mod_api::{
     MAX_PASS_PARAMS, MAX_PRIMITIVE_COORDINATE, MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_BEAMS,
-    MAX_RENDER_BILLBOARDS, MAX_RENDER_DECALS, MAX_RENDER_PASSES, MAX_RENDER_RIBBONS,
-    MAX_RIBBON_POINTS,
+    MAX_RENDER_BILLBOARDS, MAX_RENDER_DECALS, MAX_RENDER_RIBBONS, MAX_RIBBON_POINTS,
 };
 use std::sync::Arc;
 
@@ -18,7 +26,7 @@ pub type Vec3 = [f32; 3];
 /// Linear colour; alpha scales coverage.
 pub type Rgba = [f32; 4];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DecalStyle {
     Telegraph,
     Disc,
@@ -27,7 +35,7 @@ pub enum DecalStyle {
     Dust,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BillboardPattern {
     Solid,
     SoftDisc,
@@ -38,7 +46,7 @@ pub enum BillboardPattern {
     Aura,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Decal {
     pub center: Vec3,
     pub radius: f32,
@@ -48,7 +56,7 @@ pub struct Decal {
 }
 
 /// Procedural constant-width line pattern; trailing ribbons retain their existing style.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LinePattern {
     #[default]
     Solid,
@@ -56,7 +64,7 @@ pub enum LinePattern {
     Dotted,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Ribbon {
     pub pattern: LinePattern,
     /// False preserves constant width; true keeps the existing trailing taper.
@@ -66,7 +74,7 @@ pub struct Ribbon {
     pub color: Rgba,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Beam {
     pub start: Vec3,
     pub end: Vec3,
@@ -75,7 +83,7 @@ pub struct Beam {
     pub intensity: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Billboard {
     pub position: Vec3,
     pub width: f32,
@@ -86,7 +94,7 @@ pub struct Billboard {
 }
 
 /// One callback's world-space primitives, bounded by the `mod_api` budgets.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Primitives {
     pub decals: Vec<Decal>,
     pub ribbons: Vec<Ribbon>,
@@ -95,6 +103,11 @@ pub struct Primitives {
 }
 
 impl Primitives {
+    /// Counts the immediate placements charged against a producer's draw allowance.
+    pub fn draw_count(&self) -> usize {
+        self.decals.len() + self.ribbons.len() + self.beams.len() + self.billboards.len()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.decals.is_empty()
             && self.ribbons.is_empty()
@@ -185,94 +198,7 @@ pub struct RenderOutput {
     pub primitives: Arc<Primitives>,
     pub masks: Arc<[masks::Mask]>,
     pub retained: Vec<Arc<retained::Resources>>,
-}
-
-/// Combines several mods' output in load order within the single-mod budgets: earlier mods
-/// keep a contested pass name and fill each primitive budget first. Merged primitives keep
-/// their identity while every source is unchanged, so pass-only changes rebuild no geometry.
-#[derive(Debug, Default)]
-pub struct RenderMerge {
-    sources: Vec<Arc<Primitives>>,
-    merged: Arc<Primitives>,
-}
-
-impl RenderMerge {
-    pub fn merge<'a>(
-        &mut self,
-        outputs: impl IntoIterator<Item = &'a RenderOutput>,
-    ) -> RenderOutput {
-        let outputs: Vec<&RenderOutput> = outputs.into_iter().collect();
-        let mut passes: Vec<Pass> = Vec::new();
-        for pass in outputs.iter().flat_map(|output| &output.passes) {
-            if passes.len() < MAX_RENDER_PASSES && passes.iter().all(|kept| kept.name != pass.name)
-            {
-                passes.push(pass.clone());
-            }
-        }
-        passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
-        let mut drawing = outputs
-            .iter()
-            .filter(|output| !output.primitives.is_empty());
-        // A lone drawing mod's set already fits the budgets; sharing it skips a geometry rebuild.
-        let primitives = match (drawing.next(), drawing.next()) {
-            (None, _) => outputs
-                .first()
-                .map(|output| Arc::clone(&output.primitives))
-                .unwrap_or_default(),
-            (Some(only), None) => Arc::clone(&only.primitives),
-            _ => self.merge_primitives(&outputs),
-        };
-        let masks = outputs
-            .iter()
-            .flat_map(|output| output.masks.iter().cloned())
-            .collect();
-        let retained = outputs
-            .iter()
-            .flat_map(|output| output.retained.iter().cloned())
-            .collect();
-        RenderOutput {
-            passes,
-            primitives,
-            masks,
-            retained,
-        }
-    }
-
-    fn merge_primitives(&mut self, outputs: &[&RenderOutput]) -> Arc<Primitives> {
-        let same_sources = self.sources.len() == outputs.len()
-            && self
-                .sources
-                .iter()
-                .zip(outputs)
-                .all(|(source, output)| Arc::ptr_eq(source, &output.primitives));
-        if same_sources {
-            return Arc::clone(&self.merged);
-        }
-        self.sources = outputs
-            .iter()
-            .map(|output| Arc::clone(&output.primitives))
-            .collect();
-        let mut merged = Primitives::default();
-        for other in outputs.iter().map(|output| &output.primitives) {
-            fill(&mut merged.decals, &other.decals, MAX_RENDER_DECALS);
-            fill(&mut merged.ribbons, &other.ribbons, MAX_RENDER_RIBBONS);
-            fill(&mut merged.beams, &other.beams, MAX_RENDER_BEAMS);
-            fill(
-                &mut merged.billboards,
-                &other.billboards,
-                MAX_RENDER_BILLBOARDS,
-            );
-        }
-        if merged != *self.merged {
-            self.merged = Arc::new(merged);
-        }
-        Arc::clone(&self.merged)
-    }
-}
-
-fn fill<T: Clone>(into: &mut Vec<T>, from: &[T], cap: usize) {
-    let room = cap.saturating_sub(into.len());
-    into.extend(from.iter().take(room).cloned());
+    pub gpu_reservations: Vec<GpuReservation>,
 }
 
 /// Valid pass names are short lowercase identifiers.
@@ -286,7 +212,3 @@ pub fn pass_name_valid(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
-
-pub mod position_box;
-
-pub mod block_highlights;

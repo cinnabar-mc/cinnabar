@@ -27,6 +27,8 @@ pub const DEFAULT_ACTOR_PICK_RADIUS: f32 = 0.1;
 
 /// Behavior component key for NPC interactions, independent of the actor's identity.
 pub const NPC_COMPONENT_IDENTIFIER: &str = "minecraft:npc";
+/// Behavior component key for tripod-camera interactions, independent of the actor's identity.
+pub const TRIPOD_CAMERA_COMPONENT_IDENTIFIER: &str = "minecraft:tripod_camera";
 
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]

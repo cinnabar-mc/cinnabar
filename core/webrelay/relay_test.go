@@ -31,6 +31,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const testBrowserMacAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+
+const testBrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
 // testRelay closes all account state after a test, without logging provider details.
 func testRelay(t *testing.T) *Relay {
 	t.Helper()
@@ -54,14 +58,14 @@ func TestResumeRotatesAcrossNetworksAndExpires(t *testing.T) {
 	now := time.Now()
 	first := netip.MustParseAddr("192.0.2.1")
 	second := netip.MustParseAddr("198.51.100.1")
-	controller, detach, err := relay.openControl(first, "", now)
+	controller, detach, err := relay.openControl(first, "", now, testBrowserUserAgent, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	token := controller.session.token
 	generation := controller.generation
 	oldDetach := detach
-	resumed, detach, err := relay.openControl(second, token, now.Add(time.Second))
+	resumed, detach, err := relay.openControl(second, token, now.Add(time.Second), testBrowserUserAgent, false)
 	if err != nil || resumed.session != controller.session || resumed.session.token == token || resumed.generation <= generation || relay.perIP[first] != 0 {
 		t.Fatal("resume did not rotate and migrate", err)
 	}
@@ -78,7 +82,7 @@ func TestResumeRotatesAcrossNetworksAndExpires(t *testing.T) {
 	if playCtx.Err() == nil {
 		t.Fatal("closing control did not cancel play")
 	}
-	if _, _, err := relay.openControl(first, token, now.Add(resumeTTL+time.Second)); !errors.Is(err, errResume) {
+	if _, _, err := relay.openControl(first, token, now.Add(resumeTTL+time.Second), testBrowserUserAgent, false); !errors.Is(err, errResume) {
 		t.Fatal("expired bearer admitted", err)
 	}
 	if len(relay.sessions) != 1 {
@@ -111,12 +115,12 @@ func TestAdmissionBoundsPendingTransportsAndAccounts(t *testing.T) {
 	}
 	for i := range maxSessions {
 		addr := netip.AddrFrom4([4]byte{192, 0, byte(i / 256), byte(i % 256)})
-		_, _, err := relay.openControl(addr, "", now)
+		_, _, err := relay.openControl(addr, "", now, testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal(i, err)
 		}
 	}
-	if _, _, err := relay.openControl(netip.MustParseAddr("198.51.100.1"), "", now); !errors.Is(err, errAdmission) {
+	if _, _, err := relay.openControl(netip.MustParseAddr("198.51.100.1"), "", now, testBrowserUserAgent, false); !errors.Is(err, errAdmission) {
 		t.Fatal("account bound exceeded")
 	}
 }
@@ -131,7 +135,7 @@ func TestAccountChangesRejectStaleSignInAndSecondPlay(t *testing.T) {
 	}, Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
 		return nil, errors.New("cancelled")
 	}}
-	controller, _, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
+	controller, _, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now(), testBrowserUserAgent, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,6 +222,8 @@ func TestControlFramingAndContractConformance(t *testing.T) {
 		controlEvent{Type: bridgecontract.RelayEventPing, Version: bridgecontract.RelayVersion, Resume: "test-token", Generation: 1, ExpiresSeconds: int(resumeTTL / time.Second)},
 		controlEvent{Type: bridgecontract.RelayEventAccount, Account: &control.AuthV1{State: bridgecontract.AuthSignedOut}},
 		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 2, ReceivedBytes: 512, TotalBytes: 1024}},
+		hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}, UserAgent: testBrowserUserAgent},
+		hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}, UserAgent: testBrowserMacAgent, AppleMobile: true},
 	}
 	if len(values) != len(manifest.Relay.Fixtures) {
 		t.Fatal("missing contract fixture")
@@ -461,7 +467,7 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 
 func TestPackJoinCannotBeReusedByAController(t *testing.T) {
 	relay := testRelay(t)
-	controller, detach, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
+	controller, detach, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now(), testBrowserUserAgent, false)
 	if err != nil {
 		t.Fatal(err)
 	}

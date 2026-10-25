@@ -16,9 +16,11 @@ impl BlobCacheResolver {
         let mut unsolicited = None;
         for blob in response.missing_blobs {
             let (blob_id, blob_data) = (blob.blob_id.0, blob.blob_data);
-            if !self.pending_by_hash.contains_key(&blob_id) && !self.cache.contains(blob_id) {
-                // A retired transaction can leave a late blob beside still-needed payloads.
-                // Ignore its body without discarding or recovering the other columns.
+            if !self.pending_by_hash.contains_key(&blob_id)
+                && !self.requested_hashes.contains(blob_id)
+                && !self.cache.contains(blob_id)
+            {
+                // Ignore unrelated bodies without discarding still-needed payloads beside them.
                 unsolicited = Some(blob_id);
                 continue;
             }

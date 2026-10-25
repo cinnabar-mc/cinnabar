@@ -141,6 +141,32 @@ impl PreparedBlockItems {
         (layers > 0).then_some(layers)
     }
 
+    /// Measures the complete converted model without copying its sheet or building quads.
+    pub(crate) fn dropped_model_cost(
+        &self,
+        visual: u32,
+    ) -> Option<render_model::dropped_item::ItemModelCost> {
+        let layers = self.dropped_model_layers(visual)?;
+        let (raster, placement) = self.sheet_placement(visual)?;
+        let grid = assets::BLOCK_ITEM_SHEET_GRID.map(u32::from);
+        let size = [u32::from(placement.width), u32::from(placement.height)];
+        let [width, height] = std::array::from_fn(|axis| size[axis] / grid[axis]);
+        if width == 0
+            || height == 0
+            || size != [width * grid[0], height * grid[1]]
+            || layers > assets::BlockFace::ALL.len()
+            || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
+        {
+            return None;
+        }
+        render_model::dropped_item::ItemModelCost::new(
+            width.max(height),
+            layers,
+            width as usize * height as usize * 4 * layers,
+            render_model::equipment::blocks::dropped_vertex_count(self.models.get(&visual)?)?,
+        )
+    }
+
     /// Converts the carried geometry and its matching prepared pixels for world item draws.
     pub(crate) fn dropped_model(&self, visual: u32) -> Option<render_model::DroppedItemBlock> {
         let layers = self.dropped_model_layers(visual)?;

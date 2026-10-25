@@ -1,3 +1,4 @@
+use super::drawing_context;
 use std::{fs, path::Path, process::Command};
 
 use cinnabar_cxb::project;
@@ -19,12 +20,20 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
     let client = root.join("src/client.rs");
     let source = fs::read_to_string(&client).unwrap().replace(
         "let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;",
-        "let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;\nexperience_sdk::client::send_message(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 42 }).unwrap();",
+        "let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;\nexperience_sdk::client::send(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 42 }).unwrap();",
     );
     fs::write(&client, source).unwrap();
     let shared = root.join("src/shared.rs");
     fs::write(&shared, format!("{}\n#[message(id = \"space.notice\", schema = 1, to_client)]\npub struct Notice {{ pub trap: bool }}\n", fs::read_to_string(&shared).unwrap())).unwrap();
-    fs::write(&client, format!("{}\nimpl Client {{\n    /// Exercises a recoverable callback failure in the generated component.\n    fn receive(record: Vec<experience_sdk::Value>) {{\n        use experience_sdk::message::Message;\n        if crate::shared::Notice::decode(record).unwrap().trap {{ panic!(\"recoverable callback failure\"); }}\n    }}\n}}\n", fs::read_to_string(&client).unwrap().replace("impl ClientPart for Client {", "impl ClientPart for Client {\n    /// Processes the declared test notification.\n    fn dispatch(_channel: String, record: Vec<experience_sdk::Value>) { Self::receive(record); }\n    /// Proves callbacks run again after a fresh confirmation.\n    fn epoch() { experience_sdk::client::send_message(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 43 }).unwrap(); }"))).unwrap();
+    fs::write(&client, fs::read_to_string(&client).unwrap().replace("impl ClientPart for Client {", r#"impl ClientPart for Client {
+    /// Exercises a recoverable typed callback failure in the generated component.
+    #[on_message]
+    fn notice(notice: crate::shared::Notice) {
+        if notice.trap { panic!("recoverable callback failure"); }
+    }
+    /// Proves callbacks run again after a fresh confirmation.
+    fn epoch() { experience_sdk::client::send(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 43 }).unwrap(); }
+"#)).unwrap();
     let private = "SERVER_ONLY_SENTINEL_9b1d38";
     fs::write(root.join("assets/server/secret.txt"), private).unwrap();
     let server_source = root.join("src/server.rs");
@@ -263,6 +272,7 @@ fn runtime_acceptance_child() {
         owner.clone(),
         capabilities.clone(),
         0,
+        drawing_context(0),
     )
     .unwrap();
     incompatible.take_transaction();
@@ -270,23 +280,34 @@ fn runtime_acceptance_child() {
         channel: "space.registry".into(),
         record: serde_json::to_vec(&vec![Scalar::Text("changed-server".into())]).unwrap(),
     };
-    let error = incompatible.dispatch(&mismatch, 1).unwrap_err();
+    let error = incompatible
+        .dispatch(&mismatch, 1, &drawing_context(1))
+        .unwrap_err();
     assert_eq!(error.to_string(), experience_sdk::REGISTRY_MISMATCH);
     assert!(incompatible.waiting_for().is_none());
     assert!(incompatible.take_transaction().commands.is_empty());
-    assert!(incompatible.dispatch(&Event::Epoch, 1).is_err());
-    let mut host =
-        BundleHost::developer_in_process(bundle.component().unwrap(), owner, capabilities, 0)
-            .unwrap();
+    assert!(
+        incompatible
+            .dispatch(&Event::Epoch, 1, &drawing_context(1))
+            .is_err()
+    );
+    let mut host = BundleHost::developer_in_process(
+        bundle.component().unwrap(),
+        owner,
+        capabilities,
+        0,
+        drawing_context(0),
+    )
+    .unwrap();
     assert!(
         matches!(host.take_transaction().commands.as_slice(), [Command::Send { channel, schema: 1, .. }] if channel == "space.registry_request"),
         "only the generated registry request runs before confirmation"
     );
     assert!(
-        matches!(host.dispatch(&Event::Epoch, 1).unwrap().into_transaction().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request")
+        matches!(host.dispatch(&Event::Epoch, 1, &drawing_context(1)).unwrap().into_transaction().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request")
     );
     assert!(
-        matches!(host.dispatch(&Event::Epoch, 2).unwrap().into_transaction().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
+        matches!(host.dispatch(&Event::Epoch, 2, &drawing_context(2)).unwrap().into_transaction().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
         "a new world must re-arm pending registry negotiation"
     );
     let schema: serde_json::Value =
@@ -299,21 +320,27 @@ fn runtime_acceptance_child() {
         channel: "space.registry".into(),
         record: serde_json::to_vec(&vec![Scalar::Text(project.fingerprint())]).unwrap(),
     };
-    let output = host.dispatch(&confirmation, 2).unwrap().into_transaction();
+    let output = host
+        .dispatch(&confirmation, 2, &drawing_context(2))
+        .unwrap()
+        .into_transaction();
     assert!(
         matches!(output.commands.as_slice(),
             [Command::Send { channel, schema: 1, record }]
             if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(42)]),
         "confirmation runs authored init: {output:?}"
     );
-    let epoch = host.dispatch(&Event::Epoch, 2).unwrap().into_transaction();
+    let epoch = host
+        .dispatch(&Event::Epoch, 2, &drawing_context(2))
+        .unwrap()
+        .into_transaction();
     assert!(
         matches!(epoch.commands.as_slice(), [Command::Send { channel, record, .. }]
         if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)]),
         "the caller replays pending state after initialization"
     );
     assert!(
-        host.dispatch(&confirmation, 2)
+        host.dispatch(&confirmation, 2, &drawing_context(2))
             .unwrap()
             .into_transaction()
             .commands
@@ -324,17 +351,23 @@ fn runtime_acceptance_child() {
         channel: "space.notice".into(),
         record: serde_json::to_vec(&vec![Scalar::Bool(true)]).unwrap(),
     };
-    assert!(host.dispatch(&trap, 2).is_err());
+    assert!(host.dispatch(&trap, 2, &drawing_context(2)).is_err());
     let recovering = host.take_transaction();
     assert!(
         matches!(recovering.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
         "guest recovery must publish a fresh registry request without another callback"
     );
-    let restarted = host.dispatch(&confirmation, 2).unwrap().into_transaction();
+    let restarted = host
+        .dispatch(&confirmation, 2, &drawing_context(2))
+        .unwrap()
+        .into_transaction();
     assert!(
         matches!(restarted.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.travel")
     );
-    let active = host.dispatch(&Event::Epoch, 3).unwrap().into_transaction();
+    let active = host
+        .dispatch(&Event::Epoch, 3, &drawing_context(3))
+        .unwrap()
+        .into_transaction();
     assert!(
         matches!(active.commands.as_slice(), [Command::Send { record, .. }] if record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)])
     );
@@ -342,8 +375,11 @@ fn runtime_acceptance_child() {
         channel: "space.registry".into(),
         record: serde_json::to_vec(&vec![Scalar::Text("different".into())]).unwrap(),
     };
-    assert!(host.dispatch(&mismatch, 3).is_err());
-    let refused = host.dispatch(&Event::Epoch, 4).unwrap().into_transaction();
+    assert!(host.dispatch(&mismatch, 3, &drawing_context(3)).is_err());
+    let refused = host
+        .dispatch(&Event::Epoch, 4, &drawing_context(4))
+        .unwrap()
+        .into_transaction();
     assert!(refused.commands.iter().all(|command| matches!(command, Command::Send { channel, .. } if channel == "space.registry_request")), "a mismatch must not restore authored callbacks");
 }
 

@@ -249,6 +249,7 @@ impl LocomotionState {
                         no_clip: facts.no_clip,
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
+                        vehicle: facts.vehicle,
                         vehicle_controlled_locally: facts.vehicle_controlled_locally,
                         can_fly: facts.can_fly,
                         flight: facts.flight,
@@ -277,6 +278,11 @@ impl LocomotionState {
                         sneak: processed_sneak,
                         sprint_down: controlled.sprint_down,
                         sneak_down: input.sneaking,
+                        // A gamepad's sneak control is vanilla's toggle-sneak
+                        // control under either sneak setting.
+                        sneak_toggle_down: (frame.toggle_sneak
+                            || input_mode == protocol::PlayerInputMode::GamePad)
+                            && processed_sneak.held,
                         server_sprinting: server.and_then(|flags| flags.sprinting),
                         server_sneaking: server.and_then(|flags| flags.sneaking),
                         server_mode: None,

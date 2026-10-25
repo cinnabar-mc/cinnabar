@@ -35,6 +35,7 @@ members = [
     "crates/experience-runtime",
     "examples/experiences/probe",
     "examples/experiences/terminal-client",
+    "examples/experiences/space-client",
     "examples/dragonfly-extension/client",
     "crates/input",
     "crates/developer-control",

@@ -31,7 +31,7 @@ impl<H: Worker> Live<H> {
         let (bundle, instance) = self
             .instances
             .iter()
-            .filter(|(_, instance)| instance.opened > 0)
+            .filter(|(_, instance)| instance.opened > 0 && instance.stopped.is_none())
             .max_by_key(|(_, instance)| {
                 (
                     instance.contributions.modal.template.is_some(),
@@ -43,6 +43,29 @@ impl<H: Worker> Live<H> {
             files: &instance.files,
             modal: &instance.contributions.modal,
         })
+    }
+
+    /// Stops only the producer of a rejected screen and releases its queued side effects.
+    pub(in crate::server_experiences) fn reject_modal(
+        &mut self,
+        reason: &str,
+        now_ms: u64,
+    ) -> bool {
+        let Some(bundle) = self.modal().map(|modal| modal.bundle.to_owned()) else {
+            return false;
+        };
+        let instance = self
+            .instances
+            .get_mut(&bundle)
+            .expect("selected modal bundle");
+        instance.unavailable(
+            &mut self.budget,
+            &mut self.scene_revision,
+            &anyhow::anyhow!(reason.to_owned()),
+            now_ms,
+        );
+        self.discard_stopped();
+        true
     }
 
     /// Escape closes the open modal on the host side; its bound data stays for the next open.

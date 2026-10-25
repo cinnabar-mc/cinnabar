@@ -12,9 +12,7 @@ impl ActorStore {
     }
 
     pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
-        self.rider_to_ridden
-            .get(&rider_unique_id)
-            .map(|link| link.vehicle)
+        self.rider_to_ridden.get(&rider_unique_id).copied()
     }
 
     pub(crate) fn player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
@@ -215,6 +213,15 @@ impl ActorStore {
         stack: &protocol::NetworkItemStack,
     ) -> Option<crate::item::CanonicalItemStack> {
         self.items.canonicalize(stack)
+    }
+
+    /// Resolves a named block-entity stack through the current compiled item routes.
+    pub(crate) fn named_item_visual(
+        &self,
+        identifier: &str,
+        metadata: u32,
+    ) -> assets::ItemVisualRoute {
+        self.items.resolve_visual(identifier, metadata, 0)
     }
 
     /// Reads the current numeric registry's intrinsic shine disposition.

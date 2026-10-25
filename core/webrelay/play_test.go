@@ -18,7 +18,7 @@ func TestResumeSupersedesControllerBeforeDetach(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		controller, oldDetach, err := relay.openControl(client, "", time.Now())
+		controller, oldDetach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +31,7 @@ func TestResumeSupersedesControllerBeforeDetach(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer controller.session.endPlay()
-		resumed, detach, err := relay.openControl(client, token, time.Now())
+		resumed, detach, err := relay.openControl(client, token, time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal("valid resume refused before the old controller detached", err)
 		}
@@ -87,7 +87,7 @@ func TestResumedPlayWaitsForCancelledHandler(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				relay := testRelay(t)
 				client := netip.MustParseAddr("192.0.2.1")
-				controller, detach, err := relay.openControl(client, "", time.Now())
+				controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -100,7 +100,7 @@ func TestResumedPlayWaitsForCancelledHandler(t *testing.T) {
 				if !errors.Is(oldControl.Err(), context.Canceled) {
 					t.Fatal("old play controller was not cancelled")
 				}
-				resumed, detach, err := relay.openControl(client, token, time.Now())
+				resumed, detach, err := relay.openControl(client, token, time.Now(), testBrowserUserAgent, false)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -147,7 +147,7 @@ func TestReplacementPlayWaitStopsOnCancellation(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					relay := testRelay(t)
 					client := netip.MustParseAddr("192.0.2.1")
-					controller, detach, err := relay.openControl(client, "", time.Now())
+					controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -161,7 +161,7 @@ func TestReplacementPlayWaitStopsOnCancellation(t *testing.T) {
 					defer controller.session.endPlay()
 					if !sameController {
 						detach(time.Now())
-						controller, detach, err = relay.openControl(client, token, time.Now())
+						controller, detach, err = relay.openControl(client, token, time.Now(), testBrowserUserAgent, false)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -201,13 +201,13 @@ func TestReplacementPlayWaitStopsOnCancellation(t *testing.T) {
 func TestCancelledControllerCannotClaimResumedPlay(t *testing.T) {
 	relay := testRelay(t)
 	client := netip.MustParseAddr("192.0.2.1")
-	controller, detach, err := relay.openControl(client, "", time.Now())
+	controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	token, oldControl := controller.session.token, controller.ctx
 	detach(time.Now())
-	resumed, detach, err := relay.openControl(client, token, time.Now())
+	resumed, detach, err := relay.openControl(client, token, time.Now(), testBrowserUserAgent, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestCancelledControllerCannotClaimResumedPlay(t *testing.T) {
 func TestSequentialPlayWaitsForSameControllerTeardown(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
-		controller, detach, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
+		controller, detach, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal(err)
 		}

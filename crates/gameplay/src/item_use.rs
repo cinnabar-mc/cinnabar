@@ -250,6 +250,11 @@ impl ItemUseRuntime {
         self.crossbows.projectile_for_stack(slot, revision, stack)
     }
 
+    /// The slot and item a running use started with.
+    pub fn active_selection(&self) -> Option<&FrozenMiningSelection> {
+        self.active.as_ref().map(|active| &active.selection)
+    }
+
     /// Whether a use started locally and has not ended.
     pub const fn is_using(&self) -> bool {
         self.active.is_some()
