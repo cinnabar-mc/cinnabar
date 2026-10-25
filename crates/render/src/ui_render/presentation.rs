@@ -2,7 +2,7 @@
 
 use super::composite::UiLayerTexture;
 use bevy::{
-    prelude::*,
+    prelude::{Query, ResMut, Resource},
     render::{camera::ExtractedCamera, sync_world::MainEntity},
     window::PrimaryWindow,
 };
@@ -49,6 +49,7 @@ pub(super) fn observe_ui_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::prelude::{App, Update};
 
     /// A later empty frame must not reuse a previous frame's completed interface evidence.
     #[test]
