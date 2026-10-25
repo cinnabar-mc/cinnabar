@@ -6,7 +6,12 @@ use super::{Fixture, GUI_SCALE, MenuView, SIZE, SMALL_SIZE, State};
 pub(super) fn home(writable: bool, protocol_required: bool) -> Fixture {
     let mut view = MenuView::new(true, "Player".into());
     view.updates.ready = Some(launcher::menu::updates::Ready {
-        version: next_version(),
+        release: update_manifest::build::Build {
+            version: next_version(),
+            number: 2,
+            channel: Some(update_manifest::channel::Channel::Beta),
+        },
+        switching: false,
         writable,
         protocol_required,
     });
@@ -104,15 +109,88 @@ pub(super) fn mod_stage(phase: launcher::mods::UpdatePhase) -> Fixture {
 
 /// Shows update status with the selected sidebar tab scrolled into view.
 pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
+    use launcher::menu::updates::{DownloadProgress, Status};
+    use update_manifest::{build::Build, channel::Channel};
     let section = launcher::menu::settings_sections::SettingSection::Updates.definition();
     let mut view = super::settings(section.name);
     view.updates.status = status;
+    view.updates.running = Build {
+        version: launcher::PRODUCT_VERSION.into(),
+        number: 42,
+        channel: Some(Channel::Beta),
+    };
+    if status == Status::Downloading {
+        let release = Build {
+            version: next_version(),
+            number: view.updates.running.number + 1,
+            channel: Some(Channel::Nightly),
+        };
+        std::sync::Arc::make_mut(&mut view.settings_options).set(
+            launcher::menu::settings_options::SettingId::UpdateChannel.index(),
+            Channel::Nightly.index() as i32,
+        );
+        view.updates.target = Some(release);
+        view.updates.download = Some(DownloadProgress {
+            received_bytes: 16 << 20,
+            total_bytes: 64 << 20,
+        });
+    }
     view.focused_action = Some(launcher::menu::MenuAction::SettingsSection(section.index));
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the older Beta choice while the installed client still runs Nightly.
+pub(super) fn switch_offer() -> Fixture {
+    use launcher::menu::updates::Status;
+    use update_manifest::{build::Build, channel::Channel};
+    let Fixture::Menu(mut view) = settings(Status::UpToDate) else {
+        unreachable!()
+    };
+    view.updates.running.channel = Some(Channel::Nightly);
+    view.updates.target = Some(Build {
+        version: view.updates.running.version.clone(),
+        number: view.updates.running.number - 1,
+        channel: Some(Channel::Beta),
+    });
+    view.updates.switch_available = true;
+    Fixture::Menu(view)
+}
+
+/// Shows the completed Beta download with its restart action beside the channel preference.
+pub(super) fn switch_ready() -> Fixture {
+    let Fixture::Menu(mut view) = switch_offer() else {
+        unreachable!()
+    };
+    view.updates.switch_available = false;
+    view.updates.ready = Some(launcher::menu::updates::Ready {
+        release: view.updates.target.clone().unwrap(),
+        switching: true,
+        writable: true,
+        protocol_required: false,
+    });
+    Fixture::Menu(view)
+}
+
 /// Home screens with each update notice, at desktop and compact sizes.
 pub(super) const STATES: &[State] = &[
+    State {
+        name: "settings-update-switch",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: switch_offer,
+    },
+    State {
+        name: "settings-update-switch-ready",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: switch_ready,
+    },
+    State {
+        name: "settings-update-switch-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: switch_offer,
+    },
     State {
         name: "home-update-compact",
         size: [480, 640],

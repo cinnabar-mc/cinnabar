@@ -125,13 +125,17 @@ type event struct {
 	// inventory and slots retain live player observations from their owning transaction.
 	inventory *Inventory
 	slots     []item.Stack
+	// entities retain owned actors from the same transaction as a player observation.
+	entities []EntitySnapshot
+	// ridingElsewhere retains occupancy outside this mod's actor snapshot.
+	ridingElsewhere bool
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and
 // an epoch are about their player: they run in the world that player is in, and have an anchor
 // and a snapshot only with that player's focus.
 func (c Call) anchored() bool {
-	return c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
+	return c.Entity == nil && c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
 }
 
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
@@ -166,6 +170,11 @@ func NewHost(
 		}
 	}
 	h.holder = &sinkHolder{h}
+	if reg != nil {
+		for _, t := range reg.entityTypes {
+			t.host = h
+		}
+	}
 	installedHooks.Store(h.holder)
 	return h
 }
@@ -573,10 +582,11 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	if ev.call.Player != nil {
 		return h.observationSnapshot(d, *ev), nil
 	}
+	despawn := ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned"
 	if !h.playerCurrent(*ev) {
 		return snapshot{}, errStale
 	}
-	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil {
+	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil || ev.call.Entity != nil {
 		valid := false
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) {
 			if !h.playerCurrent(*ev) {
@@ -588,9 +598,15 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 				snap = h.read(tx, d, *ev)
 			}
 		})); err != nil {
+			if despawn && errors.Is(err, world.ErrWorldClosed) {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, err
 		}
 		if !valid {
+			if despawn {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, fmt.Errorf("%w: world instance changed", errStale)
 		}
 		return snap, nil

@@ -65,6 +65,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
         &loaded.manifest,
         &loaded.blocks,
         &loaded.items,
+        &loaded.entities,
         loaded.focus,
         loaded.worlds.clone(),
         loaded.overlays.clone(),
@@ -107,17 +108,23 @@ fn start(
 /// Answers a load with what loaded: the manifest's id and version, the blocks and items, whether
 /// its world takes a `focus`, and its worlds and overlays. An answer too large for a frame fails
 /// the load instead. Returns whether the load stands.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the loaded response carries independently versioned registration lists"
+)]
 fn answer_loaded(
     output: &mut impl Write,
     manifest: &Manifest,
     blocks: &[BlockDef],
     items: &[ItemDef],
+    entities: &[crate::protocol::EntityDefinition],
     focus: bool,
     worlds: Option<crate::protocol::WorldRegistration>,
     overlays: Option<crate::protocol::OverlayRegistration>,
 ) -> io::Result<bool> {
     let api = crate::host::Api::of(&manifest.api);
     let response = Response::Loaded {
+        entities: entities.to_vec(),
         simulation: api.is_some_and(crate::host::Api::simulation),
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),
@@ -198,6 +205,7 @@ fn write_or(
 /// The `type` of `call` in the protocol.
 fn call_kind(call: &Call) -> &'static str {
     match call {
+        Call::Entity { .. } => "entity",
         Call::Tick { .. } => "tick",
         Call::Timer { .. } => "timer",
         Call::Player { .. } => "player",
@@ -251,7 +259,17 @@ mod tests {
         };
         let mut output = Vec::new();
         assert!(
-            !answer_loaded(&mut output, &manifest(), &[block], &[], false, None, None).unwrap()
+            !answer_loaded(
+                &mut output,
+                &manifest(),
+                &[block],
+                &[],
+                &[],
+                false,
+                None,
+                None
+            )
+            .unwrap()
         );
         let mut frames = output.as_slice();
         let failed = Response::LoadFailed {
@@ -357,6 +375,7 @@ mod tests {
             &manifest(),
             &blocks,
             &items,
+            &[],
             false,
             None,
             Some(overlays.clone()),

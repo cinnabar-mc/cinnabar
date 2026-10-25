@@ -11,6 +11,7 @@ test-support = ["dep:client-ui", "client-ui/test-support", "protocol/test-suppor
 shaderpacks = ["render-model/shaderpacks", "launcher/shaderpacks"]
 
 [dependencies]
+update-manifest = { path = "../../crates/update-manifest" }
 client-ui = { path = "../../crates/client-ui", optional = true }
 cosmetics = { path = "../../crates/cosmetics" }
 assets = { path = "../../crates/assets" }

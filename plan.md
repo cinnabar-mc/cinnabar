@@ -956,6 +956,11 @@ acceptance still covers authenticated
 server/Realm/friend-world joins, transfers, reconnect/disconnect, account switching,
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
+Leaving closes old ingress immediately and releases buffered session payloads off the
+menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
+are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
+retirement. Regression coverage fences immediate reconnect attempts; displayed-frame and
+reference-hardware leave latency remain unqualified.
 Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
@@ -1069,6 +1074,10 @@ and other threads' stacks.
 Linux updates support writable AppImages and extracted AppDirs, including `install.sh`
 installations, with verified extraction and startup rollback. Packaged Linux update and
 rollback acceptance on a desktop remains incomplete.
+Updates settings keep channel selection, fresh checks, measured download progress and
+restart actions together. Explicit older-channel switches retain signature and hash checks,
+require a restart action and bind consent to the installed version and build.
+Packaged channel-switch and downgrade acceptance on macOS, Linux and Windows remains incomplete.
 Launching a retained Linux manual download can offer installation into the existing
 script-managed AppDir, after revalidating its signed manifest and image. End-to-end
 desktop acceptance of this recovery path remains incomplete.
@@ -1248,8 +1257,21 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   only guest budget and protocol failures consume strikes, while transport failures recover separately.
   Leave writes need no live world. Player callbacks retain the world tick captured with each observation.
   Server WIT 0.9 adds instance simulation ticks and cancellable timers through the existing
-  callback queue, with unload pause, opening fences and counted overflow. Entity registration,
-  replication, riding, steering and mixed-client ship acceptance remain incomplete.
+  callback queue, with unload pause, opening fences and counted overflow.
+  Server WIT 0.11 adds registered entity resources and actor identities, world-owned
+  generation-bearing handles, staged server movement and metadata, seats, steering and ordered
+  entity events. Spawn handles retain their ordinal across coalesced block writes; teleports
+  publish the requested velocity after repositioning. Moving actors retain the old chunk lease
+  until framework membership migrates on the next entity tick; missing destinations retry
+  independently of entity ticks. Actor and seat state are
+  process-local; unload releases their chunk leases. Live removal callbacks retain surviving
+  entities; closed openings retain historical observations and scoped private cleanup writes.
+  Historical callbacks cannot spawn actors or change worlds.
+  Collision declarations must fit the packet's centered width and height, with Rust and Go
+  checked against shared cases; replicated scale applies to the dimensions once.
+  Built-in appearance lookup has offline rig coverage without replacing custom artwork.
+  The shared-ID ship sample, live seat
+  positions/link acceptance and mixed-client rendering remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
 - Server WIT 0.10 adds cell overlays: Experience-registered overlay types, turned to a face, and
@@ -1393,7 +1415,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.
-  Incomplete: geometry shader translation, comma expressions containing void calls and full
+  Triangle geometry shaders have compute expansion and an emitted-vertex reader;
+  unsupported programs leave diagnostics in the pack status while supported passes run.
+  Acceptance of this path remains incomplete. Other geometry topologies, interface blocks,
+  layered outputs, non-literal layout values, full-screen geometry stages and geometry
+  programs with pack storage buffers are unsupported.
+  Incomplete: comma expressions containing void calls and full
   GLSL preprocessing compatibility; in-game acceptance across packs and platforms (Metal is
   unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition

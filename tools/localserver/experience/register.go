@@ -40,9 +40,10 @@ const vanillaNamespace = "minecraft"
 
 // Registry holds the registered Experience blocks, items and overlay types.
 type Registry struct {
-	types    map[string]*blockType // by block id
-	items    map[string]*itemType  // by item id
-	overlays map[string]*blockType // overlay types, by id
+	entityTypes map[string]*modEntityType
+	types       map[string]*blockType // by block id
+	items       map[string]*itemType  // by item id
+	overlays    map[string]*blockType // overlay types, by id
 }
 
 // Register checks the blocks, items and overlays of every loaded Experience and reads their
@@ -60,9 +61,10 @@ type Registry struct {
 // not safe for concurrent use.
 func Register(loaded []Loaded) (*Registry, error) {
 	r := &Registry{
-		types:    make(map[string]*blockType),
-		items:    make(map[string]*itemType),
-		overlays: make(map[string]*blockType),
+		entityTypes: make(map[string]*modEntityType),
+		types:       make(map[string]*blockType),
+		items:       make(map[string]*itemType),
+		overlays:    make(map[string]*blockType),
 	}
 	experiences := make(map[string]bool, len(loaded))
 	cache := newAssetCache() // several slots, materials and blocks may share a file
@@ -80,6 +82,19 @@ func Register(loaded []Loaded) (*Registry, error) {
 		experiences[l.ID] = true
 		if len(l.Blocks) > maxBlocks {
 			return nil, fmt.Errorf("experience %q declares %d blocks; the limit is %d", l.ID, len(l.Blocks), maxBlocks)
+		}
+		if len(l.Entities) > maxEntityTypes {
+			return nil, fmt.Errorf("experience %s has too many entity types", l.ID)
+		}
+		for _, def := range l.Entities {
+			if r.entityTypes[def.ID] != nil {
+				return nil, fmt.Errorf("duplicate entity type %s", def.ID)
+			}
+			t, err := newModEntityType(l.ID, def, cache)
+			if err != nil {
+				return nil, err
+			}
+			r.entityTypes[def.ID] = t
 		}
 		if len(l.Items) > maxItems {
 			return nil, fmt.Errorf("experience %q declares %d items; the limit is %d", l.ID, len(l.Items), maxItems)

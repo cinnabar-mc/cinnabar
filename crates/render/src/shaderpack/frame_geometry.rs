@@ -32,6 +32,15 @@ pub(crate) trait TerrainDraws {
         shadow: bool,
     ) -> u32;
 
+    /// Visits the same triangle streams for compute expansion before their raster draws.
+    fn emulation_inputs<'a>(
+        &'a self,
+        _category: GeometryCategory,
+        _shadow: bool,
+        _visit: &mut dyn FnMut(super::geometry_shader::Input<'a>),
+    ) {
+    }
+
     /// The expanded vertex the terrain pages hold.
     fn layout(&self) -> TerrainLayout;
 }
@@ -164,6 +173,63 @@ fn record_kind(
         },
         _ => None,
     };
+    if state
+        .pack
+        .draws
+        .iter()
+        .any(|draw| draw.kind == kind && draw.emulation.is_some())
+    {
+        if state
+            .pack
+            .draws
+            .iter()
+            .find(|draw| draw.kind == kind)
+            .and_then(|draw| draw.layout)
+            .is_some_and(|layout| layout != geometry.terrain.layout())
+        {
+            return;
+        }
+        if let Some(range) = effect {
+            let effects = std::mem::take(&mut state.effects);
+            if let Some(input) = effects.emulation_input(range) {
+                super::geometry_shader::record(encoder, state, kind, write_alt, depth, input, None);
+            }
+            state.effects = effects;
+        } else if let Some(category) = kind.category() {
+            geometry
+                .terrain
+                .emulation_inputs(category, kind.shadow(), &mut |input| {
+                    super::geometry_shader::record(
+                        encoder, state, kind, write_alt, depth, input, None,
+                    )
+                });
+        } else if let (Some(sky), Some(vertices)) = (sky, state.targets.sky.clone()) {
+            let range = if kind == DrawKind::Sunset {
+                sky.sunset.clone()
+            } else {
+                sky.discs.clone()
+            };
+            super::geometry_shader::record(
+                encoder,
+                state,
+                kind,
+                write_alt,
+                depth,
+                super::geometry_shader::Input {
+                    vertices: &vertices,
+                    indices: None,
+                    index_values: None,
+                    origins: None,
+                    first: range.start,
+                    count: range.end - range.start,
+                    base_vertex: 0,
+                    instance: 0,
+                },
+                None,
+            );
+        }
+        return;
+    }
     let Some((render, index)) = open_kind(encoder, state, kind, write_alt, depth) else {
         return;
     };

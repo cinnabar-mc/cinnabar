@@ -612,6 +612,7 @@ impl<P> NetworkHandle<P> {
         let Some(thread) = self.thread.take() else {
             return;
         };
+        let shutdown = bridge::leave_profile::LeaveProfile::current().section("network_shutdown");
         if thread.is_finished() {
             let _ = thread.join();
             return;
@@ -621,6 +622,8 @@ impl<P> NetworkHandle<P> {
         let _ = thread::Builder::new()
             .name("bedrock-network-reaper".to_owned())
             .spawn(move || {
+                let _shutdown = shutdown;
+                let _span = tracing::info_span!("session.network_shutdown").entered();
                 let _ = thread.join();
             });
     }

@@ -134,17 +134,19 @@ impl ActorAnimationStore {
             runtime_id: actor.runtime_id(),
             spawn_revision: actor.spawn_revision(),
         };
-        let from_pack = self.pack.as_ref().and_then(|pack| {
-            let mut state = resolve_rig(&pack.assets, &pack.layout, actor, self.completed_tick)?;
-            if !pack.artwork.contains(&state.rig.0) {
-                return None;
-            }
-            state.pack = true;
-            state.rig = EntityRigId(assets::PACK_RIG_ID_BASE.checked_add(state.rig.0)?);
-            Some(state)
-        });
-        let resolved =
-            from_pack.or_else(|| resolve_rig(&assets, &self.layout, actor, self.completed_tick));
+        let identifier = match actor.kind() {
+            ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
+            ActorKind::Entity { identifier } => identifier,
+        };
+        let resolved = self
+            .resolve_appearance(&assets, actor, identifier)
+            .or_else(|| {
+                let key = usize::from(actor.entity_fact().class_key).checked_sub(1)?;
+                let base = assets::facts::entity::EntityFacts::pinned()
+                    .records
+                    .get(key)?;
+                self.resolve_appearance(&assets, actor, &base.identifier)
+            });
         let Some(mut state) = resolved else {
             self.stats.unrigged_spawns = self.stats.unrigged_spawns.saturating_add(1);
             return;
@@ -163,6 +165,32 @@ impl ActorAnimationStore {
         self.runtime_to_lifetime
             .insert(actor.runtime_id(), lifetime);
         self.rigs.insert(lifetime, state);
+    }
+
+    /// Resolves one visual identity, giving authored server artwork priority over the base catalog.
+    fn resolve_appearance(
+        &self,
+        assets: &RuntimeEntityAssets,
+        actor: &dyn AnimatedActor,
+        identifier: &str,
+    ) -> Option<ActorRigState> {
+        let from_pack = self.pack.as_ref().and_then(|pack| {
+            let mut state = resolve_rig(
+                &pack.assets,
+                &pack.layout,
+                actor,
+                identifier,
+                self.completed_tick,
+            )?;
+            if !pack.artwork.contains(&state.rig.0) {
+                return None;
+            }
+            state.pack = true;
+            state.rig = EntityRigId(assets::PACK_RIG_ID_BASE.checked_add(state.rig.0)?);
+            Some(state)
+        });
+        from_pack
+            .or_else(|| resolve_rig(assets, &self.layout, actor, identifier, self.completed_tick))
     }
 
     pub fn mark_reset(&mut self, runtime_id: u64) {
@@ -472,16 +500,14 @@ pub(super) fn model_scale(state: &ActorRigState, assets: &RuntimeEntityAssets) -
             .fold(1.0_f32, |largest, axis| largest.max(axis.abs()))
 }
 
+/// Binds a visual identity while evaluating queries against the unchanged live actor.
 fn resolve_rig(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     actor: &dyn AnimatedActor,
+    identifier: &str,
     completed_tick: u64,
 ) -> Option<ActorRigState> {
-    let identifier = match actor.kind() {
-        ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
-        ActorKind::Entity { identifier } => identifier,
-    };
     let entity_symbol = assets
         .symbol_candidates(EntityAssetKind::Entity, identifier)
         .first()?;

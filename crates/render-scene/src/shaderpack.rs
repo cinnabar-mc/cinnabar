@@ -44,6 +44,10 @@ pub struct ShaderPackSettledRevision(pub u64);
 #[derive(Resource, Clone, Debug)]
 pub struct ShaderPackCompilerExecutable(pub PathBuf);
 
+/// Diagnostics for programs skipped in a ready pack; empty for a fully supported pack.
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShaderPackWarnings(pub String);
+
 /// Load state of the requested pack, written by the render host.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ShaderPackStatus {
