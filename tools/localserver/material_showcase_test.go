@@ -35,7 +35,7 @@ func TestMaterialShowcasePackDeclaresSpawnedEntitiesAndBindings(t *testing.T) {
 	if err := json.Unmarshal(data, &bindings); err != nil || bindings.Bindings[0].Entity != materialShowcaseGlow {
 		t.Fatalf("binding target: %v %+v", err, bindings)
 	}
-	packets := materialShowcasePackets(mgl32.Vec3{0, 64, 0})
+	packets := materialShowcasePackets(showcaseViewpoint{feet: mgl32.Vec3{0, 64, 0}})
 	if len(packets) != len(materialShowcaseActors) {
 		t.Fatal("one actor per showcase entry")
 	}
