@@ -25,6 +25,7 @@ mod head_item_tests;
 mod heads;
 mod held;
 mod items;
+mod loyalty_rope;
 pub mod mesh;
 mod portal;
 mod pot;
@@ -64,6 +65,7 @@ pub use held::{
     held_block_entity_model,
 };
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
+pub use loyalty_rope::LoyaltyRopeModel;
 pub use mesh::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,
     model_matrix as block_matrix,

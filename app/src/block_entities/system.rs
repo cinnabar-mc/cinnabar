@@ -56,6 +56,7 @@ pub(super) mod columns;
 mod crystal_beams;
 mod culling;
 mod dragon_death;
+mod loyalty_ropes;
 mod placement;
 mod portals;
 use placement::held_placement;
@@ -665,6 +666,15 @@ pub(crate) fn update_block_entity_scene(
         |runtime_id, owner_position| {
             let actor = stream.authority().actor(runtime_id)?;
             stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
+    );
+    loyalty_ropes::submit(
+        &mut submissions,
+        stream.authority().loyalty_ropes(actor_partial_tick.0),
+        camera_position,
+        |runtime_id, trident| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(trident))
         },
     );
     dragon_death::submit(

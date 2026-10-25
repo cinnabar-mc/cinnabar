@@ -428,6 +428,10 @@ impl WorldAuthority {
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
     }
+    /// Loyalty ropes from thrown tridents to their present owners at the frame fraction.
+    pub fn loyalty_ropes(&self, partial_tick: f32) -> Vec<crate::LoyaltyRopeView> {
+        self.actors.loyalty_ropes(partial_tick)
+    }
     /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
         self.actors.ropes_into(partial_tick, ropes);

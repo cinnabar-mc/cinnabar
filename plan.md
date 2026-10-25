@@ -647,7 +647,9 @@ admission and in-world qualification remain incomplete. The samples omit the iro
 golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
 Thrown tridents draw their pack model placed by the native flight rotation, with the
-item foil when enchanted. The loyalty rope, the native trident material and light sample
+item foil when enchanted. A trident with a present owner draws vanilla's loyalty rope
+strips, growing two segments for each tick it returns. The rope's native material, a
+pack-renamed `loyalty_rope` texture, the native trident material and light sample
 point, pole-only bone selection, abstract-arrow motion seeding for tridents and the
 trident charge (`brandish_spear`) arm pose in third person and the paper doll remain
 incomplete.
