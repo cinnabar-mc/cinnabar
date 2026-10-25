@@ -1076,6 +1076,7 @@ Desktop startup feedback starts without waiting for its loading window and uses 
 
 The setup and crash windows use Apple's Game Controller framework on macOS for controller
 buttons and hotplugging, including controllers unavailable through HID compatibility.
+HID-only controllers retain their existing backend, with duplicate native delivery suppressed.
 Gameplay enables Bevy's controller device plugin. Physical Xbox controller acceptance on
 macOS, including gameplay input, remains incomplete.
 

@@ -13,9 +13,14 @@ use std::{
 use block2::RcBlock;
 use gilrs::Button;
 use objc2::{MainThreadMarker, rc::Retained, runtime::Bool};
-use objc2_game_controller::{GCController, GCControllerButtonInput};
+use objc2_game_controller::{
+    GCController, GCControllerButtonInput, GCControllerDirectionPad, GCInputButtonA,
+    GCInputButtonB, GCInputDirectionPad, GCInputLeftShoulder, GCInputRightShoulder,
+};
 
 use super::Event;
+
+mod hid;
 
 type Delivery = (Arc<AtomicBool>, Event);
 
@@ -25,6 +30,7 @@ pub struct Controllers {
     sender: Sender<Delivery>,
     events: Receiver<Delivery>,
     pending: VecDeque<Event>,
+    fallback: hid::Fallback,
 }
 
 impl Controllers {
@@ -37,6 +43,7 @@ impl Controllers {
             sender,
             events,
             pending: VecDeque::new(),
+            fallback: hid::Fallback::new(),
         })
     }
 
@@ -51,7 +58,7 @@ impl Controllers {
                 return Some(event);
             }
         }
-        None
+        self.fallback.next_event()
     }
 
     /// Retains devices by identity so enumeration order cannot swap their callbacks.
@@ -62,9 +69,7 @@ impl Controllers {
             .map(|index| connected.objectAtIndex(index))
             .collect();
         self.devices.retain(|device| {
-            let present = connected
-                .iter()
-                .any(|controller| *controller == device.controller);
+            let present = connected.contains(&device.controller);
             if !present {
                 self.pending.push_back(Event::Disconnected);
             }
@@ -90,23 +95,43 @@ struct Device {
 }
 
 impl Device {
-    /// Subscribes to the extended profile's menu controls using Apple's semantic button names.
+    /// Subscribes to menu controls exposed by any physical input profile.
     fn new(controller: Retained<GCController>, sender: &Sender<Delivery>) -> Option<Self> {
-        // SAFETY: These profile getters return retained framework objects and take no pointers.
+        // SAFETY: Profile getters return retained framework objects. Input-name constants and
+        // keyed lookups describe public semantic controls, independent of the controller model.
         let controls = unsafe {
-            let profile = controller.extendedGamepad()?;
-            let dpad = profile.dpad();
-            [
-                (profile.buttonA(), Button::South),
-                (profile.buttonB(), Button::East),
-                (dpad.up(), Button::DPadUp),
-                (dpad.down(), Button::DPadDown),
-                (dpad.left(), Button::DPadLeft),
-                (dpad.right(), Button::DPadRight),
-                (profile.leftShoulder(), Button::LeftTrigger),
-                (profile.rightShoulder(), Button::RightTrigger),
+            let profile = controller.physicalInputProfile();
+            let mut controls: Vec<_> = [
+                (GCInputButtonA, Button::South),
+                (GCInputButtonB, Button::East),
+                (GCInputLeftShoulder, Button::LeftTrigger),
+                (GCInputRightShoulder, Button::RightTrigger),
             ]
+            .into_iter()
+            .filter_map(|(key, button)| {
+                let input = profile
+                    .objectForKeyedSubscript(key?)?
+                    .downcast::<GCControllerButtonInput>()
+                    .ok()?;
+                Some((input, button))
+            })
+            .collect();
+            if let Some(dpad) = GCInputDirectionPad
+                .and_then(|key| profile.objectForKeyedSubscript(key))
+                .and_then(|input| input.downcast::<GCControllerDirectionPad>().ok())
+            {
+                controls.extend([
+                    (dpad.up(), Button::DPadUp),
+                    (dpad.down(), Button::DPadDown),
+                    (dpad.left(), Button::DPadLeft),
+                    (dpad.right(), Button::DPadRight),
+                ]);
+            }
+            controls
         };
+        if controls.is_empty() {
+            return None;
+        }
         let active = Arc::new(AtomicBool::new(true));
         let mut buttons = Vec::with_capacity(controls.len());
         for (input, button) in controls {
@@ -148,6 +173,25 @@ impl Drop for Device {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_buttons_also_cover_the_micro_profile() {
+        // SAFETY: A framework snapshot supplies a micro profile without physical hardware.
+        let controller = unsafe { GCController::controllerWithMicroGamepad() };
+        let (sender, events) = mpsc::channel();
+        let device = Device::new(controller.clone(), &sender).unwrap();
+        // SAFETY: The snapshot provides an A button and Device installed its callback.
+        unsafe {
+            let button = controller.microGamepad().unwrap().buttonA();
+            let handler = &*button.pressedChangedHandler();
+            handler.call((NonNull::from(&*button), 1.0, Bool::YES));
+        }
+        assert_eq!(
+            events.try_recv().unwrap().1,
+            Event::ButtonPressed(Button::South)
+        );
+        drop(device);
+    }
 
     #[test]
     fn native_button_callbacks_preserve_taps_and_retire_on_disconnect() {

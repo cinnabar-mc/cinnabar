@@ -30,7 +30,9 @@ winit = { version = "0.30", default-features = false, features = ["rwh_06", "way
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
-objc2-game-controller = { version = "0.3.2", default-features = false, features = ["std", "block2", "GCController", "GCDevice", "GCControllerElement", "GCControllerButtonInput", "GCControllerDirectionPad", "GCExtendedGamepad", "GCPhysicalInputProfile"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFSet", "CFString"] }
+objc2-io-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2", "hid"] }
+objc2-game-controller = { version = "0.3.2", default-features = false, features = ["std", "block2", "GCController", "GCDevice", "GCControllerElement", "GCControllerButtonInput", "GCControllerDirectionPad", "GCExtendedGamepad", "GCPhysicalInputProfile", "GCInputNames", "GCMicroGamepad"] }
 
 [dev-dependencies]
 tempfile = "3"

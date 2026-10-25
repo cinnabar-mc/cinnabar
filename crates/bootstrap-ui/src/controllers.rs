@@ -39,7 +39,6 @@ impl Controllers {
 }
 
 /// Discards backend data that cannot drive the bootstrap windows.
-#[cfg(not(target_os = "macos"))]
 fn from_gilrs(event: gilrs::EventType) -> Option<Event> {
     match event {
         gilrs::EventType::ButtonPressed(button, _) => Some(Event::ButtonPressed(button)),

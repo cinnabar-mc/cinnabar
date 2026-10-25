@@ -1351,7 +1351,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "
 [[crates]]
 name = "bootstrap-ui"
 path = "crates/bootstrap-ui"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time", "block2", "objc2", "objc2-game-controller"]
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time", "block2", "objc2", "objc2-core-foundation", "objc2-game-controller", "objc2-io-kit"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.

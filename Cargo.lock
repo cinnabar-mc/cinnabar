@@ -1870,7 +1870,9 @@ dependencies = [
  "launcher",
  "launcher-host",
  "objc2 0.6.4",
+ "objc2-core-foundation",
  "objc2-game-controller",
+ "objc2-io-kit",
  "render-model",
  "semantic-input",
  "serde",
@@ -6453,7 +6455,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
 dependencies = [
  "bitflags 2.13.0",
+ "dispatch2",
  "libc",
+ "objc2 0.6.4",
  "objc2-core-foundation",
 ]
 
