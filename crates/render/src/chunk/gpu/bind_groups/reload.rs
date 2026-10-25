@@ -141,7 +141,11 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         gpu_assets.attempted_identity = Some(identity);
         gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
         #[cfg(not(target_arch = "wasm32"))]
-        if admission.is_some() && !authored_only {
+        if admission
+            .as_ref()
+            .is_some_and(|admission| admission.prepares_in_background())
+            && !authored_only
+        {
             let assets = assets.clone();
             let device = render_device.clone();
             let queue = render_queue.clone();

@@ -1,7 +1,7 @@
 //! Configures worker compilation and persists Vulkan's optional driver cache off the frame.
 
 use bevy::{
-    prelude::*,
+    prelude::{App, IntoScheduleConfigs, Plugin, ResMut, Resource, warn},
     render::{
         Render, RenderApp, RenderSystems,
         render_resource::PipelineCache,
@@ -70,16 +70,15 @@ fn persist(mut state: ResMut<CachePersistence>, mut pipelines: ResMut<PipelineCa
             Err(_) => warn!("optional driver cache worker failed"),
         }
     }
-    if state.saving.as_ref().is_some_and(JoinHandle::is_finished) {
-        if state
+    if state.saving.as_ref().is_some_and(JoinHandle::is_finished)
+        && state
             .saving
             .take()
             .expect("finished cache save")
             .join()
             .is_err()
-        {
-            warn!("optional driver cache save worker failed");
-        }
+    {
+        warn!("optional driver cache save worker failed");
     }
     if state.saving.is_some() || pipelines.waiting_pipelines().next().is_some() {
         return;

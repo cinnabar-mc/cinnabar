@@ -6,26 +6,21 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-/// Shares the first-menu boundary with CPU and GPU preparation workers.
-#[derive(Clone, Resource)]
-pub struct WorldWorkAdmission(Arc<AtomicBool>);
-
-impl Default for WorldWorkAdmission {
-    /// Keeps direct joins, tests and isolated renderers independent of a menu.
-    fn default() -> Self {
-        Self(Arc::new(AtomicBool::new(true)))
-    }
-}
+/// Shares a menu launch's preparation boundary; direct joins keep eager GPU initialization.
+#[derive(Clone, Default, Resource)]
+pub struct WorldWorkAdmission(Option<Arc<AtomicBool>>);
 
 impl WorldWorkAdmission {
     /// Creates a closed boundary for a launch that must present its menu first.
     pub fn after_menu() -> Self {
-        Self(Arc::new(AtomicBool::new(false)))
+        Self(Some(Arc::new(AtomicBool::new(false))))
     }
 
     /// Starts background preparation after the menu's submitted GPU work completes.
     pub fn menu_presented(&self) {
-        self.0.store(true, Ordering::Release);
+        if let Some(presented) = &self.0 {
+            presented.store(true, Ordering::Release);
+        }
     }
 
     /// Reads the CPU preparation boundary across threads.
@@ -33,9 +28,16 @@ impl WorldWorkAdmission {
         self.is_admitted()
     }
 
+    /// Whether GPU initialization should run on workers instead of the direct-join startup path.
+    pub fn prepares_in_background(&self) -> bool {
+        self.0.is_some()
+    }
+
     /// Reads background GPU admission across the main and render threads.
     pub fn is_admitted(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.0
+            .as_ref()
+            .is_none_or(|presented| presented.load(Ordering::Acquire))
     }
 }
 
@@ -52,6 +54,7 @@ mod tests {
     fn completed_menu_admits_world_work_without_a_connection_request() {
         let gate = WorldWorkAdmission::after_menu();
         let worker = gate.clone();
+        assert!(worker.prepares_in_background());
         assert!(!worker.can_prepare_assets());
         assert!(!worker.is_admitted());
         gate.menu_presented();
@@ -59,6 +62,8 @@ mod tests {
         assert!(worker.is_admitted());
         gate.menu_presented();
         assert!(worker.is_admitted());
-        assert!(WorldWorkAdmission::default().is_admitted());
+        let direct = WorldWorkAdmission::default();
+        assert!(direct.is_admitted());
+        assert!(!direct.prepares_in_background());
     }
 }

@@ -158,12 +158,14 @@ fn stale_open_gpu_worker_never_blocks_the_new_generation() {
 }
 
 #[test]
-fn bootstrap_atlas_upload_is_deferred_and_published_once() {
+fn menu_bootstrap_atlas_upload_is_deferred_and_published_once() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
     world.insert_resource(RenderQueue::new(queue));
-    world.insert_resource(render_scene::startup_work::WorldWorkAdmission::default());
+    let admission = render_scene::startup_work::WorldWorkAdmission::after_menu();
+    admission.menu_presented();
+    world.insert_resource(admission);
     world.init_resource::<ChunkTextureAssets>();
     world.init_resource::<ChunkGpuTextureAssets>();
     world.init_resource::<ChunkTextureUploadStats>();
@@ -203,4 +205,27 @@ fn bootstrap_atlas_upload_is_deferred_and_published_once() {
             .id(),
         material
     );
+}
+
+#[test]
+fn direct_join_bootstrap_atlas_is_ready_in_its_first_publication() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.insert_resource(render_scene::startup_work::WorldWorkAdmission::default());
+    world.init_resource::<ChunkTextureAssets>();
+    world.init_resource::<ChunkGpuTextureAssets>();
+    world.init_resource::<ChunkTextureUploadStats>();
+    world.init_resource::<ChunkTextureReload>();
+    world.run_system_once(init_chunk_gpu_arena).unwrap();
+    world.run_system_once(prepare_chunk_texture_assets).unwrap();
+    assert!(world.resource::<ChunkGpuTextureAssets>().prepared.is_some());
+    assert!(
+        world
+            .resource::<ChunkGpuTextureAssets>()
+            .bootstrap
+            .is_none()
+    );
+    assert!(world.resource::<ChunkTextureUploadStats>().upload_count > 0);
 }
