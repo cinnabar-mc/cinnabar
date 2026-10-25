@@ -5,8 +5,8 @@ const EYE: [f32; 3] = [4.5, 2.620_01, 8.5];
 const CROP: [i32; 3] = [4, 1, 6];
 const PITCH: f32 = -0.65;
 
-/// Supplies mature wheat on farmland, aimed inside the crop's selection shape.
-fn wheat_fixture() -> (World, client_session::CapturedPackets) {
+/// Supplies the requested wheat growth on farmland, aimed inside its selection shape.
+fn wheat_fixture(growth: u64) -> (World, client_session::CapturedPackets) {
     let rotation = Quat::from_rotation_x(PITCH);
     let (mut world, captured) = frame_picks::bridge_fixture(EYE, rotation);
     let records = assets::read_registry_for_protocol(
@@ -21,7 +21,7 @@ fn wheat_fixture() -> (World, client_session::CapturedPackets) {
                 && serde_json::from_str::<serde_json::Value>(&record.canonical_state).unwrap()
                     [assets::facts::BlockProperty::Growth.name()]["value"]
                     .as_u64()
-                    == Some(7)
+                    == Some(growth)
         })
         .unwrap()
         .sequential_id;
@@ -67,43 +67,61 @@ fn held_wheat_use_retries_without_local_success() {
         Some("minecraft:diamond_hoe"),
         Some("minecraft:diamond_pickaxe"),
     ] {
-        let (mut world, mut captured) = wheat_fixture();
-        if let Some(identifier) = item {
-            item_use_tests::hold_air_item(&mut world, identifier, 1, [].into());
-        } else {
-            set_hotbar_stack(&mut world, 0, None);
+        check_held_wheat_use(item, 7, true);
+    }
+}
+
+/// Item-specific use outcomes cannot borrow the failed-use repeat clock.
+#[test]
+fn unpredicted_item_specific_crop_uses_do_not_repeat() {
+    for item in ["minecraft:bone_meal", "minecraft:chicken_spawn_egg"] {
+        check_held_wheat_use(Some(item), 0, false);
+    }
+}
+
+/// Drives real physics and both use owners while checking the expected crop attempts.
+fn check_held_wheat_use(item: Option<&str>, growth: u64, repeats: bool) {
+    let (mut world, mut captured) = wheat_fixture(growth);
+    if let Some(identifier) = item {
+        item_use_tests::hold_air_item(&mut world, identifier, 1, [].into());
+    } else {
+        set_hotbar_stack(&mut world, 0, None);
+    }
+    world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
+    world.init_resource::<client_presentation::camera::ServerCameraView>();
+    let before = world
+        .resource::<client_state::PlayerRuntime>()
+        .selected_stack()
+        .cloned();
+    let rotation = Quat::from_rotation_x(PITCH);
+    frame_picks::warm_physics(&mut world);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    frame_picks::retain(&mut world, EYE, rotation);
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    for frame in 0..=20 {
+        hold(&mut world, &mut router, vec![], vec![2]);
+        let pick = world
+            .resource::<BlockUseRuntime>()
+            .pick(world.resource::<MovementTicker>())
+            .unwrap();
+        assert!(
+            matches!(pick.hits.ordinary, Some(gameplay::block_use::PickResult::Block(hit)) if hit.position == CROP),
+            "{item:?}, frame {frame} must target the crop"
+        );
+        if frame > 0 {
+            world
+                .resource_mut::<Time<Real>>()
+                .advance_by(Duration::from_millis(50));
         }
-        world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
-        world.init_resource::<client_presentation::camera::ServerCameraView>();
-        let before = world
-            .resource::<client_state::PlayerRuntime>()
-            .selected_stack()
-            .cloned();
-        let rotation = Quat::from_rotation_x(PITCH);
-        frame_picks::warm_physics(&mut world);
-        world.resource_mut::<BlockUseRuntime>().clear_picks();
-        frame_picks::retain(&mut world, EYE, rotation);
-        let mut router = crate::semantic_controls::SemanticInputRuntime::default();
-        for frame in 0..=20 {
-            hold(&mut world, &mut router, vec![], vec![2]);
-            let pick = world
-                .resource::<BlockUseRuntime>()
-                .pick(world.resource::<MovementTicker>())
-                .unwrap();
-            assert!(
-                matches!(pick.hits.ordinary, Some(gameplay::block_use::PickResult::Block(hit)) if hit.position == CROP),
-                "{item:?}, frame {frame} must target the crop"
-            );
-            if frame > 0 {
-                world
-                    .resource_mut::<Time<Real>>()
-                    .advance_by(Duration::from_millis(50));
-            }
-            world.run_system_cached(produce_block_use).unwrap();
-            let packets = captured.drain();
-            let uses = packets.iter().filter_map(item_use).collect::<Vec<_>>();
-            assert_eq!(uses.len(), 1, "{item:?}, frame {frame}");
-            let use_on = &uses[0];
+        world.run_system_cached(produce_block_use).unwrap();
+        let packets = captured.drain();
+        let uses = packets.iter().filter_map(item_use).collect::<Vec<_>>();
+        assert_eq!(
+            uses.len(),
+            usize::from(frame == 0 || repeats),
+            "{item:?}, frame {frame}"
+        );
+        for use_on in &uses {
             assert_eq!(use_on.position, CROP);
             assert_eq!(
                 use_on.trigger,
@@ -115,22 +133,26 @@ fn held_wheat_use_retries_without_local_success() {
             );
             assert!(!use_on.predicted_success);
             assert!(!use_on.cooldown_active);
-            assert_eq!(packets.len(), 1, "failed uses must not swing or start use");
-            world
-                .run_system_cached(crate::movement::advance_local_physics)
-                .unwrap();
-            let pose = *world.resource::<LocalViewPose>();
-            frame_picks::retain(&mut world, pose.eye_translation().to_array(), rotation);
-            produce_air_use(&mut world);
-            captured.drain();
         }
-        assert!(world.resource::<MovementTicker>().completed_tick() >= 120);
         assert_eq!(
-            world
-                .resource::<client_state::PlayerRuntime>()
-                .selected_stack(),
-            before.as_ref(),
-            "failed uses must not consume the held stack"
+            packets.len(),
+            uses.len(),
+            "failed uses must not swing or start use"
         );
+        world
+            .run_system_cached(crate::movement::advance_local_physics)
+            .unwrap();
+        let pose = *world.resource::<LocalViewPose>();
+        frame_picks::retain(&mut world, pose.eye_translation().to_array(), rotation);
+        produce_air_use(&mut world);
+        captured.drain();
     }
+    assert!(world.resource::<MovementTicker>().completed_tick() >= 120);
+    assert_eq!(
+        world
+            .resource::<client_state::PlayerRuntime>()
+            .selected_stack(),
+        before.as_ref(),
+        "failed uses must not consume the held stack"
+    );
 }

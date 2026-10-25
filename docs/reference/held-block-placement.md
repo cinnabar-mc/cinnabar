@@ -31,9 +31,10 @@ remain subject to each item's placement rules.
 
 Cinnabar retains complete frame observations in arrival order and consumes them at the
 simulation boundary. Each observation checks the unchanged repeat deadline, so a failed
-attempt leaves the next observation eligible. Empty hands and non-bucket items send due
-block-use attempts even when the client predicts no local effect, leaving server-owned
-interactions available. Bucket repeat eligibility remains incomplete. The same item
+attempt leaves the next observation eligible. Empty hands, hoes and pickaxes send due crop
+attempts even when the client predicts no local effect, leaving server-owned harvesting
+available. Other unpredicted item-specific uses remain suspended until their successful-use
+timing is modeled. Bucket repeat eligibility remains incomplete. The same item
 category clocks apply to placement and air use, on the same upcoming simulation tick; a refused send cannot start a placement cooldown. Consuming the final item leaves no item on which to start a new timer.
 
 Cinnabar provisionally preserves the successful destination, locked direction/face,
