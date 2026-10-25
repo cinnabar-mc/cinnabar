@@ -124,12 +124,12 @@ pub enum Command {
 }
 
 /// Converts gamepad transitions without accepting held-button repeat events.
-pub fn controller(event: gilrs::EventType, settings: &SettingsOptions) -> Option<Command> {
+pub fn controller(event: crate::controllers::Event, settings: &SettingsOptions) -> Option<Command> {
+    use crate::controllers::Event;
     match event {
-        gilrs::EventType::ButtonPressed(button, _) => controller_button(button, true, settings),
-        gilrs::EventType::ButtonReleased(button, _) => controller_button(button, false, settings),
-        gilrs::EventType::Disconnected => Some(Command::Blur),
-        _ => None,
+        Event::ButtonPressed(button) => controller_button(button, true, settings),
+        Event::ButtonReleased(button) => controller_button(button, false, settings),
+        Event::Disconnected => Some(Command::Blur),
     }
 }
 

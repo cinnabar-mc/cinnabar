@@ -1074,6 +1074,12 @@ validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
+The setup and crash windows use Apple's Game Controller framework on macOS for controller
+buttons and hotplugging, including controllers unavailable through HID compatibility.
+HID-only controllers retain their existing backend, with duplicate native delivery suppressed.
+Gameplay enables Bevy's controller device plugin. Physical Xbox controller acceptance on
+macOS, including gameplay input, remains incomplete.
+
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
 
@@ -1198,7 +1204,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   update replacement and ordered publication. The app connects menu actions and supplies
   canonical package validation, registration edits and retirement acknowledgements.
   The Mods settings list starts with compact headers and opens one whole card at a time;
-  actions and permission details remain inside that card. Packet mods that read world data
+  actions and permission details remain inside that card. Permission customization offers
+  Grant all when no grants are enabled, and Revoke all when any grant is enabled.
+  Packet mods that read world data
   need complete chunks, so their connections disable the blob cache on both login legs.
   New packet grants take effect after reconnecting; sessions without packet mods retain
   caching. Live server qualification remains incomplete.

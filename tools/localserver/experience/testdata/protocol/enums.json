@@ -44,6 +44,15 @@
     "block_face",
     "vertical_half"
   ],
+  "block_drops": [
+    "itself",
+    "nothing"
+  ],
+  "block_items": [
+    "listed",
+    "unlisted",
+    "none"
+  ],
   "placement_values": [
     {
       "placement": "cardinal_direction",

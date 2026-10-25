@@ -227,9 +227,9 @@ mod tests {
     use crate::limits::{MAX_BLOCKS, MAX_FRAME_BYTES, MAX_ITEMS, MAX_OVERLAY_TYPES};
     use crate::manifest::Manifest;
     use crate::protocol::{
-        BlockDef, BlockState, BoneVisibility, FailKind, ItemDef, Material, Mining, Op, Outcome,
-        OverlayDef, OverlayRegistration, RenderMethod, Response, StateDef, StateTest, StateValue,
-        StateValues, Visual, read_frame,
+        BlockDef, BlockDrops, BlockItem, BlockState, BoneVisibility, FailKind, ItemDef, Material,
+        Mining, Op, Outcome, OverlayDef, OverlayRegistration, RenderMethod, Response, StateDef,
+        StateTest, StateValue, StateValues, Visual, read_frame,
     };
 
     fn manifest() -> Manifest {
@@ -256,6 +256,8 @@ mod tests {
             visual: None,
             permutations: Vec::new(),
             network: false,
+            drops: BlockDrops::Itself,
+            item: BlockItem::Listed,
         };
         let mut output = Vec::new();
         assert!(
@@ -348,6 +350,8 @@ mod tests {
                 }),
                 permutations: Vec::new(),
                 network: true,
+                drops: BlockDrops::Nothing,
+                item: BlockItem::Unlisted,
             })
             .collect();
         let items: Vec<ItemDef> = (0..MAX_ITEMS)
@@ -356,6 +360,7 @@ mod tests {
                 display_name: "Storage Cell".to_owned(),
                 icon: format!("{root}/assets/textures/item/cell_{i}.png"),
                 max_stack: 64,
+                listed: false,
             })
             .collect();
         let overlays = OverlayRegistration {

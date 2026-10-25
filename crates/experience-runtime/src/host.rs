@@ -1,5 +1,5 @@
 //! The host side of the `server` world: generated bindings, per-store state and the imports.
-//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`] to [`v0_10`] keep
+//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`] to [`v0_11`] keep
 //! the worlds that older artifacts target.
 #![expect(
     clippy::too_many_arguments,
@@ -23,6 +23,7 @@ use crate::limits::{
 
 pub(crate) mod v0_1;
 pub(crate) mod v0_10;
+pub(crate) mod v0_11;
 pub(crate) mod v0_2;
 pub(crate) mod v0_3;
 pub(crate) mod v0_4;
@@ -73,10 +74,13 @@ pub(crate) enum Api {
     V0_10,
     /// Registered entities, seats and entity observations.
     V0_11,
+    /// Block drops and item listing rules, whether a break harvests, and passing an
+    /// interaction's click on.
+    V0_12,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 10] = [
+    pub(crate) const ALL: [Api; 11] = [
         Api::V0_1,
         Api::V0_2,
         Api::V0_3,
@@ -87,21 +91,27 @@ impl Api {
         Api::V0_9,
         Api::V0_10,
         Api::V0_11,
+        Api::V0_12,
     ];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_8 | Api::V0_9 | Api::V0_10 | Api::V0_11 => {
-                true
-            }
+            Api::V0_4
+            | Api::V0_5
+            | Api::V0_6
+            | Api::V0_8
+            | Api::V0_9
+            | Api::V0_10
+            | Api::V0_11
+            | Api::V0_12 => true,
         }
     }
 
     /// Whether this world has simulation ticks and timers.
     pub(crate) fn simulation(self) -> bool {
-        matches!(self, Api::V0_9 | Api::V0_10 | Api::V0_11)
+        matches!(self, Api::V0_9 | Api::V0_10 | Api::V0_11 | Api::V0_12)
     }
 
     /// The version whose manifest `api` is `api`.
@@ -121,7 +131,8 @@ impl Api {
             Api::V0_8 => v0_8::WIT,
             Api::V0_9 => v0_9::WIT,
             Api::V0_10 => v0_10::WIT,
-            Api::V0_11 => WIT,
+            Api::V0_11 => v0_11::WIT,
+            Api::V0_12 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -149,7 +160,8 @@ pub(crate) enum Pre {
     V0_8(v0_8::ServerPre<HostState>),
     V0_9(v0_9::ServerPre<HostState>),
     V0_10(v0_10::ServerPre<HostState>),
-    V0_11(ServerPre<HostState>),
+    V0_11(v0_11::ServerPre<HostState>),
+    V0_12(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -193,8 +205,12 @@ impl Pre {
                 Self::V0_10(v0_10::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_11 => {
+                v0_11::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_11(v0_11::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_12 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_11(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_12(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -249,6 +265,10 @@ impl Pre {
                 .with_context(instantiating)?
                 .call_register(store),
             Self::V0_11(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_12(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -774,6 +794,35 @@ impl world_access::HostCallback for HostState {
         overlays: Vec<wit::Overlay>,
     ) -> Result<Result<(), WorldError>> {
         self.table.get_mut(&ctx)?.set_overlays(pos.into(), overlays)
+    }
+
+    fn harvested(&mut self, ctx: Resource<CallbackRes>) -> Result<bool> {
+        self.table.get_mut(&ctx)?.harvested()
+    }
+
+    fn pass_interaction(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.pass_interaction()
+    }
+
+    fn container(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+    ) -> Result<Result<Vec<Option<wit::ItemStack>>, WorldError>> {
+        let slots = self.table.get_mut(&ctx)?.container(pos.into())?;
+        Ok(slots.map(|slots| slots.into_iter().map(|slot| slot.map(Into::into)).collect()))
+    }
+
+    fn set_container_slot(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+        slot: u32,
+        stack: Option<NewStack>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .set_container_slot(pos.into(), slot, stack.map(Into::into))
     }
 
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.

@@ -195,6 +195,9 @@ pub(super) fn validate_facts(facts: &GameplayFacts) -> Result<()> {
         facts.camera.is_none_or(|camera| finite(&camera.position)
             && camera.yaw.is_finite()
             && camera.pitch.is_finite())
+            && facts
+                .damage_shake
+                .is_none_or(|shake| shake.roll.is_finite() && shake.pitch.is_finite())
             && facts.relayed_position.as_ref().is_none_or(finite),
         "invalid gameplay facts"
     );

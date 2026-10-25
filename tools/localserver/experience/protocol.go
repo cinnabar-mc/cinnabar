@@ -19,7 +19,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 11
+const protocolVersion = 12
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -119,9 +119,11 @@ type PlaceCall struct {
 	Change Change `json:"change"`
 }
 
-// BreakCall follows a player break; the change carries the old id and data.
+// BreakCall follows a player break; the change carries the old id and data. Harvest is set when
+// the player broke the block in a game mode that drops what is broken.
 type BreakCall struct {
-	Change Change `json:"change"`
+	Change  Change `json:"change"`
+	Harvest bool   `json:"harvest,omitempty"`
 }
 
 // InteractCall is a player's interaction with a block. Hit is where the click met the block, in
@@ -187,7 +189,10 @@ type CallbackRequest struct {
 	Network *Network `json:"network"`
 	// Inventory is the actor's inventory, when the callback has an actor.
 	Inventory *Inventory `json:"inventory"`
-	Call      Call       `json:"call"`
+	// Containers are the containers in reach of the anchor and its network, for a callback with
+	// an anchor.
+	Containers *Containers `json:"containers,omitempty"`
+	Call       Call        `json:"call"`
 }
 
 // ShutdownRequest ends the session.
@@ -214,8 +219,8 @@ type Breakable struct {
 }
 
 // BlockDef is a validated block of the Experience: its 0.1 definition, then server WIT 0.5's
-// states, placement traits, look and network membership. A block with a Visual binds no
-// Textures.
+// states, placement traits, look and network membership, and 0.12's drops and item. A block
+// with a Visual binds no Textures.
 type BlockDef struct {
 	ID           string           `json:"id"`
 	DisplayName  string           `json:"display_name"`
@@ -226,6 +231,8 @@ type BlockDef struct {
 	Visual       *Visual          `json:"visual"`
 	Permutations []Permutation    `json:"permutations"`
 	Network      bool             `json:"network"`
+	Drops        BlockDrops       `json:"drops"`
+	Item         BlockItem        `json:"item"`
 }
 
 // FailKind is why a callback failed.
@@ -246,21 +253,27 @@ func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data,
 
 // Op is a staged operation. Exactly one field is set.
 type Op struct {
-	Entity         *EntityCommand
-	Schedule       *ScheduleOp
-	CancelSchedule *CancelScheduleOp
-	World          *WorldActionOp
-	StoreWrite     *StoreWriteOp
-	SetBlock       *SetBlockOp
-	SetBlockData   *SetBlockDataOp
-	Tell           *TellOp
-	SendClient     *SendClientOp
-	SetBlockState  *SetBlockStateOp
-	SetSlot        *SetSlotOp
-	DropItem       *DropItemOp
-	ScheduleUpdate *ScheduleUpdateOp
-	SetOverlays    *SetOverlaysOp
+	Entity           *EntityCommand
+	Schedule         *ScheduleOp
+	CancelSchedule   *CancelScheduleOp
+	World            *WorldActionOp
+	StoreWrite       *StoreWriteOp
+	SetBlock         *SetBlockOp
+	SetBlockData     *SetBlockDataOp
+	Tell             *TellOp
+	SendClient       *SendClientOp
+	SetBlockState    *SetBlockStateOp
+	SetSlot          *SetSlotOp
+	DropItem         *DropItemOp
+	ScheduleUpdate   *ScheduleUpdateOp
+	SetOverlays      *SetOverlaysOp
+	PassInteraction  *PassInteractionOp
+	SetContainerSlot *SetContainerSlotOp
 }
+
+// PassInteractionOp passes an interaction's click on: once the rest of its result commits, the
+// actor's held item is used on the interacted block as if the block had no action.
+type PassInteractionOp struct{}
 
 // SetBlockOp sets the block at Pos to ID.
 type SetBlockOp struct {
@@ -430,27 +443,28 @@ func unmarshalEnum[T ~string](data []byte, v *T, values []T) error {
 
 // The "type" that names each union variant on the wire, as protocol.rs names it.
 const (
-	typeLoad          = "load"
-	typeCallback      = "callback"
-	typeShutdown      = "shutdown"
-	typePlace         = "place"
-	typeBreak         = "break"
-	typeInteract      = "interact"
-	typeNeighbor      = "neighbor"
-	typeClientMessage = "client_message"
-	typeEpoch         = "epoch"
-	typeUnbreakable   = "unbreakable"
-	typeBreakable     = "breakable"
-	typeSetBlock      = "set_block"
-	typeSetBlockData  = "set_block_data"
-	typeTell          = "tell"
-	typeSendClient    = "send_client"
-	typeCommitted     = "committed"
-	typeRejected      = "rejected"
-	typeFailed        = "failed"
-	typeLoaded        = "loaded"
-	typeLoadFailed    = "load_failed"
-	typeResult        = "result"
+	typeLoad            = "load"
+	typeCallback        = "callback"
+	typeShutdown        = "shutdown"
+	typePlace           = "place"
+	typeBreak           = "break"
+	typeInteract        = "interact"
+	typeNeighbor        = "neighbor"
+	typeClientMessage   = "client_message"
+	typeEpoch           = "epoch"
+	typeUnbreakable     = "unbreakable"
+	typeBreakable       = "breakable"
+	typeSetBlock        = "set_block"
+	typeSetBlockData    = "set_block_data"
+	typeTell            = "tell"
+	typeSendClient      = "send_client"
+	typeCommitted       = "committed"
+	typeRejected        = "rejected"
+	typeFailed          = "failed"
+	typeLoaded          = "loaded"
+	typeLoadFailed      = "load_failed"
+	typeResult          = "result"
+	typePassInteraction = "pass_interaction"
 )
 
 // variantTag is the "type" member of a union variant on the wire.
@@ -473,6 +487,10 @@ type (
 	shutdownWire struct {
 		variantTag
 		*ShutdownRequest
+	}
+	passInteractionWire struct {
+		variantTag
+		*PassInteractionOp
 	}
 	placeWire struct {
 		variantTag
@@ -713,6 +731,10 @@ func (o Op) MarshalJSON() ([]byte, error) {
 		return json.Marshal(scheduleUpdateWire{variantTag{typeScheduleUpdate}, o.ScheduleUpdate})
 	case o.SetOverlays != nil:
 		return json.Marshal(setOverlaysWire{variantTag{typeSetOverlays}, o.SetOverlays})
+	case o.PassInteraction != nil:
+		return json.Marshal(passInteractionWire{variantTag{typePassInteraction}, o.PassInteraction})
+	case o.SetContainerSlot != nil:
+		return json.Marshal(setContainerSlotWire{variantTag{typeSetContainerSlot}, o.SetContainerSlot})
 	}
 	return nil, errors.New("empty op")
 }
@@ -752,6 +774,10 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &scheduleUpdateWire{ScheduleUpdateOp: fresh(&o.ScheduleUpdate)})
 	case typeSetOverlays:
 		return decodeStrict(data, &setOverlaysWire{SetOverlaysOp: fresh(&o.SetOverlays)})
+	case typePassInteraction:
+		return decodeStrict(data, &passInteractionWire{PassInteractionOp: fresh(&o.PassInteraction)})
+	case typeSetContainerSlot:
+		return decodeStrict(data, &setContainerSlotWire{SetContainerSlotOp: fresh(&o.SetContainerSlot)})
 	}
 	return fmt.Errorf("unknown op type %q", tag)
 }

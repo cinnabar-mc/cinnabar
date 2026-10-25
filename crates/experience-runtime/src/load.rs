@@ -3,6 +3,7 @@
 
 use experience_sdk::artifact::{ASSETS_DIR, SERVER_WASM};
 mod block_type;
+mod content_rules;
 pub(crate) mod entities;
 mod geometry;
 mod items;
@@ -49,6 +50,8 @@ const FACES: [&str; 6] = ["up", "down", "north", "south", "east", "west"];
 pub(crate) struct Catalog {
     pub entities: Vec<protocol::EntityDefinition>,
     pub blocks: HashMap<String, Vec<StateDef>>,
+    /// The blocks without an item, of which no stack may be made.
+    pub itemless_blocks: HashSet<String>,
     pub items: HashMap<String, u8>,
     pub server: HashMap<String, HashMap<u16, protocol::ServerItem>>,
     /// The server's crafting-table recipes, in the order it tries them.
@@ -181,6 +184,11 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
                 .instantiate(&mut store)?
                 .call_world_definitions(&mut store)?,
         ),
+        Pre::V0_12(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
         _ => None,
     };
     let worlds = declared
@@ -191,15 +199,34 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             )
         })
         .transpose()?;
-    let entities = if let Pre::V0_11(component) = &pre {
-        let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
-        let definitions = component
-            .instantiate(&mut store)?
-            .call_entity_definitions(&mut store)?
-            .map_err(|e| anyhow!("entity definitions failed: {e:?}"))?;
-        entities::validate(dir, &manifest, definitions)?
-    } else {
-        Vec::new()
+    let definitions = match &pre {
+        Pre::V0_11(component) => {
+            let mut store =
+                HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+            Some(
+                component
+                    .instantiate(&mut store)?
+                    .call_entity_definitions(&mut store)?,
+            )
+        }
+        Pre::V0_12(component) => {
+            let mut store =
+                HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+            Some(
+                component
+                    .instantiate(&mut store)?
+                    .call_entity_definitions(&mut store)?,
+            )
+        }
+        _ => None,
+    };
+    let entities = match definitions {
+        Some(definitions) => entities::validate(
+            dir,
+            &manifest,
+            definitions.map_err(|e| anyhow!("entity definitions failed: {e:?}"))?,
+        )?,
+        None => Vec::new(),
     };
     let declared = match &pre {
         Pre::V0_10(component) => {
@@ -220,6 +247,15 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
                     .call_overlays(&mut store)?,
             )
         }
+        Pre::V0_12(component) => {
+            let mut store =
+                HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+            Some(
+                component
+                    .instantiate(&mut store)?
+                    .call_overlays(&mut store)?,
+            )
+        }
         _ => None,
     };
     let overlays = declared
@@ -231,11 +267,26 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             )
         })
         .transpose()?;
+    let (blocks, items) = if let Pre::V0_12(component) = &pre {
+        let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+        let rules = component
+            .instantiate(&mut store)?
+            .call_content_rules(&mut store)?
+            .map_err(|error| anyhow!("content rules failed: {error:?}"))?;
+        content_rules::apply(blocks, items, rules)?
+    } else {
+        (blocks, items)
+    };
     let catalog = Catalog {
         entities: entities.clone(),
         blocks: blocks
             .iter()
             .map(|block| (block.id.clone(), axes(&block.states, &block.placement)))
+            .collect(),
+        itemless_blocks: blocks
+            .iter()
+            .filter(|block| block.item == protocol::BlockItem::None)
+            .map(|block| block.id.clone())
             .collect(),
         items: items
             .iter()
@@ -480,6 +531,8 @@ fn validate_block(
         visual,
         permutations,
         network,
+        drops: protocol::BlockDrops::Itself,
+        item: protocol::BlockItem::Listed,
     })
 }
 

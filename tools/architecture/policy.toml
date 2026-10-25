@@ -1344,14 +1344,14 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "first-run"
 path = "crates/first-run"
-allowed_dependencies = ["assets", "bootstrap-ui", "diagnostics", "launcher", "launcher-host", "render-model", "test-time", "ui", "gilrs"]
+allowed_dependencies = ["assets", "bootstrap-ui", "diagnostics", "launcher", "launcher-host", "render-model", "test-time", "ui"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # The pre-game window stack (winit, wgpu, CPU-drawn OreUI) the setup and crash windows share.
 [[crates]]
 name = "bootstrap-ui"
 path = "crates/bootstrap-ui"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time"]
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time", "block2", "objc2", "objc2-core-foundation", "objc2-game-controller", "objc2-io-kit"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.

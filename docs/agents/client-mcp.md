@@ -8,7 +8,8 @@ schemas document every argument. Agents drive the client only through this endpo
 
 - `connect` with `local_server` runs `make local-server`'s binary on a free loopback port. Remote
   joins need `allow_remote`, since they sign in with the configured account; ask the owner first.
-  The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, and `/tp` for captures.
+  The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, `/tp`, `/weather` and
+  `/time set <ticks|noon|midnight|…>` (frozen until `/time cycle`) for captures.
 - `input` sends real key and mouse events, so mods' ability keys (`Digit1`…) work; `F1` hides the HUD.
   To test Retina rendering headlessly, pass `CINNABAR_WINDOW_SCALE_FACTOR=2` in the
   launch environment. Capture sizes stay in physical pixels; pointer input uses

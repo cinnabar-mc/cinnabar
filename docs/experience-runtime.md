@@ -106,7 +106,7 @@ unavailable. Commit checks members and boundary changes.
 
 Server WIT 0.8 adds world definitions, player observations and scoped state.
 The SDK defaults the new exports to empty/no-op implementations. Rebuilt guests
-must declare the current server API (`api = "0.11"`); existing 0.1–0.6, 0.8, 0.9 and 0.10
+must declare the current server API (`api = "0.12"`); existing 0.1–0.6, 0.8, 0.9, 0.10 and 0.11
 artifacts retain their frozen ABIs.
 
 | Type or operation | Contract |
@@ -180,7 +180,7 @@ Server WIT 0.9 adds `on_tick` and `on_timer`; older artifacts receive neither.
 
 Server WIT 0.10 lets a block carry up to `MAX_CELL_OVERLAYS` (12) extra visuals in its own
 cell, such as a cable bus's parts or a drive's cells. The new `overlays` export declares which
-of the Experience's blocks are hosts and up to `MAX_OVERLAY_TYPES` (128) overlay types; 0.1–0.9
+of the Experience's blocks are hosts and up to `MAX_OVERLAY_TYPES` (256) overlay types; 0.1–0.9
 artifacts keep working without overlays.
 
 | Rule | Contract |
@@ -216,6 +216,37 @@ contain own-item data; foreign/ordinary stacks cannot. Vanilla metadata variants
 stack limits and offhand eligibility come from the adapter's item catalog.
 Own-item data persists with the stack and reaches clients; decode it as untrusted.
 Private block data does not enter chunk NBT.
+
+Server WIT 0.12 adds the `content-rules` export, which runs once after `register`:
+
+| Rule | Contract |
+| --- | --- |
+| `block-rule.drops` | `itself` (the default) drops the block's item; `nothing` drops nothing, leaving drops to `on-break`. Explosions then drop nothing |
+| `block-rule.item` | `listed` (the default) in the creative group; `unlisted` registered but left out; `none` registers no item: no creative entry, pick-block does nothing, no stack of it can be made (`unknown-block`), and it cannot drop itself |
+| `unlisted-items` | The Experience's items that the creative inventory leaves out |
+| `callback.harvested` | True only in an `on-break` whose player's game mode drops what it breaks (not creative); guests drop what `nothing` leaves to them only then |
+
+A rule naming an unknown block, two rules for one block, or an unknown or repeated unlisted item
+fails loading.
+
+An Experience block takes every click a player gives it without sneaking, as before, unless its
+`on-interact` passes the click on with `callback.pass-interaction`, as a vanilla block with
+nothing to do with the click does. Once that result commits, the player's held item is used on
+the block as if it had no action: a block item is placed against it, and a bucket or flint and
+steel is used. Nothing passes when the result is rejected or fails, or when the player holds
+another stack by the commit; `pass-interaction` in any other callback is `denied`. A sneaking
+player holding an item still bypasses `on-interact` altogether.
+
+`callback.container` reads, and `callback.set-container-slot` stages, the slots of a vanilla
+container block in reach: a chest, barrel, shulker box, hopper, furnace, blast furnace, smoker or
+brewing stand that is the anchor or a member of the anchor's network, or next to one of them. A
+double chest is one 54-slot container at either half. The snapshot lists up to `MAX_CONTAINERS`
+positions, the anchor's first and then its network's in breadth-first order, with at most
+`MAX_CONTAINER_DATA_BYTES` of item data, in a quarter of the callback frame that the network
+leaves them; past those bounds the rest of the reach is `unavailable`, as are unloaded
+positions. A written slot takes any stack the guest may make, as `set-slot` does, whatever the
+container's own rules for that slot, and a result that writes a container commits only if every
+container it writes still holds what its snapshot did. Experience blocks hold no containers.
 
 ## Entities and seats
 
@@ -277,6 +308,7 @@ the adapter's mirrored commit limits are checked against generated fixtures.
 | Private/item data | `MAX_BLOCK_DATA_BYTES` per block or scoped record, `MAX_ITEM_DATA_BYTES` |
 | Messages and tells | `MAX_CLIENT_SENDS`, `MAX_CLIENT_SEND_BYTES`, `MAX_VALUE_DEPTH`, `MAX_TELLS`, `MAX_TELL_BYTES` |
 | Networks and recipes | `MAX_NETWORK_BLOCKS`, `MAX_NETWORK_DATA_BYTES`, `MAX_RECIPES`, `MAX_RECIPE_INPUT_ITEMS` |
+| Containers | `MAX_CONTAINERS`, `MAX_CONTAINER_SLOTS`, `MAX_CONTAINER_DATA_BYTES` |
 | IPC | `MAX_FRAME_BYTES` |
 | Adapter lifecycle/storage | `loadDeadline`, `resultDeadline`, `eventQueueCap`, `dataQuota`, `flushInterval` in [adapter limits](../tools/localserver/experience/limits.go) |
 

@@ -28,8 +28,9 @@ func TestNetworkFrameIncludesScopedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Fill the fixed metadata to exercise the frame boundary without extra world blocks.
-	f.host.worldID += strings.Repeat("w", maxFrameBytes-len(body))
+	// Fill the fixed metadata to exercise the network's frame boundary, the frame without the
+	// containers' reserve, without extra world blocks.
+	f.host.worldID += strings.Repeat("w", maxFrameBytes-containerFrameReserve-len(body))
 	actor := f.actorID()
 	for _, address := range stateAddresses(f.instance.handle.ID, &actor) {
 		if err := f.store.setState("probe", address, StoreKey{Scope: address.Scope, Schema: 1}, data, true); err != nil {

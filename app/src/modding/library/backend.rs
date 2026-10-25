@@ -120,6 +120,7 @@ impl Backend for AppBackend {
                 selection::permission(directory, component, capability, enabled, request)
             }
             Action::AllowRequested(_) => selection::allow_requested(directory, component, request),
+            Action::GrantAll(_) => selection::grant_all(directory, component, request),
             Action::RevokeAll(_) => selection::revoke_all(directory, component, request),
             _ => Err("Unsupported mod selection action.".into()),
         }

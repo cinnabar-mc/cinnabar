@@ -697,6 +697,7 @@ pub fn callback(anchor: BlockPos, call: Call) -> Request {
             selected: 0,
             slots: vec![None; INVENTORY_SLOTS],
         }),
+        containers: None,
         call,
     }
 }
@@ -872,4 +873,31 @@ pub fn v0_10_dir() -> TempDir {
           (call $drop (local.get 0)) (i32.const 0)))"#
     );
     wat_dir(&guest, include_str!("../../../wit/0.10/server.wit"))
+}
+
+/// A frozen 0.11 component: the 0.10 one with entity exports, without content rules.
+pub fn v0_11_dir() -> TempDir {
+    let guest = V0_5_GUEST
+        .replace("@0.5.0", "@0.11.0")
+        .replace("v0.5", "v0.11")
+        .replace(
+            "(param $len i32) (param i32 i32 i32 i32) (result i32)",
+            "(param $len i32) (param i32 i32 i32 i32 i32 f32 f32 f32 i32 i32) (result i32)",
+        );
+    let guest = guest.trim_end().strip_suffix(')').unwrap();
+    let guest = format!(
+        r#"{guest}
+      (func (export "entity-definitions") (result i32) (i32.const 32))
+      (func (export "on-entity") (param i32) (result i32) (i32.const 0))
+      (func (export "overlays") (result i32) (i32.const 512))
+      (func (export "world-definitions") (result i32) (i32.const 32))
+      (func (export "on-player") (param i32) (result i32) (i32.const 0))
+      (func (export "on-tick") (param i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-timer") (param i32 i32 i32 i64 i64 i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-scheduled-update") (param i32 i32 i32 i32) (result i32)
+          (call $drop (local.get 0)) (i32.const 0)))"#
+    );
+    wat_dir(&guest, include_str!("../../../wit/0.11/server.wit"))
 }

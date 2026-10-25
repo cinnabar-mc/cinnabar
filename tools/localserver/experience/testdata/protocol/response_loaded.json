@@ -1,6 +1,6 @@
 {
   "type": "loaded",
-  "protocol": 11,
+  "protocol": 12,
   "id": "benergistics",
   "version": "0.1.0",
   "blocks": [
@@ -25,7 +25,9 @@
       "placement": [],
       "visual": null,
       "permutations": [],
-      "network": true
+      "network": true,
+      "drops": "itself",
+      "item": "listed"
     },
     {
       "id": "benergistics:creative_energy_cell",
@@ -43,7 +45,9 @@
       "placement": [],
       "visual": null,
       "permutations": [],
-      "network": true
+      "network": true,
+      "drops": "itself",
+      "item": "unlisted"
     },
     {
       "id": "benergistics:glass_cable",
@@ -167,7 +171,9 @@
           }
         }
       ],
-      "network": true
+      "network": true,
+      "drops": "nothing",
+      "item": "none"
     }
   ],
   "items": [
@@ -175,7 +181,8 @@
       "id": "benergistics:item_storage_cell_1k",
       "display_name": "1k ME Item Storage Cell",
       "icon": "/srv/experiences/benergistics/assets/item_storage_cell_1k.png",
-      "max_stack": 1
+      "max_stack": 1,
+      "listed": false
     }
   ],
   "focus": true

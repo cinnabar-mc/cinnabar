@@ -754,6 +754,39 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
 }
 
 #[test]
+fn bulk_grants_keep_frame_and_packet_sources_on_their_own_hosts() {
+    let frame = wat::parse_str(fixture(false, "", "Hello")).unwrap();
+    let core = packet_bytes();
+    let adapted = mod_host::packet_mod::packet_mod_component(&core).unwrap();
+    for (bytes, packet) in [(frame, false), (core, true), (adapted, true)] {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("config");
+        let component = root.path().join("mod.wasm");
+        fs::write(&component, bytes).unwrap();
+        selection::select(&config, &component, true, "enable".into()).unwrap();
+        selection::grant_all(&config, &component, "grant".into()).unwrap();
+        let entry = selection::registered(&config).pop().unwrap().entry;
+        assert_eq!(entry.grants.packets, packet);
+        let candidate = build_candidate(source_snapshot(entry).unwrap()).unwrap();
+        assert_eq!(
+            matches!(candidate.runtime, CandidateRuntime::Packet(_)),
+            packet
+        );
+
+        if !packet {
+            let other = root.path().join("packet.wasm");
+            fs::write(&other, packet_bytes()).unwrap();
+            selection::select(&config, &other, true, "enable-packet".into()).unwrap();
+            selection::grant_all(&config, &other, "grant-packet".into()).unwrap();
+            let before = selection::registered(&config).pop().unwrap().entry;
+            selection::grant_all(&config, &component, "grant-frame".into()).unwrap();
+            let after = selection::registered(&config).pop().unwrap().entry;
+            assert_eq!(after, before);
+        }
+    }
+}
+
+#[test]
 fn joins_wait_for_initial_observation_and_finish_after_admission() {
     let (mut world, _, _) = world();
     assert!(world.resource::<Watcher>().preparing());

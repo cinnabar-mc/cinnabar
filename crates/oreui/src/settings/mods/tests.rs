@@ -224,7 +224,7 @@ fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
     let (hits, labels) = render(snapshot.clone());
     assert!(hits.contains(&command(Action::Permission(1, 1, true))));
     assert!(!hits.contains(&command(Action::Permission(1, 0, true))));
-    assert!(hits.contains(&command(Action::RevokeAll(1))));
+    assert!(hits.contains(&command(Action::GrantAll(1))));
     assert!(hits.contains(&command(Action::ShowAllPermissions(1))));
     assert!(!labels.iter().any(|label| label == "Allows camera output."));
     let action = Some(command(Action::Permission(1, 1, true)));
@@ -260,6 +260,56 @@ fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
             .collect();
         assert_eq!(bounds.len(), 2);
         assert_eq!(bounds[0].min().y() == bounds[1].min().y(), columns == 2);
+    }
+}
+
+#[test]
+fn bulk_permissions_grant_when_none_are_enabled_and_revoke_any_existing_grant() {
+    for declared in [false, true] {
+        for enabled in [false, true] {
+            for busy in [false, true] {
+                let mut item = installed(1, "zoom");
+                item.permissions[0].requested = declared.then_some(true);
+                let mut optional = item.permissions[0].clone();
+                optional.name = "HUD".into();
+                optional.requested = declared.then_some(false);
+                optional.enabled = enabled;
+                item.permissions.push(optional);
+                let snapshot = Snapshot {
+                    library: Library {
+                        installed: vec![item],
+                        busy,
+                        ..Default::default()
+                    },
+                    details_expanded: Some(1),
+                    customizing: Some(1),
+                    ..Default::default()
+                };
+                for width in [800.0, 300.0] {
+                    let (hits, labels, _) =
+                        render_at(snapshot.clone(), &HashMap::new(), width, None, None);
+                    let (label, action, absent_label, absent_action) = if enabled {
+                        (
+                            "Revoke all",
+                            Action::RevokeAll(1),
+                            "Grant all",
+                            Action::GrantAll(1),
+                        )
+                    } else {
+                        (
+                            "Grant all",
+                            Action::GrantAll(1),
+                            "Revoke all",
+                            Action::RevokeAll(1),
+                        )
+                    };
+                    assert!(labels.iter().any(|text| text == label));
+                    assert!(!labels.iter().any(|text| text == absent_label));
+                    assert_eq!(hits.contains(&command(action)), !busy);
+                    assert!(!hits.contains(&command(absent_action)));
+                }
+            }
+        }
     }
 }
 

@@ -11,8 +11,8 @@
 
 use experience_sdk::Value;
 use experience_sdk::server::{
-    BlockChange, BlockPos, Callback, Experience, Face, GuestError, LogLevel, OverlayRegistration,
-    Pixel, PlayerId, Registration, WorldError, log, nodes,
+    BlockChange, BlockPos, Callback, ContentRules, Experience, Face, GuestError, LogLevel,
+    OverlayRegistration, Pixel, PlayerId, Registration, WorldError, log, nodes,
 };
 
 /// The declarations of `experience.toml`, which `build.rs` writes.
@@ -100,17 +100,24 @@ impl Experience for Probe {
         Ok(contract::overlays())
     }
 
+    /// The 0.12 export: the bus has no item and drops nothing, as AE2's cable bus.
+    fn content_rules() -> Result<ContentRules, GuestError> {
+        Ok(contract::content_rules())
+    }
+
     fn on_place(ctx: &Callback, change: BlockChange) -> Result<(), GuestError> {
         tell_actor(ctx, &change, "placed");
         Ok(())
     }
 
+    /// Tells the size of the broken block's data, and whether the break harvests.
     fn on_break(ctx: &Callback, change: BlockChange) -> Result<(), GuestError> {
         let len = change
             .previous_data
             .as_ref()
             .map_or_else(|| "none".to_owned(), |data| data.len().to_string());
-        tell_actor(ctx, &change, &format!("broke {len}"));
+        let harvested = if ctx.harvested() { " harvested" } else { "" };
+        tell_actor(ctx, &change, &format!("broke {len}{harvested}"));
         Ok(())
     }
 

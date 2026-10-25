@@ -17,7 +17,8 @@ use experience_runtime::limits::{
 use experience_runtime::load::{engine, load};
 use experience_runtime::manifest::{CLIENT_TABLE, read_manifest};
 use experience_runtime::protocol::{
-    BlockDef, ItemDef, Mining, Outcome, PlacementState, Scalar, StateDef, StateValues, Texture,
+    BlockDef, BlockDrops, BlockItem, ItemDef, Mining, Outcome, PlacementState, Scalar, StateDef,
+    StateValues, Texture,
 };
 use tempfile::TempDir;
 
@@ -111,7 +112,32 @@ fn probe_registers_counter_block() {
             visual: None,
             permutations: Vec::new(),
             network: false,
+            drops: BlockDrops::Itself,
+            item: BlockItem::Listed,
         }]
+    );
+}
+
+/// The probe's content rules: its bus has no item and drops nothing by itself, its node's item
+/// and its cell are unlisted, and its other blocks drop themselves with listed items.
+#[test]
+fn probe_content_rules_apply() {
+    let dir = probe_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    let rules: Vec<_> = loaded
+        .blocks
+        .iter()
+        .map(|block| (block.id.as_str(), block.drops, block.item))
+        .collect();
+    assert_eq!(
+        rules,
+        [
+            ("probe:counter", BlockDrops::Itself, BlockItem::Listed),
+            ("probe:lamp", BlockDrops::Itself, BlockItem::Listed),
+            ("probe:node", BlockDrops::Itself, BlockItem::Unlisted),
+            ("probe:bus", BlockDrops::Nothing, BlockItem::None),
+        ]
     );
 }
 
@@ -129,6 +155,7 @@ fn probe_registers_its_item() {
             display_name: "Probe Cell".to_owned(),
             icon: icon.to_str().unwrap().to_owned(),
             max_stack: 1,
+            listed: false,
         }]
     );
 }
@@ -445,6 +472,8 @@ fn v0_1_artifact_loads_and_runs() {
             visual: None,
             permutations: Vec::new(),
             network: false,
+            drops: BlockDrops::Itself,
+            item: BlockItem::Listed,
         }]
     );
     assert_eq!(

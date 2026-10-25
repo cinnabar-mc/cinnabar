@@ -42,7 +42,8 @@ pub use worlds::{
 pub use recipes::{Crafted, ItemMatch, Recipe};
 
 pub use player::{
-    HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, Network, NewStack, ServerItem,
+    Container, Containers, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, Network, NewStack,
+    ServerItem,
 };
 pub use visuals::{
     BlockState, BoneVisibility, Condition, Flipbook, ItemDef, Material, Permutation, Pixel,
@@ -57,8 +58,10 @@ pub use visuals::{
 /// control delivery to `send_client`; 8 adds world lifecycle, player observations and scoped state;
 /// 9 adds instance simulation ticks and cancellable timers; 10 adds cell overlays to `loaded`,
 /// snapshot cells and the `set_overlays` op, and the click position to `interact`;
-/// 11 adds registered actors, seats, steering and entity observations.
-pub const PROTOCOL_VERSION: u32 = 11;
+/// 11 adds registered actors, seats, steering and entity observations; 12 adds blocks' drops and
+/// items, items' listing, whether a `break` harvests, the `pass_interaction` op, and the
+/// containers in reach with the `set_container_slot` op.
+pub const PROTOCOL_VERSION: u32 = 12;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -171,8 +174,11 @@ pub enum Call {
     Place {
         change: Change,
     },
+    /// `harvest` when the player broke the block in a game mode that drops what is broken.
     Break {
         change: Change,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        harvest: bool,
     },
     /// `hit` is where the player's click met the block, in pixels from its corner, when the
     /// client sent one within the cell.
@@ -245,6 +251,10 @@ pub enum Request {
         network: Option<Network>,
         /// The actor's inventory, when the callback has an actor.
         inventory: Option<Inventory>,
+        /// The containers within reach of the anchor and its network, for a callback with an
+        /// anchor.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        containers: Option<Containers>,
         call: Call,
     },
     /// An empty struct variant, not a unit variant: serde ignores unknown fields on internally
@@ -271,7 +281,8 @@ pub enum Mining {
 }
 
 /// A validated block: its 0.1 definition, then server WIT 0.5's states, placement traits, look
-/// and network membership. A block with a `visual` binds no `textures`.
+/// and network membership, and 0.12's drops and item. A block with a `visual` binds no
+/// `textures`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDef {
@@ -284,6 +295,26 @@ pub struct BlockDef {
     pub visual: Option<Visual>,
     pub permutations: Vec<Permutation>,
     pub network: bool,
+    pub drops: BlockDrops,
+    pub item: BlockItem,
+}
+
+/// What breaking a block drops by itself: its own item, or nothing, which leaves the drops to the
+/// guest's `on-break`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockDrops {
+    Itself,
+    Nothing,
+}
+
+/// A block's item: listed in the creative inventory, unlisted, or none at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockItem {
+    Listed,
+    Unlisted,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,6 +395,17 @@ pub enum Op {
     SetOverlays {
         pos: BlockPos,
         overlays: Vec<Overlay>,
+    },
+    /// Passes an interaction's click on: once the rest commits, the actor's held item is used on
+    /// the interacted block as if it had no action. Only an interaction's result holds one.
+    /// Empty struct variant so unknown fields are rejected (see [`Request::Shutdown`]).
+    PassInteraction {},
+    /// New content for slot `slot` of the container at `pos`, the position the callback's
+    /// snapshot listed it at; `None` empties it.
+    SetContainerSlot {
+        pos: BlockPos,
+        slot: u32,
+        stack: Option<NewStack>,
     },
 }
 

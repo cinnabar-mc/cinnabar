@@ -49,6 +49,9 @@ type blockType struct {
 	visual *visualType
 	// network is set for a network member, whose callbacks have the network around it.
 	network bool
+	// item is how the block's item is offered; with ItemNone the block has no item and drops
+	// nothing by itself.
+	item BlockItem
 	// overlays is what an overlay host may carry, nil for a block that carries none; its
 	// blocks in a world are HostBlocks.
 	overlays *overlaySet
@@ -75,6 +78,7 @@ var (
 	_ block.Traited               = Block{}
 	_ world.CustomItem            = Block{}
 	_ block.Breakable             = Block{}
+	_ block.Pickable              = Block{}
 	_ block.Activatable           = Block{}
 	_ item.UsableOnBlock          = Block{}
 	_ world.NeighbourUpdateTicker = Block{}
@@ -220,6 +224,15 @@ func (b Block) Texture() image.Image {
 // Category puts the item in the construction tab.
 func (Block) Category() category.Category {
 	return category.Construction()
+}
+
+// Pick is the block's item, which picking the block gives; the empty stack for a block without
+// one, which picking leaves alone.
+func (b Block) Pick() item.Stack {
+	if b.t.item == ItemNone {
+		return item.Stack{}
+	}
+	return item.NewStack(Block{t: b.t}, 1)
 }
 
 // BreakInfo follows the block's mining; its BreakHandler hands the break to the hook sink.

@@ -111,17 +111,21 @@ impl RenderState {
         }
     }
 
-    /// Publishes immediate primitives and retained changes after a successful frame.
+    /// Publishes retained changes and then immediate primitives, as one successful frame does.
     pub fn commit(&mut self) {
-        let primitives = std::mem::take(&mut self.staged_primitives);
-        let mut changed = false;
         self.commit_retained();
+        self.commit_primitives();
+    }
+
+    /// Publishes only a successful frame's immediate primitives. Retained output, including
+    /// frame groups, must be committed exactly once per callback through
+    /// [`Self::commit_retained`]: a second retained commit expires the frame groups the
+    /// callback just drew.
+    pub fn commit_primitives(&mut self) {
+        let primitives = std::mem::take(&mut self.staged_primitives);
         // Unchanged content keeps its identity, so the renderer rebuilds and uploads nothing.
         if primitives != *self.committed.primitives {
             self.committed.primitives = Arc::new(primitives);
-            changed = true;
-        }
-        if changed {
             self.generation = mod_render::next_owner();
         }
     }

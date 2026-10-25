@@ -128,6 +128,7 @@ bevy = { version = "=0.20.0", default-features = false, features = [
     "bevy_window",
     "bevy_winit",
     "gamepad",
+    "bevy_gilrs",
     "keyboard",
     "mouse",
     "multi_threaded",
@@ -209,6 +210,7 @@ bevy_ecs_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f
 bevy_encase_derive = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }
 bevy_extract = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }
 bevy_extract_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }
+bevy_gilrs = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }
 bevy_gizmos = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }
 bevy_gizmos_macros = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }
 bevy_image = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }

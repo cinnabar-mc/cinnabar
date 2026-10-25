@@ -80,7 +80,8 @@ func (h *Host) network(tx *world.Tx, d *dispatcher, ev event, snap *snapshot) {
 	appendNetwork(snap, members, truncated)
 }
 
-// appendNetwork keeps a breadth-first prefix that fits beside the rest of the callback frame.
+// appendNetwork keeps a breadth-first prefix that fits beside the rest of the callback frame and
+// the containers' reserve.
 func appendNetwork(snap *snapshot, members []member, truncated bool) {
 	held := make(map[cube.Pos]bool, len(snap.cells))
 	for _, st := range snap.cells {
@@ -95,7 +96,7 @@ func appendNetwork(snap *snapshot, members []member, truncated bool) {
 		network.Truncated = true
 		return
 	}
-	remaining := maxFrameBytes - len(base)
+	remaining := maxFrameBytes - containerFrameReserve - len(base)
 	zeroPos, _ := json.Marshal(BlockPos{})
 	type cachedCell struct {
 		cell Cell

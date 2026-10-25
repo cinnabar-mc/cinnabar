@@ -1058,6 +1058,7 @@ fn item_rules_accept_limits_and_refuse_violations() {
             display_name: "Probe Cell".to_owned(),
             icon: icon.to_str().unwrap().to_owned(),
             max_stack: 1,
+            listed: true,
         }]
     );
 }

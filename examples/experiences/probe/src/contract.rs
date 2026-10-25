@@ -1,12 +1,13 @@
-//! Server WIT 0.5's, 0.6's and 0.10's calls. x=24 makes each 0.5 call once; x=25 toggles a lamp;
-//! x=26 marks every member of a node's network; x=27 makes stacks; x=28 asks the server's
+//! Server WIT 0.5's, 0.6's, 0.10's and 0.12's calls. x=24 makes each 0.5 call once; x=25 toggles
+//! a lamp; x=26 marks every member of a node's network; x=27 makes stacks; x=28 asks the server's
 //! recipes; x=29 schedules updates. Using a [`BUS`] adds or removes plates on it.
 
 use experience_sdk::server::{
-    BlockDef, BlockPos, BlockState, BlockType, Callback, Face, ItemDef, ItemKey, Material, Mining,
-    NewStack, Overlay, OverlayLook, OverlayRegistration, OverlayType, OverlayVisual, Pixel,
-    PixelBox, PlacementStates, Registration, RenderMethod, StateDef, StateValue, StateValues,
-    TextureBinding, Visual, WorldError, cube,
+    BlockDef, BlockDrops, BlockItem, BlockPos, BlockRule, BlockState, BlockType, Callback,
+    ContentRules, Face, ItemDef, ItemKey, Material, Mining, NewStack, Overlay, OverlayLook,
+    OverlayRegistration, OverlayType, OverlayVisual, Pixel, PixelBox, PlacementStates,
+    Registration, RenderMethod, StateDef, StateValue, StateValues, TextureBinding, Visual,
+    WorldError, cube,
 };
 
 /// A cube with the facing placement trait and one bool state, [`LAMP_ON`].
@@ -88,6 +89,26 @@ pub(crate) fn overlays() -> OverlayRegistration {
             },
             permutations: Vec::new(),
         }],
+    }
+}
+
+/// The [`BUS`] has no item and drops nothing by itself, as AE2's cable bus; the [`NODE`]'s item
+/// and the [`CELL`] stay out of the creative inventory.
+pub(crate) fn content_rules() -> ContentRules {
+    ContentRules {
+        blocks: vec![
+            BlockRule {
+                block: BUS.to_owned(),
+                drops: BlockDrops::Nothing,
+                item: BlockItem::None,
+            },
+            BlockRule {
+                block: NODE.to_owned(),
+                drops: BlockDrops::Itself,
+                item: BlockItem::Unlisted,
+            },
+        ],
+        unlisted_items: vec![CELL.to_owned()],
     }
 }
 
@@ -254,6 +275,46 @@ pub(crate) fn schedule(ctx: &Callback, p: BlockPos) -> String {
         refusal(ctx.schedule_update(p, 0)),
         refusal(ctx.schedule_update(below, 2)),
     )
+}
+
+/// Moves one item of the container at `pos` from its first slot to its second, and tells
+/// `container {slots} moved {id} {first} {second}`, the counts left there, or why it could not:
+/// `container {error}` or `container {slots} first empty`.
+pub(crate) fn move_in_container(ctx: &Callback, pos: BlockPos) -> String {
+    let slots = match ctx.container(pos) {
+        Ok(slots) => slots,
+        Err(error) => return format!("container {}", error.name()),
+    };
+    let Some(Some(first)) = slots.first() else {
+        return format!("container {} first empty", slots.len());
+    };
+    let second = slots
+        .get(1)
+        .cloned()
+        .flatten()
+        .map_or(0, |stack| stack.count);
+    let moved = |count: u8| NewStack {
+        id: first.id.clone(),
+        metadata: first.metadata,
+        count,
+        data: first.data.clone(),
+    };
+    let left = (first.count > 1).then(|| moved(first.count - 1));
+    let take = refusal(ctx.set_container_slot(pos, 0, left.as_ref()));
+    let put = refusal(ctx.set_container_slot(pos, 1, Some(&moved(second + 1))));
+    if take != "ok" || put != "ok" {
+        return format!("container take {take} put {put}");
+    }
+    match ctx.container(pos) {
+        Ok(now) => format!(
+            "container {} moved {} {} {}",
+            now.len(),
+            first.id,
+            now[0].as_ref().map_or(0, |stack| stack.count),
+            now[1].as_ref().map_or(0, |stack| stack.count)
+        ),
+        Err(error) => format!("container {}", error.name()),
+    }
 }
 
 /// A world error's name, or `ok` for any success.

@@ -170,10 +170,9 @@ pub fn legacy_hurt_matrix(
                         + rules.death_offset_radians,
                 )
             });
-    if hurt_ticks > 0 && direction_degrees.is_finite() {
-        let progress = (f32::from(hurt_ticks) - alpha) / f32::from(rules.hurt_ticks);
-        let squared = progress * progress;
-        let shake = legacy_sin((squared * squared) * std::f32::consts::PI);
+    if let Some(radians) = legacy_hurt_radians(hurt_ticks, alpha)
+        && direction_degrees.is_finite()
+    {
         let strength = if strength.is_finite() {
             strength.clamp(0.0, 1.0)
         } else {
@@ -181,10 +180,21 @@ pub fn legacy_hurt_matrix(
         };
         let direction = direction_degrees.to_radians();
         effect *= Mat4::from_rotation_y(-direction)
-            * Mat4::from_rotation_z(rules.hurt_radians * shake * strength)
+            * Mat4::from_rotation_z(radians * strength)
             * Mat4::from_rotation_y(direction);
     }
     effect
+}
+
+/// The full-strength damage shake angle that [`legacy_hurt_matrix`] turns about the axis its
+/// hurt direction sets, in radians; none once the hurt ticks have run out.
+pub fn legacy_hurt_radians(hurt_ticks: u8, alpha: f32) -> Option<f32> {
+    let rules = BEDROCK_112;
+    (hurt_ticks > 0).then(|| {
+        let progress = (f32::from(hurt_ticks) - partial_tick(alpha)) / f32::from(rules.hurt_ticks);
+        let squared = progress * progress;
+        rules.hurt_radians * legacy_sin((squared * squared) * std::f32::consts::PI)
+    })
 }
 
 /// Sanitizes a render fraction without changing tick-owned values.

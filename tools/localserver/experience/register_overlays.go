@@ -57,8 +57,8 @@ func (r *Registry) registerOverlays(l Loaded, cache *assetCache) ([]*blockType, 
 }
 
 // overlayTypeOf checks def, an overlay type of the Experience exp, as a block without placement
-// traits that mining never breaks. Without a selection box of its own it is never selected,
-// unless a permutation that holds sets one.
+// traits or an item that mining never breaks. Without a selection box of its own it is never
+// selected, unless a permutation that holds sets one.
 func overlayTypeOf(exp string, def OverlayDef, cache *assetCache) (*blockType, error) {
 	visual := def.Visual
 	t, err := blockTypeOf(exp, BlockDef{
@@ -68,6 +68,8 @@ func overlayTypeOf(exp string, def OverlayDef, cache *assetCache) (*blockType, e
 		States:       def.States,
 		Visual:       &visual,
 		Permutations: def.Permutations,
+		Drops:        DropsNothing,
+		Item:         ItemNone,
 	}, cache)
 	if err != nil {
 		return nil, err

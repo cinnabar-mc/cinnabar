@@ -348,24 +348,32 @@ func TestHealthyExperienceRespondsBesideHostile(t *testing.T) {
 	f.assertData("probe", healthy, counter(1))
 }
 
-// A player break deletes the block's data at once and calls on-break with the old data.
+// A player break deletes the block's data at once and calls on-break with the old data, as a
+// harvest in survival and not in creative.
 func TestBreakDeletesDataAndSendsPrevious(t *testing.T) {
 	log, _ := testLog(t)
 	sup, _ := startProbe(t, log)
 	f := newHostFixture(t, log, map[string]*Supervisor{"probe": sup})
 	pos := probePos(probeCount)
-	f.place(probeCounter, pos, []byte{1, 2, 3, 4})
-	f.do(func(tx *world.Tx) {
-		// As a player break does: the block goes, then its BreakHandler runs.
-		b := tx.Block(pos.cube()).(Block)
-		tx.SetBlock(pos.cube(), nil, nil)
-		b.BreakInfo().BreakHandler(pos.cube(), tx, f.player(tx))
-	})
+	breakAs := func(mode world.GameMode) {
+		f.place(probeCounter, pos, []byte{1, 2, 3, 4})
+		f.do(func(tx *world.Tx) {
+			p := f.player(tx)
+			p.SetGameMode(mode)
+			// As a player break does: the block goes, then its BreakHandler runs.
+			b := tx.Block(pos.cube()).(Block)
+			tx.SetBlock(pos.cube(), nil, nil)
+			b.BreakInfo().BreakHandler(pos.cube(), tx, p)
+		})
+	}
+	breakAs(world.GameModeSurvival)
 	if tok, ok := f.store.Token("probe", overworldKey(pos)); ok {
 		t.Fatalf("token %+v survived the break", tok)
 	}
 	f.assertData("probe", pos, nil)
-	f.waitTells(5*time.Second, "broke 4")
+	f.waitTells(5*time.Second, "broke 4 harvested")
+	breakAs(world.GameModeCreative)
+	f.waitTells(5*time.Second, "broke 4 harvested", "broke 4")
 }
 
 // Setting an own block over an owned one starts a new generation without data.

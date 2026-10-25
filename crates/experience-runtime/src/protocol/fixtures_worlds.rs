@@ -95,6 +95,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             snapshot: Vec::new(),
             network: None,
             inventory: None,
+            containers: None,
             call: Call::Player {
                 player: "11111111-1111-1111-1111-111111111111".into(),
                 event,

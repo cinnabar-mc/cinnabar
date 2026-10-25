@@ -158,13 +158,46 @@ type ServerItem struct {
 	Plain    bool   `json:"plain"`
 }
 
-// ItemDef is an item of the Experience; Icon is absolute.
+// ItemDef is an item of the Experience; Icon is absolute. Listed is set when the creative
+// inventory lists it, as it does every item before server WIT 0.12.
 type ItemDef struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
 	Icon        string `json:"icon"`
 	MaxStack    uint8  `json:"max_stack"`
+	Listed      bool   `json:"listed"`
 }
+
+// BlockDrops is what breaking a block drops by itself: its own item, or nothing, which leaves
+// the drops to the guest's on-break.
+type BlockDrops string
+
+const (
+	DropsItself  BlockDrops = "itself"
+	DropsNothing BlockDrops = "nothing"
+)
+
+// blockDrops lists every BlockDrops in protocol order.
+var blockDrops = []BlockDrops{DropsItself, DropsNothing}
+
+func (d BlockDrops) MarshalJSON() ([]byte, error)     { return marshalEnum(d, blockDrops) }
+func (d *BlockDrops) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, d, blockDrops) }
+
+// BlockItem is a block's item: listed in the Experience's creative group, unlisted, or none,
+// when the block is never held, picked or dropped as itself.
+type BlockItem string
+
+const (
+	ItemListed   BlockItem = "listed"
+	ItemUnlisted BlockItem = "unlisted"
+	ItemNone     BlockItem = "none"
+)
+
+// blockItems lists every BlockItem in protocol order.
+var blockItems = []BlockItem{ItemListed, ItemUnlisted, ItemNone}
+
+func (i BlockItem) MarshalJSON() ([]byte, error)     { return marshalEnum(i, blockItems) }
+func (i *BlockItem) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, i, blockItems) }
 
 // ItemStack is an item stack; Data, lowercase hex, is only on the Experience's own items, and
 // Plain is set when the stack carries nothing else.

@@ -24,6 +24,15 @@ pub(super) struct ModuleObserver {
     ping: PingPoll,
 }
 
+/// Converts a HUD stat's retained counters back to attribute points, as mods read them.
+fn stat_points(stat: ui::BoundedStat) -> (f32, f32) {
+    let scale = f32::from(stat.scale());
+    (
+        f32::from(stat.current()) / scale,
+        f32::from(stat.maximum()) / scale,
+    )
+}
+
 /// Keeps observed identifiers bounded at a valid UTF-8 prefix.
 fn bounded_text(text: &str) -> String {
     let mut end = text.len().min(128);
@@ -373,8 +382,8 @@ impl ModuleObserver {
         let vitals = Some(VitalsObservation {
             session: world.session,
             dimension: world.dimension,
-            hunger: hunger.map(|stat| stat.current() as f32),
-            max_hunger: hunger.map(|stat| stat.maximum() as f32),
+            hunger: hunger.map(|stat| stat_points(stat).0),
+            max_hunger: hunger.map(|stat| stat_points(stat).1),
             saturation: ui.gameplay_hud().saturation(),
             held_food: player
                 .selected_stack()
@@ -571,6 +580,14 @@ mod tests {
             )
             .unwrap();
         stream.authority().remote_actors().next().unwrap().clone()
+    }
+
+    #[test]
+    fn hunger_reaches_mods_in_attribute_points() {
+        let stat = ui::BoundedStat::new_scaled(1_450, 2_000, 100).unwrap();
+        assert_eq!(stat_points(stat), (14.5, 20.));
+        let unscaled = ui::BoundedStat::new_scaled(700, 1_000, 1).unwrap();
+        assert_eq!(stat_points(unscaled), (700., 1_000.));
     }
 
     /// Retains the full-sort selection as a behavior and allocation reference.

@@ -258,6 +258,28 @@ pub(in crate::modding) fn allow_requested(
     })
 }
 
+/// Grants all applicable capabilities and declared commands without changing the source's host.
+pub(in crate::modding) fn grant_all(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+) -> Result<(), String> {
+    let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+    let packet = mod_host::SourceKind::of(&bytes) == mod_host::SourceKind::Packet;
+    let requested = mod_host::declarations_snapshot(&bytes)
+        .and_then(|declared| declared.requested)
+        .map_err(|error| error.to_string())?;
+    change_grants(directory, component, request_id, |grants| {
+        for capability in ModGrants::CAPABILITIES {
+            (capability.set)(grants, true, requested.as_ref());
+        }
+        // Wrapped packet mods share the component framing, so check their packet interface.
+        grants.packets =
+            packet || mod_host::packet_mod::CompiledPacketMod::compile(&bytes, grants).is_ok();
+        Ok(())
+    })
+}
+
 /// Clears every capability in one write, even when the source cannot be read.
 pub(in crate::modding) fn revoke_all(
     directory: &Path,

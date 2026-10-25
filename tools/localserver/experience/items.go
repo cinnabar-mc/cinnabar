@@ -28,6 +28,8 @@ type itemType struct {
 	exp, id, name string
 	maxCount      int
 	icon          image.Image
+	// listed is set when the Experience's creative group lists the item.
+	listed bool
 }
 
 // Item is an item of an Experience. Its data, if any, is a value of the stack that holds it.
@@ -77,7 +79,9 @@ func newItemType(exp string, def ItemDef, blocks []BlockDef, cache *assetCache) 
 	if err != nil {
 		return fail(fmt.Errorf("icon: %w", err))
 	}
-	return &itemType{exp: exp, id: def.ID, name: def.DisplayName, maxCount: int(def.MaxStack), icon: icon}, nil
+	return &itemType{
+		exp: exp, id: def.ID, name: def.DisplayName, maxCount: int(def.MaxStack), icon: icon, listed: def.Listed,
+	}, nil
 }
 
 // LookupItem returns the registered item with the id.
@@ -140,8 +144,8 @@ func stackOf(exp string, s item.Stack) ItemStack {
 }
 
 // makeStack makes the stack the Experience exp's guest staged, as the runtime checked it: one of
-// exp's items, with its data, or of its blocks or the server's vanilla items, without data, each
-// within the most one stack holds.
+// exp's items, with its data, or of its blocks that have an item or the server's vanilla items,
+// without data, each within the most one stack holds.
 func (r *Registry) makeStack(exp string, s NewStack) (item.Stack, error) {
 	var data []byte
 	if s.Data != nil {
@@ -159,7 +163,7 @@ func (r *Registry) makeStack(exp string, s NewStack) (item.Stack, error) {
 			return item.Stack{}, fmt.Errorf("%s has %d bytes of data; the limit is %d", s.ID, len(data), maxItemDataBytes)
 		}
 		it = Item{own}
-	case block != nil && block.exp == exp && s.Metadata == 0 && data == nil:
+	case block != nil && block.exp == exp && block.item != ItemNone && s.Metadata == 0 && data == nil:
 		it = Block{t: block}
 	case strings.HasPrefix(s.ID, vanillaNamespace+":") && data == nil:
 		var ok bool

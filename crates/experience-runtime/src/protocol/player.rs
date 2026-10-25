@@ -1,5 +1,5 @@
-//! Protocol 5's player inventory and network scope, which a callback's snapshot may carry, and
-//! the stacks a guest stages.
+//! Protocol 5's player inventory and network scope, which a callback's snapshot may carry, the
+//! stacks a guest stages, and protocol 12's containers in reach.
 
 use serde::{Deserialize, Serialize};
 
@@ -61,4 +61,27 @@ pub struct Inventory {
 pub struct Network {
     pub blocks: Vec<BlockPos>,
     pub truncated: bool,
+}
+
+/// The positions of a callback's container reach that hold a container or are not loaded, in the
+/// order the adapter found them, and whether its bounds left some out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Containers {
+    pub blocks: Vec<Container>,
+    pub truncated: bool,
+}
+
+/// A container block, a vanilla one, with its slots in the container's own order, and `pair`,
+/// the other half of a double chest, whose slots these are too; or, without `loaded`, a position
+/// in an unloaded chunk, with neither.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Container {
+    pub pos: BlockPos,
+    pub loaded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair: Option<BlockPos>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<Option<ItemStack>>,
 }

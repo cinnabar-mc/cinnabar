@@ -46,6 +46,9 @@ type settings struct {
 	dir, addr, name, gameMode, diff         string
 	generator                               string
 	chunkWorkers                            int
+	// timeOfDay is the time of day every world opens at with its daylight cycle stopped, which
+	// parseTimeOfDay reads; empty keeps the stored time and cycle.
+	timeOfDay string
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -74,6 +77,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.StringVar(&s.generator, "generator", "flat", "flat terrain")
+	flags.StringVar(&s.timeOfDay, "time", "", "freeze every world at this time of day: ticks or "+strings.Join(timeNames(), ", "))
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest tutorial, firstperson, spline, inline, aim and clear fixtures")
 	flags.BoolVar(&s.containerTitleTest, "container-title-test", false, "enable /containertitle filtered and raw actor-backed chest menu fixtures")
@@ -132,6 +136,11 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	}
 	if _, err := s.worldDifficulty(); err != nil {
 		return settings{}, err
+	}
+	if s.timeOfDay != "" {
+		if _, err := parseTimeOfDay(s.timeOfDay); err != nil {
+			return settings{}, err
+		}
 	}
 	return s, nil
 }
@@ -243,6 +252,10 @@ func (s settings) applyTo(worlds ...*world.World) {
 			if w.Dimension() == world.Overworld {
 				w.SetSpawn((&blockGallery{}).DefaultSpawn(w.Dimension()))
 			}
+		}
+		if s.timeOfDay != "" {
+			ticks, _ := parseTimeOfDay(s.timeOfDay)
+			freezeTime(w, ticks)
 		}
 	}
 }
