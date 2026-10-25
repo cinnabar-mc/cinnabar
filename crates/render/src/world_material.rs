@@ -420,6 +420,17 @@ impl WorldMaterialGpu {
             .filter(move |(_, entry)| entry.variant.program == program)
             .map(|(key, _)| *key)
     }
+
+    /// The programs of the materials with resources in any slot, the entity slots past the
+    /// terrain mask's width included.
+    pub(crate) fn variant_programs(&self) -> BTreeSet<u128> {
+        self.slots
+            .iter()
+            .flatten()
+            .filter_map(|key| self.entries.get(key))
+            .map(|entry| entry.variant.program)
+            .collect()
+    }
 }
 
 /// Creates the resources of newly published materials, drops those of retired ones and
