@@ -119,6 +119,26 @@ fn cosmetic_emitters_register_lazily_follow_and_stop_with_their_placement() {
         "unequipped or hidden items stop emitting"
     );
     assert!(tracker.live.is_empty());
+    assert!(
+        system.live_particles() > 0,
+        "visible trails survive wearer culling"
+    );
+    assert!(!drawn_uvs(&mut system).is_empty());
+    let hidden_view = particles::ParticleView {
+        position: [0.0, 1.0, -4.0],
+        right: [1.0, 0.0, 0.0],
+        up: [0.0, 1.0, 0.0],
+        forward: [0.0, 0.0, -1.0],
+        half_diagonal: 1.0,
+    };
+    tracker.retire_hidden(&mut system, &[], &hidden_view);
+    assert_eq!(
+        system.live_particles(),
+        0,
+        "wholly hidden trails retire without simulation"
+    );
+    assert_eq!(system.emitter_count(), 0);
+    assert!(drawn_uvs(&mut system).is_empty());
 }
 
 #[test]
@@ -156,7 +176,7 @@ fn cosmetic_emitters_are_bounded_and_skip_rejected_effects() {
     assert_eq!(
         emitting(&tracker, &system).len(),
         MAX_COSMETIC_EMITTERS - 8,
-        "stopped emitters hold their slots until they leave the table"
+        "visible particles hold their slots until they leave the table"
     );
     system.tick(0.01, &EmptyWorld);
     tracker.sync(&mut system, &crowd[8..]);
@@ -274,4 +294,44 @@ fn finished_emitters_restart_without_leaking_slots() {
         restarted,
         "finished emitters restart while their items are drawn"
     );
+}
+
+#[test]
+fn culled_wearer_keeps_a_trail_that_moves_into_this_frames_view() {
+    let mut effect: serde_json::Value = serde_json::from_str(EFFECT).unwrap();
+    let components = &mut effect["particle_effect"]["components"];
+    components
+        .as_object_mut()
+        .unwrap()
+        .remove("minecraft:emitter_rate_steady");
+    components["minecraft:emitter_rate_instant"] = serde_json::json!({"num_particles": 1});
+    components["minecraft:emitter_shape_point"] = serde_json::json!({"offset": [2.24, 0, 1]});
+    components["minecraft:particle_initial_speed"] = serde_json::json!([-4, 0, 0]);
+    components["minecraft:particle_motion_dynamic"] = serde_json::json!({});
+    let placement = CosmeticEmitterPlacement {
+        effect: serde_json::to_vec(&effect).unwrap().into(),
+        ..placement(7, 0.0)
+    };
+    let view = particles::ParticleView {
+        position: [0.0, 1.0, 0.0],
+        right: [1.0, 0.0, 0.0],
+        up: [0.0, 1.0, 0.0],
+        forward: [0.0, 0.0, 1.0],
+        half_diagonal: 1.0,
+    };
+    let mut system = ParticleSystem::default();
+    let mut tracker = CosmeticEmitters::default();
+    tracker.sync(&mut system, &[placement]);
+    system.tick(0.001, &EmptyWorld);
+    assert!(system.build_draw(&view, &EmptyWorld).opaque.is_empty());
+    tracker.sync(&mut system, &[]);
+    system.tick(0.05, &EmptyWorld);
+    let drawn = system.build_draw(&view, &EmptyWorld);
+    assert_eq!(
+        drawn.opaque.len(),
+        1,
+        "the trail enters the frame after its wearer disappears"
+    );
+    tracker.retire_hidden(&mut system, &[], &view);
+    assert_eq!(system.live_particles(), 1);
 }

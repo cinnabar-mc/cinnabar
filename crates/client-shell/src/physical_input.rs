@@ -183,8 +183,9 @@ pub const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
     (14, GamepadButton::DPadRight),
 ];
 
-/// Whether the window backend accepts cursor grab and release requests.
-pub const OS_CURSOR_GRAB: bool = !cfg!(target_os = "android");
+/// Whether the window backend accepts cursor grab and release requests; winit's Android and
+/// UIKit backends reject every grab.
+pub const OS_CURSOR_GRAB: bool = !cfg!(any(target_os = "android", target_os = "ios"));
 
 /// Updates OS capture only on supported platforms and only when its state changes.
 pub fn set_cursor_capture(cursor: &mut Mut<CursorOptions>, captured: bool) {

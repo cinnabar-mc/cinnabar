@@ -29,6 +29,10 @@ The client uses `assetc` as a disposable CPU compiler process. Build both with t
 live Rust heap storage, CPU time, elapsed time and result size. The client kills and
 reaps a cancelled or expired compiler, and reports a crashed compiler as a pack load
 failure. GPU pipelines are built on the client's load thread after CPU translation.
+On iOS, `Running` uses an owned compiler thread instead. It checks cancellation,
+elapsed time and the live process heap cooperatively, and enforces the same result-size cap.
+A running parser or blocking file operation must return before cancellation finishes;
+a compiler crash can terminate the app. The IPA installs `BudgetAllocator` for heap accounting.
 `ShaderPack::translate` remains an in-process API for trusted fixtures and tools.
 
 ```sh

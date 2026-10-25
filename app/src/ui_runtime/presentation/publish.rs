@@ -48,7 +48,7 @@ pub(crate) struct PublishExtras<'w, 's> {
     options: Res<'w, crate::browser_input::BrowserOptions>,
     #[cfg(target_arch = "wasm32")]
     skin: Res<'w, client_shell::player_skin::LocalPlayerSkin>,
-    hand_rig: Res<'w, client_presentation::actor_publication::ActorFrameState>,
+    hand_rig: ResMut<'w, client_presentation::actor_publication::ActorFrameState>,
     collisions: Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     actor_pipelines: Option<Res<'w, render_scene::ActorPipelineReadiness>>,
@@ -99,7 +99,7 @@ pub(crate) fn prepare_ui_runtime(
         options,
         #[cfg(target_arch = "wasm32")]
         skin,
-        hand_rig,
+        mut hand_rig,
         collisions,
         profiler,
         actor_pipelines,
@@ -233,7 +233,6 @@ pub(crate) fn prepare_ui_runtime(
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     presentation.set_preview_cosmetics(&menu_skin.cosmetics);
-    presentation.set_cosmetic_motion(&hand_rig.cosmetic_motion());
     let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
     let own_pixels = render_model::ActorSkinPixels {
         width: menu_skin.width,
@@ -322,6 +321,7 @@ pub(crate) fn prepare_ui_runtime(
                 .flatten()
         });
     if hud_doll || runtime.emotes().is_open() || control_preview_player {
+        presentation.set_cosmetic_motion(hand_rig.cosmetic_motion());
         presentation.capture_hud_player_with_emote(
             client_world.stream.as_ref(),
             doll_state.is_some_and(|state| state.swimming),

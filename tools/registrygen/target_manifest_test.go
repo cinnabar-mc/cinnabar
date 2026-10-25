@@ -109,11 +109,9 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	if !bytes.Equal(baseSemantic.Bytes(), candidateSemantic.Bytes()) {
 		t.Fatal("active carrier upgrade byte revision changed JSON semantics")
 	}
-	const attributePin = "crates/assets/data/block-item-routes-v*.json text eol=lf"
-	baseAttributes := bytes.Replace(candidateAttributes, []byte(attributePin+attributeLineEnding), nil, 1)
-	if bytes.Equal(baseAttributes, candidateAttributes) {
-		t.Fatal("active carrier tracked-LF pin is absent")
-	}
+	// The synthetic base must permit autocrlf even when broader rules now pin this carrier.
+	// Reset its effective eol attribute instead of depending on the spelling of those rules.
+	baseAttributes := append(bytes.Clone(candidateAttributes), []byte(attributeLineEnding+carrierPath+" text !eol"+attributeLineEnding)...)
 	var target bedrockTargetManifest
 	if err := json.Unmarshal(candidateManifest, &target); err != nil {
 		t.Fatal(err)
