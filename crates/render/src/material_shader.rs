@@ -223,6 +223,7 @@ pub(crate) fn source(source: &str) -> String {
             &format!("{}u", assets::MATERIAL_FLAG_OVERLAY_MASK),
         )
         .replace("MATERIAL_NO_MASK", &format!("{}u", assets::NO_MASK))
+        .replace("MATERIAL_RECORD_WORDS", &format!("{}u", assets::MATERIAL_BYTES / 4))
         .replace(
             "MATERIAL_ALPHA_CUTOUT_FLAG",
             &format!("{}u", assets::MATERIAL_FLAG_ALPHA_CUTOUT),
