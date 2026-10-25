@@ -225,19 +225,23 @@ impl Builder<'_> {
             let Some(record) = records.get(source.visual as usize) else {
                 continue;
             };
-            let Some((index, binding)) =
-                bindings.bindings.iter().enumerate().rfind(|(_, binding)| {
-                    binding.block.as_ref() == record.name.as_ref()
-                        && binding
-                            .instance
-                            .as_deref()
-                            .is_none_or(|pattern| pattern == "*")
-                        && vanilla_states_match(binding, record)
-                })
-            else {
+            // Every matching binding counts as matched; the last one draws.
+            let mut selected = None;
+            for (index, binding) in bindings.bindings.iter().enumerate() {
+                if binding.block.as_ref() == record.name.as_ref()
+                    && binding
+                        .instance
+                        .as_deref()
+                        .is_none_or(|pattern| pattern == "*")
+                    && vanilla_states_match(binding, record)
+                {
+                    bindings.matched[index].set(true);
+                    selected = Some((index, binding));
+                }
+            }
+            let Some((index, binding)) = selected else {
                 continue;
             };
-            bindings.matched[index].set(true);
             let masks = [
                 binding.masks.glow.as_deref(),
                 binding.masks.emissive.as_deref(),

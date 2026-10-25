@@ -128,6 +128,39 @@ fn vanilla_block_bindings_give_their_faces_glow_masks() {
     }
 }
 
+#[test]
+fn every_vanilla_binding_a_state_matches_counts_as_matched_and_the_last_draws() {
+    let record = first_record();
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {
+            "example:glass": {"material": {"states": ["Blending", "DisableCulling"]}},
+            "example:lamp": {"textures": {"glow_mask": "state"}}
+        },
+        "bindings": [
+            {"block": record.name.as_ref(), "material": "example:glass"},
+            {"block": record.name.as_ref(), "material": "example:lamp"}
+        ]
+    });
+    let compiled = compile(&bound_stack(&document), &base(), &keys());
+    assert_eq!(compiled.gaps.unmatched_material_bindings, 0);
+    let (_, faces) = compiled
+        .overlay
+        .face_overrides
+        .iter()
+        .find(|(visual, _)| *visual == 0)
+        .expect("the bound visual is rebound");
+    for &material in faces.iter().flatten() {
+        let material = compiled.overlay.materials[material as usize];
+        assert_ne!(
+            material.glow_mask,
+            assets::NO_MASK,
+            "the last binding draws"
+        );
+        assert_eq!(material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND, 0);
+    }
+}
+
 /// A one-document stack binding the fixture's first registry block to `material`.
 fn model_binding(material: Value) -> LayeredPackView {
     let record = first_record();
