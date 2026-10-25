@@ -547,5 +547,136 @@
         }
       }
     ]
+  },
+  "mod_button": {
+    "type": "button",
+    "layer": 10,
+    "button_mappings": [
+      {
+        "from_button_id": "button.menu_select",
+        "to_button_id": "$control",
+        "mapping_type": "pressed",
+        "scope": "view"
+      }
+    ],
+    "controls": [
+      {
+        "idle@cinnabar_touch.mod_button_idle": {}
+      },
+      {
+        "held@cinnabar_touch.mod_button_held": {
+          "bindings": [
+            {
+              "binding_name": "$held_binding",
+              "binding_name_override": "#visible"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "mod_button_idle": {
+    "type": "image",
+    "texture": "textures/ui/joystick_knob",
+    "nineslice_size": [
+      4,
+      4,
+      4,
+      6
+    ],
+    "keep_ratio": false,
+    "size": [
+      "100%",
+      "100%"
+    ],
+    "controls": [
+      {
+        "label@cinnabar_touch.mod_button_label": {
+          "$content_color": [
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    ]
+  },
+  "mod_button_held": {
+    "type": "image",
+    "texture": "textures/ui/jump_pressed",
+    "nineslice_size": [
+      7,
+      6,
+      7,
+      6
+    ],
+    "keep_ratio": false,
+    "size": [
+      "100%",
+      "100%"
+    ],
+    "layer": 1,
+    "controls": [
+      {
+        "glyph_cover": {
+          "type": "image",
+          "texture": "textures/ui/jump_pressed",
+          "uv": [
+            4,
+            5
+          ],
+          "uv_size": [
+            1,
+            1
+          ],
+          "keep_ratio": false,
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [
+            7,
+            6
+          ],
+          "size": [
+            "100% - 14px",
+            "100% - 12px"
+          ],
+          "layer": 1
+        }
+      },
+      {
+        "label@cinnabar_touch.mod_button_label": {
+          "offset": [
+            0,
+            1
+          ],
+          "$content_color": [
+            0.9019607843137255,
+            0.9019607843137255,
+            0.9019607843137255
+          ]
+        }
+      }
+    ]
+  },
+  "mod_button_label": {
+    "type": "label",
+    "text": "#text",
+    "localize": false,
+    "color": "$content_color",
+    "shadow": false,
+    "text_alignment": "center",
+    "anchor_from": "center",
+    "anchor_to": "center",
+    "size": [
+      "100% - 8px",
+      "default"
+    ],
+    "layer": 2,
+    "bindings": [
+      {
+        "binding_name": "$label_binding",
+        "binding_name_override": "#text"
+      }
+    ]
   }
 }

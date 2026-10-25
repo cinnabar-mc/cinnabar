@@ -30,6 +30,10 @@ type simulationClock struct {
 	mu     sync.Mutex
 	ticks  map[cinnabarext.WorldID]uint64
 	timers map[simulationKey]map[ScheduleHandle]simulationTimer
+	// pending holds the latest step admitted for each opening whose tick callback is queued or
+	// running. Ticks coalesce like repeating timers, so a slow callback skips steps instead of
+	// filling the queue that player events share.
+	pending map[simulationKey]SimulationStep
 }
 
 // compareSchedules provides stable due-event and snapshot ordering.
@@ -88,6 +92,9 @@ func (h *Host) AdmitSimulationTick() {
 	if h.simulation.timers == nil {
 		h.simulation.timers = make(map[simulationKey]map[ScheduleHandle]simulationTimer)
 	}
+	if h.simulation.pending == nil {
+		h.simulation.pending = make(map[simulationKey]SimulationStep)
+	}
 	for _, instance := range instances {
 		w := h.worlds.byID[instance.handle.ID]
 		if w == nil || h.worlds.byWorld[w].handle != instance.handle {
@@ -105,12 +112,19 @@ func (h *Host) AdmitSimulationTick() {
 			if !d.sup.registered.Simulation || d.sup.Quarantined() {
 				continue
 			}
-			select {
-			case d.events <- event{w: w, instance: instance, call: Call{Tick: &TickCall{step}}}:
-			default:
+			key := simulationKey{owner, instance.handle}
+			if _, queued := h.simulation.pending[key]; queued {
+				h.simulation.pending[key] = step
 				h.drop(d)
+			} else {
+				select {
+				case d.events <- event{w: w, instance: instance, call: Call{Tick: &TickCall{step}}}:
+					h.simulation.pending[key] = step
+				default:
+					h.drop(d)
+				}
 			}
-			timers := h.simulation.timers[simulationKey{owner, instance.handle}]
+			timers := h.simulation.timers[key]
 			handles := make([]ScheduleHandle, 0, len(timers))
 			for handle, timer := range timers {
 				if timer.due <= tick {
@@ -176,6 +190,25 @@ func (h *Host) timerCurrent(owner string, handle ScheduleHandle) bool {
 	return ok && timer.pending
 }
 
+// claimTick gives a queued tick the latest step admitted for its opening, reporting false once
+// that opening has unloaded.
+func (h *Host) claimTick(owner string, ev *event) bool {
+	h.simulation.mu.Lock()
+	defer h.simulation.mu.Unlock()
+	step, ok := h.simulation.pending[simulationKey{owner, ev.instance.handle}]
+	if ok {
+		ev.call.Tick = &TickCall{step}
+	}
+	return ok
+}
+
+// finishTick lets the opening's next admitted step queue a tick again.
+func (h *Host) finishTick(owner string, handle WorldHandle) {
+	h.simulation.mu.Lock()
+	defer h.simulation.mu.Unlock()
+	delete(h.simulation.pending, simulationKey{owner, handle})
+}
+
 // finishTimer consumes one occurrence without resurrecting a cancelled handle.
 func (h *Host) finishTimer(owner string, handle ScheduleHandle) {
 	h.simulation.mu.Lock()
@@ -239,13 +272,19 @@ func (h *Host) validateTimers(owner string, ev event, snap snapshot, ops []Op) (
 	return result, nil
 }
 
-// forgetSimulation invalidates timers when an opening unloads, retaining its paused clock.
+// forgetSimulation invalidates timers and queued ticks when an opening unloads, retaining its
+// paused clock.
 func (h *Host) forgetSimulation(handle WorldHandle) {
 	h.simulation.mu.Lock()
 	defer h.simulation.mu.Unlock()
 	for key := range h.simulation.timers {
 		if key.world == handle {
 			delete(h.simulation.timers, key)
+		}
+	}
+	for key := range h.simulation.pending {
+		if key.world == handle {
+			delete(h.simulation.pending, key)
 		}
 	}
 }

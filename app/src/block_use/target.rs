@@ -127,6 +127,9 @@ pub(super) fn observe_use_target(
                 runtime_id,
                 distance: (endpoint - origin).length_squared().sqrt(),
                 identity: primary.identity,
+                overlay: block
+                    .filter(|hit| hit.position == target.position)
+                    .and_then(|hit| hit.overlay),
             }))
         },
     )

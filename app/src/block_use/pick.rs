@@ -18,6 +18,7 @@ fn block_pick(hit: &sim::BlockHit, indirect: bool) -> BlockPick {
             hit.hit_world.z as f32,
         ],
         indirect,
+        overlay: hit.overlay,
     }
 }
 
@@ -98,6 +99,7 @@ pub(crate) fn retain_block_use_pick(
     let query_reach = actor.map_or(reach, |hit| {
         f64::from(hit.distance as f32 + assets::facts::entity::DEFAULT_ACTOR_PICK_RADIUS).min(reach)
     });
+    let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
     let mut capture = |liquids| {
         pick_context.liquids = liquids;
         let world = PaletteWorld::new(
@@ -105,7 +107,8 @@ pub(crate) fn retain_block_use_pick(
             context.collisions.registry(stream.network_id_mode()),
             stream.current_dimension(),
             pick_context,
-        );
+        )
+        .with_cell_overlays(&overlay_ids);
         let hit = world
             .block_interaction_ray_prefix_current(
                 vector(origin),

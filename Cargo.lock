@@ -2354,7 +2354,6 @@ dependencies = [
  "render-api",
  "render-model",
  "render-scene",
- "reqwest",
  "resource-pack",
  "rich-presence",
  "rodio",
@@ -2626,7 +2625,6 @@ dependencies = [
  "render-api",
  "render-model",
  "render-scene",
- "resource-pack",
  "semantic-input",
  "serde",
  "serde_json",
@@ -2636,7 +2634,6 @@ dependencies = [
  "tempfile",
  "test-alloc",
  "test-time",
- "thiserror 2.0.18",
  "tracing",
  "ui",
  "ui-engine",
@@ -2691,7 +2688,6 @@ dependencies = [
  "simulation-clock",
  "tempfile",
  "test-alloc",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2794,7 +2790,6 @@ dependencies = [
  "rayon",
  "render-api",
  "render-model",
- "reqwest",
  "resource-pack",
  "semantic-input",
  "serde",
@@ -2806,7 +2801,6 @@ dependencies = [
  "test-alloc",
  "test-time",
  "thiserror 2.0.18",
- "tokio",
  "tracing",
  "ui",
  "ui-engine",
@@ -3987,6 +3981,7 @@ name = "experience-runtime"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "block-transform",
  "experience-sdk",
  "serde",
  "serde_json",
@@ -4019,6 +4014,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-space-client"
+version = "0.1.28"
+dependencies = [
+ "experience-sdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "experience-terminal-client"
 version = "0.1.28"
 dependencies = [
@@ -4047,7 +4051,6 @@ dependencies = [
  "crossbeam-channel",
  "flate2",
  "rayon",
- "render-api",
  "sha2",
  "tempfile",
  "test-time",
@@ -4111,6 +4114,7 @@ dependencies = [
  "tempfile",
  "test-time",
  "tokio",
+ "tracing",
  "ui",
  "winit",
  "zip",
@@ -5283,7 +5287,6 @@ dependencies = [
  "semantic-input",
  "serde",
  "serde_json",
- "sha2",
  "shaderpack",
  "thiserror 2.0.18",
  "ui",
@@ -5724,6 +5727,7 @@ name = "meshing"
 version = "0.1.28"
 dependencies = [
  "assets",
+ "block-transform",
  "bytemuck",
  "criterion",
  "image",
@@ -5970,6 +5974,7 @@ dependencies = [
  "test-alloc",
  "test-time",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "tracing",
  "ui",
  "wasi-preview1-component-adapter-provider",
@@ -5990,6 +5995,7 @@ dependencies = [
  "bytemuck",
  "mod-api",
  "naga",
+ "serde",
  "test-alloc",
 ]
 
@@ -6060,7 +6066,7 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
- "pp-rs",
+ "pp-rs 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hash 1.1.0",
  "serde",
  "spirv",
@@ -6829,8 +6835,6 @@ name = "pack-font-compiler"
 version = "0.1.28"
 dependencies = [
  "assets",
- "cap-fs-ext",
- "cap-std",
  "fontdue",
  "freetype-sys",
  "image",
@@ -7118,9 +7122,19 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 [[package]]
 name = "pp-rs"
 version = "0.2.1"
-source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=abbb47f83d69b8790c1a26c96ce68bc9d001664c#abbb47f83d69b8790c1a26c96ce68bc9d001664c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
 dependencies = [
  "unicode-xid",
+]
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=949f1178cd660d3bcd1ec70181a10cf70e4b95b6#949f1178cd660d3bcd1ec70181a10cf70e4b95b6"
+dependencies = [
+ "hashbrown 0.15.5",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -8365,7 +8379,7 @@ dependencies = [
  "ciborium",
  "libc",
  "naga",
- "pp-rs",
+ "pp-rs 0.2.1 (git+https://github.com/cinnabar-mc/glslpp-rs?rev=949f1178cd660d3bcd1ec70181a10cf70e4b95b6)",
  "rayon",
  "serde",
  "serde_json",
@@ -9302,7 +9316,6 @@ dependencies = [
  "image",
  "json-ui",
  "pack-json",
- "rayon",
  "render-api",
  "render-model",
  "resource-pack",
@@ -9319,7 +9332,6 @@ name = "ui-screens"
 version = "0.1.28"
 dependencies = [
  "assets",
- "bridge",
  "cosmetics",
  "image",
  "inventory 0.1.28",
@@ -11271,6 +11283,7 @@ version = "0.1.28"
 name = "world"
 version = "0.1.28"
 dependencies = [
+ "block-transform",
  "criterion",
  "hashbrown 0.16.1",
  "mimalloc",

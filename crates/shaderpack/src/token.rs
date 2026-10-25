@@ -86,10 +86,8 @@ pub(crate) fn lex(src: &str) -> Vec<Tok> {
                 TokenValue::Integer(value) => {
                     TokKind::Int(if spelling.starts_with(|ch: char| ch.is_ascii_digit()) {
                         spelling.to_string()
-                    } else if value.signed {
-                        value.value.to_string()
                     } else {
-                        format!("{}u", value.value)
+                        value
                     })
                 }
                 TokenValue::Float(_) => TokKind::Float(spelling.to_string()),

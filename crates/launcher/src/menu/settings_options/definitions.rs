@@ -523,6 +523,8 @@ settings! {
         [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     F5SelfVisuals => "f5_self_visuals", toggle("options.f5SelfVisuals", false),
         [(SettingPanel::VideoCustomization, 13)], [SettingsGroup::Video], None, Some("options.f5SelfVisuals.name");
+    ShowOtherPlayerCosmetics => "show_other_player_cosmetics", toggle("options.showOtherPlayerCosmetics", ui::DEFAULT_SHOW_OTHER_PLAYER_COSMETICS),
+        [(SettingPanel::VideoCustomization, 14)], [SettingsGroup::Video], None, None;
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
         [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
     DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),

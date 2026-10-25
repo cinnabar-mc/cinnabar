@@ -137,7 +137,8 @@ fn same<T>(weak: &Weak<T>, current: &Arc<T>) -> bool {
         .is_some_and(|previous| Arc::ptr_eq(&previous, current))
 }
 
-/// `chunk`'s block entities that route to a model or text overlay and sit on a loaded block.
+/// `chunk`'s block entities that route to a model or text overlay, or are an overlay host's
+/// cell overlays, and sit on a loaded block.
 /// An entity whose NBT and block are unchanged keeps its template from `previous`;
 /// `describe` builds the rest from `(id, runtime id, NBT, block position)`.
 pub(super) fn routed_entities(
@@ -152,10 +153,12 @@ pub(super) fn routed_entities(
         let Some(id) = nbt.id() else {
             continue;
         };
-        if !matches!(
-            assets::block_entity_route(id),
-            Some(BlockEntityRouteKind::Model | BlockEntityRouteKind::TextOverlay)
-        ) {
+        if nbt.cell_overlays().is_none()
+            && !matches!(
+                assets::block_entity_route(id),
+                Some(BlockEntityRouteKind::Model | BlockEntityRouteKind::TextOverlay)
+            )
+        {
             continue;
         }
         let [x, y, z] = key.position();

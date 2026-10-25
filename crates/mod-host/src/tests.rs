@@ -1,3 +1,4 @@
+mod action_filter;
 #[path = "tests/camera.rs"]
 mod camera;
 mod collection_reveal;
@@ -15,6 +16,7 @@ mod render;
 mod screens;
 mod security;
 mod terrain;
+mod touch;
 mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.

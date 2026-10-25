@@ -392,3 +392,72 @@ fn a_saved_miss_keeps_its_segment_when_the_current_reach_grows() {
     }
     assert!(target_for_mode(&mut world, PlayerInputMode::Touch, false).is_none());
 }
+
+/// A server overlay can be the only selectable geometry in its host cell.
+#[test]
+fn buffered_picks_and_refresh_keep_server_overlay_geometry() {
+    use world::{NbtCompound, NbtValue};
+    let (mut world, _) = fixture();
+    let state = |name: &str| {
+        let mut state = NbtCompound::default();
+        state.insert("name", NbtValue::String(name.into()));
+        state.insert("states", NbtValue::Compound(NbtCompound::default()));
+        NbtValue::Compound(state)
+    };
+    let mut overlay = NbtCompound::default();
+    overlay.insert("slot", NbtValue::Byte(3));
+    overlay.insert("face", NbtValue::Byte(2));
+    overlay.insert("block", state("minecraft:stone"));
+    let mut root = NbtCompound::default();
+    root.insert("id", NbtValue::String("CinnabarOverlays".into()));
+    root.insert("host", state("minecraft:air"));
+    root.insert(
+        "overlays",
+        NbtValue::List(vec![NbtValue::Compound(overlay)]),
+    );
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence();
+        stream
+            .submit(
+                sequence + 1,
+                protocol::WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
+                    dimension: 0,
+                    position: [4, 2, 6],
+                    layer: 0,
+                    network_id: stream.air_block_id(),
+                }]),
+            )
+            .unwrap();
+        stream
+            .submit(
+                sequence + 2,
+                protocol::WorldEvent::BlockEntityUpdate(protocol::BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position: [4, 2, 6],
+                    nbt: root.encode_root().unwrap(),
+                }),
+            )
+            .unwrap();
+        test_time::eventually("server overlay commit", || {
+            stream.poll([4.5, 2.5, 8.5], 0);
+            stream.committed_sequence() >= sequence + 2
+        });
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    retain(&mut world, [4.5, 2.5, 8.5], Quat::IDENTITY);
+    let pick = world
+        .resource::<BlockUseRuntime>()
+        .pick(world.resource::<MovementTicker>())
+        .unwrap();
+    let Some(gameplay::block_use::PickResult::Block(block)) = pick.hits.ordinary else {
+        panic!("the overlay supplies a block hit even though its host is air");
+    };
+    assert_eq!(block.position, [4, 2, 6]);
+    assert_eq!(block.point, [4.5, 2.5, 7.0]);
+    assert_eq!(block.overlay.unwrap().slot, 3);
+    let refreshed = target(&mut world).unwrap();
+    assert_eq!(refreshed.target.position, [4, 2, 6]);
+    assert_eq!(refreshed.target.hit_world, block.point);
+}

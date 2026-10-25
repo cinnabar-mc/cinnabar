@@ -17,16 +17,19 @@ impl MeshMemoryBudget {
         }
     }
 
-    /// Admits without blocking a worker or discarding a completed current mesh.
+    /// Admits without blocking a worker or discarding a completed current mesh; `overlays` cell
+    /// overlays may each add a model.
     pub(in crate::stream) fn try_admit(
         &self,
         source: &SubChunk,
         assets: &RuntimeAssets,
         mode: NetworkIdMode,
+        overlays: usize,
     ) -> Option<MeshMemoryPermit> {
         MeshMemoryPermit::reserve(
             &self.retained,
             self.bounds.for_sub_chunk(source, assets, mode)
+                + self.bounds.for_overlays(overlays)
                 + std::mem::size_of::<MeshCompletion>() as u64,
         )
     }

@@ -162,7 +162,7 @@ fn paint(physical: [u32; 2], scale: f32, named: bool) -> ([u32; 4], [u32; 4], f3
         first_page,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     let dpi = DpiScale::new(1.0).unwrap();
     let metrics = TextMetrics::for_viewport(physical, dpi, None);

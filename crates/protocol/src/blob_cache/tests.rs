@@ -231,8 +231,8 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
             .accept_cached_packet(crate::Packet::new(cached_level_chunk(x, vec![hash])))
             .expect("index pending transaction by its missing hash");
     }
-    assert_eq!(resolver.pending_by_hash[&shared].len(), 2);
-    assert_eq!(resolver.pending_by_hash[&other].len(), 1);
+    assert_eq!(resolver.pending_by_hash[&shared].transactions.len(), 2);
+    assert_eq!(resolver.pending_by_hash[&other].transactions.len(), 1);
 
     resolver
         .accept_miss_response(ClientCacheMissResponse {
@@ -244,7 +244,7 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
         .expect("resolve only the shared index bucket");
 
     assert!(!resolver.pending_by_hash.contains_key(&shared));
-    assert_eq!(resolver.pending_by_hash[&other].len(), 1);
+    assert_eq!(resolver.pending_by_hash[&other].transactions.len(), 1);
     assert_eq!(resolver.pending.len(), 1);
     assert_eq!(resolver.ready.len(), 2);
 }

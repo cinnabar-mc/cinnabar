@@ -397,3 +397,74 @@ fn item_grid_background_destroys_the_held_stack_only_in_creative() {
         );
     }
 }
+
+/// A Shift-click routed to `button.container_auto_destroy`, as on the creative layout's
+/// hotbar, deletes the slot's whole stack in creative and leaves it in survival.
+#[test]
+fn auto_destroy_deletes_the_hotbar_stack_only_in_creative() {
+    for creative in [true, false] {
+        let Some((mut runtime, mut player)) = creative_selection(None) else {
+            return;
+        };
+        if !creative {
+            player
+                .facts
+                .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+        }
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: 2,
+                },
+                stack: NetworkItemStack {
+                    network_id: 9001,
+                    stack_network_id: 43,
+                    count: 5,
+                    ..NetworkItemStack::empty()
+                },
+                storage_item: None,
+            }));
+        assert_eq!(
+            runtime
+                .destroy_on_auto_place(&mut player, InventoryCellHit::Player(2))
+                .is_ok(),
+            creative
+        );
+        assert_eq!(
+            player.inventory.ledger().displayed_stack(2).is_none(),
+            creative,
+            "creative={creative}"
+        );
+    }
+}
+
+/// With a stack held, the creative hotbar's auto-destroy leaves the slot alone.
+#[test]
+fn auto_destroy_keeps_the_hotbar_stack_while_holding() {
+    let Some((mut runtime, mut player)) = creative_selection(Some((9000, 8))) else {
+        return;
+    };
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+            identity: protocol::SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 2,
+            },
+            stack: NetworkItemStack {
+                network_id: 9001,
+                stack_network_id: 43,
+                count: 5,
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    assert!(
+        runtime
+            .destroy_on_auto_place(&mut player, InventoryCellHit::Player(2))
+            .is_err()
+    );
+    assert!(player.inventory.ledger().displayed_stack(2).is_some());
+}

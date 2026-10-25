@@ -54,6 +54,34 @@ fn marked_local_actor_moves_share_the_spatial_control_lane() {
     }
 }
 
+/// A vehicle correction reads the steered vehicle from the actors, so it orders with them.
+#[test]
+fn vehicle_corrections_order_with_actor_changes() {
+    let correction = |subject| {
+        WorldEvent::PlayerMovementCorrection(protocol::PlayerMovementCorrectionEvent {
+            position: [0.0; 3],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            subject,
+            on_ground: false,
+            tick: 1,
+            vehicle_angular_velocity: None,
+        })
+    };
+    let vehicle = classify(
+        &correction(protocol::MovementCorrectionSubject::Vehicle),
+        CONTEXT,
+    );
+    assert!(vehicle.consumers.contains(Consumers::CONTROLS));
+    assert!(vehicle.consumers.contains(Consumers::ACTORS));
+    let player = classify(
+        &correction(protocol::MovementCorrectionSubject::Player),
+        CONTEXT,
+    );
+    assert!(!player.consumers.contains(Consumers::ACTORS));
+}
+
 fn chat() -> WorldEvent {
     let text = std::sync::Arc::<str>::from("hi");
     WorldEvent::Ui(UiEvent::Text(protocol::TextEvent {
@@ -864,4 +892,25 @@ fn local_player_moves_keep_terrain_and_mutation_dependencies() {
         admit(&mut state, 2, player_move(1, mode), true);
         assert!(state.next_commit().is_none(), "{mode:?}");
     }
+}
+
+/// A local game-mode update commits an ordered control, so it waits behind an
+/// earlier control-lane event like any other control.
+#[test]
+fn a_game_mode_update_keeps_wire_order_with_control_events() {
+    let game_mode = WorldEvent::Ui(UiEvent::GameMode(protocol::GameModeEvent {
+        update: protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator),
+    }));
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, WorldEvent::NetworkStackLatency(7), false);
+    admit(&mut state, 2, game_mode, true);
+    assert!(state.next_commit().is_none());
+    state
+        .insert_ready(
+            1,
+            PreparedWorldEvent::Immediate(WorldEvent::NetworkStackLatency(7)),
+        )
+        .unwrap();
+    assert_eq!(commit_one(&mut state), Some(1));
+    assert_eq!(commit_one(&mut state), Some(2));
 }

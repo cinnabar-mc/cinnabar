@@ -3,7 +3,12 @@ use std::{collections::BTreeMap, ops::Range, sync::Arc};
 use thiserror::Error;
 
 use crate::{BlockIds, ChunkKey, SubChunk, SubChunkKey};
+mod cell_overlays;
 mod shape_actor;
+pub use cell_overlays::{
+    CELL_OVERLAYS_BLOCK_ENTITY_ID, CellOverlay, CellOverlays, OverlayItem, OverlayLook,
+    ResolvedCellOverlays,
+};
 pub use shape_actor::ShapeActor;
 
 /// Maximum encoded size retained for one block entity.
@@ -65,6 +70,7 @@ impl BlockEntityKey {
 #[derive(Debug, Clone)]
 pub struct BlockEntityNbt {
     shape_actor: ShapeActor,
+    cell_overlays: Option<Arc<CellOverlays>>,
     bytes: Arc<[u8]>,
     pub(crate) parsed: Arc<std::sync::OnceLock<Option<Arc<crate::NbtCompound>>>>,
     id: Option<Arc<str>>,
@@ -122,6 +128,7 @@ impl BlockEntityNbt {
             return Ok((
                 Self {
                     shape_actor: ShapeActor::None,
+                    cell_overlays: None,
                     bytes: Arc::from(&input[..consumed]),
                     parsed: Arc::default(),
                     id: None,
@@ -230,6 +237,7 @@ impl BlockEntityNbt {
         let consumed = reader.position();
         let mut nbt = Self {
             shape_actor: ShapeActor::None,
+            cell_overlays: None,
             bytes: Arc::from(&input[..consumed]),
             parsed: Arc::default(),
             id,
@@ -239,6 +247,7 @@ impl BlockEntityNbt {
         };
         if semantic_error.is_none() {
             nbt.shape_actor = ShapeActor::from_nbt(&nbt);
+            nbt.cell_overlays = CellOverlays::from_nbt(&nbt);
         }
         Ok((nbt, consumed, semantic_error))
     }
@@ -271,6 +280,12 @@ impl BlockEntityNbt {
     /// Returns actor geometry inputs cached when this immutable NBT snapshot was decoded.
     pub const fn shape_actor(&self) -> &ShapeActor {
         &self.shape_actor
+    }
+
+    /// Returns the cell overlays decoded when this NBT snapshot was admitted, if it is an overlay
+    /// host's `CinnabarOverlays` block entity.
+    pub fn cell_overlays(&self) -> Option<&Arc<CellOverlays>> {
+        self.cell_overlays.as_ref()
     }
 }
 

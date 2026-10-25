@@ -34,7 +34,8 @@ const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
 /// `air_drag_modifier` is the session's last accepted finite value, which
 /// outlives the replay history that dimension waits and hard corrections clear.
 /// `movement_speed` is the accepted attribute current after local sprint and effect changes.
-/// `using_item` is the accepted local item use.
+/// `using_item` is the live `UsingItem` flag, including a server start the
+/// item-use owner has not reconciled yet.
 pub fn send_movement_prediction_sync(
     physics: &mut LocalPhysicsController,
     stream: &impl crate::GameplayWorld,
@@ -101,6 +102,10 @@ fn predicted_flag_words(
         if let Some(value) = value {
             set_flag(&mut words, flag, value);
         }
+    }
+    if let Some(climber) = flags.extended_flags {
+        let mask = super::physics::ClimberFlags::mask();
+        words[1] = (words[1] & !mask) | (climber & mask);
     }
     words
 }

@@ -170,7 +170,6 @@ fn prepare(
         .mining_tick(tick, movement.completed_tick())
         .0;
     let block_network_id = stream.block_network_id(observed.target.runtime_id)?;
-    item_use.synchronize(context.ui.session_id());
     let legacy_request_id = protocol::next_legacy_request_id()?;
     let change = (local_use == LocalUse::Place && game_mode != Some(PlayerGameMode::Creative))
         .then(|| {

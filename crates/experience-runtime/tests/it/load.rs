@@ -1,16 +1,19 @@
 use crate::common;
-use experience_sdk::artifact::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
+use experience_sdk::artifact::{ASSETS_DIR, INDEX_FILE, MANIFEST_FILE, SERVER_WASM};
 
 use std::fs;
 use std::path::Path;
 
 use common::{
-    client_message, current_api, edit_manifest, epoch, focused, hello_wasm, interact, p, probe_dir,
-    probe_dir_with, probe_wasm, rehash, scheduled, send, tell, v0_1_dir, v0_2_dir, v0_3_dir,
-    v0_4_dir, v0_5_dir,
+    client_message, current_api, edit_index, edit_manifest, epoch, focused, hello_wasm, interact,
+    p, probe_dir, probe_dir_with, probe_wasm, rehash, scheduled, send, tell, v0_1_dir, v0_2_dir,
+    v0_3_dir, v0_4_dir, v0_5_dir,
 };
 use experience_runtime::callback::run;
-use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
+use experience_runtime::limits::{
+    MAX_ARTIFACT_ENTRIES, MAX_COMPONENT_BYTES, MAX_INDEX_BYTES, MAX_MANIFEST_BYTES,
+    MAX_VERSION_BYTES,
+};
 use experience_runtime::load::{engine, load};
 use experience_runtime::manifest::{CLIENT_TABLE, read_manifest};
 use experience_runtime::protocol::{
@@ -59,16 +62,30 @@ fn padded_probe(len: usize) -> Vec<u8> {
     module
 }
 
-/// Pads `experience.toml` with a trailing comment so it is exactly `len` bytes.
-fn pad_manifest(dir: &Path, len: usize) {
-    let path = dir.join(MANIFEST_FILE);
-    let mut text = fs::read_to_string(&path).unwrap();
+/// Pads the TOML file at `path` with a trailing comment so it is exactly `len` bytes.
+fn pad_toml(path: &Path, len: usize) {
+    let mut text = fs::read_to_string(path).unwrap();
     if !text.ends_with('\n') {
         text.push('\n');
     }
     text.push('#');
     text.push_str(&"x".repeat(len - text.len()));
-    fs::write(&path, text).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+/// Files and directories below `dir`.
+fn entries(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            1 + if entry.file_type().unwrap().is_dir() {
+                entries(&entry.path())
+            } else {
+                0
+            }
+        })
+        .sum()
 }
 
 #[test]
@@ -182,9 +199,8 @@ fn escaping_path_is_refused() {
     ];
     for key in escaping {
         let dir = probe_dir_with(|dir| {
-            edit_manifest(dir, |manifest| {
-                let files = manifest["files"].as_table_mut().unwrap();
-                files.insert(key.to_owned(), "0".repeat(64).into());
+            edit_index(dir, |index| {
+                index.insert(key.to_owned(), "0".repeat(64).into());
             });
         });
         let error = refusal(dir.path());
@@ -193,6 +209,93 @@ fn escaping_path_is_refused() {
             "{key}: {error}"
         );
     }
+}
+
+/// Neither the manifest nor the index is indexed: nothing could hash a file that holds its own
+/// hash.
+#[test]
+fn index_names_neither_itself_nor_the_manifest() {
+    for key in [MANIFEST_FILE, INDEX_FILE] {
+        let dir = probe_dir_with(|dir| {
+            edit_index(dir, |index| {
+                index.insert(key.to_owned(), "0".repeat(64).into());
+            });
+        });
+        let error = refusal(dir.path());
+        assert!(
+            error.contains(&format!("invalid path \"{key}\"")),
+            "{key}: {error}"
+        );
+    }
+}
+
+/// The index lives in `files.toml`. A manifest that still holds a `[files]` table, as artifacts
+/// built before the move do, is refused with where its entries go now.
+#[test]
+fn manifest_holding_the_index_is_refused() {
+    let dir = probe_dir_with(|dir| {
+        let index: toml::Table = fs::read_to_string(dir.join(INDEX_FILE))
+            .unwrap()
+            .parse()
+            .unwrap();
+        fs::remove_file(dir.join(INDEX_FILE)).unwrap();
+        edit_manifest(dir, |manifest| {
+            manifest.insert("files".to_owned(), index.into());
+        });
+    });
+    let error = refusal(dir.path());
+    assert!(
+        error.contains(&format!("{MANIFEST_FILE} holds [files]")) && error.contains(INDEX_FILE),
+        "{error}"
+    );
+}
+
+#[test]
+fn missing_index_is_refused() {
+    let dir = probe_dir_with(|dir| fs::remove_file(dir.join(INDEX_FILE)).unwrap());
+    let error = refusal(dir.path());
+    assert!(error.contains(&format!("reading {INDEX_FILE}")), "{error}");
+}
+
+/// The limit is inclusive: an index padded to exactly `MAX_INDEX_BYTES` is read, and one byte
+/// more is refused.
+#[test]
+fn oversized_index_is_refused() {
+    let at_limit = probe_dir_with(|dir| pad_toml(&dir.join(INDEX_FILE), MAX_INDEX_BYTES));
+    read_manifest(at_limit.path()).unwrap();
+
+    let over = probe_dir_with(|dir| pad_toml(&dir.join(INDEX_FILE), MAX_INDEX_BYTES + 1));
+    let error = refusal(over.path());
+    let limit = format!("{INDEX_FILE} exceeds {MAX_INDEX_BYTES} bytes");
+    assert!(error.contains(&limit), "{error}");
+}
+
+/// The limit is inclusive: an artifact of exactly `MAX_ARTIFACT_ENTRIES` files and directories,
+/// all of them indexed, is read, and one more entry is refused as such rather than as an
+/// unindexed file.
+#[test]
+fn artifact_entries_are_bounded() {
+    let filled = |extra: usize| {
+        probe_dir_with(|dir| {
+            let fill = dir.join(ASSETS_DIR).join("fill");
+            fs::create_dir(&fill).unwrap();
+            for i in 0..MAX_ARTIFACT_ENTRIES - entries(dir) {
+                fs::write(fill.join(format!("{i}.txt")), b"x").unwrap();
+            }
+            rehash(dir);
+            for i in 0..extra {
+                fs::write(fill.join(format!("extra{i}.txt")), b"x").unwrap();
+            }
+        })
+    };
+    let at_limit = filled(0);
+    assert_eq!(entries(at_limit.path()), MAX_ARTIFACT_ENTRIES);
+    read_manifest(at_limit.path()).unwrap();
+
+    let over = filled(1);
+    let error = refusal(over.path());
+    let limit = format!("more than {MAX_ARTIFACT_ENTRIES} files and directories");
+    assert!(error.contains(&limit), "{error}");
 }
 
 #[test]
@@ -231,10 +334,10 @@ fn only_the_client_table_is_ignored() {
 /// byte more is refused.
 #[test]
 fn oversized_manifest_is_refused() {
-    let at_limit = probe_dir_with(|dir| pad_manifest(dir, MAX_MANIFEST_BYTES));
+    let at_limit = probe_dir_with(|dir| pad_toml(&dir.join(MANIFEST_FILE), MAX_MANIFEST_BYTES));
     read_manifest(at_limit.path()).unwrap();
 
-    let over = probe_dir_with(|dir| pad_manifest(dir, MAX_MANIFEST_BYTES + 1));
+    let over = probe_dir_with(|dir| pad_toml(&dir.join(MANIFEST_FILE), MAX_MANIFEST_BYTES + 1));
     let error = refusal(over.path());
     let limit = format!("{MANIFEST_FILE} exceeds {MAX_MANIFEST_BYTES} bytes");
     assert!(error.contains(&limit), "{error}");

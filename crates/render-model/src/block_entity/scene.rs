@@ -23,6 +23,7 @@ use super::{
     dragon_death::DragonDeathModel,
     frame::ItemFrameModel,
     heads::HeadModels,
+    loyalty_rope::LoyaltyRopeModel,
     mesh::{BlockEntityVertex, MeshBuilder},
     pot::DecoratedPotModel,
     shulker::ShulkerModel,
@@ -54,6 +55,7 @@ pub enum BlockEntityKind {
     DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
     CrystalBeam(CrystalBeamModel),
+    LoyaltyRope(LoyaltyRopeModel),
     DragonDeath(DragonDeathModel),
     Statue(StatueModel),
     EndPortal,
@@ -69,7 +71,7 @@ impl BlockEntityKind {
     pub const fn renders_globally(&self) -> bool {
         matches!(
             self,
-            Self::Beacon(_) | Self::CrystalBeam(_) | Self::DragonDeath(_)
+            Self::Beacon(_) | Self::CrystalBeam(_) | Self::LoyaltyRope(_) | Self::DragonDeath(_)
         )
     }
 
@@ -82,6 +84,7 @@ impl BlockEntityKind {
             | Self::Statue(_)
             | Self::Beacon(_)
             | Self::CrystalBeam(_)
+            | Self::LoyaltyRope(_)
             | Self::DragonDeath(_) => false,
             Self::Chest(_)
             | Self::Shulker(_)
@@ -525,6 +528,7 @@ fn emit_submission(
         BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
         BlockEntityKind::CrystalBeam(model) => super::crystal_beam::emit(builder, atlas, model),
+        BlockEntityKind::LoyaltyRope(model) => super::loyalty_rope::emit(builder, atlas, model),
         BlockEntityKind::DragonDeath(model) => super::dragon_death::emit(builder, model),
         BlockEntityKind::Statue(model) => super::statue::emit(builder, atlas, heads, block, model),
         BlockEntityKind::EndPortal => super::portal::emit(builder, atlas, block, false, clock),

@@ -37,7 +37,7 @@ fn packet_input_app(
             },
         },
     );
-    let relay = packets.session_relay().unwrap();
+    let relay = packets.session_relay(false).unwrap();
     relay.start(
         &protocol::session_wire::SessionIdentity {
             display_name: "Fixture".into(),

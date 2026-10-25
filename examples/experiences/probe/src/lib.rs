@@ -1,17 +1,18 @@
 //! Test guest for the Experience runtime. `on-interact` selects a behavior by
 //! `pos.x`; every other position it touches is relative to the interacted block
 //! `p`, and `up` is the block above it. World errors are told by their WIT
-//! kebab-case names. `client-message` reads the block of its player's focus and
-//! writes its data, or without a focus tries the same at the origin, which its
-//! callback refuses; it echoes the message back to the sender's client part and
-//! tells what happened. `epoch` does the same read and write, resends a short
-//! item list and tells what happened. Its channels come from its
-//! `experience.toml`.
+//! kebab-case names. Using its overlay host, the bus, adds a plate on the
+//! clicked face or removes the plate the click targets. `client-message` reads
+//! the block of its player's focus and writes its data, or without a focus tries
+//! the same at the origin, which its callback refuses; it echoes the message back
+//! to the sender's client part and tells what happened. `epoch` does the same read
+//! and write, resends a short item list and tells what happened. Its channels come
+//! from its `experience.toml`.
 
 use experience_sdk::Value;
 use experience_sdk::server::{
-    BlockChange, BlockPos, Callback, Experience, Face, GuestError, LogLevel, PlayerId,
-    Registration, WorldError, log, nodes,
+    BlockChange, BlockPos, Callback, Experience, Face, GuestError, LogLevel, OverlayRegistration,
+    Pixel, PlayerId, Registration, WorldError, log, nodes,
 };
 
 /// The declarations of `experience.toml`, which `build.rs` writes.
@@ -80,6 +81,11 @@ impl Experience for Probe {
         Ok(contract::registration(COUNTER))
     }
 
+    /// The 0.10 export: the bus and its plate.
+    fn overlays() -> Result<OverlayRegistration, GuestError> {
+        Ok(contract::overlays())
+    }
+
     fn on_place(ctx: &Callback, change: BlockChange) -> Result<(), GuestError> {
         tell_actor(ctx, &change, "placed");
         Ok(())
@@ -98,8 +104,15 @@ impl Experience for Probe {
         ctx: &Callback,
         player: PlayerId,
         pos: BlockPos,
-        _clicked_face: Face,
+        clicked_face: Face,
+        _hit: Option<Pixel>,
+        target: Option<u8>,
     ) -> Result<(), GuestError> {
+        if ctx.get_block(pos).is_ok_and(|id| id == contract::BUS) {
+            let told = contract::use_bus(ctx, pos, clicked_face, target);
+            let _ = ctx.tell(&player, &told);
+            return Ok(());
+        }
         interaction::interact(ctx, &player, pos)
     }
 

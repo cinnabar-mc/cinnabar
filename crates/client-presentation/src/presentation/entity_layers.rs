@@ -183,7 +183,8 @@ fn resolve_layer(
     Some(ResolvedLayer {
         material: render_model::ActorMaterial {
             color_mask: false,
-            glint: Default::default(),
+            // A native foil set on the placed body survives its controller's layers.
+            glint: submission.material.glint,
             kind: layer.material,
             state: layer.material_state,
             suppress_overlay: false,

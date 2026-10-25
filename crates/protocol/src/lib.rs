@@ -186,12 +186,12 @@ pub use item::{
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, book_init_extra, book_needs_init, edit_item_extra,
     held_items_match, item_anvil_data, item_banner_patterns, item_banner_type, item_block_list,
     item_book, item_bundle_id, item_charged_projectile, item_custom_color, item_custom_name,
-    item_display, item_enchantment_level, item_enchantment_level_value, item_extra_damage,
-    item_extra_damage_integer, item_extra_damage_value, item_extra_lock, item_extra_slot_locked,
-    item_extra_unbreakable, item_filtered_custom_name, item_has_enchantment_list, item_has_trim,
-    item_id_aux, item_map_id, item_repair_cost, item_stack_damage, item_use_progress_packet,
-    item_user_data_equal, offhand_equipment_packet, select_hotbar_slot_packet,
-    vanilla_item_registry,
+    item_display, item_enchantment_level, item_enchantment_level_value, item_enchantment_mask,
+    item_extra_damage, item_extra_damage_integer, item_extra_damage_value, item_extra_lock,
+    item_extra_slot_locked, item_extra_unbreakable, item_filtered_custom_name,
+    item_has_enchantment_list, item_has_trim, item_id_aux, item_map_id, item_repair_cost,
+    item_stack_damage, item_use_progress_packet, item_user_data_equal, offhand_equipment_packet,
+    select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
@@ -207,9 +207,9 @@ pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
     InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,
     PlayerAuthInputError, PlayerAuthInputInteractions, PlayerAuthInputSnapshot,
-    PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode, client_movement_prediction_sync,
-    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
-    player_auth_input_with_mining_request,
+    PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode, PredictedVehicleInput,
+    client_movement_prediction_sync, player_auth_input, player_auth_input_trace_sample,
+    player_auth_input_with_interactions, player_auth_input_with_mining_request,
 };
 pub use packet::{Packet, PacketKind};
 pub use particle::{

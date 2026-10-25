@@ -7,6 +7,8 @@ pub struct BlockPick {
     pub face: u8,
     pub point: [f32; 3],
     pub indirect: bool,
+    /// The overlay geometry selected instead of the host block, when present.
+    pub overlay: Option<sim::OverlayHit>,
 }
 
 /// Frame picking preserves misses and actors as well as direct and indirect block hits.
@@ -78,6 +80,7 @@ mod tests {
             face: 1,
             point: [0.5, 1.0, 0.5],
             indirect: false,
+            overlay: None,
         };
         let original = PickResult::Block(block);
         let too_far = BlockPick {
@@ -116,6 +119,7 @@ mod tests {
             face: 4,
             point: [5.0, 0.5, 0.5],
             indirect: false,
+            overlay: None,
         });
         let eye = [f32::from_bits(0.5_f32.to_bits() - 1), 0.5, 0.5];
         assert_eq!(block.trimmed(eye, 5.0), block);

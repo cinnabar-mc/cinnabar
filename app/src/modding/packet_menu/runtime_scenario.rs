@@ -225,7 +225,7 @@ fn external_reactor_runs_retained_menu_and_actual_pack_hud_scenario() {
             },
         },
     );
-    let relay = packets.session_relay().unwrap();
+    let relay = packets.session_relay(false).unwrap();
     let packs = relay.start(
         &protocol::session_wire::SessionIdentity {
             display_name: identity.display_name.clone(),

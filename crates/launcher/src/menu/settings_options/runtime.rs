@@ -63,6 +63,8 @@ impl SettingsOptions {
             ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
         settings.video.show_custom_item_models = self.value(SettingId::ShowCustomItemModels) != 0;
+        settings.video.show_other_player_cosmetics =
+            self.value(SettingId::ShowOtherPlayerCosmetics) != 0;
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0;
         settings.video.outline_selection = self.value(SettingId::ClassicBoxSelection) != 0;
@@ -83,6 +85,21 @@ impl SettingsOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn other_player_cosmetics_survive_save_and_reset() {
+        let mut options = SettingsOptions::default();
+        assert_eq!(
+            options.user_settings().video.show_other_player_cosmetics,
+            ui::VideoSettings::default().show_other_player_cosmetics
+        );
+        assert!(options.user_settings().video.show_other_player_cosmetics);
+        assert!(options.set(SettingId::ShowOtherPlayerCosmetics.index(), 0));
+        let mut restored = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        assert!(!restored.user_settings().video.show_other_player_cosmetics);
+        restored.reset_group(super::super::SettingsGroup::Video);
+        assert!(restored.user_settings().video.show_other_player_cosmetics);
+    }
 
     #[test]
     fn chunk_culling_defaults_on_and_survives_save_and_reset() {

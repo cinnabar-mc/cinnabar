@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-reads = ["tools/localserver"]
+reads = ["tools/localserver", "crates/mod-api/wit"]
 
 # Every feature is on by default, so the SDK's own build, tests and docs cover all of it. A crate
 # that uses the SDK sets `default-features = false` and names what it uses: each half is its own
