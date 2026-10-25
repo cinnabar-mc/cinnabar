@@ -85,7 +85,6 @@ fn terrain_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.textures.x = model.textures.x;
     out.textures.y = model.textures.y;
     out.frame_face.x = model.frame_blend;
-    out.routing.y = model.visibility.y;
     out.world_position = model.world_position;
     @if(ENHANCED)
     out.lighting = model.lighting;
@@ -176,7 +175,6 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     model.tint_gamma = in.tint_gamma;
     @if(ENHANCED)
     model.world_origin = in.world_origin;
-    model.visibility.y = in.routing.y;
     model.world_position = in.world_position;
     return model;
 }

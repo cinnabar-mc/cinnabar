@@ -12,10 +12,12 @@ fn cube_and_cropped_model_faces_preserve_exponents_before_light_interpolation() 
     let production = include_str!("../../src/model.wesl");
     let coordinates = &production[production.find("fn surface_axes(").unwrap()
         ..production.find("/// Template-space position").unwrap()];
-    let lighting = &production[production
+    let lighting_start = production
         .find("    let ao = material_ambient_occlusion(")
-        .unwrap()
-        ..production.find("    out.visibility.y =").unwrap()];
+        .unwrap();
+    let lighting = &production[lighting_start..][..production[lighting_start..]
+        .find("    out.world_position = world;")
+        .unwrap()];
     let cube = include_str!("../../src/chunk.wesl");
     let cube_lighting = &cube[cube
         .find("    let ao = material_ambient_occlusion(")
