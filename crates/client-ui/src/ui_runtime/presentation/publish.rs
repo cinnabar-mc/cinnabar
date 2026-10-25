@@ -266,14 +266,15 @@ fn observe_storage_block(
         .and_then(|(position, stream)| stream.block_entity_compound(position));
     let (Some(position), Some(id)) = (position, block.as_deref().and_then(|nbt| nbt.string("id")))
     else {
-        runtime.storage_block = None;
+        runtime.session.storage_block = None;
         return;
     };
     if runtime
+        .session
         .storage_block
         .as_ref()
         .is_none_or(|(retained, old)| *retained != position || **old != *id)
     {
-        runtime.storage_block = Some((position, std::sync::Arc::from(id)));
+        runtime.session.storage_block = Some((position, std::sync::Arc::from(id)));
     }
 }

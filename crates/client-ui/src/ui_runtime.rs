@@ -134,8 +134,6 @@ pub struct UiRuntime {
     /// Server state is replaced as one value when the server session changes.
     pub session: session::SessionUi,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
-    /// The open window's position and the block entity id found there.
-    storage_block: Option<([i32; 3], Arc<str>)>,
     toast_display_millis: u64,
     /// Developer captures never draw toasts.
     hide_toasts: bool,
@@ -163,7 +161,6 @@ impl UiRuntime {
         Self {
             session: session::SessionUi::new(session_id),
             item_fuel_catalog: None,
-            storage_block: None,
             screen_settings: Arc::default(),
             loading_screen: None,
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
@@ -335,7 +332,7 @@ impl UiRuntime {
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
         }
-        if let Some((position, block_entity)) = &self.storage_block {
+        if let Some((position, block_entity)) = &self.session.storage_block {
             ledger.name_storage_block(*position, Some(&**block_entity));
         }
         ledger

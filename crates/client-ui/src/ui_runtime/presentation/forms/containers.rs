@@ -209,6 +209,7 @@ pub fn container_screen_reference(
     runtime: &UiRuntime,
 ) -> Option<&'static str> {
     let block_entity = runtime
+        .session
         .storage_block
         .as_ref()
         .filter(|(position, _)| {

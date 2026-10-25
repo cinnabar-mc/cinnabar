@@ -74,6 +74,7 @@ fn capture_titles(
         });
     window_text.custom_title.clone_from(&stated_title);
     window_text.block_entity = runtime
+        .session
         .storage_block
         .as_ref()
         .map(|(_, block_entity)| block_entity.to_string());

@@ -25,6 +25,8 @@ pub struct SessionUi {
     pub experiences: crate::experience_session::ExperienceSession,
     pub player_roster: player_roster::PlayerRoster,
     pub(super) session_id: u64,
+    /// The open window's position and observed block entity identity.
+    pub(super) storage_block: Option<([i32; 3], Arc<str>)>,
     pub(super) last_fifo_sequence: Option<u64>,
     pub(super) last_block_crack_sequence: Option<u64>,
     pub(super) last_local_millis: Option<u64>,
@@ -108,6 +110,7 @@ impl SessionUi {
     pub(super) fn new(session_id: u64) -> Self {
         Self {
             session_id,
+            storage_block: None,
             #[cfg(not(target_arch = "wasm32"))]
             experiences: Default::default(),
             player_roster: Default::default(),

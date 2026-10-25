@@ -23,13 +23,15 @@ it is not another authoritative inventory owner.
 
 `UiRuntime::session` owns the server's retained UI state in `SessionUi`.
 `begin_session` replaces that value when the session id changes; repeating the
-current id does nothing. Chat rows, forms, inventory input, HUD state and outbound
-queues retire together. Owners with lifetime counters or user preferences build
-fresh session values carrying only that retained metadata. Local language and item
-catalogs, content-keyed caches, chat history, physical key state and host presentation
-observations remain outside the session. Cache keys still follow their original
-source identities and generations, and changing sessions advances item-name
-invalidation and dropped-chat accounting.
+current id does nothing. Chat rows, forms, inventory input, HUD state, cached
+storage observations and outbound queues retire together. A new server opening
+the same coordinates cannot inherit the previous server's storage variant or
+request address before the next world capture. Owners with lifetime counters or
+user preferences build fresh session values carrying only that retained metadata.
+Local language and item catalogs, content-keyed caches, chat history, physical key
+state, and the host's loading stage and screen settings remain outside the session.
+Cache keys still follow their original source identities and generations, and
+changing sessions advances item-name invalidation and dropped-chat accounting.
 
 `ui::IconRef` is now the common icon value used by launcher views and presentation.
 The view-radius cap is defined once in `render-api` and reexported by the
