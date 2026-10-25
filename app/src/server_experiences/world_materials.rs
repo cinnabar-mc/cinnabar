@@ -352,12 +352,15 @@ impl WorldMaterialPresenter {
             .filter(|(_, cached)| cached.running())
             .map(|(key, _)| key.clone())
             .collect();
-        // Attempts no longer cached cannot recur, so their reports go with them.
-        let cache = &self.cache;
+        // Attempts no longer cached, as a material or a compute, cannot recur, so their reports
+        // go with them.
+        let (cache, cached_computes) = (&self.cache, &self.computes);
         self.reported.retain(|(bundle, id, attempt, _)| {
+            let key = (bundle.clone(), *id);
             cache
-                .get(&(bundle.clone(), *id))
+                .get(&key)
                 .is_some_and(|cached| cached.attempt == *attempt)
+                || computes::attempt(cached_computes, &key) == Some(*attempt)
         });
         let (materials, entities, blocks) = self.bind(&bundles, drawn);
         let mut changed = false;
