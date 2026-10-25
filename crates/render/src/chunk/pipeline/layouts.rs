@@ -51,6 +51,10 @@ pub(crate) struct ChunkPipeline {
     pub(in crate::chunk) world_model_variants:
         Variants<RenderPipeline, crate::chunk::world_materials::WorldTerrainSpecializer>,
     pub(in crate::chunk) world_model_fallback: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    /// The ordinary translucent pipeline that also draws tagged translucent model draws as
+    /// Bedrock, for sections whose materials are not ready.
+    pub(in crate::chunk) world_bedrock_translucent:
+        Variants<RenderPipeline, ChunkPipelineSpecializer>,
 }
 
 impl FromWorld for ChunkPipeline {
@@ -94,6 +98,12 @@ impl FromWorld for ChunkPipeline {
             world_model_fallback: Variants::new(
                 ChunkPipelineSpecializer,
                 crate::chunk::world_materials::fallback_descriptor(&model_descriptor),
+            ),
+            world_bedrock_translucent: Variants::new(
+                ChunkPipelineSpecializer,
+                crate::chunk::world_materials::bedrock_translucent_descriptor(
+                    &transparent_descriptor,
+                ),
             ),
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             solid_variants: Variants::new(ChunkPipelineSpecializer, solid_descriptor),

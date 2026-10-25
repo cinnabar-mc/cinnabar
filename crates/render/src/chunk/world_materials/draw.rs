@@ -4,7 +4,7 @@ use super::*;
 use bevy::ecs::system::lifetimeless::SQuery;
 use bevy::render::render_resource::CachedRenderPipelineId;
 use bevy::shader::Shader;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// World material slots each section carries, by entity and mesh generation, so a section is
 /// scanned once per mesh, and the sections each view draws this frame.
@@ -17,6 +17,9 @@ pub(in crate::chunk) struct WorldTerrainSections {
     /// Per view: its sections with ready translucent materials and their slot masks, which
     /// the transparent queue merges into those sections' ordinary translucent order this frame.
     translucent: HashMap<Entity, HashMap<Entity, u64>>,
+    /// Per view: its sections still drawing their Bedrock fallback, whose tagged translucent
+    /// model draws the transparent queue draws as Bedrock in their ordinary translucent order.
+    bedrock: HashMap<Entity, HashSet<Entity>>,
 }
 
 impl WorldTerrainSections {
@@ -24,10 +27,53 @@ impl WorldTerrainSections {
     pub(in crate::chunk) fn take_translucent(&mut self, view: Entity) -> HashMap<Entity, u64> {
         self.translucent.remove(&view).unwrap_or_default()
     }
+
+    /// Takes `view`'s sections queued this frame with their Bedrock fallback.
+    pub(in crate::chunk) fn take_bedrock(&mut self, view: Entity) -> HashSet<Entity> {
+        self.bedrock.remove(&view).unwrap_or_default()
+    }
 }
 
-/// One view's tagged sections with their slot masks, and its cube and model fallback pipelines.
-type ViewDraws = (Vec<(Entity, u64)>, [CachedRenderPipelineId; 2]);
+/// One view's tagged sections with their slot masks and whether all their materials are ready,
+/// and its cube and model fallback pipelines.
+type ViewDraws = (Vec<(Entity, u64, bool)>, [CachedRenderPipelineId; 2]);
+
+/// One view's tagged sections as queued this frame.
+#[derive(Debug, Default, PartialEq)]
+struct ViewPlan {
+    /// Each section with its slot mask and whether every material it carries is ready.
+    draws: Vec<(Entity, u64, bool)>,
+    /// The ready sections with translucent materials, and those materials' slots.
+    translucent: HashMap<Entity, u64>,
+    /// The sections drawing their Bedrock fallback.
+    bedrock: HashSet<Entity>,
+}
+
+/// Decides once per frame which of `draws` draw their world materials and which their Bedrock
+/// fallback, so the opaque and translucent passes agree. A ready section's translucent classes
+/// merge into its translucent order; a falling-back section draws its cube and opaque model
+/// geometry through the opaque fallback pipelines and its translucent model draws in the
+/// ordinary translucent pass, as Bedrock draws them.
+fn plan_view(
+    draws: Vec<(Entity, u64)>,
+    ready: impl Fn(u64) -> bool,
+    blend_of: impl Fn(u16) -> Option<Blend>,
+) -> ViewPlan {
+    let mut plan = ViewPlan::default();
+    for (entity, mask) in draws {
+        let ready = ready(mask);
+        if !ready {
+            plan.bedrock.insert(entity);
+        } else {
+            let (_, sorted) = split_classes(mask, &blend_of);
+            if sorted != 0 {
+                plan.translucent.insert(entity, sorted);
+            }
+        }
+        plan.draws.push((entity, mask, ready));
+    }
+    plan
+}
 
 /// Every slot in `mask`.
 fn slots(mask: u64) -> impl Iterator<Item = u16> {
@@ -99,6 +145,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
     let sections = &mut *sections;
     sections.views.clear();
     sections.translucent.clear();
+    sections.bedrock.clear();
     let Some(world) = world.filter(|world| world.has_materials()) else {
         sections.masks.clear();
         return;
@@ -184,23 +231,20 @@ pub(in crate::chunk) fn queue_world_material_chunks(
                 BinnedRenderPhaseType::NonMesh,
             );
         }
-        // A section still drawing its fallback draws nothing translucent yet.
-        let translucent = draws
-            .iter()
-            .filter(|(_, mask)| ready_mask(*mask, &world, &pipeline, &pipeline_cache, base))
-            .filter_map(|&(entity, mask)| {
-                let (_, sorted) = split_classes(mask, |slot| {
-                    world.variant(slot).map(|variant| variant.blend)
-                });
-                (sorted != 0).then_some((entity, sorted))
-            })
-            .collect::<HashMap<_, _>>();
-        if !translucent.is_empty() {
-            sections.translucent.insert(view_entity, translucent);
+        let plan = plan_view(
+            draws,
+            |mask| ready_mask(mask, &world, &pipeline, &pipeline_cache, base),
+            |slot| world.variant(slot).map(|variant| variant.blend),
+        );
+        if !plan.translucent.is_empty() {
+            sections.translucent.insert(view_entity, plan.translucent);
+        }
+        if !plan.bedrock.is_empty() {
+            sections.bedrock.insert(view_entity, plan.bedrock);
         }
         sections
             .views
-            .insert(view_entity, (draws, [fallback, model_fallback]));
+            .insert(view_entity, (plan.draws, [fallback, model_fallback]));
     }
     if let Some(failures) = failures.as_deref() {
         crate::world_material::record_failures(
@@ -219,7 +263,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
 }
 
 /// Draws one section's tagged cube quads and model draws with the current pipeline of each
-/// geometry.
+/// geometry; its translucent model draws only when `translucent_models`.
 #[allow(clippy::too_many_arguments)]
 fn draw_section<'w>(
     pass: &mut TrackedRenderPass<'w>,
@@ -227,6 +271,7 @@ fn draw_section<'w>(
     allocation: &GpuChunkAllocation,
     cube: Option<&'w RenderPipeline>,
     model: Option<&'w RenderPipeline>,
+    translucent_models: bool,
 ) {
     if let Some(cube) = cube
         && let Some((quads, _, base_vertex)) = cube_draw_base(allocation)
@@ -238,7 +283,7 @@ fn draw_section<'w>(
     if let Some(model) = model {
         let commands = [
             model_direct_draw_command(allocation),
-            transparent_model_direct_draw_command(allocation),
+            transparent_model_direct_draw_command(allocation).filter(|_| translucent_models),
         ];
         let mut bound = false;
         for command in commands.into_iter().flatten() {
@@ -263,8 +308,9 @@ pub(in crate::chunk) type DrawWorldMaterialTerrainCommands = (
 );
 
 /// Draws a view's tagged sections in the opaque phase: each ready opaque or cutout material's
-/// geometry with its pipelines, and every tagged geometry of a section with an unready material
-/// through the Bedrock fallback pipelines. Translucent materials draw as sorted items instead.
+/// geometry with its pipelines, and the tagged cube and opaque model geometry of a section with
+/// an unready material through the Bedrock fallback pipelines. Translucent materials, and the
+/// translucent model draws of a falling-back section, draw as sorted items instead.
 pub(in crate::chunk) struct DrawWorldMaterialTerrain;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawWorldMaterialTerrain {
@@ -314,16 +360,16 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWorldMaterialTerrain {
         let fallback = fallback.map(|id| cache.get_render_pipeline(id));
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
-        let ready_section = |mask: u64| ready_mask(mask, world, pipeline, cache, base);
-        for (entity, _) in draws.iter().filter(|(_, mask)| !ready_section(*mask)) {
+        // Readiness was decided when queued, so this pass agrees with the translucent one.
+        for (entity, _, _) in draws.iter().filter(|(_, _, ready)| !ready) {
             if let Ok(allocation) = allocations.get(*entity) {
-                draw_section(pass, arena, allocation, fallback[0], fallback[1]);
+                draw_section(pass, arena, allocation, fallback[0], fallback[1], false);
             }
         }
         let union = draws
             .iter()
-            .filter(|(_, mask)| ready_section(*mask))
-            .fold(0, |union, (_, mask)| union | mask);
+            .filter(|(_, _, ready)| *ready)
+            .fold(0, |union, (_, mask, _)| union | mask);
         // Translucent materials draw as sorted items, never here.
         let (opaque, _) = split_classes(union, |slot| {
             world.variant(slot).map(|variant| variant.blend)
@@ -336,12 +382,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWorldMaterialTerrain {
                 continue;
             };
             pass.set_bind_group(WORLD_MATERIAL_GROUP as usize, group, &[]);
-            for (entity, _) in draws
+            for (entity, _, _) in draws
                 .iter()
-                .filter(|(_, mask)| mask & (1 << slot) != 0 && ready_section(*mask))
+                .filter(|(_, mask, ready)| *ready && mask & (1 << slot) != 0)
             {
                 if let Ok(allocation) = allocations.get(*entity) {
-                    draw_section(pass, arena, allocation, Some(cube), Some(model));
+                    draw_section(pass, arena, allocation, Some(cube), Some(model), true);
                 }
             }
         }
@@ -366,5 +412,31 @@ mod tests {
         assert_eq!(opaque, 0b0011);
         assert_eq!(sorted, 0b1100, "premultiplied and additive draw sorted");
         assert_eq!(split_classes(0, blend_of), (0, 0));
+    }
+
+    #[test]
+    fn a_section_with_an_unready_material_draws_its_translucent_models_as_bedrock() {
+        let blend_of = |slot: u16| match slot {
+            0 => Some(Blend::Opaque),
+            1 => Some(Blend::Premultiplied),
+            _ => None,
+        };
+        let section = |index| Entity::from_raw_u32(index).unwrap();
+        // Section 1's materials are ready; section 2's translucent material is not.
+        let plan = plan_view(
+            vec![(section(1), 0b11), (section(2), 0b10)],
+            |mask| mask == 0b11,
+            blend_of,
+        );
+        assert_eq!(
+            plan.draws,
+            [(section(1), 0b11, true), (section(2), 0b10, false)]
+        );
+        assert_eq!(plan.translucent, HashMap::from([(section(1), 0b10)]));
+        assert_eq!(
+            plan.bedrock,
+            HashSet::from([section(2)]),
+            "the translucent pass draws the unready sections' translucent models as Bedrock"
+        );
     }
 }
