@@ -128,15 +128,13 @@ pub(crate) fn layout(textures: u8) -> BindGroupLayoutDescriptor {
 #[extract_app(bevy::render::RenderApp)]
 pub(crate) struct WorldMaterialPhase(pub f32);
 
-/// Advances the phase from real time, as drawing materials' does.
-pub(crate) fn advance_phase(
-    time: Option<Res<bevy::time::Time<bevy::time::Real>>>,
-    mut phase: ResMut<WorldMaterialPhase>,
-) {
-    let Some(time) = time else {
+/// Advances the phase from the wall clock: Unix time modulo the animation wrap, so a server can
+/// start world material effects at a moment on the same clock and every client agrees.
+pub(crate) fn advance_phase(mut phase: ResMut<WorldMaterialPhase>) {
+    let Ok(since_epoch) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
         return;
     };
-    let next = mod_render::material::phase(time.elapsed_secs_f64());
+    let next = mod_render::material::phase(since_epoch.as_secs_f64());
     if phase.0 != next {
         phase.0 = next;
     }
@@ -552,5 +550,30 @@ mod tests {
                 &["WORLD_MATERIAL_FALLBACK"],
             );
         }
+    }
+
+    /// The phase follows the wall clock, so a server timing an effect by Unix time agrees.
+    #[test]
+    fn the_phase_follows_the_wall_clock() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = bevy::prelude::World::new();
+        world.init_resource::<WorldMaterialPhase>();
+        let wall = || {
+            let since = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64();
+            mod_render::material::phase(since)
+        };
+        let before = wall();
+        world.run_system_once(advance_phase).unwrap();
+        let after = wall();
+        let phase = world.resource::<WorldMaterialPhase>().0;
+        // Within the two readings, allowing for the wrap between them.
+        let wrapped = after < before;
+        assert!(
+            (phase >= before && phase <= after) || (wrapped && (phase >= before || phase <= after)),
+            "{before} <= {phase} <= {after}"
+        );
     }
 }
