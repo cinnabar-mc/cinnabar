@@ -155,7 +155,7 @@ manifest entries uses the low-level bundle path below.
 ## Restricted helper (Linux)
 
 `Helper::spawn_restricted` starts `mod-host restricted-server-helper` contained; other platforms
-refuse it. Between `fork` and `exec` the parent clears the environment, closes every descriptor
+refuse it. Between `fork` and `exec` the parent clears the environment, starts it in `/`, closes every descriptor
 but the three stdio pipes, sets `PR_SET_NO_NEW_PRIVS`, makes the child undumpable and killed with
 its parent (refusing to run if that parent died first), and sets resource limits: 1 GiB of private
 writable memory and of file size (`RLIMIT_DATA`, `RLIMIT_FSIZE`), 64 descriptors, and no core
@@ -172,7 +172,9 @@ program execution, process creation (threads remain), every socket call, tracing
 memory, signals to any process but the helper itself (on every kernel: `kill`, `tgkill` and queued
 signals only to its own process id, no `tkill`, process descriptors or I/O signal owners, so
 signal isolation does not depend on Landlock's ABI 6 scope, which stays as a second layer), other
-processes' resource limits, priorities and scheduling, namespaces and mounts, BPF, performance
+processes' resource limits, priorities and scheduling, changes to any file's mode, owner, times,
+extended attributes or length (by path, which Landlock does not cover, or by descriptor), namespaces
+and mounts, BPF, performance
 counters, keys, io_uring, modules and administration calls; a foreign architecture or x32 call
 kills it. A helper that cannot lock down exits before reading the component, and a kernel without
 Landlock refuses. The component compiles after the lockdown, so the compiler is contained too,

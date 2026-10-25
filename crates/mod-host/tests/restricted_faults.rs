@@ -103,9 +103,30 @@ fn renice(who: libc::id_t) -> String {
     }))
 }
 
-/// Attempts one operation the lockdown must refuse, or one it must leave.
+/// A path as a C string for raw calls.
+fn c_path(path: &str) -> std::ffi::CString {
+    std::ffi::CString::new(path).unwrap()
+}
+
+/// Runs `change` on a fresh anonymous memory file, as the runtime holds for its memory images.
+fn on_memory_file(change: impl FnOnce(libc::c_int) -> libc::c_int) -> String {
+    // SAFETY: creates a descriptor this probe owns and closes it.
+    unsafe {
+        let fd = libc::memfd_create(c"probe".as_ptr(), libc::MFD_CLOEXEC);
+        if fd < 0 {
+            return format!("memfd-failed {}", std::io::Error::last_os_error());
+        }
+        let report = status(i64::from(change(fd)));
+        libc::close(fd);
+        report
+    }
+}
+
+/// Attempts one operation the lockdown must refuse, or one it must leave. An operation on a
+/// file the test owns names it after `=`.
 fn run(op: &str) -> String {
     let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let (op, target) = op.split_once('=').unwrap_or((op, ""));
     match op {
         "read-file" => outcome(std::fs::read(manifest).map(drop)),
         "list-directory" => outcome(std::fs::read_dir("/").map(drop)),
@@ -193,6 +214,50 @@ fn run(op: &str) -> String {
         "dumpable" => format!("dumpable {}", unsafe {
             libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0)
         }),
+        // SAFETY (file attribute probes): raw calls on a NUL-terminated path the test owns, or
+        // on a memory file the probe owns.
+        "chmod" => outcome(std::fs::set_permissions(
+            target,
+            std::os::unix::fs::PermissionsExt::from_mode(0o600),
+        )),
+        "chown" => outcome(std::os::unix::fs::chown(
+            target,
+            Some(unsafe { libc::getuid() }),
+            Some(unsafe { libc::getgid() }),
+        )),
+        "utimes" => status(i64::from(unsafe {
+            libc::utimensat(libc::AT_FDCWD, c_path(target).as_ptr(), std::ptr::null(), 0)
+        })),
+        "setxattr" => status(i64::from(unsafe {
+            libc::setxattr(
+                c_path(target).as_ptr(),
+                c"user.probe".as_ptr(),
+                c"x".as_ptr().cast(),
+                1,
+                0,
+            )
+        })),
+        "removexattr" => status(i64::from(unsafe {
+            libc::removexattr(c_path(target).as_ptr(), c"user.probe".as_ptr())
+        })),
+        "truncate" => status(i64::from(unsafe {
+            libc::truncate(c_path(target).as_ptr(), 0)
+        })),
+        "ftruncate-memfd" => on_memory_file(|fd| unsafe { libc::ftruncate(fd, 4096) }),
+        "fchmod-memfd" => on_memory_file(|fd| unsafe { libc::fchmod(fd, 0o600) }),
+        "fchown-memfd" => {
+            on_memory_file(|fd| unsafe { libc::fchown(fd, libc::getuid(), libc::getgid()) })
+        }
+        "fsetxattr-memfd" => on_memory_file(|fd| unsafe {
+            libc::fsetxattr(fd, c"user.probe".as_ptr(), c"x".as_ptr().cast(), 1, 0)
+        }),
+        "write-memfd" => on_memory_file(|fd| unsafe {
+            if libc::write(fd, b"x".as_ptr().cast(), 1) == 1 {
+                0
+            } else {
+                -1
+            }
+        }),
         other => format!("unknown {other}"),
     }
 }
@@ -261,6 +326,46 @@ fn the_lockdown_denies_signals_to_other_processes() {
     for op in ["signal-self", "tgkill-self", "renice-self"] {
         assert_eq!(probe(op), "allowed", "{op}");
     }
+}
+
+/// No file's mode, owner, times, extended attributes or length can change, by path, which
+/// Landlock does not cover, or by descriptor, even on the helper's own memory files, which it
+/// can still write.
+#[test]
+fn the_lockdown_denies_file_attribute_changes() {
+    use std::os::unix::fs::PermissionsExt;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), b"probe").unwrap();
+    std::fs::set_permissions(file.path(), std::fs::Permissions::from_mode(0o640)).unwrap();
+    let path = file.path().to_str().unwrap();
+    for op in [
+        "chmod",
+        "chown",
+        "utimes",
+        "setxattr",
+        "removexattr",
+        "truncate",
+    ] {
+        assert_eq!(
+            probe(&format!("{op}={path}")),
+            format!("denied {}", libc::EPERM),
+            "{op}"
+        );
+    }
+    let metadata = std::fs::metadata(file.path()).unwrap();
+    assert_eq!(
+        (metadata.len(), metadata.permissions().mode() & 0o777),
+        (5, 0o640)
+    );
+    for op in [
+        "ftruncate-memfd",
+        "fchmod-memfd",
+        "fchown-memfd",
+        "fsetxattr-memfd",
+    ] {
+        assert_eq!(probe(op), format!("denied {}", libc::EPERM), "{op}");
+    }
+    assert_eq!(probe("write-memfd"), "allowed");
 }
 
 /// The running helper stays undumpable, so processes of the same user cannot trace it or read

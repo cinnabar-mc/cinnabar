@@ -34,7 +34,7 @@ pub struct Lockdown {
     pub scoped: bool,
 }
 
-/// Makes `command` launch contained: no environment, only the stdio descriptors, the
+/// Makes `command` launch contained: no environment, the root as working directory, only the stdio descriptors, the
 /// helper's resource limits, no privilege gain, and death with the parent. The kernel sends
 /// the death signal when the thread that spawns the command exits, so that thread must outlive
 /// the helper's use; the supervisor spawns from the thread that owns the helper's pipes.
@@ -48,7 +48,7 @@ pub fn contain(command: &mut Command) {
 #[cfg(target_os = "linux")]
 fn contain_expecting(command: &mut Command, parent: libc::pid_t) {
     use std::os::unix::process::CommandExt;
-    command.env_clear();
+    command.env_clear().current_dir("/");
     // SAFETY: the closure makes only async-signal-safe raw system calls.
     unsafe { command.pre_exec(move || prepare_child(parent)) };
 }

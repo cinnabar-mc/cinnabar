@@ -2,8 +2,10 @@
 //! runtime use and fails the rest of the kernel's attack surface with `EPERM`: running
 //! programs, creating processes (threads remain), sockets, tracing or reading other
 //! processes, signalling, renicing, rescheduling or changing the resource limits of any
-//! process but the helper itself, namespaces and mounts, BPF, performance counters, keys,
-//! io_uring, modules and system administration. A foreign architecture or the x32 ABI kills
+//! process but the helper itself, changing file modes, owners, times, extended attributes or
+//! lengths (which Landlock does not cover, or covers only from ABI 3), System V IPC and POSIX
+//! message queues, namespaces and mounts, BPF, performance counters, keys, io_uring, modules and
+//! system administration. A foreign architecture or the x32 ABI kills
 //! the process.
 
 use anyhow::{Result, ensure};
@@ -41,6 +43,14 @@ const SIOCSPGRP: u32 = 0x8902;
 /// `IOPRIO_WHO_PROCESS` (`linux/ioprio.h`).
 const IOPRIO_WHO_PROCESS: u32 = 1;
 
+/// System calls the C library crate does not number on every architecture. They come from the
+/// table every architecture shares for calls added since Linux 5.1.
+const SYS_FCHMODAT2: libc::c_long = 452;
+const SYS_SETXATTRAT: libc::c_long = 463;
+const SYS_REMOVEXATTRAT: libc::c_long = 466;
+#[cfg(target_arch = "x86_64")]
+const _: () = assert!(SYS_FCHMODAT2 == libc::SYS_fchmodat2);
+
 /// The system calls the helper is refused on every architecture.
 const DENIED: &[libc::c_long] = &[
     libc::SYS_execve,
@@ -64,6 +74,25 @@ const DENIED: &[libc::c_long] = &[
     libc::SYS_pidfd_send_signal,
     libc::SYS_process_madvise,
     libc::SYS_process_mrelease,
+    // File modes, owners, times, extended attributes and lengths, by path or descriptor:
+    // Landlock grants no file, but it does not cover these calls on a path, and covers
+    // truncation only from ABI 3. The runtime's own memory files need none of them.
+    libc::SYS_fchmod,
+    libc::SYS_fchmodat,
+    SYS_FCHMODAT2,
+    libc::SYS_fchown,
+    libc::SYS_fchownat,
+    libc::SYS_utimensat,
+    libc::SYS_setxattr,
+    libc::SYS_lsetxattr,
+    libc::SYS_fsetxattr,
+    SYS_SETXATTRAT,
+    libc::SYS_removexattr,
+    libc::SYS_lremovexattr,
+    libc::SYS_fremovexattr,
+    SYS_REMOVEXATTRAT,
+    libc::SYS_truncate,
+    libc::SYS_ftruncate,
     libc::SYS_mount,
     libc::SYS_umount2,
     libc::SYS_pivot_root,
@@ -111,6 +140,12 @@ const DENIED_ARCH: &[libc::c_long] = &[
     libc::SYS_uselib,
     libc::SYS_ioperm,
     libc::SYS_iopl,
+    libc::SYS_chmod,
+    libc::SYS_chown,
+    libc::SYS_lchown,
+    libc::SYS_utime,
+    libc::SYS_utimes,
+    libc::SYS_futimesat,
 ];
 #[cfg(not(target_arch = "x86_64"))]
 const DENIED_ARCH: &[libc::c_long] = &[];
@@ -436,11 +471,48 @@ mod tests {
         );
     }
 
+    /// Every call that changes a file's mode, owner, times, extended attributes or length fails,
+    /// by path or by descriptor.
+    #[test]
+    fn file_attribute_changes_are_refused() {
+        let mut calls = vec![
+            libc::SYS_fchmod,
+            libc::SYS_fchmodat,
+            SYS_FCHMODAT2,
+            libc::SYS_fchown,
+            libc::SYS_fchownat,
+            libc::SYS_utimensat,
+            libc::SYS_setxattr,
+            libc::SYS_lsetxattr,
+            libc::SYS_fsetxattr,
+            SYS_SETXATTRAT,
+            libc::SYS_removexattr,
+            libc::SYS_lremovexattr,
+            libc::SYS_fremovexattr,
+            SYS_REMOVEXATTRAT,
+            libc::SYS_truncate,
+            libc::SYS_ftruncate,
+        ];
+        #[cfg(target_arch = "x86_64")]
+        calls.extend([
+            libc::SYS_chmod,
+            libc::SYS_chown,
+            libc::SYS_lchown,
+            libc::SYS_utime,
+            libc::SYS_utimes,
+            libc::SYS_futimesat,
+        ]);
+        for call in calls {
+            assert_eq!(helper(call, &[0, 0, 0]), EPERM, "{call}");
+        }
+    }
+
     #[test]
     fn other_calls_keep_their_verdicts() {
         assert_eq!(helper(libc::SYS_read, &[0]), ALLOW);
         assert_eq!(helper(libc::SYS_execve, &[0]), EPERM);
         assert_eq!(helper(libc::SYS_ptrace, &[0]), EPERM);
+        assert_eq!(helper(libc::SYS_fstat, &[0]), ALLOW);
         let thread = libc::CLONE_THREAD as u64;
         assert_eq!(helper(libc::SYS_clone, &[thread]), ALLOW);
         assert_eq!(helper(libc::SYS_clone, &[0]), EPERM);
