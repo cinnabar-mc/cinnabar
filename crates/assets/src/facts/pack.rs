@@ -405,6 +405,15 @@ impl PackRules {
         }
         material_states().get(material_name(name)).copied()
     }
+    /// Every generated declaration state by name, including the paired dissolve passes that
+    /// [`Self::material_state`] leaves to their dedicated renderer contracts.
+    pub fn generated_material_states(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, NativeMaterialState)> {
+        material_states()
+            .iter()
+            .map(|(name, state)| (name.as_str(), *state))
+    }
     /// Enumerates generated states so pipeline preparation follows the material catalog.
     pub fn material_states(&self) -> impl Iterator<Item = (&str, NativeMaterialState)> {
         material_states().keys().filter_map(|name| {
