@@ -18,7 +18,15 @@ fn the_showcase_builds_a_loadable_artifact_and_a_verified_world_material_bundle(
         .map(|block| block.id.as_str())
         .collect();
     blocks.sort_unstable();
-    assert_eq!(blocks, ["materialfx:energy", "materialfx:portal"]);
+    let mut looks: Vec<String> = artifact::BLOCK_LOOKS
+        .iter()
+        .map(|(name, ..)| format!("{ID}:{name}"))
+        .collect();
+    looks.sort_unstable();
+    assert_eq!(
+        blocks, looks,
+        "every registered block has a Bedrock look and no other does"
+    );
     let bytes = std::fs::read(&built.cxb).unwrap();
     let manifest = server_experience::bundle::offline::verify(&bytes)
         .unwrap()

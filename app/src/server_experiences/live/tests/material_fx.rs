@@ -14,18 +14,21 @@ use std::{process::Command as Process, sync::Once, time::Duration};
 /// The showcase's bundle id, namespace and channel, as its experience.toml declares them.
 const ID: &str = "materialfx";
 const CONTROL: &str = "materialfx.control";
-/// The targets the showcase restyles, by material id.
-const ENTITIES: [&str; 3] = [
+/// The mobs the showcase restyles.
+const ENTITIES: [&str; 5] = [
     "materialfx:wraith",
     "materialfx:hologram",
-    "materialfx:sentinel",
+    "materialfx:voidwalker",
+    "materialfx:lenticular",
+    "materialfx:metal",
 ];
-const BLOCKS: [&str; 2] = ["materialfx:energy", "materialfx:portal"];
-/// The client part's signed textures, as its experience.toml lists them.
-const TEXTURES: [&str; 2] = ["textures/noise.png", "textures/stars.png"];
-/// The status material's id and its flash parameter.
-const STATUS: u32 = 3;
-const FLASH: usize = 4;
+/// The client part's materials, and the targets bound by default (all but thermal vision).
+const MATERIALS: usize = 20;
+const BOUND: usize = 19;
+/// The arena material, its shockwave start parameter, and thermal vision.
+const ARENA: u32 = 9;
+const BOOM_START: usize = 2;
+const THERMAL: u32 = 5;
 
 /// Lets this process launch developer helpers; set once, before any helper starts.
 fn developer() {
@@ -124,22 +127,18 @@ fn showcase() -> Live<Helper> {
         .take_component()
         .expect("the client part has a component");
     let files = part.take_screen_files();
+    let manifest = part.manifest.clone();
     let mut live = fixture_with::<Helper>(&[ID.into()], helper(), component, |caps| {
-        caps.scope.permissions =
-            BTreeSet::from([Permission::Messaging, Permission::RenderWorldMaterial]);
+        caps.scope.permissions = manifest.permissions.clone();
         caps.scope.memory_bytes = MAX_GUEST_MEMORY;
         caps.scope.gpu_bytes = 32 << 20;
-        caps.namespace = Some(ID.into());
-        caps.assets = TEXTURES.iter().map(|path| (*path).to_owned()).collect();
-        caps.channels = vec![Channel {
-            id: CONTROL.into(),
-            schema: 1,
-            direction: Direction::ToClient,
-            fields: vec![
-                Field::Choice { variants: 5 },
-                Field::Integer { min: -1, max: 1000 },
-            ],
-        }];
+        caps.namespace = manifest.namespace.clone();
+        caps.assets = files
+            .textures
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect();
+        caps.channels = manifest.channels.clone();
     });
     live.instances.get_mut(ID).unwrap().files = Arc::new(files);
     live
@@ -162,7 +161,7 @@ impl Driver {
     }
 
     /// Delivers one server command to the client part.
-    fn command(&mut self, op: u16, value: i64) {
+    fn command(&mut self, op: u16, args: [i64; 4]) {
         self.sequence += 1;
         let message = Envelope {
             version: self.live.grant.wire.version,
@@ -172,10 +171,12 @@ impl Driver {
             bundle: ID.into(),
             generation: INITIAL_BUNDLE_GENERATION,
             channel: CONTROL.into(),
-            schema: 1,
+            schema: 2,
             sequence: self.sequence,
             world_epoch: self.live.epoch,
-            payload: vec![Scalar::Choice(op), Scalar::Integer(value)],
+            payload: std::iter::once(Scalar::Choice(op))
+                .chain(args.map(Scalar::Integer))
+                .collect(),
         };
         self.now_ms += CALLBACK_INTERVAL_MS;
         self.live
@@ -203,7 +204,15 @@ fn the_showcase_client_part_binds_updates_revokes_and_restores_its_world_materia
     // `init` declares as many materials as one callback's compile budget allows and binds them.
     let budget = mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK as usize;
     driver.until("the client part initializes", |live| {
-        live.ready && live.instances[ID].contributions.world.bindings.len() == budget
+        live.ready && live.instances[ID].contributions.world.materials().len() == budget
+    });
+    // The spawn's bind pulses declare the rest, a callback's budget at a time.
+    for _ in 0..MATERIALS.div_ceil(budget) {
+        driver.command(0, [0; 4]);
+    }
+    driver.until("every material is declared and bound", |live| {
+        let world = &live.instances[ID].contributions.world;
+        world.materials().len() == MATERIALS && world.bindings().len() == BOUND
     });
     let mut presenter = WorldMaterialPresenter::inline();
     assert!(driver.present(&mut presenter));
@@ -218,34 +227,56 @@ fn the_showcase_client_part_binds_updates_revokes_and_restores_its_world_materia
             "{entity} is bound"
         );
     }
-    assert!(presenter.set().block(BLOCKS[0]).is_some());
-    // The spawn command binds everything, declaring the material `init` had no budget for.
-    driver.command(0, 0);
-    driver.until("every material is bound", |live| {
-        live.instances[ID].contributions.world.bindings.len() == ENTITIES.len() + BLOCKS.len()
-    });
-    assert!(driver.present(&mut presenter));
-    assert!(
-        presenter.set().block(BLOCKS[1]).is_some(),
-        "the portal is bound"
-    );
-    // A damage flash redeclares the status material with new parameters, keeping its shader.
-    let before = presenter.set().entity(ENTITIES[2]).unwrap().1.clone();
-    driver.command(2, 1000);
-    driver.until("the flash reaches the status material", |live| {
-        live.instances[ID].contributions.world.materials[&STATUS]
+    assert_eq!(presenter.set().blocks.len(), BOUND - ENTITIES.len());
+    // A shockwave redeclares the arena with its centre and start, compiling nothing.
+    let block = presenter
+        .set()
+        .blocks
+        .keys()
+        .find(|name| name.ends_with(":arena"))
+        .unwrap()
+        .clone();
+    let before = presenter.set().block(&block).unwrap().1.clone();
+    driver.command(3, [1500, -2500, 1_234_000, 0]);
+    driver.until("the shockwave reaches the arena material", |live| {
+        live.instances[ID].contributions.world.materials()[&ARENA]
             .params
-            .get(FLASH)
-            == Some(&1.0)
+            .get(BOOM_START)
+            == Some(&1234.0)
     });
     assert!(driver.present(&mut presenter));
-    let flashed = presenter.set().entity(ENTITIES[2]).unwrap().1;
-    assert_eq!(flashed.key, before.key, "the flash compiles nothing");
-    assert_eq!(flashed.params[FLASH], 1.0);
+    let boomed = presenter.set().block(&block).unwrap().1;
+    assert_eq!(boomed.key, before.key, "the shockwave compiles nothing");
+    assert_eq!(
+        &presenter.params().values[&boomed.key][..3],
+        &[1.5, -2.5, 1234.0],
+        "the shockwave travels as the arena's parameters"
+    );
+    // Thermal vision rebinds every mob to its own material, and back.
+    driver.command(6, [1, 0, 0, 0]);
+    driver.until("the mobs see in thermal", |live| {
+        live.instances[ID]
+            .contributions
+            .world
+            .bindings()
+            .values()
+            .filter(|binding| binding.material == THERMAL)
+            .count()
+            == ENTITIES.len()
+    });
+    driver.command(6, [0; 4]);
+    driver.until("the mobs return to their materials", |live| {
+        live.instances[ID]
+            .contributions
+            .world
+            .bindings()
+            .values()
+            .all(|binding| binding.material != THERMAL)
+    });
     // Revoking unbinds every target: each draws with its Bedrock material again.
-    driver.command(1, 0);
+    driver.command(1, [0; 4]);
     driver.until("every binding is removed", |live| {
-        live.instances[ID].contributions.world.bindings.is_empty()
+        live.instances[ID].contributions.world.bindings().is_empty()
     });
     assert!(driver.present(&mut presenter));
     for target in ENTITIES {
@@ -254,20 +285,12 @@ fn the_showcase_client_part_binds_updates_revokes_and_restores_its_world_materia
             "{target} is Bedrock"
         );
     }
-    for target in BLOCKS {
-        assert!(
-            presenter.set().block(target).is_none(),
-            "{target} is Bedrock"
-        );
-    }
-    assert_eq!(
-        driver.world().materials.len(),
-        ENTITIES.len() + BLOCKS.len()
-    );
+    assert!(presenter.set().blocks.is_empty());
+    assert_eq!(driver.world().materials().len(), MATERIALS);
     // Restoring binds them again from the materials the client part kept.
-    driver.command(0, 0);
+    driver.command(0, [0; 4]);
     driver.until("the bindings return", |live| {
-        live.instances[ID].contributions.world.bindings.len() == ENTITIES.len() + BLOCKS.len()
+        live.instances[ID].contributions.world.bindings().len() == BOUND
     });
     assert!(driver.present(&mut presenter));
     assert!(presenter.set().entity(ENTITIES[0]).is_some());

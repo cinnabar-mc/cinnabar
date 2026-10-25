@@ -10,7 +10,7 @@ import (
 )
 
 // For each facing, the showcase entities stand at foot level four blocks in front of the
-// player, facing back, and the blocks rise from the player's ground level six blocks in front.
+// player, facing back, and the arena floor lies in the ground six to twelve blocks in front.
 func TestShowcasesBuildInFrontOfThePlayerAtFootLevel(t *testing.T) {
 	eye := mgl32.Vec3{10.5, 64 + actorBurstEyeHeight, -3.5}
 	for _, facing := range []struct {
@@ -32,11 +32,14 @@ func TestShowcasesBuildInFrontOfThePlayerAtFootLevel(t *testing.T) {
 			}
 		}
 		ground := cube.Pos{10, 63, -4}
-		for pos := range materialFxBlocks(view) {
+		for pos, name := range materialFxBlocks(view) {
+			if name != materialFxID+":arena" {
+				continue
+			}
 			offset := pos.Sub(ground)
 			ahead := float32(offset[0])*facing.forward[0] + float32(offset[2])*facing.forward[1]
-			if ahead != 6 || offset[1] < 1 {
-				t.Fatalf("yaw %v: block at %v, %v ahead", facing.yaw, offset, ahead)
+			if ahead < 6 || ahead > 12 || offset[1] != 0 {
+				t.Fatalf("yaw %v: arena block at %v, %v ahead", facing.yaw, offset, ahead)
 			}
 		}
 		for _, pk := range materialShowcasePackets(view) {

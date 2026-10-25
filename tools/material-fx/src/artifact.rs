@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 
-use crate::art;
+use crate::{art, diorama, pictures};
 
 /// The showcase Experience's id, which is also its client part's bundle id and namespace.
 pub const ID: &str = "materialfx";
@@ -67,19 +67,59 @@ pub struct Built {
 }
 
 /// The client part's generated textures, by bundle path, as `experience.toml` lists them.
-pub fn client_textures() -> [(&'static str, Vec<u8>); 2] {
-    [
-        ("textures/noise.png", art::noise()),
-        ("textures/stars.png", art::stars()),
+pub fn client_textures() -> Vec<(String, Vec<u8>)> {
+    let picture = |image: image::RgbaImage| art::png(&image);
+    vec![
+        ("textures/noise.png".into(), art::noise()),
+        ("textures/stars.png".into(), art::stars()),
+        (
+            "textures/diorama.png".into(),
+            picture(diorama::image(&diorama::grid())),
+        ),
+        (
+            "textures/painting.png".into(),
+            picture(pictures::painting()),
+        ),
+        ("textures/rune.png".into(), picture(pictures::rune())),
+        ("textures/skybox.png".into(), picture(pictures::skybox())),
+        (
+            "textures/lenticular.png".into(),
+            picture(pictures::lenticular()),
+        ),
     ]
 }
 
+/// Each showcase block's Bedrock look while its material is revoked: base and accent colours.
+/// The server half registers exactly these blocks, which `tests/showcase.rs` checks.
+pub const BLOCK_LOOKS: [(&str, [u8; 3], [u8; 3]); 14] = [
+    ("bottle", [200, 225, 240], [150, 180, 200]),
+    ("aquarium", [40, 90, 160], [110, 110, 115]),
+    ("mineshaft", [40, 34, 30], [110, 110, 115]),
+    ("arena", [40, 42, 50], [90, 95, 110]),
+    ("blackhole", [10, 8, 16], [60, 40, 90]),
+    ("canvas", [120, 90, 50], [210, 165, 60]),
+    ("glintore", [120, 120, 125], [90, 220, 215]),
+    ("pulseore", [120, 120, 125], [200, 20, 10]),
+    ("wallstone", [120, 120, 125], [95, 95, 100]),
+    ("snowglobe", [220, 235, 250], [110, 70, 40]),
+    ("lavalamp", [90, 30, 120], [240, 140, 40]),
+    ("screen", [20, 40, 25], [60, 62, 70]),
+    ("rune", [160, 155, 145], [90, 140, 220]),
+    ("vortex", [30, 12, 50], [90, 50, 140]),
+];
+
 /// The server half's block textures, by artifact path.
-fn block_textures() -> [(&'static str, Vec<u8>); 2] {
-    [
-        ("assets/energy.png", art::energy_block()),
-        ("assets/portal.png", art::portal_block()),
-    ]
+fn block_textures() -> Vec<(String, Vec<u8>)> {
+    BLOCK_LOOKS
+        .iter()
+        .enumerate()
+        .map(|(seed, (name, base, accent))| {
+            (
+                format!("assets/{name}.png"),
+                art::png(&pictures::block_look(*base, *accent, seed as u32)),
+            )
+        })
+        .collect()
 }
 
 /// Writes `bytes` to `path`, creating its directory.
@@ -114,11 +154,15 @@ pub fn build(root: &Path, out: &Path, guests: &Guests) -> Result<Built> {
     let textures = client_textures();
     let blocks = block_textures();
     let mut files: Vec<(&str, &[u8])> = vec![("server.wasm", &guests.server)];
-    files.extend(blocks.iter().map(|(path, bytes)| (*path, bytes.as_slice())));
+    files.extend(
+        blocks
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+    );
     files.extend(
         textures
             .iter()
-            .map(|(path, bytes)| (*path, bytes.as_slice())),
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
     );
     for (path, bytes) in &files {
         write(&artifact.join(path), bytes)?;
