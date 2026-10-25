@@ -109,6 +109,7 @@ fn retry_requires_matching_release_and_pointer_click_stays_hidden() {
 
 #[test]
 fn controller_confirmation_uses_saved_ab_swap() {
+    use crate::controllers::Event;
     use gilrs::Button;
     for swapped in [false, true] {
         let settings = if swapped {
@@ -122,27 +123,27 @@ fn controller_confirmation_uses_saved_ab_swap() {
             (Button::South, Button::East)
         };
         assert_eq!(
-            controller_button(confirm, true, &settings),
+            controller(Event::ButtonPressed(confirm), &settings),
             Some(Command::Press)
         );
         assert_eq!(
-            controller_button(confirm, false, &settings),
+            controller(Event::ButtonReleased(confirm), &settings),
             Some(Command::Release)
         );
         assert_eq!(
-            controller_button(cancel, true, &settings),
+            controller(Event::ButtonPressed(cancel), &settings),
             Some(Command::Cancel)
         );
-        assert_eq!(controller_button(cancel, false, &settings), None);
+        assert_eq!(controller(Event::ButtonReleased(cancel), &settings), None);
         let mut input = Input::default();
         input.reset(&Screen::Consent);
-        let press = controller_button(confirm, true, &settings).unwrap();
+        let press = controller(Event::ButtonPressed(confirm), &settings).unwrap();
         assert_eq!(
             input.apply(&Screen::Consent, Source::Controller, press, None),
             (None, true)
         );
         assert_eq!(input.pressed(None), Some(Action::Accept));
-        let release = controller_button(confirm, false, &settings).unwrap();
+        let release = controller(Event::ButtonReleased(confirm), &settings).unwrap();
         assert_eq!(
             input.apply(&Screen::Consent, Source::Controller, release, None),
             (Some(Action::Accept), true)
@@ -241,7 +242,10 @@ fn unmatched_pointer_and_controller_events_do_not_dirty_overlay() {
         (None, false)
     );
     assert_eq!(
-        controller(gilrs::EventType::Disconnected, &SettingsOptions::default()),
+        controller(
+            crate::controllers::Event::Disconnected,
+            &SettingsOptions::default()
+        ),
         Some(Command::Blur)
     );
 }

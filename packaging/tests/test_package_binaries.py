@@ -84,6 +84,7 @@ class PackageBinariesTests(unittest.TestCase):
         rendered = template.replace("@BUNDLE_ID@", "app.cinnabar.test").replace("@VERSION@", "1.0.0")
         plist = plistlib.loads(rendered.encode())
         self.assertIs(plist.get("LSSupportsGameMode"), True)
+        self.assertIs(plist.get("GCSupportsControllerUserInteraction"), True)
         self.assertEqual(plist["LSApplicationCategoryType"], "public.app-category.games")
 
     def test_play_keeps_default_features_with_release_and_tracy(self):

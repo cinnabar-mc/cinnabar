@@ -128,6 +128,7 @@ bevy = { version = "=0.20.0", default-features = false, features = [
     "bevy_window",
     "bevy_winit",
     "gamepad",
+    "bevy_gilrs",
     "keyboard",
     "mouse",
     "multi_threaded",
