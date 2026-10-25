@@ -318,7 +318,7 @@ fn a_split_group_downscales_together_so_every_member_is_admitted() {
         &members,
         [1024, 1024],
         false,
-        |_, _| false,
+        |_| None,
         |chunk| (group_page(1024, chunk.len()), ()),
         |chunk, _, (), _| placed += chunk.len(),
     );
@@ -341,7 +341,7 @@ fn a_downscaled_group_frees_each_original_before_building_the_next() {
         &members,
         [128, 128],
         false,
-        |_, _| false,
+        |_| None,
         |chunk| {
             assert!(
                 originals
@@ -363,27 +363,116 @@ fn a_downscaled_group_frees_each_original_before_building_the_next() {
     assert!(pages.iter().all(|page| page.dimensions() == (64, 64)));
 }
 
-// Joined runs move whole to the next page; a run larger than a page keeps the layer limit.
+// Joined runs move whole to the next page; a run larger than a page splits at its layer count
+// and repeats its copied members on each of its pages.
 #[test]
 fn page_chunks_keep_joined_runs_on_one_page() {
-    use super::page_budget::page_chunks;
+    use super::page_budget::{Companion, page_chunks};
+    let grouped = |size: usize| {
+        move |member: usize| {
+            Some(Companion {
+                group: (member / size) as u32,
+                copied: false,
+            })
+        }
+    };
     let members: Vec<usize> = (0..10).collect();
     assert_eq!(
-        page_chunks(&members, 4, |_, _| false),
-        members.chunks(4).collect::<Vec<_>>()
+        page_chunks(&members, 4, |_| None),
+        members.chunks(4).map(<[usize]>::to_vec).collect::<Vec<_>>()
     );
-    let triples = page_chunks(&members, 4, |a, b| a / 3 == b / 3);
     assert_eq!(
-        triples
-            .iter()
-            .map(|chunk| chunk.to_vec())
-            .collect::<Vec<_>>(),
+        page_chunks(&members, 4, grouped(3)),
         [vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8, 9]]
     );
     let long: Vec<usize> = (0..MAX_ACTOR_PAGE_LAYERS + 2).collect();
-    let chunks = page_chunks(&long, 2, |_, _| true);
+    let lengths = |chunks: Vec<Vec<usize>>| chunks.iter().map(Vec::len).collect::<Vec<_>>();
     assert_eq!(
-        chunks.iter().map(|chunk| chunk.len()).collect::<Vec<_>>(),
-        [MAX_ACTOR_PAGE_LAYERS, 2]
+        lengths(page_chunks(&long, 2, grouped(usize::MAX))),
+        [2; (MAX_ACTOR_PAGE_LAYERS + 2) / 2]
     );
+    // Member 0 is a mask shared by every other member of the run.
+    let mask = |member: usize| {
+        Some(Companion {
+            group: 0,
+            copied: member == 0,
+        })
+    };
+    let shared = page_chunks(&long, 4, mask);
+    assert!(shared.iter().all(|chunk| chunk.len() <= 4));
+    assert!(shared.iter().all(|chunk| chunk.contains(&0)));
+    let mut placed: Vec<usize> = shared.concat();
+    placed.sort_unstable();
+    placed.dedup();
+    assert_eq!(placed, long);
+    // A single layer per page still pairs each base with its mask.
+    let single = page_chunks(&long, 1, mask);
+    assert!(
+        single
+            .iter()
+            .all(|chunk| chunk.len() == 2 && chunk.contains(&0))
+    );
+}
+
+// A run of masked textures past one page stays within the page byte cap.
+#[test]
+fn an_oversized_masked_run_keeps_every_page_within_the_byte_cap() {
+    use super::page_budget::Companion;
+    let side = 256;
+    let members: Vec<usize> = (0..300).collect();
+    let (mut pages, mut gpu_bytes, mut placed) = (Vec::new(), 0, Vec::new());
+    push_group(
+        &mut pages,
+        &mut gpu_bytes,
+        &members,
+        [side, side],
+        false,
+        |member| {
+            Some(Companion {
+                group: 0,
+                copied: member == 0,
+            })
+        },
+        |chunk| (group_page(side, chunk.len()), ()),
+        |chunk, _, (), _| placed.push(chunk.to_vec()),
+    );
+    assert!(pages.len() > 1);
+    assert!(pages.iter().all(|page| page.dimensions() == (side, side)));
+    assert!(
+        pages
+            .iter()
+            .all(|page| page.rgba8.len() <= MAX_ACTOR_PAGE_BYTES)
+    );
+    assert!(placed.iter().all(|chunk| chunk.contains(&0)));
+    assert_eq!(placed.concat().len(), members.len() + pages.len() - 1);
+}
+
+// Repeated masks count against the pixel budget like any other layer.
+#[test]
+fn repeated_masks_count_against_the_pixel_budget() {
+    use super::page_budget::Companion;
+    let members: Vec<usize> = (0..MAX_ACTOR_PAGE_LAYERS + 1).collect();
+    let mut pages = Vec::new();
+    let layer = 64 * 64 * 4;
+    // Room for every member once at full size, but not for the repeated mask too.
+    let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - layer * members.len();
+    let mut layers = 0;
+    push_group(
+        &mut pages,
+        &mut gpu_bytes,
+        &members,
+        [64, 64],
+        false,
+        |member| {
+            Some(Companion {
+                group: 0,
+                copied: member == 0,
+            })
+        },
+        |chunk| (group_page(64, chunk.len()), ()),
+        |chunk, _, (), _| layers += chunk.len(),
+    );
+    assert_eq!(layers, members.len() + 1, "the mask is on both pages");
+    assert!(pages.iter().all(|page| page.dimensions() == (32, 32)));
+    assert!(gpu_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES);
 }

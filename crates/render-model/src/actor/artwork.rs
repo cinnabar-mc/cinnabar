@@ -161,6 +161,8 @@ pub struct ActorArtworkPages {
     /// Session pack textures by pack-catalog source index, a separate index space.
     pack_source_locations: Arc<BTreeMap<u32, ActorArtworkLocation>>,
     pack_locations: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
+    /// Layer of each pack mask source on every page that holds a copy of it.
+    pack_mask_copies: Arc<BTreeMap<(ActorArtworkPageId, u32), u32>>,
     rejected_bindings: usize,
 }
 impl ActorArtworkPages {
@@ -232,7 +234,7 @@ impl ActorArtworkPages {
                 &indices,
                 [width, height],
                 multitexture,
-                |_, _| false,
+                |_| None,
                 |indices| {
                     let page = ActorTexturePage {
                         width,
@@ -297,6 +299,7 @@ impl ActorArtworkPages {
             equipment_artwork: Arc::default(),
             pack_source_locations: Arc::default(),
             pack_locations: Arc::default(),
+            pack_mask_copies: Arc::default(),
             rejected_bindings,
         }
     }
@@ -390,7 +393,7 @@ impl ActorArtworkPages {
                 &indices,
                 [width, height],
                 false,
-                |_, _| false,
+                |_| None,
                 |indices| {
                     hasher.update(width.to_le_bytes());
                     hasher.update(height.to_le_bytes());
@@ -439,7 +442,8 @@ impl ActorArtworkPages {
     }
     /// Appends session artwork under pack rig IDs, replacing its previous variant table.
     /// Textures whose pack source is in `sharing.multitexture` share three-sampler pages, and
-    /// same-size companions in `sharing.companions` share one page.
+    /// same-size companions in `sharing.companions` share one page; a group too large for one
+    /// page repeats its `sharing.masks` on each of its pages.
     /// Call on startup pages so removed packs release their routes and pixel budget.
     #[must_use]
     pub fn with_pack_artwork(
@@ -449,7 +453,12 @@ impl ActorArtworkPages {
         sharing: &assets::ActorPageSharing,
     ) -> Self {
         let multitexture = &sharing.multitexture;
-        let companion = |index: usize| sharing.companions.get(&textures[index].source).copied();
+        let companion = |index: usize| {
+            let source = textures[index].source;
+            let copied = sharing.masks.contains(&source);
+            let group = *sharing.companions.get(&source)?;
+            Some(page_budget::Companion { group, copied })
+        };
         let mut single = BTreeMap::<(u16, u16, bool), Vec<usize>>::new();
         for (index, texture) in textures.iter().enumerate() {
             if !multitexture.contains(&texture.source) {
@@ -471,6 +480,7 @@ impl ActorArtworkPages {
             .iter()
             .fold(player_page_bytes(), |total, page| total + page.rgba8.len());
         let mut locations = BTreeMap::new();
+        let mut mask_copies = BTreeMap::new();
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height, multitexture), mut indices) in groups {
@@ -481,7 +491,7 @@ impl ActorArtworkPages {
                 &indices,
                 [width, height],
                 multitexture,
-                |a, b| companion(a).is_some_and(|key| companion(b) == Some(key)),
+                companion,
                 |indices| {
                     hasher.update(width.to_le_bytes());
                     hasher.update(height.to_le_bytes());
@@ -511,15 +521,19 @@ impl ActorArtworkPages {
                         shared.push((key, usize::from(page) - 1));
                     }
                     for (layer, index) in indices.iter().enumerate() {
-                        locations.insert(
-                            *index as u32,
-                            ActorArtworkLocation {
+                        let source = textures[*index].source;
+                        if sharing.masks.contains(&source) {
+                            mask_copies.insert((page, source), layer as u32);
+                        }
+                        // A repeated mask's first page is its own location.
+                        locations
+                            .entry(*index as u32)
+                            .or_insert(ActorArtworkLocation {
                                 page,
                                 layer: layer as u32,
                                 pose_mode: assets::ActorPoseMode::CompiledLiteral,
                                 multitexture: None,
-                            },
-                        );
+                            });
                     }
                 },
             );
@@ -538,6 +552,7 @@ impl ActorArtworkPages {
                 .collect(),
         );
         self.pack_source_locations = Arc::new(pack_source_locations);
+        self.pack_mask_copies = Arc::new(mask_copies);
         let mut routes = (*self.routes).clone();
         let mut accepted = 0;
         for binding in bindings {
@@ -626,6 +641,12 @@ impl ActorArtworkPages {
             && Arc::ptr_eq(&self.equipment_artwork, &other.equipment_artwork)
             && Arc::ptr_eq(&self.pack_source_locations, &other.pack_source_locations)
             && Arc::ptr_eq(&self.pack_locations, &other.pack_locations)
+            && Arc::ptr_eq(&self.pack_mask_copies, &other.pack_mask_copies)
+    }
+
+    /// The layer of pack mask `source`'s copy on `page`, if that page holds one.
+    pub fn pack_mask_layer(&self, page: ActorArtworkPageId, source: u32) -> Option<u32> {
+        self.pack_mask_copies.get(&(page, source)).copied()
     }
 
     pub fn pages(&self) -> &[ActorTexturePage] {
