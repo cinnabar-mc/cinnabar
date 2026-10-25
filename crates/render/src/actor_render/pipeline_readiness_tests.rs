@@ -92,3 +92,33 @@ fn readiness_polls_each_raster_contract_once_and_observes_reload() {
         assert!(!pipeline.ready_with((Msaa::Sample4, false, false), |_| true));
     });
 }
+
+#[test]
+fn authored_rasters_skip_motion_pipelines_without_device_support() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        let cache = world.resource::<PipelineCache>();
+        pipeline.motion_supported = false;
+        let view = (Msaa::Off, false, false);
+        let (material, raster) = prewarm_materials()
+            .find(|(material, raster)| super::super::motion::eligible(*material, raster))
+            .expect("a built-in raster is motion eligible");
+        pipeline
+            .prewarm_rasters(cache, view, [(material, raster)])
+            .unwrap();
+        let key = ActorPipelineKey {
+            msaa: view.0,
+            hdr: view.1,
+            enhanced: view.2,
+            material,
+            raster,
+        };
+        assert!(pipeline.motion_variant(key).is_none());
+        let color = pipeline
+            .draw_variant(view.0, view.1, view.2, material, raster)
+            .unwrap();
+        assert!(pipeline.ready_with(view, |id| id == color));
+    });
+}

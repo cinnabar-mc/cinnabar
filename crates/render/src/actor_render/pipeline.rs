@@ -152,8 +152,9 @@ impl ActorPipeline {
             .copied()
     }
 
-    /// Queues draw and motion pipelines for raster states a frame supplies, so authored
-    /// definitions compile while their actors load rather than on first draw.
+    /// Queues draw and, where the device supports motion, motion pipelines for raster states a
+    /// frame supplies, so authored definitions compile while their actors load rather than on
+    /// first draw.
     pub(super) fn prewarm_rasters(
         &mut self,
         cache: &PipelineCache,
@@ -178,7 +179,7 @@ impl ActorPipeline {
             if !ids.contains(&id) {
                 ids.push(id);
             }
-            if super::motion::eligible(material, &raster) {
+            if self.motion_supported && super::motion::eligible(material, &raster) {
                 let id = match self.motion_ids.entry(contract) {
                     Entry::Occupied(entry) => *entry.get(),
                     Entry::Vacant(entry) => {
