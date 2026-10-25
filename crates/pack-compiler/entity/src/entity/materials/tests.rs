@@ -171,6 +171,27 @@ fn variants_clone_their_owner_and_intern_into_the_table() {
 }
 
 #[test]
+fn modern_variant_removals_drop_inherited_variants() {
+    let file = modern(json!({
+        "base": {"variants": [{"skinned": {}}, {"glint": {}}, {"plain": {}}]},
+        "child:base": {"+variants": [{"extra": {}}], "-variants": ["glint", "extra"]}
+    }));
+    let (child, _) = definition(&[file], "child").unwrap();
+    let names: Vec<_> = child
+        .variants
+        .iter()
+        .map(|variant| variant.name.as_ref())
+        .collect();
+    assert_eq!(names, ["skinned", "plain"]);
+    let legacy = json!({
+        "base": {"variants": [{"glint": {}}]},
+        "child:base": {"version": "1.0.0", "-variants": ["glint"]}
+    });
+    let (child, _) = definition(&[legacy], "child").unwrap();
+    assert_eq!(child.variants.len(), 1, "legacy files never remove");
+}
+
+#[test]
 fn shading_follows_defines_over_native_bases() {
     let file = modern(json!({"hidden:entity_alphatest": {"-defines": ["USE_OVERLAY"]}}));
     let mut states = MaterialStates::default();
