@@ -28,6 +28,14 @@ fn pipelines(published: &PublishedCompute) -> Pipelines {
     )
 }
 
+/// The admission attempt of the compute declaration cached under `key`, if one is.
+pub(super) fn attempt(
+    computes: &BTreeMap<(String, u32), CachedCompute>,
+    key: &(String, u32),
+) -> Option<u64> {
+    computes.get(key).map(|cached| cached.attempt)
+}
+
 impl WorldMaterialPresenter {
     /// Publishes `bundle`'s compute declarations into `computes` while it may run extra
     /// passes, charging each its cells and, unless the bundle compiled it already this session,

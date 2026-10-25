@@ -240,3 +240,37 @@ fn effects_and_cells_are_charged_to_the_bundle() {
     rebuild(&mut fresh, compute + material);
     assert!(fresh.set().block("example:glass").is_some());
 }
+
+#[test]
+fn a_compute_that_fails_to_compile_is_reported_once_however_many_frames_note_it() {
+    let world = glass_world();
+    let mut presenter = WorldMaterialPresenter::inline();
+    present(
+        &mut presenter,
+        &world,
+        &every_permission(),
+        &BTreeSet::new(),
+    );
+    let key = presenter.set().computes[0].key;
+    // Each frame notes the failure, and rebuilds in between keep the compute's attempt.
+    for _ in 0..5 {
+        presenter.note_compile_failures(|failed| failed == key);
+        present(
+            &mut presenter,
+            &world,
+            &every_permission(),
+            &BTreeSet::from([Permission::RenderWorldMaterialVertex]),
+        );
+        present(
+            &mut presenter,
+            &world,
+            &every_permission(),
+            &BTreeSet::new(),
+        );
+    }
+    let reports: Vec<_> = presenter
+        .diagnostics()
+        .filter(|line| line.contains("compute failed to compile"))
+        .collect();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+}
