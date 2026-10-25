@@ -473,7 +473,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name)
     });
     let screenshots_dir = layout.screenshots_dir();
-    #[cfg(feature = "shaderpacks")]
     let shader_compiler = {
         let bundled = assets::carriers::kit_compiler(&layout.prep_kit());
         if layout.is_installed() {
@@ -593,7 +592,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } = interface;
     let mut ui_presentation = ui_presentation;
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
-    #[cfg(feature = "shaderpacks")]
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,
     ));

@@ -5,16 +5,13 @@ use std::path::{Component, Path, PathBuf};
 
 use bevy::prelude::*;
 use launcher::install_layout::InstallLayout;
-use render_model::SHADER_PACKS_ENABLED;
 use render_scene::shaderpack::ShaderPackRequest;
 use ui::RenderMode;
 
 use super::{MenuRuntime, RenderModeConfig, RuntimeSettings, compiled_render_mode};
 
-#[cfg(feature = "shaderpacks")]
 pub(super) mod import;
 pub(super) mod reload;
-#[cfg(feature = "shaderpacks")]
 pub(super) mod removal;
 pub(super) mod status;
 #[cfg(test)]
@@ -57,7 +54,6 @@ impl ShaderPackDirs {
 }
 
 /// `(name, path to open)` of each shader pack in `dir`.
-#[cfg(feature = "shaderpacks")]
 fn discover(dir: &Path) -> Vec<(String, PathBuf)> {
     shaderpack::discover_packs(dir)
         .into_iter()
@@ -65,22 +61,9 @@ fn discover(dir: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// Builds without shader packs list none and never read the disk.
-#[cfg(not(feature = "shaderpacks"))]
-fn discover(_dir: &Path) -> Vec<(String, PathBuf)> {
-    Vec::new()
-}
-
 /// Where Iris saves the options of the pack at `entry` (its zip or folder in the pack folder).
-#[cfg(feature = "shaderpacks")]
 fn option_file(entry: &Path) -> Option<PathBuf> {
     shaderpack::option_file(entry)
-}
-
-/// Builds without shader packs save no options.
-#[cfg(not(feature = "shaderpacks"))]
-fn option_file(_entry: &Path) -> Option<PathBuf> {
-    None
 }
 
 /// The pack the settings select, by the name the player sees.
@@ -121,12 +104,8 @@ pub(super) fn selected_pack(
     })
 }
 
-/// Re-lists the shader-pack folder into the menu's picker when this build compiles shader
-/// packs and the install layout is known.
+/// Re-lists the shader-pack folder into the menu's picker when the install layout is known.
 pub(super) fn refresh(config: &mut RenderModeConfig, menu: &mut MenuRuntime) {
-    if !SHADER_PACKS_ENABLED {
-        return;
-    }
     let Some(dirs) = config.shader_packs.as_mut() else {
         return;
     };

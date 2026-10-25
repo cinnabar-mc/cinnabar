@@ -21,15 +21,13 @@ pub(super) struct ShaderOptions {
 impl MenuRuntime {
     /// Whether the requested renderer has a pack whose options can be opened.
     pub(super) fn shader_options_available(&self) -> bool {
-        render_model::SHADER_PACKS_ENABLED
-            && self.render_mode == ui::RenderMode::ShaderPack
-            && self.shader_pack.is_some()
+        self.render_mode == ui::RenderMode::ShaderPack && self.shader_pack.is_some()
     }
 
     /// Queues a press. [`Action::Open`] opens the screen for the selected pack, showing it as
     /// loading until the app publishes it; other presses need the screen open.
     pub(super) fn activate_shader_options(&mut self, action: Action) {
-        if !render_model::SHADER_PACKS_ENABLED || self.shader_pack_removing.is_some() {
+        if self.shader_pack_removing.is_some() {
             return;
         }
         if action == Action::Open {
@@ -118,10 +116,7 @@ mod tests {
             menu.shader_packs_revision,
         )));
         menu.activate(MenuAction::ShaderOptions(Action::Open));
-        if !render_model::SHADER_PACKS_ENABLED {
-            assert!(menu.take_shader_option_actions().is_empty());
-            return;
-        }
+
         assert_eq!(
             menu.view().shader_options.as_deref(),
             Some(&View::loading("Dusk.zip"))
@@ -138,9 +133,6 @@ mod tests {
 
     #[test]
     fn back_and_leaving_shaders_go_to_the_open_screen() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         let mut menu = menu();
         menu.activate(MenuAction::Navigate(MenuScreen::Settings));
         menu.activate(MenuAction::SettingsShaders);
@@ -185,9 +177,6 @@ mod tests {
 
     #[test]
     fn removal_waits_for_the_editor_and_accepted_saves_to_close() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         let mut menu = editing_menu();
         let revision = menu.shader_packs_revision;
         for status in [
@@ -214,9 +203,6 @@ mod tests {
 
     #[test]
     fn section_navigation_waits_for_a_successful_option_close() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         let mut menu = editing_menu();
         let shaders = menu.settings.section;
         menu.activate(MenuAction::SettingsSection(0));
@@ -236,9 +222,6 @@ mod tests {
 
     #[test]
     fn section_navigation_waits_for_an_existing_save_then_requests_close() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         let mut menu = editing_menu();
         let shaders = menu.settings.section;
         let mut view = View::loading("Dusk.zip");
@@ -257,9 +240,6 @@ mod tests {
 
     #[test]
     fn back_declines_a_join_popup_before_touching_shader_options() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         let mut menu = editing_menu();
         menu.push_join_request(7, "Alex".into(), std::time::Duration::ZERO);
         menu.activate(MenuAction::AddBack);

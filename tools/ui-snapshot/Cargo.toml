@@ -7,8 +7,6 @@ publish = false
 
 [features]
 test-support = ["dep:client-ui", "client-ui/test-support", "protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
-# Captures the Shaders settings tab a `shaderpacks` client build shows.
-shaderpacks = ["render-model/shaderpacks", "launcher/shaderpacks"]
 
 [dependencies]
 update-manifest = { path = "../../crates/update-manifest" }
@@ -20,7 +18,7 @@ inventory = { path = "../../crates/inventory" }
 json-ui = { path = "../../crates/json-ui" }
 jsonui-editor = { path = "../jsonui-editor" }
 bridge = { path = "../../crates/bridge" }
-launcher = { path = "../../crates/launcher", features = ["shader-pack-options"] }
+launcher = { path = "../../crates/launcher" }
 mod-ui = { path = "../../crates/mod-ui" }
 oreui = { path = "../../crates/oreui" }
 player-state = { path = "../../crates/player-state" }

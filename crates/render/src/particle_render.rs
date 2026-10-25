@@ -1,7 +1,6 @@
 //! GPU particle atlas and instance uploads, with depth-writing, blended and additive draws.
 
 use crate::queue_writes::ProfiledQueue as _;
-#[cfg(feature = "shaderpacks")]
 use crate::shaderpack::effects::textures::SharedAtlasRelease;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
@@ -137,7 +136,6 @@ pub(crate) struct ParticleGpu {
     atlas: atlas::AtlasUpload,
 }
 
-#[cfg(feature = "shaderpacks")]
 impl ParticleGpu {
     /// The uploaded particle atlas with its dynamic tiles, which shader-pack particle draws
     /// read through a gamma-byte view rather than a copy of their own; `None` until it is
@@ -181,7 +179,7 @@ pub(crate) fn prepare_particle_resources(
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
-    #[cfg(feature = "shaderpacks")] mut shared_atlases: SharedAtlasRelease,
+    mut shared_atlases: SharedAtlasRelease,
 ) {
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     atlas::prepare(
@@ -190,7 +188,6 @@ pub(crate) fn prepare_particle_resources(
         &uploads.queue,
         &mut gpu,
         raw_views,
-        #[cfg(feature = "shaderpacks")]
         &mut shared_atlases,
     );
 

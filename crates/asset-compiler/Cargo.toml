@@ -35,7 +35,7 @@ reads = [
 ]
 
 [dependencies]
-shaderpack = { path = "../shaderpack", optional = true }
+shaderpack = { path = "../shaderpack" }
 protocol-ids = { path = "../protocol-ids" }
 world = { path = "../world" }
 assets = { path = "../assets" }
@@ -63,6 +63,3 @@ image.workspace = true
 
 [lints]
 workspace = true
-
-[features]
-shaderpacks = ["dep:shaderpack"]

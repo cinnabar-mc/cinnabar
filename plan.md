@@ -1370,8 +1370,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Diagnostics or bounded fixtures do not establish safe general gameplay use.
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
-- Java shader packs (Iris/OptiFine format) use the `shaderpacks` Cargo feature, enabled in
-  nightly packages while tagged beta packages leave it disabled. Shaders start Off.
+- Experimental Java shader packs (Iris/OptiFine format) are built into every client channel.
+  Shaders start Off.
   Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
@@ -1404,7 +1404,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   its load state and holds settings, reload and confirmed removal of imported copies and their saved settings.
   Incomplete: Android can add only `.zip` packs, because its document picker selects files
   and folder packs need a folder picker.
-  Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
+  Incomplete: matched pre-integration versus integrated/no-pack startup, frame-time,
   memory and visual acceptance across supported backends. `shaderpack` loads packs,
   parses `shaders.properties`, options, Iris
   option menus, profiles and option files, evaluates custom uniforms and translates programs

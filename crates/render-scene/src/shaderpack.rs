@@ -1,7 +1,7 @@
 //! Main-world state of the experimental Java shader-pack render mode: which pack the player
 //! selected, how loading went, the per-camera opt-in, and the game state packs read through
-//! their standard uniforms. The renderer behind it compiles only with the `shaderpacks`
-//! feature; without it these types stay unused.
+//! their standard uniforms. Every client build includes the renderer; pack-specific work
+//! waits until a pack is selected.
 
 use std::{
     collections::HashMap,

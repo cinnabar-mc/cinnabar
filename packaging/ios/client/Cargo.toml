@@ -18,8 +18,7 @@ doctest = false
 
 [target.'cfg(target_os = "ios")'.dependencies]
 anyhow.workspace = true
-# Java shader packs are part of what an iPhone build is used to check, so they are compiled in.
-cinnabar = { path = "../../../app", default-features = false, features = ["shaderpacks"] }
+cinnabar = { path = "../../../app", default-features = false }
 shaderpack = { path = "../../../crates/shaderpack" }
 diagnostics = { path = "../../../crates/diagnostics" }
 launcher = { path = "../../../crates/launcher" }

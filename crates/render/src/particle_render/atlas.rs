@@ -23,7 +23,7 @@ pub(super) fn prepare(
     queue: &RenderQueue,
     gpu: &mut ParticleGpu,
     raw_views: crate::actor::gpu::ArtworkRawViews,
-    #[cfg(feature = "shaderpacks")] shared_atlases: &mut SharedAtlasRelease,
+    shared_atlases: &mut SharedAtlasRelease,
 ) {
     if let Some(base) = &frame.base
         && (gpu.texture_raw_views != raw_views
@@ -35,7 +35,6 @@ pub(super) fn prepare(
             == Some(base.len())
     {
         // Old placements are invalid for the new base, so release its atlas before allocating.
-        #[cfg(feature = "shaderpacks")]
         shared_atlases.release(gpu.texture.as_ref());
         let released = gpu.texture.take().is_some();
         gpu.texture_view = None;
