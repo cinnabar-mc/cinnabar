@@ -139,6 +139,9 @@ pub struct ActorPageSharing {
     /// The base textures and masks of layers drawing Cinnabar material masks, each mapped to the
     /// smallest source it must share a page with. Sources absent here share with nothing.
     pub companions: BTreeMap<u32, u32>,
+    /// Mask sources, repeated on every page of a companion group too large for one page so each
+    /// base keeps its masks.
+    pub masks: BTreeSet<u32>,
 }
 
 /// The page sharing `render`'s layers need: each layer drawing Cinnabar masks keeps every base
@@ -191,6 +194,7 @@ pub fn actor_page_sharing(render: &EntityRenderData) -> ActorPageSharing {
     ActorPageSharing {
         multitexture,
         companions,
+        masks: actor_material_mask_sources(render).collect(),
     }
 }
 
@@ -273,6 +277,7 @@ mod tests {
             "both base candidates share with both masks; the unmasked layer shares with nothing"
         );
         assert!(sharing.multitexture.draws().next().is_none());
+        assert_eq!(sharing.masks, BTreeSet::from([2, 3, 8]));
     }
 
     #[test]
