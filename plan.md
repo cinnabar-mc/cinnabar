@@ -647,10 +647,12 @@ admission and in-world qualification remain incomplete. The samples omit the iro
 golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
 Thrown tridents draw their pack model placed by the native flight rotation, with the
-item foil when enchanted. The loyalty rope, the native trident material and light sample
-point, pole-only bone selection, abstract-arrow motion seeding for tridents and the
-trident charge (`brandish_spear`) arm pose in third person and the paper doll remain
-incomplete.
+item foil when enchanted. Actors publish the native `variable.is_brandishing_spear` and
+`variable.charge_amount`: an item with the spear use animation brandishes while used and
+charges over ten ticks, and a non-player mob holding a trident brandishes it while it has
+a target, so the pack's third-person `brandish_spear` raises the arm. The loyalty rope,
+the native trident material and light sample point, pole-only bone selection and
+abstract-arrow motion seeding for tridents remain incomplete.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
