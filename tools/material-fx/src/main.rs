@@ -33,6 +33,12 @@ fn main() -> Result<()> {
     let out = out.context(USAGE)?;
     let root = workspace_root();
     let built = artifact::build(&root, &out, &artifact::Guests::build(&root)?)?;
+    if built.world_reset {
+        println!(
+            "deleted the fixture world {}: it was installed with a block this build no longer has",
+            material_fx::world::dir(&out).display()
+        );
+    }
     let user_data = user_data.unwrap_or_else(|| root.join(CHECKOUT_USER_DATA));
     let (digest, objects) = cinnabar_cxb::seed_cache(&built.cxb, &user_data)?;
     println!("seeded {digest} into {}", objects.display());

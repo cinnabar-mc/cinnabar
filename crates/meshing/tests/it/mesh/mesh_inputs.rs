@@ -217,22 +217,10 @@ fn water_filled_alias_changes_are_not_mesh_neutral() {
 #[test]
 fn world_material_tags_split_greedy_faces_and_make_alias_changes_visible() {
     let section = twin_cube_section(TWIN_B);
-    let mesh = |tags: &[(u32, u8)]| {
-        meshing::mesh_sub_chunk_in_neighbourhood_with_options(
-            &BlockClassifier::new(TWIN_AIR),
-            twin_cube_assets(),
-            NetworkIdMode::Sequential,
-            &world::MeshNeighbourhood::new(&section),
-            &meshing::lighting::FullBrightLightSampler,
-            meshing::MeshOptions {
-                world_materials: tags,
-                ..Default::default()
-            },
-        )
-    };
+    let mesh = |tags: &[meshing::WorldMaterialBlock]| mesh_twins(&section, tags);
     let untagged = mesh(&[]);
     assert!(untagged.quads().iter().all(|quad| quad.world_material() == 0));
-    let tagged = mesh(&[(TWIN_B, 3)]);
+    let tagged = mesh(&[meshing::WorldMaterialBlock::new(TWIN_B, 3, false)]);
     // The twins share a material and merge untagged; the tagged twin's faces stand alone.
     assert!(tagged.quad_count() > untagged.quad_count());
     let tagged_quads: Vec<_> = tagged
@@ -254,7 +242,54 @@ fn world_material_tags_split_greedy_faces_and_make_alias_changes_visible() {
         &twin_cube_section(TWIN_A),
         &section,
         [[15, 4, 4]],
-        (&[], &[(TWIN_B, 3)]),
+        (&[], &[meshing::WorldMaterialBlock::new(TWIN_B, 3, false)]),
     ));
     assert!(twin_preserves(&twin_cube_section(TWIN_A), &section, &[[15, 4, 4]]));
+}
+
+/// Meshes a twin-cube `section` with the world material blocks `tags`.
+fn mesh_twins(section: &SubChunk, tags: &[meshing::WorldMaterialBlock]) -> meshing::ChunkMesh {
+    meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(TWIN_AIR),
+        twin_cube_assets(),
+        NetworkIdMode::Sequential,
+        &world::MeshNeighbourhood::new(section),
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            world_materials: tags,
+            ..Default::default()
+        },
+    )
+}
+
+#[test]
+fn see_through_world_material_blocks_hide_only_their_own_kind() {
+    // A row of two bound cubes sits on another cube, beside an unbound twin.
+    let section = sub_chunk(vec![packed_storage(
+        2,
+        &[TWIN_AIR, TWIN_B, TWIN_A, TWIN_OTHER],
+        &[([3, 4, 3], 1), ([4, 4, 3], 1), ([3, 4, 4], 2), ([3, 3, 3], 3)],
+    )]);
+    let has = |mesh: &meshing::ChunkMesh, origin: [u8; 3], face: meshing::Face| {
+        mesh.quads()
+            .iter()
+            .any(|quad| quad.origin() == origin && quad.face() == face)
+    };
+    let glass = mesh_twins(&section, &[meshing::WorldMaterialBlock::new(TWIN_B, 3, true)]);
+    // What lies behind the see-through material still draws: the top of the cube below it and
+    // the side of the unbound twin beside it.
+    assert!(has(&glass, [3, 3, 3], meshing::Face::PositiveY));
+    assert!(has(&glass, [3, 4, 4], meshing::Face::NegativeZ));
+    // Its own faces are hidden by opaque neighbours, and the two bound cubes hide the faces
+    // they share, as glass hides glass.
+    assert!(!has(&glass, [3, 4, 3], meshing::Face::NegativeY));
+    assert!(!has(&glass, [3, 4, 3], meshing::Face::PositiveZ));
+    assert!(!has(&glass, [3, 4, 3], meshing::Face::PositiveX));
+    assert!(!has(&glass, [4, 4, 3], meshing::Face::NegativeX));
+    assert!(has(&glass, [3, 4, 3], meshing::Face::PositiveY));
+
+    // An opaque material hides its neighbours' faces like any full cube.
+    let stone = mesh_twins(&section, &[meshing::WorldMaterialBlock::new(TWIN_B, 3, false)]);
+    assert!(!has(&stone, [3, 3, 3], meshing::Face::PositiveY));
+    assert!(!has(&stone, [3, 4, 4], meshing::Face::NegativeZ));
 }

@@ -90,7 +90,7 @@ pub(crate) struct CubeMeshOutput<'a> {
     diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
     materials: &'a [assets::Material],
     split_tinted_faces: bool,
-    world_materials: &'a [(u32, u8)],
+    world_materials: &'a [crate::WorldMaterialBlock],
 }
 
 impl<'a> CubeMeshOutput<'a> {
@@ -99,7 +99,7 @@ impl<'a> CubeMeshOutput<'a> {
         diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
         materials: &'a [assets::Material],
         split_tinted_faces: bool,
-        world_materials: &'a [(u32, u8)],
+        world_materials: &'a [crate::WorldMaterialBlock],
     ) -> Self {
         Self {
             streams,
@@ -112,7 +112,7 @@ impl<'a> CubeMeshOutput<'a> {
 
     /// One more than the world material slot shading block `network_value`; zero for none.
     fn world_material(&self, network_value: u32) -> u8 {
-        world_material_tag(self.world_materials, network_value)
+        crate::world_materials::tag(self.world_materials, network_value)
     }
 }
 
@@ -163,52 +163,67 @@ impl AxisColumns {
 
 pub(crate) struct VisibilityMasks {
     geometry: AxisColumns,
+    /// Voxels that hide their neighbours' faces: full occluders that no see-through world
+    /// material shades.
     occluders: AxisColumns,
+    /// Voxels a world material shades, whose faces toward a same-tag neighbour stay hidden.
+    bound: AxisColumns,
 }
 
 impl VisibilityMasks {
-    pub(crate) fn from_facts(facts: &PaletteFacts<'_>) -> Self {
+    /// The masks of `facts`, with `world` (sorted by network value) deciding which voxels a
+    /// world material shades and which of those hide nothing.
+    pub(crate) fn from_facts(
+        facts: &PaletteFacts<'_>,
+        world: &[crate::WorldMaterialBlock],
+    ) -> Self {
+        let classify = |entry: &ResolvedPaletteEntry| {
+            let bound = crate::world_materials::find(world, entry.network_value);
+            (
+                entry.emits_cube_geometry(),
+                entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                    && !bound.is_some_and(|block| block.see_through),
+                bound.is_some(),
+            )
+        };
+        let all = |set: bool| {
+            if set {
+                AxisColumns::full()
+            } else {
+                AxisColumns::empty()
+            }
+        };
         match &facts.source {
             PaletteSource::Air => Self {
                 geometry: AxisColumns::empty(),
                 occluders: AxisColumns::empty(),
+                bound: AxisColumns::empty(),
             },
             PaletteSource::Uniform(contributors) => {
-                let entry = contributors.geometry_entry();
+                let (geometry, occluder, bound) = classify(&contributors.geometry_entry());
                 Self {
-                    geometry: if entry.emits_cube_geometry() {
-                        AxisColumns::full()
-                    } else {
-                        AxisColumns::empty()
-                    },
-                    occluders: if entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
-                        AxisColumns::full()
-                    } else {
-                        AxisColumns::empty()
-                    },
+                    geometry: all(geometry),
+                    occluders: all(occluder),
+                    bound: all(bound),
                 }
             }
             PaletteSource::Mixed(_) => {
                 let mut masks = Self {
                     geometry: AxisColumns::empty(),
                     occluders: AxisColumns::empty(),
+                    bound: AxisColumns::empty(),
                 };
-                facts.for_each_voxel_class(
-                    |entry| {
-                        (
-                            entry.emits_cube_geometry(),
-                            entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE),
-                        )
-                    },
-                    |x, y, z, (geometry, occluder)| {
-                        if geometry {
-                            masks.geometry.set(x, y, z);
-                        }
-                        if occluder {
-                            masks.occluders.set(x, y, z);
-                        }
-                    },
-                );
+                facts.for_each_voxel_class(classify, |x, y, z, (geometry, occluder, bound)| {
+                    if geometry {
+                        masks.geometry.set(x, y, z);
+                    }
+                    if occluder {
+                        masks.occluders.set(x, y, z);
+                    }
+                    if bound {
+                        masks.bound.set(x, y, z);
+                    }
+                });
                 masks
             }
         }
@@ -220,12 +235,16 @@ impl VisibilityMasks {
     }
 }
 
+/// The cube faces toward `face` that the section `facts` (with its `masks`) draws, by column:
+/// faces no neighbour hides, where `world` decides which bound blocks hide nothing and which
+/// hide their same-tag neighbours.
 pub(crate) fn exposed_columns<'a>(
     context: PaletteResolutionContext<'_, 'a>,
     face: Face,
-    masks: &VisibilityMasks,
+    (facts, masks): (&PaletteFacts<'_>, &VisibilityMasks),
     neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
     leaves: &super::leaves::LeafOcclusion<'_, 'a>,
+    world: &[crate::WorldMaterialBlock],
 ) -> Columns {
     let neighbour = context
         .neighbourhood
@@ -251,12 +270,32 @@ pub(crate) fn exposed_columns<'a>(
         for (u, exposed_cell) in exposed_row.iter_mut().enumerate() {
             let geometry_column = masks.geometry.column(face, u, v);
             let occluder_column = masks.occluders.column(face, u, v);
-            let neighbour_occluders = if face.is_negative() {
-                occluder_column << 1
-            } else {
-                occluder_column >> 1
+            let toward_neighbour = |column: u64| {
+                if face.is_negative() {
+                    column << 1
+                } else {
+                    column >> 1
+                }
             };
-            let mut faces = geometry_column & !neighbour_occluders & FULL_COLUMN;
+            let mut faces = geometry_column & !toward_neighbour(occluder_column) & FULL_COLUMN;
+            let bound_column = masks.bound.column(face, u, v);
+            let mut pairs = faces & bound_column & toward_neighbour(bound_column);
+            while pairs != 0 {
+                let slice = pairs.trailing_zeros() as usize;
+                pairs &= pairs - 1;
+                let cell = block_coordinate(face, slice, u, v);
+                let offset = face_offset(face);
+                let [x, y, z] = std::array::from_fn(|axis| {
+                    cell[axis].wrapping_add_signed(isize::from(offset[axis]))
+                });
+                if crate::world_materials::same_tag(
+                    world,
+                    facts.at(cell[0], cell[1], cell[2]).network_value,
+                    facts.at(x, y, z).network_value,
+                ) {
+                    faces &= !(1_u64 << slice);
+                }
+            }
 
             if faces & boundary_bit != 0 {
                 let neighbour = neighbour
@@ -265,7 +304,13 @@ pub(crate) fn exposed_columns<'a>(
                         let [x, y, z] = neighbour_boundary_coordinate(face, u, v);
                         facts.at(x, y, z)
                     });
-                if culls_face(neighbour.flags) {
+                let slice = boundary_bit.trailing_zeros() as usize;
+                let cell = block_coordinate(face, slice, u, v);
+                let cell = facts.at(cell[0], cell[1], cell[2]).network_value;
+                if (culls_face(neighbour.flags)
+                    && !crate::world_materials::see_through(world, neighbour.network_value))
+                    || crate::world_materials::same_tag(world, cell, neighbour.network_value)
+                {
                     faces &= !boundary_bit;
                 }
             }
@@ -309,16 +354,6 @@ const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize
         Face::NegativeZ => [u, v, SIDE - 1],
         Face::PositiveZ => [u, v, 0],
     }
-}
-
-/// One more than the world material slot `tags` (sorted by network value) give block
-/// `network_value`; zero for none.
-pub(crate) fn world_material_tag(tags: &[(u32, u8)], network_value: u32) -> u8 {
-    if tags.is_empty() {
-        return 0;
-    }
-    tags.binary_search_by_key(&network_value, |(value, _)| *value)
-        .map_or(0, |index| tags[index].1)
 }
 
 pub(crate) fn greedy_slice(

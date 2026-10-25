@@ -65,6 +65,8 @@ pub struct Built {
     pub cxb: PathBuf,
     /// The server key `-extension-key` takes.
     pub server_seed: PathBuf,
+    /// Whether the build deleted a fixture world installed with a block it no longer has.
+    pub world_reset: bool,
 }
 
 /// The client part's generated textures, by bundle path, as `experience.toml` lists them.
@@ -146,11 +148,44 @@ pub fn index(files: &[(&str, &[u8])]) -> String {
     index
 }
 
+/// The directories under `out` that [`build`] writes afresh: the artifacts and the bundles.
+fn generated_dirs(out: &Path) -> [PathBuf; 2] {
+    [out.join("experiences"), out.join("cxb")]
+}
+
+/// Removes what an earlier [`build`] generated under `out`, so no file a previous showcase
+/// had (an artifact file its manifest no longer indexes, an old bundle) survives a rebuild.
+/// Keys and the world stay.
+fn clear_generated(out: &Path) -> Result<()> {
+    for dir in generated_dirs(out) {
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("clearing {}", dir.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Every block id the server half registers, as the Experience runtime names them.
+pub fn block_ids() -> Vec<String> {
+    BLOCK_LOOKS
+        .iter()
+        .map(|(name, ..)| format!("{ID}:{name}"))
+        .collect()
+}
+
 /// Builds the artifact under `out/experiences/materialfx`, keys under `out/keys`, and the
-/// client part bundle under `out/cxb`. Existing keys are kept, so a client that pinned the
-/// server keeps trusting it.
+/// client part bundle under `out/cxb`, after clearing what an earlier build generated there.
+/// Existing keys are kept, so a client that pinned the server keeps trusting it. The fixture
+/// world is deleted when it was installed with a block this build no longer has
+/// ([`crate::world::reset_if_blocks_dropped`]).
 pub fn build(root: &Path, out: &Path, guests: &Guests) -> Result<Built> {
     let source = std::fs::read(root.join(SOURCE).join(MANIFEST_FILE))?;
+    clear_generated(out)?;
+    let world_reset = crate::world::reset_if_blocks_dropped(out, ID, &block_ids())?;
     let artifact = out.join("experiences").join(ID);
     let textures = client_textures();
     let blocks = block_textures();
@@ -185,13 +220,40 @@ pub fn build(root: &Path, out: &Path, guests: &Guests) -> Result<Built> {
         &[],
         &cinnabar_cxb::keys::read(&publisher)?,
     )?;
-    let cxb_dir = out.join("cxb");
+    let [experiences, cxb_dir] = generated_dirs(out);
     let cxb = cxb_dir.join(format!("{ID}.cxb"));
     write(&cxb, &bundle.bytes)?;
     Ok(Built {
-        experiences: out.join("experiences"),
+        experiences,
         cxb_dir,
         cxb,
         server_seed: server,
+        world_reset,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clearing_removes_stale_artifact_files_and_keeps_keys_and_the_world() {
+        let out = tempfile::tempdir().unwrap();
+        let stale = out
+            .path()
+            .join("experiences")
+            .join(ID)
+            .join("assets/energy.png");
+        write(&stale, b"old").unwrap();
+        write(&out.path().join("cxb/old.cxb"), b"old").unwrap();
+        write(&out.path().join("keys/server.seed"), b"key").unwrap();
+        write(&crate::world::dir(out.path()).join("level.dat"), b"world").unwrap();
+        clear_generated(out.path()).unwrap();
+        assert!(!stale.exists());
+        assert!(!out.path().join("cxb").exists());
+        assert!(out.path().join("keys/server.seed").exists());
+        assert!(crate::world::dir(out.path()).join("level.dat").exists());
+        // A first build has nothing to clear.
+        clear_generated(&out.path().join("fresh")).unwrap();
+    }
 }

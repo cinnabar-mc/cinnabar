@@ -368,7 +368,7 @@ fn bound_model_blocks_tag_every_model_draw_and_keep_their_template_quads() {
         &[fixture.air, fixture.lower],
         &[([4, 4, 4], 1)],
     )]);
-    let mesh = |tags: &[(u32, u8)]| {
+    let mesh = |tags: &[meshing::WorldMaterialBlock]| {
         meshing::mesh_sub_chunk_in_neighbourhood_with_options(
             &BlockClassifier::new(fixture.air),
             &fixture.assets,
@@ -382,7 +382,7 @@ fn bound_model_blocks_tag_every_model_draw_and_keep_their_template_quads() {
         )
     };
     let bedrock = mesh(&[]);
-    let bound = mesh(&[(fixture.lower, 2)]);
+    let bound = mesh(&[meshing::WorldMaterialBlock::new(fixture.lower, 2, false)]);
     assert!(!bedrock.model_draw_refs().is_empty());
     assert!(bedrock.model_draw_refs().iter().all(|draw| draw.world_material() == 0));
     assert_eq!(bound.model_draw_refs().len(), bedrock.model_draw_refs().len());
