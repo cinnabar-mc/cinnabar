@@ -5,6 +5,22 @@
 
 use std::{fmt::Write, time::Duration};
 
+/// Feedback for the selected pack, distinguishing a usable pack from a failed load.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PackIssue {
+    Failure(std::sync::Arc<str>),
+    Warning(std::sync::Arc<str>),
+}
+
+impl PackIssue {
+    /// Returns the explanation displayed below the selected pack.
+    pub fn description(&self) -> &str {
+        match self {
+            Self::Failure(text) | Self::Warning(text) => text,
+        }
+    }
+}
+
 /// How long a load runs before its toast stands, so a pack that loads at once only reports
 /// how it went.
 pub const LOADING_TOAST_DELAY: Duration = Duration::from_millis(500);
