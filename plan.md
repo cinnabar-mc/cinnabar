@@ -805,6 +805,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
   Recipe-book projections validate each occupied ingredient source once across the catalog.
+  A container screen's data change splices the controls it left unchanged from the last
+  layout, so a drag-split step on the creative catalog places only the changed slots; a
+  screen whose scroll content fits (bar panel suppressed) still lays out in full on each
+  change, and hardware frame captures of drag splits remain open.
   First-open and repeated-open inventory timing and combined-screen acceptance remain open.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,

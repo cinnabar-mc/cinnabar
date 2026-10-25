@@ -47,16 +47,29 @@ pub(super) fn swap(memo: &mut RoleMemo) {
 
 /// The first control named `name` breadth-first from `root`, itself included.
 fn breadth_first(root: &ResolvedControl, name: &str) -> Option<Vec<usize>> {
-    let mut queue = std::collections::VecDeque::from([(root, Vec::new())]);
-    while let Some((node, path)) = queue.pop_front() {
+    // Visited controls with their parent's entry and child index; the path is
+    // rebuilt only for the match.
+    let mut visited = vec![(root, 0, 0)];
+    let mut next = 0;
+    while let Some(&(node, _, _)) = visited.get(next) {
         if node.name == name {
+            let mut path = Vec::new();
+            let mut at = next;
+            while at != 0 {
+                let (_, parent, index) = visited[at];
+                path.push(index);
+                at = parent;
+            }
+            path.reverse();
             return Some(path);
         }
-        for (index, child) in node.children.iter().enumerate() {
-            let mut next = path.clone();
-            next.push(index);
-            queue.push_back((child, next));
-        }
+        visited.extend(
+            node.children
+                .iter()
+                .enumerate()
+                .map(|(index, child)| (child, next, index)),
+        );
+        next += 1;
     }
     None
 }

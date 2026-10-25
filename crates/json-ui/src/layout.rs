@@ -223,46 +223,38 @@ pub fn layout_with<'a>(
 
 /// Lay out a stable bound tree over retained measurements, splicing the last
 /// layout's output for unchanged subtrees; emits draws, hit regions and the
-/// cancel and `root_panel` lookups.
+/// cancel and `root_panel` lookups. A `gated` layout culls like
+/// [`crate::render_bound_gated`]: it omits hidden controls' subtrees and scroll
+/// content wholly outside its viewport, and emits state children gated.
 pub(crate) fn layout_reusing(
     root: &ResolvedControl,
     root_size: [f64; 2],
     env: &LayoutEnv,
     state: &ViewState,
     cache: &mut MeasureCache,
+    gated: bool,
 ) -> (Output, LayoutReport) {
+    let records = cache.splices_next();
     cache.enter(root);
     cache.placements.begin(
         state,
-        false,
+        gated,
         crate::LayoutCacheKey::new(root_size, 1.0, env),
+        records,
     );
     let (laid, report) = lay_out(
         root,
         root_size,
         env,
         state,
-        false,
-        Some(&mut cache.placements),
+        gated,
+        records.then_some(&mut cache.placements),
     );
     cache.leave();
-    (reuse::output(&laid, env, &mut cache.placements), report)
-}
-
-/// [`layout_with`] over `cache`'s measurements that omits hidden controls'
-/// subtrees and scroll content wholly outside its viewport, so a long list costs
-/// only what it shows.
-pub(crate) fn layout_culled<'a>(
-    root: &'a ResolvedControl,
-    root_size: [f64; 2],
-    env: &LayoutEnv,
-    state: &ViewState,
-    cache: &mut MeasureCache,
-) -> (LaidOut<'a>, LayoutReport) {
-    cache.enter(root);
-    let laid = lay_out(root, root_size, env, state, true, None);
-    cache.leave();
-    laid
+    (
+        reuse::output(&laid, env, &mut cache.placements, gated),
+        report,
+    )
 }
 
 /// A culling layout keeps the memos its caller entered.
@@ -426,9 +418,10 @@ fn place_subtree<'a>(
     inherited: &Inherited,
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
-    // Only context a control's inputs capture lets a later layout splice it.
-    let free = ctx.scrolls.is_empty()
-        && ctx.sliders.is_empty()
+    // Only context a control's inputs capture lets a later layout splice it. Scroll content
+    // may splice: the view's offset and fade belong to the layout's view state, the scroll
+    // moves only the controls whose parents taint below, and whether it culls is an input.
+    let free = ctx.sliders.is_empty()
         && ctx.overrides.is_empty()
         && ctx.hidden_names.is_empty()
         && ctx.reuse.as_ref().is_some_and(|reuse| reuse.inspected == 0);
@@ -456,6 +449,11 @@ fn place_subtree<'a>(
             emitting: reuse.emitting,
             inherited: inherited.clone(),
             hits: std::sync::Arc::clone(&reuse.hits),
+            culls: ctx.cull
+                && ctx
+                    .scrolls
+                    .last()
+                    .is_some_and(|frame| frame.metrics.is_some()),
         };
         let reused = old
             .filter(|_| free)
@@ -554,6 +552,10 @@ fn place_subtree<'a>(
         && let Some(panel) = frame.panel_address()
         && measure::suppress(panel, frame.panel_hidden)
     {
+        // The panel's last output saw its old visibility.
+        if let Some(reuse) = ctx.reuse.as_mut() {
+            reuse.placements.forget(panel, false);
+        }
         scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
     }
     let opened_scroll = scroll.is_some();
@@ -660,6 +662,10 @@ fn place_subtree<'a>(
     let placeholders = grid::is_grid(control)
         .then(|| control.children.iter().find_map(grid::placeholder_of))
         .flatten();
+    // Its report of the cells in view is not part of a spliced output.
+    if placeholders.is_some() {
+        ctx.taint();
+    }
     let mut in_view: Option<std::ops::Range<usize>> = None;
     for (child, mut child_rect) in placed {
         let child_shown = !ctx.hidden_names.contains(&child.name)
@@ -684,6 +690,7 @@ fn place_subtree<'a>(
         }
         let mut child_shown = child_shown;
         let mut box_fade = None;
+        let mut scrolled = false;
         for frame in ctx.scrolls.iter().rev() {
             match frame.adjust(child, child_rect) {
                 Adjusted::Kept => continue,
@@ -691,7 +698,12 @@ fn place_subtree<'a>(
                 Adjusted::Box(moved, fade) => (child_rect, box_fade) = (moved, fade),
                 Adjusted::Hidden => child_shown = false,
             }
+            scrolled = true;
             break;
+        }
+        // The scroll moved, sized or hid this child from outside this control's inputs.
+        if scrolled {
+            ctx.taint();
         }
         let repeat = repeats
             .get(measure::child_index(control, child))

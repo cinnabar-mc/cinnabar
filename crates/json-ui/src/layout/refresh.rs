@@ -188,13 +188,13 @@ mod tests {
         let mut cache = MeasureCache::default();
         let state = ViewState::default();
         let (_, first) =
-            super::super::layout_reusing(&boxed, [100.0, 100.0], &env, &state, &mut cache);
+            super::super::layout_reusing(&boxed, [100.0, 100.0], &env, &state, &mut cache, false);
         assert_eq!(first.scrolls["/root/view"].bar_visible, Some(false));
         assert!(metrics.0.get() > 0);
         let moved = *boxed;
         metrics.0.set(0);
         let (_, next) =
-            super::super::layout_reusing(&moved, [100.0, 100.0], &env, &state, &mut cache);
+            super::super::layout_reusing(&moved, [100.0, 100.0], &env, &state, &mut cache, false);
         assert_eq!(first, next);
         assert_eq!(
             metrics.0.get(),
