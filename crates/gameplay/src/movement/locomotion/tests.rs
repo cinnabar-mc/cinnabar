@@ -545,6 +545,64 @@ fn a_fresh_jump_press_cancels_a_glide_after_eleven_ticks() {
     );
 }
 
+/// With Instabuild, as in creative, a jump press never ends a glide.
+#[test]
+fn instabuild_keeps_gliding_through_a_jump_press() {
+    let mut tracker = ModeTracker::default();
+    let intent = ModeIntent {
+        elytra_ready: true,
+        instabuild: true,
+        ..ModeIntent::default()
+    };
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Gliding
+    );
+    for _ in 0..GLIDE_CANCEL_TICKS {
+        assert_eq!(
+            pick(&mut tracker, intent, airborne()),
+            MovementMode::Gliding
+        );
+    }
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Gliding
+    );
+    let landed = ModeObservation {
+        on_ground: true,
+        ..airborne()
+    };
+    assert_eq!(
+        pick(&mut tracker, intent, landed),
+        MovementMode::Walking,
+        "ground contact still ends the glide"
+    );
+}
+
+/// In creative the flight double-tap is what ends a glide: flight takes over.
+#[test]
+fn creative_double_tap_switches_a_glide_to_flight() {
+    let mut tracker = ModeTracker::default();
+    let intent = ModeIntent {
+        elytra_ready: true,
+        instabuild: true,
+        can_fly: true,
+        ..ModeIntent::default()
+    };
+    pick(&mut tracker, intent, pressed(airborne()));
+    for _ in 0..GLIDE_CANCEL_TICKS {
+        pick(&mut tracker, intent, airborne());
+    }
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Gliding
+    );
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Flying
+    );
+}
+
 /// A server-ended glide never carries its tick count into the next glide.
 #[test]
 fn an_ended_glide_restarts_the_cancel_window() {
