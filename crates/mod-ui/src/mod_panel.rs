@@ -883,6 +883,14 @@ impl ModUi {
             resolves: screen.resolves,
         })
     }
+
+    /// Ink fits the panel's embedded HUD controls have computed.
+    #[cfg(test)]
+    pub(crate) fn mod_panel_embed_fits(&self) -> usize {
+        self.mod_panel
+            .as_ref()
+            .map_or(0, |panel| panel.embeds.fit_computations())
+    }
 }
 
 #[cfg(test)]

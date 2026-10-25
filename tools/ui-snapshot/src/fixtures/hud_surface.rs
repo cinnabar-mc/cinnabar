@@ -28,7 +28,8 @@ fn background(size: [f64; 2], alpha: f64) -> Value {
 }
 
 /// Three status cards, a scaled keystrokes card and a projected waypoint label. The cards are
-/// named controls outside the root that the root instantiates and panels embed.
+/// named controls outside the root that the root instantiates and panels embed; `zoom` is a
+/// preview-only caption whose two short lines leave most of its laid-out box empty.
 pub(super) fn surface() -> Surface {
     let color = Binding::Color.as_str().trim_start_matches('#');
     let document = json!({"namespace":"status",
@@ -54,6 +55,9 @@ pub(super) fn surface() -> Surface {
                 {"d":{"type":"custom","renderer":"cinnabar_rounded_rectangle","size":[20,20],
                     "offset":[46,23],"radius":3,"anchor_from":"top_left","anchor_to":"top_left",
                     (color):[0.2,0.23,0.28,1]}}]},
+        "zoom":{"type":"panel","size":[110,48],"controls":[
+            {"level":label("4.0x zoom",[30.,12.],0.6)},
+            {"hint":label("Hold to zoom",[26.,26.],0.6)}]},
         "root":{"type":"panel","size":["100%","100%"],"controls":[
             {"g_fps@status.fps":{"anchor_from":"top_left","anchor_to":"top_left","offset":[8,8]}},
             {"g_armor@status.armor":{"anchor_from":"top_right","anchor_to":"top_right",
@@ -82,7 +86,9 @@ pub(super) fn gameplay() -> Fixture {
     Fixture::HudSurface(Box::new(surface()))
 }
 
-/// A module browser whose tiles embed the HUD surface's cards by name.
+/// A module browser whose tiles embed the HUD surface's cards by name, each fitted by its
+/// painted ink so the small zoom caption fills its tile as the cards do, beside a large preview
+/// fitted by its laid-out box.
 pub(super) fn panel() -> Fixture {
     let color = Binding::Color.as_str().trim_start_matches('#');
     let tile = Surface {
@@ -96,21 +102,26 @@ pub(super) fn panel() -> Fixture {
                     "font_type":ui::mod_panel::SANS_FONT_NAME,"font_scale_factor":0.75,
                     (color):[0.9,0.93,1,1]}},
                 {"preview":{"type":"custom","renderer":"cinnabar_hud_control",
-                    "control_binding":"#item_card","size":[120,54],"offset":[0,8]}}]}})
+                    "control_binding":"#item_card","size":[120,54],"offset":[0,8],
+                    "fit":0.78,"max_scale":2.4}}]}})
         .to_string(),
         bindings: Default::default(),
         transitions: Default::default(),
         collections: Default::default(),
     };
-    let items = [("fps", "FPS"), ("armor", "Armor"), ("keys", "Keystrokes")].map(|(id, name)| {
-        CollectionItem {
-            values: [
-                ("#item_card".into(), SurfaceValue::Text(id.into())),
-                ("#item_name".into(), SurfaceValue::Text(name.into())),
-            ]
-            .into(),
-            ..Default::default()
-        }
+    let items = [
+        ("fps", "FPS"),
+        ("armor", "Armor"),
+        ("keys", "Keystrokes"),
+        ("zoom", "Zoom"),
+    ]
+    .map(|(id, name)| CollectionItem {
+        values: [
+            ("#item_card".into(), SurfaceValue::Text(id.into())),
+            ("#item_name".into(), SurfaceValue::Text(name.into())),
+        ]
+        .into(),
+        ..Default::default()
     });
     let document = json!({"namespace":"status_menu","screen":{"type":"screen","size":[640,360],
     "controls":[
@@ -140,7 +151,7 @@ pub(super) fn panel() -> Fixture {
                     viewport: [300., 190.],
                     items: items.into(),
                 }),
-                order: (0..3).collect(),
+                order: (0..4).collect(),
             },
         )]
         .into(),

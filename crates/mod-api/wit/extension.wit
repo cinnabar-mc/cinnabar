@@ -302,7 +302,11 @@ interface panel {
     /// Changes this instance's panel input ownership on successful callback return.
     /// Requires controls authority and a retained or pending panel when opening.
     set-open: func(open: bool) -> result<_, string>;
-    /// Bounded panel JSON; empty text removes the panel and releases its input.
+    /// Bounded panel JSON; empty text removes the panel and releases its input. A
+    /// `cinnabar_hud_control` node draws a named control of this mod's HUD surface, centred:
+    /// its laid-out box fitted to the node, or at `scale` times its HUD size, or with `fit`,
+    /// its painted ink filling that fraction of the node, at most `max_scale` times its HUD
+    /// size.
     set-content: func(json: string) -> result<_, string>;
     /// Applies a bounded sparse control patch and registered surface route atomically.
     /// Omitting controls preserves them; bindings, when present, replace custom scalars.

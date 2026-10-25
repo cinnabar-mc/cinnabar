@@ -138,9 +138,18 @@ cached artwork instead of painting it again.
 A panel node `{"type":"custom","renderer":"cinnabar_hud_control","control":"armor"}`
 draws the named control `armor` of the same mod's HUD document, with the HUD's
 bindings. `"control_binding":"#item_card"` reads the name from a text binding or a
-collection field instead. The control's laid-out size is fitted uniformly to the
-node and centred, so authored padding frames a preview. A mod keeps up to 128 named
-controls built for embedding; the least recently drawn makes way for another.
+collection field instead. The control is centred in the node. By default its
+laid-out size is fitted uniformly to the node, so authored padding frames a preview.
+`"scale":s` instead draws the laid-out box at `s` times its HUD size.
+`"fit":f`, a fraction in (0, 1], fits the control's painted ink instead, ignoring
+`scale`: the ink fills `f` of the node along its limiting axis, at most `max_scale`
+times its HUD size, 5 by default, so a short caption fills its preview as a card
+does. `scale` and `max_scale` accept 0.25 to 5. Each property reads its binding
+override first, `#scale`, `#fit` or `#max_scale`; the surface rejects literals out
+of bounds, and a bound value out of bounds draws nothing. The bounds live in
+[`hud_control`](../../crates/ui/src/mod_panel/surface/hud_control.rs). A mod keeps
+up to 128 named controls built for embedding; the least recently drawn makes way
+for another.
 
 Panels lay out in panel units, which differ from the HUD's GUI units with the GUI
 scale and a `reference_size` fitted to a small window. `panel.read-layout`, with
