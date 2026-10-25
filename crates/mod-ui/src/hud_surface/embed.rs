@@ -63,6 +63,9 @@ impl Embeds {
             surfaces.place(frame);
         }
         let canvas = surfaces.root_size();
+        if let Some(layer) = surfaces.layer_mut(owner) {
+            layer.begin_embeds();
+        }
         for node in nodes {
             if (node.alpha <= 0. && node.anim.is_none()) || !node.shown(view) {
                 continue;
@@ -143,7 +146,7 @@ impl CustomRenderer for Renderer<'_> {
             .iter()
             .find(|layer| layer.owner == self.owner)
             .and_then(|layer| layer.embedded.get(&instance.control))
-            .and_then(Option::as_ref)
+            .and_then(|embedded| embedded.part.as_ref())
         else {
             return Ok(true);
         };
@@ -180,7 +183,11 @@ impl CustomRenderer for Renderer<'_> {
             return;
         };
         for instance in self.embeds.nodes.values() {
-            if let Some(Some(part)) = layer.embedded.get(&instance.control) {
+            if let Some(part) = layer
+                .embedded
+                .get(&instance.control)
+                .and_then(|embedded| embedded.part.as_ref())
+            {
                 for path in part.textures.paths() {
                     texture(path);
                 }

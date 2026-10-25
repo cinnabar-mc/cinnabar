@@ -74,12 +74,24 @@ assuming an import succeeded. Shared values and ceilings live in
 screens and never hit-tested. It takes the panel surface schema, `screen`,
 `document`, `bindings`, `collections` and `transitions`, without input actions,
 glass backdrops or `cinnabar_hud_control`. Empty text removes it.
-`hud.update-surface` takes `bindings` (replace all), `binding_changes` (sparse)
-and `collection_order`. Values, documents and limits live in
-[`surface`](../../crates/ui/src/mod_panel/surface.rs): 512 bindings and 192 KiB of
-document. Only the `screen` root draws on gameplay; other named controls in the
-document stay embeddable. The layer hides with the gameplay HUD, under F1, screens
-and panels that hide it, and several mods' layers draw in load order.
+`hud.update-surface` takes `bindings` (replace all), `binding_changes` (sparse),
+`collection_order` and `controls`, which replaces or removes top-level control
+definitions of the document by name, without namespace:
+
+```json
+{"controls":{"armor_card":{"type":"panel","size":[60,20],"controls":[]},
+ "preview_ping@card":{},"old_preview":null}}
+```
+
+A key may carry an `@` base as a document key does. The patched document is
+validated as a whole, exactly as `set-surface` validates one, and only the controls
+whose resolution reads a replaced definition, embedded ones included, are laid out
+again; everything else keeps its cache. Values, documents and limits live in
+[`surface`](../../crates/ui/src/mod_panel/surface.rs): 512 bindings, 192 KiB of
+document and 64 KiB per update. Only the `screen` root draws on gameplay; other
+named controls in the document stay embeddable. The layer hides with the gameplay
+HUD, under F1, screens and panels that hide it, and several mods' layers draw in
+load order.
 
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
@@ -107,7 +119,8 @@ A panel node `{"type":"custom","renderer":"cinnabar_hud_control","control":"armo
 draws the named control `armor` of the same mod's HUD document, with the HUD's
 bindings. `"control_binding":"#item_card"` reads the name from a text binding or a
 collection field instead. The control's laid-out size is fitted uniformly to the
-node and centred, so authored padding frames a preview.
+node and centred, so authored padding frames a preview. A mod keeps up to 128 named
+controls built for embedding; the least recently drawn makes way for another.
 
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or

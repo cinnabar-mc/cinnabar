@@ -1,12 +1,15 @@
 //! Mods' JSON-UI layers over gameplay. Each top-level control of a surface's root is laid out,
 //! painted and cached on its own and replayed every frame; a binding change repaints only the
-//! controls that read it, and a projected `#offset` that alone moves a control moves its
-//! cached artwork. Several mods' layers draw in load order, each under its own budget.
+//! controls that read it, a replaced definition rebuilds only the controls and embedded
+//! controls whose resolution reads it, and a projected `#offset` that alone moves a control
+//! moves its cached artwork. Several mods' layers draw in load order, each under its own budget.
 
 mod document;
 pub(crate) mod embed;
 mod layer;
 mod part;
+#[cfg(test)]
+mod redefine_tests;
 #[cfg(test)]
 mod tests;
 mod values;
@@ -337,6 +340,28 @@ impl ModUi {
     ) -> Option<std::collections::BTreeMap<String, json_ui::Scalar>> {
         let layer = self.hud_surfaces.layers.iter().find(|l| l.owner == owner)?;
         Some(layer.resolved())
+    }
+
+    /// Paints each embedded control of `owner`'s layer has run, by control name; none for a
+    /// control that cannot draw.
+    pub fn hud_surface_embed_paints(
+        &self,
+        owner: PanelUiOwner,
+    ) -> std::collections::BTreeMap<String, Option<usize>> {
+        self.hud_surfaces
+            .layers
+            .iter()
+            .find(|layer| layer.owner == owner)
+            .map(|layer| {
+                layer
+                    .embedded
+                    .iter()
+                    .map(|(name, embedded)| {
+                        (name.clone(), embedded.part.as_ref().map(|part| part.paints))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Paints each layer's parts have run, in paint order.

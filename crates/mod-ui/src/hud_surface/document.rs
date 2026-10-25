@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use json_ui::{Catalog, Context};
 use serde_json::{Map, Value};
-use ui::mod_panel::{Surface, projected_visible_name};
+use ui::mod_panel::{Surface, definitions::Definitions, projected_visible_name};
 
 /// Local name prefix of the generated per-control part definitions.
 const PART_PREFIX: &str = "cinnabar_hud_part_";
@@ -22,6 +22,10 @@ pub(crate) struct PartSpec {
     pub collections: BTreeSet<String>,
     /// A projected binding that only moves the part's top-level control.
     pub floating: Option<Floating>,
+    /// The root child the part draws; none for a root kept whole or an embedded control.
+    pub child: Option<usize>,
+    /// The child's literal draw layer, which orders the parts.
+    pub layer: i64,
 }
 
 /// A projected `#offset` binding and its optional `#visible` companion, read only by a part's
@@ -66,7 +70,7 @@ impl Document {
             let object = document
                 .as_object_mut()
                 .expect("resolved documents are objects");
-            for (_, index, child) in ordered {
+            for (layer, index, child) in ordered {
                 let local = format!("{PART_PREFIX}{index}");
                 if object.contains_key(&local) {
                     return Err("surface document reserves HUD part names".into());
@@ -82,6 +86,8 @@ impl Document {
                     bindings: BTreeSet::new(),
                     collections: BTreeSet::new(),
                     floating,
+                    child: Some(index),
+                    layer,
                 });
                 object.insert(local, part);
             }
@@ -91,6 +97,8 @@ impl Document {
                 bindings: BTreeSet::new(),
                 collections: BTreeSet::new(),
                 floating: None,
+                child: None,
+                layer: 0,
             });
         }
         for part in &mut parts {
@@ -122,16 +130,32 @@ impl Document {
         })
     }
 
-    /// Builds the part that embeds the local control `control` of `surface`'s document.
-    pub fn embedded(surface: &Surface, control: &str) -> Result<(Arc<Catalog>, PartSpec), String> {
-        let embedded = surface.embedded(control)?;
-        let document: Value = serde_json::from_str(&embedded.resolved_document()?)
-            .map_err(|error| error.to_string())?;
+    /// Builds the part that embeds the local control `control` of `surface`'s document. With
+    /// the document's `definitions`, it reads only those the control's resolution reads.
+    pub fn embedded(
+        surface: &Surface,
+        definitions: Option<&Definitions>,
+        control: &str,
+    ) -> Result<(Arc<Catalog>, PartSpec), String> {
+        let (embedded, document) = match definitions {
+            Some(definitions) => Surface {
+                screen: surface.screen.clone(),
+                document: definitions.document(&definitions.reads(control), None),
+                bindings: Default::default(),
+                transitions: Default::default(),
+                collections: surface.collections.clone(),
+            }
+            .embedded_document(control)?,
+            None => surface.embedded_document(control)?,
+        };
+        let document: Value = serde_json::from_str(&document).map_err(|error| error.to_string())?;
         let mut part = PartSpec {
-            reference: embedded.screen.clone(),
+            reference: embedded.screen,
             bindings: BTreeSet::new(),
             collections: BTreeSet::new(),
             floating: None,
+            child: None,
+            layer: 0,
         };
         reads(
             &document[control],
@@ -140,6 +164,77 @@ impl Document {
             &mut part.collections,
         );
         Ok((Arc::new(catalog(&document.to_string())?), part))
+    }
+
+    /// Builds the part for root child `index` of a split root, as [`Self::build`] would, by
+    /// resolving only the root's own properties, that child and the definitions it reads.
+    /// Errs for a root with a base or a child that must not be split from its siblings.
+    pub fn child(
+        surface: &Surface,
+        definitions: &Definitions,
+        index: usize,
+    ) -> Result<(Arc<Catalog>, PartSpec), String> {
+        let (namespace, name) = surface
+            .screen
+            .split_once('.')
+            .ok_or("surface screen must be qualified")?;
+        let root = definitions
+            .definitions
+            .get(name)
+            .filter(|root| root.base.is_none())
+            .ok_or("HUD surface root cannot be resolved by child")?;
+        let entry = root
+            .body
+            .get("controls")
+            .and_then(Value::as_array)
+            .and_then(|children| children.get(index))
+            .ok_or("HUD surface root child is missing")?;
+        let local = format!("{PART_PREFIX}{index}");
+        if definitions.definitions.contains_key(&local) {
+            return Err("surface document reserves HUD part names".into());
+        }
+        let mut body = root.body.clone();
+        body["controls"] = Value::Array(vec![entry.clone()]);
+        let mut read = BTreeSet::new();
+        for reference in definitions.references(&body) {
+            read.extend(definitions.reads(&reference));
+        }
+        let partial = Surface {
+            screen: surface.screen.clone(),
+            document: definitions.document(&read, Some((&local, &body))),
+            bindings: Default::default(),
+            transitions: Default::default(),
+            collections: surface.collections.clone(),
+        };
+        let (_, document) = partial.embedded_document(&local)?;
+        let document: Value = serde_json::from_str(&document).map_err(|error| error.to_string())?;
+        let part = &document[&local];
+        let child = part
+            .get("controls")
+            .and_then(Value::as_array)
+            .and_then(|children| children.first())
+            .ok_or("HUD surface root child cannot be resolved")?;
+        let child_body = child
+            .as_object()
+            .and_then(|named| named.values().next())
+            .ok_or("HUD surface root child cannot be resolved")?;
+        if measured_from(child_body.get("size"), &["%sm"]) {
+            return Err("HUD surface root child is measured from its siblings".into());
+        }
+        let mut spec = PartSpec {
+            reference: format!("{namespace}.{local}"),
+            bindings: BTreeSet::new(),
+            collections: BTreeSet::new(),
+            floating: floating(surface, part, child_body),
+            child: Some(index),
+            layer: layer(child),
+        };
+        reads(part, &document, &mut spec.bindings, &mut spec.collections);
+        if let Some(floating) = &spec.floating {
+            spec.bindings.insert(floating.offset.clone());
+            spec.bindings.extend(floating.visible.clone());
+        }
+        Ok((Arc::new(catalog(&document.to_string())?), spec))
     }
 }
 
@@ -411,9 +506,12 @@ mod tests {
             document: document.to_string(),
             ..surface
         };
-        let (_, part) = Document::embedded(&surface, "card").unwrap();
-        assert_eq!(part.reference, "hud.card");
-        assert!(part.bindings.contains("#card_value"));
-        assert!(Document::embedded(&surface, "missing").is_err());
+        let definitions = Definitions::parse(&surface.document).unwrap();
+        for definitions in [None, Some(&definitions)] {
+            let (_, part) = Document::embedded(&surface, definitions, "card").unwrap();
+            assert_eq!(part.reference, "hud.card");
+            assert!(part.bindings.contains("#card_value"));
+            assert!(Document::embedded(&surface, definitions, "missing").is_err());
+        }
     }
 }

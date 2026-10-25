@@ -1,18 +1,25 @@
-//! Sparse binding and collection-order changes to a retained surface.
+//! Sparse binding, collection-order and control-definition changes to a retained surface.
 
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::{Surface, SurfaceRole, SurfaceValue};
 
-/// Changing values never need to carry the retained document.
+/// Changing values and a few control definitions never need to carry the whole document.
 pub const MAX_SURFACE_PATCH_BYTES: usize = 64 * 1024;
 
-/// The binding and collection subset of a panel patch: omitted names keep their values.
+/// The binding and collection subset of a panel patch, plus replaced control definitions:
+/// omitted names keep their values.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SurfacePatch {
+    /// Replaces (an object) or removes (`null`) top-level control definitions of the
+    /// document, keyed by local name without namespace, optionally with an `@` base as a
+    /// document key; the patched document is validated as a whole.
+    #[serde(default)]
+    pub controls: Option<BTreeMap<String, Option<Value>>>,
     /// Replaces every binding.
     #[serde(default)]
     pub bindings: Option<BTreeMap<String, SurfaceValue>>,
@@ -33,10 +40,14 @@ impl SurfacePatch {
         serde_json::from_str(json).map_err(|error| format!("invalid surface update: {error}"))
     }
 
-    /// Returns `current` with this patch applied and revalidated for `role`; errors leave
-    /// `current` intact.
+    /// Returns `current` with this patch applied and revalidated for `role`, the whole
+    /// document when it replaces controls; errors leave `current` intact.
     pub fn apply(self, current: &Surface, role: SurfaceRole) -> Result<Surface, String> {
         let mut surface = current.clone();
+        let redefined = self.controls.is_some();
+        if let Some(controls) = self.controls {
+            surface.document = super::definitions::patch(&surface.document, controls)?;
+        }
         if let Some(bindings) = self.bindings {
             surface.bindings = bindings;
         }
@@ -50,7 +61,11 @@ impl SurfacePatch {
                 .ok_or("surface update names an unknown collection")?
                 .order = order;
         }
-        surface.validate_bindings_as(role)?;
+        if redefined {
+            surface.validate_as(role)?;
+        } else {
+            surface.validate_bindings_as(role)?;
+        }
         Ok(surface)
     }
 }
@@ -133,5 +148,84 @@ mod tests {
         )
         .unwrap();
         assert!(projected.apply(&current, SurfaceRole::Hud).is_err());
+    }
+
+    /// Applies a `controls` patch to `current` as a HUD surface.
+    fn redefine(current: &Surface, controls: serde_json::Value) -> Result<Surface, String> {
+        SurfacePatch::parse(&json!({"controls":controls}).to_string())
+            .and_then(|patch| patch.apply(current, SurfaceRole::Hud))
+    }
+
+    #[test]
+    fn control_patches_replace_add_and_remove_definitions_and_keep_the_rest() {
+        let current = surface(json!({"#fps":"60"}));
+        let next = redefine(
+            &current,
+            json!({"card":{"type":"panel","size":[20,10]},"root":{"type":"panel","controls":[
+                {"fps":{"type":"label","text":"#fps","bindings":[{"binding_name":"#fps"}]}},
+                {"card@hud.card":{}}]}}),
+        )
+        .unwrap();
+        let document: serde_json::Value = serde_json::from_str(&next.document).unwrap();
+        assert_eq!(document["card"]["size"], json!([20, 10]));
+        assert_eq!(document["namespace"], "hud");
+        assert_eq!(next.bindings, current.bindings);
+        let removed = redefine(
+            &next,
+            json!({"card":null,"root":{"type":"panel","controls":[]}}),
+        )
+        .unwrap();
+        let document: serde_json::Value = serde_json::from_str(&removed.document).unwrap();
+        assert!(document.get("card").is_none());
+        assert_eq!(
+            SurfacePatch::parse(r#"{"controls":{}}"#)
+                .unwrap()
+                .apply(&current, SurfaceRole::Hud)
+                .unwrap()
+                .document
+                .len(),
+            current.document.len(),
+            "an empty patch keeps every definition"
+        );
+    }
+
+    #[test]
+    fn control_patches_validate_the_whole_patched_document() {
+        let current = surface(json!({}));
+        for controls in [
+            json!({"root":null}),
+            json!({"root":{"type":"panel","controls":[{"x@hud.missing":{}}]}}),
+            json!({"a":{"type":"panel","controls":[{"b@hud.b":{}}]},
+                "b":{"type":"panel","controls":[{"a@hud.a":{}}]},
+                "root":{"type":"panel","controls":[{"a@hud.a":{}}]}}),
+            json!({"root":{"type":"custom","renderer":"unknown"}}),
+            json!({"root":{"type":"panel","controls":[{"p":{"type":"custom",
+                "renderer":"cinnabar_hud_control","control":"root"}}]}}),
+            json!({"root":{"type":"button","button_mappings":[{"from_button_id":
+                "button.menu_select","mapping_type":"pressed","to_button_id":"mod.control:0"}]}}),
+            json!({"card":{"type":"label","text":"x".repeat(MAX_SURFACE_PATCH_BYTES)}}),
+        ] {
+            assert!(redefine(&current, controls.clone()).is_err(), "{controls}");
+        }
+        let big = (0..48)
+            .map(|i| {
+                (
+                    format!("card{i}"),
+                    json!({"type":"label","text":"x".repeat(5000)}),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>();
+        let mut grown = current.clone();
+        for chunk in big.into_iter().collect::<Vec<_>>().chunks(12) {
+            let controls: serde_json::Map<_, _> = chunk.iter().cloned().collect();
+            match redefine(&grown, serde_json::Value::Object(controls)) {
+                Ok(next) => grown = next,
+                Err(error) => {
+                    assert!(error.contains("byte limit"), "{error}");
+                    return;
+                }
+            }
+        }
+        panic!("the patched document must stay within its byte limit");
     }
 }

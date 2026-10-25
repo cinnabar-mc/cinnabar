@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 pub mod backdrop;
 mod collection;
+pub mod definitions;
 pub mod hud_control;
 pub mod local_player_head;
 mod paint_transform;
@@ -273,6 +274,11 @@ impl Surface {
     /// A surface rooted at `control`, a local definition of this document, carrying only the
     /// collections placed under it. It is checked as a HUD root is; bindings stay with `self`.
     pub fn embedded(&self, control: &str) -> Result<Surface, String> {
+        self.embedded_document(control).map(|(surface, _)| surface)
+    }
+
+    /// [`Self::embedded`] and its canonical static document, resolving the control once.
+    pub fn embedded_document(&self, control: &str) -> Result<(Surface, String), String> {
         if !hud_control::control_name(control) {
             return Err("embedded HUD control name is invalid".into());
         }
@@ -288,25 +294,31 @@ impl Surface {
             transitions: BTreeMap::new(),
             collections: BTreeMap::new(),
         };
+        let root = embedded.resolved_root()?;
         let mut placed = std::collections::BTreeSet::new();
-        placeholders(&embedded.resolved_root()?, &mut placed);
+        placeholders(&root, &mut placed);
         embedded.collections = self
             .collections
             .iter()
             .filter(|(name, _)| placed.contains(name.as_str()))
             .map(|(name, collection)| (name.clone(), collection.clone()))
             .collect();
-        let actions = embedded.walk(SurfaceRole::Hud)?;
+        let actions = embedded.walk_root(&root, SurfaceRole::Hud)?;
         if !actions.is_empty() {
             return Err("HUD surfaces cannot declare input actions".into());
         }
-        Ok(embedded)
+        let document = embedded.document_from(root)?;
+        Ok((embedded, document))
     }
 
     /// Compares immutable route artwork and data, excluding filtered order and reveal requests.
     pub fn same_definition(&self, other: &Self) -> bool {
+        self.document == other.document && self.same_screen_and_collections(other)
+    }
+
+    /// [`Self::same_definition`] apart from the document's definitions.
+    pub fn same_screen_and_collections(&self, other: &Self) -> bool {
         self.screen == other.screen
-            && self.document == other.document
             && self.collections.len() == other.collections.len()
             && self.collections.iter().all(|(name, collection)| {
                 other.collections.get(name).is_some_and(|other| {

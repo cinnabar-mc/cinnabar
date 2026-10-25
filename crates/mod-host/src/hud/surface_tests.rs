@@ -117,6 +117,48 @@ fn updates_patch_the_staged_surface_and_need_one() {
     assert_ne!(state.hud.surface_revision, revision);
 }
 
+#[test]
+fn control_updates_replace_definitions_validated_as_a_whole_document() {
+    let mut state = state(hud());
+    surface::set(&mut state, surface(json!({"#text":"a"})))
+        .unwrap()
+        .unwrap();
+    state.hud.commit();
+    let document = |state: &State| -> serde_json::Value {
+        serde_json::from_str(&state.hud.surface.as_ref().unwrap().document).unwrap()
+    };
+    let update = |state: &mut State, controls: serde_json::Value| {
+        state.writes = 0;
+        let result = surface::update(state, json!({"controls":controls}).to_string()).unwrap();
+        state.hud.commit();
+        result
+    };
+    update(
+        &mut state,
+        json!({"card":{"type":"label","text":"#text","bindings":[{"binding_name":"#text"}]}}),
+    )
+    .unwrap();
+    assert_eq!(document(&state)["card"]["type"], "label");
+    assert_eq!(
+        document(&state)["root"]["controls"][0]["text"]["type"],
+        "label"
+    );
+    let revision = state.hud.surface_revision;
+    for invalid in [
+        json!({"root":{"type":"panel","controls":[{"c@hud.missing":{}}]}}),
+        json!({"card":{"type":"panel","controls":[{"again@hud.card":{}}]}}),
+        json!({"tag":null}),
+    ] {
+        assert!(update(&mut state, invalid.clone()).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        state.hud.surface_revision, revision,
+        "rejected updates keep the committed surface"
+    );
+    update(&mut state, json!({"card":null})).unwrap();
+    assert!(document(&state).get("card").is_none());
+}
+
 /// Parses one binding value.
 fn json_value(value: impl serde::Serialize) -> ui::mod_panel::SurfaceValue {
     serde_json::from_value(json!(value)).unwrap()

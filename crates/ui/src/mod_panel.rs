@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-pub use surface::{hud_control, local_player_head};
+pub use surface::{definitions, hud_control, local_player_head};
 
 mod axis;
 mod control;

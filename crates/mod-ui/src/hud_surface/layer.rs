@@ -1,12 +1,15 @@
 //! One mod's HUD surface: its parts, their data, projections, transitions and embeddable
 //! named controls.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use json_ui::{DataSource, Scalar};
-use serde_json::json;
-use ui::mod_panel::{Surface, SurfaceValue, hud_control::control_name, projected_visible_name};
+use serde_json::{Value, json};
+use ui::mod_panel::{
+    Surface, SurfaceValue, definitions::Definitions, hud_control::control_name,
+    projected_visible_name,
+};
 
 use super::document::{Document, PartSpec};
 use super::part::Part;
@@ -16,8 +19,9 @@ use crate::{PanelUiOwner, mod_panel::transitions::SurfaceTransitions};
 /// Host bindings with the root's size in GUI units.
 pub(crate) const WIDTH: &str = "#surface_width";
 pub(crate) const HEIGHT: &str = "#surface_height";
-/// Named controls one mod may embed at once.
-pub(crate) const MAX_EMBEDDED: usize = 64;
+/// Named controls one mod keeps built for embedding; the least recently drawn one makes way
+/// for another.
+pub(crate) const MAX_EMBEDDED: usize = 128;
 
 pub(crate) struct Layer {
     pub owner: PanelUiOwner,
@@ -26,8 +30,13 @@ pub(crate) struct Layer {
     pub authority: ActorAuthority,
     /// The parts in paint order; empty when the document cannot be drawn.
     pub parts: Vec<Part>,
-    /// Embeddable named controls, built on first use; none for a control that cannot draw.
-    pub embedded: BTreeMap<String, Option<Part>>,
+    /// Embeddable named controls, built on first use.
+    pub embedded: BTreeMap<String, Embedded>,
+    /// Counts the panel frames that drew embedded controls.
+    embed_frame: u64,
+    /// The document's authored definitions, which locate what a new document changes; none
+    /// when it cannot be read.
+    definitions: Option<Definitions>,
     /// Each floating part's projected offset, or none while it is hidden.
     pub moves: Vec<Option<[f64; 2]>>,
     /// Each part's gameplay replay placement.
@@ -36,6 +45,21 @@ pub(crate) struct Layer {
     projected: BTreeMap<String, Option<[f64; 2]>>,
     transitions: SurfaceTransitions,
     root: [f64; 2],
+}
+
+/// One embeddable named control and the last panel frame that drew it.
+pub(crate) struct Embedded {
+    /// None for a control that cannot draw.
+    pub part: Option<Part>,
+    drawn: u64,
+}
+
+/// How a new document of the same screen and collections changes the root's parts.
+enum RootChange {
+    Unchanged,
+    /// The parts drawing these root children.
+    Children(Vec<usize>),
+    All,
 }
 
 impl Layer {
@@ -47,26 +71,18 @@ impl Layer {
         authority: ActorAuthority,
         root: [f64; 2],
     ) -> Self {
-        let parts = match Document::build(&surface) {
-            Ok(document) => document
-                .parts
-                .into_iter()
-                .map(|spec| part(&document.catalog, spec, &surface, root))
-                .collect(),
-            Err(error) => {
-                tracing::warn!(%error, "HUD surface cannot be drawn");
-                Vec::new()
-            }
-        };
+        let parts = parts(&surface, root);
         let moves = vec![None; parts.len()];
         let replays = parts.iter().map(|_| Default::default()).collect();
         Self {
             owner,
             revision,
+            definitions: Definitions::parse(&surface.document).ok(),
             surface,
             authority,
             parts,
             embedded: BTreeMap::new(),
+            embed_frame: 0,
             moves,
             replays,
             projected: BTreeMap::new(),
@@ -75,20 +91,30 @@ impl Layer {
         }
     }
 
-    /// Takes a newer publication of the same document, updating only the parts that read a
-    /// changed binding or collection. Returns false when the document changed.
+    /// Takes a newer publication of the same screen and collections, rebuilding only the
+    /// parts and embedded controls whose resolution reads a changed definition and updating
+    /// only the parts that read a changed binding or collection. Returns false when the layer
+    /// must be built anew.
     pub fn publish(
         &mut self,
         revision: u64,
         surface: Arc<Surface>,
         authority: ActorAuthority,
     ) -> bool {
-        if !self.surface.same_definition(&surface) {
-            return false;
-        }
+        let redefined = if self.surface.same_definition(&surface) {
+            None
+        } else {
+            match self.redefinition(&surface) {
+                Some(redefined) => Some(redefined),
+                None => return false,
+            }
+        };
         self.revision = revision;
         let previous = std::mem::replace(&mut self.surface, surface);
         self.authority = authority;
+        if let Some((definitions, affected, change)) = redefined {
+            self.redefine(definitions, &affected, change);
+        }
         let names = changed_bindings(&previous, &self.surface);
         for name in names {
             self.apply(&name);
@@ -108,9 +134,115 @@ impl Layer {
 
     /// Every part, embedded ones included.
     fn parts_mut(&mut self) -> impl Iterator<Item = &mut Part> {
-        self.parts
-            .iter_mut()
-            .chain(self.embedded.values_mut().flatten())
+        self.parts.iter_mut().chain(
+            self.embedded
+                .values_mut()
+                .filter_map(|embedded| embedded.part.as_mut()),
+        )
+    }
+
+    /// The new definitions, those whose resolution reads a changed one, and how the root's
+    /// parts change, for a document of the same screen and collections; none when the layer
+    /// must be built anew.
+    fn redefinition(&self, next: &Surface) -> Option<(Definitions, BTreeSet<String>, RootChange)> {
+        if !self.surface.same_screen_and_collections(next) {
+            return None;
+        }
+        let old = self.definitions.as_ref()?;
+        let new = Definitions::parse(&next.document).ok()?;
+        let affected = new.affected(&old.changed(&new));
+        let name = next.screen.split_once('.')?.1;
+        let change = match (old.definitions.get(name), new.definitions.get(name)) {
+            _ if self.parts.is_empty() => RootChange::All,
+            _ if !affected.contains(name) => RootChange::Unchanged,
+            (Some(old_root), Some(new_root))
+                if old_root.base.is_none()
+                    && new_root.base.is_none()
+                    && self.parts.iter().all(|part| part.spec.child.is_some()) =>
+            {
+                changed_children(&new, &old_root.body, &new_root.body, &affected)
+                    .map_or(RootChange::All, RootChange::Children)
+            }
+            _ => RootChange::All,
+        };
+        Some((new, affected, change))
+    }
+
+    /// Adopts the current surface's `definitions`: drops embedded controls whose resolution
+    /// reads a changed definition and rebuilds the affected parts, every part when the
+    /// changed children cannot be rebuilt alone.
+    fn redefine(
+        &mut self,
+        definitions: Definitions,
+        affected: &BTreeSet<String>,
+        change: RootChange,
+    ) {
+        self.embedded
+            .retain(|control, _| !affected.contains(control));
+        let rebuilt = match change {
+            RootChange::Unchanged => true,
+            RootChange::Children(children) => self.rebuild_children(&definitions, &children),
+            RootChange::All => false,
+        };
+        if !rebuilt {
+            self.parts = parts(&self.surface, self.root);
+            self.moves = vec![None; self.parts.len()];
+            self.replays = self.parts.iter().map(|_| Default::default()).collect();
+            self.projected.clear();
+        }
+        self.definitions = Some(definitions);
+    }
+
+    /// Rebuilds the parts drawing root `children`, each resolved alone; false, changing
+    /// nothing, when one cannot be built or would change the paint order.
+    fn rebuild_children(&mut self, definitions: &Definitions, children: &[usize]) -> bool {
+        let mut built = Vec::new();
+        for child in children {
+            let Some(index) = self
+                .parts
+                .iter()
+                .position(|part| part.spec.child == Some(*child))
+            else {
+                return false;
+            };
+            match Document::child(&self.surface, definitions, *child) {
+                Ok((catalog, spec)) if spec.layer == self.parts[index].spec.layer => {
+                    built.push((index, catalog, spec));
+                }
+                Ok(_) => return false,
+                Err(error) => {
+                    tracing::debug!(%error, "HUD surface control rebuilds with its root");
+                    return false;
+                }
+            }
+        }
+        let displayed: Vec<(String, Scalar)> = self.transitions.displayed().collect();
+        for (index, catalog, spec) in built {
+            let mut part = part(&catalog, spec, &self.surface, self.root);
+            let floating = part
+                .spec
+                .floating
+                .as_ref()
+                .map(|floating| floating.offset.clone());
+            for (name, offset) in &self.projected {
+                if floating.as_ref() != Some(name) {
+                    write_projection(&mut part, name, &projected_visible_name(name), *offset);
+                }
+            }
+            for (name, value) in &displayed {
+                if part.spec.bindings.contains(name) {
+                    part.set_global(name, value.clone());
+                }
+            }
+            self.moves[index] = part
+                .spec
+                .floating
+                .as_ref()
+                .and_then(|floating| self.projected.get(&floating.offset).copied().flatten());
+            self.replays[index] = Default::default();
+            self.parts[index] = part;
+        }
+        true
     }
 
     /// Writes binding `name`'s current value into each part that reads it.
@@ -213,19 +345,40 @@ impl Layer {
                     write_projection(part, name, &visible, offset);
                 }
             }
-            for part in self.embedded.values_mut().flatten() {
+            for part in self
+                .embedded
+                .values_mut()
+                .filter_map(|embedded| embedded.part.as_mut())
+            {
                 write_projection(part, name, &visible, offset);
             }
         }
     }
 
-    /// The embeddable named control `control`, built on first use.
+    /// Starts a panel frame of embedded control draws, which [`Self::embedded`] stamps.
+    pub fn begin_embeds(&mut self) {
+        self.embed_frame += 1;
+    }
+
+    /// The embeddable named control `control`, built on first use. At [`MAX_EMBEDDED`] built
+    /// controls, the one least recently drawn makes way, unless every one was drawn this
+    /// frame.
     pub fn embedded(&mut self, control: &str) -> Option<&mut Part> {
         if !self.embedded.contains_key(control) {
-            if self.embedded.len() >= MAX_EMBEDDED || !control_name(control) {
+            if !control_name(control) {
                 return None;
             }
-            let built = match Document::embedded(&self.surface, control) {
+            if self.embedded.len() >= MAX_EMBEDDED {
+                let evicted = self
+                    .embedded
+                    .iter()
+                    .filter(|(_, embedded)| embedded.drawn < self.embed_frame)
+                    .min_by_key(|(_, embedded)| embedded.drawn)
+                    .map(|(name, _)| name.clone())?;
+                self.embedded.remove(&evicted);
+            }
+            let built = match Document::embedded(&self.surface, self.definitions.as_ref(), control)
+            {
                 Ok((catalog, spec)) => {
                     let mut part = part(&catalog, spec, &self.surface, self.root);
                     for (name, offset) in &self.projected {
@@ -238,9 +391,17 @@ impl Layer {
                     None
                 }
             };
-            self.embedded.insert(control.to_owned(), built);
+            self.embedded.insert(
+                control.to_owned(),
+                Embedded {
+                    part: built,
+                    drawn: 0,
+                },
+            );
         }
-        self.embedded.get_mut(control)?.as_mut()
+        let embedded = self.embedded.get_mut(control)?;
+        embedded.drawn = self.embed_frame;
+        embedded.part.as_mut()
     }
 
     /// The resolved value of every binding, as parts read it, for probes and tests.
@@ -260,6 +421,71 @@ impl Layer {
         }
         values
     }
+}
+
+/// Every part of `surface`'s root with its initial data; none when the document cannot be
+/// drawn.
+fn parts(surface: &Surface, root: [f64; 2]) -> Vec<Part> {
+    match Document::build(surface) {
+        Ok(document) => document
+            .parts
+            .into_iter()
+            .map(|spec| part(&document.catalog, spec, surface, root))
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, "HUD surface cannot be drawn");
+            Vec::new()
+        }
+    }
+}
+
+/// The root children whose resolution changes between two root bodies with the same
+/// properties and number of children: changed entries and entries reading an `affected`
+/// definition. None when anything else about the root changed.
+fn changed_children(
+    definitions: &Definitions,
+    old: &Value,
+    new: &Value,
+    affected: &BTreeSet<String>,
+) -> Option<Vec<usize>> {
+    let (Value::Object(old), Value::Object(new)) = (old, new) else {
+        return None;
+    };
+    let properties = |object: &serde_json::Map<String, Value>| {
+        object
+            .iter()
+            .filter(|(key, _)| *key != "controls")
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<serde_json::Map<_, _>>()
+    };
+    if properties(old) != properties(new) {
+        return None;
+    }
+    let (old, new) = (children(old)?, children(new)?);
+    if old.len() != new.len() {
+        return None;
+    }
+    Some(
+        old.iter()
+            .zip(new)
+            .enumerate()
+            .filter(|(_, (old, new))| {
+                old != new
+                    || definitions
+                        .references(&json!({"controls":[new]}))
+                        .iter()
+                        .any(|name| affected.contains(name))
+            })
+            .map(|(index, _)| index)
+            .collect(),
+    )
+}
+
+/// An authored control's named children; none when they are not a list.
+fn children(control: &serde_json::Map<String, Value>) -> Option<&[Value]> {
+    control.get("controls").map_or(Some(&[][..]), |children| {
+        children.as_array().map(Vec::as_slice)
+    })
 }
 
 /// Names whose value differs between two surfaces, found in one merge of their sorted maps.
