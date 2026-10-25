@@ -46,6 +46,12 @@ pub(crate) struct ActorPipeline {
     /// The frame's world draws, as (tagged word, host raster), whose world material pipeline is
     /// ready in every view; the others draw as Bedrock.
     pub(super) world_ready: WorldReady,
+    /// The effects-pass forms of world material pipelines whose materials bloom or outline.
+    effects_variants: Variants<RenderPipeline, super::world_effects::WorldEffectsActorSpecializer>,
+    effects_ids: std::collections::HashMap<
+        (ActorPipelineContract, crate::world_material::WorldVariant),
+        CachedRenderPipelineId,
+    >,
 }
 
 /// (tagged instance word, host raster) pairs of world draws.
@@ -83,6 +89,11 @@ impl FromWorld for ActorPipeline {
             world_ids: Default::default(),
             world_pruned: None,
             world_ready: Default::default(),
+            effects_variants: Variants::new(
+                super::world_effects::WorldEffectsActorSpecializer,
+                descriptor.clone(),
+            ),
+            effects_ids: Default::default(),
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
@@ -175,6 +186,34 @@ impl ActorPipeline {
         let id = self.world_variants.specialize(cache, key).ok()?;
         self.world_ids.insert(slot, id);
         Some(id)
+    }
+
+    /// Requests the effects-pass pipeline of `key`'s world material draw.
+    pub(super) fn request_effects(
+        &mut self,
+        cache: &PipelineCache,
+        key: super::world_materials::WorldActorKey,
+    ) -> Option<CachedRenderPipelineId> {
+        let slot = (key.base.contract(), key.world);
+        if let Some(id) = self.effects_ids.get(&slot) {
+            return Some(*id);
+        }
+        if !self.targets.representable(&slot.0) {
+            return None;
+        }
+        let id = self.effects_variants.specialize(cache, key).ok()?;
+        self.effects_ids.insert(slot, id);
+        Some(id)
+    }
+
+    /// An effects-pass pipeline already requested for `key`.
+    pub(super) fn effects_variant(
+        &self,
+        key: super::world_materials::WorldActorKey,
+    ) -> Option<CachedRenderPipelineId> {
+        self.effects_ids
+            .get(&(key.base.contract(), key.world))
+            .copied()
     }
 
     /// A world material pipeline already requested for `key`.
@@ -458,10 +497,11 @@ pub(super) fn prepare_actor_pipelines(
                         material,
                         raster,
                     };
-                    let _ = pipeline.request_world(
-                        &cache,
-                        super::world_materials::WorldActorKey::new(base, variant),
-                    );
+                    let key = super::world_materials::WorldActorKey::new(base, variant);
+                    let _ = pipeline.request_world(&cache, key);
+                    if variant.effects_pass {
+                        let _ = pipeline.request_effects(&cache, key);
+                    }
                 }
             }
         }

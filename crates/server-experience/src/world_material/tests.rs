@@ -299,7 +299,7 @@ fn every_effect() -> WorldEffects {
     WorldEffects {
         displacement_blocks: Some(0.5),
         scene: true,
-        outline: Some(WorldOutline { width_texels: 1.0 }),
+        outline: Some(WorldOutline { width_pixels: 1.0 }),
         bloom: Some(WorldBloom {
             strength: 1.5,
             radius_pixels: 6.0,
@@ -408,7 +408,7 @@ fn effects_stay_within_the_host_ranges_and_scene_reads_only_blend() {
         },
         WorldEffects {
             outline: Some(WorldOutline {
-                width_texels: MAX_OUTLINE_TEXELS + 1.0,
+                width_pixels: MAX_OUTLINE_PIXELS + 1.0,
             }),
             ..every_effect()
         },

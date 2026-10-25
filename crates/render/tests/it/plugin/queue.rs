@@ -411,7 +411,7 @@ fn packed_chunk_shader_parses_and_validates() {
     );
     assert!(shader.contains("material_flags & (1u << 8u)"));
     assert_eq!(
-        shader_source::alpha_discard_threshold(&shader, "fragment"),
+        shader_source::alpha_discard_threshold(&shader, "cube_fragment"),
         Some(0.5)
     );
     assert_eq!(shader.matches("discard;").count(), 2);

@@ -31,10 +31,8 @@ use std::{
 
 // Culling bounds grow by the renderer's reach, which must cover every effect's range.
 const _: () = {
-    use server_experience::world_material::{
-        MAX_DISPLACEMENT_BLOCKS, MAX_OUTLINE_TEXELS, MAX_PARTICLE_RADIUS_BLOCKS,
-    };
-    assert!(MAX_DISPLACEMENT_BLOCKS + MAX_OUTLINE_TEXELS / 16.0 <= publication::MAX_REACH_BLOCKS);
+    use server_experience::world_material::{MAX_DISPLACEMENT_BLOCKS, MAX_PARTICLE_RADIUS_BLOCKS};
+    assert!(MAX_DISPLACEMENT_BLOCKS <= publication::MAX_REACH_BLOCKS);
     assert!(MAX_PARTICLE_RADIUS_BLOCKS + 0.25 <= publication::MAX_REACH_BLOCKS);
 };
 
@@ -58,9 +56,9 @@ pub(super) const MAX_DIAGNOSTICS: usize = 16;
 /// Provisional: GPU bytes charged once to a bundle whose materials read the scene, for its
 /// share of the host's copies of the view's colour and depth.
 pub(super) const SCENE_CHARGE_BYTES: u64 = 16 * 1024 * 1024;
-/// Provisional: GPU bytes charged once to a bundle whose materials bloom, for its share of the
-/// host's blur targets.
-pub(super) const BLOOM_CHARGE_BYTES: u64 = 8 * 1024 * 1024;
+/// Provisional: GPU bytes charged once to a bundle whose materials bloom or outline, for its
+/// share of the host's effects and blur targets.
+pub(super) const EFFECTS_PASS_CHARGE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// One bundle's declarations as the presenter reads them.
 pub(super) struct BundleWorld<'a> {
@@ -734,11 +732,11 @@ impl WorldMaterialPresenter {
 }
 
 /// The charges a bundle pays once however many of its materials use them: its share of the
-/// host's scene copies and bloom targets.
+/// host's scene copies and effects targets.
 #[derive(Default)]
 struct SharedCharges {
     scene: bool,
-    bloom: bool,
+    effects_pass: bool,
 }
 
 impl SharedCharges {
@@ -749,8 +747,9 @@ impl SharedCharges {
         } else {
             0
         };
-        let bloom = if effects.bloom.is_some() && !self.bloom {
-            BLOOM_CHARGE_BYTES
+        let effects_pass = effects.bloom.is_some() || effects.outline.is_some();
+        let bloom = if effects_pass && !self.effects_pass {
+            EFFECTS_PASS_CHARGE_BYTES
         } else {
             0
         };
@@ -760,7 +759,7 @@ impl SharedCharges {
     /// Records that a material with `effects` holds its charge.
     fn note(&mut self, effects: &WorldEffects) {
         self.scene |= effects.scene;
-        self.bloom |= effects.bloom.is_some();
+        self.effects_pass |= effects.bloom.is_some() || effects.outline.is_some();
     }
 }
 
@@ -803,7 +802,7 @@ fn published_effects(effects: &WorldEffects, cells: &BTreeMap<u32, u16>) -> Effe
     Effects {
         displacement_blocks: effects.displacement_blocks,
         scene: effects.scene,
-        outline_texels: effects.outline.map(|outline| outline.width_texels),
+        outline_pixels: effects.outline.map(|outline| outline.width_pixels),
         bloom: effects.bloom.map(|bloom| Bloom {
             strength: bloom.strength,
             radius_pixels: bloom.radius_pixels,

@@ -54,7 +54,7 @@ fn source(definitions: &[&str], library: Option<&str>) -> String {
 
 /// Renders `quads` with the module `source` from a camera that sees every face.
 fn render(gpu: &Gpu, quads: &[PackedQuad], source: &str, world: bool) -> Vec<u8> {
-    render_with(gpu, quads, source, world.then_some([0.0; 4]))
+    render_with(gpu, quads, source, world.then_some([[0.0; 4]; 2]))
 }
 
 /// [`render`], binding the world material frame with `effects` as its effects row when given.
@@ -62,7 +62,7 @@ fn render_with(
     gpu: &Gpu,
     quads: &[PackedQuad],
     source: &str,
-    effects: Option<[f32; 4]>,
+    effects: Option<[[f32; 4]; 2]>,
 ) -> Vec<u8> {
     let world = effects.is_some();
     let quad_words = quads.iter().flat_map(PackedQuad::words).collect::<Vec<_>>();
@@ -340,7 +340,7 @@ fn a_displacing_material_moves_the_bound_block_within_its_bound() {
                 ],
                 Some(&material.library(2)),
             ),
-            Some([limit, 0.0, 0.0, 0.0]),
+            Some([[limit, 0.0, 0.0, 0.0], [0.0; 4]]),
         )
     };
     let still = covered_rows(&draw(0.0, 1.0));

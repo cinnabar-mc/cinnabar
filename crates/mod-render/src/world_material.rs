@@ -31,35 +31,34 @@ pub struct WorldMaterial {
 
 pub use effects::{Features, MaterialBindings};
 
-/// Bytes of the `WorldMaterialFrame` uniform at binding 0: the phase row, the effects row,
+/// Bytes of the `WorldMaterialFrame` uniform at binding 0: the phase row, two effects rows,
 /// then four rows of parameters.
-pub const FRAME_UNIFORM_BYTES: usize = 6 * 16;
+pub const FRAME_UNIFORM_BYTES: usize = 7 * 16;
 
 /// The uniform a host binds at binding 0 for a material without effects:
 /// [`frame_uniform_with_effects`] with a zero effects row.
 pub fn frame_uniform(phase: f32, tag: u8, params: &[f32]) -> [f32; FRAME_UNIFORM_BYTES / 4] {
-    frame_uniform_with_effects(phase, tag, [0.0; 4], params)
+    frame_uniform_with_effects(phase, tag, [[0.0; 4]; 2], params)
 }
 
 /// The uniform a host binds at binding 0: the animation phase in `[0, 1)` and the quad tag
-/// its terrain draws keep (one more than the material's slot); the effects row (the
-/// displacement limit in blocks, the outline width in blocks, the particle radius in blocks
-/// and the particle count); then the declaration's parameters, missing ones zero. Values that
-/// are not finite are zero.
+/// its terrain draws keep (one more than the material's slot); the effects rows of
+/// [`publication::Effects::rows`]; then the declaration's parameters, missing ones zero.
+/// Values that are not finite are zero.
 pub fn frame_uniform_with_effects(
     phase: f32,
     tag: u8,
-    effects: [f32; 4],
+    effects: [[f32; 4]; 2],
     params: &[f32],
 ) -> [f32; FRAME_UNIFORM_BYTES / 4] {
     let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
     let mut words = [0.0; FRAME_UNIFORM_BYTES / 4];
     words[0] = finite(phase);
     words[1] = f32::from(tag);
-    for (word, value) in words[4..8].iter_mut().zip(effects) {
+    for (word, value) in words[4..12].iter_mut().zip(effects.into_iter().flatten()) {
         *word = finite(value);
     }
-    for (word, value) in words[8..].iter_mut().zip(params) {
+    for (word, value) in words[12..].iter_mut().zip(params) {
         *word = finite(*value);
     }
     words
@@ -118,7 +117,7 @@ pub const FRAME: &str = "world_material_frame";
 
 fn library(group: u32, textures: usize, features: Features, source: &str) -> String {
     let mut out = format!(
-        "struct WorldMaterialFrame {{ phase: vec4<f32>, effects: vec4<f32>, params: array<vec4<f32>, 4> }}
+        "struct WorldMaterialFrame {{ phase: vec4<f32>, effects: array<vec4<f32>, 2>, params: array<vec4<f32>, 4> }}
 @group({group}) @binding(0) var<uniform> {FRAME}: WorldMaterialFrame;
 fn world_material_phase() -> f32 {{ return {FRAME}.phase.x; }}
 fn world_material_tag() -> u32 {{ return u32({FRAME}.phase.y); }}

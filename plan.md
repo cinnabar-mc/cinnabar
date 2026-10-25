@@ -181,9 +181,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   displacement on bound entities and cube and model blocks with grown culling bounds, and scene
   read for blended entity and block materials from a per-view copy of the opaque colour and
   linear depth, and compute cells stepped once a frame before anything draws (at most 2^20 cell
-  updates a frame across bundles; computes past that wait) that materials read. Incomplete:
-  outlines, bloom and particles are not drawn yet, there is no in-game withdrawal control, and
-  every range and charge is provisional.
+  updates a frame across bundles; computes past that wait) that materials read, and bloom and
+  screen-space outlines from an effects pass over the bound targets. Incomplete: particles are
+  not drawn yet, there is no in-game withdrawal control, and every range and charge is
+  provisional.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;

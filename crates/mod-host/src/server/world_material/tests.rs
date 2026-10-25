@@ -69,7 +69,7 @@ fn effects_stage_only_under_their_permission_and_with_their_functions() {
     assert_eq!(staged.effects.displacement_blocks, Some(0.5));
     // An outline without its function, or under the wrong permission, is refused.
     let outlined = Effects {
-        outline: Some(Outline { width_texels: 1.0 }),
+        outline: Some(Outline { width_pixels: 1.0 }),
         ..displaced()
     };
     assert!(

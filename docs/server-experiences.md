@@ -230,10 +230,13 @@ material's do. Ending the runtime clears the withdrawals.
   It cannot read anything not on that view's screen: no other view, no translucent or later
   pass, no UI, no previous frame, and nothing it reads ever reaches the guest, which has no GPU
   readback.
-- **Extra passes and compute** (`render_world_material_passes`): an `outline` draws each bound
-  target again pushed out along its normals by at most 4 texels and seen from behind, in the
-  colour of `fn outline(input: WorldMaterialInput) -> vec3<f32>`; a `bloom` blurs what the
-  bound targets emit (strength at most 4, radius at most 16 pixels) and adds it over the frame;
+- **Extra passes and compute** (`render_world_material_passes`): after the translucent pass
+  each view draws the targets of materials with an `outline` or a `bloom` once more into two
+  effects targets, depth-tested against what is drawn, from the colour pass's own shading of
+  each fragment: its emission times the bloom strength, and the colour of
+  `fn outline(input: WorldMaterialInput) -> vec3<f32>`. Two fullscreen passes then blur the
+  emission (strength at most 4, radius at most 16 pixels) and grow an outline at most 8 pixels
+  wide around what can be seen of each target, never over it, and blend both over the scene.
   `particles` draws at most 4 096 pixel squares per bound target within at most 4 blocks of it,
   placed and coloured by `fn particle(input: WorldParticleInput) -> WorldParticle`.
   `set-compute` declares at most 65 536 cells of four numbers the host owns for the bundle; each
@@ -248,10 +251,11 @@ is reported once while its cells read zero. Compute cannot write
   to the guest. The guest functions keep the sandbox's per-pixel, per-vertex or per-cell bound
   (no loops, bounded expressions and texture reads).
 
-Ranges and charges are provisional: displacement at most 2 blocks, outlines 4 texels, bloom
+Ranges and charges are provisional: displacement at most 2 blocks, outlines 8 pixels, bloom
 strength 4 and radius 16 pixels, 4 096 particles within 4 blocks, 65 536 cells per compute and
-262 144 per bundle a frame; a bundle reading the scene pays 16 MiB once and one blooming 8 MiB
-once, each extra pass and compute 256 KiB of pipelines, and each cell 32 bytes.
+262 144 per bundle a frame; a bundle reading the scene pays 16 MiB once and one blooming or
+outlining 16 MiB once, each extra pass and compute 256 KiB of pipelines, and each cell 32
+bytes.
 
 ## Modal screens
 

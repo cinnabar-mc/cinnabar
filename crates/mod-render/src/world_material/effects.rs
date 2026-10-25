@@ -56,6 +56,9 @@ pub const CELLS: &str = "world_material_cells";
 /// The private fragment position the scene functions read, which the host sets.
 const FRAGMENT: &str = "world_material_fragment";
 
+/// What the effects pass captured of the fragment the host's colour pass shaded.
+const CAPTURED: [&str; 2] = ["world_effects_input", "world_effects_emission"];
+
 /// Module-scope names the library declares for `features`, besides the frame, textures and
 /// sampler.
 pub(super) fn globals(features: Features) -> impl Iterator<Item = &'static str> {
@@ -65,7 +68,43 @@ pub(super) fn globals(features: Features) -> impl Iterator<Item = &'static str> 
         &[]
     };
     let cells: &[&str] = if features.cells { &[CELLS] } else { &[] };
-    scene.iter().chain(cells).copied()
+    scene.iter().chain(cells).chain(CAPTURED.iter()).copied()
+}
+
+/// The host's effects pass: it captures the input and emission the colour code computed and
+/// writes the bloom source (emission times the bloom strength) and the outline (its colour over
+/// sixteen and its width over eight pixels, zero where the material has none).
+fn effects_pass(features: Features) -> String {
+    let outline = if features.outline {
+        format!(
+            "let width = {FRAME}.effects[1].x;
+    if width > 0.0 {{
+        outline = vec4<f32>(min(world_material_outline(world_effects_input) / 16.0, vec3<f32>(1.0)), clamp(width / 8.0, 1.0 / 255.0, 1.0));
+    }}"
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "struct WorldEffectsOutput {{
+    @location(0) emission: vec4<f32>,
+    @location(1) outline: vec4<f32>,
+}}
+var<private> world_effects_input: WorldMaterialInput;
+var<private> world_effects_emission: vec3<f32>;
+// Keeps what the host's colour code shaded for the effects pass.
+fn world_effects_capture(input: WorldMaterialInput, emission: vec3<f32>) {{
+    world_effects_input = input;
+    world_effects_emission = emission;
+}}
+// The effects pass's outputs for the captured fragment.
+fn world_effects_output() -> WorldEffectsOutput {{
+    var outline = vec4<f32>(0.0);
+    {outline}
+    return WorldEffectsOutput(vec4<f32>(world_effects_emission * {FRAME}.effects[1].y, 1.0), outline);
+}}
+"
+    )
 }
 
 /// Input and output types of every effect function, declared whatever the features, so a
@@ -113,6 +152,7 @@ fn cell(index: u32) -> vec4<f32> { return vec4<f32>(0.0); }
 pub(super) fn library(group: u32, textures: usize, features: Features) -> String {
     let bindings = MaterialBindings::of(textures, features);
     let mut out = String::from(TYPES);
+    out.push_str(&effects_pass(features));
     if !features.scene {
         out.push_str(NO_SCENE);
     }
@@ -174,7 +214,7 @@ fn world_material_clamp_axis(value: f32, limit: f32) -> f32 {{
 // The guest's displacement, clamped on each axis to the declared limit in blocks.
 fn world_material_displace(input: WorldVertexInput) -> vec3<f32> {{
     let offset = displace(input);
-    let limit = {FRAME}.effects.x;
+    let limit = {FRAME}.effects[0].x;
     return vec3<f32>(
         world_material_clamp_axis(offset.x, limit),
         world_material_clamp_axis(offset.y, limit),
@@ -200,7 +240,7 @@ fn world_material_outline(input: WorldMaterialInput) -> vec3<f32> {
 // colour and coverage bounded.
 fn world_material_particle(input: WorldParticleInput) -> WorldParticle {{
     let particle = particle(input);
-    let radius = {FRAME}.effects.z;
+    let radius = {FRAME}.effects[0].y;
     let offset = vec3<f32>(
         world_material_clamp_particle(particle.offset.x, radius),
         world_material_clamp_particle(particle.offset.y, radius),

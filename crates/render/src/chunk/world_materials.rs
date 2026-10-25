@@ -17,11 +17,13 @@ use mod_render::world_material::publication::{Blend, Depth};
 use render_scene::ChunkRenderInstance;
 
 mod draw;
+mod effects;
 mod interleave;
 mod translucent;
 pub(in crate::chunk) use draw::{
     DrawWorldMaterialTerrainCommands, WorldTerrainSections, queue_world_material_chunks,
 };
+pub(crate) use effects::draw as draw_effects;
 pub(in crate::chunk) use translucent::{DrawInterleavedTerrainCommands, InterleavedTerrain};
 
 /// The bind group a world material terrain pipeline reads its frame, textures and sampler from.
@@ -71,6 +73,8 @@ pub(in crate::chunk) struct WorldTerrainKey {
     pub(in crate::chunk) base: ChunkPipelineKey,
     pub(in crate::chunk) world: WorldVariant,
     pub(in crate::chunk) geometry: Geometry,
+    /// Whether this is the effects-pass form, writing the view's effects targets.
+    pub(in crate::chunk) effects: bool,
 }
 
 impl SpecializerKey for WorldTerrainKey {
@@ -127,6 +131,11 @@ impl Specializer<RenderPipeline> for WorldTerrainSpecializer {
         descriptor.vertex.shader_defs.extend(key.world.defs());
         let fragment = descriptor.fragment.as_mut().expect("terrain colour");
         fragment.shader_defs.extend(key.world.defs());
+        if key.effects {
+            crate::world_material::effects_pass::specialize(descriptor, true);
+            return Ok(key);
+        }
+        let fragment = descriptor.fragment.as_mut().expect("terrain colour");
         let target = fragment.targets[0].as_mut().expect("terrain colour target");
         let one = BlendComponent {
             src_factor: BlendFactor::One,
@@ -323,6 +332,7 @@ mod tests {
                 blend,
                 depth,
                 features: Default::default(),
+                effects_pass: false,
             };
             WorldTerrainSpecializer
                 .specialize(
@@ -330,6 +340,7 @@ mod tests {
                         base,
                         world,
                         geometry,
+                        effects: false,
                     },
                     &mut descriptor,
                 )

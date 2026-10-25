@@ -152,7 +152,7 @@ pub(super) fn raster_effects(
 #[derive(Default)]
 pub(super) struct Effects<'a> {
     pub features: mod_render::world_material::Features,
-    pub row: [f32; 4],
+    pub rows: [[f32; 4]; 2],
     pub scene: Option<(&'a wgpu::TextureView, &'a wgpu::TextureView)>,
     pub cells: Option<&'a wgpu::Buffer>,
 }
@@ -195,7 +195,7 @@ pub(super) fn raster_with_effects(
             &format!("@group(0) @binding({})", SCENE_BINDINGS[1]),
         );
     let frame = gpu.buffer(
-        &mod_render::world_material::frame_uniform_with_effects(0.0, 1, effects.row, params),
+        &mod_render::world_material::frame_uniform_with_effects(0.0, 1, effects.rows, params),
         wgpu::BufferUsages::UNIFORM,
     );
     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
