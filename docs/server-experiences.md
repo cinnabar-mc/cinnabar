@@ -173,7 +173,8 @@ memory, signals to any process but the helper itself (on every kernel: `kill`, `
 signals only to its own process id, no `tkill`, process descriptors or I/O signal owners, so
 signal isolation does not depend on Landlock's ABI 6 scope, which stays as a second layer), other
 processes' resource limits, priorities and scheduling, changes to any file's mode, owner, times,
-extended attributes or length (by path, which Landlock does not cover, or by descriptor), namespaces
+extended attributes or length (by path, which Landlock does not cover, or by descriptor), System V
+IPC and POSIX message queues, namespaces
 and mounts, BPF, performance
 counters, keys, io_uring, modules and administration calls; a foreign architecture or x32 call
 kills it. A helper that cannot lock down exits before reading the component, and a kernel without

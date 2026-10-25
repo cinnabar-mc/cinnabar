@@ -258,6 +258,34 @@ fn run(op: &str) -> String {
                 -1
             }
         }),
+        // SAFETY (IPC probes): raw calls on scalar arguments and a NUL-terminated name; an
+        // object created by mistake is private to the probe or removed with it.
+        "shmget" => status(i64::from(unsafe {
+            libc::shmget(libc::IPC_PRIVATE, 4096, libc::IPC_CREAT | 0o600)
+        })),
+        // `IPC_INFO` reports the system's limits into a buffer larger than it fills.
+        "shm-info" => status(i64::from(unsafe {
+            let mut info: libc::shmid_ds = std::mem::zeroed();
+            libc::shmctl(0, libc::IPC_INFO, &mut info)
+        })),
+        "semget" => status(i64::from(unsafe {
+            libc::semget(libc::IPC_PRIVATE, 1, libc::IPC_CREAT | 0o600)
+        })),
+        "msgget" => status(i64::from(unsafe {
+            libc::msgget(libc::IPC_PRIVATE, libc::IPC_CREAT | 0o600)
+        })),
+        "mq-open" => status(unsafe {
+            libc::syscall(
+                libc::SYS_mq_open,
+                c"restricted-probe".as_ptr(),
+                libc::O_RDONLY,
+                0,
+                std::ptr::null::<libc::mq_attr>(),
+            )
+        }),
+        "mq-unlink" => {
+            status(unsafe { libc::syscall(libc::SYS_mq_unlink, c"restricted-probe".as_ptr()) })
+        }
         other => format!("unknown {other}"),
     }
 }
@@ -366,6 +394,22 @@ fn the_lockdown_denies_file_attribute_changes() {
         assert_eq!(probe(op), format!("denied {}", libc::EPERM), "{op}");
     }
     assert_eq!(probe("write-memfd"), "allowed");
+}
+
+/// No System V shared memory, semaphore or message queue, nor any POSIX message queue, can be
+/// created or reached, so the helper shares no IPC object with another process of the user.
+#[test]
+fn the_lockdown_denies_ipc_objects() {
+    for op in [
+        "shmget",
+        "shm-info",
+        "semget",
+        "msgget",
+        "mq-open",
+        "mq-unlink",
+    ] {
+        assert_eq!(probe(op), format!("denied {}", libc::EPERM), "{op}");
+    }
 }
 
 /// The running helper stays undumpable, so processes of the same user cannot trace it or read

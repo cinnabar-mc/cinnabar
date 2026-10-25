@@ -93,6 +93,25 @@ const DENIED: &[libc::c_long] = &[
     SYS_REMOVEXATTRAT,
     libc::SYS_truncate,
     libc::SYS_ftruncate,
+    // System V IPC and POSIX message queues: objects any process of the user may share.
+    libc::SYS_shmget,
+    libc::SYS_shmat,
+    libc::SYS_shmctl,
+    libc::SYS_shmdt,
+    libc::SYS_semget,
+    libc::SYS_semop,
+    libc::SYS_semtimedop,
+    libc::SYS_semctl,
+    libc::SYS_msgget,
+    libc::SYS_msgsnd,
+    libc::SYS_msgrcv,
+    libc::SYS_msgctl,
+    libc::SYS_mq_open,
+    libc::SYS_mq_unlink,
+    libc::SYS_mq_timedsend,
+    libc::SYS_mq_timedreceive,
+    libc::SYS_mq_notify,
+    libc::SYS_mq_getsetattr,
     libc::SYS_mount,
     libc::SYS_umount2,
     libc::SYS_pivot_root,
@@ -503,6 +522,34 @@ mod tests {
             libc::SYS_futimesat,
         ]);
         for call in calls {
+            assert_eq!(helper(call, &[0, 0, 0]), EPERM, "{call}");
+        }
+    }
+
+    /// System V shared memory, semaphores and message queues and POSIX message queues are
+    /// unreachable.
+    #[test]
+    fn ipc_objects_are_refused() {
+        for call in [
+            libc::SYS_shmget,
+            libc::SYS_shmat,
+            libc::SYS_shmctl,
+            libc::SYS_shmdt,
+            libc::SYS_semget,
+            libc::SYS_semop,
+            libc::SYS_semtimedop,
+            libc::SYS_semctl,
+            libc::SYS_msgget,
+            libc::SYS_msgsnd,
+            libc::SYS_msgrcv,
+            libc::SYS_msgctl,
+            libc::SYS_mq_open,
+            libc::SYS_mq_unlink,
+            libc::SYS_mq_timedsend,
+            libc::SYS_mq_timedreceive,
+            libc::SYS_mq_notify,
+            libc::SYS_mq_getsetattr,
+        ] {
             assert_eq!(helper(call, &[0, 0, 0]), EPERM, "{call}");
         }
     }
