@@ -84,6 +84,41 @@ fn hud_surfaces_draw_with_the_gameplay_hud_and_hide_under_f1_and_panels() {
     assert!(base == snapshot::rasterize(&frame(&player, &mut p)));
 }
 
+/// A panel that keeps the gameplay HUD keeps mods' layers under it too.
+#[test]
+fn hud_surfaces_stay_under_panels_that_show_the_gameplay_hud() {
+    let player = player_state::PlayerState::new(1);
+    let mut p = presentation();
+    let mut panel = mod_ui::test_support::sample_panel();
+    for shown in [true, false] {
+        panel.show_gameplay_hud = shown;
+        p.mod_ui_mut()
+            .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+            .unwrap();
+        p.mod_ui_mut().set_mod_panel_open(true);
+        publish(&mut p, None);
+        let without = snapshot::rasterize(&frame(&player, &mut p));
+        publish(&mut p, Some(&surface()));
+        let with = snapshot::rasterize(&frame(&player, &mut p));
+        assert_eq!(
+            with != without,
+            shown,
+            "the layer draws under the panel only while it shows the gameplay HUD"
+        );
+    }
+    hide_hud(&mut p, true);
+    panel.show_gameplay_hud = true;
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    let hidden = snapshot::rasterize(&frame(&player, &mut p));
+    publish(&mut p, None);
+    assert!(
+        hidden == snapshot::rasterize(&frame(&player, &mut p)),
+        "F1 still hides it"
+    );
+}
+
 #[test]
 fn hidden_crosshair_lays_out_but_draws_nothing_and_stays_reported() {
     use ui_engine::text_metrics::TextMetrics;

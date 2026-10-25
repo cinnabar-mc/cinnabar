@@ -82,12 +82,14 @@ impl UiPresentationRuntime {
         self.screens.mod_ui.set_mod_screens(input, page);
     }
 
-    /// All personal HUD content follows gameplay focus and the player's HUD preference.
+    /// All personal HUD content follows gameplay focus and the player's HUD preference, and
+    /// stays under an open panel that keeps the gameplay HUD, as vanilla's HUD does.
     pub(in super::super) fn mod_hud_visible(
         &self,
         player: &player_state::PlayerState,
         runtime: &UiRuntime,
     ) -> bool {
+        let mod_ui = &self.screens.mod_ui;
         !runtime.ui_focused(player)
             && self.menu_view.is_none()
             && self.loading_stage.is_none()
@@ -98,8 +100,8 @@ impl UiPresentationRuntime {
                 .options()
                 .value(SettingId::HideHud)
                 == 0
-            && !self.screens.mod_ui.mod_panel_open()
-            && !self.screens.mod_ui.mod_hud_editor_painting()
+            && (!mod_ui.mod_panel_open() || mod_ui.mod_panel_shows_gameplay_hud())
+            && !mod_ui.mod_hud_editor_painting()
     }
 
     /// Draws the extension label through JSON-UI only while the gameplay HUD owns focus.

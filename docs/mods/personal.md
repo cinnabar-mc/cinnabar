@@ -90,8 +90,8 @@ again; everything else keeps its cache. Values, documents and limits live in
 [`surface`](../../crates/ui/src/mod_panel/surface.rs): 512 bindings, 192 KiB of
 document and 64 KiB per update. Only the `screen` root draws on gameplay; other
 named controls in the document stay embeddable. The layer hides with the gameplay
-HUD, under F1, screens and panels that hide it, and several mods' layers draw in
-load order.
+HUD, under F1, screens and panels that hide it; it stays under a panel that sets
+`show_gameplay_hud`. Several mods' layers draw in load order.
 
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
