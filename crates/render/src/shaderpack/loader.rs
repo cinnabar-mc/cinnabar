@@ -280,6 +280,9 @@ pub(crate) fn load(
     progress: &LoadProgress,
     compiler: Option<&Path>,
 ) -> Result<PackGpu, String> {
+    if !render_model::SHADER_PACKS_ENABLED {
+        return Err("shader packs are unavailable on this platform or build".to_owned());
+    }
     super::kernels::validate_device(&gpu.device.limits())?;
     check_cancelled(progress)?;
     let started = std::time::Instant::now();

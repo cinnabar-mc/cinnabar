@@ -79,6 +79,7 @@ impl Open {
             return false;
         };
         let result = compiler
+            .filter(|_| render_model::SHADER_PACKS_ENABLED)
             .ok_or_else(|| "the isolated shader compiler is unavailable".to_owned())
             .and_then(|compiler| shaderpack::worker::Running::start(compiler, request));
         self.state = match result {

@@ -1087,11 +1087,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - The iOS IPA (`docs/ios.md`) runs each Go core in-process from a linked C archive and loads
   carriers injected into the bundle. On an iPhone 18 Pro Max (iOS 27) it launches full screen,
-  renders with Metal, signs in and joins servers, including a Java shader pack; servers that
+  renders with Metal, signs in and joins servers; servers that
   send large packs need the increased-memory-limit capability. The 120 Hz display link and
   Game Mode have no device evidence yet. Safe-area insets are not applied, so the Dynamic Island
   can cover HUD edges, and there is no render-scale option for the native 3× drawable. Touch,
-  soft-keyboard entry and keyboard overlap remain unverified. On-device first-run preparation,
+  soft-keyboard entry and keyboard overlap remain unverified. Chat requests the iOS software
+  keyboard. Shader-pack controls and compilation are disabled on iOS; in-process shader
+  compilation for iOS remains open. On-device first-run preparation,
   native crash capture, clipboard, link opening, local worlds and mods (no JIT) remain
   unavailable.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/

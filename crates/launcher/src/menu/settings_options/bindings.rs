@@ -4,7 +4,8 @@ use semantic_input::{Action, PhysicalControl};
 
 /// Whether this build offers shader-pack controls; the app enables it with its
 /// `shaderpacks` feature, alongside `render_model::SHADER_PACKS_ENABLED`.
-pub const SHADER_PACK_BINDINGS: bool = cfg!(feature = "shaderpacks");
+pub const SHADER_PACK_BINDINGS: bool =
+    cfg!(feature = "shaderpacks") && render_api::SHADER_PACK_PLATFORM_SUPPORTED;
 
 /// A row in a device's action or supplemental binding grid.
 #[derive(Clone, Copy, Debug)]
