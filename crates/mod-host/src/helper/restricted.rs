@@ -1,5 +1,5 @@
 //! The restricted helper launch, on Linux. The parent clears the environment and, between
-//! `fork` and `exec`, closes every descriptor but the three stdio pipes, sets resource limits
+//! `fork` and `exec`, has every descriptor but the three stdio pipes closed by `exec`, sets resource limits
 //! and forbids privilege gain; the helper then makes itself undumpable, audits what it
 //! inherited and, before it reads the component, denies itself the filesystem and the network
 //! with Landlock and process creation, executables, sockets and kernel attack surface with a
@@ -95,11 +95,13 @@ fn prepare_child(parent: libc::pid_t) -> std::io::Result<()> {
         // Covers the copy of the parent's memory until `exec`, which resets the flag for an
         // ordinary executable; [`lock_down`] sets it again in the helper.
         check(libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0))?;
-        if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) != 0 {
-            // `close_range` is missing (kernels before 5.9) or refused by an outer filter: close
-            // every descriptor the current hard limit can address, up to the kernel's default
-            // ceiling. One numbered higher survives, and the helper's audit then refuses to
-            // serve.
+        // Every descriptor above stdio becomes close-on-exec rather than closed at once, so the
+        // pipe through which `spawn` learns of a failure below stays open until `exec`.
+        if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, CLOSE_RANGE_CLOEXEC) != 0 {
+            // `close_range` or its flag is missing (kernels before 5.11) or refused by an outer
+            // filter: mark every descriptor the current hard limit can address, up to the
+            // kernel's default ceiling. One numbered higher survives, and the helper's audit
+            // then refuses to serve.
             let mut limit = libc::rlimit {
                 rlim_cur: 0,
                 rlim_max: 0,
@@ -110,7 +112,7 @@ fn prepare_child(parent: libc::pid_t) -> std::io::Result<()> {
                 FALLBACK_CLOSE_CEILING
             };
             for fd in 3..ceiling as libc::c_int {
-                libc::close(fd);
+                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
             }
         }
         for (resource, value) in LIMITS {
@@ -124,7 +126,11 @@ fn prepare_child(parent: libc::pid_t) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The descriptor the fallback closure before `exec` stops at when `close_range` cannot run:
+/// `CLOSE_RANGE_CLOEXEC` (`linux/close_range.h`), which the C library crate lacks on Linux.
+#[cfg(target_os = "linux")]
+const CLOSE_RANGE_CLOEXEC: u32 = 1 << 2;
+
+/// The descriptor the fallback marking before `exec` stops at when `close_range` cannot run:
 /// the kernel's default `fs.nr_open`, which bounds the hard descriptor limit unless raised.
 #[cfg(target_os = "linux")]
 const FALLBACK_CLOSE_CEILING: libc::rlim_t = 1 << 20;
@@ -210,6 +216,60 @@ pub fn lock_down() -> Result<Lockdown> {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+
+    /// Set for the launcher process of
+    /// [`a_containment_step_failing_after_descriptors_are_marked_fails_the_spawn`].
+    const LAUNCHER: &str = "RESTRICTED_LAUNCHER";
+
+    /// Does nothing in an ordinary run. As the launcher, lowers its hard file size limit just
+    /// below the helper's, so that the containment step setting it, which runs after the
+    /// descriptors are marked, fails, and prints whether the spawn reported that.
+    #[test]
+    fn launcher_with_a_lowered_file_size_limit() {
+        if std::env::var_os(LAUNCHER).is_none() {
+            return;
+        }
+        let lowered = (DATA_LIMIT_BYTES - 1) as libc::rlim_t;
+        let limit = libc::rlimit {
+            rlim_cur: lowered,
+            rlim_max: lowered,
+        };
+        // SAFETY: setrlimit reads the initialized struct.
+        assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, &limit) }, 0);
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", "no-such-test"]);
+        contain_expecting(&mut command, std::process::id() as libc::pid_t);
+        match command.output() {
+            Err(error) => println!("LAUNCH refused {}", error.raw_os_error().unwrap_or(-1)),
+            Ok(output) => println!("LAUNCH ran {}", output.status),
+        }
+    }
+
+    /// A containment step that fails after the inherited descriptors are dealt with still
+    /// fails the spawn with its error, rather than the child dying unreported.
+    #[test]
+    fn a_containment_step_failing_after_descriptors_are_marked_fails_the_spawn() {
+        // SAFETY: geteuid only reads the caller's identity.
+        if unsafe { libc::geteuid() } == 0 {
+            eprintln!("skipping: running as root, which may raise its hard limits");
+            return;
+        }
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "helper::restricted::tests::launcher_with_a_lowered_file_size_limit",
+                "--nocapture",
+            ])
+            .env(LAUNCHER, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(&format!("LAUNCH refused {}", libc::EPERM)),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     /// A child that finds another parent once its death signal is armed, as when the one that
     /// launched it died first, refuses to run; under its real parent it runs.

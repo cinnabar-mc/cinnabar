@@ -155,13 +155,13 @@ manifest entries uses the low-level bundle path below.
 ## Restricted helper (Linux)
 
 `Helper::spawn_restricted` starts `mod-host restricted-server-helper` contained; other platforms
-refuse it. Between `fork` and `exec` the parent clears the environment, starts it in `/`, closes every descriptor
-but the three stdio pipes, sets `PR_SET_NO_NEW_PRIVS`, makes the child undumpable and killed with
+refuse it. Between `fork` and `exec` the parent clears the environment, starts it in `/`, has `exec` close every
+descriptor but the three stdio pipes, sets `PR_SET_NO_NEW_PRIVS`, makes the child undumpable and killed with
 its parent (refusing to run if that parent died first), and sets resource limits: 1 GiB of private
 writable memory and of file size (`RLIMIT_DATA`, `RLIMIT_FSIZE`), 64 descriptors, and no core
 files, locked memory, message queues or real-time priority. Because `exec` makes an ordinary
 program dumpable again, the helper first makes itself undumpable once more. Where `close_range`
-cannot run, the parent closes every descriptor up to its hard limit instead. Before reading the
+cannot mark them close-on-exec, the parent marks every descriptor up to its hard limit instead. Before reading the
 component, the helper audits that it holds no other descriptor (listing `/proc/self/fd`, so one
 numbered above the new limit cannot escape, and failing without it), no environment and those
 limits, then denies itself everything else: a Landlock ruleset that handles every right the kernel
