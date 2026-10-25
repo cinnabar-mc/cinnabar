@@ -122,7 +122,7 @@ impl Status {
     }
 }
 
-/// Identifies the running client using the shared product version and publication number.
+/// Describes the running build without guessing a publication channel for older or local builds.
 pub fn installed_version(build: &Build) -> String {
     let channel = build.channel.map_or(
         if build.number == 0 {

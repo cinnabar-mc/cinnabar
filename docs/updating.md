@@ -11,7 +11,7 @@ When the download is ready, a compact card in the home screen's top-right corner
 release version and **Restart and update** button. The card stays outside the Play panel, and
 installation only starts when you choose the button. An update required to connect uses stronger
 wording. Periodic checks continue, and a newer release replaces the waiting one. In **Settings**,
-select **Updates** under **Application** at the bottom of the sidebar. You can select a channel,
+select **Updates** in the sidebar. You can select a channel,
 turn off automatic checks, or enable **Install updates when I quit**. The section separates the
 running build and its publication channel from the channel you follow. It shows the target
 release's channel, version and build, download bytes and percentage, verification status,

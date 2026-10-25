@@ -44,7 +44,7 @@ impl Channel {
     /// Explains which releases a channel follows beside the channel picker.
     pub const fn description(self) -> &'static str {
         match self {
-            Self::Beta => "Tagged releases. Receives updates less often than Nightly.",
+            Self::Beta => "Regular tagged releases.",
             Self::Nightly => {
                 "The newest Nightly or Beta release. Experimental changes may be unstable."
             }
