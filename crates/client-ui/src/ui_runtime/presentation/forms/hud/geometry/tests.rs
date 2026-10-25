@@ -153,8 +153,17 @@ fn keep_out_presentation(
     let bytes =
         assets::encode_ui_catalog([1; 32], carrier.atlas_pages(), &[], &[], &files).unwrap();
     let mut p = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
-    p.enable_json_ui(Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()))
-        .unwrap();
+    // Keep-out bounds come from one paint, so every fixture image must be resident on it. The
+    // host's frame-budgeted decodes would defer images to a worker on a slow machine.
+    p.enable_prepared_json_ui_with_sources(
+        crate::ui_runtime::presentation::forms::PreparedJsonUi::new(Arc::new(
+            assets::RuntimeUiAssets::decode(&bytes).unwrap(),
+        ))
+        .unwrap(),
+        crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+        ui_engine::sources::ImageWork::inline(),
+    )
+    .unwrap();
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255; 4]))
         .write_to(&mut png, image::ImageFormat::Png)
