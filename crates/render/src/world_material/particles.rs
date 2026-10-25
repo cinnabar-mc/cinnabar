@@ -176,6 +176,12 @@ pub(crate) fn admitted(targets: usize, count: u32, budget: &mut u32) -> usize {
     admitted
 }
 
+/// Drops the `pipelines` whose material no slot of `gpu` holds any more.
+fn retain_live<V>(pipelines: &mut HashMap<(u128, TextureFormat, u32), V>, gpu: &WorldMaterialGpu) {
+    let live = gpu.variant_programs();
+    pipelines.retain(|(key, _, _), _| live.contains(key));
+}
+
 /// Builds each view's particle draws from the gathered targets, within its budget, and
 /// requests the pipelines they need.
 #[allow(clippy::too_many_arguments)]
@@ -307,12 +313,7 @@ pub(crate) fn prepare(
     particles
         .views
         .retain(|entity, _| live_views.contains(entity));
-    let live: Vec<u128> = (0..u16::try_from(u64::BITS).unwrap_or(64))
-        .filter_map(|slot| gpu.variant(slot).map(|variant| variant.program))
-        .collect();
-    particles
-        .pipelines
-        .retain(|(key, _, _), _| live.contains(key));
+    retain_live(&mut particles.pipelines, &gpu);
 }
 
 /// Draws the view's particles into its scene colour after the translucent pass.
@@ -395,5 +396,38 @@ mod tests {
         assert_eq!(budget, 0);
         assert_eq!(admitted(1, 1, &mut budget), 0);
         assert_eq!(admitted(5, 0, &mut MAX_FRAME_PARTICLES.clone()), 0);
+    }
+
+    /// An entity slot past the terrain mask's 64 bits keeps its particle pipeline, while a
+    /// retired material's goes.
+    #[test]
+    fn particle_pipelines_of_every_entity_slot_stay_cached() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        world.init_resource::<WorldMaterialGpu>();
+        let identifiers: Vec<String> = (0..70).map(|i| format!("example:{i}")).collect();
+        let identifiers: Vec<&str> = identifiers.iter().map(String::as_str).collect();
+        let mut scene =
+            render_scene::world_material::WorldMaterialScene::with_bound_entities(&identifiers);
+        // The highest slot draws a program of its own.
+        let set = std::sync::Arc::make_mut(&mut scene.set);
+        set.materials[69].as_mut().unwrap().material =
+            std::sync::Arc::new(mod_render::world_material::WorldMaterial {
+                source: "fn shade(input: WorldMaterialInput) -> Surface { return Surface(vec3<f32>(1.0), 1.0, vec3<f32>(0.0)); }"
+                    .into(),
+                textures: 0,
+                features: Default::default(),
+            });
+        world.insert_resource(scene);
+        world.run_system_once(super::super::prepare).unwrap();
+        let gpu = world.resource::<WorldMaterialGpu>();
+        let high = gpu.variant(69).unwrap().program;
+        assert_ne!(high, gpu.variant(0).unwrap().program);
+        let format = TextureFormat::Rgba8UnormSrgb;
+        let mut pipelines = HashMap::from([((high, format, 1), ()), ((u128::MAX, format, 1), ())]);
+        retain_live(&mut pipelines, gpu);
+        assert!(pipelines.contains_key(&(high, format, 1)));
+        assert!(!pipelines.contains_key(&(u128::MAX, format, 1)));
     }
 }
