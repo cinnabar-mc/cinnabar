@@ -33,7 +33,7 @@ pub(super) struct CosmeticEmitters {
     instance: Option<u64>,
     live: HashMap<CosmeticEmitterKey, Live>,
     /// Stopped or finished emitters that still occupy the table while their particles drain.
-    draining: Vec<u64>,
+    draining: Vec<(CosmeticEmitterKey, u64)>,
     /// Effects this system refused to parse; they are not offered again until it is rebuilt.
     rejected: HashSet<Arc<str>>,
     pass: u64,
@@ -65,7 +65,12 @@ impl CosmeticEmitters {
             self.draining.clear();
             self.rejected.clear();
         }
-        self.draining.retain(|id| system.contains_emitter(*id));
+        self.draining.retain(|(key, id)| {
+            if !placements.iter().any(|placement| placement.key == *key) {
+                system.discard(*id);
+            }
+            system.contains_emitter(*id)
+        });
         self.pass = self.pass.wrapping_add(1);
         let pass = self.pass;
         for placement in placements {
@@ -79,13 +84,17 @@ impl CosmeticEmitters {
             }
         }
         let draining = &mut self.draining;
-        self.live.retain(|_, live| {
+        self.live.retain(|key, live| {
             if live.seen == pass {
                 return true;
             }
+            if !placements.iter().any(|placement| placement.key == *key) {
+                system.discard(live.id);
+                return false;
+            }
             system.stop(live.id);
             if system.contains_emitter(live.id) {
-                draining.push(live.id);
+                draining.push((*key, live.id));
             }
             false
         });

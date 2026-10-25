@@ -50,7 +50,7 @@ pub struct ActorFrameState {
 
 impl ActorFrameState {
     /// Cosmetic motion shared by the world attachment and the HUD paperdoll for this frame.
-    pub fn cosmetic_motion(&self) -> Vec<(cosmetics::Item, render_model::hats::Motion)> {
+    pub fn cosmetic_motion(&mut self) -> &[(cosmetics::Item, render_model::hats::Motion)] {
         self.hat_state.local_motion()
     }
 

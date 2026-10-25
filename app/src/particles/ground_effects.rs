@@ -31,7 +31,7 @@ struct Track {
 pub(super) struct GroundEffects {
     instance: Option<(u64, u64, i32)>,
     tracks: HashMap<GroundEffectWearer, Track>,
-    draining: Vec<u64>,
+    draining: Vec<(GroundEffectWearer, u64)>,
     rejected: HashSet<Arc<str>>,
 }
 
@@ -60,7 +60,12 @@ impl GroundEffects {
                 ..Default::default()
             };
         }
-        self.draining.retain(|id| system.contains_emitter(*id));
+        self.draining.retain(|(wearer, id)| {
+            if !wearers.contains(wearer) {
+                system.discard(*id);
+            }
+            system.contains_emitter(*id)
+        });
         self.tracks.retain(|key, _| wearers.contains(key));
         for &wearer in wearers {
             let Some(actor) = stream
@@ -180,7 +185,7 @@ fn contact(
     walks: bool,
     dt: f32,
     seed: u64,
-    draining: &mut Vec<u64>,
+    draining: &mut Vec<(GroundEffectWearer, u64)>,
     rejected: &mut HashSet<Arc<str>>,
 ) {
     if dt > 0.25 || !dt.is_finite() {
@@ -253,7 +258,7 @@ fn contact(
             ..Default::default()
         };
         if let Some(id) = system.spawn(&request) {
-            draining.push(id);
+            draining.push((wearer, id));
         }
     }
 }

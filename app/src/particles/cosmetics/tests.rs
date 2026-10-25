@@ -119,6 +119,13 @@ fn cosmetic_emitters_register_lazily_follow_and_stop_with_their_placement() {
         "unequipped or hidden items stop emitting"
     );
     assert!(tracker.live.is_empty());
+    assert_eq!(
+        system.live_particles(),
+        0,
+        "hidden particles never simulate or draw"
+    );
+    assert_eq!(system.emitter_count(), 0);
+    assert!(drawn_uvs(&mut system).is_empty());
 }
 
 #[test]
@@ -155,8 +162,8 @@ fn cosmetic_emitters_are_bounded_and_skip_rejected_effects() {
     tracker.sync(&mut system, &crowd[8..]);
     assert_eq!(
         emitting(&tracker, &system).len(),
-        MAX_COSMETIC_EMITTERS - 8,
-        "stopped emitters hold their slots until they leave the table"
+        MAX_COSMETIC_EMITTERS,
+        "hidden emitters release their slots without simulating a drain"
     );
     system.tick(0.01, &EmptyWorld);
     tracker.sync(&mut system, &crowd[8..]);

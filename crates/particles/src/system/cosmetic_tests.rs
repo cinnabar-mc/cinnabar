@@ -105,3 +105,35 @@ fn cosmetic_flipbooks_sample_sub_rects_of_their_own_sprite_tile() {
         "a spawn without its sprite draws the white texel"
     );
 }
+
+#[test]
+fn discarding_hidden_effects_releases_particles_and_atlas_ownership_immediately() {
+    let mut system = ParticleSystem::default();
+    assert!(system.register_effect(&effect()));
+    let request = SpawnRequest {
+        effect: "cinnabar_cosmetic:0123456789abcdef_0".into(),
+        tile: Some(TileRequest {
+            key: 0xC05,
+            size: 16,
+            pixels: vec![200; 16 * 16 * 4].into(),
+        }),
+        ..Default::default()
+    };
+    let hidden = system.spawn(&request).unwrap();
+    let visible = system.spawn(&request).unwrap();
+    system.tick(0.05, &EmptyWorld);
+    assert_eq!(system.live_particles(), 2);
+    let tile = system.emitter(hidden).unwrap().texture;
+    system.discard(hidden);
+    assert_eq!(system.live_particles(), 1);
+    assert_eq!(system.emitter_count(), 1);
+    assert!(system.contains_emitter(visible));
+    assert_eq!(system.atlas.placement_references(tile), 1);
+    system.discard(hidden);
+    system.discard(visible);
+    assert_eq!(system.live_particles(), 0);
+    assert_eq!(system.emitter_count(), 0);
+    assert_eq!(system.atlas.placement_references(tile), 0);
+    assert_eq!(system.bookkeeping.effect(&request.effect).particles, 0);
+    assert!(uvs(&mut system).is_empty());
+}

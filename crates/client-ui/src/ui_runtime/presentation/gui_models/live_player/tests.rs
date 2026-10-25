@@ -428,3 +428,40 @@ fn hud_cosmetic_emitters_share_the_player_frame_and_clear_with_its_owner() {
     assert!(presentation.gui_models.live_player.emitters.is_empty());
     assert!(presentation.gui_models.live_player.emitter_owner.is_none());
 }
+
+#[test]
+fn equipped_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let catalog = player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},"bones":[
+        {"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-2],"size":[8,12,4],"uv":[0,0]}]},
+        {"name":"head","parent":"body","pivot":[0,24,0]}]}]}"#.to_vec());
+    let stream = player_stream(Arc::clone(&catalog), catalog);
+    let item = render_model::hats::fixture::rigid();
+    presentation.set_preview_cosmetics(&[item]);
+    let motion = [(item, render_model::hats::Motion::default())];
+    presentation.set_cosmetic_motion(&motion);
+    presentation.capture_hud_player(Some(&stream), false);
+    // Grow every scratch buffer before measuring its steady state.
+    presentation.capture_hud_player(Some(&stream), false);
+    let (_, allocations) = test_alloc::count(|| {
+        presentation.set_cosmetic_motion(&motion);
+        presentation.capture_hud_player(Some(&stream), false);
+    });
+    assert_eq!(allocations.calls, 0);
+    assert!(!presentation.gui_models.live_player.hat_vertices[&item].is_empty());
+    let (_, allocations) = test_alloc::count(|| {
+        presentation.set_cosmetic_motion(&[(
+            item,
+            render_model::hats::Motion {
+                seconds: 0.5,
+                ..Default::default()
+            },
+        )]);
+    });
+    assert_eq!(
+        allocations.calls, 0,
+        "changing motion retains the equipped map"
+    );
+}

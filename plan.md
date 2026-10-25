@@ -579,9 +579,12 @@ and rendered qualification remain incomplete.
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
 inertia and contacts derived from the drawn body and worn armor. Cloth pins and
 mounts retract toward the bare torso and expand to clear equipped chest geometry.
-Vertical follow and damping restrain jump and landing motion, and local cloth keeps
-advancing while first-person visibility hides the body. View changes transfer the drape between
-body pose spaces. Self-collision and world collision remain open.
+Vertical follow and damping restrain jump and landing motion. Hidden local cloth pauses;
+revealing it fits the fabric to the current body and armor without replaying hidden frames.
+Equipped motion is sampled only for a submitted world attachment or a visible HUD preview.
+Attachment selection, texture lookup and HUD vertex storage are reused on steady frames.
+Self-collision, world collision, allocation-free animated poses and hardware performance
+qualification remain open.
 Ground-following pets have per-wearer movement, collision-shape grounding, one-block
 hops with checked flight paths and landings, heading-aware animated body clearance,
 obstacle steering and distance-driven gait playback.
@@ -590,7 +593,8 @@ and optional tricks. Missing terrain freezes the follower; ordinary blockage nev
 teleports it. Owner teleports reset only onto checked ground. Broader terrain acceptance, swimming,
 flight, animation-triggered effects and performance qualification remain open.
 Restricted catalog ground effects emit alternating distance-triggered stamps and one-shot
-landing bursts for equipped wearers, independently of body visibility. Local triggers use
+landing bursts for visible wearers. Hidden cosmetic emitters and their particles retire
+immediately. Local triggers use
 completed movement ticks; remote triggers use interpolated actor movement. Decals require
 continuous coplanar collision support and suppress effects at uneven terrain and ledges.
 Exact foot-pose timing and broader terrain and remote runtime acceptance remain incomplete.

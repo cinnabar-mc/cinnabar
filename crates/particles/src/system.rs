@@ -360,6 +360,17 @@ impl ParticleSystem {
         }
     }
 
+    /// Removes an invisible client-owned effect and its particles without running expiry events.
+    pub fn discard(&mut self, id: u64) {
+        if let Ok(index) = self
+            .emitters
+            .binary_search_by_key(&id, |emitter| emitter.id)
+            && let Some(emitter) = self.emitters.remove(index)
+        {
+            self.bookkeeping.remove(&emitter, &mut self.atlas);
+        }
+    }
+
     /// Sound requests (`sound_effect` events) raised since the last call; the audio runtime
     /// drains this and resolves `event_name` against the sound catalog.
     pub fn take_sounds(&mut self) -> Vec<ParticleSound> {
