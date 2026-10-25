@@ -2,7 +2,7 @@
 
 use std::{
     io,
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex, Weak, mpsc},
 };
 
 use assets::texture::EnhancedTextureAssets;
@@ -31,8 +31,32 @@ pub(crate) struct AuthoredTextureLoading {
     base: Arc<RuntimeAssets>,
     keys: Option<MaterialKeys>,
     loading: Loading,
-    /// The last local and server maps combined, by their shared identities, and the result.
-    combined: Option<((usize, usize), AuthoredMaps)>,
+    /// The last local and server maps combined, and the result.
+    combined: Option<CombinedMaps>,
+}
+
+/// One combination of local and server maps. The weak handles keep their allocations, so a
+/// later carrier's maps never reuse an address the cache compares against.
+struct CombinedMaps {
+    local: Option<Weak<EnhancedTextureAssets>>,
+    server: Weak<EnhancedTextureAssets>,
+    maps: AuthoredMaps,
+}
+
+impl CombinedMaps {
+    /// Whether this combination was made from exactly `local` and `server`.
+    fn combines(
+        &self,
+        local: Option<&Arc<EnhancedTextureAssets>>,
+        server: &Arc<EnhancedTextureAssets>,
+    ) -> bool {
+        let local = match (&self.local, local) {
+            (None, None) => true,
+            (Some(cached), Some(local)) => std::ptr::eq(cached.as_ptr(), Arc::as_ptr(local)),
+            _ => false,
+        };
+        local && std::ptr::eq(self.server.as_ptr(), Arc::as_ptr(server))
+    }
 }
 
 impl AuthoredTextureLoading {
@@ -149,21 +173,18 @@ fn with_server_maps(
     limits: Option<&wgpu::Limits>,
 ) -> AuthoredMaps {
     let local = loading.selected(mode);
-    if mode != RenderMode::Enhanced {
-        return local;
-    }
-    let Some(server) = textures.assets().server_enhanced() else {
+    let server = textures.assets().server_enhanced();
+    let (true, Some(server)) = (mode == RenderMode::Enhanced, server) else {
+        // Nothing combined stays alive once these inputs no longer draw.
+        loading.combined = None;
         return local;
     };
-    let identity = (
-        local.as_ref().map_or(0, |maps| Arc::as_ptr(maps) as usize),
-        Arc::as_ptr(server) as usize,
-    );
-    if let Some((cached, maps)) = &loading.combined
-        && *cached == identity
+    if let Some(cached) = &loading.combined
+        && cached.combines(local.as_ref(), server)
     {
-        return maps.clone();
+        return cached.maps.clone();
     }
+    let local_handle = local.as_ref().map(Arc::downgrade);
     let combined = EnhancedTextureAssets::merged(local.as_deref(), server)
         .filter(|maps| {
             limits.is_none_or(|limits| render_scene::enhanced_maps_fit_device_limits(maps, limits))
@@ -173,7 +194,11 @@ fn with_server_maps(
             warn!("unsupported server Enhanced maps; retained their colour");
             local
         });
-    loading.combined = Some((identity, combined.clone()));
+    loading.combined = Some(CombinedMaps {
+        local: local_handle,
+        server: Arc::downgrade(server),
+        maps: combined.clone(),
+    });
     combined
 }
 
@@ -307,6 +332,24 @@ mod tests {
             local.is_some_and(|maps| maps.material_reference(0, slot) == u32::MAX),
             "maps the device cannot hold keep only the local ones"
         );
+    }
+
+    #[test]
+    fn leaving_enhanced_releases_combined_maps_and_returning_combines_afresh() {
+        let carrier = server_carrier();
+        let textures = ChunkTextureAssets::new(Arc::clone(&carrier));
+        let mut loading = AuthoredTextureLoading::new(Arc::clone(&carrier), None);
+        let combined =
+            with_server_maps(&mut loading, &textures, RenderMode::Enhanced, None).unwrap();
+        assert!(with_server_maps(&mut loading, &textures, RenderMode::Vanilla, None).is_none());
+        assert_eq!(
+            Arc::strong_count(&combined),
+            1,
+            "nothing keeps maps combined for a selection that no longer draws them"
+        );
+        let again = with_server_maps(&mut loading, &textures, RenderMode::Enhanced, None).unwrap();
+        assert!(!Arc::ptr_eq(&again, &combined));
+        assert_eq!(again.as_ref(), combined.as_ref());
     }
 
     #[test]
