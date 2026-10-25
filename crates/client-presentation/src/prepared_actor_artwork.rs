@@ -89,7 +89,7 @@ impl PreparedSessionResources {
                 resources.pages = resources.pages.with_pack_artwork(
                     &pack.textures,
                     &pack.bindings,
-                    &assets::actor_multitexture_sources(pack.assets.render_data()),
+                    &assets::actor_page_sharing(pack.assets.render_data()),
                 );
             }
             {

@@ -47,7 +47,7 @@ fn render_local_pack_entities() {
             Path::new(&carriers),
             &compiled_textures,
             &compiled_bindings,
-            &assets::actor_multitexture_sources(entities.render_data()),
+            &assets::actor_page_sharing(entities.render_data()),
         );
     }
     std::fs::create_dir_all(&out).unwrap();
@@ -89,7 +89,7 @@ pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
     let artwork = ActorArtworkPages::default().with_pack_artwork(
         &compiled.textures,
         &compiled.bindings,
-        &assets::actor_multitexture_sources(&compiled.entities.render),
+        &assets::actor_page_sharing(&compiled.entities.render),
     );
     let candidates = compiled
         .bindings
@@ -371,7 +371,7 @@ fn measure_pages(
     dir: &Path,
     textures: &[assets::ActorTexture],
     bindings: &[assets::ActorArtworkBinding],
-    multitexture: &assets::ActorMultitextureSources,
+    sharing: &assets::ActorPageSharing,
 ) {
     let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
     let entity_bytes = read("vanilla-v1.mcbeent");
@@ -408,6 +408,6 @@ fn measure_pages(
     summary("startup (actor+equipment+icons+blocks)", &base);
     summary(
         "with pack",
-        &base.with_pack_artwork(textures, bindings, multitexture),
+        &base.with_pack_artwork(textures, bindings, sharing),
     );
 }

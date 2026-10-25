@@ -318,6 +318,7 @@ fn a_split_group_downscales_together_so_every_member_is_admitted() {
         &members,
         [1024, 1024],
         false,
+        |_, _| false,
         |chunk| (group_page(1024, chunk.len()), ()),
         |chunk, _, (), _| placed += chunk.len(),
     );
@@ -340,6 +341,7 @@ fn a_downscaled_group_frees_each_original_before_building_the_next() {
         &members,
         [128, 128],
         false,
+        |_, _| false,
         |chunk| {
             assert!(
                 originals
@@ -359,4 +361,29 @@ fn a_downscaled_group_frees_each_original_before_building_the_next() {
     assert!(chunks > 1, "the fixture must split into several pages");
     assert_eq!(placed, members.len());
     assert!(pages.iter().all(|page| page.dimensions() == (64, 64)));
+}
+
+// Joined runs move whole to the next page; a run larger than a page keeps the layer limit.
+#[test]
+fn page_chunks_keep_joined_runs_on_one_page() {
+    use super::page_budget::page_chunks;
+    let members: Vec<usize> = (0..10).collect();
+    assert_eq!(
+        page_chunks(&members, 4, |_, _| false),
+        members.chunks(4).collect::<Vec<_>>()
+    );
+    let triples = page_chunks(&members, 4, |a, b| a / 3 == b / 3);
+    assert_eq!(
+        triples
+            .iter()
+            .map(|chunk| chunk.to_vec())
+            .collect::<Vec<_>>(),
+        [vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8, 9]]
+    );
+    let long: Vec<usize> = (0..MAX_ACTOR_PAGE_LAYERS + 2).collect();
+    let chunks = page_chunks(&long, 2, |_, _| true);
+    assert_eq!(
+        chunks.iter().map(|chunk| chunk.len()).collect::<Vec<_>>(),
+        [MAX_ACTOR_PAGE_LAYERS, 2]
+    );
 }

@@ -98,4 +98,62 @@ mod tests {
         assert_eq!(masks.emissive_layer, u32::MAX);
         assert_eq!(masks.strength, 1.5);
     }
+
+    #[test]
+    fn a_page_split_keeps_masks_beside_their_base() {
+        let texture = |source: u32| assets::ActorTexture {
+            source,
+            width: 1,
+            height: 1,
+            pixel_sha256: [0; 32],
+            rgba8: vec![source as u8; 4].into(),
+        };
+        // One page short of room for both: the base fills the first page's last layer.
+        let mut textures: Vec<_> = (0..255).map(texture).collect();
+        let base_index = textures.len() as u32;
+        textures.extend([texture(1000), texture(1001), texture(1002)]);
+        let binding = assets::ActorArtworkBinding {
+            rig: 0,
+            geometry_candidate: 0,
+            entity_symbol: 0,
+            geometry: 0,
+            render_controller: 0,
+            texture: base_index,
+            material: "entity".into(),
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        };
+        let sharing = assets::ActorPageSharing {
+            companions: [(1000, 1000), (1001, 1000), (1002, 1000)].into(),
+            ..Default::default()
+        };
+        let artwork =
+            ActorArtworkPages::default().with_pack_artwork(&textures, &[binding], &sharing);
+        assert!(
+            artwork.pages().len() > 1,
+            "the fixture must split its group"
+        );
+        let rig = crate::pack_rig_id(0);
+        let base = artwork.variant_location(rig, 1000).unwrap();
+        let masks = ActorMaterialMasks::resolve(
+            &artwork,
+            rig,
+            base,
+            &assets::EntityMaterialMasks {
+                glow: Some(1001),
+                emissive: Some(1002),
+                strength: 1.0,
+            },
+        );
+        assert_eq!(
+            masks.glow_layer,
+            artwork.variant_location(rig, 1001).unwrap().layer
+        );
+        assert_eq!(
+            masks.emissive_layer,
+            artwork.variant_location(rig, 1002).unwrap().layer
+        );
+        for source in 0..255 {
+            assert!(artwork.variant_location(rig, source).is_some());
+        }
+    }
 }
