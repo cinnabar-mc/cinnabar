@@ -263,7 +263,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
     let carrier = ui_engine::test_support::carrier()?;
     let mut presentation =
         UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
-    presentation.enable_json_ui(carrier).unwrap();
+    presentation.enable_json_ui_inline(carrier).unwrap();
     let vanilla = local(&launcher::install_layout::vanilla_pack_relative());
     let engine = presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(

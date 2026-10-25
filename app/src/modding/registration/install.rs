@@ -355,7 +355,10 @@ pub(super) fn apply(world: &mut World, update: Update) {
                     } else {
                         "loaded"
                     };
-                    statuses.push(Status::new(component, state, None, reload));
+                    let message = (state == "next-join").then(|| {
+                        "Reconnect to start this packet mod with complete chunk data.".into()
+                    });
+                    statuses.push(Status::new(component, state, message, reload));
                     continue;
                 }
                 Err(candidate) => {

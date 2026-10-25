@@ -255,6 +255,13 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   that fits their absolute positions and leave distant columns queued for later packets.
   Failed sends restore demand, and view retirement still cancels stale columns.
   Sustained high-speed hardware qualification remains open.
+  retirement can warm the cache for recovery. Unresolved cached SubChunk replies have a
+  session recovery timer that retries exact missing heights and preserves valid late bodies.
+  Full cached columns retain their original biome and inline data while waiting for bodies;
+  SubChunk recovery cannot replace that complete payload. Fresh recovery replies can request
+  expired shared misses again. This interval is an internal liveness policy. Recovery of a
+  permanently missing full-column body and sustained high-speed hardware qualification
+  remain open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
@@ -937,6 +944,8 @@ Local imports, decompression, UI/text expansion, language memory and other admis
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 Pack JSON whose value tree could need more than 1 GiB is refused before parsing, so a
 small archive cannot inflate into an allocation abort; that memory bound is an unverified limit.
+Pack JSON preserves raw control characters inside strings, including multiline manifest
+descriptions, through the shared parser used by local import and installed-pack admission.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware
@@ -1111,7 +1120,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
   incomplete.
 - The Mods settings list starts with compact headers and opens one whole card at a time;
-  actions and permission details remain inside that card.
+  actions and permission details remain inside that card. Packet mods that read world data
+  need complete chunks, so their connections disable the blob cache on both login legs.
+  New packet grants take effect after reconnecting; sessions without packet mods retain
+  caching. Live server qualification remains incomplete.
   Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the

@@ -20,8 +20,8 @@ use candidate::{Candidate, Runtime as CandidateRuntime};
 use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModHost, SettingsSnapshot};
-pub(super) use schema::Entry;
-use schema::{Registration, VERSION};
+use schema::Registration;
+pub(super) use schema::{Entry, VERSION};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -266,6 +266,19 @@ pub(crate) struct Watcher {
     drawing: Arc<Mutex<BTreeMap<PathBuf, super::admission::DrawingContext>>>,
 }
 impl Watcher {
+    /// Captures enabled grants even while their programs are still being prepared.
+    pub(crate) fn active_grants(&self) -> Vec<mod_host::ModGrants> {
+        self.desired
+            .lock()
+            .expect("mod desired list")
+            .registration
+            .iter()
+            .flat_map(|registration| &registration.mods)
+            .filter(|entry| entry.enabled)
+            .map(|entry| entry.grants.clone())
+            .collect()
+    }
+
     /// Keeps new sessions pending until the observed mod selection has finished admission.
     pub(crate) fn preparing(&self) -> bool {
         if !self.alive.load(Ordering::Acquire) {
