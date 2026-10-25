@@ -11,6 +11,7 @@ use bevy::render::{
 
 #[test]
 fn unsupported_presentation_keeps_the_native_target() {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
