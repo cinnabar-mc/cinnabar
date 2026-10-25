@@ -48,10 +48,10 @@ fn assert_fits(
     let mut view = view();
     if update_ready {
         view.updates.ready = Some(launcher::menu::updates::Ready {
-            release: launcher::menu::updates::Release {
+            release: launcher::menu::updates::Build {
                 version: launcher::PRODUCT_VERSION.into(),
-                build: 2,
-                channel: launcher::menu::updates::Channel::Beta,
+                number: 2,
+                channel: Some(launcher::menu::updates::Channel::Beta),
             },
             switching: false,
             writable: true,

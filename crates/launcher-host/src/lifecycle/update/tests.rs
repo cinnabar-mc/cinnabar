@@ -86,7 +86,7 @@ fn checks_remain_periodic_when_the_clock_moves_back() {
 /// Release hints are channel-scoped and compare nightly build numbers before scheduling.
 #[test]
 fn release_notices_check_only_newer_builds_on_the_selected_channel() {
-    let release = |channel: &str, version: &str, build| bridge::CinnabarRelease {
+    let release = |channel: &str, version: &str, build| bridge::CinnabarBuild {
         channel: channel.into(),
         version: version.into(),
         build,
@@ -120,7 +120,7 @@ fn release_notices_check_only_newer_builds_on_the_selected_channel() {
 #[test]
 fn legacy_release_without_build_still_triggers_a_check() {
     let mut state = State::new();
-    let release = bridge::CinnabarRelease {
+    let release = bridge::CinnabarBuild {
         channel: "beta".into(),
         version: "1.2.3".into(),
         ..Default::default()
@@ -138,10 +138,10 @@ pub(super) fn ready(writable: bool) -> Ready {
         target: None,
         lease: None,
         notice: Notice {
-            release: launcher::menu::updates::Release {
+            release: launcher::menu::updates::Build {
                 version: "2.0.0".into(),
-                build: 2,
-                channel: launcher::menu::updates::Channel::Beta,
+                number: 2,
+                channel: Some(launcher::menu::updates::Channel::Beta),
             },
             switching: false,
             writable,
@@ -670,7 +670,7 @@ fn reselecting_a_channel_restores_its_cached_release_before_the_next_deadline() 
     state.ready = Some(Ready::new(directory, reader, selected, None, true));
     let restored = state.ready.unwrap();
     assert_eq!(restored.notice.release.version, "2.0.0");
-    assert_eq!(restored.notice.release.channel, Channel::Beta);
+    assert_eq!(restored.notice.release.channel, Some(Channel::Beta));
     assert_eq!(
         std::fs::read(restored.stage.join(update_installer::stage::ARTIFACT_FILE)).unwrap(),
         payload

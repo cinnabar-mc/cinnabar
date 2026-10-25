@@ -60,7 +60,10 @@ pub(super) fn notice(
         (
             format!(
                 "{status} · {} {}",
-                ready.release.channel.title(),
+                ready
+                    .release
+                    .channel
+                    .map_or("Release", |channel| channel.title()),
                 ready.release.version
             ),
             ready.action_label(),
@@ -146,10 +149,10 @@ mod tests {
                 for size in [[1280.0, 720.0], [360.0, 240.0]] {
                     let mut view = MenuView::new(true, "Player".into());
                     view.updates.ready = Some(Ready {
-                        release: launcher::menu::updates::Release {
+                        release: launcher::menu::updates::Build {
                             version: "2.0.0".into(),
-                            build: 2,
-                            channel: launcher::menu::updates::Channel::Beta,
+                            number: 2,
+                            channel: Some(launcher::menu::updates::Channel::Beta),
                         },
                         switching: false,
                         writable,
@@ -195,10 +198,10 @@ mod tests {
         let mut view = MenuView::new(true, "Player".into());
         view.over_world = true;
         view.updates.ready = Some(Ready {
-            release: launcher::menu::updates::Release {
+            release: launcher::menu::updates::Build {
                 version: "2.0.0".into(),
-                build: 2,
-                channel: launcher::menu::updates::Channel::Beta,
+                number: 2,
+                channel: Some(launcher::menu::updates::Channel::Beta),
             },
             switching: false,
             writable: true,
@@ -232,10 +235,10 @@ mod tests {
             assert!(bounds.min().x() >= 0.0 && bounds.max().x() <= size[0]);
             assert!(bounds.min().y() >= 0.0 && bounds.max().y() <= size[1]);
             view.updates.ready = Some(Ready {
-                release: launcher::menu::updates::Release {
+                release: launcher::menu::updates::Build {
                     version: "2.0.0".into(),
-                    build: 2,
-                    channel: launcher::menu::updates::Channel::Beta,
+                    number: 2,
+                    channel: Some(launcher::menu::updates::Channel::Beta),
                 },
                 switching: false,
                 writable: true,

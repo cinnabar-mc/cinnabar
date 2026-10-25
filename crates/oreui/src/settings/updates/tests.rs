@@ -89,17 +89,17 @@ fn check_now_respects_worker_progress_and_the_home_menu_boundary() {
 /// Ready updates and older channel switches finish from the same settings page at both layouts.
 #[test]
 fn settings_offer_ready_install_actions_without_returning_home() {
-    use launcher::menu::updates::{Channel, Ready, Release};
+    use launcher::menu::updates::{Build, Channel, Ready};
     for width in [320.0, 800.0] {
         for writable in [false, true] {
             for switching in [false, true] {
                 let mut view = MenuView::new(true, "Player".into());
                 view.settings.section = SettingSection::Updates.definition().index;
                 let ready = Ready {
-                    release: Release {
+                    release: Build {
                         version: "1.0.0".into(),
-                        build: 7,
-                        channel: Channel::Beta,
+                        number: 7,
+                        channel: Some(Channel::Beta),
                     },
                     switching,
                     writable,
@@ -126,7 +126,7 @@ fn settings_offer_ready_install_actions_without_returning_home() {
 /// Older releases expose an explicit install or wait choice, while showing the running channel.
 #[test]
 fn older_channel_choices_distinguish_running_build_from_subscription() {
-    use launcher::menu::updates::{Build, Channel, Release};
+    use launcher::menu::updates::{Build, Channel};
     let mut view = MenuView::new(true, "Player".into());
     view.settings.section = SettingSection::Updates.definition().index;
     view.updates.running = Build {
@@ -134,10 +134,10 @@ fn older_channel_choices_distinguish_running_build_from_subscription() {
         number: 8,
         channel: Some(Channel::Nightly),
     };
-    view.updates.target = Some(Release {
+    view.updates.target = Some(Build {
         version: "1.0.0".into(),
-        build: 7,
-        channel: Channel::Beta,
+        number: 7,
+        channel: Some(Channel::Beta),
     });
     view.updates.switch_available = true;
     view.updates.status = Status::UpToDate;
@@ -161,14 +161,14 @@ fn older_channel_choices_distinguish_running_build_from_subscription() {
 /// The page shows measured byte progress with the target's channel, version and build.
 #[test]
 fn download_progress_identifies_the_target_release() {
-    use launcher::menu::updates::{Channel, DownloadProgress, Release};
+    use launcher::menu::updates::{Build, Channel, DownloadProgress};
     let mut view = MenuView::new(true, "Player".into());
     view.settings.section = SettingSection::Updates.definition().index;
     view.updates.status = Status::Downloading;
-    view.updates.target = Some(Release {
+    view.updates.target = Some(Build {
         version: "1.2.3".into(),
-        build: 42,
-        channel: Channel::Nightly,
+        number: 42,
+        channel: Some(Channel::Nightly),
     });
     view.updates.download = Some(DownloadProgress {
         received_bytes: 25,

@@ -56,7 +56,7 @@ pub(super) fn helper_args(ready: &Ready, target: PathBuf, parent: u32) -> Vec<Os
         ready.stage.as_os_str().to_owned(),
         target.into_os_string(),
         parent.to_string().into(),
-        ready.notice.release.channel.name().into(),
+        ready.channel().name().into(),
     ];
     if let Some(build) = &ready.switch_from {
         args.push(build.version.clone().into());
@@ -195,7 +195,7 @@ pub(super) fn manual_check<'a>(
     current: &'a update_manifest::build::Build,
 ) -> Check<'a> {
     Check {
-        channel: ready.notice.release.channel.name(),
+        channel: ready.channel().name(),
         platform,
         current: &current.version,
         current_build: current.number,

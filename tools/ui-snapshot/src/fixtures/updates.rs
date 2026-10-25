@@ -6,10 +6,10 @@ use super::{Fixture, GUI_SCALE, MenuView, SIZE, SMALL_SIZE, State};
 pub(super) fn home(writable: bool, protocol_required: bool) -> Fixture {
     let mut view = MenuView::new(true, "Player".into());
     view.updates.ready = Some(launcher::menu::updates::Ready {
-        release: launcher::menu::updates::Release {
+        release: launcher::menu::updates::Build {
             version: next_version(),
-            build: 2,
-            channel: launcher::menu::updates::Channel::Beta,
+            number: 2,
+            channel: Some(launcher::menu::updates::Channel::Beta),
         },
         switching: false,
         writable,
@@ -109,7 +109,7 @@ pub(super) fn mod_stage(phase: launcher::mods::UpdatePhase) -> Fixture {
 
 /// Shows update status with the selected sidebar tab scrolled into view.
 pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
-    use launcher::menu::updates::{Build, Channel, DownloadProgress, Release, Status};
+    use launcher::menu::updates::{Build, Channel, DownloadProgress, Status};
     let section = launcher::menu::settings_sections::SettingSection::Updates.definition();
     let mut view = super::settings(section.name);
     view.updates.status = status;
@@ -119,10 +119,10 @@ pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
         channel: Some(Channel::Beta),
     };
     if status == Status::Downloading {
-        let release = Release {
+        let release = Build {
             version: next_version(),
-            build: view.updates.running.number + 1,
-            channel: Channel::Nightly,
+            number: view.updates.running.number + 1,
+            channel: Some(Channel::Nightly),
         };
         std::sync::Arc::make_mut(&mut view.settings_options).set(
             launcher::menu::settings_options::SettingId::UpdateChannel.index(),
@@ -140,15 +140,15 @@ pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
 
 /// Shows the older Beta choice while the installed client still runs Nightly.
 pub(super) fn switch_offer() -> Fixture {
-    use launcher::menu::updates::{Channel, Release, Status};
+    use launcher::menu::updates::{Build, Channel, Status};
     let Fixture::Menu(mut view) = settings(Status::UpToDate) else {
         unreachable!()
     };
     view.updates.running.channel = Some(Channel::Nightly);
-    view.updates.target = Some(Release {
+    view.updates.target = Some(Build {
         version: view.updates.running.version.clone(),
-        build: view.updates.running.number - 1,
-        channel: Channel::Beta,
+        number: view.updates.running.number - 1,
+        channel: Some(Channel::Beta),
     });
     view.updates.switch_available = true;
     Fixture::Menu(view)

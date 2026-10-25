@@ -17,7 +17,7 @@ use launcher::{
     install_layout::InstallLayout,
     menu::{
         settings_options::{SETTINGS_FILE, SettingsOptions},
-        updates::{Action, DownloadProgress, Preferences, Ready as Notice, Release, Status, View},
+        updates::{Action, DownloadProgress, Preferences, Ready as Notice, Status, View},
     },
 };
 use std::{
@@ -58,6 +58,14 @@ struct Ready {
 }
 
 impl Ready {
+    /// The verified offer always has a known publishing channel for its offline handoff.
+    fn channel(&self) -> Channel {
+        self.notice
+            .release
+            .channel
+            .expect("verified release channel")
+    }
+
     /// Presents the verified selection's version and expiry while retaining its own stage reader.
     fn new(
         stage: PathBuf,
@@ -74,7 +82,7 @@ impl Ready {
             target: None,
             lease: Some(std::sync::Arc::new(reader)),
             notice: Notice {
-                release: Release::from(&selected.manifest),
+                release: update_manifest::build::Build::from(&selected.manifest),
                 switching,
                 writable,
                 protocol_required: false,
@@ -102,7 +110,7 @@ struct State {
     check_now: bool,
     manual_check: bool,
     status: Status,
-    target: Option<Release>,
+    target: Option<update_manifest::build::Build>,
     download: Option<DownloadProgress>,
     waiting_for_channel: bool,
     announcement: Option<Announcement>,
@@ -258,7 +266,7 @@ impl State {
     /// Replaces an offer only for the active worker and clears its completed progress message.
     fn offer(&mut self, ready: Ready, generation: u64) {
         if self.accepts_worker(generation) {
-            if ready.notice.release.channel == Channel::Stable {
+            if ready.channel() == Channel::Stable {
                 self.stable_available = true;
             }
             self.ready = Some(ready);

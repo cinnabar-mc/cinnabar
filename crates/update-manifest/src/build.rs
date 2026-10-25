@@ -16,6 +16,17 @@ pub struct Build {
     pub channel: Option<Channel>,
 }
 
+impl From<&crate::Manifest> for Build {
+    /// Reads a release identity without duplicating the independently published manifest format.
+    fn from(manifest: &crate::Manifest) -> Self {
+        Self {
+            version: manifest.version.clone(),
+            number: manifest.build_number,
+            channel: Channel::parse(&manifest.channel),
+        }
+    }
+}
+
 impl Build {
     /// Reports the workspace version and publication number compiled into this executable.
     pub fn current() -> Self {

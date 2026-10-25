@@ -370,7 +370,7 @@ fn run(
         if let Ok(mut state) = STATE.lock()
             && state.generation == generation
         {
-            state.target = Some(Release::from(&selected.manifest));
+            state.target = Some(update_manifest::build::Build::from(&selected.manifest));
             set_switch_offer(&mut state, switch_available);
         }
         if !switch_now

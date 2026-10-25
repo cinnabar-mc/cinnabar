@@ -4,7 +4,7 @@ use super::{Content, services};
 use launcher::menu::{
     MenuAction,
     settings_options::{SettingId, layout::SettingPanel},
-    updates::{Action, Status, installed_version},
+    updates::{Action, Status, build_title, installed_version},
 };
 use ui_engine::engine::screen::PaintError;
 
@@ -44,7 +44,7 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         .updates
         .target
         .as_ref()
-        .map_or_else(|| "App updates".into(), |release| release.title());
+        .map_or_else(|| "App updates".into(), build_title);
     services::action_row_text(
         content,
         &target,
@@ -82,7 +82,7 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         if let Some(ready) = &view.updates.ready {
             services::action_row_text(
                 content,
-                &ready.release.title(),
+                &build_title(&ready.release),
                 if ready.writable {
                     "Ready to install. Restart when you're ready."
                 } else {
@@ -102,7 +102,8 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 .updates
                 .target
                 .as_ref()
-                .map_or(channel, |release| release.channel);
+                .and_then(|release| release.channel)
+                .unwrap_or(channel);
             let label = format!("Install {} now", release_channel.title());
             services::action_row_text(
                 content,

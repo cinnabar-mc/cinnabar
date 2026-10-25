@@ -12,40 +12,9 @@ pub enum Action {
     WaitForChannel,
 }
 
-/// Identifies a verified release independently of the user's saved channel preference.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Release {
-    pub version: String,
-    pub build: u64,
-    pub channel: Channel,
-}
-
-impl From<&update_manifest::Manifest> for Release {
-    /// Copies only the display identity from an authenticated manifest.
-    fn from(manifest: &update_manifest::Manifest) -> Self {
-        Self {
-            version: manifest.version.clone(),
-            build: manifest.build_number,
-            channel: Channel::parse(&manifest.channel).expect("verified release channel"),
-        }
-    }
-}
-
-impl Release {
-    /// Includes the build because successive Nightly publications can share a version.
-    pub fn title(&self) -> String {
-        format!(
-            "{} {} · Build {}",
-            self.channel.title(),
-            self.version,
-            self.build
-        )
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Ready {
-    pub release: Release,
+    pub release: Build,
     pub switching: bool,
     pub writable: bool,
     pub protocol_required: bool,
@@ -65,7 +34,7 @@ impl Ready {
     pub fn title(&self) -> String {
         let version = &self.release.version;
         if self.switching {
-            return format!("Ready to switch to {}", self.release.title());
+            return format!("Ready to switch to {}", build_title(&self.release));
         }
         if self.protocol_required {
             format!("Update required to connect ({version})")
@@ -122,8 +91,8 @@ impl Status {
     }
 }
 
-/// Describes the running build without guessing a publication channel for older or local builds.
-pub fn installed_version(build: &Build) -> String {
+/// Formats one canonical build identity for a running client or a verified release.
+pub fn build_title(build: &Build) -> String {
     let channel = build.channel.map_or(
         if build.number == 0 {
             "Development build"
@@ -133,13 +102,15 @@ pub fn installed_version(build: &Build) -> String {
         Channel::title,
     );
     if build.number == 0 {
-        format!("Running {channel} · Version {}", build.version)
+        format!("{channel} · Version {}", build.version)
     } else {
-        format!(
-            "Running {channel} {} · Build {}",
-            build.version, build.number
-        )
+        format!("{channel} {} · Build {}", build.version, build.number)
     }
+}
+
+/// Distinguishes the running build from the release channel the user follows.
+pub fn installed_version(build: &Build) -> String {
+    format!("Running {}", build_title(build))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -150,7 +121,7 @@ pub struct View {
     pub active: bool,
     pub ready: Option<Ready>,
     pub running: Build,
-    pub target: Option<Release>,
+    pub target: Option<Build>,
     pub download: Option<DownloadProgress>,
     pub status: Status,
     pub stable_available: bool,
@@ -285,10 +256,10 @@ mod tests {
     #[test]
     fn protocol_requirement_changes_wording_without_authorizing_installation() {
         let notice = Ready {
-            release: Release {
+            release: Build {
                 version: "2.0.0".into(),
-                build: 2,
-                channel: Channel::Beta,
+                number: 2,
+                channel: Some(Channel::Beta),
             },
             switching: false,
             writable: false,
@@ -303,10 +274,10 @@ mod tests {
     fn update_status_keeps_downloaded_offers_separate_from_checks() {
         let mut view = View {
             ready: Some(Ready {
-                release: Release {
+                release: Build {
                     version: crate::PRODUCT_VERSION.into(),
-                    build: 2,
-                    channel: Channel::Beta,
+                    number: 2,
+                    channel: Some(Channel::Beta),
                 },
                 switching: false,
                 writable: true,
