@@ -16,7 +16,7 @@ fn next_ingress(session: &mut PlaySession<impl bridge::FrameRead>) -> WorldIngre
     event
 }
 
-/// A requested body arriving after ordinary-lane recovery makes the next attempt progress.
+/// Interleaved ordinary updates preserve both cached replies until their bodies are usable.
 #[tokio::test]
 async fn requested_blob_survives_repeated_ordinary_update_interleave() {
     let payload = Bytes::from_static(b"requested terrain");
@@ -89,9 +89,7 @@ async fn requested_blob_survives_repeated_ordinary_update_interleave() {
     ));
     assert!(matches!(
         next_ingress(&mut session),
-        WorldIngress::Event(WorldEvent::ChunkResync(resync))
-            if (resync.x, resync.z) == (4, 9)
-                && resync.requested_sub_chunk_ys == Some(vec![-3])
+        WorldIngress::Event(WorldEvent::SubChunks(_))
     ));
     assert!(matches!(
         next_ingress(&mut session),
@@ -103,7 +101,7 @@ async fn requested_blob_survives_repeated_ordinary_update_interleave() {
         WorldIngress::Event(WorldEvent::SubChunkReplyAdmission(_))
     ));
     let WorldIngress::Event(WorldEvent::SubChunks(batch)) = next_ingress(&mut session) else {
-        panic!("the recovery attempt must publish the requested terrain before its later update");
+        panic!("the second reply must publish terrain before its later update");
     };
     assert_eq!(batch.entries.len(), 1);
     assert_eq!(batch.entries[0].position, [4, -3, 9]);
@@ -123,8 +121,8 @@ async fn requested_blob_survives_repeated_ordinary_update_interleave() {
     ));
     assert!(cache.contains(hash));
     let stats = session.blob_cache_stats();
-    assert_eq!(stats.abandoned_cached_transactions, 1);
-    assert_eq!(stats.reconstructed_sub_chunks, 1);
+    assert_eq!(stats.abandoned_cached_transactions, 0);
+    assert_eq!(stats.reconstructed_sub_chunks, 2);
     assert_eq!(stats.skipped_miss_responses, 0);
     assert_eq!(stats.pending_transactions, 0);
 }

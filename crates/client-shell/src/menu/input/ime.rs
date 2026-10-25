@@ -17,10 +17,14 @@ pub enum TextOwner {
     Chat,
 }
 
-/// Whether focused chat requests the platform keyboard. Android's activity delivers on-screen
-/// keyboard text as key events, which chat already types; desktop chat leaves IME composition
-/// off and takes hardware key text.
-pub const CHAT_PLATFORM_KEYBOARD: bool = cfg!(target_os = "android");
+/// Whether focused chat requests the platform keyboard. Android and iOS deliver keyboard
+/// text as key events; desktop chat leaves IME composition off and takes hardware key text.
+pub const CHAT_PLATFORM_KEYBOARD: bool = chat_platform_keyboard(std::env::consts::OS);
+
+/// Selects the platforms where chat needs the software keyboard.
+const fn chat_platform_keyboard(os: &str) -> bool {
+    matches!(os.as_bytes(), b"android" | b"ios")
+}
 
 /// Picks the editor that owns platform text: a visible menu's focused field, else focused chat
 /// where chat requests the platform keyboard.
@@ -39,7 +43,7 @@ fn text_owner(
     }
 }
 
-/// Requests the platform keyboard for menu fields and Android chat, and delivers menu
+/// Requests the platform keyboard for menu fields and mobile chat, and delivers menu
 /// composition once.
 #[allow(
     clippy::too_many_arguments,
@@ -130,6 +134,27 @@ mod tests {
     use super::*;
     use bevy::prelude::*;
     use launcher::menu::{MenuAction, MenuField, MenuScreen};
+
+    /// Mobile chat claims platform input; desktop chat retains hardware key text.
+    #[test]
+    fn chat_keyboard_platform_support() {
+        let menu = MenuRuntime::new(false, 2, "Player".into());
+        for (os, expected) in [
+            ("ios", true),
+            ("android", true),
+            ("linux", false),
+            ("macos", false),
+            ("windows", false),
+        ] {
+            let keyboard = chat_platform_keyboard(os);
+            assert_eq!(keyboard, expected, "{os}");
+            assert_eq!(
+                text_owner(true, &menu, true, keyboard),
+                expected.then_some(TextOwner::Chat),
+                "{os}"
+            );
+        }
+    }
 
     /// Back dismisses the OS keyboard without changing focus; a new field or retap requests it.
     #[test]

@@ -43,6 +43,7 @@ pub(crate) enum Inbound {
 }
 
 /// The core's last message on a session, standing for the server's own Transfer or Disconnect.
+#[derive(Clone)]
 pub(crate) enum Terminal {
     Transfer(SessionTransfer),
     Disconnect(SessionDisconnect),
@@ -66,7 +67,9 @@ pub(crate) struct SessionTransport<R = FramedReader> {
     ahead: VecDeque<Option<Result<Bytes, BridgeError>>>, // reader items `read_ahead` took
     joining: bool,         // retain the relay startup budget through spawn
     ahead_bytes: usize,    // frame bytes held in `ahead`
-    ended: bool,           // a terminal message was delivered
+    ended: bool,           // a terminal message was read
+    terminal: Option<Terminal>, // retained until earlier raw packets drain
+    blob_scan: blob_intake::BlobScan,
     sending: VecDeque<InFlightSend>,
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
@@ -132,6 +135,8 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             ahead_bytes: 0,
             joining: true,
             ended: false,
+            terminal: None,
+            blob_scan: Default::default(),
             sending: VecDeque::new(),
             tap: None,
             current: None,
@@ -190,35 +195,44 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         self.current = None;
         loop {
             if let Some(packet) = self.received.pop_front() {
+                self.blob_scan.consume_front(&packet);
                 self.delivered = packet.trace_position;
                 self.observe(&packet);
                 return Ok(Inbound::Packet(packet));
             }
-            if let Some(batch) = self.startup.pop_front() {
-                self.receive_server_batch(batch, 0)?;
-                continue;
+            if let Some(terminal) = self.terminal.take() {
+                return Ok(Inbound::Terminal(terminal));
             }
-            if self.ended {
-                return Err(SessionFailure::ConnectionClosed.into());
+            self.receive_more().await?;
+        }
+    }
+
+    /// Retains one more startup batch, relayed batch or core frame without consuming older input.
+    async fn receive_more(&mut self) -> Result<(), SessionError> {
+        if let Some(batch) = self.startup.pop_front() {
+            return self.receive_server_batch(batch, 0);
+        }
+        if self.ended {
+            return Err(SessionFailure::ConnectionClosed.into());
+        }
+        let next = match poll_fn(|cx| self.poll_next_frame(cx)).await {
+            IncomingFrame::Core(next) => next,
+            IncomingFrame::Injected(body) => {
+                self.receive_relayed(body, 0);
+                return Ok(());
             }
-            let next = match poll_fn(|cx| self.poll_next_frame(cx)).await {
-                IncomingFrame::Core(next) => next,
-                IncomingFrame::Injected(body) => {
-                    self.receive_relayed(body, 0);
-                    continue;
-                }
-            };
-            let frame = match next {
-                Some(Ok(frame)) => frame,
-                Some(Err(error)) => return Err(SessionFailure::Transport(error).into()),
-                None => return Err(SessionFailure::ConnectionClosed.into()),
-            };
-            if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
-                self.split_frames += 1;
-                self.receive_server_batch(body, self.split_frames)?;
-                continue;
-            }
-            let terminal = match crate::session_wire::decode_core_message(frame)
+        };
+        let frame = match next {
+            Some(Ok(frame)) => frame,
+            Some(Err(error)) => return Err(SessionFailure::Transport(error).into()),
+            None => return Err(SessionFailure::ConnectionClosed.into()),
+        };
+        if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
+            self.split_frames += 1;
+            return self.receive_server_batch(body, self.split_frames);
+        }
+        self.terminal = Some(
+            match crate::session_wire::decode_core_message(frame)
                 .map_err(SessionFailure::Transport)?
             {
                 CoreMessage::Transfer(transfer) => Terminal::Transfer(transfer),
@@ -231,15 +245,18 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                         .into(),
                     );
                 }
-            };
-            self.ended = true;
-            return Ok(Inbound::Terminal(terminal));
-        }
+            },
+        );
+        self.ended = true;
+        Ok(())
     }
 
     /// Inspects the core terminal retained by read-ahead without consuming or reordering frames.
     /// Startup may abandon preparation on this boundary; play must retain ordinary FIFO delivery.
     pub(crate) fn buffered_startup_terminal(&self) -> Result<Option<Terminal>, SessionError> {
+        if let Some(terminal) = &self.terminal {
+            return Ok(Some(terminal.clone()));
+        }
         let Some(Some(Ok(frame))) = self.ahead.back() else {
             return Ok(None);
         };
@@ -328,14 +345,18 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         max_bytes: usize,
         cx: &mut Context<'_>,
     ) -> Poll<bool> {
-        if self.ahead_bytes >= max_bytes || self.ahead.back().is_some_and(ends_session) {
+        if self.ahead_bytes.saturating_add(self.blob_scan.bytes) >= max_bytes
+            || self.ended
+            || self.ahead.back().is_some_and(ends_session)
+        {
             return Poll::Ready(false);
         }
         let next = ready!(Pin::new(&mut self.reader).poll_next(cx));
         if let Some(Ok(frame)) = &next {
             self.ahead_bytes += frame.len();
         }
-        let more = self.ahead_bytes < max_bytes && !ends_session(&next);
+        let more = self.ahead_bytes.saturating_add(self.blob_scan.bytes) < max_bytes
+            && !ends_session(&next);
         self.ahead.push_back(next);
         Poll::Ready(more)
     }
@@ -343,6 +364,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
     /// Puts `packets` back ahead of every unread packet, in their order. The tap has already
     /// seen them and does not see them again.
     pub(crate) fn prepend(&mut self, packets: Vec<RawPacket>) {
+        self.blob_scan = Default::default();
         let mut restored = VecDeque::from(packets);
         restored.append(&mut self.received);
         self.received = restored;
@@ -499,3 +521,5 @@ fn varuint32_len(value: u32) -> usize {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+mod blob_intake;

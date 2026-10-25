@@ -31,7 +31,7 @@ struct Track {
 pub(super) struct GroundEffects {
     instance: Option<(u64, u64, i32)>,
     tracks: HashMap<GroundEffectWearer, Track>,
-    draining: Vec<u64>,
+    draining: Vec<(GroundEffectWearer, u64)>,
     rejected: HashSet<Arc<str>>,
 }
 
@@ -60,7 +60,7 @@ impl GroundEffects {
                 ..Default::default()
             };
         }
-        self.draining.retain(|id| system.contains_emitter(*id));
+        self.draining.retain(|(_, id)| system.contains_emitter(*id));
         self.tracks.retain(|key, _| wearers.contains(key));
         for &wearer in wearers {
             let Some(actor) = stream
@@ -166,6 +166,20 @@ impl GroundEffects {
             }
         }
     }
+    /// Retires abandoned ground particles after simulation, preserving trails still in view.
+    pub(super) fn retire_hidden(
+        &mut self,
+        system: &mut ParticleSystem,
+        wearers: &[GroundEffectWearer],
+        view: &particles::ParticleView,
+    ) {
+        self.draining.retain(|(wearer, id)| {
+            if !wearers.contains(wearer) {
+                system.discard_hidden(*id, Some(view));
+            }
+            system.contains_emitter(*id)
+        });
+    }
 }
 
 /// Samples contact heading once and places matching one-shot emitters on supported floor shapes.
@@ -180,7 +194,7 @@ fn contact(
     walks: bool,
     dt: f32,
     seed: u64,
-    draining: &mut Vec<u64>,
+    draining: &mut Vec<(GroundEffectWearer, u64)>,
     rejected: &mut HashSet<Arc<str>>,
 ) {
     if dt > 0.25 || !dt.is_finite() {
@@ -253,7 +267,7 @@ fn contact(
             ..Default::default()
         };
         if let Some(id) = system.spawn(&request) {
-            draining.push(id);
+            draining.push((wearer, id));
         }
     }
 }
