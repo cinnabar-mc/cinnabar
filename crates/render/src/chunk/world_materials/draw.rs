@@ -28,15 +28,18 @@ pub(crate) struct WorldTerrainSections {
 }
 
 impl WorldTerrainSections {
-    /// The sections `view` draws with tagged geometry, with their slot masks.
-    pub(in crate::chunk) fn view(&self, view: Entity) -> &[(Entity, u64)] {
+    /// The sections `view` draws with tagged geometry, with their slot masks and whether their
+    /// materials were ready when the view was queued.
+    pub(in crate::chunk) fn view(&self, view: Entity) -> &[(Entity, u64, bool)] {
         self.views
             .get(&view)
             .map_or(&[], |(draws, _)| draws.as_slice())
     }
 
-    /// Every view's sections with tagged geometry, with their slot masks.
-    pub(in crate::chunk) fn all_views(&self) -> impl Iterator<Item = (Entity, &[(Entity, u64)])> {
+    /// Every view's sections with tagged geometry, as [`Self::view`] lists them.
+    pub(in crate::chunk) fn all_views(
+        &self,
+    ) -> impl Iterator<Item = (Entity, &[(Entity, u64, bool)])> {
         self.views
             .iter()
             .map(|(view, (draws, _))| (*view, draws.as_slice()))

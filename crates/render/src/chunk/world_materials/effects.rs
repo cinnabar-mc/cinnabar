@@ -34,7 +34,7 @@ pub(crate) fn draw<'w>(
         hdr,
         enhanced: false,
     };
-    let union = draws.iter().fold(0, |union, (_, mask)| union | mask);
+    let union = draws.iter().fold(0, |union, (_, mask, _)| union | mask);
     let mut drew = false;
     let mut bound = false;
     for slot in slots(union) {
@@ -69,9 +69,9 @@ pub(crate) fn draw<'w>(
         if let Some(scene) = scene.filter(|_| variant.features.scene) {
             pass.set_bind_group(WORLD_MATERIAL_GROUP as usize + 1, scene, &[]);
         }
-        for (entity, _) in draws.iter().filter(|(_, mask)| mask & (1 << slot) != 0) {
+        for (entity, _, _) in draws.iter().filter(|(_, mask, _)| mask & (1 << slot) != 0) {
             if let Some(allocation) = world.get::<GpuChunkAllocation>(*entity) {
-                draw_section(pass, arena, allocation, Some(cube), Some(model));
+                draw_section(pass, arena, allocation, Some(cube), Some(model), true);
                 drew = true;
             }
         }
@@ -100,7 +100,7 @@ pub(crate) fn gather_particles(
     for (view, draws) in sections.all_views() {
         let mut blocks: std::collections::BTreeMap<u16, std::collections::BTreeSet<[i32; 3]>> =
             Default::default();
-        for (entity, mask) in draws {
+        for (entity, mask, _) in draws {
             if mask & particle_slots == 0 {
                 continue;
             }
