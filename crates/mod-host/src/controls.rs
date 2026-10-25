@@ -67,6 +67,9 @@ pub(super) struct ControlState {
     pub panel: Option<Panel>,
     pub bundle: Option<Arc<PanelBundle>>,
     pub open: bool,
+    /// Where the host last laid out this mod's panel; none while another mod's panel or no
+    /// panel is up.
+    pub layout: Option<ui::mod_hud::PanelLayout>,
     pub keys: Vec<String>,
     pub interaction: InteractionOutput,
     pub dirty_settings: Option<String>,
@@ -93,6 +96,7 @@ impl ControlState {
             panel: None,
             bundle: None,
             open: false,
+            layout: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
             dirty_settings: None,
@@ -442,6 +446,19 @@ impl cinnabar::extension::panel::Host for State {
             }
             Err(error) => Ok(Err(format!("invalid panel update: {error}"))),
         }
+    }
+
+    fn read_layout(&mut self) -> Result<Option<cinnabar::extension::panel::PanelLayout>> {
+        Ok(self
+            .controls
+            .layout
+            .filter(|_| self.grants.controls && self.controls.open)
+            .map(|layout| cinnabar::extension::panel::PanelLayout {
+                width: layout.size[0],
+                height: layout.size[1],
+                scale: layout.scale,
+                offset: (layout.offset[0], layout.offset[1]),
+            }))
     }
 }
 

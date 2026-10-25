@@ -122,6 +122,12 @@ collection field instead. The control's laid-out size is fitted uniformly to the
 node and centred, so authored padding frames a preview. A mod keeps up to 128 named
 controls built for embedding; the least recently drawn makes way for another.
 
+Panels lay out in panel units, which differ from the HUD's GUI units with the GUI
+scale and a `reference_size` fitted to a small window. `panel.read-layout`, with
+`controls`, reports the open panel root's size in panel units, the HUD GUI units one
+panel unit spans and the root's offset from the HUD root, so a pointer `p` from
+`input.read-controls` lies at `(p - offset) / scale` in panel units.
+
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,

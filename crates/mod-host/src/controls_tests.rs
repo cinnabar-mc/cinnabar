@@ -211,6 +211,34 @@ fn pointer_and_wheel_reach_only_an_open_panel() {
     }
 }
 
+#[test]
+fn panel_layout_reads_need_controls_authority_and_an_open_panel() {
+    let layout = ui::mod_hud::PanelLayout {
+        size: [600., 400.],
+        scale: 0.5,
+        offset: [0., 0.],
+    };
+    for controls in [true, false] {
+        let mut state = state(ModGrants {
+            controls,
+            ..Default::default()
+        });
+        state.set_content(panel()).unwrap().ok();
+        state.controls.commit();
+        state.controls.layout = Some(layout);
+        assert!(
+            state.read_layout().unwrap().is_none(),
+            "the panel is closed"
+        );
+        state.controls.open = true;
+        let read = state.read_layout().unwrap();
+        assert_eq!(
+            read.map(|read| (read.width, read.height, read.scale, read.offset)),
+            controls.then_some((600., 400., 0.5, (0., 0.)))
+        );
+    }
+}
+
 fn snapshot() -> GameplaySnapshot {
     GameplaySnapshot {
         session: 1,

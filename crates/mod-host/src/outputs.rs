@@ -90,6 +90,12 @@ impl ModHost {
         self.instance.observe_hud(viewport, elements);
     }
 
+    /// Records where the host last laid out this mod's panel, which `panel.read-layout`
+    /// reports to later callbacks; none while the panel is not up.
+    pub fn observe_panel_layout(&mut self, layout: Option<ui::mod_hud::PanelLayout>) {
+        self.instance.observe_panel_layout(layout);
+    }
+
     /// Installs the host label metrics `measure-text` uses; none reports them unavailable.
     pub fn set_text_measure(&mut self, text: Option<Arc<dyn crate::HudTextMeasure>>) {
         self.instance.set_text_measure(text);

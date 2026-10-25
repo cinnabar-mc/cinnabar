@@ -72,6 +72,8 @@ pub(super) struct ModPanel {
     icons: Vec<IconRef>,
     /// The last projected offset of each projected binding.
     projected: std::collections::BTreeMap<String, Option<[f64; 2]>>,
+    /// Where the panel was last laid out over the HUD root.
+    layout: Option<ui::mod_hud::PanelLayout>,
 }
 
 impl ModPanel {
@@ -245,6 +247,7 @@ impl ModUi {
                 items: Vec::new(),
                 icons: Vec::new(),
                 projected: Default::default(),
+                layout: None,
             });
         }
         if (self.reduced_motion || !panel.motion)
@@ -281,6 +284,16 @@ impl ModUi {
     /// Whether the panel is open and owns input; false while a closed panel plays its exit.
     pub fn mod_panel_open(&self) -> bool {
         self.mod_panel.as_ref().is_some_and(|panel| panel.open)
+    }
+
+    /// The open panel's owner and where it was last laid out over the HUD root, for
+    /// `panel.read-layout`; none while no panel is open or the HUD editor draws instead.
+    pub fn mod_panel_layout(&self) -> Option<(PanelUiOwner, ui::mod_hud::PanelLayout)> {
+        if self.mod_hud_editor_painting() {
+            return None;
+        }
+        let panel = self.mod_panel.as_ref().filter(|panel| panel.open)?;
+        Some((panel.owner, panel.layout?))
     }
 
     /// Whether the active panel retains resource-pack HUD content for placement or inspection.
@@ -423,6 +436,13 @@ impl ModUi {
             panel.close(false);
             return;
         }
+        // The panel root and the HUD root both lay out from the safe content's top left.
+        panel.layout = Some(ui::mod_hud::PanelLayout {
+            size: viewport.map(|axis| axis as f32),
+            scale: px / (hud_metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32),
+            offset: [0.; 2],
+        })
+        .filter(|layout| layout.valid());
         if panel.viewport != viewport {
             panel.cancel_edit();
             panel.viewport = viewport;

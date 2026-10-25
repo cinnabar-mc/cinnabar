@@ -348,6 +348,39 @@ fn panels_embed_named_hud_controls_fitted_and_centred() {
     );
 }
 
+/// The open panel reports its root in panel units, the HUD GUI units one panel unit spans and
+/// its offset from the HUD root, including while a reference size is fitted to the window.
+#[test]
+fn panel_layouts_map_panel_units_to_the_hud_root() {
+    let mut ui = ModUi::default();
+    let mut harness = Harness::new();
+    let mut panel = embedding_panel();
+    ui.set_mod_panel(OWNER, Some(&panel)).unwrap();
+    harness.paint(&mut ui, true);
+    assert!(ui.mod_panel_layout().is_none(), "a closed panel has none");
+    ui.set_mod_panel_open(true);
+    harness.paint(&mut ui, true);
+    let layout = |size, scale| ui::mod_hud::PanelLayout {
+        size,
+        scale,
+        offset: [0., 0.],
+    };
+    assert_eq!(
+        ui.mod_panel_layout(),
+        Some((OWNER, layout([640., 360.], 1.)))
+    );
+    panel.reference_size = Some([1280., 720.]);
+    ui.set_mod_panel(OWNER, Some(&panel)).unwrap();
+    harness.paint(&mut ui, true);
+    assert_eq!(
+        ui.mod_panel_layout(),
+        Some((OWNER, layout([1280., 720.], 0.5))),
+        "the reference size fits the 640 by 360 HUD root at half scale"
+    );
+    ui.set_mod_panel_open(false);
+    assert!(ui.mod_panel_layout().is_none());
+}
+
 /// A panel opened before any HUD frame lays its embeds out against the root that frame
 /// would place.
 #[test]

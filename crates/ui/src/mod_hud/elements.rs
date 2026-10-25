@@ -103,9 +103,59 @@ impl HudViewport {
     }
 }
 
+/// Where an open panel lies over the HUD root, so a mod maps its panel units to the pointer's
+/// HUD GUI units: a HUD point `p` lies at `(p - offset) / scale` in panel units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PanelLayout {
+    /// The panel root's size in panel units.
+    pub size: [f32; 2],
+    /// HUD GUI units per panel unit.
+    pub scale: f32,
+    /// The panel root's top left in HUD GUI units from the HUD root's top left.
+    pub offset: [f32; 2],
+}
+
+impl PanelLayout {
+    /// Finite positive size and scale, and a finite offset.
+    pub fn valid(self) -> bool {
+        let bounded = |value: f32| value.is_finite() && value.abs() <= 1_000_000.;
+        self.size
+            .iter()
+            .chain([&self.scale])
+            .all(|value| bounded(*value) && *value > 0.)
+            && self.offset.iter().all(|value| bounded(*value))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_layouts_need_finite_positive_sizes_and_scales() {
+        let layout = PanelLayout {
+            size: [600., 400.],
+            scale: 0.5,
+            offset: [-2., 3.],
+        };
+        assert!(layout.valid());
+        for invalid in [
+            PanelLayout {
+                scale: 0.,
+                ..layout
+            },
+            PanelLayout {
+                size: [600., f32::INFINITY],
+                ..layout
+            },
+            PanelLayout {
+                offset: [f32::NAN, 0.],
+                ..layout
+            },
+        ] {
+            assert!(!invalid.valid(), "{invalid:?}");
+        }
+    }
 
     #[test]
     fn hidden_elements_combine_as_sets_in_enum_order() {

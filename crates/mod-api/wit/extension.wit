@@ -308,6 +308,14 @@ interface panel {
     /// The item is its immutable published index, resolved through the accepted collection_order.
     /// Each request is consumed once; a filtered-out item is ignored.
     update-content: func(json: string) -> result<_, string>;
+    /// Where this mod's panel lies over the HUD root as last laid out: the panel root's
+    /// `width` and `height` in panel units, `scale`, the HUD GUI units one panel unit spans,
+    /// which follows the GUI scale and a `reference_size` fitted to a small window, and
+    /// `offset`, the panel root's top left in HUD GUI units from the HUD root's top left. The
+    /// pointer of `input.read-controls` at `p` lies at `(p - offset) / scale` in panel units.
+    record panel-layout { width: f32, height: f32, scale: f32, offset: tuple<f32, f32> }
+    /// Requires controls authority; none without it and while this mod's panel is not open.
+    read-layout: func() -> option<panel-layout>;
 }
 
 /// Settings belong to the selected component's fixed companion file.

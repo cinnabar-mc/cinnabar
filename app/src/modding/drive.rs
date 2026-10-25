@@ -264,6 +264,15 @@ pub(super) fn drive_mod(
     extension
         .hosts
         .observe_hud(hud_viewport, hud_elements, label_metrics);
+    let panel_layout = presentation.mod_ui().mod_panel_layout();
+    for index in 0..extension.hosts.host_count() {
+        let owner = extension.panel_ui_owner(index);
+        extension.hosts.host_mut(index).observe_panel_layout(
+            panel_layout
+                .filter(|(laid_out, _)| *laid_out == owner)
+                .map(|(_, layout)| layout),
+        );
+    }
     let mut callback_failed = false;
     multi::run_frame_callbacks(
         &mut extension.hosts,
