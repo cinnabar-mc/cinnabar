@@ -17,6 +17,71 @@ pub(super) mod status;
 #[cfg(test)]
 mod tests;
 
+/// Shader settings and requests share one scheduling condition.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct ShaderPackUiSystems;
+
+/// Installs shader settings work separately from the always-available renderer controls.
+pub(super) fn configure(app: &mut App) {
+    app.add_message::<bevy::window::WindowFocused>()
+        .init_resource::<reload::ShaderPackReloadReport>()
+        .init_resource::<super::shader_options::ShaderOptionsHost>()
+        .configure_sets(Update, ShaderPackUiSystems.run_if(work_pending))
+        .add_systems(
+            Update,
+            (
+                (
+                    refresh_shader_packs,
+                    reload::reload_on_key,
+                    reload::apply_reload,
+                )
+                    .chain()
+                    .before(super::apply_menu_render_mode),
+                (
+                    sync_shader_pack_request,
+                    status::sync_shader_pack_status,
+                    reload::report_reload,
+                )
+                    .chain()
+                    .after(super::apply_menu_render_mode)
+                    .before(super::authored_textures::update_authored_textures),
+                super::shader_options::drive_shader_options.after(super::apply_menu_render_mode),
+            )
+                .in_set(ShaderPackUiSystems),
+        );
+    import::configure(app);
+    removal::configure(app);
+}
+
+/// Reads existing selection and worker state, retaining one screen-close frame for discovery.
+/// The local value only lets discovery observe closing; it never owns load or worker state.
+pub(super) fn work_pending(world: &World, mut screen_was_open: Local<bool>) -> bool {
+    let screen_open = world
+        .get_resource::<MenuRuntime>()
+        .is_some_and(MenuRuntime::takes_shader_pack_drops);
+    let closing = *screen_was_open && !screen_open;
+    *screen_was_open = screen_open;
+    closing
+        || world
+            .get_resource::<MenuRuntime>()
+            .is_some_and(MenuRuntime::has_shader_pack_work)
+        || world
+            .get_resource::<ShaderPackRequest>()
+            .is_some_and(|request| request.pack.is_some())
+        || world
+            .get_resource::<RuntimeSettings>()
+            .is_some_and(|settings| {
+                settings.user_settings_update().1.video.render_mode == RenderMode::ShaderPack
+            })
+        || world
+            .get_resource::<Messages<bevy::window::FileDragAndDrop>>()
+            .is_some_and(|drops| !drops.is_empty())
+        || import::work_pending(world)
+        || removal::work_pending(world)
+        || reload::work_pending(world)
+        || super::shader_options::work_pending(world)
+}
+
 /// The install's shader-pack folders and the packs last listed from them.
 pub(super) struct ShaderPackDirs {
     /// Player-supplied packs.

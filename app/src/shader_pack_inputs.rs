@@ -5,7 +5,7 @@
 use bevy::{
     prelude::{
         App, DetectChanges, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res,
-        ResMut, Resource, Time, Transform, Update, With,
+        ResMut, Resource, SystemCondition, Time, Transform, Update, With,
     },
     time::Real,
 };
@@ -74,15 +74,30 @@ impl Plugin for ShaderPackInputsPlugin {
                     publish_frame_inputs
                         .after(update_atmosphere_frame)
                         .after(LocalPlayerFrameSet::Interaction)
-                        .run_if(shader_inputs_sampled),
+                        .run_if(shader_work_pending.and_then(shader_inputs_sampled)),
                     publish_dimension
                         .after(update_atmosphere_frame)
-                        .run_if(requested_pack_failed),
-                    publish_actor_ids.run_if(actor_ids_published),
-                    mesh_like_java_for_shader_packs.run_if(java_meshing_may_change),
+                        .run_if(shader_work_pending.and_then(requested_pack_failed)),
+                    publish_actor_ids.run_if(shader_work_pending.and_then(actor_ids_published)),
+                    mesh_like_java_for_shader_packs
+                        .run_if(shader_work_pending.and_then(java_meshing_may_change)),
                 ),
             );
     }
+}
+
+/// Keeps sampling and the final native-meshing/id reset inside the pack lifecycle.
+fn shader_work_pending(
+    request: Option<Res<ShaderPackRequest>>,
+    status: Option<Res<ShaderPackStatus>>,
+    ids: Res<ShaderPackIdMaps>,
+    actors: Res<ShaderPackActorIds>,
+) -> bool {
+    request.is_some_and(|request| request.pack.is_some())
+        || status
+            .is_some_and(|status| status.is_ready() || (status.is_changed() && !status.is_added()))
+        || ids.is_loaded()
+        || !actors.by_runtime_id.is_empty()
 }
 
 /// Whether the requested pack is the one that failed to load; it renders Vanilla until a
@@ -128,7 +143,7 @@ fn actor_ids_published(ids: Res<ShaderPackIdMaps>, actor_ids: Res<ShaderPackActo
 /// Java meshing follows a ready pack, so it is re-evaluated while one is ready and whenever
 /// the load status changes.
 fn java_meshing_may_change(status: Option<Res<ShaderPackStatus>>) -> bool {
-    status.is_some_and(|status| status.is_ready() || status.is_changed())
+    status.is_some_and(|status| status.is_ready() || (status.is_changed() && !status.is_added()))
 }
 
 /// Bedrock blocks Java fills with water (`seagrass`, `kelp` and `kelp_plant`, `bubble_column`

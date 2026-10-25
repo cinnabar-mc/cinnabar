@@ -266,3 +266,58 @@ fn regaining_focus_on_shaders_lists_packs_copied_in_meanwhile() {
         ["Dusk.zip".to_owned()]
     );
 }
+
+/// Counts actual executions of the production shader-settings schedule.
+fn frame_executions(app: &mut App) -> usize {
+    app.world_mut().schedule_scope(Update, |world, schedule| {
+        schedule.initialize(world).unwrap();
+        let before = schedule
+            .systems()
+            .unwrap()
+            .map(|(id, system)| (id, system.get_last_run()))
+            .collect::<std::collections::HashMap<_, _>>();
+        schedule.run(world);
+        schedule
+            .systems()
+            .unwrap()
+            .filter(|(id, system)| {
+                system.system_type() != std::any::TypeId::of::<bevy::ecs::schedule::ApplyDeferred>()
+                    && before[id] != system.get_last_run()
+            })
+            .count()
+    })
+}
+
+/// Installs every production shader-settings system with isolated, unused settings.
+fn scheduled_app() -> App {
+    let mut app = App::new();
+    app.insert_resource(config(None))
+        .init_resource::<RuntimeSettings>()
+        .init_resource::<ShaderPackRequest>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Time<bevy::time::Real>>()
+        .add_message::<bevy::window::FileDragAndDrop>();
+    configure(&mut app);
+    app
+}
+
+#[test]
+fn idle_settings_execute_no_shader_pack_systems() {
+    let mut app = scheduled_app();
+    app.init_resource::<render_scene::shaderpack::ShaderPackStatus>()
+        .add_plugins(crate::shader_pack_inputs::ShaderPackInputsPlugin);
+    assert_eq!(frame_executions(&mut app), 0);
+}
+
+#[test]
+fn selecting_then_disabling_a_pack_returns_settings_to_zero_systems() {
+    let mut app = scheduled_app();
+    select(&mut app, RenderMode::ShaderPack, Some("Dusk.zip"));
+    assert!(frame_executions(&mut app) > 0);
+    assert!(requested(&app).is_some());
+    select(&mut app, RenderMode::Vanilla, None);
+    assert!(frame_executions(&mut app) > 0);
+    assert!(requested(&app).is_none());
+    assert_eq!(frame_executions(&mut app), 0);
+}

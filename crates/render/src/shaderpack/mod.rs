@@ -54,6 +54,7 @@ mod plan;
 pub(crate) mod plugin;
 mod resources;
 mod scene_bindings;
+mod scheduling;
 mod shadow_maps;
 mod sky;
 mod targets;
@@ -82,10 +83,10 @@ pub struct ShaderPackRenderPlugin;
 
 impl Plugin for ShaderPackRenderPlugin {
     fn build(&self, app: &mut App) {
-        plugin::build(app);
+        render_scene::startup_timing::measure("shader_pack_build", || plugin::build(app));
     }
 
     fn finish(&self, app: &mut App) {
-        plugin::finish(app);
+        render_scene::startup_timing::measure("shader_pack_finish", || plugin::finish(app));
     }
 }

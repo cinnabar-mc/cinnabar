@@ -42,6 +42,10 @@ fn app_picking(packs: &Path, section: SettingSection, pick: Pick) -> App {
         .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
         .insert_resource(config(packs))
         .insert_resource(menu);
+    app.configure_sets(
+        Update,
+        super::super::ShaderPackUiSystems.run_if(super::super::work_pending),
+    );
     configure_with(&mut app, pick);
     app
 }

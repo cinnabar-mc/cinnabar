@@ -118,12 +118,10 @@ impl Plugin for ShaderpackGeometryPlugin {
         render_app
             .init_resource::<ShaderpackGeometrySettings>()
             .add_systems(
-                bevy::render::ExtractSchedule,
-                super::kernels::extract_shared_shaders,
-            )
-            .add_systems(
                 Render,
-                super::kernels::prepare_kernels.before(RenderSystems::PrepareViews),
+                super::kernels::prepare_kernels
+                    .before(RenderSystems::PrepareViews)
+                    .in_set(super::scheduling::ShaderPackSystems),
             )
             .add_systems(
                 Render,
@@ -131,7 +129,8 @@ impl Plugin for ShaderpackGeometryPlugin {
                     (prepare_geometry_resources, gpu::prepare_shaderpack_geometry)
                         .chain()
                         .after(RenderSystems::PrepareViews)
-                        .before(RenderSystems::Queue),
+                        .before(RenderSystems::Queue)
+                        .in_set(super::scheduling::ShaderPackSystems),
                 ),
             )
             .add_systems(bevy::render::RenderStartup, install_expansion_recording);
@@ -170,7 +169,8 @@ fn install_expansion_recording(world: &mut World) {
             gpu::record_geometry_expansion
                 .after(crate::upload_staging::BufferUploads)
                 .before(bevy::core_pipeline::schedule::camera_driver)
-                .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+                .in_set(bevy::render::renderer::RenderGraphSystems::Render)
+                .run_if(super::scheduling::render_work_pending),
         );
     });
 }

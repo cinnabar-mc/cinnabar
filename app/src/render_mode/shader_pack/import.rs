@@ -66,6 +66,18 @@ impl ShaderPackImports {
     }
 }
 
+/// Whether an import result is ready, even after the Shaders screen closed.
+pub(super) fn work_pending(world: &World) -> bool {
+    world
+        .get_resource::<ShaderPackImports>()
+        .is_some_and(|imports| {
+            imports
+                .results
+                .get()
+                .is_some_and(|(_, receiver)| !receiver.is_empty())
+        })
+}
+
 /// Adds the drop and picker imports to the render-mode plugin.
 pub(in crate::render_mode) fn configure(app: &mut App) {
     configure_with(app, Arc::new(picker::pick_files));
@@ -76,7 +88,9 @@ fn configure_with(app: &mut App, pick: Pick) {
     app.insert_resource(ShaderPackImports::new(pick))
         .add_systems(
             Update,
-            (start_imports, start_picked_import, finish_imports).chain(),
+            (start_imports, start_picked_import, finish_imports)
+                .chain()
+                .in_set(super::ShaderPackUiSystems),
         );
 }
 

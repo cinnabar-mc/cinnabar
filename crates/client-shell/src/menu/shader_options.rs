@@ -19,6 +19,11 @@ pub(super) struct ShaderOptions {
 }
 
 impl MenuRuntime {
+    /// Whether an option screen or its queued actions still needs the host.
+    pub(super) fn has_shader_option_work(&self) -> bool {
+        self.shader_options.view.is_some() || !self.shader_options.actions.is_empty()
+    }
+
     /// Whether the requested renderer has a pack whose options can be opened.
     pub(super) fn shader_options_available(&self) -> bool {
         self.render_mode == ui::RenderMode::ShaderPack && self.shader_pack.is_some()
