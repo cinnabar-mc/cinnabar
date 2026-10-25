@@ -16,6 +16,8 @@ pub(super) struct Inputs {
     pub origin: [f32; 3],
     pub across: [f32; 3],
     pub up: [f32; 3],
+    /// The fragment's linear view depth, which `fragment_depth` reads.
+    pub depth: f32,
 }
 
 impl Default for Inputs {
@@ -29,6 +31,7 @@ impl Default for Inputs {
             origin: [0.0; 3],
             across: [4.0, 0.0, 0.0],
             up: [0.0, 4.0, 0.0],
+            depth: 1.0,
         }
     }
 }
@@ -54,6 +57,7 @@ struct FxVertex {{ @builtin(position) position: vec4<f32>, @location(0) uv: vec2
     let lean = (uv.x * 2.0 - 1.0) * {tilt:?};
     let across = {across};
     let world = {origin} + uv.x * across + uv.y * {up};
+    world_material_set_fragment(vertex.position.xy, {depth:?});
     let input = WorldMaterialInput(uv, world,
         vec4<f32>({r:?}, {g:?}, {b:?}, {a:?}), vec4<f32>(1.0), vec4<f32>(0.0), vec4<f32>(0.0),
         {phase:?}, normalize({normal} + normalize(across) * lean), normalize({view}));
@@ -63,6 +67,7 @@ struct FxVertex {{ @builtin(position) position: vec4<f32>, @location(0) uv: vec2
 ",
         tilt = inputs.tilt,
         phase = inputs.phase,
+        depth = inputs.depth,
         across = vec3(inputs.across),
         origin = vec3(inputs.origin),
         up = vec3(inputs.up),
@@ -125,6 +130,34 @@ pub(super) fn raster(
     })
 }
 
+/// [`raster`] with effects.
+pub(super) fn raster_effects(
+    gpu: &Gpu,
+    shade: &str,
+    textures: &[wgpu::TextureView],
+    params: &[f32],
+    inputs: &Inputs,
+    effects: &Effects<'_>,
+) -> Vec<u8> {
+    raster_with_effects(gpu, shade, textures, params, effects, |library| {
+        source(library, inputs)
+    })
+}
+
+/// What a material's effects read in the fixture: the functions its module has, the effects
+/// row of its frame, the scene's colour and depth (the scene group rebound into the fixture's
+/// group at [`SCENE_BINDINGS`]) and its cells.
+#[derive(Default)]
+pub(super) struct Effects<'a> {
+    pub features: mod_render::world_material::Features,
+    pub row: [f32; 4],
+    pub scene: Option<(&'a wgpu::TextureView, &'a wgpu::TextureView)>,
+    pub cells: Option<&'a wgpu::Buffer>,
+}
+
+/// Where the fixture binds the scene's colour and depth.
+const SCENE_BINDINGS: [u32; 2] = [20, 21];
+
 /// Rasters `shade` with `params` and its textures through the module `build` makes of the
 /// composed guest library, whose `fx_vertex` and `fx_fragment` cover the frame.
 pub(super) fn raster_with(
@@ -134,11 +167,33 @@ pub(super) fn raster_with(
     params: &[f32],
     build: impl FnOnce(&str) -> String,
 ) -> Vec<u8> {
-    let material = mod_render::world_material::compose(shade, textures.len())
-        .expect("the showcase shader passes the host's sandbox");
-    let library = material.library(0);
+    raster_with_effects(gpu, shade, textures, params, &Effects::default(), build)
+}
+
+/// [`raster_with`] with effects.
+pub(super) fn raster_with_effects(
+    gpu: &Gpu,
+    shade: &str,
+    textures: &[wgpu::TextureView],
+    params: &[f32],
+    effects: &Effects<'_>,
+    build: impl FnOnce(&str) -> String,
+) -> Vec<u8> {
+    let material =
+        mod_render::world_material::compose_with(shade, textures.len(), effects.features)
+            .expect("the showcase shader passes the host's sandbox");
+    let library = material
+        .library(0)
+        .replace(
+            "@group(1) @binding(0)",
+            &format!("@group(0) @binding({})", SCENE_BINDINGS[0]),
+        )
+        .replace(
+            "@group(1) @binding(1)",
+            &format!("@group(0) @binding({})", SCENE_BINDINGS[1]),
+        );
     let frame = gpu.buffer(
-        &mod_render::world_material::frame_uniform(0.0, 1, params),
+        &mod_render::world_material::frame_uniform_with_effects(0.0, 1, effects.row, params),
         wgpu::BufferUsages::UNIFORM,
     );
     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -162,6 +217,20 @@ pub(super) fn raster_with(
         bindings.push(wgpu::BindGroupEntry {
             binding: textures.len() as u32 + 1,
             resource: wgpu::BindingResource::Sampler(&sampler),
+        });
+    }
+    if let Some((colour, depth)) = effects.scene {
+        for (binding, view) in SCENE_BINDINGS.into_iter().zip([colour, depth]) {
+            bindings.push(wgpu::BindGroupEntry {
+                binding,
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+    }
+    if let (Some(cells), Some(binding)) = (effects.cells, material.bindings().cells) {
+        bindings.push(wgpu::BindGroupEntry {
+            binding,
+            resource: cells.as_entire_binding(),
         });
     }
     gpu.render(

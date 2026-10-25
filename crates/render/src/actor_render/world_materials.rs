@@ -33,6 +33,11 @@ pub(crate) fn family() -> ShaderFamily {
 fn specialize_world(world: WorldVariant, descriptor: &mut RenderPipelineDescriptor) {
     descriptor.layout.truncate(WORLD_MATERIAL_GROUP as usize);
     descriptor.layout.push(world.layout());
+    if world.features.scene {
+        descriptor
+            .layout
+            .push(crate::world_material::scene::scene_layout());
+    }
     if world.features.displace {
         descriptor.vertex.shader = world.shader(ACTOR_SHADERS);
         descriptor.vertex.shader_defs.extend(world.defs());
@@ -190,6 +195,26 @@ mod tests {
                 .depth_write_enabled,
             Some(false)
         );
+        // A material reading the scene takes the view's scene group after its own, and one
+        // displacing its vertices takes its module's vertex stage.
+        let reading = WorldVariant {
+            features: mod_render::world_material::Features {
+                scene: true,
+                displace: true,
+                ..Default::default()
+            },
+            ..variant
+        };
+        let mut scene = actor_pipeline_descriptor(actor_bind_group_layout());
+        WorldActorSpecializer
+            .specialize(WorldActorKey::new(base(), reading), &mut scene)
+            .unwrap();
+        assert_eq!(scene.layout.len(), WORLD_MATERIAL_GROUP as usize + 2);
+        assert_eq!(
+            scene.layout[WORLD_MATERIAL_GROUP as usize + 1],
+            crate::world_material::scene::scene_layout()
+        );
+        assert_eq!(scene.vertex.shader, reading.shader(ACTOR_SHADERS));
         // Distinct programs never share a pipeline.
         let other = WorldVariant {
             program: 8,

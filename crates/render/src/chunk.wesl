@@ -867,6 +867,8 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     var flags = in.material_flags;
     // A programmable world material replaces the tinted Bedrock colour before the host's
     // lightmap, face shade and fog; its emission adds after lighting like a glow mask.
+    @if(!ENHANCED && WORLD_MATERIAL_SCENE)
+    { world_material_set_fragment(in.clip_position.xy, view.clip_from_view[3][2] / max(in.clip_position.z, 1.0e-9)); }
     @if(!ENHANCED && WORLD_MATERIAL)
     {
         let world_fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;

@@ -427,6 +427,8 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     }
     // A programmable world material replaces the Bedrock colour before the host lights, fogs
     // and blends it as an ordinary material; its emission adds after lighting like a glow mask.
+    @if(WORLD_MATERIAL_SCENE)
+    { world_material_set_fragment(input.position.xy, view.clip_from_view[3][2] / max(input.position.z, 1.0e-9)); }
     @if(WORLD_MATERIAL)
     {
         let world_fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;

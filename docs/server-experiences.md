@@ -222,6 +222,11 @@ material's do. Ending the runtime clears the withdrawals.
   this frame, `offset` pixels from the fragment and clamped to the screen, and
   `fragment_depth()` the fragment's own depth, for refraction, heat haze and soft intersections.
   Only premultiplied and additive classes may read it, since they draw after the opaque pass.
+  While a published material reads the scene, each view copies its opaque colour (resolved
+  when multisampled) and turns its depth into linear distance once the opaque pass and the
+  entity shadows are drawn and before the translucent pass; a view whose copy is missing draws
+  the material's targets with the base pipelines. Shader packs keep such a block on its Bedrock
+  sprite.
   It cannot read anything not on that view's screen: no other view, no translucent or later
   pass, no UI, no previous frame, and nothing it reads ever reaches the guest, which has no GPU
   readback.
