@@ -1,7 +1,10 @@
 //! A component's own requests and Mods-library metadata, read by parsing its sections only.
 
-use crate::{ModGrants, SourceKind, packet_mod::native_capabilities, read_source};
-use anyhow::{Result, anyhow, ensure};
+use crate::{
+    ModGrants, SourceKind, component_assets::ComponentAssets, packet_mod::native_capabilities,
+    read_source,
+};
+use anyhow::{Context, Result, anyhow, ensure};
 use std::{io::Cursor, path::Path, sync::Arc};
 use ui::mod_metadata::{GitHubModAsset, GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
 use wasmparser::{ComponentName, KnownCustom, Name, Parser, Payload};
@@ -132,8 +135,10 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
 }
 
 /// Appends `request`, a JSON grant request, to `component` as its top-level
-/// [`REQUESTED_GRANTS_SECTION`], after checking that the loader would accept it. A component
-/// that already declares a request is refused rather than given a second one.
+/// [`REQUESTED_GRANTS_SECTION`], after checking that the loader would accept both the request
+/// and the completed component, whose new section counts toward the executable byte limit.
+/// A component that already declares a request is refused rather than given a second one.
+/// On error `component` is left unchanged.
 pub fn append_requested_grants(component: &mut Vec<u8>, request: &[u8]) -> Result<()> {
     requested(request)?;
     ensure!(
@@ -145,9 +150,14 @@ pub fn append_requested_grants(component: &mut Vec<u8>, request: &[u8]) -> Resul
     leb128(&mut payload, name.len() as u64);
     payload.extend_from_slice(name);
     payload.extend_from_slice(request);
-    component.push(0);
-    leb128(component, payload.len() as u64);
-    component.extend(payload);
+    let mut completed = Vec::with_capacity(component.len() + payload.len() + 11);
+    completed.extend_from_slice(component);
+    completed.push(0);
+    leb128(&mut completed, payload.len() as u64);
+    completed.extend(payload);
+    ComponentAssets::read(&completed)
+        .context("the component would not load with its requested grants")?;
+    *component = completed;
     Ok(())
 }
 

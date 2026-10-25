@@ -425,3 +425,27 @@ fn an_appended_request_is_read_back_and_a_second_is_refused() {
     let mut plain = wat::parse_str("(component)").unwrap();
     assert!(append_requested_grants(&mut plain, b"{\"unknown\":true}").is_err());
 }
+
+#[test]
+fn a_request_that_would_push_the_component_over_its_limit_is_refused() {
+    let mut component = wat::parse_str("(component)").unwrap();
+    // Padding brings the component to one byte below the executable limit: the section takes
+    // an ID byte, a four-byte length, and the name's length byte and bytes.
+    let framing = 1 + 4 + 1 + "pad".len();
+    let pad = crate::MAX_COMPONENT_BYTES - 1 - component.len() - framing;
+    section(&mut component, "pad", &vec![0; pad]);
+    assert_eq!(component.len(), crate::MAX_COMPONENT_BYTES - 1);
+    assert!(ComponentAssets::read(&component).is_ok());
+    let original = component.clone();
+    assert!(
+        append_requested_grants(
+            &mut component,
+            br#"{"world_draw":true,"render_material":true}"#,
+        )
+        .is_err()
+    );
+    assert!(
+        component == original,
+        "a refused request leaves the component unchanged"
+    );
+}
