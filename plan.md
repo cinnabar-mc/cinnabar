@@ -355,7 +355,14 @@ is a broader claim than the presence of these features.
   the fallback creative grid, search entry, contextual prompts, persisted cursor
   options, scroll reveal, virtualized neighbors and magnets remain open.
   Controller-only screen-family acceptance and native capture evidence are missing;
-  this does not close parity.
+  this does not close parity. Remaining controller recipe-book work:
+  - [ ] Scroll the recipe list from the controller and reveal focused off-screen
+    rows; only rows visible without scrolling are reachable today.
+  - [ ] Witness native `button.recipe_secondary` behavior and route HalfOrPlaceOne
+    on recipe rows; it is unresolved and does nothing.
+  - [ ] Measure the per-frame cost of rebuilding book entries for row identities
+    while a controller drives an open recipe book, and cache it if it hitches.
+  - [ ] Cover furnace recipe-row identity with a test fixture.
 
 macOS has a provisional, read-only Switch full-report adapter for `057e:2009`
 devices already streaming report `0x30`. The client enables Bevy's gamepad types,
