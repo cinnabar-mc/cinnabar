@@ -624,6 +624,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         };
         // Sections with bound translucent blocks draw all their translucent faces merged.
         let bound = world_sections.take_translucent(view_entity);
+        // Sections whose world materials are not ready draw their bound translucent model faces
+        // as Bedrock, in their ordinary translucent order.
+        let bedrock = world_sections.take_bedrock(view_entity);
         let key = ChunkPipelineKey {
             msaa: *msaa,
             hdr: extracted_camera.hdr,
@@ -635,6 +638,20 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             .specialize(&pipeline_cache, key)
         else {
             continue;
+        };
+        // Until that pipeline compiles they keep the ordinary one, which leaves those faces out.
+        let bedrock_pipeline = (!bedrock.is_empty())
+            .then(|| {
+                pipeline
+                    .world_bedrock_translucent
+                    .specialize(&pipeline_cache, key)
+                    .ok()
+            })
+            .flatten()
+            .filter(|id| pipeline_cache.get_render_pipeline(*id).is_some());
+        let pipeline_for = |entity: Entity| match bedrock_pipeline {
+            Some(id) if bedrock.contains(&entity) => id,
+            _ => pipeline_id,
         };
         debug_assert_eq!(visible.view(), Some(view_entity));
         // A section with bound translucent blocks draws all its translucent faces in one
@@ -765,7 +782,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     &texture_assets,
                     committed,
                     group,
-                    pipeline_id,
+                    pipeline_for(entity),
                 )
             {
                 merged[model_index] = true;
@@ -775,7 +792,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                         sorting_info:
                             bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
                         entity: (entity, main),
-                        pipeline: pipeline_id,
+                        pipeline: pipeline_for(entity),
                         draw_function: mixed_draw,
                         distance: transparent_model_phase_distance(&rangefinder, group.key),
                         batch_range: 0..1,
@@ -824,7 +841,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     sorting_info:
                         bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
                     entity: (entity, main),
-                    pipeline: pipeline_id,
+                    pipeline: pipeline_for(entity),
                     draw_function: transparent_model_draw,
                     distance: transparent_model_phase_distance(&rangefinder, model_key),
                     batch_range: 0..1,

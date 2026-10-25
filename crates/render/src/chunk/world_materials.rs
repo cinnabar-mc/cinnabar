@@ -4,8 +4,9 @@
 //! opaque and cutout classes in the opaque phase, premultiplied and additive classes merged
 //! face by face into their section's ordinary translucent order, by the metric ordinary
 //! translucent terrain sorts its faces with. A section whose materials are
-//! not all ready draws its tagged geometry with the Bedrock fallback pipelines instead, so a
-//! bound block never disappears while its material compiles.
+//! not all ready draws its tagged geometry as Bedrock instead, so a bound block never disappears
+//! while its material compiles: cube and opaque model geometry through the fallback pipelines,
+//! and translucent model draws in their ordinary translucent order and blending.
 
 use crate::chunk::*;
 use crate::world_material::{
@@ -159,6 +160,21 @@ pub(in crate::chunk) fn fallback_descriptor(
     descriptor
 }
 
+/// The translucent terrain pipeline for a section whose materials are not ready: `source`'s
+/// ordinary translucent pipeline, which also draws the section's tagged translucent model draws
+/// as their Bedrock material in its ordinary translucent order.
+pub(in crate::chunk) fn bedrock_translucent_descriptor(
+    source: &RenderPipelineDescriptor,
+) -> RenderPipelineDescriptor {
+    let mut descriptor = source.clone();
+    descriptor.label = Some("world material fallback translucent terrain pipeline".into());
+    descriptor
+        .vertex
+        .shader_defs
+        .push("WORLD_MATERIAL_AS_BEDROCK".into());
+    descriptor
+}
+
 /// Slot mask of a section: bit `tag - 1` for every world material tag its cube quads and model
 /// draws carry.
 pub(in crate::chunk) fn slot_mask(instance: &ChunkRenderInstance) -> u64 {
@@ -203,6 +219,56 @@ mod tests {
             slot_mask_of(&[quad(1)], [draw(5), draw(0)].iter()),
             0b1_0001
         );
+    }
+
+    #[test]
+    fn the_bedrock_translucent_pipeline_keeps_the_ordinary_translucent_raster() {
+        let source = RenderPipelineDescriptor {
+            label: Some("translucent".into()),
+            vertex: VertexState {
+                shader: CHUNK_SHADER_HANDLE,
+                shader_defs: vec!["PACKED_TERRAIN".into()],
+                ..default()
+            },
+            fragment: Some(FragmentState {
+                shader: CHUNK_SHADER_HANDLE,
+                targets: vec![Some(ColorTargetState {
+                    format: render_scene::SCENE_COLOR_FORMAT,
+                    blend: Some(BlendState::ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            depth_stencil: Some(DepthStencilState {
+                format: CORE_3D_DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::GreaterEqual),
+                stencil: default(),
+                bias: default(),
+            }),
+            ..default()
+        };
+        let bedrock = bedrock_translucent_descriptor(&source);
+        assert!(
+            bedrock
+                .vertex
+                .shader_defs
+                .contains(&"WORLD_MATERIAL_AS_BEDROCK".into()),
+            "tagged translucent model draws are not hidden"
+        );
+        assert!(
+            bedrock
+                .vertex
+                .shader_defs
+                .contains(&"PACKED_TERRAIN".into())
+        );
+        assert_eq!(bedrock.vertex.shader, source.vertex.shader);
+        assert_eq!(
+            bedrock.fragment, source.fragment,
+            "Bedrock blending is kept"
+        );
+        assert_eq!(bedrock.depth_stencil, source.depth_stencil);
+        assert_eq!(bedrock.layout, source.layout);
     }
 
     #[test]

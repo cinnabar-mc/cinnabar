@@ -550,6 +550,11 @@ mod tests {
                 &["WORLD_MATERIAL_FALLBACK"],
             );
         }
+        // So does the translucent pass that draws bound faces as Bedrock while unready.
+        crate::shader_source::composed(
+            include_str!("transparent_terrain.wesl"),
+            &["WORLD_MATERIAL_AS_BEDROCK"],
+        );
     }
 
     /// The phase follows the wall clock, so a server timing an effect by Unix time agrees.
