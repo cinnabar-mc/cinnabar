@@ -43,6 +43,7 @@ engine_variables! {
     HasTarget => "variable.has_target",
     IsBlinking => "variable.is_blinking",
     IsBlocking => "variable.is_blocking",
+    IsBrandishingSpear => "variable.is_brandishing_spear",
     IsEnchanted => "variable.is_enchanted",
     IsFirstPerson => "variable.is_first_person",
     IsHoldingLeft => "variable.is_holding_left",

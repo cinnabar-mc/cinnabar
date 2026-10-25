@@ -13,7 +13,7 @@ pub use sources::{
 };
 
 /// Sidecar wire version; part of the world carrier's prepared identity.
-pub const MATERIAL_KEYS_SCHEMA: u32 = 9;
+pub const MATERIAL_KEYS_SCHEMA: u32 = 10;
 /// Largest sidecar file the runtime reads.
 pub const MAX_MATERIAL_KEYS_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -26,6 +26,8 @@ pub struct MaterialKeys {
     fixed_tints: BTreeMap<Box<str>, [u8; 3]>,
     terrain: BTreeMap<Box<str>, serde_json::Value>,
     material_sources: BTreeMap<u32, MaterialTextureSource>,
+    /// Pixel width and height of each source image named by `material_sources`.
+    raster_sizes: BTreeMap<Box<str>, [u32; 2]>,
     block_sources: Vec<BlockTextureSource>,
     flipbooks: Box<[FlipbookSource]>,
     flipbook_selectors: BTreeMap<u32, (u32, u32)>,
@@ -56,6 +58,7 @@ impl MaterialKeys {
             fixed_tints: BTreeMap::new(),
             terrain: BTreeMap::new(),
             material_sources: BTreeMap::new(),
+            raster_sizes: BTreeMap::new(),
             block_sources: Vec::new(),
             flipbooks: Box::default(),
             flipbook_selectors: BTreeMap::new(),

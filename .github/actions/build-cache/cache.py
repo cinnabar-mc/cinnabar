@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import stat
 import subprocess
@@ -279,21 +280,73 @@ def without_symlinks(member):
 LINKED_SUFFIXES = {"", ".exe", ".pdb", ".o", ".dwo", ".dwp"}
 
 
-def linked_output(relative, is_dir):
-    """Whether a path relative to a Cargo profile directory is left out of saved caches."""
+# The hash Cargo appends to a unit's output files and build directories.
+UNIT_HASH = re.compile(r"-([0-9a-f]{16})(?=[./\\]|$)")
+
+
+def live_units(messages):
+    """Return the unit hashes named by Cargo JSON messages, fresh units included.
+
+    Returns None when no message names an output or a build failed, since a failed build stops
+    before reporting every unit it uses.
+    """
+    hashes = set()
+    for line in messages.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(message, dict):
+            continue
+        if message.get("reason") == "build-finished" and not message.get("success"):
+            return None
+        paths = [*(message.get("filenames") or []), message.get("executable") or "",
+                 message.get("out_dir") or ""]
+        for path in paths:
+            hashes.update(UNIT_HASH.findall(path))
+    return hashes or None
+
+
+def read_live_units(env):
+    """Load the job's live unit hashes; without messages every unit is kept, as before."""
+    name = env.get("CACHE_CARGO_MESSAGES", "")
+    if not name:
+        return None
+    try:
+        live = live_units(Path(name).read_text(errors="replace"))
+    except OSError as error:
+        live = None
+        print(f"::warning::Keeping every Cargo unit: {name} is unreadable ({error})")
+    else:
+        if live is None:
+            print(f"::warning::Keeping every Cargo unit: {name} reports a failed build or no outputs")
+    return live
+
+
+def linked_output(relative, is_dir, live=None):
+    """Whether a path relative to a Cargo profile directory is left out of saved caches.
+
+    With `live` unit hashes, `deps/` files and `build/` directories of other units are left out
+    too: Cargo never deletes superseded units, so they would otherwise grow every saved cache.
+    """
     parts = relative.split("/")
     if parts[0] in ("examples", "incremental"):
         return True
+    if live is not None and len(parts) == 2 and parts[0] in ("deps", "build"):
+        unit = UNIT_HASH.search(parts[1])
+        if unit and unit.group(1) not in live:
+            return True
     if len(parts) > (2 if parts[0] == "deps" else 1):
         return False
     suffix = PurePosixPath(parts[-1]).suffix
     return suffix == ".dSYM" if is_dir else suffix in LINKED_SUFFIXES
 
 
-def cache_entries(paths):
+def cache_entries(paths, live=None):
     """Yield (index, root, path, kept) for each planned file and directory, parents first.
 
-    Linked outputs in Cargo profile directories are not kept, and their contents not yielded.
+    Linked outputs and units outside `live` in Cargo profile directories are not kept, and their
+    contents not yielded.
     """
     for index, root, matches in archive_roots(paths):
         for match in matches:
@@ -304,7 +357,7 @@ def cache_entries(paths):
                 for name in sorted(dirs) + sorted(files):
                     path = Path(directory, name)
                     relative = path.relative_to(match).as_posix()
-                    kept = not (profile and linked_output(relative, name in dirs))
+                    kept = not (profile and linked_output(relative, name in dirs, live))
                     if not kept and name in dirs:
                         dirs.remove(name)
                     yield index, root, path, kept
@@ -341,7 +394,8 @@ class Sizes:
         def megabytes(size):
             return f"{size / 1e6:,.0f} MB"
         print(f"Caching {megabytes(sum(self.kept.values()))} uncompressed; left out "
-              f"{megabytes(sum(self.left_out.values()))} of executables, debug info and incremental state")
+              f"{megabytes(sum(self.left_out.values()))} of executables, debug info, incremental state "
+              "and unused units")
         for title, sizes in (("Largest kept", self.kept.most_common(12)),
                              ("Left out", self.left_out.most_common())):
             print(f"{title}:")
@@ -349,10 +403,10 @@ class Sizes:
                 print(f"  {megabytes(size):>10}  {group}")
 
 
-def drop_linked_outputs(paths):
-    """Delete linked outputs from the planned paths before the shared cache saves them."""
+def drop_linked_outputs(paths, live=None):
+    """Delete linked outputs and unused units from the planned paths before the shared cache saves them."""
     sizes = Sizes()
-    for _, root, path, kept in cache_entries(paths):
+    for _, root, path, kept in cache_entries(paths, live):
         sizes.add(root, path, kept)
         if not kept:
             if path.is_dir() and not path.is_symlink():
@@ -363,12 +417,12 @@ def drop_linked_outputs(paths):
     return sizes
 
 
-def pack(paths, archive):
+def pack(paths, archive, live=None):
     """Archive planned paths with their exact timestamps, which Cargo freshness depends on."""
     sizes = Sizes()
     with tarfile.open(archive, "w:gz", compresslevel=1, format=tarfile.PAX_FORMAT) as tar:
         last = None
-        for index, root, path, kept in cache_entries(paths):
+        for index, root, path, kept in cache_entries(paths, live):
             if index != last:
                 # Hard links may only point within their own root.
                 tar.inodes.clear()
@@ -505,7 +559,7 @@ def pack_artifact(env):
     """Archive the planned paths for upload, refusing an archive over its budget."""
     name = env["CACHE_PREFIX"] + f"{env.get('GITHUB_RUN_ID', 'local')}-{env.get('GITHUB_RUN_ATTEMPT', '1')}"
     archive = Path(env["RUNNER_TEMP"]) / f"{name}.tar.gz"
-    pack(env["CACHE_PATHS"].splitlines(), archive)
+    pack(env["CACHE_PATHS"].splitlines(), archive, read_live_units(env))
     size, limit = archive.stat().st_size, budget("artifact", env["CACHE_BUCKET"])
     print(f"{archive.name} is {size} bytes of its {limit}-byte budget")
     if size > limit:
@@ -566,7 +620,7 @@ def main():
     elif action == "verify-inputs":
         verify_inputs(root)
     elif action == "drop-linked-outputs":
-        drop_linked_outputs(env["CACHE_PATHS"].splitlines())
+        drop_linked_outputs(env["CACHE_PATHS"].splitlines(), read_live_units(env))
     elif action == "make-room":
         allowed = make_room(env)
         with open(env["GITHUB_OUTPUT"], "a") as output:

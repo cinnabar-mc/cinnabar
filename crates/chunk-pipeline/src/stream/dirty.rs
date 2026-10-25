@@ -55,9 +55,10 @@ impl WorldStream {
         self.urgent_work_due = true;
     }
     /// Keys of `prepared` whose committed replacement leaves every mesh unchanged: the key is
-    /// resident with blocks, needs no relight, and [`meshing::block_changes_preserve_meshes`]
-    /// proves its resident section and replacement feed the mesher identically. A batch whose
-    /// keys are not strictly ascending, and so may repeat, proves nothing. Call before commit.
+    /// resident with blocks, needs no relight, changes no overlay host's cell (whose overlays show
+    /// only on their host state), and [`meshing::block_changes_preserve_meshes`] proves its
+    /// resident section and replacement feed the mesher identically. A batch whose keys are not
+    /// strictly ascending, and so may repeat, proves nothing. Call before commit.
     pub(super) fn mesh_neutral_mutations(
         &self,
         prepared: &[PreparedSubChunkMutation],
@@ -79,6 +80,16 @@ impl WorldStream {
                     && !relight.contains(&key)
                     && self.resident.contains(&key)
                     && !self.known_air.contains(&key)
+            })
+            .filter(|mutation| {
+                let dimension = mutation.key().dimension;
+                !mutation.changed_positions().any(|position| {
+                    terrain
+                        .block_entity(BlockEntityKey::new(
+                            dimension, position.x, position.y, position.z,
+                        ))
+                        .is_some_and(|nbt| nbt.cell_overlays().is_some())
+                })
             })
             .filter(|mutation| {
                 let (Some(previous), Some(replacement)) = (

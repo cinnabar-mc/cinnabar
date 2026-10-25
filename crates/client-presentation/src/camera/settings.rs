@@ -53,6 +53,8 @@ pub struct CameraFeelSettings {
     pub java_animations: bool,
     /// Whether server-pack custom held-item models are drawn.
     pub show_custom_item_models: bool,
+    /// Whether other players' catalog cosmetics and their effects are drawn.
+    pub show_other_player_cosmetics: bool,
     pub gamepad_look_sensitivity: f32,
     pub touch_look_sensitivity: f32,
 }
@@ -76,6 +78,7 @@ impl CameraFeelSettings {
             damage_bob: unit(settings.video.damage_bob),
             java_animations: settings.video.java_animations,
             show_custom_item_models: settings.video.show_custom_item_models,
+            show_other_player_cosmetics: settings.video.show_other_player_cosmetics,
             gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
             touch_look_sensitivity: settings.controls.touch_look_sensitivity,
         }
@@ -368,5 +371,18 @@ mod tests {
         let mut camera = CameraSettingsAuthority::default();
         camera.replace(1, &settings).unwrap();
         assert!(!camera.feel().show_custom_item_models);
+    }
+
+    #[test]
+    fn camera_authority_publishes_the_other_player_cosmetics_preference() {
+        let mut settings = UserSettings::default();
+        let mut camera = CameraSettingsAuthority::default();
+        assert!(camera.feel().show_other_player_cosmetics);
+        settings.video.show_other_player_cosmetics = false;
+        camera.replace(1, &settings).unwrap();
+        assert!(!camera.feel().show_other_player_cosmetics);
+        settings.video.show_other_player_cosmetics = true;
+        camera.replace(2, &settings).unwrap();
+        assert!(camera.feel().show_other_player_cosmetics);
     }
 }

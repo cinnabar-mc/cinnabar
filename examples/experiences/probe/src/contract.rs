@@ -1,11 +1,12 @@
-//! Server WIT 0.5's and 0.6's calls. x=24 makes each 0.5 call once; x=25 toggles a lamp; x=26
-//! marks every member of a node's network; x=27 makes stacks; x=28 asks the server's recipes;
-//! x=29 schedules updates.
+//! Server WIT 0.5's, 0.6's and 0.10's calls. x=24 makes each 0.5 call once; x=25 toggles a lamp;
+//! x=26 marks every member of a node's network; x=27 makes stacks; x=28 asks the server's
+//! recipes; x=29 schedules updates. Using a [`BUS`] adds or removes plates on it.
 
 use experience_sdk::server::{
-    BlockDef, BlockPos, BlockState, BlockType, Callback, ItemDef, ItemKey, Mining, NewStack,
-    PlacementStates, Registration, StateDef, StateValue, StateValues, TextureBinding, WorldError,
-    cube,
+    BlockDef, BlockPos, BlockState, BlockType, Callback, Face, ItemDef, ItemKey, Material, Mining,
+    NewStack, Overlay, OverlayLook, OverlayRegistration, OverlayType, OverlayVisual, Pixel,
+    PixelBox, PlacementStates, Registration, RenderMethod, StateDef, StateValue, StateValues,
+    TextureBinding, Visual, WorldError, cube,
 };
 
 /// A cube with the facing placement trait and one bool state, [`LAMP_ON`].
@@ -15,10 +16,14 @@ const NODE: &str = "probe:node";
 /// The probe's item, one to a stack.
 const CELL: &str = "probe:cell";
 pub(crate) const LAMP_ON: &str = "probe:on";
+/// A cube that carries overlays.
+pub(crate) const BUS: &str = "probe:bus";
+/// An overlay type: a two-pixel plate against its face, picked by its own box.
+const PLATE: &str = "probe:plate";
 
 /// The probe's blocks, each a cube showing `counter.png`: the counter `counter`, without states,
-/// the lamp, with the facing trait and [`LAMP_ON`], and the node, a network member; and the
-/// item [`CELL`], one to a stack, with `counter.png` for an icon.
+/// the lamp, with the facing trait and [`LAMP_ON`], the node, a network member, and the
+/// [`BUS`]; and the item [`CELL`], one to a stack, with `counter.png` for an icon.
 pub(crate) fn registration(counter: &str) -> Registration {
     let def = |id: &str, display_name: &str| BlockDef {
         id: id.to_owned(),
@@ -45,6 +50,7 @@ pub(crate) fn registration(counter: &str) -> Registration {
                 network: true,
                 ..cube(def(NODE, "Probe Node"))
             },
+            cube(def(BUS, "Probe Bus")),
         ],
         items: vec![ItemDef {
             id: CELL.to_owned(),
@@ -53,6 +59,60 @@ pub(crate) fn registration(counter: &str) -> Registration {
             max_stack: 1,
         }],
     }
+}
+
+/// The [`BUS`] carries overlays of the one type [`PLATE`], `plate.geo.json` drawn with
+/// `counter.png`, whose selection box is the plate.
+pub(crate) fn overlays() -> OverlayRegistration {
+    let pixel = |x: f32, y: f32, z: f32| Pixel { x, y, z };
+    OverlayRegistration {
+        hosts: vec![BUS.to_owned()],
+        types: vec![OverlayType {
+            name: "plate".to_owned(),
+            states: Vec::new(),
+            visual: Visual {
+                geometry: Some("plate.geo.json".to_owned()),
+                materials: vec![Material {
+                    instance: "*".to_owned(),
+                    path: "counter.png".to_owned(),
+                    render_method: RenderMethod::Opaque,
+                    flipbook: None,
+                }],
+                bones: Vec::new(),
+                collision: None,
+                selection: Some(PixelBox {
+                    min: pixel(0.0, 0.0, 0.0),
+                    max: pixel(16.0, 16.0, 2.0),
+                }),
+                rotation: None,
+            },
+            permutations: Vec::new(),
+        }],
+    }
+}
+
+/// Using the bus at `p`: a click on one of its plates removes it, as `target {slot}`; else a
+/// plate goes on the clicked face, in the slot of the face's index, as `plate {slot} {outcome}`.
+pub(crate) fn use_bus(ctx: &Callback, p: BlockPos, face: Face, target: Option<u8>) -> String {
+    let mut overlays = match ctx.overlays(p) {
+        Ok(overlays) => overlays,
+        Err(error) => return format!("overlays {}", error.name()),
+    };
+    if let Some(slot) = target {
+        overlays.retain(|overlay| overlay.slot != slot);
+        return format!("target {slot} {}", refusal(ctx.set_overlays(p, &overlays)));
+    }
+    let slot = face as u8;
+    overlays.retain(|overlay| overlay.slot != slot);
+    overlays.push(Overlay {
+        slot,
+        face,
+        look: OverlayLook::Visual(OverlayVisual {
+            kind: PLATE.to_owned(),
+            states: Vec::new(),
+        }),
+    });
+    format!("plate {slot} {}", refusal(ctx.set_overlays(p, &overlays)))
 }
 
 /// Places a lamp at `up`, the block above the interacted block `p`, reads its states, lights it

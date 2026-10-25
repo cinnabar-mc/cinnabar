@@ -125,6 +125,7 @@ impl ActorStore {
             }
             actor.advance_creeper_swell();
             actor.status.tick();
+            actor.advance_loyalty_return();
             actor.tick_boat_hurt();
             actor.finish_player_death(self.world_default_game_mode);
             let using_item = actor.is_using_item();
@@ -304,6 +305,24 @@ impl ActorStore {
                     .get(&actor.unique_id)
                     .copied()
                     .unwrap_or_default();
+                let held_item_facts = [
+                    protocol::ActorHandedness::Right,
+                    protocol::ActorHandedness::Left,
+                ]
+                .map(|hand| {
+                    let network_id = if is_local {
+                        local_held_network_ids[usize::from(hand == protocol::ActorHandedness::Left)]
+                    } else {
+                        items
+                            .get_in_hand(lifetime, hand)
+                            .map_or(0, |equipment| equipment.item.identity.network_id)
+                    };
+                    items.animation_fact(network_id)
+                });
+                // A declared use animation component overrides the item's native one.
+                let main_hand_use_animation = held_item_facts[0]
+                    .use_animation
+                    .or_else(|| main_hand_use.animation.fact());
                 actor_animation::ActorTickContext {
                     combat_visuals: render_api::DEFAULT_COMBAT_VISUALS,
                     appearance_pending: !self.ready_appearances.admits(
@@ -320,15 +339,8 @@ impl ActorStore {
                     seat_facing: seat_facings.get(&actor.unique_id).copied(),
                     hand_charged,
                     main_hand,
-                    held_item_facts: [protocol::ActorHandedness::Right, protocol::ActorHandedness::Left]
-                        .map(|hand| {
-                            let network_id = if is_local {
-                                local_held_network_ids[usize::from(hand == protocol::ActorHandedness::Left)]
-                            } else {
-                                items.get_in_hand(lifetime, hand).map_or(0, |equipment| equipment.item.identity.network_id)
-                            };
-                            items.animation_fact(network_id)
-                        }),
+                    held_item_facts,
+                    main_hand_use_animation,
                     main_hand_metadata,
                     held_variants: if is_local {
                         local_held_variants

@@ -1,6 +1,7 @@
 //! Vendor-independent, renderer-independent semantic input primitives.
 
 mod action;
+pub mod action_filter;
 mod click_limit;
 pub use click_limit::ClickLimiter;
 mod axes;
@@ -76,6 +77,24 @@ pub mod touch {
     pub const DEBUG_OVERLAY: u16 = 38;
     pub const PLAYER_LIST: u16 = 39;
     pub const DISMISS_UTILITIES: u16 = 40;
+    /// Mod-registered buttons, one per presented slot. They complete as taps in the app and
+    /// never enter the gameplay router's layout.
+    pub const MOD_BUTTONS: std::ops::Range<u16> = 64..80;
+
+    /// The presented slot of a mod button's hit id.
+    pub fn mod_button_slot(hit_id: u16) -> Option<usize> {
+        MOD_BUTTONS
+            .contains(&hit_id)
+            .then(|| usize::from(hit_id - MOD_BUTTONS.start))
+    }
+
+    /// The hit id of a presented mod button slot.
+    pub fn mod_button(slot: usize) -> Option<u16> {
+        u16::try_from(slot)
+            .ok()
+            .and_then(|slot| MOD_BUTTONS.start.checked_add(slot))
+            .filter(|id| MOD_BUTTONS.contains(id))
+    }
 }
 
 mod touch_controls;

@@ -1,25 +1,27 @@
 //! The client part: a component of the `server-bundle` world, which Cinnabar runs from the
-//! Experience's `.cxb`, generated from `wit/client/client.wit`.
+//! Experience's `.cxb`, generated from `../mod-api/wit/client.wit`.
 //!
 //! Implement [`ClientPart`] on a type and export it with
 //! [`export_client_part!`](crate::export_client_part). Paired projects use `#[entry::client]`
 //! and one `#[on_message]` method per reply. [`send`] accepts only to-server messages.
 //! Dispatch silently drops unknown channels and records that fail to decode.
-//! The host's imports are [`ui`], [`input`], [`scene`], [`media`] and [`items`]; each
-//! refuses what the bundle's grants do not allow.
+//! The host's imports include [`ui`], [`input`], [`scene`], [`media`], [`items`],
+//! [`drawing`], [`render`] and [`environment`]; each checks the bundle's grants.
 
-/// Bindings generated from `wit/client/client.wit`.
+/// Bindings generated from `../mod-api/wit/client.wit`.
 pub mod bindings {
     wit_bindgen::generate!({
-        path: ["wit/session", "wit/client"],
+        path: ["wit/client/deps/server-experience", "wit/session", "../mod-api/wit"],
         world: "cinnabar:extension/server-bundle@0.1.0",
         generate_all,
         pub_export_macro: true,
     });
 }
 
+pub use bindings::cinnabar::extension::{environment, render};
 pub use bindings::cinnabar::server_experience::{input, media, scene, ui};
 pub use bindings::cinnabar::session::items;
+pub use bindings::cinnabar::world_draw::{assets, drawing, masks};
 
 use crate::Value;
 use bindings::cinnabar::server_experience::messaging;
@@ -40,6 +42,9 @@ pub trait ClientPart {
 
     /// Runs once, when the client part starts.
     fn init();
+
+    /// Runs on an admitted presentation frame, coalesced while a callback is busy.
+    fn frame() {}
 
     /// Handles `action`: the declared action `id` fired from a modal screen control while the
     /// modal has focus; `collection_index` is the control's row in its nearest collection.
@@ -142,6 +147,10 @@ macro_rules! export_client_part {
         impl $crate::client::bindings::Guest for $ty {
             fn init() {
                 $crate::client::initialize::<$ty>()
+            }
+
+            fn frame() {
+                <$ty as $crate::client::ClientPart>::frame()
             }
 
             fn dispatch(channel: ::std::string::String, record_json: ::std::vec::Vec<u8>) {

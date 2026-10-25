@@ -300,13 +300,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       # Builds the whole workspace, which the cache keeps fresh, and runs only affected tests.
+      # Cargo's messages name every unit these builds use, fresh ones included; saves leave out the rest.
       - name: Build Rust tests
+        id: build-tests
         shell: bash
-        run: cargo nextest run --workspace --locked --no-run ${{ runner.os == 'Linux' && '--timings' || '' }}
+        run: >-
+          cargo nextest run --workspace --locked --no-run ${{ runner.os == 'Linux' && '--timings' || '' }}
+          --cargo-message-format json-render-diagnostics > "$RUNNER_TEMP/cargo-units.jsonl"
       # Linux lints in `verify`.
       - name: Lint Rust workspace
+        id: lint
         if: ${{ !cancelled() && runner.os != 'Linux' }}
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        shell: bash
+        run: >-
+          cargo clippy --workspace --all-targets --locked --message-format json-render-diagnostics
+          -- -D warnings >> "$RUNNER_TEMP/cargo-units.jsonl"
       # Windows archives to workflow artifacts, which keep the test binaries, so it saves before
       # the tests and a slow or timed-out test run still leaves dev a warm cache.
       - name: Save Windows Rust build cache
@@ -318,6 +326,10 @@ jobs:
           key: ${{ steps.rust-cache.outputs.key }}
           bucket: ${{ steps.rust-cache.outputs.bucket }}
           paths: ${{ steps.rust-cache.outputs.paths }}
+          # A failed build reports only some of its units, so its save keeps them all.
+          cargo-messages: >-
+            ${{ steps.build-tests.outcome == 'success' && steps.lint.outcome == 'success'
+            && format('{0}/cargo-units.jsonl', runner.temp) || '' }}
       - name: Test affected Rust packages
         if: ${{ !cancelled() }}
         shell: bash
@@ -342,6 +354,10 @@ jobs:
           key: ${{ steps.rust-cache.outputs.key }}
           bucket: ${{ steps.rust-cache.outputs.bucket }}
           paths: ${{ steps.rust-cache.outputs.paths }}
+          # A failed build reports only some of its units, so its save keeps them all.
+          cargo-messages: >-
+            ${{ steps.build-tests.outcome == 'success' && steps.lint.outcome == 'success'
+            && format('{0}/cargo-units.jsonl', runner.temp) || '' }}
 
   go:
     permissions:

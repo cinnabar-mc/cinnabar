@@ -128,7 +128,7 @@ fn retained_bytes(event: &Event) -> usize {
             Event::Action { id, .. } | Event::SecondaryAction { id, .. } => id.len(),
             Event::Text { control, text } => control.len() + text.len(),
             Event::Scrolled { view, .. } => view.len(),
-            Event::Epoch | Event::Resized { .. } | Event::Shift { .. } => 0,
+            Event::Epoch | Event::Frame | Event::Resized { .. } | Event::Shift { .. } => 0,
         }
 }
 
@@ -208,7 +208,7 @@ impl<H: Worker> Live<H> {
     }
 
     /// Visits recipients after the last dispatch, skipping busy and negotiating helpers.
-    pub(super) fn schedule(&mut self) -> Result<()> {
+    pub(super) fn schedule(&mut self, now_ms: u64) {
         let mut recipients: Vec<_> = self.instances.keys().cloned().collect();
         if let Some(last) = &self.last_recipient {
             let next = recipients.partition_point(|bundle| bundle <= last);
@@ -239,11 +239,14 @@ impl<H: Worker> Live<H> {
             };
             let entry = &instance.queue.entries[index];
             let (id, event) = (entry.id, entry.event.clone());
-            self.budget.dispatch(&instance.owner)?;
             let gui = modal::size_for(&self.gui, &bundle);
-            instance.dispatch(self.session.as_deref(), event, self.epoch, gui, id)?;
+            let result = self.budget.dispatch(&instance.owner).and_then(|_| {
+                instance.dispatch(self.session.as_deref(), event, self.epoch, gui, Some(id))
+            });
+            if let Err(error) = result {
+                instance.unavailable(&mut self.budget, &mut self.scene_revision, &error, now_ms);
+            }
             self.last_recipient = Some(bundle);
         }
-        Ok(())
     }
 }

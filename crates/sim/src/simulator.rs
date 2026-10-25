@@ -15,7 +15,7 @@ mod powder_snow;
 mod riptide;
 pub use riptide::RiptideLaunch;
 mod scaffolding;
-pub use scaffolding::descends_through_block;
+pub use scaffolding::{descends_through_block, mover_collision_boxes_with_provenance};
 mod spectator;
 mod state;
 mod travel;
@@ -202,6 +202,9 @@ impl Simulator {
         let mut next = state.clone();
         next.position = next.position.rounded();
         next.velocity = next.velocity.rounded();
+        if input.glide_ascent && input.mode == MovementMode::Gliding {
+            next.velocity = travel::glide_ascent(next.velocity);
+        }
         next.swim_amount = water::advance_swim_amount(next.swim_amount, next.swim_pose_active);
         next.swim_pose_active = input.swim_pose_active.unwrap_or(matches!(
             input.mode,
@@ -560,10 +563,7 @@ impl Simulator {
                 &mut sampled.block_samples,
             )?;
             identity = identity.merge(&feet.identity)?;
-            let flags = feet.value.flags;
-            flags.contains(crate::BlockPhysicsFlags::CLIMBABLE)
-                || (input.can_stand_on_snow
-                    && flags.contains(crate::BlockPhysicsFlags::POWDER_SNOW))
+            feet.value.flags.climbable_for(input.can_stand_on_snow)
         } else {
             false
         };

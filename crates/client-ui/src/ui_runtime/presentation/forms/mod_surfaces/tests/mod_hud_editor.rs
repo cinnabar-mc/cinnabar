@@ -397,6 +397,61 @@ fn editor_style_recolors_outlines_and_resize_handles() {
     assert!(emits(&p, [255, 0, 255, 255]), "selected outline");
 }
 #[test]
+fn fast_drags_keep_hover_on_the_captured_card() {
+    let emits = |p: &UiPresentationRuntime, color: [u8; 4]| {
+        p.last_frame.as_ref().unwrap().nodes.iter().any(|node| {
+            matches!(node.visual(), ui::UiVisual::Mesh(mesh)
+                if mesh.vertices().iter().any(|vertex| vertex.color == color))
+        })
+    };
+    let mut hud = content();
+    hud.cards[0].title.clear();
+    let mut other = hud.cards[0].clone();
+    other.id = "armor".into();
+    other.offset = [400., 300.];
+    hud.cards.push(other);
+    hud.editor_style = Some(ui::mod_hud::EditorStyle {
+        outline: [0., 0., 1., 1.],
+        selected: [1., 0., 1., 1.],
+        ..Default::default()
+    });
+    let mut p = presentation(false);
+    editor(&mut p, &hud);
+    let runtime = UiRuntime::new(1);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    let start = point(&p, "hud.card:0");
+    let over_other = point(&p, "hud.card:1");
+    p.mod_ui_mut().mod_panel_events(start, true, true);
+    let captured = p
+        .mod_ui()
+        .mod_hud_editor_state()
+        .unwrap()
+        .view
+        .hovered
+        .clone();
+    assert!(captured.is_some());
+    // One frame of fast travel leaves the previous frame's card region behind.
+    p.mod_ui_mut().mod_panel_events(over_other, false, true);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    let editor = p.mod_ui().mod_hud_editor_state().unwrap();
+    assert_eq!(editor.view.hovered, captured);
+    assert_ne!(
+        card_origin(&editor.draft.cards[0], editor.viewport),
+        [6., 6.]
+    );
+    assert!(
+        !emits(&p, [0, 0, 255, 255]),
+        "cards under a captured drag are not hovered"
+    );
+    p.mod_ui_mut().mod_panel_events(over_other, false, false);
+    p.mod_ui_mut().mod_panel_events([1270., 710.], false, false);
+    assert_eq!(
+        p.mod_ui().mod_hud_editor_state().unwrap().view.hovered,
+        None,
+        "hover follows the pointer after release"
+    );
+}
+#[test]
 fn normalized_titleless_cards_keep_foreground_opaque_and_fit_after_resize() {
     let mut p = presentation(false);
     let mut hud = content();

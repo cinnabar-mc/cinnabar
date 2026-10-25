@@ -126,7 +126,8 @@ func TestFloodBounds(t *testing.T) {
 	}
 }
 
-// Networks fit beside the callback's inventory and neighbors, even with maximum-length states.
+// Networks at their bounds fit whole beside the callback's inventory and neighbors, even with
+// maximum-length states.
 func TestNetworkAtItsBoundsFitsAFrame(t *testing.T) {
 	for _, longStates := range []bool{false, true} {
 		t.Run(fmt.Sprintf("long_states_%v", longStates), func(t *testing.T) {
@@ -174,7 +175,7 @@ func TestNetworkAtItsBoundsFitsAFrame(t *testing.T) {
 				t.Fatalf("a request at the network bounds does not fit a frame: %v", err)
 			}
 			net := snap.req.Network
-			if net.Truncated != longStates || len(net.Blocks) == 0 || (!longStates && len(net.Blocks) != maxNetworkBlocks) {
+			if net.Truncated || len(net.Blocks) != maxNetworkBlocks {
 				t.Fatalf("%d members, truncated %v; long states %v", len(net.Blocks), net.Truncated, longStates)
 			}
 			if len(snap.cells) != initial+len(net.Blocks) || len(snap.req.Snapshot) != len(snap.cells) {

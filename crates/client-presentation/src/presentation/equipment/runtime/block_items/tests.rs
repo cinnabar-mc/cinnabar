@@ -51,6 +51,12 @@ fn carried_drop_geometry_keeps_shape_and_distinct_face_pixels() {
     let (source, _) = PreparedBlockItems::narrow_box(20);
     let model = source.dropped_model(1).unwrap();
     assert_eq!(source.dropped_model_layers(1), Some(model.materials.len()));
+    assert_eq!(
+        source.dropped_model_cost(1),
+        render_model::dropped_item::ItemModelCost::from_model(
+            &render_model::DroppedItemModel::Block(model.clone())
+        )
+    );
     for (face, (sprite, _)) in model.materials.iter().enumerate() {
         assert!(
             sprite
@@ -89,6 +95,12 @@ fn unused_carried_sheet_tiles_do_not_consume_model_layers() {
     assert_eq!(source.dropped_model_layers(1), Some(1));
     assert_eq!(model.materials.len(), 1);
     assert!(model.quads.iter().all(|quad| quad.material == 0));
+    assert_eq!(
+        source.dropped_model_cost(1),
+        render_model::dropped_item::ItemModelCost::from_model(
+            &render_model::DroppedItemModel::Block(model)
+        )
+    );
 }
 
 #[test]
@@ -97,5 +109,25 @@ fn unavailable_prepared_sheets_keep_the_model_fallback_available() {
     let source = Arc::get_mut(&mut source).unwrap();
     source.placements[0] = None;
     assert!(source.dropped_model_layers(1).is_none());
+    assert!(source.dropped_model_cost(1).is_none());
     assert!(source.dropped_model(1).is_none());
+}
+
+#[test]
+fn carried_cost_rejects_geometry_and_pixels_the_builder_cannot_use() {
+    for corrupt in [0, 1, 2, 3, 4] {
+        let (mut source, _) = PreparedBlockItems::narrow_box(20);
+        let source = Arc::get_mut(&mut source).unwrap();
+        match corrupt {
+            0 => {
+                source.models.get_mut(&1).unwrap().pop();
+            }
+            1 => source.models.get_mut(&1).unwrap()[0].position[0] = f32::NAN,
+            2 => source.rasters[0].rgba8 = Arc::from([]),
+            3 => source.placements[0].as_mut().unwrap().width -= 1,
+            _ => source.placements[0].as_mut().unwrap().width = 0,
+        }
+        assert!(source.dropped_model_cost(1).is_none());
+        assert!(source.dropped_model(1).is_none());
+    }
 }

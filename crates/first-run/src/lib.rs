@@ -57,14 +57,33 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     }
     // An earlier run's report must not describe this one.
     let _ = fs::remove_file(progress_file(layout));
-    match window::run_in_child() {
+    after_window(
+        layout,
+        window::run_in_child(),
+        &NativePrompter,
+        env_consent(),
+    )
+}
+
+/// Finishes setup once the setup window process has ended with `child`. A window that could not
+/// open, or whose process crashed (often inside a graphics driver), leaves setup to `prompter`.
+fn after_window(
+    layout: &InstallLayout,
+    child: window::ChildOutcome,
+    prompter: &dyn Prompter,
+    env_consent: bool,
+) -> Result<Outcome> {
+    match child {
         window::ChildOutcome::Prepared => Ok(Outcome::Prepared),
         window::ChildOutcome::Quit => Ok(Outcome::Quit),
-        window::ChildOutcome::Failed(code) => bail!(
-            "first-time setup failed (exit {code}); details: {}",
-            prepare::log_path(layout).display()
-        ),
-        window::ChildOutcome::Unavailable => ensure_with(layout, &NativePrompter, env_consent()),
+        window::ChildOutcome::Crashed(code) => {
+            tracing::warn!(
+                exit_code = ?code,
+                "first-time setup window crashed; continuing setup with system dialogs"
+            );
+            ensure_with(layout, prompter, env_consent)
+        }
+        window::ChildOutcome::Unavailable => ensure_with(layout, prompter, env_consent),
     }
 }
 

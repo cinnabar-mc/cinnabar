@@ -108,6 +108,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         items: vec![],
         focus: true,
         worlds: Some(registration.clone()),
+        overlays: None,
     };
     out.push((
         "response_loaded_worlds",

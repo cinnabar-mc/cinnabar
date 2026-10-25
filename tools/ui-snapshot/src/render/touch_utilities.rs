@@ -67,6 +67,33 @@ pub(super) fn png(state: &State, dir: &Path, view: TouchUtilityView) -> Result<V
                 "minecraft:grass_block".into(),
             ],
         })),
+        TouchUtilityView::ModButtons => {
+            let button = |id: &str, label: &str, anchor, offset, size| ui::mod_touch::TouchButton {
+                id: id.into(),
+                label: label.into(),
+                anchor,
+                offset,
+                size,
+            };
+            let buttons = [
+                button(
+                    "sample-menu",
+                    "Menu",
+                    ui::mod_hud::Anchor::TopRight,
+                    [4., 4.],
+                    [40., 18.],
+                ),
+                button(
+                    "sample-toggle",
+                    "Toggle",
+                    ui::mod_hud::Anchor::TopLeft,
+                    [4., 4.],
+                    [44., 24.],
+                ),
+            ];
+            presentation.set_mod_touch_buttons(buttons.iter().map(|button| (1, button)));
+            presentation.hold_mod_touch_button(1);
+        }
         TouchUtilityView::Closed | TouchUtilityView::Menu => {}
     }
     let frame = presentation

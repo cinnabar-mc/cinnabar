@@ -562,8 +562,9 @@ fn degenerate_registered_boxes_do_not_become_interaction_occluders() {
     );
 }
 
+/// The nearer extra-layer shape is not part of an ordinary pick; the primary shape behind it wins.
 #[test]
-fn nearest_block_occludes_farther_shapes_and_layers_report_the_shape_owner() {
+fn nearest_block_occludes_farther_shapes_and_extra_layers_stay_unpicked() {
     let (mut store, chunks) = loaded_air_store(ChunkKey::new(0, 0, 0));
     set_block(&mut store, [0, 0, 0], 0, 10);
     set_block(&mut store, [0, 0, 0], 1, 11);
@@ -591,7 +592,7 @@ fn nearest_block_occludes_farther_shapes_and_layers_report_the_shape_owner() {
         .unwrap();
     assert_eq!(
         (hit.block_pos, hit.runtime_id, hit.distance),
-        ([0, 0, 0], 11, 1.0)
+        ([0, 0, 0], 10, 1.75)
     );
 }
 
@@ -899,4 +900,37 @@ fn random_offset_query_halo_covers_translated_extending_shapes() {
             .0
             .is_some()
     );
+}
+
+/// A plant left in the extra layer under air (snow covered it, then a block placed into the snow
+/// was broken) is not part of Bedrock's ordinary pick, so the ray reaches the block below.
+#[test]
+fn ordinary_pick_ignores_a_plant_in_the_extra_layer() {
+    let (mut store, mut registry, _) = fixture(7);
+    registry
+        .register(
+            8,
+            [Aabb::new(
+                Vec3::new(0.125, 0.0, 0.125),
+                Vec3::new(0.875, 0.8125, 0.875),
+            )],
+        )
+        .unwrap();
+    set_block(&mut store, [0, 1, 0], 1, 8);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
+    let hit = world
+        .block_interaction_ray_current(Vec3::new(0.5, 2.5, 0.5), Vec3::new(0.0, -1.0, 0.0), 5.0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.block_pos, [0, 0, 0]);
+    assert_eq!(hit.runtime_id, 7);
+
+    set_block(&mut store, [0, 1, 0], 0, 7);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
+    let hit = world
+        .block_interaction_ray_current(Vec3::new(0.5, 2.5, 0.5), Vec3::new(0.0, -1.0, 0.0), 5.0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.block_pos, [0, 1, 0]);
+    assert_eq!(hit.runtime_id, 7);
 }
