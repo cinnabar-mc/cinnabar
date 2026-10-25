@@ -44,6 +44,7 @@ enum Process {
 }
 
 impl Process {
+    /// Returns the operating-system PID or the iOS core's process-local identifier.
     fn id(&self) -> u32 {
         match self {
             Self::Os(child) => child.id(),
@@ -52,6 +53,7 @@ impl Process {
         }
     }
 
+    /// Collects a completed worker's status without waiting for a running one.
     fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         match self {
             Self::Os(child) => child.try_wait(),
@@ -71,6 +73,7 @@ impl Process {
         }
     }
 
+    /// Transfers the host's stdin writer out of the tracked worker once.
     fn take_stdin(&mut self) -> Option<ChildStdin> {
         match self {
             Self::Os(child) => child.stdin.take(),
@@ -79,6 +82,7 @@ impl Process {
         }
     }
 
+    /// Transfers the host's stdout reader out of the tracked worker once.
     fn take_stdout(&mut self) -> Option<ChildStdout> {
         match self {
             Self::Os(child) => child.stdout.take(),
@@ -87,6 +91,7 @@ impl Process {
         }
     }
 
+    /// Transfers the host's stderr reader out of the tracked worker once.
     fn take_stderr(&mut self) -> Option<ChildStderr> {
         match self {
             Self::Os(child) => child.stderr.take(),
@@ -530,6 +535,7 @@ fn signal(process: &mut Process, outcome: StopOutcome) {
     }
 }
 
+/// Applies the escalation step to a child that is still running under the caller's lock.
 fn signal_child(child: &mut Child, outcome: StopOutcome) {
     #[cfg(unix)]
     if outcome == StopOutcome::Terminated {
@@ -599,6 +605,51 @@ mod tests {
     use std::{io::Read, process::Stdio};
 
     use super::*;
+
+    #[test]
+    fn an_outliving_monitor_keeps_its_pipes_and_identity_through_the_exit_sweep() {
+        use std::io::{BufRead, BufReader};
+
+        let children = Children::new();
+        let child = children
+            .spawn(
+                Command::new("sh")
+                    .args([
+                        "-c",
+                        "echo ready; echo diagnostic >&2; read -r hold; exit 7",
+                    ])
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped()),
+                Duration::ZERO,
+                true,
+            )
+            .unwrap();
+        let pid = child.id();
+        let observer = child.observer();
+        let mut stdout = BufReader::new(child.take_stdout().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        assert_eq!(line, "ready\n");
+        assert!(child.take_stdout().is_none());
+
+        children.stop_all(Duration::ZERO);
+
+        assert_eq!(child.id(), pid);
+        assert!(observer.try_wait().unwrap().is_none());
+        assert!(!observer.stop_requested());
+        assert_eq!(child.stop(EXIT_GRACE), StopOutcome::Exited);
+        assert_eq!(observer.try_wait().unwrap().unwrap().code(), Some(7));
+        assert!(observer.stop_requested());
+        let mut stderr = String::new();
+        child
+            .take_stderr()
+            .unwrap()
+            .read_to_string(&mut stderr)
+            .unwrap();
+        assert_eq!(stderr, "diagnostic\n");
+        assert!(child.take_stderr().is_none());
+    }
 
     fn sh(script: &str) -> Child {
         Command::new("sh")

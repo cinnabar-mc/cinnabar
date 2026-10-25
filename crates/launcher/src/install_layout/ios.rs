@@ -44,6 +44,7 @@ pub fn configure_ios(layout: InstallLayout) -> Result<(), LayoutError> {
     }
 }
 
+/// Returns the layout supplied by the iOS host, or reports missing configuration.
 pub(super) fn discover() -> Result<InstallLayout, LayoutError> {
     CONFIGURED
         .get()

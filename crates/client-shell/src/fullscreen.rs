@@ -107,3 +107,17 @@ fn set_fullscreen(window: &mut Window, fullscreen: bool) {
 fn record_fullscreen(settings: &mut RuntimeSettings, fullscreen: bool) {
     settings.set_fullscreen(fullscreen);
 }
+
+#[cfg(all(test, not(target_os = "ios")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_and_android_window_modes_follow_the_fullscreen_preference() {
+        assert_eq!(window_mode(false), WindowMode::Windowed);
+        assert_eq!(
+            window_mode(true),
+            WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+        );
+    }
+}

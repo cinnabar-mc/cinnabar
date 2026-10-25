@@ -21,9 +21,9 @@ pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// controls and start menus in touch mode. A hardware keyboard, mouse or controller still works.
 pub const TOUCH_PRIMARY: bool = cfg!(any(target_os = "android", target_os = "ios"));
 
-/// Whether the platform only shows the app full screen: Android and iOS give it the whole
-/// display whatever window size or fullscreen preference it requests.
-pub const FULLSCREEN_ONLY: bool = cfg!(any(target_os = "android", target_os = "ios"));
+/// Whether window setup must always request fullscreen, regardless of the saved preference.
+/// Android retains its existing window policy; its host controls the display size.
+pub const FULLSCREEN_ONLY: bool = cfg!(target_os = "ios");
 
 pub mod accounts;
 pub mod branding;

@@ -235,3 +235,52 @@ fn current_thread_id() -> u64 {
         0
     }
 }
+
+#[cfg(all(test, not(target_os = "ios")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watched_heartbeat_keeps_frame_loading_and_monitor_feedback() {
+        const ROOT_ENV: &str = "CINNABAR_HEARTBEAT_TEST_ROOT";
+        let Some(root) = std::env::var_os(ROOT_ENV) else {
+            let directory = tempfile::tempdir().unwrap();
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "lifecycle::crash::heartbeat::tests::watched_heartbeat_keeps_frame_loading_and_monitor_feedback",
+                    "--nocapture",
+                ])
+                .env(ROOT_ENV, directory.path())
+                .output()
+                .unwrap();
+            assert!(result.status.success(), "{result:?}");
+            return;
+        };
+        let root = Path::new(&root);
+        let path = watch(root, std::process::id(), 1).unwrap();
+        let reader = Heartbeat::open(&path).unwrap();
+        let region = reader.region();
+        assert_eq!(region.thread(), current_thread_id());
+        assert_ne!(region.thread(), 0);
+        assert_eq!(region.frame(), 0);
+        tick();
+        assert_eq!(region.frame(), 1);
+        let outer = Loading::begin();
+        let inner = Loading::begin();
+        assert!(region.loading());
+        drop(outer);
+        assert!(region.loading());
+        drop(inner);
+        assert!(!region.loading());
+        region.record_check();
+        assert_eq!(monitor_checks(), 1);
+        region.acknowledge_dump(9);
+        assert!(watched().unwrap().dump_acknowledged(9));
+        assert_eq!(
+            watch(root, std::process::id(), 2).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(std::fs::read_dir(root).unwrap().count(), 1);
+    }
+}
