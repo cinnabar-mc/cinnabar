@@ -119,7 +119,7 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
     fs::write(&source, native_packet_source()).unwrap();
     let mut requests = 0;
     let mut act = |action| {
-        perform(
+        perform::<AppBackend>(
             action,
             &mods,
             &registration,
@@ -263,7 +263,7 @@ fn imported_external_reactor_keeps_native_menu_alive_after_explicit_consent() {
     let registration = root.path().join("config");
     let mut requests = 0;
     let mut act = |action| {
-        perform(
+        perform::<AppBackend>(
             action,
             &mods,
             &registration,

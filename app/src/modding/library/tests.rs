@@ -1,7 +1,27 @@
 mod native_import;
-#[cfg(target_os = "linux")]
-mod publication;
+use super::backend::AppBackend;
 use super::*;
+use crate::modding::registration::{
+    self,
+    selection::{self, Receipt, disable, registered, select},
+};
+use crossbeam_channel::unbounded;
+use launcher::mods::{Action, Library};
+use launcher_host::mod_library::{
+    Command,
+    files::{import, installed},
+    paths::same_path,
+    scan::scan_cached,
+    worker::{perform, run},
+};
+use mod_host::settings_companion;
+use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
+
+/// Scans through the real runtime port without retaining declarations between observations.
+fn scan(mods: &Path, registration: &Path, message: String) -> Library {
+    scan_cached::<AppBackend>(mods, registration, message, &mut BTreeMap::new())
+}
+
 use mod_host::ModHost;
 
 /// Writes a binary component with the host's declared-request custom section.
@@ -70,7 +90,8 @@ fn source_revisions_refresh_cached_declarations() {
                     versioned_component(&path, &requested, version);
                 }
             }
-            let library = scan_cached(&mods, &registration, String::new(), &mut cache);
+            let library =
+                scan_cached::<AppBackend>(&mods, &registration, String::new(), &mut cache);
             let [item] = library.installed.as_slice() else {
                 panic!("one registered component");
             };
@@ -91,15 +112,16 @@ fn source_revisions_refresh_cached_declarations() {
                     "refreshing declarations cannot grant permission"
                 );
             }
-            let unchanged = scan_cached(&mods, &registration, String::new(), &mut cache);
+            let unchanged =
+                scan_cached::<AppBackend>(&mods, &registration, String::new(), &mut cache);
             assert_eq!(unchanged, library);
             assert_eq!(cache.len(), 1);
         }
         fs::remove_file(&path).unwrap();
-        let missing = scan_cached(&mods, &registration, String::new(), &mut cache);
+        let missing = scan_cached::<AppBackend>(&mods, &registration, String::new(), &mut cache);
         assert_eq!(missing.installed[0].metadata, Default::default());
         versioned_component(&path, &requested, "4.0");
-        let restored = scan_cached(&mods, &registration, String::new(), &mut cache);
+        let restored = scan_cached::<AppBackend>(&mods, &registration, String::new(), &mut cache);
         assert_eq!(
             restored.installed[0].metadata.version.as_deref(),
             Some("4.0")
@@ -138,7 +160,7 @@ fn batch_permission_actions_grant_exact_requests_and_revoke_all() {
         .unwrap()
         .id;
     let mut requests = 0;
-    perform(
+    perform::<AppBackend>(
         Action::AllowRequested(id),
         &mods,
         &registration,
@@ -184,7 +206,7 @@ fn batch_permission_actions_grant_exact_requests_and_revoke_all() {
     );
     fs::remove_file(&component).unwrap();
     let missing = scan(&mods, &registration, String::new()).active[0].id;
-    perform(
+    perform::<AppBackend>(
         Action::RevokeAll(missing),
         &mods,
         &registration,
@@ -216,7 +238,7 @@ fn undeclared_and_malformed_requests_cannot_get_batch_grants() {
         fs::write(&component, bytes).unwrap();
         let id = scan(&mods, &registration, String::new()).active[0].id;
         assert!(
-            perform(
+            perform::<AppBackend>(
                 Action::AllowRequested(id),
                 &mods,
                 &registration,
@@ -275,7 +297,7 @@ fn disabling_a_stale_card_preserves_the_new_selection() {
     select(&registration, &second, true, "second".into()).unwrap();
     let record = registration.join(super::super::registration::REGISTRATION_FILE);
     let before = fs::read(&record).unwrap();
-    let error = perform(
+    let error = perform::<AppBackend>(
         Action::Disable(displayed_id),
         &mods,
         &registration,
@@ -292,7 +314,7 @@ fn disabling_a_stale_card_preserves_the_new_selection() {
         .unwrap();
     assert!(current.entry.enabled && same_path(&current.entry.component, &second));
     let id = scan(&mods, &registration, String::new()).active[0].id;
-    perform(
+    perform::<AppBackend>(
         Action::Disable(id),
         &mods,
         &registration,
@@ -320,7 +342,7 @@ fn removal_rechecks_selection_after_retirement_returns() {
     fs::write(&component, b"component").unwrap();
     fs::write(&companion, b"preferences").unwrap();
     let id = installed(&mods)[0].0.id;
-    let error = perform(
+    let error = perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -354,7 +376,7 @@ fn removal_rechecks_generation_after_retirement_returns() {
     fs::write(&component, b"component").unwrap();
     fs::write(&companion, b"preferences").unwrap();
     let id = installed(&mods)[0].0.id;
-    let error = perform(
+    let error = perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -397,7 +419,7 @@ fn removal_resolves_the_selected_components_directory_alias() {
     granted["mods"][0]["grants"]["settings"] = true.into();
     fs::write(&record, serde_json::to_vec(&granted).unwrap()).unwrap();
     let id = scan(&mods, &registration, String::new()).active[0].id;
-    perform(
+    perform::<AppBackend>(
         Action::Disable(id),
         &mods,
         &registration,
@@ -415,7 +437,7 @@ fn removal_resolves_the_selected_components_directory_alias() {
     .unwrap();
     let kept: serde_json::Value = serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
     assert_eq!(kept["mods"][0]["grants"], granted["mods"][0]["grants"]);
-    perform(
+    perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -460,7 +482,7 @@ fn removal_preserves_shared_preferences_through_a_directory_alias() {
     fs::write(&companion, b"selected preferences").unwrap();
     select(&registration, &selected, true, "selected".into()).unwrap();
     let id = installed(&mods)[0].0.id;
-    perform(
+    perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -483,11 +505,15 @@ fn import_rejects_nonregular_and_oversized_sources() {
         .unwrap()
         .set_len(mod_host::MAX_COMPONENT_BYTES as u64 + 1)
         .unwrap();
-    assert!(import(&mods, &source).unwrap_err().contains("byte limit"));
+    assert!(
+        import::<AppBackend>(&mods, &source)
+            .unwrap_err()
+            .contains("byte limit")
+    );
     fs::remove_file(&source).unwrap();
     fs::create_dir(&source).unwrap();
     assert!(
-        import(&mods, &source)
+        import::<AppBackend>(&mods, &source)
             .unwrap_err()
             .contains("Could not read")
     );
@@ -504,7 +530,11 @@ fn import_rejects_a_linked_source_component() {
     let link = directory.path().join("linked.wasm");
     fs::write(&source, component("")).unwrap();
     std::os::unix::fs::symlink(&source, &link).unwrap();
-    assert!(import(&mods, &link).unwrap_err().contains("Could not read"));
+    assert!(
+        import::<AppBackend>(&mods, &link)
+            .unwrap_err()
+            .contains("Could not read")
+    );
     assert!(!mods.exists());
 }
 
@@ -515,7 +545,7 @@ fn import_rejects_hidden_component_names() {
     let mods = directory.path().join("mods");
     let source = directory.path().join(".zoom.wasm");
     fs::write(&source, component("")).unwrap();
-    let error = import(&mods, &source).unwrap_err();
+    let error = import::<AppBackend>(&mods, &source).unwrap_err();
     assert!(error.contains("must not start with a dot"), "{error}");
     assert!(!mods.exists());
     assert!(installed(&mods).is_empty());
@@ -548,11 +578,12 @@ fn removal_waits_for_pending_settings_before_deleting_files() {
     let (outgoing, published) = unbounded();
     commands.send(Command::Action(Action::Remove(id))).unwrap();
     drop(commands);
-    run(
+    run::<AppBackend>(
         &mods,
         &registration,
         &incoming,
         &outgoing,
+        crate::modding::RELOAD_INTERVAL,
         || Ok(None),
         retire,
     );
@@ -580,7 +611,7 @@ fn removal_keeps_files_when_retirement_cannot_complete() {
     fs::write(&path, b"component").unwrap();
     fs::write(&companion, b"preferences").unwrap();
     let id = installed(&mods)[0].0.id;
-    let error = perform(
+    let error = perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -609,7 +640,7 @@ fn removal_preserves_a_companion_shared_with_the_selected_component() {
     fs::write(&companion, b"selected preferences").unwrap();
     select(&registration, &selected, true, "selected".into()).unwrap();
     let id = installed(&mods)[0].0.id;
-    perform(
+    perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -651,7 +682,7 @@ fn importing_the_same_name_never_replaces_the_enabled_mod() {
     let source = directory.path().join("zoom.wasm");
     let original = component("");
     fs::write(&source, &original).unwrap();
-    assert_eq!(import(&mods, &source).unwrap(), "zoom.wasm");
+    assert_eq!(import::<AppBackend>(&mods, &source).unwrap(), "zoom.wasm");
     let installed = mods.join("zoom.wasm");
     select(&registration, &installed, true, "enabled".into()).unwrap();
     let record = registration.join(super::super::registration::REGISTRATION_FILE);
@@ -662,7 +693,7 @@ fn importing_the_same_name_never_replaces_the_enabled_mod() {
     let previous = fs::read(&record).unwrap();
 
     fs::write(&source, component("unreachable")).unwrap();
-    let error = import(&mods, &source).unwrap_err();
+    let error = import::<AppBackend>(&mods, &source).unwrap_err();
     assert!(error.contains("already installed"), "{error}");
     assert_eq!(fs::read(&installed).unwrap(), original.as_bytes());
     assert_eq!(fs::read(&record).unwrap(), previous);
@@ -683,11 +714,12 @@ fn cancelling_import_publishes_idle_and_allows_more_commands() {
     commands.send(Command::Action(Action::Import)).unwrap();
     commands.send(Command::Action(Action::Import)).unwrap();
     drop(commands);
-    run(
+    run::<AppBackend>(
         &directory.path().join("mods"),
         &directory.path().join("config"),
         &incoming,
         &outgoing,
+        crate::modding::RELOAD_INTERVAL,
         || Ok(None),
         |_| Ok(retirement_permit()),
     );
@@ -712,43 +744,6 @@ fn cancelling_import_publishes_idle_and_allows_more_commands() {
     }
 }
 
-/// Android forbids hard links, but complete bytes must still reach a new mod file.
-#[test]
-fn publishing_installs_complete_bytes_and_removes_staging() {
-    let directory = tempfile::tempdir().unwrap();
-    let mods = directory.path().join("mods");
-    let bytes = b"complete mod bytes";
-    publish_component(&mods, "zoom.wasm", bytes).unwrap();
-    assert_eq!(fs::read(mods.join("zoom.wasm")).unwrap(), bytes);
-    assert_eq!(fs::read_dir(&mods).unwrap().count(), 1);
-}
-
-/// Existing links cannot redirect staging writes or be replaced at publication.
-#[cfg(unix)]
-#[test]
-fn publishing_never_overwrites_destination_or_staging_links() {
-    use std::os::unix::fs::symlink;
-
-    let directory = tempfile::tempdir().unwrap();
-    let mods = directory.path().join("mods");
-    fs::create_dir_all(&mods).unwrap();
-    let target = directory.path().join("outside.wasm");
-    let destination = mods.join("zoom.wasm");
-    symlink(&target, &destination).unwrap();
-    assert!(publish_component(&mods, "zoom.wasm", b"replacement").is_err());
-    assert_eq!(fs::read_link(&destination).unwrap(), target);
-    assert!(!target.exists());
-
-    fs::remove_file(&destination).unwrap();
-    fs::write(&target, b"original").unwrap();
-    let staging = mods.join(format!(".zoom.wasm.{}.importing", std::process::id()));
-    symlink(&target, &staging).unwrap();
-    assert!(publish_component(&mods, "zoom.wasm", b"replacement").is_err());
-    assert_eq!(fs::read(&target).unwrap(), b"original");
-    assert_eq!(fs::read_link(&staging).unwrap(), target);
-    assert!(!destination.exists());
-}
-
 /// A bad package is rejected before anything lands in the mods directory.
 #[test]
 fn import_rejects_a_bad_package_and_installs_nothing() {
@@ -756,14 +751,14 @@ fn import_rejects_a_bad_package_and_installs_nothing() {
     let mods = directory.path().join("mods");
     let source = directory.path().join("broken.wasm");
     fs::write(&source, b"not a component").unwrap();
-    let error = import(&mods, &source).unwrap_err();
+    let error = import::<AppBackend>(&mods, &source).unwrap_err();
     assert!(error.contains("broken.wasm is not a valid mod"), "{error}");
     fs::write(&source, b"(component)").unwrap();
-    let error = import(&mods, &source).unwrap_err();
+    let error = import::<AppBackend>(&mods, &source).unwrap_err();
     assert!(error.contains("component lacks"), "{error}");
     let text = directory.path().join("notes.txt");
     fs::write(&text, b"(component)").unwrap();
-    assert!(import(&mods, &text).is_err());
+    assert!(import::<AppBackend>(&mods, &text).is_err());
     assert!(installed(&mods).is_empty());
     assert!(!mods.exists());
 }
@@ -783,7 +778,7 @@ fn removing_the_enabled_mod_disables_its_registration() {
     let library = scan(&mods, &registration, String::new());
     let id = library.installed[0].id;
     let mut requests = 0;
-    perform(
+    perform::<AppBackend>(
         Action::Enable(id),
         &mods,
         &registration,
@@ -800,7 +795,7 @@ fn removing_the_enabled_mod_disables_its_registration() {
     granted["mods"][0]["font"] = serde_json::to_value(directory.path().join("font.ttf")).unwrap();
     granted["mods"][0]["ui"] = serde_json::to_value(directory.path().join("ui.json")).unwrap();
     fs::write(&record, serde_json::to_vec(&granted).unwrap()).unwrap();
-    perform(
+    perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -819,9 +814,9 @@ fn removing_the_enabled_mod_disables_its_registration() {
     assert!(!mods.join("zoom.settings.json").exists());
     let source = directory.path().join("zoom.wasm");
     fs::write(&source, component("unreachable")).unwrap();
-    import(&mods, &source).unwrap();
+    import::<AppBackend>(&mods, &source).unwrap();
     let id = installed(&mods)[0].0.id;
-    perform(
+    perform::<AppBackend>(
         Action::Enable(id),
         &mods,
         &registration,
@@ -857,7 +852,7 @@ fn a_replaced_file_rejects_its_stale_card_without_granting_or_enabling_the_repla
         Action::Permission(old_id, 0, true),
         Action::Remove(old_id),
     ] {
-        let error = perform(
+        let error = perform::<AppBackend>(
             action,
             &mods,
             &registration,
@@ -883,7 +878,7 @@ fn replacement_during_retirement_does_not_delete_the_new_component_or_its_prefer
     fs::write(&path, b"old file").unwrap();
     fs::write(&companion, b"preferences").unwrap();
     let id = installed(&mods)[0].0.id;
-    let error = perform(
+    let error = perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -929,7 +924,7 @@ fn removing_an_import_preserves_a_live_environment_hosts_shared_companion() {
         .unwrap()
         .0
         .id;
-    perform(
+    perform::<AppBackend>(
         Action::Remove(id),
         &mods,
         &registration,
@@ -997,7 +992,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
         assert_ne!(id, original_id);
         assert!(active[0].permissions[camera].enabled);
         assert!(
-            perform(
+            perform::<AppBackend>(
                 Action::Remove(id),
                 &mods,
                 &registration,
@@ -1008,7 +1003,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
             .is_err()
         );
         assert!(registered(&registration)[0].entry.enabled);
-        perform(
+        perform::<AppBackend>(
             Action::Permission(id, camera, false),
             &mods,
             &registration,
@@ -1018,7 +1013,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
         )
         .unwrap();
         assert!(!registered(&registration)[0].entry.grants.camera);
-        perform(
+        perform::<AppBackend>(
             Action::Reload(id),
             &mods,
             &registration,
@@ -1028,7 +1023,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
         )
         .unwrap();
         assert_eq!(registered(&registration)[0].entry.reload, 1);
-        perform(
+        perform::<AppBackend>(
             Action::Disable(id),
             &mods,
             &registration,
@@ -1061,7 +1056,7 @@ fn a_missing_sources_card_cannot_retarget_a_replacement_file() {
         Action::Permission(id, 0, true),
     ] {
         assert!(
-            perform(
+            perform::<AppBackend>(
                 action,
                 &mods,
                 &registration,
@@ -1127,7 +1122,7 @@ fn importing_a_large_packet_source_keeps_bytes_and_permissions_default_off() {
     }
     bytes.extend(section);
     fs::write(&path, &bytes).unwrap();
-    import(&mods, &path).unwrap();
+    import::<AppBackend>(&mods, &path).unwrap();
     assert_eq!(fs::read(mods.join("large.wasm")).unwrap(), bytes);
     let declared = mod_host::declarations(&mods.join("large.wasm"))
         .unwrap()
@@ -1146,3 +1141,60 @@ fn importing_a_large_packet_source_keeps_bytes_and_permissions_default_off() {
 
 #[path = "tests/packet_flow.rs"]
 mod packet_flow;
+
+#[path = "tests/updates.rs"]
+mod updates;
+
+#[test]
+fn bevy_adapter_consumes_menu_actions_and_publishes_the_service_selection() {
+    let root = tempfile::tempdir().unwrap();
+    let mods = root.path().join("mods");
+    let config = root.path().join("config");
+    fs::create_dir(&mods).unwrap();
+    fs::write(mods.join("zoom.wasm"), b"fixture").unwrap();
+    let watcher = registration::Watcher::start(config.clone()).unwrap();
+    let removal = watcher.removal_client();
+    let layout =
+        launcher::test_support::scratch_at(launcher::install_layout::Platform::Linux, root.path());
+    let menu = MenuRuntime::new_with_layout(
+        false,
+        None,
+        "Fixture".into(),
+        layout,
+        client_shell::player_skin::LocalPlayerSkin::generated_default("Fixture"),
+    );
+    let mut app = App::new();
+    app.insert_resource(menu).insert_resource(watcher);
+    configure(&mut app, mods, config.clone(), removal);
+    test_time::eventually("library worker publishes its initial card", || {
+        app.update();
+        app.world()
+            .resource::<MenuRuntime>()
+            .mods
+            .library
+            .installed
+            .len()
+            == 1
+    });
+    let id = app.world().resource::<MenuRuntime>().mods.library.installed[0].id;
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .mod_actions
+        .push(Action::Enable(id));
+    app.update();
+    assert!(app.world().resource::<MenuRuntime>().mod_actions.is_empty());
+    test_time::eventually(
+        "the adapter publishes the service's persisted selection",
+        || {
+            app.update();
+            app.world()
+                .resource::<MenuRuntime>()
+                .mods
+                .library
+                .active
+                .first()
+                .is_some_and(|active| active.id == id)
+        },
+    );
+    assert!(registered(&config)[0].entry.enabled);
+}

@@ -3,7 +3,7 @@
 mod download;
 mod progress;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod worker;
 pub use download::Downloaded;
 

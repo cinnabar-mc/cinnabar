@@ -36,7 +36,7 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
     let directory = tempfile::tempdir().unwrap();
     let mut prepared = candidate(directory.path(), "drawing.wasm", "Hello");
     let mut entry = prepared.registration.clone();
-    entry.component = selection::resolved_component(&entry.component);
+    entry.component = launcher_host::mod_library::paths::resolved_component(&entry.component);
     let session = mod_api::drawing::DrawingSession {
         connection: 1,
         ..Default::default()
@@ -135,7 +135,7 @@ fn repaired_initial_settings_trigger_admission_without_a_registration_edit() {
     let directory = tempfile::tempdir().unwrap();
     let prepared = candidate(directory.path(), "settings.wasm", "Hello");
     let mut entry = prepared.registration.clone();
-    entry.component = selection::resolved_component(&entry.component);
+    entry.component = launcher_host::mod_library::paths::resolved_component(&entry.component);
     entry.grants.settings = true;
     let path = mod_host::settings_companion(&entry.component);
     fs::write(&path, [0xff]).unwrap();
@@ -267,7 +267,7 @@ fn changed_committed_settings_retry_a_rejected_guest() {
     let directory = tempfile::tempdir().unwrap();
     let prepared = candidate(directory.path(), "settings.wasm", "Hello");
     let mut entry = prepared.registration.clone();
-    entry.component = selection::resolved_component(&entry.component);
+    entry.component = launcher_host::mod_library::paths::resolved_component(&entry.component);
     entry.grants.settings = true;
     let broken = fixture(true, "", "Hello").replacen(
         "(func (export \"init\")",
