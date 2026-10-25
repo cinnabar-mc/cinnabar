@@ -1,4 +1,4 @@
-// Hologram: an additive projection whose rim, where the surface turns away from the viewer,
+// Hologram: an additive projection whose rim, where the surface is seen at a grazing angle,
 // glows brightest. Scanlines one texel tall drift upwards, the image flickers, and now and then
 // a glitch slips a band of rows sideways. Everything sits on the skin's 64-texel grid and the
 // world's 16-texel rows.
@@ -8,7 +8,10 @@ fn shade(input: WorldMaterialInput) -> Surface {
     let time = seconds(input);
     let colour = vec3<f32>(param(input, 0u), param(input, 1u), param(input, 2u));
     let facing = clamp(abs(dot(input.normal, input.view)), 0.0, 1.0);
-    let rim = floor(pow(1.0 - facing, 2.0) * 4.0 + 0.5) / 4.0;
+    // Only truly grazing surfaces glow. Across one flat face of a box the view direction
+    // turns with distance from the camera, so a rim that rose gradually from head-on drew a
+    // dark circle centred on the screen up close; head-on to half-turned faces now show none.
+    let rim = floor(clamp((0.35 - facing) / 0.35, 0.0, 1.0) * 3.0 + 0.5) / 3.0;
     let row = floor(input.world_position.y * 16.0);
     let density = max(param(input, 3u), 1.0);
     let scan = select(0.35, 1.0, fract((row - floor(time * 12.0)) / (16.0 / density)) < 0.5);

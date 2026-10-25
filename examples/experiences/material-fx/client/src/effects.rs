@@ -393,8 +393,8 @@ fn scene_effects(_: &State) -> wme::Effects {
 fn bloom_effects(state: &State) -> wme::Effects {
     wme::Effects {
         bloom: state.bloom.then_some(wme::Bloom {
-            strength: 1.5,
-            radius_pixels: 6.0,
+            strength: 1.0,
+            radius_pixels: 3.0,
         }),
         ..NO_EFFECTS
     }
@@ -555,7 +555,7 @@ impl Default for State {
             refract: 0.7,
             pulse: -100.0,
             outline: true,
-            bloom: true,
+            bloom: false,
             storm: -100.0,
             fire: None,
         }
@@ -627,7 +627,7 @@ impl State {
             }
             operations::FACING => {
                 self.quarter = args[0].rem_euclid(4) as f32;
-                &[PAINTING, SCREEN, PORTAL, FLAG, FIRE]
+                &[PAINTING, SCREEN, PORTAL, FLAG, FIRE, WAVE_GRASS]
             }
             operations::RADAR => {
                 if let Some(player) = self.players.get_mut(args[0].clamp(0, 3) as usize) {
@@ -773,7 +773,10 @@ impl State {
                     self.portal_spin.offset as f32,
                 ]
             }
-            WAVE_GRASS => vec![self.wind, 1.2, self.centres[8][1]],
+            WAVE_GRASS => {
+                let [x, y, z] = self.centres[8];
+                vec![self.wind, 1.2, x, y, z, self.quarter]
+            }
             FLAG => {
                 let [x, y, z] = self.centres[5];
                 vec![x, y, z, self.quarter, self.wind]
