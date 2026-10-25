@@ -14,7 +14,6 @@ import (
 
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/session"
-	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -149,8 +148,9 @@ func (i materialShowcaseImage) encode() ([]byte, error) {
 	return encoded.Bytes(), err
 }
 
-// materialShowcasePackets spawns the showcase row four blocks ahead of `origin`.
-func materialShowcasePackets(origin mgl32.Vec3) []packet.Packet {
+// materialShowcasePackets spawns the showcase row at foot level four blocks in front of the
+// player, facing them.
+func materialShowcasePackets(view showcaseViewpoint) []packet.Packet {
 	packets := make([]packet.Packet, 0, len(materialShowcaseActors))
 	for index, identifier := range materialShowcaseActors {
 		id := int64(materialShowcaseFirstID + index)
@@ -161,8 +161,8 @@ func materialShowcasePackets(origin mgl32.Vec3) []packet.Packet {
 		}
 		packets = append(packets, &packet.AddActor{
 			EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: identifier,
-			Position: origin.Add(mgl32.Vec3{float32(index*2) - float32(len(materialShowcaseActors)-1), 0, 4}),
-			Yaw:      180, HeadYaw: 180, BodyYaw: 180,
+			Position: view.at(float32(index*2-(len(materialShowcaseActors)-1)), 4),
+			Yaw:      view.facingBack(), HeadYaw: view.facingBack(), BodyYaw: view.facingBack(),
 			EntityMetadata: metadata,
 		})
 	}
@@ -210,8 +210,8 @@ func (l *showcaseListener) Disconnect(conn session.Conn, reason string) error {
 
 type showcaseConn struct {
 	session.Conn
-	position mgl32.Vec3
-	spawned  bool
+	view    showcaseViewpoint
+	spawned bool
 }
 
 // ReadPacket respawns the showcase row ahead of the player on /materialshowcase.
@@ -222,7 +222,7 @@ func (c *showcaseConn) ReadPacket() (packet.Packet, error) {
 			return pk, err
 		}
 		if movement, ok := pk.(*packet.PlayerAuthInput); ok {
-			c.position = movement.Position
+			c.view = viewpointOf(movement)
 		}
 		request, ok := pk.(*packet.CommandRequest)
 		if !ok || strings.TrimSpace(strings.TrimPrefix(request.CommandLine, "/")) != "materialshowcase" {
@@ -232,7 +232,7 @@ func (c *showcaseConn) ReadPacket() (packet.Packet, error) {
 		if c.spawned {
 			packets = materialShowcaseClear()
 		}
-		packets = append(packets, materialShowcasePackets(c.position)...)
+		packets = append(packets, materialShowcasePackets(c.view)...)
 		for _, fixture := range packets {
 			if err := c.Conn.WritePacket(fixture); err != nil {
 				return nil, err

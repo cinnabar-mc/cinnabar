@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/df-mc/dragonfly/server/block/cube"
-	"github.com/go-gl/mathgl/mgl32"
 )
 
 func TestMaterialFxPackDeclaresEachShowcaseEntity(t *testing.T) {
@@ -24,7 +22,7 @@ func TestMaterialFxPackDeclaresEachShowcaseEntity(t *testing.T) {
 			t.Fatalf("%s skin: %v", entity.id, err)
 		}
 	}
-	if got := len(materialFxActors(mgl32.Vec3{})); got != len(materialFxEntities) {
+	if got := len(materialFxActors(showcaseViewpoint{})); got != len(materialFxEntities) {
 		t.Fatalf("%d actors", got)
 	}
 }
@@ -63,7 +61,7 @@ func TestMaterialFxCommandsBecomeControlRecords(t *testing.T) {
 	if steps := materialFxFlashSteps; steps[0] != 1000 || steps[len(steps)-1] != 0 {
 		t.Fatalf("a flash starts full and ends off: %v", steps)
 	}
-	blocks := materialFxBlocks(cube.Pos{})
+	blocks := materialFxBlocks(showcaseViewpoint{})
 	energy, portal := 0, 0
 	for _, name := range blocks {
 		switch name {

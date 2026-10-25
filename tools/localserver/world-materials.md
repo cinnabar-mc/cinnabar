@@ -65,7 +65,7 @@ From the repository root:
 
 | Command | Effect |
 | --- | --- |
-| `/materialfx` or `/materialfx spawn` | Spawns the three entities in a row four blocks ahead, places a 3×2 energy wall on the left and a 2×3 star portal on the right six blocks ahead, and binds every material |
+| `/materialfx` or `/materialfx spawn` | Spawns the three entities on the ground in a row four blocks in front of you, facing you, places a 3×2 energy wall on your right and a 2×3 star portal on your left six blocks in front (your facing snaps to the nearest compass direction), and binds every material |
 | `/materialfx revoke` | Unbinds every material: the entities draw as their plain skins and the blocks as their Bedrock textures again, with no reconnect |
 | `/materialfx restore` | Binds them again from the materials the client part kept |
 | `/materialfx flash` | A damage flash on the sentinel: white at once, fading out over about half a second, as six parameter updates that compile nothing |
