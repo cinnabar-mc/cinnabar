@@ -147,8 +147,9 @@ fn selected_camera_rig_keeps_its_frame_with_an_arbitrary_display_identifier() {
     actor.kind = ActorKind::Entity {
         identifier: "fixture:arbitrary_display".into(),
     };
-    let (rows, yaw) = sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4]).unwrap();
-    snapshot(rows);
+    let placement = sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4]).unwrap();
+    let yaw = placement.yaw;
+    snapshot(placement.world_from_model);
     assert_eq!(yaw, 0.0, "the selected rig owns the placement frame");
 }
 
@@ -182,7 +183,9 @@ fn placement_frame_keeps_body_placement_independent_from_absolute_target_rotatio
         sampled.placement_frame.target_rotation(),
         Some(assets::placement::ActorYawFrame::Absolute)
     );
-    let (_, yaw) = sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4]).unwrap();
+    let yaw = sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4])
+        .unwrap()
+        .yaw;
     assert_eq!(yaw, 75.0);
 }
 
@@ -201,14 +204,14 @@ fn a_predicted_vehicle_draws_at_its_predicted_yaw() {
     assert_eq!(
         sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4])
             .unwrap()
-            .1,
+            .yaw,
         20.0
     );
     actor.status.predicted_render_yaw = Some(25.0);
     assert_eq!(
         sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4])
             .unwrap()
-            .1,
+            .yaw,
         25.0
     );
 }

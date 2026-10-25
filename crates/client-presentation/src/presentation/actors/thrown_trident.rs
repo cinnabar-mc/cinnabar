@@ -1,5 +1,6 @@
 //! Thrown tridents, which vanilla draws with a native renderer: the model turns about the
 //! actor's own position by its flight rotation instead of standing upright on its feet.
+//! [`super::ModelFrame::ThrownTrident`] routes every placement consumer here.
 
 use assets::{SkinGeometryBounds, facts::entity::NativeEntityClass};
 use client_world::ActorSnapshot;
@@ -18,53 +19,31 @@ const PITCH_OFFSET_DEGREES: f32 = 90.0;
 /// Vanilla's glint UV scale for the thrown trident's foil pass.
 const FOIL_UV_SCALE: f32 = 0.5;
 
-fn is_thrown_trident(actor: &ActorSnapshot) -> bool {
+pub(super) fn is_thrown_trident(actor: &ActorSnapshot) -> bool {
     actor.entity_fact.native_class == NativeEntityClass::ThrownTrident
 }
 
-/// The thrown trident's world-from-rig rows at its interpolated `position`, rotation and
-/// `scale`; `None` for every other actor class. `axis_scale_y` is the authored Y axis scale
-/// later applied to the rig's own axes, so the native pivot stays on the actor position.
-pub(super) fn thrown_trident_world_from_actor(
+/// The thrown trident's world-from-rig rows at its interpolated `position`, flight rotation
+/// and `scale`. `axis_scale_y` is the authored Y axis scale later applied to the rig's own
+/// axes, so the native pivot stays on the actor position.
+pub(super) fn world_from_actor(
     actor: &ActorSnapshot,
     alpha: f32,
     position: [f32; 3],
     scale: f32,
     axis_scale_y: f32,
-) -> Option<[[f32; 4]; 3]> {
-    is_thrown_trident(actor).then(|| {
-        world_from_rig(
-            position,
-            lerp_degrees(actor.previous_pose.yaw, actor.yaw, alpha),
-            lerp_degrees(actor.previous_pose.pitch, actor.pitch, alpha),
-            scale,
-            axis_scale_y,
-        )
-    })
-}
-
-/// Culling bounds for early admission, which places them at the actor position: a cube about
-/// the native pivot that holds the trident's own `bounds` in any flight rotation; `None` for
-/// every other actor class.
-pub(super) fn thrown_trident_admission_bounds(
-    actor: &ActorSnapshot,
-    bounds: SkinGeometryBounds,
-) -> Option<SkinGeometryBounds> {
-    is_thrown_trident(actor).then(|| rotation_invariant(bounds, native_pivot()))
-}
-
-/// The world position a placed thrown trident turns about, which is the actor's own position
-/// rather than the rig origin trailing behind it; `None` for every other actor class.
-pub(super) fn thrown_trident_position(
-    actor: &ActorSnapshot,
-    world_from_rig: &[[f32; 4]; 3],
-) -> Option<[f32; 3]> {
-    let height = native_pivot().y;
-    is_thrown_trident(actor).then(|| world_from_rig.map(|row| row[1] * height + row[3]))
+) -> [[f32; 4]; 3] {
+    world_from_rig(
+        position,
+        lerp_degrees(actor.previous_pose.yaw, actor.yaw, alpha),
+        lerp_degrees(actor.previous_pose.pitch, actor.pitch, alpha),
+        scale,
+        axis_scale_y,
+    )
 }
 
 /// The rig point the native renderer turns about: the native model origin, in blocks.
-fn native_pivot() -> Vec3 {
+pub(super) fn native_pivot() -> Vec3 {
     Vec3::Y * (NATIVE_ORIGIN_PIXELS / PIXELS_PER_BLOCK)
 }
 
@@ -94,17 +73,12 @@ fn world_from_rig(
     [row(0), row(1), row(2)]
 }
 
-/// Gives a placed thrown trident culling bounds that hold in any flight rotation and, when the
-/// server marks it enchanted, the native foil pass over its own texture.
+/// Gives an enchanted thrown trident the native foil pass over its own texture.
 pub(super) fn present_thrown_trident(
     submission: &mut render_model::ActorRigSubmission,
     actor: &ActorSnapshot,
 ) {
-    if !is_thrown_trident(actor) {
-        return;
-    }
-    submission.culling_bounds = rotation_invariant(submission.culling_bounds, Vec3::ZERO);
-    if actor.is_enchanted() {
+    if is_thrown_trident(actor) && actor.is_enchanted() {
         submission.material.glint = render_model::ActorGlint {
             profile: render_api::CombatVisuals::Modern,
             uv_scale: [FOIL_UV_SCALE; 2],
@@ -114,10 +88,10 @@ pub(super) fn present_thrown_trident(
     }
 }
 
-/// A cube centred where `pivot` is placed, containing `bounds` under every rotation about it.
-fn rotation_invariant(bounds: SkinGeometryBounds, pivot: Vec3) -> SkinGeometryBounds {
-    let radius = (Vec3::from_array(bounds.center) - pivot).length()
-        + Vec3::from_array(bounds.half_extents).length();
+/// A cube about the model origin containing `bounds` under every rotation about it.
+pub(super) fn rotation_invariant(bounds: SkinGeometryBounds) -> SkinGeometryBounds {
+    let radius =
+        Vec3::from_array(bounds.center).length() + Vec3::from_array(bounds.half_extents).length();
     SkinGeometryBounds {
         center: [0.0; 3],
         half_extents: [radius; 3],
