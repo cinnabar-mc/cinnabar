@@ -1,6 +1,6 @@
 # Entity masks
 
-[Personal mods](mods/personal.md) use `cinnabar:world-draw/masks@0.1.0` to retain
+[Personal mods](mods/personal.md) use `cinnabar:world-draw/masks@0.2.0` to retain
 actor selections across successful callbacks. User grants apply in local and
 remote worlds. Server grants do not authorize this interface.
 

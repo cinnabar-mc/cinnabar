@@ -1,4 +1,4 @@
-package cinnabar:world-draw@0.1.0;
+package cinnabar:world-draw@0.2.0;
 
 /// Owner and connection scoped resources. Every mutation is a callback transaction.
 interface drawing {
@@ -13,19 +13,31 @@ interface drawing {
     record vertex { position: tuple<f32, f32, f32>, color: tuple<f32, f32, f32, f32>, uv: tuple<f32, f32>, data: tuple<f32, f32, f32, f32> }
     record mesh { vertices: list<vertex>, indices: list<u32> }
     record polyline { vertices: list<vertex>, closed: bool }
-    variant geometry-spec { triangles(mesh), line(polyline) }
+    /// Named states use the canonical JSON state object returned by terrain observations.
+    record named-block { name: string, states: string }
+    variant block-state { runtime-id(u32), named(named-block) }
+    /// Light channels are 0..15. Missing light uses sky 15 and block 0.
+    record block-cell { palette: u32, sky-light: option<u8>, block-light: option<u8> }
+    /// Dense cells in x,z,y order (y changes fastest). Outside cells are air.
+    record block-grid { size: tuple<u32, u32, u32>, palette: list<block-state>, cells: list<block-cell> }
+    /// Updates one existing cell, retaining the grid's size and palette.
+    record block-edit { position: tuple<u32, u32, u32>, cell: block-cell }
+    variant geometry-spec { triangles(mesh), line(polyline), blocks(block-grid) }
+    enum geometry-state { pending, ready }
     record world-anchor { dimension: s32, origin: tuple<f64, f64, f64> }
     record block-anchor { dimension: s32, position: tuple<s32, s32, s32> }
     record entity-anchor { entity: handle, body-rotation: bool }
     variant anchor { %world(world-anchor), block(block-anchor), camera, entity(entity-anchor) }
     record transform { translation: tuple<f32, f32, f32>, rotation: tuple<f32, f32, f32, f32>, scale: tuple<f32, f32, f32> }
+    /// A visible triangle mask. A parent intersects coverage and gives nesting its own depth.
+    record clip-spec { geometry: handle, anchor: anchor, transform: transform, parent: option<handle> }
     enum depth { test, always }
     enum blend { premultiplied, additive }
     enum width-mode { %world, pixels }
     enum join { bevel, miter, round }
     enum cap { butt, round }
     record instance {
-        geometry: handle, material: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
+        geometry: handle, material: option<handle>, clip: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
         tint: tuple<f32, f32, f32, f32>, depth: depth, blend: blend,
         width: f32, width-mode: width-mode, join: join, cap: cap,
     }
@@ -37,6 +49,12 @@ interface drawing {
     /// Returns bounded host-selected actor references; retained references need explicit release.
     observe-entities: func() -> result<list<observed-entity>, draw-error>;
     create-geometry: func(spec: geometry-spec) -> result<handle, draw-error>;
+    /// Block geometry requires render-material. Worker failures are returned here.
+    geometry-status: func(id: handle) -> result<geometry-state, draw-error>;
+    /// Changes cells atomically. Wait for readiness before submitting another edit batch.
+    update-blocks: func(id: handle, edits: list<block-edit>) -> result<_, draw-error>;
+    /// Creates a world-depth-tested mask with an independent content depth buffer.
+    create-clip: func(spec: clip-spec) -> result<handle, draw-error>;
     create: func(spec: instance) -> result<handle, draw-error>;
     update: func(id: handle, spec: instance) -> result<_, draw-error>;
     replace-frame-group: func(name: string, draws: list<instance>) -> result<_, draw-error>;

@@ -121,7 +121,7 @@ grants! {
     /// Allows elevated drawing and protected world observations.
     #[permission("Through walls", false)]
     pub render_through_walls: bool,
-    /// Allows bounded procedural drawing materials.
+    /// Allows bounded procedural drawing materials and host-meshed block grids.
     #[permission("Drawing materials", false)]
     pub render_material: bool,
     /// Allows sandboxed scene post effects.

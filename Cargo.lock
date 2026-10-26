@@ -5975,11 +5975,14 @@ dependencies = [
 name = "mod-render"
 version = "0.1.28"
 dependencies = [
+ "assets",
  "bytemuck",
+ "meshing",
  "mod-api",
  "naga",
  "serde",
  "test-alloc",
+ "world",
 ]
 
 [[package]]

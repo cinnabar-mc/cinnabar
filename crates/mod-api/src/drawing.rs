@@ -5,6 +5,25 @@ pub use crate::bindings::cinnabar::world_draw::drawing as api;
 
 pub mod shapes;
 
+/// Per-owner cells across block grids, enough for a 3 by 3 chunk view 256 blocks high.
+pub const MAX_BLOCK_CELLS: usize = 2 * 1024 * 1024;
+/// Largest dimension of a block grid; the total cell allowance also applies.
+pub const MAX_BLOCK_EXTENT: u32 = 384;
+/// Distinct resolved states in a block-grid palette.
+pub const MAX_BLOCK_PALETTE: usize = 4096;
+/// UTF-8 bytes in one palette's named state descriptions.
+pub const MAX_BLOCK_STATE_BYTES: usize = 256 * 1024;
+/// Block-grid input bytes admitted in one callback, separate from ordinary drawing uploads.
+pub const MAX_BLOCK_MUTATION_BYTES: usize = 16 * 1024 * 1024;
+/// Mesh triangles in one generation, including model blocks and liquids.
+pub const MAX_BLOCK_TRIANGLES: usize = 2 * 1024 * 1024;
+/// Packed terrain mesh bytes in one generation.
+pub const MAX_BLOCK_MESH_BYTES: usize = 128 * 1024 * 1024;
+/// Simultaneously retained clip resources per owner.
+pub const MAX_DRAW_CLIPS: usize = 8;
+/// Two coverage levels allow one clip nested inside another.
+pub const MAX_DRAW_CLIP_DEPTH: usize = 2;
+
 /// Native retained-instance storage, checked against the renderer's typed record.
 pub const INSTANCE_GPU_BYTES: usize =
     (16 + 4 + 4 + crate::materials::PARAMS) * std::mem::size_of::<f32>();
@@ -30,6 +49,7 @@ pub fn instance(geometry: api::Handle, anchor: api::Anchor) -> api::Instance {
     api::Instance {
         geometry,
         material: None,
+        clip: None,
         params: crate::materials::Preset::default().0.to_vec(),
         anchor,
         transform: api::Transform {

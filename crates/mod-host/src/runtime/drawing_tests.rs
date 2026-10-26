@@ -226,6 +226,7 @@ fn frame_draw(geometry: wit::Handle) -> wit::Instance {
     wit::Instance {
         geometry,
         material: None,
+        clip: None,
         params: Vec::new(),
         anchor: wit::Anchor::Camera,
         transform: wit::Transform {

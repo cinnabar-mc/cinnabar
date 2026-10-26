@@ -20,6 +20,7 @@ fn planet() -> Output {
     let instance = retained::Instance {
         geometry,
         material: None,
+        clip: None,
         params: [0.; mod_api::materials::PARAMS],
         anchor: Anchor::Camera,
         transform: retained::Transform {

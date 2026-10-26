@@ -4,6 +4,10 @@
 `cinnabar:world-draw/drawing` WIT interface. `drawing::shapes` builds its geometry
 records directly, without another geometry schema or graphics dependency.
 
+World-draw 0.2 adds a `clip` field to instances; `drawing::instance` defaults it
+to `None`. Components using 0.1 must rebuild. Block-grid and clip rendering remain
+incomplete; see the [contract and migration notes](../../docs/mod-block-geometry.md).
+
 The builders return a list of independent local-coordinate polylines:
 
 | Helper | Geometry |

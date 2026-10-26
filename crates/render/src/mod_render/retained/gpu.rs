@@ -224,6 +224,9 @@ pub(super) fn queue(
             let mut instances = Vec::new();
             let mut batches: Vec<Batch> = Vec::new();
             for instance in resources.instances.values() {
+                if instance.clip.is_some() {
+                    continue;
+                }
                 let Some(resolved) = resolve(instance, &frame, &camera) else {
                     continue;
                 };
