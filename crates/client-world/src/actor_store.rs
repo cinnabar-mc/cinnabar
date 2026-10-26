@@ -766,6 +766,8 @@ pub(crate) struct ActorStore {
     remote_state_excluded_runtime_id: Option<u64>,
     /// The local player's persistent id, known from the session start before its actor exists.
     local_unique_id: Option<i64>,
+    /// The session's wire runtime id for air, as synced block metadata encodes it.
+    air_block_network_id: Option<u32>,
     /// The vehicle the local player steers, whose pose the client predicts.
     local_vehicle: local_vehicle::LocalVehicle,
     /// Health admitted before the client-fed local actor is created.

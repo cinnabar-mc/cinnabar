@@ -189,6 +189,8 @@ impl WorldAuthority {
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         actors.set_local_unique_id(bootstrap.local_player_unique_id);
+        // No custom palette is admitted yet, so the internal air id is also its wire id.
+        actors.set_air_block_network_id(Some(air_block_id));
         Self {
             terrain: ChunkStore::new(),
             actors,

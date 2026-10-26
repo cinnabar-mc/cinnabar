@@ -121,6 +121,7 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             local_unique_id: None,
+            air_block_network_id: None,
             local_vehicle: Default::default(),
             pending_local_health: None,
             pending_local_actor: None,
@@ -175,6 +176,11 @@ impl ActorStore {
     /// already present, as vanilla's local player always is.
     pub(crate) fn set_local_unique_id(&mut self, unique_id: i64) {
         self.local_unique_id = Some(unique_id);
+    }
+
+    /// Records how this session's block metadata encodes air.
+    pub(crate) fn set_air_block_network_id(&mut self, network_id: Option<u32>) {
+        self.air_block_network_id = network_id;
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
