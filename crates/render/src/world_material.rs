@@ -132,10 +132,15 @@ pub(crate) struct WorldMaterialPhase(pub f32);
 
 /// Advances the phase from the wall clock: Unix time modulo the animation wrap, so a server can
 /// start world material effects at a moment on the same clock and every client agrees.
-pub(crate) fn advance_phase(mut phase: ResMut<WorldMaterialPhase>) {
-    let Ok(since_epoch) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
-        return;
-    };
+pub(crate) fn advance_phase(phase: ResMut<WorldMaterialPhase>) {
+    if let Ok(since_epoch) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        set_phase(phase, since_epoch);
+    }
+}
+
+/// Sets the phase for `since_epoch` past the Unix epoch, touching the resource only when it
+/// changes so an unchanged phase extracts nothing.
+fn set_phase(mut phase: ResMut<WorldMaterialPhase>, since_epoch: std::time::Duration) {
     let next = mod_render::material::phase(since_epoch.as_secs_f64());
     if phase.0 != next {
         phase.0 = next;
@@ -691,26 +696,17 @@ mod tests {
 
     /// The phase follows the wall clock, so a server timing an effect by Unix time agrees.
     #[test]
-    fn the_phase_follows_the_wall_clock() {
+    fn the_phase_is_unix_time_modulo_the_wrap() {
         use bevy::ecs::system::RunSystemOnce;
         let mut world = bevy::prelude::World::new();
         world.init_resource::<WorldMaterialPhase>();
-        let wall = || {
-            let since = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64();
-            mod_render::material::phase(since)
-        };
-        let before = wall();
-        world.run_system_once(advance_phase).unwrap();
-        let after = wall();
-        let phase = world.resource::<WorldMaterialPhase>().0;
-        // Within the two readings, allowing for the wrap between them.
-        let wrapped = after < before;
-        assert!(
-            (phase >= before && phase <= after) || (wrapped && (phase >= before || phase <= after)),
-            "{before} <= {phase} <= {after}"
+        let at = std::time::Duration::from_millis(1_790_000_000_250);
+        world
+            .run_system_once(move |phase: ResMut<WorldMaterialPhase>| set_phase(phase, at))
+            .unwrap();
+        assert_eq!(
+            world.resource::<WorldMaterialPhase>().0,
+            mod_render::material::phase(at.as_secs_f64())
         );
     }
 }
