@@ -78,6 +78,11 @@ assuming an import succeeded. Shared values and ceilings live in
 [drawing limits](../../crates/mod-api/src/drawing.rs) and
 [host limits](../../crates/mod-host/src/lib.rs).
 
+`gameplay.set-attack-reach` requires `interaction`; a non-`none` request also
+requires a current gameplay frame. It can shorten actor pick and attack reach
+within the current mode and input limits. Accepted requests cannot extend vanilla
+reach, and the grant does not lift that restriction. `none` restores normal rules.
+
 ## HUD surfaces
 
 `hud.set-surface` publishes the mod's JSON-UI layer over gameplay, below vanilla
