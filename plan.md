@@ -295,10 +295,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   an adjacent solve also wakes excluded neighbours when their shared face is unchanged.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
-  Foreground chunk-data offload requires a full allocation of service polling;
-  idle waits do not count. Ready light and mesh results release their worker slots
-  and refill downstream work before terrain intake, within the shared poll allocation.
-  Intake keeps bounded progress even after that allocation expires.
+  Foreground chunk-data offload requires a full allocation of service polling
+  that advanced commits; idle waits and worker-only service do not count.
+  Ordinary polls keep intake first. An interrupted worker pass resumes with bounded
+  completion and refill work before intake, without renewing intake's allocation.
+  Intake keeps bounded progress even after its allocation expires.
   Biome-only inline updates preserve current light while
   remeshing tint; block changes and new residency still invalidate light.
   Matched-output hardware preparation and streaming qualification remain open.

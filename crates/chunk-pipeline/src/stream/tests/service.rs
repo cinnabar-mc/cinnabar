@@ -1,12 +1,10 @@
 use super::*;
 
-/// Stages completed light and mesh work, with one more dispatchable job in each lane.
-fn stream_with_ready_worker_service() -> WorldStream {
-    let mut stream = light_scheduler::lit_stream(1);
-    let light = SubChunkKey::new(1, -4, 0, 0);
-    stream.record_known_air(light);
-    stream.mark_light_changed_sources([light]);
-    let job = stream.take_pending_light_job(light);
+/// Solves a current light job synchronously and queues it with its batch slot still charged.
+fn queue_completed_light(stream: &mut WorldStream, key: SubChunkKey) {
+    stream.record_known_air(key);
+    stream.mark_light_changed_sources([key]);
+    let job = stream.take_pending_light_job(key);
     let identity = job.identity;
     stream
         .lighting
@@ -16,13 +14,19 @@ fn stream_with_ready_worker_service() -> WorldStream {
         .lighting
         .tx
         .send(LightCompletion {
-            key: light,
+            key,
             identity,
             result: solve_prepared_light_job(job),
             queue_wait: Duration::ZERO,
             duration: Duration::ZERO,
         })
         .unwrap();
+}
+
+/// Stages completed light and mesh work, with one more dispatchable job in each lane.
+fn stream_with_ready_worker_service() -> WorldStream {
+    let mut stream = light_scheduler::lit_stream(1);
+    queue_completed_light(&mut stream, SubChunkKey::new(1, -4, 0, 0));
     let pending_light = SubChunkKey::new(1, -8, 0, 0);
     stream.record_known_air(pending_light);
     stream.mark_light_changed_sources([pending_light]);
@@ -65,12 +69,16 @@ fn stream_with_ready_worker_service() -> WorldStream {
     stream
 }
 
-/// Admits an air column and queues its completed decode without scheduling a worker.
+/// Queues a completed air-column decode within a compact admitted-window-sized grid.
 fn queue_decoded_air_column(stream: &mut WorldStream, sequence: u64) {
+    let width = client_world::ingestion::MAX_ADMITTED_HEAVY_EVENTS
+        .isqrt()
+        .max(1);
+    let index = sequence as usize - 1;
     let event = LevelChunkEvent {
         dimension: stream.current_dimension(),
-        x: sequence as i32,
-        z: 0,
+        x: (index % width + 1) as i32,
+        z: (index / width) as i32,
         mode: LevelChunkMode::Inline { count: 0 },
         payload: biome_payload(stream.current_dimension(), 0),
     };
@@ -155,6 +163,80 @@ fn expired_worker_service_keeps_intake_progress_bounded() {
     assert_eq!(stream.loaded_column_count(), 1);
     assert_eq!(stream.decode_rx.len(), 3);
     assert!(stream.mesh_changes.len() <= MAX_PENDING_MESH_CHANGES);
+}
+
+/// A reclaim during downstream acceptance must leave a full ready intake window committed.
+#[test]
+fn downstream_reclaim_preserves_a_full_ready_intake_window() {
+    let mut stream = stream_with_ready_worker_service();
+    let window = client_world::ingestion::MAX_ADMITTED_HEAVY_EVENTS;
+    for sequence in 1..=window as u64 {
+        queue_decoded_air_column(&mut stream, sequence);
+    }
+    assert_eq!(stream.order.heavy_capacity(), 0);
+    assert_eq!(stream.decode_rx.len(), window);
+    stream.service_yield = Some(Arc::new(AtomicBool::new(false)));
+    stream.frame_deadline = Some(Instant::now() + Duration::from_secs(60));
+    stream.after_service_item = Some(|stream, kind| {
+        if kind == "light_result" {
+            stream
+                .service_yield
+                .as_ref()
+                .unwrap()
+                .store(true, Ordering::Release);
+        }
+    });
+
+    let report = stream.poll([0.0; 3], 1);
+    assert_eq!(report.decoded_results, window);
+    assert_eq!(report.commit_steps, window);
+    assert_eq!(stream.committed_sequence(), window as u64);
+    assert_eq!(stream.loaded_column_count(), window);
+    assert!(stream.decode_rx.is_empty());
+    assert_eq!(stream.order.heavy_capacity(), window);
+    assert_eq!(stream.stats.decode_errors, 0);
+}
+
+/// Interrupted worker service resumes within bounded work, retaining a full intake window.
+#[test]
+fn reclaimed_worker_service_does_not_take_the_next_intake_allocation() {
+    let mut stream = stream_with_ready_worker_service();
+    let other_light = SubChunkKey::new(1, -12, 0, 0);
+    queue_completed_light(&mut stream, other_light);
+    let window = client_world::ingestion::MAX_ADMITTED_HEAVY_EVENTS;
+    for sequence in 1..=window as u64 {
+        queue_decoded_air_column(&mut stream, sequence);
+    }
+    let reclaim = Arc::new(AtomicBool::new(false));
+    stream.service_yield = Some(Arc::clone(&reclaim));
+    stream.frame_deadline = Some(Instant::now() - Duration::from_secs(1));
+    stream.after_service_item = Some(|stream, kind| {
+        if kind == "decode_result" {
+            stream
+                .service_yield
+                .as_ref()
+                .unwrap()
+                .store(true, Ordering::Release);
+        }
+    });
+    let interrupted = stream.poll([0.0; 3], 1);
+    assert_eq!(interrupted.decoded_results, 1);
+    assert_eq!(stream.committed_sequence(), 0);
+
+    reclaim.store(false, Ordering::Release);
+    stream.after_service_item = None;
+    stream.frame_deadline = Some(Instant::now() + Duration::from_secs(60));
+    let resumed = stream.poll([0.0; 3], 1);
+    assert_eq!(
+        resumed.light_results, 1,
+        "only bounded worker progress precedes intake"
+    );
+    assert!(stream.lighting.jobs.in_flight.contains_key(&other_light));
+    assert_eq!(resumed.decoded_results, window - 1);
+    assert_eq!(resumed.commit_steps, window);
+    assert_eq!(stream.committed_sequence(), window as u64);
+    assert!(stream.decode_rx.is_empty());
+    assert_eq!(stream.order.heavy_capacity(), window);
 }
 
 /// An already raised reclaim stops downstream acceptance and admission as well as intake.
