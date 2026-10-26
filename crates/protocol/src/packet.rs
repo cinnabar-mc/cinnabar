@@ -11,6 +11,7 @@ use bedrock_protocol_1_26_51::packets::{self, PacketId};
 pub struct Packet {
     pub(crate) header: GameHeader,
     pub(crate) data: Box<packets::Packet>,
+    pub(crate) pick: Option<Box<crate::capture::PickState>>,
 }
 
 /// A batch entry's header varint: the packet ID and its two-bit sender and target subclients.
@@ -64,7 +65,13 @@ impl Packet {
         Self {
             header,
             data: Box::new(data),
+            pick: None,
         }
+    }
+
+    /// Attaches numeric capture diagnostics without changing the wire packet.
+    pub fn capture_pick(&mut self, state: crate::capture::PickState) {
+        self.pick = Some(Box::new(state));
     }
 
     /// Which packet this is, as its header names it.

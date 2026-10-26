@@ -365,9 +365,18 @@ pub struct NetworkHandle<P = ()> {
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
     unflushed: Mutex<frame_flush::FrameFlush>,
+    pick_trace: Option<Arc<std::sync::OnceLock<Arc<protocol::capture::PickTrace>>>>,
 }
 
 impl<P> NetworkHandle<P> {
+    /// Capture diagnostics are absent unless the session's opt-in file started successfully.
+    pub fn pick_trace(&self) -> Option<&Arc<protocol::capture::PickTrace>> {
+        self.pick_trace
+            .as_ref()?
+            .get()
+            .filter(|trace| trace.active())
+    }
+
     /// Queues the readiness boundary after the loading screen can close.
     pub fn finish_loading(&self) -> bool {
         let mut frame = self.unflushed.lock().expect("outbound frame lock");
@@ -652,6 +661,7 @@ fn empty_network_channels<P>() -> (
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
             experience_gate: Arc::default(),
             unflushed: Default::default(),
+            pick_trace: Default::default(),
         },
         physics_reanchor_rx,
     )
@@ -693,6 +703,16 @@ trait NetworkSession: execution::SessionOwner {
                 .await
                 .map(InboundWorldEvent::Event)
         }
+    }
+
+    /// The capture packet sequence behind the world event just delivered.
+    fn ingress_capture_sequence(&self) -> u64 {
+        0
+    }
+
+    /// Capture-only mapping for the world event just delivered.
+    fn pick_trace(&self) -> Option<Arc<protocol::capture::PickTrace>> {
+        None
     }
 
     fn decode_error_count(&self) -> u64;
@@ -764,6 +784,14 @@ impl<R: execution::SessionRead> NetworkSession for protocol::PlaySession<R> {
             InboundWorldEvent::Event,
             |event, payload| InboundWorldEvent::LevelChunk { event, payload },
         )
+    }
+
+    fn ingress_capture_sequence(&self) -> u64 {
+        protocol::PlaySession::ingress_capture_sequence(self)
+    }
+
+    fn pick_trace(&self) -> Option<Arc<protocol::capture::PickTrace>> {
+        protocol::PlaySession::pick_trace(self)
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -917,9 +945,7 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S, observation: &Sessio
 mod blob_cache_telemetry;
 #[cfg(test)]
 use blob_cache_telemetry::bounded_counter_log_due;
-use blob_cache_telemetry::{
-    emit_blob_cache_telemetry, send_final_blob_cache_telemetry, try_emit_blob_cache_telemetry,
-};
+use blob_cache_telemetry::{BlobCacheTelemetry, send_final_blob_cache_telemetry};
 mod bootstrap;
 pub(crate) mod experience;
 mod forms;

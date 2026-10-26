@@ -175,3 +175,70 @@ fn block_occlusion_uses_the_intercept_outside_the_block_cell() {
         Crosshair::Block
     );
 }
+
+#[test]
+fn captured_box_uses_the_same_order_and_inflation_as_the_actor_pick() {
+    let actor =
+        super::super::tests::actor(7, "minecraft:player", [0.0, 0.0, -2.0], Some((0.6, 1.8)));
+    let boxes = [
+        ([-0.5, 0.0, -4.0], [0.5, 2.0, -3.0]),
+        ([-0.5, 0.0, -2.0], [0.5, 2.0, -1.0]),
+    ];
+    let origin = [0.0, 1.0, 0.0];
+    let direction = [0.0, 0.0, -2.0];
+    let picked = pick_actor_by(
+        std::iter::once(&actor),
+        |_| boxes,
+        None,
+        origin,
+        direction,
+        5.0,
+    )
+    .unwrap();
+    let (point, bounds) =
+        pick_box(boxes, actor.entity_fact.pick_radius, origin, direction, 5.0).unwrap();
+    assert_eq!(point, picked.point);
+    assert_eq!(
+        bounds,
+        (
+            boxes[0].0.map(|axis| axis - actor.entity_fact.pick_radius),
+            boxes[0].1.map(|axis| axis + actor.entity_fact.pick_radius)
+        )
+    );
+}
+
+#[test]
+fn captured_press_keeps_its_original_input_boundary_through_retries() {
+    let mut runtime = super::super::MeleeRuntime::default();
+    assert!(runtime.observe_input_with_capture(true, true, Some([1, 10])));
+    assert!(runtime.observe_input_with_capture(false, true, Some([1, 11])));
+    assert_eq!(runtime.pending_capture_frame(0), Some([1, 10]));
+    assert!(runtime.observe_input_with_capture(true, true, Some([1, 12])));
+    runtime.resolve(
+        Crosshair::Miss,
+        &super::super::tests::press(protocol::PlayerInputMode::Mouse),
+        &mut super::super::SwingTracker::default(),
+    );
+    assert_eq!(runtime.pending_capture_frame(0), Some([1, 12]));
+    runtime.cancel();
+    assert_eq!(runtime.pending_capture_frame(0), None);
+    assert!(runtime.observe_input(true, true));
+    assert_eq!(runtime.pending_capture_frame(0), None);
+}
+
+#[test]
+fn capture_identity_follows_the_press_remaining_after_expiration() {
+    let mut runtime = super::super::MeleeRuntime::default();
+    runtime.observe_input_with_capture(true, true, Some([1, 10]));
+    runtime.defer(0);
+    runtime.observe_input_with_capture(true, true, Some([1, 12]));
+    runtime.defer(1);
+    let now = crate::interaction_authority::MAX_PENDING_INTERACTION_MILLIS + 1;
+    assert_eq!(runtime.pending_capture_frame(now), Some([1, 12]));
+    runtime.resolve(
+        Crosshair::Miss,
+        &super::super::tests::press(protocol::PlayerInputMode::Mouse),
+        &mut super::super::SwingTracker::default(),
+    );
+    assert_eq!(runtime.pending_capture_frame(now), None);
+}

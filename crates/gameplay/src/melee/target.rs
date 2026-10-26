@@ -82,23 +82,8 @@ where
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))
         .filter_map(|actor| {
-            let point = hit_boxes(actor).into_iter().find_map(|(min, max)| {
-                let min = min.map(|axis| axis - actor.entity_fact.pick_radius);
-                let max = max.map(|axis| axis + actor.entity_fact.pick_radius);
-                let vector = |point: [f32; 3]| {
-                    sim::Vec3::new(
-                        f64::from(point[0]),
-                        f64::from(point[1]),
-                        f64::from(point[2]),
-                    )
-                };
-                let point = sim::Aabb::new(vector(min), vector(max)).clip_segment_point(
-                    vector(origin),
-                    vector(end),
-                    true,
-                )?;
-                Some([point.x as f32, point.y as f32, point.z as f32])
-            })?;
+            let (point, _) =
+                pick_box_normalized(hit_boxes(actor), actor.entity_fact.pick_radius, origin, end)?;
             let distance_squared = pick_distance_squared(origin, point);
             Some((
                 ActorHit {
@@ -223,3 +208,45 @@ pub fn classify(
 #[cfg(test)]
 #[path = "target_tests.rs"]
 mod tests;
+
+/// A clipped point together with the inflated bounds that supplied it.
+pub type PickBoxHit = ([f32; 3], ([f32; 3], [f32; 3]));
+
+/// Returns the first intersected inflated box and its point using the ordinary pick arithmetic.
+pub fn pick_box(
+    boxes: impl IntoIterator<Item = ([f32; 3], [f32; 3])>,
+    radius: f32,
+    origin: [f32; 3],
+    direction: [f32; 3],
+    reach: f64,
+) -> Option<PickBoxHit> {
+    let direction = sim::normalize_direction(direction)?;
+    let end = std::array::from_fn(|axis| origin[axis] + direction[axis] * reach as f32);
+    pick_box_normalized(boxes, radius, origin, end)
+}
+
+/// Clips a normalized pick segment against ordered boxes after single-precision inflation.
+fn pick_box_normalized(
+    boxes: impl IntoIterator<Item = ([f32; 3], [f32; 3])>,
+    radius: f32,
+    origin: [f32; 3],
+    end: [f32; 3],
+) -> Option<PickBoxHit> {
+    boxes.into_iter().find_map(|(min, max)| {
+        let min = min.map(|axis| axis - radius);
+        let max = max.map(|axis| axis + radius);
+        let vector = |point: [f32; 3]| {
+            sim::Vec3::new(
+                f64::from(point[0]),
+                f64::from(point[1]),
+                f64::from(point[2]),
+            )
+        };
+        let point = sim::Aabb::new(vector(min), vector(max)).clip_segment_point(
+            vector(origin),
+            vector(end),
+            true,
+        )?;
+        Some(([point.x as f32, point.y as f32, point.z as f32], (min, max)))
+    })
+}

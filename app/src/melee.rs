@@ -46,6 +46,7 @@ pub(crate) struct MeleeTarget {
     )>,
     pub(crate) attack: Option<crosshair::ResolvedTarget>,
     pub(crate) hover: Option<(u64, gameplay::entity_hover::HoverSnapshot)>,
+    pub(crate) hover_capture: Option<protocol::capture::PickState>,
 }
 
 impl MeleeTarget {
@@ -111,6 +112,7 @@ pub(crate) fn prepare_melee(
     }
     target.attack = None;
     target.hover = None;
+    target.hover_capture = None;
     target
         .frames
         .publish(&context, movement.position_authority_identity().1);
@@ -126,6 +128,7 @@ pub(crate) fn prepare_melee(
         let first_tick = movement
             .completed_tick()
             .saturating_sub((context.effects.recent_tick_count() as u64).saturating_sub(1));
+        target.hover_capture = picked.capture;
         target.hover = Some((
             first_tick,
             gameplay::entity_hover::HoverSnapshot {
@@ -177,7 +180,14 @@ pub(crate) fn prepare_melee(
         }
         return;
     }
-    let pending = runtime.observe_input(attack.pressed, attack.held);
+    let pending = runtime.observe_input_with_capture(
+        attack.pressed,
+        attack.held,
+        context
+            .network
+            .pick_trace()
+            .map(|_| crosshair::capture_identity(&context)),
+    );
     // A position-authority change is resolving; the press waits for it.
     if !movement.accepts_block_interactions() {
         drop("position_authority_pending");
@@ -355,6 +365,16 @@ fn maintain_attacks(
         !ordered.maintenance_pending(&context.input)
             && !crate::ordered_interactions::release_pending(&item_use, &movement)
     });
+    let capture = target
+        .attack
+        .and_then(|pick| pick.capture)
+        .map(|mut state| {
+            runtime.synchronize(movement.interaction_authority_identity());
+            state.press_frame = runtime
+                .pending_capture_frame(now_millis)
+                .unwrap_or_default();
+            state
+        });
     let admitted = gameplay::melee::admit_attack_frame(
         &mut runtime,
         &mut mining,
@@ -370,7 +390,9 @@ fn maintain_attacks(
             local_runtime_id,
         },
         gameplay::melee::AttackEffects {
-            send: |packets| network.send_inventory_packets(packets),
+            send: |packets| {
+                network.send_inventory_packets(crosshair::capture_packets(packets, capture))
+            },
             swing_duration: |tick| swing_duration(effects.mining_tick(tick, completed_tick).0),
             request_id: |slot, damage| {
                 player
