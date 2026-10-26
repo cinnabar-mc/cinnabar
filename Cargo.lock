@@ -5974,6 +5974,7 @@ dependencies = [
  "tracing",
  "ui",
  "wasi-preview1-component-adapter-provider",
+ "wasm-encoder 0.247.0",
  "wasm-metadata",
  "wasmparser 0.247.0",
  "wasmtime",

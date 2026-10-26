@@ -72,7 +72,10 @@ fn grid() -> BlockGrid {
         palette: vec![
             named("minecraft:air", "{}"),
             named("minecraft:netherrack", "{}"),
-            named("minecraft:lava", r#"{"liquid_depth":0}"#),
+            named(
+                "minecraft:lava",
+                r#"{"liquid_depth":{"type":"int","value":0}}"#,
+            ),
         ],
         cells,
     }
@@ -256,7 +259,7 @@ impl PlayerMod for Portal {
             }
             let scene = state.as_mut().unwrap();
             if let Err(error) = geometry_status(scene.grid) {
-                let _ = hud::set_label(&format!("Portal view: {}", error.detail));
+                let _ = hud::set_label(&format!("Portal view: {:?}: {}", error.code, error.detail));
             }
             if input::demo_pressed() {
                 if let Some(draw) = scene.draw.take() {

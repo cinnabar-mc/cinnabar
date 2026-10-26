@@ -14,6 +14,7 @@ reads = [
     "crates/mod-api/wit",
     "crates/server-experience/src/media/testdata/fixture.webm",
     "examples/mods/screen-probe",
+    "examples/mods/portal-view/grants.json",
     "examples/experiences/space-client",
 ]
 
@@ -50,6 +51,7 @@ bytes.workspace = true
 tokio.workspace = true
 wit-component = { workspace = true }
 wasmparser = { version = "=0.247.0" }
+wasm-encoder = "=0.247.0"
 wit-parser.workspace = true
 
 [target.'cfg(windows)'.dependencies]

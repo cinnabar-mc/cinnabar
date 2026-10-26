@@ -17,7 +17,9 @@ Light values must be between 0 and 15. Missing sky light
 defaults to 15; missing block light defaults to 0. Outside cells are air.
 
 Palette entries are either current-session runtime IDs or block names with a
-JSON state object. Named entries must resolve completely; an unknown state is
+canonical JSON state object, using the typed values returned by terrain observations.
+For example, lava uses `{"liquid_depth":{"type":"int","value":0}}`.
+Named entries must resolve completely; an unknown state is
 an error. Runtime IDs must not be carried into a different connection. A pack registry or
 meshing-settings change invalidates a completed grid with `unsupported`; recreate
 it, or submit a cell update to request a fresh generation in the new context.
@@ -78,9 +80,17 @@ same API; completion feedback is fenced to the exact grid generation.
 
 `examples/mods/portal-view` supplies a fixed 48×64×48 grid with netherrack and lava,
 places it behind a four-by-five triangle mask, and draws an obsidian frame.
-Use the [component build and pack steps](personal-mods.md#build-and-load) with
-package `portal-view-mod` and file `portal_view_mod.wasm`, then select it using
-`CINNABAR_MOD_COMPONENT`. Set `CINNABAR_MOD_PLAYERS=1`, `CINNABAR_MOD_WORLD_DRAW=1`,
+Build and pack it with its explicit permission request:
+
+```sh
+cargo build --locked --release --target wasm32-unknown-unknown -p portal-view-mod
+cargo run --locked -p mod-host --bin mod-host -- pack \
+  --grants examples/mods/portal-view/grants.json \
+  target/wasm32-unknown-unknown/release/portal_view_mod.wasm /tmp/portal-view.wasm
+```
+
+Select `/tmp/portal-view.wasm` using `CINNABAR_MOD_COMPONENT`.
+Set `CINNABAR_MOD_PLAYERS=1`, `CINNABAR_MOD_WORLD_DRAW=1`,
 `CINNABAR_MOD_RENDER_MATERIAL=1` and `CINNABAR_MOD_HUD=1`. Join a local world;
 the portal is placed ahead of the initial camera. F8 hides and restores its
 contents while retaining the grid. No per-frame guest meshing is performed.

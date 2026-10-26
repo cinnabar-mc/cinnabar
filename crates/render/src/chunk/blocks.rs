@@ -179,6 +179,9 @@ pub(crate) fn install_graph(world: &mut World) {
 /// Returns a typed asynchronous failure through the grid's existing status operation.
 fn fail(geometry: &mod_render::retained::Geometry, detail: &'static str) {
     if let Some(blocks) = geometry.blocks() {
+        if blocks.render_error().is_none() {
+            bevy::log::warn!(reason = detail, "retained block geometry admission failed");
+        }
         blocks.fail_render(mod_render::retained::DrawError {
             code: mod_render::retained::ErrorCode::BudgetExceeded,
             detail,
