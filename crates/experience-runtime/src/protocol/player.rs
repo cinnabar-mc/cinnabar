@@ -1,5 +1,5 @@
 //! Protocol 5's player inventory and network scope, which a callback's snapshot may carry, the
-//! stacks a guest stages, and protocol 12's containers in reach.
+//! stacks a guest stages, and protocol 12's containers in reach and the actor's game mode.
 
 use serde::{Deserialize, Serialize};
 
@@ -46,12 +46,25 @@ pub struct ServerItem {
 }
 
 /// The actor's inventory: slots 0 to 8 the hotbar, 9 to 35 the rest of the main inventory, 36
-/// the offhand.
+/// the offhand; and the game mode it plays in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Inventory {
     pub selected: u8,
     pub slots: Vec<Option<ItemStack>>,
+    pub game_mode: GameMode,
+}
+
+/// A player's game mode, as the adapter derives it from what the mode allows: `spectator`
+/// without collision, `creative` with the creative inventory, `adventure` without editing the
+/// world, and `survival` otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameMode {
+    Survival,
+    Creative,
+    Adventure,
+    Spectator,
 }
 
 /// The network around a callback's anchor: its loaded members, which the snapshot holds, and

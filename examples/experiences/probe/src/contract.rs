@@ -4,8 +4,8 @@
 
 use experience_sdk::server::{
     BlockDef, BlockDrops, BlockItem, BlockPos, BlockRule, BlockState, BlockType, Callback,
-    ContentRules, Face, ItemDef, ItemKey, Material, Mining, NewStack, Overlay, OverlayLook,
-    OverlayRegistration, OverlayType, OverlayVisual, Pixel, PixelBox, PlacementStates,
+    ContentRules, Face, GameMode, ItemDef, ItemKey, Material, Mining, NewStack, Overlay,
+    OverlayLook, OverlayRegistration, OverlayType, OverlayVisual, Pixel, PixelBox, PlacementStates,
     Registration, RenderMethod, StateDef, StateValue, StateValues, TextureBinding, Visual,
     WorldError, cube,
 };
@@ -329,6 +329,20 @@ pub(crate) fn redstone(ctx: &Callback, p: BlockPos) -> String {
         "power {received} emit {}",
         refusal(ctx.set_redstone_power(p, 15))
     )
+}
+
+/// Tells the actor's game mode, as `game mode {mode|error}`.
+pub(crate) fn game_mode(ctx: &Callback) -> String {
+    let mode = ctx.game_mode().map_or_else(
+        |error| error.name(),
+        |mode| match mode {
+            GameMode::Survival => "survival",
+            GameMode::Creative => "creative",
+            GameMode::Adventure => "adventure",
+            GameMode::Spectator => "spectator",
+        },
+    );
+    format!("game mode {mode}")
 }
 
 /// A world error's name, or `ok` for any success.

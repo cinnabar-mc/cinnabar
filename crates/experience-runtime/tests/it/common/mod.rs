@@ -11,8 +11,8 @@ use std::sync::LazyLock;
 use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::protocol::{
-    BlockPos, Call, Cell, Crafted, Face, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op, Outcome,
-    Recipe, Request, Scalar, ServerItem,
+    BlockPos, Call, Cell, Crafted, Face, GameMode, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op,
+    Outcome, Recipe, Request, Scalar, ServerItem,
 };
 
 /// The server's recipes as an adapter lists them for the probe: sticks from two planks, one
@@ -697,6 +697,7 @@ pub fn callback(anchor: BlockPos, call: Call) -> Request {
         inventory: Some(Inventory {
             selected: 0,
             slots: vec![None; INVENTORY_SLOTS],
+            game_mode: GameMode::Survival,
         }),
         containers: None,
         call,

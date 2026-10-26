@@ -20,6 +20,11 @@ struct Pending {
 pub(super) struct ViewFailures(Arc<Pending>);
 
 impl ViewFailures {
+    /// Whether the shared mailbox needs draining, including a late error after Off.
+    pub(super) fn is_pending(&self) -> bool {
+        self.0.available.load(Ordering::Relaxed)
+    }
+
     /// Publishes an admission error with the exact pack allocation it came from.
     pub(super) fn record(&self, pack: Arc<PackGpu>, reason: String) {
         *self

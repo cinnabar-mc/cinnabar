@@ -14,16 +14,16 @@ use wasmtime::Trap;
 
 use super::{CallbackRes, failed, prepare};
 use crate::host::LimitExceeded;
-use crate::host::cinnabar::experience_server::types::WorldError;
+use crate::host::cinnabar::experience_server::types::{self as wit, WorldError};
 use crate::limits::{
     MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_ITEM_DATA_BYTES, MAX_NETWORK_BLOCKS,
     MAX_NETWORK_DATA_BYTES, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS,
 };
 use crate::load::{Catalog, axes};
 use crate::protocol::{
-    BlockPos, BlockState, Call, Cell, Containers, Face, FailKind, INVENTORY_SLOTS, Info, Inventory,
-    ItemStack, Network, NewStack, Op, Outcome, PlacementState, Request, Scalar, StateDef,
-    StateValue, StateValues,
+    BlockPos, BlockState, Call, Cell, Containers, Face, FailKind, GameMode, INVENTORY_SLOTS, Info,
+    Inventory, ItemStack, Network, NewStack, Op, Outcome, PlacementState, Request, Scalar,
+    StateDef, StateValue, StateValues,
 };
 
 const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
@@ -78,6 +78,7 @@ impl Fixture {
             inventory: Some(Inventory {
                 selected: 0,
                 slots: vec![None; INVENTORY_SLOTS],
+                game_mode: GameMode::Survival,
             }),
             containers: None,
         }
@@ -975,7 +976,22 @@ fn set_slot_refuses_what_the_guest_cannot_make() {
     }
 }
 
-/// Without an actor there is no inventory to read or write.
+/// The actor's game mode is the one its inventory was snapshotted with.
+#[test]
+fn game_mode_reads_the_snapshot() {
+    for (mode, want) in [
+        (GameMode::Survival, wit::GameMode::Survival),
+        (GameMode::Creative, wit::GameMode::Creative),
+        (GameMode::Adventure, wit::GameMode::Adventure),
+        (GameMode::Spectator, wit::GameMode::Spectator),
+    ] {
+        let mut fixture = Fixture::new();
+        fixture.inventory.as_mut().expect("an inventory").game_mode = mode;
+        assert_eq!(fixture.res().game_mode().unwrap(), Ok(want));
+    }
+}
+
+/// Without an actor there is no inventory to read or write, and no game mode.
 #[test]
 fn inventory_needs_an_actor() {
     let mut res = Fixture {
@@ -985,6 +1001,7 @@ fn inventory_needs_an_actor() {
     }
     .res();
     assert_eq!(res.inventory().unwrap(), Err(WorldError::PlayerUnavailable));
+    assert_eq!(res.game_mode().unwrap(), Err(WorldError::PlayerUnavailable));
     assert_eq!(
         res.set_slot(0, None).unwrap(),
         Err(WorldError::PlayerUnavailable)

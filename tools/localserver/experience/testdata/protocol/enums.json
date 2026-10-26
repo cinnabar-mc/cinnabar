@@ -53,6 +53,12 @@
     "unlisted",
     "none"
   ],
+  "game_modes": [
+    "survival",
+    "creative",
+    "adventure",
+    "spectator"
+  ],
   "placement_values": [
     {
       "placement": "cardinal_direction",

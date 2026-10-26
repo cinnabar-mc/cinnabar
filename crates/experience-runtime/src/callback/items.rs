@@ -1,5 +1,6 @@
-//! The actor's inventory and the stacks a guest makes: `inventory`, `set-slot` and `drop-item`,
-//! and whether a break harvests, when the guest drops what its block leaves to it.
+//! The actor's inventory and the stacks a guest makes: `inventory`, `set-slot` and `drop-item`;
+//! the actor's game mode; and whether a break harvests, when the guest drops what its block
+//! leaves to it.
 
 use anyhow::Result;
 use experience_sdk::artifact::MAX_STACK_SIZE;
@@ -10,7 +11,7 @@ use crate::host::cinnabar::experience_server::types::{self as wit, WorldError};
 use crate::limits::MAX_ITEM_DATA_BYTES;
 use crate::load::Catalog;
 use crate::protocol::{
-    BlockPos, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, NewStack, Op,
+    BlockPos, GameMode, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, NewStack, Op,
 };
 
 /// Checks the actor's inventory as the adapter snapshotted it: [`INVENTORY_SLOTS`] slots, the
@@ -79,6 +80,16 @@ impl CallbackRes {
     pub(crate) fn inventory(&mut self) -> Result<Result<Inventory, WorldError>> {
         self.host_call()?;
         Ok(self.inventory.clone().ok_or(WorldError::PlayerUnavailable))
+    }
+
+    /// The actor's game mode as the snapshot holds it; `player-unavailable` without an actor.
+    pub(crate) fn game_mode(&mut self) -> Result<Result<wit::GameMode, WorldError>> {
+        self.host_call()?;
+        Ok(self
+            .inventory
+            .as_ref()
+            .map(|inventory| inventory.game_mode.into())
+            .ok_or(WorldError::PlayerUnavailable))
     }
 
     /// Whether this is a break that harvests: its player broke the block in a game mode that
@@ -246,6 +257,17 @@ impl From<Inventory> for wit::Inventory {
                 .into_iter()
                 .map(|slot| slot.map(Into::into))
                 .collect(),
+        }
+    }
+}
+
+impl From<GameMode> for wit::GameMode {
+    fn from(mode: GameMode) -> Self {
+        match mode {
+            GameMode::Survival => Self::Survival,
+            GameMode::Creative => Self::Creative,
+            GameMode::Adventure => Self::Adventure,
+            GameMode::Spectator => Self::Spectator,
         }
     }
 }

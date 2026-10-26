@@ -190,7 +190,7 @@ func (r *Registry) makeStack(exp string, s NewStack) (item.Stack, error) {
 }
 
 // inventoryOf is p's inventory as the Experience exp's guest sees it, and its stacks: the main
-// inventory, hotbar first, then the offhand, and the selected hotbar slot.
+// inventory, hotbar first, then the offhand, the selected hotbar slot and p's game mode.
 func inventoryOf(exp string, p *player.Player) (*Inventory, []item.Stack) {
 	data := p.Data()
 	slots := make([]item.Stack, inventorySlots)
@@ -198,7 +198,7 @@ func inventoryOf(exp string, p *player.Player) (*Inventory, []item.Stack) {
 		slots[i], _ = data.Inventory.Item(i)
 	}
 	slots[inventorySlots-1], _ = data.OffHand.Item(0)
-	inv := &Inventory{Selected: uint8(data.HeldSlot), Slots: make([]*ItemStack, inventorySlots)}
+	inv := &Inventory{Selected: uint8(data.HeldSlot), Slots: make([]*ItemStack, inventorySlots), GameMode: gameModeOf(p.GameMode())}
 	for i, s := range slots {
 		if !s.Empty() {
 			stack := stackOf(exp, s)
@@ -206,6 +206,22 @@ func inventoryOf(exp string, p *player.Player) (*Inventory, []item.Stack) {
 		}
 	}
 	return inv, slots
+}
+
+// gameModeOf reads a game mode from what it allows rather than its type, so a server's wrapper
+// around one, such as the local server's /fly, plays as the mode it wraps: spectator without
+// collision, creative with the creative inventory, adventure without editing, survival otherwise.
+func gameModeOf(mode world.GameMode) GameMode {
+	switch {
+	case !mode.HasCollision():
+		return GameModeSpectator
+	case mode.CreativeInventory():
+		return GameModeCreative
+	case !mode.AllowsEditing():
+		return GameModeAdventure
+	default:
+		return GameModeSurvival
+	}
 }
 
 // slotHolder is the inventory that holds the actor's slot, and the slot in it.

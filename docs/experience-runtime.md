@@ -217,6 +217,12 @@ stack limits and offhand eligibility come from the adapter's item catalog.
 Own-item data persists with the stack and reaches clients; decode it as untrusted.
 Private block data does not enter chunk NBT.
 
+Server WIT 0.12's `callback.game-mode` reads the actor's game mode, snapshotted with its
+inventory (`player-unavailable` without an actor). The adapter reads it from what the mode
+allows rather than its type: `spectator` without collision, `creative` with the creative
+inventory, `adventure` without world editing, and `survival` otherwise, so the local server's
+`/fly`, which lets a mode fly, reads as the mode it wraps.
+
 Server WIT 0.12 adds the `content-rules` export, which runs once after `register`:
 
 | Rule | Contract |

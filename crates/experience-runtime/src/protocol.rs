@@ -42,8 +42,8 @@ pub use worlds::{
 pub use recipes::{Crafted, ItemMatch, Recipe};
 
 pub use player::{
-    Container, Containers, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, Network, NewStack,
-    ServerItem,
+    Container, Containers, GameMode, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, Network,
+    NewStack, ServerItem,
 };
 pub use visuals::{
     BlockState, BoneVisibility, Condition, Flipbook, ItemDef, Material, Permutation, Pixel,
@@ -60,8 +60,8 @@ pub use visuals::{
 /// snapshot cells and the `set_overlays` op, and the click position to `interact`;
 /// 11 adds registered actors, seats, steering and entity observations; 12 adds blocks' drops and
 /// items, items' listing, whether a `break` harvests, the `pass_interaction` op, the containers
-/// in reach with the `set_container_slot` op, and blocks' redstone flag, the power snapshot cells
-/// receive and the `set_redstone_power` op.
+/// in reach with the `set_container_slot` op, blocks' redstone flag, the power snapshot cells
+/// receive, the `set_redstone_power` op, and the actor's game mode in its inventory.
 pub const PROTOCOL_VERSION: u32 = 12;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);

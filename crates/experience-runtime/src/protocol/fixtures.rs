@@ -77,6 +77,7 @@ struct Enums {
     placement_states: [PlacementState; 4],
     block_drops: [BlockDrops; 2],
     block_items: [BlockItem; 3],
+    game_modes: [GameMode; 4],
     placement_values: Vec<PlacementValues>,
 }
 
@@ -221,7 +222,11 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             blocks: vec![controller, neighbor],
             truncated: false,
         });
-        *inventory = Some(Inventory { selected: 0, slots });
+        *inventory = Some(Inventory {
+            selected: 0,
+            slots,
+            game_mode: GameMode::Creative,
+        });
         *containers = Some(Containers {
             blocks: vec![
                 Container {
@@ -755,6 +760,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 ),
                 block_drops: all_variants!(BlockDrops: Itself, Nothing),
                 block_items: all_variants!(BlockItem: Listed, Unlisted, None),
+                game_modes: all_variants!(GameMode: Survival, Creative, Adventure, Spectator),
                 placement_values: PlacementState::ALL
                     .into_iter()
                     .map(|placement| {

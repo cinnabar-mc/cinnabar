@@ -133,7 +133,8 @@
         "data": "010000",
         "plain": false
       }
-    ]
+    ],
+    "game_mode": "creative"
   },
   "containers": {
     "blocks": [

@@ -164,7 +164,7 @@ func TestNetworkAtItsBoundsFitsAFrame(t *testing.T) {
 				members = append(members, m)
 			}
 			itemData := hex.EncodeToString(make([]byte, maxItemDataBytes))
-			snap.req.Inventory = &Inventory{Slots: make([]*ItemStack, inventorySlots)}
+			snap.req.Inventory = &Inventory{Slots: make([]*ItemStack, inventorySlots), GameMode: GameModeSpectator}
 			for i := range snap.req.Inventory.Slots {
 				snap.req.Inventory.Slots[i] = &ItemStack{ID: "probe:" + strings.Repeat("c", maxNameBytes-len("probe:")), Count: 1, MaxCount: 1, Data: &itemData}
 			}

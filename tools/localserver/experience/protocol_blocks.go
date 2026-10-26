@@ -219,11 +219,28 @@ type NewStack struct {
 }
 
 // Inventory is the actor's inventory: slots 0 to 8 the hotbar, 9 to 35 the rest of the main
-// inventory, 36 the offhand.
+// inventory, 36 the offhand; and the game mode it plays in.
 type Inventory struct {
 	Selected uint8        `json:"selected"`
 	Slots    []*ItemStack `json:"slots"`
+	GameMode GameMode     `json:"game_mode"`
 }
+
+// GameMode is a player's game mode as gameModeOf reads it from what the mode allows.
+type GameMode string
+
+const (
+	GameModeSurvival  GameMode = "survival"
+	GameModeCreative  GameMode = "creative"
+	GameModeAdventure GameMode = "adventure"
+	GameModeSpectator GameMode = "spectator"
+)
+
+// gameModes lists every GameMode in protocol order.
+var gameModes = []GameMode{GameModeSurvival, GameModeCreative, GameModeAdventure, GameModeSpectator}
+
+func (m GameMode) MarshalJSON() ([]byte, error)     { return marshalEnum(m, gameModes) }
+func (m *GameMode) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, m, gameModes) }
 
 // Network is the network around a callback's anchor: its loaded members, which the snapshot
 // holds, and whether its bounds cut it short.

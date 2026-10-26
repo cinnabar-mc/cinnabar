@@ -197,8 +197,8 @@ interface types {
     /// picked in slot order), the face it turns to, and what it draws.
     record overlay { slot: u8, face: face, look: overlay-look }
 
-    // 0.12: what a block drops, how its item is offered and whether it takes part in redstone.
-    // Every type above is unchanged, so the older worlds share them.
+    // 0.12: what a block drops, how its item is offered, whether it takes part in redstone, and
+    // a player's game mode. Every type above is unchanged, so the older worlds share them.
 
     /// What breaking a block drops by itself: `itself`, its own item, as a plain block does, or
     /// `nothing`, which leaves every drop to the guest's `on-break`.
@@ -218,6 +218,10 @@ interface types {
     /// and the ids of its items that the creative inventory leaves out. A block without a rule
     /// drops itself and has a listed item; a block without an item cannot drop itself.
     record content-rules { blocks: list<block-rule>, unlisted-items: list<string> }
+    /// A player's game mode, read from what the mode allows, so a server's variant of one plays
+    /// as it: `spectator` passes through blocks, `creative` has the creative inventory,
+    /// `adventure` cannot edit the world, and `survival` is every other mode.
+    enum game-mode { survival, creative, adventure, spectator }
 }
 
 interface world-access {
@@ -225,7 +229,7 @@ interface world-access {
         block-pos, player-id, callback-info, world-error, value-node, block-state, network,
         inventory, new-stack, item-key, crafted, world-handle, world-instance, world-instance-id,
         player-location, position, store-key, simulation-step, schedule-handle, overlay,
-        entity-type-id, entity-handle, entity-state, entity-rotation, item-stack,
+        entity-type-id, entity-handle, entity-state, entity-rotation, item-stack, game-mode,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
@@ -290,6 +294,9 @@ interface world-access {
         /// The actor's inventory as it was snapshotted, with staged slots applied;
         /// `player-unavailable` without an actor.
         inventory: func() -> result<inventory, world-error>;
+        /// The actor's game mode as it was snapshotted with its inventory; `player-unavailable`
+        /// without an actor.
+        game-mode: func() -> result<game-mode, world-error>;
         /// Stages new content for one of the actor's inventory slots; none empties it.
         set-slot: func(slot: u32, stack: option<new-stack>) -> result<_, world-error>;
         /// Stages an item entity holding `stack`, spawned at `pos`, a position `set-block` may

@@ -1434,7 +1434,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
   builds cancel between source, pixel and upload stages, and one cancelled build retires before its
   replacement starts. Trusted helper shaders and their pipeline cache are created only when requested,
-  then released after Off; idle view and geometry preparation record no shader work.
+  then released after Off. Lifecycle conditions skip shader-pack system bodies in the main,
+  extraction and render schedules while Off with no requests, including after unloading;
+  open shader screens and unfinished import, option and removal workers keep their hosts running.
   Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
   draws a pack, recreated when that changes. Import result queues are created only after
@@ -1448,11 +1450,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
   memory and visual acceptance across supported backends. A matched software-Vulkan
   diagnostic pair has identical world pixels and GPU allocation totals, with no idle shader
-  or pipeline creation. Differing startup/menu timings, feature-only CPU bookkeeping and
-  unmatched menu-preview phases prevent zero-cost acceptance. Hardware Vulkan, Metal and
-  DX12 timing, memory and visual acceptance remain open. `shaderpack` loads packs,
-  Incomplete: matched pre-integration versus integrated/no-pack startup, frame-time,
-  memory and visual acceptance across supported backends. `shaderpack` loads packs,
+  or pipeline creation. A headless software-Vulkan follow-up records zero idle shader-pack
+  system executions after lifecycle gating; the scheduling conditions still run. Variable
+  startup/menu timings and unmatched menu-preview phases prevent zero-cost acceptance.
+  Hardware Vulkan, Metal and DX12 timing, memory and visual acceptance remain open.
+  `shaderpack` loads packs,
   parses `shaders.properties`, options, Iris
   option menus, profiles and option files, evaluates custom uniforms and translates programs
   to validated naga modules, with calls ordered after forward declarations and generated
