@@ -8,29 +8,11 @@ pub(super) struct Face {
     pub centroid: Vec3,
     pub stream: MixedStream,
     pub stable: [u32; 2],
-    pub reference: [u32; 4],
+    pub reference: [u32; 2],
 }
 pub(super) struct Order {
     pub _buffer: mod_render::GpuAllocation<Buffer>,
-    pub binding: BindGroup,
     pub count: u32,
-}
-
-/// Native decoded terrain faces use the same four-word routing record at every view.
-pub(super) fn layout() -> BindGroupLayoutDescriptor {
-    BindGroupLayoutDescriptor::new(
-        "block transparent references",
-        &[BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-    )
 }
 
 /// Computes native face centroids once, after the ordinary uploader has assigned addresses.
@@ -62,7 +44,7 @@ pub(super) fn faces(
                     centroid,
                     stream: MixedStream::Model,
                     stable: draw.words(),
-                    reference: [gpu.metadata_index * 4, draws.start / 2 + index as u32, 0, 0],
+                    reference: [draws.start / 2 + index as u32, gpu.metadata_index * 4],
                 });
             }
         }
@@ -79,11 +61,9 @@ pub(super) fn faces(
                     stream: MixedStream::Water,
                     stable: [index as u32, 0],
                     reference: [
-                        0,
                         (liquids.start / 4 + index as u32)
                             | TRANSPARENT_WATER_DRAW_FLAG
                             | TRANSPARENT_WATER_RECORD_FLAG,
-                        0,
                         0,
                     ],
                 });
@@ -100,41 +80,31 @@ pub(super) fn sort(
     direction: Vec3,
     device: RenderDevice,
     queue: RenderQueue,
-    bind_layout: bevy::render::render_resource::BindGroupLayout,
     ledger: &mod_render::GpuLedger,
 ) -> Option<Order> {
     let refs = references(&native.faces, camera, direction);
     let count = refs.len() as u32;
-    let buffer = ledger.allocate((refs.len() * 16).max(16) as u64, || {
+    let buffer = ledger.allocate((refs.len() * 8).max(8) as u64, || {
         crate::gpu_allocation::buffer_with_data(
             &device,
             &queue,
             "block transparent order",
             if refs.is_empty() {
-                bytemuck::cast_slice(&[[0u32; 4]])
+                bytemuck::cast_slice(&[[0u32; 2]])
             } else {
                 bytemuck::cast_slice(&refs)
             },
             BufferUsages::STORAGE,
         )
     })?;
-    let binding = device.create_bind_group(
-        "block transparent order",
-        &bind_layout,
-        &[BindGroupEntry {
-            binding: 0,
-            resource: buffer.as_entire_binding(),
-        }],
-    );
     Some(Order {
         _buffer: buffer,
-        binding,
         count,
     })
 }
 
 /// Orders sections by view depth and delegates their mixed face order to ordinary terrain.
-fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> Vec<[u32; 4]> {
+fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> Vec<[u32; 2]> {
     let mut groups = BTreeMap::<SubChunkKey, Vec<MixedFace>>::new();
     for (index, face) in faces.iter().enumerate() {
         groups.entry(face.key).or_default().push(MixedFace {
@@ -177,7 +147,7 @@ mod tests {
             centroid: Vec3::new(x as f32 * 16. + 1., 1., 1.),
             stream,
             stable: [0, 0],
-            reference: [id, 0, 0, 0],
+            reference: [id, 0],
         };
         let faces = [
             face(1, MixedStream::Water, 3),
@@ -187,7 +157,7 @@ mod tests {
         ];
         assert_eq!(
             references(&faces, Vec3::ZERO, Vec3::NEG_Z),
-            [1, 2, 4, 3].map(|id| [id, 0, 0, 0])
+            [1, 2, 4, 3].map(|id| [id, 0])
         );
     }
 }

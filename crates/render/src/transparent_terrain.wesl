@@ -4,7 +4,7 @@
 // sorted refs or direct records as `liquid_record` selects; any other draw shades model draw
 // refs. Both paths run the liquid and model programs' own vertex and shading functions on their
 // own outputs, so the picture matches drawing each family through its own pipeline.
-import render::chunk_bindings::TRANSPARENT_WATER_DRAW_FLAG;
+import render::chunk_bindings::{TRANSPARENT_WATER_DRAW_FLAG, transparent_refs};
 import render::liquid::{VertexOutput as LiquidOutput, liquid_record, vertex_for_record, shade_liquid};
 import render::model::{VertexOutput as ModelOutput, model_vertex, shade_blend};
 
@@ -112,15 +112,12 @@ fn terrain_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     return out;
 }
 
-@if(MOD_BLOCKS)
-@group(2) @binding(0) var<storage, read> block_draws: array<vec4<u32>>;
-
 // Each sorted face keeps the ordinary liquid/model decoder and fragment shader.
 @if(MOD_BLOCKS)
 @vertex
 fn vertex_blocks(@builtin(vertex_index) corner: u32, @builtin(instance_index) face: u32) -> VertexOutput {
-    let reference = block_draws[face];
-    return terrain_vertex(reference.x + corner, reference.y);
+    let reference = transparent_refs(face);
+    return terrain_vertex(reference.metadata_index + corner, reference.liquid_record_index);
 }
 
 fn liquid_output(in: VertexOutput) -> LiquidOutput {

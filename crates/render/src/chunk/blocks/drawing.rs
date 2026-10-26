@@ -47,7 +47,6 @@ pub(crate) fn encode<'w>(
             }
             pass.set_render_pipeline(pipeline);
             pass.set_bind_group(0, binding, &[0]);
-            pass.set_bind_group(2, &order.binding, &[]);
             pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
             pass.draw_indexed(0..STATIC_QUAD_INDICES.len() as u32, 0, 0..order.count);
             continue;

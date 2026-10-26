@@ -367,9 +367,22 @@ pub(super) fn prepare(
                     placement.viewport = view.viewport;
                     placement.exposure = camera.exposure;
                 }
+                if let Some(job) = placement.order_job.as_mut()
+                    && let Some(order) = block_on(poll_once(job))
+                {
+                    placement.order_job = None;
+                    if let Some(order) = order {
+                        if let Some(old) = placement.order.replace(order) {
+                            retired_orders.push(old);
+                        }
+                        placement.identity = None;
+                    } else {
+                        fail(&placement.native.geometry, "block transparent order memory");
+                    }
+                }
                 let identity = (textures.identity, tints.buffer.id(), atmosphere.buffer.id());
                 if placement.identity != Some(identity) {
-                    let entries = gpu::bind_groups::entries(
+                    let mut entries = gpu::bind_groups::entries(
                         placement.uniform.binding().unwrap(),
                         &native.terrain.arena,
                         textures,
@@ -377,6 +390,13 @@ pub(super) fn prepare(
                         tints,
                         &atmosphere,
                     );
+                    if let Some(order) = &placement.order
+                        && let Some(entry) = entries
+                            .iter_mut()
+                            .find(|entry| entry.binding == TRANSPARENT_REFS_BINDING)
+                    {
+                        entry.resource = order._buffer.as_entire_binding();
+                    }
                     placement.binding = Some(device.create_bind_group(
                         "block native terrain",
                         &cache.get_bind_group_layout(&pipeline::layouts::chunk_bind_group_layout()),
@@ -394,18 +414,6 @@ pub(super) fn prepare(
                         &entries,
                     ));
                     placement.identity = Some(identity);
-                }
-                if let Some(job) = placement.order_job.as_mut()
-                    && let Some(order) = block_on(poll_once(job))
-                {
-                    placement.order_job = None;
-                    if let Some(order) = order {
-                        if let Some(old) = placement.order.replace(order) {
-                            retired_orders.push(old);
-                        }
-                    } else {
-                        fail(&placement.native.geometry, "block transparent order memory");
-                    }
                 }
                 let local_camera = matrix.inverse().w_axis.truncate();
                 let direction = -matrix.row(2).truncate().normalize_or_zero();
@@ -443,18 +451,9 @@ pub(super) fn prepare(
         let placement = placements.get_mut(&key).unwrap();
         let (native, device, queue) =
             (Arc::clone(&placement.native), device.clone(), queue.clone());
-        let layout = cache.get_bind_group_layout(&sorting::layout()).clone();
         placement.sort_camera = camera_key;
         placement.order_job = Some(AsyncComputeTaskPool::get().spawn(async move {
-            sorting::sort(
-                native,
-                local_camera,
-                direction,
-                device,
-                queue,
-                layout,
-                &ledger,
-            )
+            sorting::sort(native, local_camera, direction, device, queue, &ledger)
         }));
         blocks.sort_cursor = Some(key);
     }

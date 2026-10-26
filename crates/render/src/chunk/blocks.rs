@@ -79,7 +79,6 @@ impl FromWorld for Pipelines {
         let transparent = &mut descriptors[3];
         transparent.vertex.entry_point = Some("vertex_blocks".into());
         transparent.vertex.shader_defs.push("MOD_BLOCKS".into());
-        transparent.layout.push(sorting::layout());
         Self {
             variants: descriptors.map(|descriptor| Variants::new(Specialization, descriptor)),
             supported: world.get_resource::<RenderDevice>().is_some_and(|device| {
