@@ -203,13 +203,14 @@ impl WorldMaterialPresenter {
     /// first; a structural change, a change of the `withdrawn` permissions, finished
     /// admission work or a freed slot a material waits for rebuilds the set; parameter-only
     /// changes patch the published parameters. `carried` is the render world's latest
-    /// (observation count, carried block slots). Returns whether the set or the parameters
-    /// changed.
+    /// (observation count, carried block slots). Ending a session also gives back every
+    /// withdrawn permission, so `withdrawn` never outlives the runtime it was withdrawn from.
+    /// Returns whether the set or the parameters changed.
     pub(super) fn follow<H: super::worker::Worker>(
         &mut self,
         live: Option<&mut super::live::Live<H>>,
         (count, mask): (u64, u64),
-        withdrawn: &BTreeSet<Permission>,
+        withdrawn: &mut BTreeSet<Permission>,
     ) -> bool {
         let carried = slots::Carried { count, mask };
         let built = live.as_deref().map(super::live::Live::world_contribution);
@@ -217,6 +218,7 @@ impl WorldMaterialPresenter {
         let mut changed = false;
         if run != self.run {
             changed = self.end_session();
+            withdrawn.clear();
             self.run = run;
             self.server = live
                 .as_deref()

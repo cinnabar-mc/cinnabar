@@ -200,15 +200,15 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
         .scope
         .gpu_bytes = budget;
     let mut presenter = WorldMaterialPresenter::inline();
-    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS));
+    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &mut BTreeSet::new()));
     assert!(presenter.set().entity("example:moth").is_some());
     assert!(
-        !presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS),
+        !presenter.follow(Some(&mut live), (0, u64::MAX), &mut BTreeSet::new()),
         "nothing changed"
     );
     // Replacing the drawn material retires its pipeline, which uses up the share.
     callback(&mut live, 1, vec![redeclare(1)]);
-    presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS);
+    presenter.follow(Some(&mut live), (0, u64::MAX), &mut BTreeSet::new());
     assert!(presenter.set().entity("example:moth").is_none());
     // The session ends and the same bundle reconnects with the same share.
     let mut again = bound();
@@ -219,7 +219,7 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
         .capabilities
         .scope
         .gpu_bytes = budget;
-    assert!(presenter.follow(Some(&mut again), (0, u64::MAX), &NO_WITHDRAWALS));
+    assert!(presenter.follow(Some(&mut again), (0, u64::MAX), &mut BTreeSet::new()));
     assert!(presenter.set().entity("example:moth").is_some());
 }
 
@@ -227,7 +227,7 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
 fn new_parameters_patch_the_published_ones_without_a_new_set() {
     let mut live = bound();
     let mut presenter = WorldMaterialPresenter::inline();
-    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS));
+    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &mut BTreeSet::new()));
     let set = std::sync::Arc::clone(presenter.set());
     let key = set.entity("example:moth").unwrap().1.key;
     let flash = |value: f32| Command::WorldMaterial {
@@ -249,14 +249,14 @@ fn new_parameters_patch_the_published_ones_without_a_new_set() {
         structure,
         "a parameter-only update is no structural change"
     );
-    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS));
+    assert!(presenter.follow(Some(&mut live), (0, u64::MAX), &mut BTreeSet::new()));
     assert!(
         std::sync::Arc::ptr_eq(&set, presenter.set()),
         "the set is not rebuilt or republished"
     );
     assert_eq!(presenter.params().values[&key][0], 0.75);
     assert!(
-        !presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS),
+        !presenter.follow(Some(&mut live), (0, u64::MAX), &mut BTreeSet::new()),
         "nothing more"
     );
 }
@@ -302,7 +302,7 @@ fn the_retained_declarations_and_decoded_textures_share_one_memory_ledger() {
     let declarations = instance.contributions.world.charge();
     instance.capabilities.scope.memory_bytes = declarations + 8 * 8 * 4 + source.len() as u64 - 1;
     let mut presenter = WorldMaterialPresenter::inline();
-    presenter.follow(Some(&mut live), (0, u64::MAX), &NO_WITHDRAWALS);
+    presenter.follow(Some(&mut live), (0, u64::MAX), &mut BTreeSet::new());
     assert!(presenter.set().entity("example:moth").is_none());
     assert!(
         presenter
@@ -349,4 +349,24 @@ fn a_refused_transaction_undoes_its_world_changes_made_in_place() {
         instance.contributions.world, held,
         "the material and the unbinding applied before the refusal are undone"
     );
+}
+
+#[test]
+fn ending_a_session_gives_back_every_withdrawn_permission() {
+    let mut live = bound();
+    let mut presenter = WorldMaterialPresenter::inline();
+    let mut withdrawn = BTreeSet::new();
+    presenter.follow(Some(&mut live), (0, u64::MAX), &mut withdrawn);
+    withdrawn.insert(server_experience::manifest::Permission::RenderWorldMaterialVertex);
+    presenter.follow(Some(&mut live), (0, u64::MAX), &mut withdrawn);
+    assert!(!withdrawn.is_empty(), "the running session keeps them");
+    let mut again = bound();
+    presenter.follow(Some(&mut again), (0, u64::MAX), &mut withdrawn);
+    assert!(
+        withdrawn.is_empty(),
+        "a new runtime starts with none withdrawn"
+    );
+    withdrawn.insert(server_experience::manifest::Permission::RenderWorldMaterialScene);
+    presenter.follow::<FakeWorker>(None, (0, u64::MAX), &mut withdrawn);
+    assert!(withdrawn.is_empty(), "and so does stopping the runtime");
 }
