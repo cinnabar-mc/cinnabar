@@ -39,9 +39,9 @@ pub(super) struct ExperienceService {
     )>,
     /// The client parts' world materials as the renderer draws them.
     world: super::world_materials::WorldMaterialPresenter,
-    /// The contribution revision `world` was last built from; `None` before any build or after
-    /// the runtime ended.
-    world_built: Option<u64>,
+    /// The runtime and world contribution revision `world` was last built from; `None` before
+    /// any build or after the runtime ended.
+    world_built: Option<(u64, u64)>,
 }
 
 impl ExperienceService {
@@ -549,7 +549,7 @@ fn present_world_materials(
     let revision = service
         .live
         .as_ref()
-        .map(super::live::Live::contribution_revision);
+        .map(super::live::Live::world_contribution);
     if revision == service.world_built
         && (revision.is_some() || service.world.set().materials.is_empty())
     {

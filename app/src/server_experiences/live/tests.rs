@@ -134,6 +134,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     drawing_context: Default::default(),
                     pending_drawing_context: Default::default(),
                     drawing_references: Vec::new(),
+                    world_revision: 0,
                 },
             )
         })
@@ -143,6 +144,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         screens: Vec::new(),
         screens_built: None,
         scene_revision: 0,
+        world_run: next_world_run(),
         grant,
         instances,
         last_recipient: None,
