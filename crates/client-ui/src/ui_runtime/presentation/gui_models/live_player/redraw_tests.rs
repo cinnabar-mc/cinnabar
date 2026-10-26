@@ -591,3 +591,84 @@ fn hud_actor_overlay_preserves_held_item_colors() {
         }
     }
 }
+
+/// Simultaneous emote and HUD dolls admit one shared fallback before preparing their palettes.
+#[test]
+fn hud_and_emote_dolls_share_admission_near_the_frame_budget() {
+    use super::super::super::player_preview::{PreviewHandItem, PreviewView};
+    let (mut presentation, stream) = fixture();
+    presentation.set_preview_cosmetics(&[]);
+    presentation.player_preview_view = PreviewView::Hud;
+    presentation.hud_preview_view = PreviewView::Hud;
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    let mut held = held_sprite();
+    let count = (ui::UiLimits::MAX_UI_VERTICES / 2 / 3 + 1) * 3;
+    held.vertices = held
+        .vertices
+        .iter()
+        .copied()
+        .cycle()
+        .take(count)
+        .collect::<Vec<_>>()
+        .into();
+    let key = assets::ItemVisualKey {
+        identifier: "fixture:large-held".into(),
+        metadata: 0,
+    };
+    presentation
+        .gui_models
+        .sources
+        .held
+        .insert(key.clone(), super::super::held::HeldModel::ready(held));
+    presentation.player_preview_gear.hands[0] = Some(PreviewHandItem {
+        grip: None,
+        glint: None,
+        identifier: key.identifier.into(),
+        metadata: 0,
+        use_animation: Default::default(),
+        charged_projectile: Default::default(),
+    });
+    let icons = assets::encode_icon_catalog([1; 32], &[], &[]).unwrap();
+    presentation.icon_catalog = Some(Arc::new(
+        assets::RuntimeIconCatalog::decode(&icons).unwrap(),
+    ));
+    let icon = presentation.player_preview_icon.unwrap();
+    let bounds = super::super::super::rect(0., 0., 96., 112.).unwrap();
+    let placeholders = [1, 2].map(|id| {
+        ui::UiNode::new(ui::UiNodeId::new(id), None, bounds).with_visual(ui::UiVisual::Sprite {
+            texture_page: icon.page,
+            uv: icon.uv,
+            color: [255; 4],
+        })
+    });
+    let sample = || {
+        let mut nodes = placeholders.clone();
+        presentation.apply_gui_models_in(
+            &mut nodes,
+            bounds,
+            ui::SafeArea::ZERO,
+            ui::TextEffects::default(),
+            0..1,
+        );
+        let meshes = nodes.each_ref().map(|node| match node.visual() {
+            ui::UiVisual::TintedMesh { mesh, .. } => Arc::clone(mesh),
+            _ => panic!("each live control must retain its model"),
+        });
+        assert!(
+            Arc::ptr_eq(&meshes[0], &meshes[1]),
+            "controls admitted different variants"
+        );
+        assert!(
+            meshes[0].vertices().len() < count,
+            "optional hands must fit both dolls together"
+        );
+        meshes
+    };
+    for _ in 0..4 {
+        sample();
+    }
+    let expected = sample();
+    let (actual, allocations) = test_alloc::count(sample);
+    assert!(Arc::ptr_eq(&expected[0], &actual[0]));
+    assert_eq!(allocations, 0, "shared fallback rebuilt per control");
+}

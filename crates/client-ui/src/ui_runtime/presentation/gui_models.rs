@@ -529,14 +529,23 @@ impl UiPresentationRuntime {
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
         if let Some(key) = self.player_preview_icon.map(icon_key) {
+            let shared_hud = self.player_preview_view == player_preview::PreviewView::Hud
+                && self.hud_preview_view == player_preview::PreviewView::Hud;
             // Screens draw over the HUD, so their doll is admitted first.
             for (in_hud, view) in [
                 (false, self.player_preview_view),
                 (true, self.hud_preview_view),
             ] {
+                if shared_hud && !in_hud {
+                    continue;
+                }
                 let targets = PreviewTargets {
                     key,
-                    hud: hud.clone(),
+                    hud: if shared_hud {
+                        0..nodes.len()
+                    } else {
+                        hud.clone()
+                    },
                     in_hud,
                 };
                 self.apply_gui_player_model_in(nodes, viewport, safe_area, effects, &targets, view);

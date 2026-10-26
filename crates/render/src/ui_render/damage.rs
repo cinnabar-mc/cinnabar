@@ -100,6 +100,14 @@ pub(super) fn plan_segment(
                     & render_api::UI_STYLE_MODEL_VERTEX
                     != 0
             }) {
+                if triangle.iter().any(|&index| {
+                    (previous.vertices[index as usize].style_flags
+                        ^ current.vertices[index as usize].style_flags)
+                        & render_api::UI_STYLE_MODEL_VERTEX
+                        != 0
+                }) {
+                    return UiDamage::Full;
+                }
                 for input in [previous, current] {
                     if let Some(pose) = input
                         .models

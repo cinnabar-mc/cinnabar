@@ -873,6 +873,22 @@ fn skinned_ui_model_matches_projected_gpu_pixels() {
             "GPU model shading changed: {actual} vs {expected}"
         );
     }
+    // A CPU fallback can cover pixels outside the incoming model's conservative bounds.
+    let mut fallback = projected.clone();
+    for vertex in Arc::make_mut(&mut fallback.vertices) {
+        vertex.position[0] -= 16.;
+    }
+    for (previous, next) in [(&fallback, &animated), (&animated, &fallback)] {
+        raster.draw(previous, &before, None);
+        let damage = match plan(previous, next) {
+            UiDamage::Full => None,
+            UiDamage::Rect(rect) => Some(rect),
+            UiDamage::Unchanged => panic!("projection transitions must redraw their coverage"),
+        };
+        raster.draw(next, &before, damage);
+        raster.draw(next, &expected, None);
+        assert_eq!(raster.pixels(&before), raster.pixels(&expected));
+    }
     let mut moved_bone = bone;
     moved_bone.screen[3][0] += 5.;
     let mut moved = animated.clone();

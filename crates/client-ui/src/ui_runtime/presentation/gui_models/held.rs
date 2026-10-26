@@ -45,7 +45,8 @@ impl HeldModel {
         }
     }
 
-    const fn ready(model: PreviewHeldModel) -> Self {
+    /// Admits an already prepared held mesh without lazy sprite extrusion.
+    pub(super) const fn ready(model: PreviewHeldModel) -> Self {
         Self {
             model,
             sprite: None,
