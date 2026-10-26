@@ -34,7 +34,8 @@ use std::{
 
 pub(super) const REGISTRATION_FILE: &str = "local-mod.json";
 pub(super) const STATUS_FILE: &str = "local-mod.status.json";
-const MAX_BYTES: usize = 64 * 1024;
+/// Room for every allowed entry with a long path and every grant serialized.
+const MAX_BYTES: usize = mod_api::MAX_LOADED_MODS * 4 * 1024;
 const MAX_REQUEST_BYTES: usize = 64;
 
 /// Runtime metadata belongs to one instance and moves with it during reordering.
