@@ -5,8 +5,8 @@ use super::*;
 use crate::interaction_override::ModInteraction;
 use protocol::test_support::transactions::observe_transaction;
 
-/// Clears the fixture's near obstruction and optionally places one farther along the ray.
-fn obstruction(world: &mut World, blocked: bool) {
+/// Clears the fixture's near obstruction and optionally places one at another position.
+fn obstruction(world: &mut World, position: Option<[i32; 3]>) {
     let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
     let stream = client.stream.as_mut().unwrap();
     let block = stream
@@ -16,8 +16,8 @@ fn obstruction(world: &mut World, blocked: bool) {
         .runtime_id(0, 4, 2, 6)
         .unwrap();
     stream.predict_block([4, 2, 6], 0, stream.air_block_id());
-    if blocked {
-        stream.predict_block([4, 2, 3], 0, block);
+    if let Some(position) = position {
+        stream.predict_block(position, 0, block);
     }
 }
 
@@ -31,7 +31,7 @@ fn mod_reach_admits_distant_attacks_only_within_the_requested_range() {
         (Some(mod_api::MAX_ENTITY_REACH_BLOCKS), 1.5, 0),
     ] {
         let (mut world, mut captured) = unpublished_attack_fixture(z);
-        obstruction(&mut world, false);
+        obstruction(&mut world, None);
         world.insert_resource(ModInteraction {
             attack_reach: reach,
             ..Default::default()
@@ -67,7 +67,7 @@ fn mod_reach_preserves_obstruction_and_spectator_attack_gates() {
         (false, PlayerGameMode::Spectator),
     ] {
         let (mut world, mut captured) = unpublished_attack_fixture(2.5);
-        obstruction(&mut world, blocked);
+        obstruction(&mut world, blocked.then_some([4, 2, 3]));
         world
             .resource_mut::<client_state::PlayerRuntime>()
             .facts
@@ -85,6 +85,43 @@ fn mod_reach_preserves_obstruction_and_spectator_attack_gates() {
                 observe_transaction(packet).is_none_or(|tx| tx.actor_use().is_none())
             }),
             "blocked {blocked}, mode {mode:?}"
+        );
+    }
+}
+
+#[test]
+fn mod_reach_does_not_turn_distant_blocks_into_mining_swings() {
+    for reach in [None, Some(mod_api::MAX_ENTITY_REACH_BLOCKS)] {
+        let (mut world, mut captured) = unpublished_attack_fixture(-30.0);
+        obstruction(&mut world, Some([4, 2, 2]));
+        let origin = frame_origin(&world, Vec3::new(4.5, 2.5, 8.8), Quat::IDENTITY);
+        world.insert_resource(origin);
+        world.insert_resource(ModInteraction {
+            attack_reach: reach,
+            ..Default::default()
+        });
+        world
+            .run_system_cached(crate::melee::prepare_melee)
+            .unwrap();
+        attack(&mut world);
+        let expected = protocol::test_support::packets::swing(&protocol::swing_arm_packet(
+            42,
+            protocol::SwingSource::Attack,
+        ))
+        .unwrap();
+        let swings: Vec<_> = captured
+            .drain()
+            .iter()
+            .filter_map(protocol::test_support::packets::swing)
+            .collect();
+        assert_eq!(swings, [expected], "reach {reach:?}");
+        assert_eq!(
+            world
+                .resource::<crate::melee::MeleeTarget>()
+                .attack
+                .unwrap()
+                .crosshair,
+            gameplay::melee::Crosshair::Miss
         );
     }
 }
