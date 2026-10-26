@@ -744,3 +744,50 @@ fn one_server_filling_its_pipeline_share_leaves_other_servers_theirs() {
     presenter.rebuild([named("example.bundle", &later)]);
     assert_eq!(presenter.params().values.len(), 2);
 }
+
+#[test]
+fn a_finished_job_is_seen_even_when_its_count_was_read_first() {
+    let jobs = Arc::default();
+    let mut presenter = held(&jobs);
+    let one = world(&[(1, distinct(1))], &[]);
+    presenter.rebuild([named("example.bundle", &one)]);
+    run_jobs(&jobs, None);
+    // The count moved before the presenter could see the result, and was consumed then.
+    presenter.seen = presenter.done.load(Ordering::Acquire);
+    assert!(
+        presenter.settled(),
+        "the waiting result still asks for a rebuild"
+    );
+}
+
+#[test]
+fn a_superseded_job_from_an_earlier_session_does_not_hold_a_later_bundle() {
+    let jobs = Arc::default();
+    let mut presenter = held(&jobs);
+    let one = world(&[(1, distinct(1))], &[]);
+    presenter.rebuild([named("example.bundle", &one)]);
+    assert_eq!(presenter.jobs(), 1);
+    // The session ends with the measure still running in the pool.
+    presenter.end_session();
+    assert_eq!(presenter.orphans.len(), 1);
+    presenter.run = 2;
+    presenter.rebuild([named("example.bundle", &one)]);
+    assert_eq!(
+        presenter.jobs(),
+        1,
+        "the next session's bundle of the same name measures at once"
+    );
+}
+
+#[test]
+fn a_frame_checks_only_the_declarations_with_a_job_running() {
+    let jobs = Arc::default();
+    let mut presenter = held(&jobs);
+    let three = world(&[(1, distinct(1)), (2, distinct(2)), (3, distinct(3))], &[]);
+    presenter.rebuild([named("a.bundle", &three), named("b.bundle", &three)]);
+    assert_eq!(
+        presenter.running,
+        [("a.bundle".to_owned(), 1), ("b.bundle".to_owned(), 1)],
+        "one job per bundle, out of six declarations"
+    );
+}

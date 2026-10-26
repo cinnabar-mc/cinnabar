@@ -72,9 +72,10 @@ pub(super) struct WorldMaterialPresenter {
     retained: HashMap<Pipelines, String>,
     /// The pinned key of the server whose session this is.
     server: String,
-    /// Superseded admission jobs still running, by bundle, across sessions: a bundle starts
-    /// nothing new until its own have returned, and their charges stay reserved meanwhile.
-    orphans: Vec<(String, Orphan)>,
+    /// Superseded admission jobs still running, by the runtime and bundle that started them,
+    /// across sessions: that bundle starts nothing new until its own have returned, and their
+    /// charges stay reserved meanwhile; a later session's bundle of the same name is not held.
+    orphans: Vec<((u64, String), Orphan)>,
     slots: slots::Slots,
     /// What the render world last observed of the block slots meshes carry.
     carried: slots::Carried,
@@ -91,6 +92,9 @@ pub(super) struct WorldMaterialPresenter {
     done: Arc<AtomicU64>,
     /// The count of finished jobs the set was last built after.
     seen: u64,
+    /// The declarations whose admission job ran when the set was last built, at most one per
+    /// bundle: the only ones a frame checks for a result.
+    running: Vec<(String, u32)>,
 }
 
 impl Default for WorldMaterialPresenter {
@@ -124,6 +128,7 @@ impl WorldMaterialPresenter {
             executor,
             done: Arc::default(),
             seen: 0,
+            running: Vec::new(),
         }
     }
 
@@ -180,9 +185,7 @@ impl WorldMaterialPresenter {
         let freed = self.starved && reclaimable > self.reclaimable;
         self.reclaimable = reclaimable;
         self.carried = carried;
-        let finished = self.done.load(Ordering::Acquire);
-        let settled = finished != self.seen;
-        self.seen = finished;
+        let settled = self.settled();
         let Some(live) = live else {
             return changed;
         };
@@ -198,11 +201,25 @@ impl WorldMaterialPresenter {
         changed
     }
 
+    /// Whether admission work finished since the last look: the finished-job count moved, or a
+    /// running job's result is already there, which the count alone could miss.
+    fn settled(&mut self) -> bool {
+        let finished = self.done.load(Ordering::Acquire);
+        let moved = finished != self.seen;
+        self.seen = finished;
+        moved
+            || self
+                .running
+                .iter()
+                .any(|key| self.cache.get(key).is_some_and(Cached::finished))
+    }
+
     /// Forgets the session's declarations, charges and diagnostics and empties its slots,
     /// publishing an empty set when the drawn one was not; returns whether it published. Each
     /// slot stays reserved for its owner until no mesh carries its tag, and keys and revisions
     /// keep counting, so a renderer never mistakes a new session's material for an old one.
     pub(super) fn end_session(&mut self) -> bool {
+        self.running.clear();
         for ((bundle, _), mut cached) in std::mem::take(&mut self.cache) {
             cached.cancel();
             self.adopt_orphans(&bundle, &mut cached);
@@ -274,6 +291,12 @@ impl WorldMaterialPresenter {
                 self.adopt_orphans(&key.0, &mut cached);
             }
         }
+        self.running = self
+            .cache
+            .iter()
+            .filter(|(_, cached)| cached.running())
+            .map(|(key, _)| key.clone())
+            .collect();
         // Attempts no longer cached cannot recur, so their reports go with them.
         let cache = &self.cache;
         self.reported.retain(|(bundle, id, attempt, _)| {
@@ -350,14 +373,17 @@ impl WorldMaterialPresenter {
         let orphaned = self
             .orphans
             .iter()
-            .filter(|(owner, _)| owner == bundle.bundle)
+            .filter(|(owner, _)| *owner == (self.run, bundle.bundle.to_owned()))
             .fold((0_u64, 0_u64), |(gpu, memory), (_, orphan)| {
                 (gpu + orphan.charge.gpu, memory + orphan.charge.memory)
             });
         // One job runs per bundle, counting superseded ones until they return; with none
         // running the oldest unmeasured attempt measures next, so churning one material never
         // starves another, and work that finishes at once lets the next one start.
-        let mut busy = self.orphans.iter().any(|(owner, _)| owner == bundle.bundle)
+        let mut busy = self
+            .orphans
+            .iter()
+            .any(|(owner, _)| *owner == (self.run, bundle.bundle.to_owned()))
             || entries.iter().any(|(_, cached)| cached.running());
         while !busy
             && let Some(oldest) = (0..entries.len())
@@ -468,7 +494,7 @@ impl WorldMaterialPresenter {
     fn adopt_orphans(&mut self, bundle: &str, cached: &mut Cached) {
         for orphan in cached.orphans() {
             if orphan.alive() {
-                self.orphans.push((bundle.to_owned(), orphan));
+                self.orphans.push(((self.run, bundle.to_owned()), orphan));
             }
         }
     }

@@ -11,12 +11,10 @@ use server_experience::{
     screen::Files,
     world_material::{WorldBlend, WorldDepth, WorldMaterialSpec},
 };
-#[cfg(test)]
-use std::sync::{Mutex, PoisonError};
 use std::{
     io::Cursor,
     sync::{
-        Arc,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
@@ -39,18 +37,13 @@ pub(super) enum Executor {
     Held(Arc<Mutex<Vec<Job>>>),
 }
 
-/// Where a job's result arrives.
-enum Result_<T> {
-    Task(bevy::tasks::Task<T>),
-    #[cfg(test)]
-    Slot(Arc<Mutex<Option<T>>>),
-}
-
-/// A running job: its result, taken once it finishes, and the flags it shares with the job.
+/// A running job: the slot its result arrives in and the flags it shares with the job.
 /// Dropping a pool job's handle cancels it only if it has not started; a started job runs
 /// until it returns, which its alive flag reports.
 pub(super) struct Pending<T> {
-    result: Result_<T>,
+    result: Arc<Mutex<Option<T>>>,
+    /// Keeps the pool task, which dropping cancels if it has not started.
+    _task: Option<bevy::tasks::Task<()>>,
     /// Set until the job returns, or is dropped without running.
     alive: Arc<AtomicBool>,
     /// Tells the job it is superseded, so it stops at its next step.
@@ -60,11 +53,18 @@ pub(super) struct Pending<T> {
 impl<T> Pending<T> {
     /// Takes the result if the job finished.
     fn take(&mut self) -> Option<T> {
-        match &mut self.result {
-            Result_::Task(task) => bevy::tasks::futures::check_ready(task),
-            #[cfg(test)]
-            Result_::Slot(slot) => slot.lock().unwrap_or_else(PoisonError::into_inner).take(),
-        }
+        self.result
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
+    /// Whether the job's result arrived and awaits [`Self::take`].
+    fn ready(&self) -> bool {
+        self.result
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
     }
 
     /// Tells the job to stop and returns the flag that clears once it really has.
@@ -98,8 +98,9 @@ impl Orphan {
 }
 
 impl Executor {
-    /// Starts `job`, handing it the cancel flag it checks between steps; `done` counts it
-    /// when it finishes.
+    /// Starts `job`, handing it the cancel flag it checks between steps. A finished job
+    /// publishes its result, then clears its alive flag, then counts itself in `done`, so
+    /// whoever sees either signal finds the result already there.
     fn spawn<T: Send + 'static>(
         &self,
         job: impl FnOnce(&AtomicBool) -> T + Send + 'static,
@@ -107,38 +108,40 @@ impl Executor {
     ) -> Pending<T> {
         let alive = Arc::new(AtomicBool::new(true));
         let cancel = Arc::new(AtomicBool::new(false));
-        let (done, guard, flag) = (
+        let result = Arc::new(Mutex::new(None));
+        let (done, guard, flag, slot) = (
             Arc::clone(done),
             Alive(Arc::clone(&alive)),
             Arc::clone(&cancel),
+            Arc::clone(&result),
         );
         let job = move || {
-            let _guard = guard;
-            let result = job(&flag);
+            let value = job(&flag);
+            *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(value);
+            drop(guard);
             done.fetch_add(1, Ordering::Release);
-            result
         };
-        let result = match self {
-            Executor::Pool => Result_::Task(
+        let task = match self {
+            Executor::Pool => Some(
                 bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default)
                     .spawn(async move { job() }),
             ),
             #[cfg(test)]
-            Executor::Inline => Result_::Slot(Arc::new(Mutex::new(Some(job())))),
+            Executor::Inline => {
+                job();
+                None
+            }
             #[cfg(test)]
             Executor::Held(held) => {
-                let slot = Arc::new(Mutex::new(None));
-                let filled = Arc::clone(&slot);
                 held.lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .push(Box::new(move || {
-                        *filled.lock().unwrap_or_else(PoisonError::into_inner) = Some(job());
-                    }));
-                Result_::Slot(slot)
+                    .push(Box::new(job));
+                None
             }
         };
         Pending {
             result,
+            _task: task,
             alive,
             cancel,
         }
@@ -207,6 +210,15 @@ impl Cached {
             abandoned: Vec::new(),
             attempt,
             outcome: Outcome::Unmeasured,
+        }
+    }
+
+    /// Whether this attempt's running job has returned a result not taken yet.
+    pub(super) fn finished(&self) -> bool {
+        match &self.outcome {
+            Outcome::Measuring(job) => job.ready(),
+            Outcome::Decoding(_, job) => job.ready(),
+            _ => false,
         }
     }
 
