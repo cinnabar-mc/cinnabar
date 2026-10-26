@@ -46,12 +46,14 @@ enum BatchState {
 struct PendingBatch {
     state: BatchState,
     status_epoch: Option<u64>,
+    picks: Vec<(Bytes, crate::capture::PickState)>,
 }
 
 impl PendingBatch {
     /// Transfers ordinary packet ownership before the first capacity or flush wait.
     fn new(packets: Vec<Packet>, opportunity: Option<Moment>) -> Self {
         Self {
+            picks: Vec::new(),
             state: BatchState::Queued {
                 packets,
                 opportunity,
@@ -79,6 +81,17 @@ impl PendingBatch {
                     {
                         self.status_epoch = Some(status.epoch);
                         packets.push(Packet::new(packet));
+                    }
+                    if writer.captures_picks() {
+                        self.picks = packets
+                            .iter()
+                            .filter_map(|packet| {
+                                let state = packet.pick.as_deref()?;
+                                let mut entry = Vec::new();
+                                crate::codec::encode_entry(packet, &mut entry).ok()?;
+                                Some((Bytes::from(entry), *state))
+                            })
+                            .collect();
                     }
                     let Some(frame) = crate::session_transport::batch_frame(packets) else {
                         self.state = BatchState::Done;
@@ -117,8 +130,9 @@ impl PendingBatch {
                     if accepting.is_none() {
                         let frame = batch.frame.clone();
                         let writer = writer.clone();
+                        let picks = self.picks.clone();
                         *accepting = Some(Mutex::new(Box::pin(async move {
-                            writer.accept_prepared(frame).await
+                            writer.accept_prepared_picks(frame, picks).await
                         })));
                     }
                     // Admission cannot suspend after committing its permit. Keep the epoch

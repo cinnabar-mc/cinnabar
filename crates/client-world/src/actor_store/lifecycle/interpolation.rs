@@ -61,6 +61,7 @@ impl ActorStore {
                 .map(|(runtime_id, actor)| movement_interpolation::PickState {
                     runtime_id: *runtime_id,
                     previous_yaw: actor.yaw,
+                    capture_previous_position: None,
                     state: actor.motion_state(),
                 }),
         );
@@ -70,10 +71,38 @@ impl ActorStore {
         for _ in 0..ticks {
             for pick in &mut self.pick_states {
                 pick.previous_yaw = pick.state.pose.yaw;
+                if self.capture_picks {
+                    pick.capture_previous_position = Some(pick.state.pose.position);
+                }
                 pick.state.tick();
             }
             self.hold_local_vehicle_pick();
             self.seat_pick_riders();
+        }
+    }
+
+    /// Retains previous predicted feet only while an opt-in capture is active.
+    pub(crate) fn set_pick_capture(&mut self, enabled: bool) {
+        self.capture_picks = enabled;
+    }
+
+    /// Projects exact pick motion without exposing interpolation implementation state.
+    pub(crate) fn capture_pick_motion_state(
+        &self,
+        actor: &ActorSnapshot,
+    ) -> ([f32; 3], [f32; 3], u32) {
+        match self.pick_ahead(actor.runtime_id) {
+            Some(pick) => (
+                pick.capture_previous_position
+                    .unwrap_or(actor.previous_pose.position),
+                pick.state.pose.position,
+                pick.state.remaining,
+            ),
+            None => (
+                actor.previous_pose.position,
+                actor.position,
+                actor.interpolation_ticks_remaining,
+            ),
         }
     }
 

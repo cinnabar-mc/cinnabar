@@ -141,6 +141,16 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
+    /// Sets extra pose retention to match the opt-in capture lifetime.
+    pub fn capture_pick_motion(&mut self, enabled: bool) {
+        self.actors.set_pick_capture(enabled);
+    }
+
+    /// Returns previous/current simulation feet and interpolation steps for the exact pick pose.
+    pub fn pick_motion(&self, actor: &ActorSnapshot) -> ([f32; 3], [f32; 3], u32) {
+        self.actors.capture_pick_motion_state(actor)
+    }
+
     /// Predicts remote actors `ticks` ahead for [`Self::pick_hit_boxes`], leaving the live
     /// actors to [`Self::advance_actor_interpolation_frame`].
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {

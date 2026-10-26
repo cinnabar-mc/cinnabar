@@ -74,7 +74,7 @@ pub(crate) struct SessionTransport<R = FramedReader> {
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
     split_frames: u64,              // batch frames split so far; startup batches count as 0
-    delivered: (u64, u32),          // frame and index of the packet `recv` returned last
+    delivered: crate::packet_tap::PacketOrigin, // frame and index of the packet `recv` returned last
 }
 
 /// The last delivered packet, kept until the session asks for the next one so an outcome
@@ -141,7 +141,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             tap: None,
             current: None,
             split_frames: 0,
-            delivered: (0, 0),
+            delivered: Default::default(),
         }
     }
 
@@ -172,7 +172,16 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
     /// The latency-trace connection, frame and in-frame index of the packet [`Self::recv`]
     /// returned last; frames count the core's batch frames from 1, startup packets are frame 0.
     pub(crate) fn trace_position(&self) -> (u64, u64, u32) {
-        (self.reader.trace_conn(), self.delivered.0, self.delivered.1)
+        (
+            self.reader.trace_conn(),
+            self.delivered.trace.0,
+            self.delivered.trace.1,
+        )
+    }
+
+    /// The last delivered packet's numeric provenance, retained after its observer settles.
+    pub(crate) fn packet_origin(&self) -> crate::packet_tap::PacketOrigin {
+        self.delivered
     }
 
     /// Reports every packet this transport delivers or sends to `tap`.
@@ -196,7 +205,6 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         loop {
             if let Some(packet) = self.received.pop_front() {
                 self.blob_scan.consume_front(&packet);
-                self.delivered = packet.trace_position;
                 self.observe(&packet);
                 return Ok(Inbound::Packet(packet));
             }
@@ -386,6 +394,11 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         }
     }
 
+    /// Returns capture-only correspondence storage when this session records packets.
+    pub(crate) fn pick_trace(&self) -> Option<Arc<crate::capture::PickTrace>> {
+        self.tap.as_ref()?.pick_trace()
+    }
+
     /// Reports `outcome` for the packet the session is processing: the one [`Self::recv`]
     /// returned last. Only the first report after each delivery counts.
     pub(crate) fn reject_current(&mut self, outcome: PacketOutcome) {
@@ -399,8 +412,16 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         }
     }
 
-    /// Makes `packet`, which the tap recorded when its batch was split, the current packet.
+    /// Retains the delivered packet's numeric provenance and makes its observer current.
     fn observe(&mut self, packet: &RawPacket) {
+        self.delivered = crate::packet_tap::PacketOrigin {
+            trace: packet.trace_position,
+            capture_sequence: if self.pick_trace().is_some() {
+                packet.record.map_or(0, |record| record.0)
+            } else {
+                0
+            },
+        };
         if self.tap.is_none() {
             return;
         }
@@ -426,11 +447,12 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         }
         if let Some(tap) = &self.tap {
             for packet in &mut packets {
-                packet.record = Some(tap.record(
+                let record = tap.record(
                     PacketDirection::Clientbound,
                     packet.id as u32,
                     PacketBody::whole(packet.body()),
-                ));
+                );
+                packet.record = Some(record);
             }
         }
         Ok(packets)

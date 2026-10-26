@@ -195,6 +195,11 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.authority.advance_actor_interpolation_ticks(ticks)
     }
+    /// Sets pose retention to match the opt-in packet capture lifetime.
+    pub fn capture_pick_motion(&mut self, enabled: bool) {
+        self.authority.capture_pick_motion(enabled);
+    }
+
     /// Predicts remote actor positions for this frame's picks without advancing them.
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.authority.predict_remote_actor_motion(ticks)

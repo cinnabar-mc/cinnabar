@@ -141,6 +141,7 @@ impl ActorStore {
             local_view_dirty: false,
             pick_states: Vec::new(),
             picks_ahead: false,
+            capture_picks: false,
             local_view_bobbing: true,
             local_flying: false,
             local_hands: [None, None],

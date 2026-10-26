@@ -124,6 +124,13 @@ impl BatchWriter {
         self
     }
 
+    /// Whether preparing pick diagnostics can produce capture records.
+    pub(crate) fn captures_picks(&self) -> bool {
+        self.tap
+            .as_ref()
+            .is_some_and(|tap| tap.pick_trace().is_some())
+    }
+
     /// Records the final batch body, including batches injected by the relay.
     fn record(&self, frame: &Bytes) {
         if let Some(tap) = &self.tap {
@@ -189,6 +196,22 @@ impl BatchWriter {
     pub(crate) async fn accept_prepared(&self, frame: Bytes) -> Result<FrameWritten, BridgeError> {
         let written = self.frames.accept(frame.clone()).await?;
         self.record(&frame);
+        Ok(written)
+    }
+
+    /// Admits final relay bytes and associates unchanged packet entries with their frozen picks.
+    pub(crate) async fn accept_prepared_picks(
+        &self,
+        frame: Bytes,
+        picks: Vec<(Bytes, crate::capture::PickState)>,
+    ) -> Result<FrameWritten, BridgeError> {
+        if picks.is_empty() {
+            return self.accept_prepared(frame).await;
+        }
+        let written = self.frames.accept(frame.clone()).await?;
+        if let Some(tap) = &self.tap {
+            crate::packet_tap::record_serverbound_picks(tap.as_ref(), &frame, &picks);
+        }
         Ok(written)
     }
 
