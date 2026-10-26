@@ -900,6 +900,7 @@ fn gameplay_packet_families_share_a_batch_in_admission_order() {
         pitch: 0.0,
         yaw: 0.0,
         head_yaw: 0.0,
+        interact_rotation: [0.0, 0.0],
         camera_orientation: [0.0, 0.0, 1.0],
         flags: protocol::PlayerInputFlags::NONE,
         input_mode: protocol::PlayerInputMode::Mouse,
