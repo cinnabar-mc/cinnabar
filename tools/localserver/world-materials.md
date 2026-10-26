@@ -4,8 +4,8 @@ The `materialfx` Experience shows what programmable world materials can do insid
 rules. Its client part (`examples/experiences/material-fx/client`) declares one guest `shade`
 material per effect in `effects::EFFECTS` and binds them to the Experience's own entities and
 blocks; its server half (`examples/experiences/material-fx/server`) registers the blocks; this
-local server fixture (`-material-fx`) offers the entities and adds `/materialfx`. All art is original and generated in
-code: nothing under `textures/` is committed.
+local server fixture (`-material-fx`) offers the entities and adds `/materialfx`. All art is
+original and generated in code: nothing under `textures/` is committed.
 
 World materials are developer-only: the client runs them only with
 `CINNABAR_DEV_SERVER_EXPERIENCES=1`, and production clients refuse the permission.
