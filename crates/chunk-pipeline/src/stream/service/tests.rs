@@ -12,6 +12,13 @@ fn stream() -> WorldStream {
     })
 }
 
+/// A stream whose next slice has retention maintenance to run.
+fn stream_with_work() -> WorldStream {
+    let mut stream = stream();
+    stream.retention_due = true;
+    stream
+}
+
 /// Prepares four air columns: two ready commits and two completions awaiting the poll.
 fn stream_with_completed_columns() -> WorldStream {
     let mut stream = stream();
@@ -170,11 +177,12 @@ fn reclaim_does_not_wait_for_a_service_thread_that_cannot_run() {
     drop(turns);
 }
 
-/// A lent stream is polled on the service thread without the frame thread driving it.
+/// A lent stream with work is polled on the service thread without the frame thread driving it.
 #[test]
 fn the_service_polls_a_lent_stream_until_reclaimed() {
     let mut service = WorldStreamService::spawn().unwrap();
-    service.launch(stream(), [0.0; 3], 0);
+    service.launch(stream_with_work(), [0.0; 3], 0);
+    assert_eq!(service.wakes, 1);
     let shared = Arc::clone(&service.shared);
     test_time::eventually("the service polls the lent stream", || {
         shared
@@ -186,6 +194,37 @@ fn the_service_polls_a_lent_stream_until_reclaimed() {
     let serviced = service.reclaim().expect("the lent stream comes back");
     assert!(serviced.stream.between_frames_service);
     service.launch(serviced.stream, [0.0; 3], 0);
+    assert!(service.reclaim().is_some());
+}
+
+/// A loan with nothing to advance leaves a sleeping service asleep; the stream still comes back
+/// unserviced, so the next frame poll keeps its commits.
+#[test]
+fn an_idle_loan_does_not_wake_the_service() {
+    let mut service = WorldStreamService::spawn().unwrap();
+    let stream = stream();
+    assert!(!stream.has_service_work());
+    service.launch(stream, [0.0; 3], 0);
+    assert_eq!(service.wakes, 0);
+    assert!(service.is_servicing());
+    let serviced = service.reclaim().expect("the lent stream comes back");
+    assert_eq!(serviced.held, Duration::ZERO);
+    assert_eq!(serviced.stream.service_poll_time, Duration::ZERO);
+    assert_eq!(serviced.report, WorldStreamPoll::default());
+
+    // Work that appears later wakes the same service on its next loan.
+    let mut stream = serviced.stream;
+    stream.retention_due = true;
+    service.launch(stream, [0.0; 3], 0);
+    assert_eq!(service.wakes, 1);
+    let shared = Arc::clone(&service.shared);
+    test_time::eventually("the woken service polls the loan", || {
+        shared
+            .slot()
+            .lent
+            .as_ref()
+            .is_some_and(|lent| lent.serving_since.is_some())
+    });
     assert!(service.reclaim().is_some());
 }
 

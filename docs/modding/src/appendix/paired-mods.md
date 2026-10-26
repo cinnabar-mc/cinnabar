@@ -1,14 +1,14 @@
 # Make a paired mod
 
-[Cosmic](../../examples/mods/cosmic) is one Rust project with a server guest and a
+[Cosmic](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/cosmic) is one Rust project with a server guest and a
 client part. It registers Moon rock and Moon key, sends a ping to the server,
 and draws a moon label when the reply arrives. Both guests ship in one `.cmod`.
 
-Personal client mods use a different API: see [personal mods](personal.md).
+Personal client mods use a different API: see [personal mods](personal-mods.md).
 
 ## Install
 
-Use a Cinnabar source checkout with its [build prerequisites](../../README.md#build-and-run).
+Use a Cinnabar source checkout with its [build prerequisites](https://github.com/cinnabar-mc/cinnabar/blob/dev/README.md#build-and-run).
 Install Rust, Go and Make, then run these commands from the checkout root:
 
 ```sh
@@ -78,7 +78,7 @@ cinnabar-cxb mod run --project cosmic
 This rebuilds both guests and replaces this mod's development installation.
 It is a restart loop; client parts have no live bundle update. Rebuild both halves
 when shared definitions change. Keep existing block IDs when reusing a saved world.
-For server-code-only reload restrictions, see [runtime reload](../experience-runtime.md#reload).
+For server-code-only reload restrictions, see [runtime reload](https://github.com/cinnabar-mc/cinnabar/blob/dev/docs/experience-runtime.md#reload).
 
 ## Package
 
@@ -91,5 +91,5 @@ Give the `.cmod` to the server operator. Keep `cosmic/.local/publisher.seed` pri
 and retain it for later builds. The server offers players only the signed client
 bundle and ordinary resource pack. Installation refuses an existing mod ID.
 
-See [project reference](../mod-projects.md) for declarations, assets, generated Go
-bindings and server setup; [client parts](../server-experiences.md) for permissions.
+See [project reference](paired-projects.md) for declarations, assets, generated Go
+bindings and server setup; [client parts](https://github.com/cinnabar-mc/cinnabar/blob/dev/docs/server-experiences.md) for permissions.

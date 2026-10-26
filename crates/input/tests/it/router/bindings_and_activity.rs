@@ -209,6 +209,83 @@ fn modified_keyboard_and_mouse_bindings_do_not_fire_unmodified() {
 }
 
 #[test]
+fn more_specific_chords_win_and_follow_replaced_bindings() {
+    let control = ModifierChord {
+        control: true,
+        ..ModifierChord::default()
+    };
+    let q = PhysicalControl::KeyboardUsage(0x14);
+    let bindings = |plain: Action, modified: Action| {
+        ControlSettings::new(
+            vec![
+                ActionBinding {
+                    action: plain,
+                    context: InputContext::Gameplay,
+                    chord: empty_chord(q),
+                },
+                ActionBinding {
+                    action: modified,
+                    context: InputContext::Gameplay,
+                    chord: InputChord {
+                        control: q,
+                        modifiers: control,
+                    },
+                },
+            ],
+            1.0,
+            1.0,
+            1.0,
+            false,
+            false,
+            0.1,
+            0.1,
+        )
+        .unwrap()
+    };
+    let mut sequence = 0;
+    let mut held = |router: &mut SemanticInputRouter, keys: Vec<u16>, modifiers| {
+        sequence += 1;
+        router
+            .route(DeviceFrame {
+                keyboard_mouse: Some(KeyboardMouseFrame {
+                    activity_sequence: sequence,
+                    keys,
+                    modifiers,
+                    ..KeyboardMouseFrame::default()
+                }),
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+        let phases = router.finalize().unwrap().phases;
+        (
+            phases[Action::Jump as usize].held,
+            phases[Action::Sprint as usize].held,
+        )
+    };
+    let mut router = SemanticInputRouter::default();
+    router
+        .replace_bindings(bindings(Action::Jump, Action::Sprint))
+        .unwrap();
+    assert_eq!(held(&mut router, vec![0x14], control), (false, true));
+    assert_eq!(
+        held(&mut router, vec![0x14], ModifierChord::default()),
+        (true, false)
+    );
+    router
+        .replace_bindings(bindings(Action::Sprint, Action::Jump))
+        .unwrap();
+    assert_eq!(
+        held(&mut router, Vec::new(), ModifierChord::default()),
+        (false, false)
+    );
+    assert_eq!(held(&mut router, vec![0x14], control), (true, false));
+    assert_eq!(
+        held(&mut router, vec![0x14], ModifierChord::default()),
+        (false, true)
+    );
+}
+
+#[test]
 fn gamepad_and_touch_bindings_reject_unsupported_modifiers() {
     let modified = ModifierChord {
         control: true,

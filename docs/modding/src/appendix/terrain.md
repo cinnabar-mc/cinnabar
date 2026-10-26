@@ -1,10 +1,10 @@
 # Local terrain reads
 
-[Personal mods](mods/personal.md) with the default-denied `terrain` grant can call
+[Personal mods](personal-mods.md) with the default-denied `terrain` grant can call
 `terrain.read-region` and `terrain.find-blocks` and read local pose from
 `gameplay.read-frame` and `gameplay.read-camera`. Other players
 need their own grants. Screens suspend reads. Limits are `MAX_TERRAIN_*` in
-[`mod-api`](../crates/mod-api/src/lib.rs).
+[`mod-api`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/lib.rs).
 
 ## Query lifecycle
 
@@ -54,4 +54,4 @@ A known section without storage is air in layer 0. Geometry may be `fixed`,
 `not-requested`, `per-cell` or `unavailable`. Position-dependent shapes include
 neighbors, block actors and native offsets. `unavailable` means required facts
 are missing. Selection uses the default interaction context. See the
-[terrain WIT](../crates/mod-api/wit/extension.wit).
+[terrain WIT](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/wit/extension.wit).

@@ -99,8 +99,10 @@ mod residency;
 mod resource_reload;
 pub use resource_reload::ResourceMeshSnapshot;
 mod retries;
+mod sample_cache;
 mod scheduler;
 mod seasonal_foliage;
+pub use sample_cache::TerrainSampleCache;
 mod sequencing;
 mod service;
 #[cfg(all(test, feature = "tracy"))]

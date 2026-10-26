@@ -128,6 +128,8 @@ pub(crate) struct BlockEntityRuntime {
     /// Scan results per loaded column, rebuilt when the column changes.
     columns: HashMap<ChunkKey, columns::ColumnScan>,
     rescans: columns::RescanOrder,
+    /// The window whose last pass left every column in range current.
+    settled: Option<columns::ColumnWindow>,
     frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
@@ -151,6 +153,7 @@ impl BlockEntityRuntime {
             beacon_tints: assets::BeaconTintCatalog::pinned(),
             columns: HashMap::new(),
             rescans: columns::RescanOrder::default(),
+            settled: None,
             frame: 0,
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
@@ -179,6 +182,7 @@ impl BlockEntityRuntime {
         {
             self.beam_source = Some((Arc::clone(assets), range));
             self.columns.clear();
+            self.settled = None;
             self.blocks.clear();
         }
     }
@@ -194,6 +198,7 @@ impl BlockEntityRuntime {
         self.lids = ContainerLids::default();
         self.missing_maps.clear();
         self.columns.clear();
+        self.settled = None;
         self.rescans = columns::RescanOrder::default();
         self.blocks.clear();
         self.shapes.clear();
@@ -484,16 +489,22 @@ pub(crate) fn update_block_entity_scene(
         ((center - SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
             ..=((center + SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
     };
-    let selected = runtime.rescans.select(
-        chunk_range(eye.x)
-            .flat_map(|x| chunk_range(eye.z).map(move |z| ChunkKey::new(dimension, x, z)))
-            .filter(|key| {
-                !columns::is_near_column(eye_column, key.x, key.z)
-                    && store.chunk(*key).is_some_and(|chunk| {
-                        scans.get(key).is_none_or(|scan| !scan.is_current(chunk))
-                    })
-            }),
-    );
+    let window = columns::ColumnWindow {
+        terrain: store.content_revision(),
+        columns: [chunk_range(eye.x), chunk_range(eye.z)],
+        eye_column,
+    };
+    // A settled window has no stale column to select, so selecting would change nothing.
+    let selected = if runtime.settled.as_ref() == Some(&window) {
+        Default::default()
+    } else {
+        runtime
+            .rescans
+            .select(window.stale_distant(dimension, store, |key, chunk| {
+                scans.get(&key).is_none_or(|scan| !scan.is_current(chunk))
+            }))
+    };
+    let mut settled = true;
     let prepare_zone = bevy::log::info_span!("block_entity.prepare").entered();
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
@@ -547,8 +558,10 @@ pub(crate) fn update_block_entity_scene(
                     columns::ColumnScan::new(chunk, portals, entities)
                 },
             ) else {
+                settled = false;
                 continue;
             };
+            settled &= scan.is_current(chunk);
             scan.seen_frame = frame_stamp;
             let before_portals = submissions.len();
             portals::submit(&mut submissions, &scan.portals, eye);
@@ -649,6 +662,7 @@ pub(crate) fn update_block_entity_scene(
             }
             scans.insert(chunk_key, scan);
             if full {
+                settled = false;
                 break 'columns;
             }
         }
@@ -658,6 +672,7 @@ pub(crate) fn update_block_entity_scene(
     runtime.books.finish();
     scans.retain(|_, scan| scan.seen_frame == frame_stamp);
     runtime.columns = scans;
+    runtime.settled = settled.then_some(window);
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
         stream
             .block_event_cue(*position)

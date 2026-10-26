@@ -20,9 +20,9 @@ pub use stream::{
     PresentationSnapshot, PublicationSnapshot, PublicationStageCounters, RequestClass,
     RequestClassDepth, RequestQueueEvidence, SUB_CHUNK_RESPONSE_TIMEOUT, ServicedStream,
     StageDurations, SubChunkOutcomeCounters, SubChunkRequestBatch, TerrainPublicationCursor,
-    ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamFatalError,
-    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamService, WorldStreamStats,
-    world_worker_threads,
+    TerrainSampleCache, ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream,
+    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamService,
+    WorldStreamStats, world_worker_threads,
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{FarSummaryFixture, PublicationFixtureIdentity, PublicationFixtureSnapshot};

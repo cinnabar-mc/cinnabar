@@ -343,6 +343,20 @@ fn service_commits_decoded_terrain_without_a_frame_poll() {
     );
 }
 
+/// Decoded terrain, and the light and mesh work its commit queues, keep a loan worth waking the
+/// service for until frame polls finish it; the settled stream has nothing left for a slice.
+#[test]
+fn decoded_terrain_is_service_work_until_settled() {
+    let mut stream = stream_with_decoded_columns(4);
+    assert!(stream.has_service_work());
+    test_time::eventually("frame polls settle the decoded terrain", || {
+        stream.frame_deadline = Some(Instant::now() + Duration::from_secs(60));
+        stream.poll([0.0; 3], 64);
+        !stream.has_service_work()
+    });
+    assert_eq!(stream.committed_sequence(), 4);
+}
+
 /// Dropping the service while it holds a stream drops that stream before returning, rather
 /// than leaving it on a detached thread past application shutdown.
 #[test]

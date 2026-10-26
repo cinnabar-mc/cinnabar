@@ -2,12 +2,12 @@
 
 Personal mods run under the user's grants in local and remote worlds. Server
 consent does not control these grants. For server-delivered client parts, use
-[paired mods](README.md). Personal mods use [`mod-api`](../../crates/mod-api),
+[paired mods](paired-mods.md). Personal mods use [`mod-api`](https://github.com/cinnabar-mc/cinnabar/tree/dev/crates/mod-api),
 not the Experience SDK's client world.
 
 ## Build and load
 
-The [hello example](../../examples/mods/hello) uses the `extension` world:
+The [hello example](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/hello) uses the `extension` world:
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -30,14 +30,14 @@ The client still needs its normal runtime carriers.
 
 ## API and grants
 
-[`extension.wit`](../../crates/mod-api/wit/extension.wit) defines the low-level
+[`extension.wit`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/wit/extension.wit) defines the low-level
 world. The `player-mod` world supports package screens and session catalogs;
-implement [`PlayerMod`](../../crates/mod-api/src/guest.rs) and call
+implement [`PlayerMod`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/guest.rs) and call
 `export_player_mod!`. Init and frame are required; event callbacks default to no-ops.
 Input edges expire, while latest layout/session changes wait for a callback lane.
 Frame, event and load work have separate budgets.
 
-Optional grants default off in [`ModGrants`](../../crates/mod-host/src/grants.rs).
+Optional grants default off in [`ModGrants`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-host/src/grants.rs).
 A component may request them in top-level `cinnabar:grants` JSON; requests grant
 nothing by themselves. Commands authorize only the requested names. Settings can
 revoke individual grants or all grants; permission changes reload that mod.
@@ -50,7 +50,7 @@ and rebound to the destination; mods must rebuild their world drawing. Replaceme
 reuse an in-memory compiled component only for identical mod bytes and engine policy.
 Changed bytes invalidate that entry, and unloading the mod releases it.
 Explicit environment-selected components get the environment grant and opt into
-other grants with the [development switches](../../crates/client-extensions/src/modding/grants.rs).
+other grants with the [development switches](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/client-extensions/src/modding/grants.rs).
 
 | Capability group | Contract source |
 | --- | --- |
@@ -63,10 +63,10 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | Nametag style, actor annotations and tints, hurt overlay, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
 | Item, food, potion and effect facts, and every installed food | WIT `facts`; `player-state`, with its own per-callback read budget |
 | Time/weather and local menu branding | WIT `environment`; changes presentation, not server state |
-| World primitives and post passes | WIT `render`; [render example](../../examples/mods/render-sample) |
-| Retained world drawing | [drawing WIT](../../crates/mod-api/wit/deps/world-draw/drawing.wit); separate material/depth/post/through-wall grants |
-| Entity masks | [Mask reference](../mod-entity-masks.md) |
-| Nearby terrain | [Terrain reference](../mod-terrain-api.md) |
+| World primitives and post passes | WIT `render`; [render example](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/render-sample) |
+| Retained world drawing | [drawing WIT](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/wit/deps/world-draw/drawing.wit); separate material/depth/post/through-wall grants |
+| Entity masks | [Mask reference](entity-masks.md) |
+| Nearby terrain | [Terrain reference](terrain.md) |
 | Block search and fullbright | `terrain.find-blocks` drawn with world drawing; `environment.set-fullbright` |
 | Attack/use filtering | Opt-in `filter-actions` export through `mod_api::filtered_player_mod`; `controls` |
 | Remaining callback fuel | WIT `budget`; no grant: it reads only the running callback's own allowance |
@@ -74,9 +74,9 @@ other grants with the [development switches](../../crates/client-extensions/src/
 Callbacks publish only after success. Session changes, reload, revocation and traps
 invalidate scoped handles and outputs. Check typed errors rather than silently
 assuming an import succeeded. Shared values and ceilings live in
-[`mod-api`](../../crates/mod-api/src/lib.rs),
-[drawing limits](../../crates/mod-api/src/drawing.rs) and
-[host limits](../../crates/mod-host/src/lib.rs).
+[`mod-api`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/lib.rs),
+[drawing limits](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/drawing.rs) and
+[host limits](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-host/src/lib.rs).
 
 `gameplay.set-attack-reach` requires `interaction`; a non-`none` request also
 requires a current gameplay frame. It sets the local actor pick and attack distance
@@ -119,7 +119,7 @@ properties, a rejected patch, and documents with collections, a root base or an 
 inside a string value are validated whole. Only the controls whose resolution reads
 a replaced definition, embedded ones included, are laid out again; everything else
 keeps its cache. Values, documents and limits live in
-[`surface`](../../crates/ui/src/mod_panel/surface.rs): 512 bindings, 192 KiB of
+[`surface`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/ui/src/mod_panel/surface.rs): 512 bindings, 192 KiB of
 document and 64 KiB per update. Only the `screen` root draws on gameplay; other
 named controls in the document stay embeddable. The layer hides with the gameplay
 HUD, under F1, screens and panels that hide it; it stays under a panel that sets
@@ -164,7 +164,7 @@ times its HUD size, 5 by default, so a short caption fills its preview as a card
 does. `scale` and `max_scale` accept 0.25 to 5. Each property reads its binding
 override first, `#scale`, `#fit` or `#max_scale`; the surface rejects literals out
 of bounds, and a bound value out of bounds draws nothing. The bounds live in
-[`hud_control`](../../crates/ui/src/mod_panel/surface/hud_control.rs). A mod keeps
+[`hud_control`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/ui/src/mod_panel/surface/hud_control.rs). A mod keeps
 up to 128 named controls built for embedding; the least recently drawn makes way
 for another.
 
@@ -213,7 +213,7 @@ its panel with `panel.set-open(true)` or take any other action it is granted.
 ## Packages and screens
 
 A package directory contains `mod.toml`, `mod.wasm`, `ui/` templates and `textures/`.
-Use [`screen-probe`](../../examples/mods/screen-probe) as the complete example.
+Use [`screen-probe`](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/screen-probe) as the complete example.
 The manifest indexes declared files with SHA-256 and names permissions, templates,
 actions and keys. IDs and templates must belong to its namespace. The build script
 uses `experience_sdk::declarations::generate_mod`, then the guest includes generated
@@ -230,7 +230,7 @@ server container. Escape returns to the container; closing the container closes
 both. `screen_changed` reports layout in GUI units, and `view_closed` reports a
 host-closed view. Declared actions, keys, text, wheel events and data revisions
 arrive through `PlayerMod` callbacks. UI values and collections use the same
-[tagged bindings](../server-experiences.md#modal-screens) as client parts.
+[tagged bindings](https://github.com/cinnabar-mc/cinnabar/blob/dev/docs/server-experiences.md#modal-screens) as client parts.
 
 ## Single-file resources
 
@@ -247,7 +247,7 @@ from executable bytes; directory packages retain their own lifecycle.
 | `cinnabar:extension/notices@1` | UTF-8 copyright/license text |
 | `cinnabar:extension/icon@1` | PNG Mods-tab icon |
 
-[SDK constants](../../crates/mod-api/src/lib.rs) define byte/image limits.
+[SDK constants](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/lib.rs) define byte/image limits.
 Duplicate, nested, malformed or oversized presentation resources are rejected;
 invalid icon/metadata affects only the card. `CINNABAR_MOD_FONT` and
 `CINNABAR_MOD_UI` sidecars override embedded font/panel data. Mod cards read standard
@@ -278,7 +278,7 @@ session packets and pack insertion through the private core relay. A packet mod
 cannot share a registration with gameplay/package mod authority. Grant changes
 revoke current authority; reload selects the next session's source. Optional
 `CINNABAR_PACKET_MOD_WASI=1` adds clocks, randomness and captured output, never
-files or network. See [packet WIT](../../crates/mod-api/wit/extension.wit) for callbacks.
+files or network. See [packet WIT](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/wit/extension.wit) for callbacks.
 
 Native-frame guests must be rebuilt with the current SDK, including guests using
 only the legacy `frame` callback. The version-one JSON payload now includes look,

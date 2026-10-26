@@ -1,6 +1,6 @@
 # Server Experience runtime
 
-For a paired Rust mod, use [the author guide](mods/README.md). This reference is
+For a paired Rust mod, use [the author guide](modding/src/appendix/paired-mods.md). This reference is
 for server callbacks, saved data and hosts of `experience-runtime`.
 
 ## Running and artifacts

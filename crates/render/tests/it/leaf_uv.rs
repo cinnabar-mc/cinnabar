@@ -9,7 +9,7 @@ use render_scene::greedy_texture_uv;
 fn shader() -> String {
     let source = crate::shader_source::preprocess(include_str!("../../src/chunk.wesl"), &[]);
     let corners = source.split_once("fn quad_corner(").unwrap().1;
-    let corners = corners.split_once("\nfn face_normal(").unwrap().0;
+    let corners = corners.split_once("\nfn greedy_uv(").unwrap().0;
     let uv = source.split_once("fn greedy_uv(").unwrap().1;
     let uv = uv.split_once("\n@vertex").unwrap().0;
     format!("fn quad_corner({corners}\nfn greedy_uv({uv}\n{FIXTURE}")

@@ -228,6 +228,13 @@ type PlayerSources<'w> = (
     Res<'w, FrameTimeCounterPin>,
 );
 
+/// The biomes sampled around the camera, re-read only when the camera or its terrain changes.
+#[derive(Default)]
+struct CameraSamples {
+    feet_biome: chunk_pipeline::TerrainSampleCache<[u32; 3], Option<u32>>,
+    sky_biomes: chunk_pipeline::TerrainSampleCache<[u32; 3], [(u32, f32); SKY_BIOME_SLOTS]>,
+}
+
 /// Rebuilds the inputs from defaults and replaces the resource only when a value changed, so
 /// an idle frame raises no change tick.
 fn publish_frame_inputs(
@@ -236,6 +243,7 @@ fn publish_frame_inputs(
     cameras: Query<&Transform, With<FlyCamera>>,
     ids: Res<ShaderPackIdMaps>,
     mut inputs: ResMut<ShaderPackFrameInputs>,
+    mut samples: Local<CameraSamples>,
 ) {
     let (clock, fixed_time, visual_time, client_part, time, frame, lighting, medium) = environment;
     let (client_world, player_runtime, ui, vision, server_camera, physics, pin) = player;
@@ -309,9 +317,9 @@ fn publish_frame_inputs(
         let feet = physics
             .and_then(|physics| physics.render_feet_position())
             .or(camera_position);
-        publish_world_inputs(&mut next, stream, eye, feet);
+        publish_world_inputs(&mut next, stream, eye, feet, &mut samples.feet_biome);
         if let Some(camera) = camera {
-            publish_camera_inputs(&mut next, stream, &camera);
+            publish_camera_inputs(&mut next, stream, &camera, &mut samples);
         }
         if let Some(actor) = stream.authority().actor(stream.local_player_runtime_id()) {
             next.hurt = actor.status.hurt_time > 0;
@@ -341,6 +349,7 @@ fn publish_world_inputs(
     stream: &WorldStream,
     eye: Option<[f32; 3]>,
     feet: Option<[f32; 3]>,
+    feet_biome: &mut chunk_pipeline::TerrainSampleCache<[u32; 3], Option<u32>>,
 ) {
     next.render_distance = stream.render_distance_blocks();
     if let Some(range) = stream.dimension_range(stream.current_dimension()) {
@@ -352,7 +361,9 @@ fn publish_world_inputs(
     let Some(feet) = feet else {
         return;
     };
-    next.biome = stream.camera_biome_id(feet);
+    next.biome = feet_biome.sample(stream, feet.map(f32::to_bits), |stream, _| {
+        stream.camera_biome_id(feet)
+    });
     next.biome_block_y = feet[1].floor() as i32;
 }
 
@@ -362,10 +373,16 @@ fn publish_camera_inputs(
     next: &mut ShaderPackFrameInputs,
     stream: &WorldStream,
     camera: &Transform,
+    samples: &mut CameraSamples,
 ) {
-    next.sky_biomes = sky_biomes(camera.translation.to_array(), |block| {
-        stream.camera_biome_id(block.map(|v| v as f32))
-    });
+    let position = camera.translation.to_array();
+    next.sky_biomes = samples
+        .sky_biomes
+        .sample(stream, position.map(f32::to_bits), |stream, _| {
+            sky_biomes(position, |block| {
+                stream.camera_biome_id(block.map(|v| v as f32))
+            })
+        });
 }
 
 /// The biomes around `position` with Java's Gaussian blend weights, heaviest first and

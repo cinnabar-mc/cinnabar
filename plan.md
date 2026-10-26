@@ -1351,7 +1351,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   traps preserve later queued work, stale world callbacks are discarded,
   and queue overflow visibly stops the affected part.
   Full rendered development-loop, complete server-helper delivery and personal-renderer port acceptance remain incomplete;
-  see [mod projects](docs/mod-projects.md).
+  see [mod projects](docs/modding/src/appendix/paired-projects.md).
   Server Experience block storage and player focus use bound world instances, with opening
   generations that invalidate stale callback work and migration from dimension-keyed stores.
   Server WIT 0.8 adds registered world definitions, instance creation/unload, typed scoped state,
@@ -1647,7 +1647,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   geometry and block/item component behavior beyond the currently supported cases.
 
 See [Android](docs/android.md), [iOS](docs/ios.md), [mods](docs/modding-spike.md),
-See [Android](docs/android.md), [mods](docs/mods/README.md),
+See [Android](docs/android.md), [mods](docs/modding/src/appendix/paired-mods.md),
 [server experiences](docs/server-experiences.md) and
 [experience runtime](docs/experience-runtime.md) for existing implementation contracts.
 

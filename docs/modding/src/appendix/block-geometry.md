@@ -27,7 +27,7 @@ outside their dependency columns. Another batch while meshing is pending returns
 `in-use`. Updates commit atomically with the callback.
 
 Grid, palette, state-string, triangle and memory limits are declared in
-[`mod_api::drawing`](../crates/mod-api/src/drawing.rs). Existing retained geometry
+[`mod_api::drawing`](../../../../crates/mod-api/src/drawing.rs). Existing retained geometry
 and callback byte limits also apply. Rejection returns `budget-exceeded`.
 
 ## Clip resources

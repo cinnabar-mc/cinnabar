@@ -67,9 +67,6 @@ fn packed_cube_vertex_preserves_section_biome_and_light_addresses() {
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 8], storage);
     let clock = gpu.words(&[0; 4], uniform);
-    let lightmap = gpu.lightmap(bytemuck::cast_slice(
-        &render_model::LightmapInputs::default().build(),
-    ));
     let bindings = [
         (0, view.as_entire_binding()),
         (1, quads.as_entire_binding()),
@@ -79,7 +76,6 @@ fn packed_cube_vertex_preserves_section_biome_and_light_addresses() {
         (10, empty.as_entire_binding()),
         (11, clock.as_entire_binding()),
         (13, streams.as_entire_binding()),
-        (LIGHTMAP_BINDING, lightmap.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
     let values = gpu.compute_readback(
