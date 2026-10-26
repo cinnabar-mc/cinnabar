@@ -139,12 +139,35 @@ const QUALCOMM_VENDOR_ID: u32 = 0x5143;
 /// The proprietary driver with empty indirect terrain draws on tested Adreno GPUs.
 const QUALCOMM_VULKAN_DRIVER: &str = "Qualcomm Technologies Inc. Adreno Vulkan Driver";
 
-/// Keeps Apple expansion costs and proprietary Adreno Vulkan failures on direct terrain draws.
+/// Intel's PCI vendor ID.
+const INTEL_VENDOR_ID: u32 = 0x8086;
+/// The first Intel Windows driver branch (`24.x`, 2018) not known to fail indirect terrain on DX12.
+/// HD Graphics 520 with `23.20.16.4905` faulted in the counted GPU-cull draws and drew no
+/// opaque terrain with CPU-culled indirect draws.
+const INTEL_DX12_INDIRECT_DRIVER_MAJOR: u32 = 24;
+
+/// Keeps Apple expansion costs, proprietary Adreno Vulkan failures and legacy Intel DX12
+/// driver failures on direct terrain draws.
 pub(in crate::chunk) fn direct_draws_required(info: &wgpu::AdapterInfo) -> bool {
     apple_gpu_identity(info.vendor, &info.driver, &info.name)
         || (info.backend == wgpu::Backend::Vulkan
             && info.vendor == QUALCOMM_VENDOR_ID
             && info.driver == QUALCOMM_VULKAN_DRIVER)
+        || legacy_intel_dx12_driver(info)
+}
+
+/// Recognizes a DX12 Intel adapter whose dotted driver version predates the `24.x` branch.
+/// An unparsable version, or the `0.0.0.0` wgpu reports when the query fails, keeps the
+/// adapter's advertised indirect path.
+fn legacy_intel_dx12_driver(info: &wgpu::AdapterInfo) -> bool {
+    info.backend == wgpu::Backend::Dx12
+        && info.vendor == INTEL_VENDOR_ID
+        && info
+            .driver
+            .split('.')
+            .next()
+            .and_then(|major| major.trim().parse::<u32>().ok())
+            .is_some_and(|major| (1..INTEL_DX12_INDIRECT_DRIVER_MAJOR).contains(&major))
 }
 
 /// Recognizes Apple hardware through its vendor ID or Vulkan driver and adapter names.
@@ -214,8 +237,34 @@ mod direct_draw_tests {
     }
 
     #[test]
+    fn legacy_intel_dx12_drivers_draw_terrain_directly() {
+        let flags = DownlevelFlags::BASE_VERTEX | DownlevelFlags::INDIRECT_EXECUTION;
+        let features =
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT;
+        for driver in ["23.20.16.4905", "21.20.16.4590"] {
+            let info = adapter(INTEL_VENDOR_ID, wgpu::Backend::Dx12, driver);
+            assert_eq!(
+                select_chunk_draw_mode(
+                    flags,
+                    features,
+                    Backends::DX12,
+                    direct_draws_required(&info)
+                ),
+                ChunkDrawMode::Direct,
+                "{driver}",
+            );
+        }
+    }
+
+    #[test]
     fn other_drivers_keep_their_supported_indirect_draw_path() {
         for info in [
+            adapter(INTEL_VENDOR_ID, wgpu::Backend::Dx12, "31.0.101.2135"),
+            adapter(INTEL_VENDOR_ID, wgpu::Backend::Dx12, "24.20.100.6025"),
+            adapter(INTEL_VENDOR_ID, wgpu::Backend::Dx12, ""),
+            adapter(INTEL_VENDOR_ID, wgpu::Backend::Dx12, "0.0.0.0"),
+            adapter(INTEL_VENDOR_ID, wgpu::Backend::Vulkan, "23.20.16.4905"),
+            adapter(0x1002, wgpu::Backend::Dx12, "23.20.16.4905"),
             adapter(QUALCOMM_VENDOR_ID, wgpu::Backend::Vulkan, "Mesa Turnip"),
             adapter(
                 QUALCOMM_VENDOR_ID,
