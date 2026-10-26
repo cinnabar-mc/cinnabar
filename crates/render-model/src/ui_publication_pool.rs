@@ -24,13 +24,15 @@ impl PartialEq for UiPublicationPool {
 }
 
 impl UiPublicationPool {
-    /// Reuses an unshared header, keeping frames held by render extraction or callers immutable.
+    /// Reuses headers for current draw buffers without retaining replaced resources or changing readers.
     pub(crate) fn publish(
         &mut self,
         previous: Option<Arc<UiRenderInput>>,
         input: UiRenderInput,
     ) -> Arc<UiRenderInput> {
-        if let Some(previous) = previous {
+        self.retired
+            .retain(|retired| retired.shares_draw_buffers(&input));
+        if let Some(previous) = previous.filter(|previous| previous.shares_draw_buffers(&input)) {
             self.retired.push(previous);
         }
         if let Some(index) = self

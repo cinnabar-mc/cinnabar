@@ -109,6 +109,20 @@ fn model_publications_recycle_only_unshared_headers() {
     assert_ne!(scene.revision, held.revision);
 }
 
+/// Retired headers must not extend the lifetime of a replaced texture catalog.
+#[test]
+fn header_pool_releases_replaced_texture_catalogs() {
+    let mut pool = crate::ui_publication_pool::UiPublicationPool::default();
+    let first = pool.publish(None, input());
+    let retired = Arc::downgrade(&first.textures);
+    let mut next = first.as_ref().clone();
+    next.textures = Arc::new(next.textures.as_ref().clone());
+    let current = pool.publish(Some(Arc::clone(&first)), next);
+    drop(first);
+    assert!(retired.upgrade().is_none());
+    current.validate().unwrap();
+}
+
 /// Opt-in crate benchmark separates full vertex admission from a retained palette update.
 #[test]
 fn ui_model_pose_publication_cost() {
