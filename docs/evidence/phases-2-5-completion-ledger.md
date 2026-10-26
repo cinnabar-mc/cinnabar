@@ -502,6 +502,11 @@ camera-direction generation and runtime witnesses remain incomplete.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
+Actor picks retain the frame's ticked camera-actor position for the final pick-range
+trim. Knockback regressions cover preserved world intercepts beyond three blocks
+from the transaction source, rejected picks beyond the broader pick range, and
+presses after a later movement tick. Live comparison remains incomplete.
+
 Held placement now retains complete frame picks in arrival order, consumes each batch once,
 and permits due retries within that batch. Stored-hit refresh preserves the original bounded
 intercept and eligible fallback, and line targeting does not add a support-centre range
