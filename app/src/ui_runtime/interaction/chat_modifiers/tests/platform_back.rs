@@ -47,14 +47,14 @@ fn harness() -> Harness {
 }
 
 /// Back after the chat key in the same frame closes the chat that key opened, and consumes the
-/// mouse Back press the platform key stands for.
+/// platform Back press the key makes.
 #[test]
 fn platform_back_after_chat_key_closes_chat() {
     let mut h = harness();
     h.app
         .world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Back);
+        .press(client_shell::physical_input::PLATFORM_BACK);
     let open = h.pressed(KeyCode::KeyT, Key::Character("t".into()), Some("t"));
     let back = h.platform_back();
     h.frame(vec![open, back]);
@@ -63,7 +63,7 @@ fn platform_back_after_chat_key_closes_chat() {
         !h.app
             .world()
             .resource::<ButtonInput<MouseButton>>()
-            .just_pressed(MouseButton::Back)
+            .just_pressed(client_shell::physical_input::PLATFORM_BACK)
     );
 }
 
