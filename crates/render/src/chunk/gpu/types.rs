@@ -134,10 +134,17 @@ pub(in crate::chunk) enum ChunkDrawMode {
     Unsupported,
 }
 
-/// Selects direct draws for Apple hardware, including Vulkan drivers that expand indirect draws.
-/// Their per-slot robustness work makes count-driven multi-draws more expensive.
-pub(in crate::chunk) fn apple_gpu(info: &wgpu::AdapterInfo) -> bool {
+/// Qualcomm's PCI vendor ID, reported by Adreno adapters.
+const QUALCOMM_VENDOR_ID: u32 = 0x5143;
+/// The proprietary driver with empty indirect terrain draws on tested Adreno GPUs.
+const QUALCOMM_VULKAN_DRIVER: &str = "Qualcomm Technologies Inc. Adreno Vulkan Driver";
+
+/// Keeps Apple expansion costs and proprietary Adreno Vulkan failures on direct terrain draws.
+pub(in crate::chunk) fn direct_draws_required(info: &wgpu::AdapterInfo) -> bool {
     apple_gpu_identity(info.vendor, &info.driver, &info.name)
+        || (info.backend == wgpu::Backend::Vulkan
+            && info.vendor == QUALCOMM_VENDOR_ID
+            && info.driver == QUALCOMM_VULKAN_DRIVER)
 }
 
 /// Recognizes Apple hardware through its vendor ID or Vulkan driver and adapter names.
@@ -150,7 +157,7 @@ pub(in crate::chunk) fn select_chunk_draw_mode(
     downlevel_flags: DownlevelFlags,
     features: WgpuFeatures,
     backend: Backends,
-    apple_gpu: bool,
+    direct_required: bool,
 ) -> ChunkDrawMode {
     if !downlevel_flags.contains(DownlevelFlags::BASE_VERTEX) {
         ChunkDrawMode::Unsupported
@@ -160,11 +167,74 @@ pub(in crate::chunk) fn select_chunk_draw_mode(
         // WindowServer. Keep the equivalent CPU-validated direct draws on
         // Metal until indirect submission has passed a native stability gate.
         && !backend.contains(Backends::METAL)
-        && !apple_gpu
+        && !direct_required
     {
         ChunkDrawMode::MultiDrawIndirect
     } else {
         ChunkDrawMode::Direct
+    }
+}
+
+#[cfg(test)]
+mod direct_draw_tests {
+    use super::*;
+
+    /// Supplies adapter-owned identity independently of which optional features it advertises.
+    fn adapter(vendor: u32, backend: wgpu::Backend, driver: &str) -> wgpu::AdapterInfo {
+        wgpu::AdapterInfo {
+            name: "terrain fixture adapter".into(),
+            vendor,
+            driver: driver.into(),
+            ..wgpu::AdapterInfo::new(wgpu::DeviceType::IntegratedGpu, backend)
+        }
+    }
+
+    #[test]
+    fn proprietary_adreno_vulkan_preserves_terrain_with_direct_draws() {
+        let flags = DownlevelFlags::BASE_VERTEX | DownlevelFlags::INDIRECT_EXECUTION;
+        for features in [
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT,
+        ] {
+            let info = adapter(
+                QUALCOMM_VENDOR_ID,
+                wgpu::Backend::Vulkan,
+                QUALCOMM_VULKAN_DRIVER,
+            );
+            assert_eq!(
+                select_chunk_draw_mode(
+                    flags,
+                    features,
+                    Backends::VULKAN,
+                    direct_draws_required(&info)
+                ),
+                ChunkDrawMode::Direct,
+            );
+        }
+    }
+
+    #[test]
+    fn other_drivers_keep_their_supported_indirect_draw_path() {
+        for info in [
+            adapter(QUALCOMM_VENDOR_ID, wgpu::Backend::Vulkan, "Mesa Turnip"),
+            adapter(
+                QUALCOMM_VENDOR_ID,
+                wgpu::Backend::Dx12,
+                QUALCOMM_VULKAN_DRIVER,
+            ),
+            adapter(0x1002, wgpu::Backend::Vulkan, QUALCOMM_VULKAN_DRIVER),
+        ] {
+            assert!(!direct_draws_required(&info));
+            assert_eq!(
+                select_chunk_draw_mode(
+                    DownlevelFlags::BASE_VERTEX | DownlevelFlags::INDIRECT_EXECUTION,
+                    WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+                    Backends::from(info.backend),
+                    direct_draws_required(&info),
+                ),
+                ChunkDrawMode::MultiDrawIndirect,
+            );
+        }
     }
 }
 

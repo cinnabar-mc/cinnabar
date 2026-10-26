@@ -1,6 +1,6 @@
 //! Completed terrain frames exercise uploads, constrained tables and draw submission together.
 
-use super::app_tests::{frame, render_plugin_with_limits};
+use super::app_tests::{frame, render_plugin_with_storage_limit};
 use super::*;
 use crate::render_test_support::scene_raster::read_pixels;
 use bevy::{asset::Handle, camera::RenderTarget, core_pipeline::tonemapping::Tonemapping};
@@ -8,14 +8,10 @@ use std::sync::Arc;
 
 /// A native renderer with exactly the storage and indirect features under test.
 fn fixture(features: WgpuFeatures, storage: u32) -> Option<(App, Entity, Handle<Image>)> {
-    let render = render_plugin_with_limits(
-        wgpu::Backends::PRIMARY,
-        features,
-        Some(wgpu::Limits {
-            max_storage_buffers_per_shader_stage: storage,
-            ..Default::default()
-        }),
-    )?;
+    eprintln!("terrain fixture device: storage {storage}, features {features:?}");
+    let render =
+        render_plugin_with_storage_limit(wgpu::Backends::PRIMARY, features, Some(storage))?;
+    eprintln!("terrain fixture installing app");
     let (mut app, camera) =
         app_tests::chunk_app_with(render, Msaa::Off, camera_views()[0], |app| {
             app.insert_resource(render_scene::ChunkTextureAssets::with_revision(
@@ -35,6 +31,7 @@ fn fixture(features: WgpuFeatures, storage: u32) -> Option<(App, Entity, Handle<
         panic!("terrain fixture requires an image target");
     };
     let image = image.handle.clone();
+    eprintln!("terrain fixture warming pipelines");
     test_time::eventually("terrain fixture pipelines", || {
         frame(&mut app);
         app.world()
@@ -120,6 +117,64 @@ fn empty_frame(app: &mut App, image: &Handle<Image>) -> Vec<u8> {
     previous
 }
 
+/// Writes optional completed frames and adapter details for physical-device acceptance.
+fn capture(app: &App, image: &Handle<Image>, name: &str, pixels: &[u8]) {
+    let Some(root) = std::env::var_os("CINNABAR_TERRAIN_CAPTURE_DIR") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    std::fs::create_dir_all(&root).unwrap();
+    let world = app.sub_app(RenderApp).world();
+    let device = world.resource::<RenderDevice>();
+    let adapter = world.resource::<RenderAdapter>();
+    let info = adapter.get_info();
+    let indirect = device
+        .features()
+        .contains(WgpuFeatures::INDIRECT_FIRST_INSTANCE);
+    let storage = device.limits().max_storage_buffers_per_shader_stage;
+    let name = format!("{name}-storage{storage}-indirect{indirect}");
+    let size = app
+        .world()
+        .resource::<Assets<Image>>()
+        .get(image)
+        .unwrap()
+        .texture_descriptor
+        .size;
+    image::save_buffer_with_format(
+        root.join(format!("{name}.png")),
+        pixels,
+        size.width,
+        size.height,
+        image::ColorType::Rgba8,
+        image::ImageFormat::Png,
+    )
+    .unwrap();
+    let metadata = serde_json::json!({
+        "adapter": info.name,
+        "backend": format!("{:?}", info.backend),
+        "device_type": format!("{:?}", info.device_type),
+        "driver": info.driver,
+        "driver_info": info.driver_info,
+        "storage_buffers": storage,
+        "indirect_feature": indirect,
+        "draw_mode": format!("{:?}", select_chunk_draw_mode(
+            adapter.get_downlevel_capabilities().flags,
+            device.features(),
+            Backends::from(info.backend),
+            direct_draws_required(&info),
+        )),
+        "gpu_culling": world.resource::<GpuCullSupport>().0,
+        "direct_occlusion": world.resource::<DirectOcclusionSupport>().0,
+        "width": size.width,
+        "height": size.height,
+    });
+    std::fs::write(
+        root.join(format!("{name}.json")),
+        serde_json::to_vec_pretty(&metadata).unwrap(),
+    )
+    .unwrap();
+}
+
 /// Captures uploaded terrain from both views, with an empty-frame control for each.
 fn terrain_frames(app: &mut App, camera: Entity, image: &Handle<Image>) -> Vec<Vec<bool>> {
     let views = camera_views();
@@ -132,10 +187,13 @@ fn terrain_frames(app: &mut App, camera: Entity, image: &Handle<Image>) -> Vec<V
     views
         .into_iter()
         .zip(empty)
-        .map(|(view, empty)| {
+        .enumerate()
+        .map(|(index, (view, empty))| {
             *app.world_mut().get_mut::<Transform>(camera).unwrap() = view;
             frame(app);
-            let mask = coverage(&read_pixels(app, image), &empty);
+            let pixels = read_pixels(app, image);
+            capture(app, image, &format!("view{index}"), &pixels);
+            let mask = coverage(&pixels, &empty);
             assert!(
                 mask.iter().any(|covered| *covered),
                 "terrain frame is empty"
@@ -154,7 +212,9 @@ fn terrain_frames(app: &mut App, camera: Entity, image: &Handle<Image>) -> Vec<V
 fn terrain_pixels_match_across_storage_limits_and_draw_modes() {
     let full = required_vertex_storage_buffers();
     let compact = minimum_vertex_storage_buffers();
-    let Some((mut reference, camera, image)) = fixture(WgpuFeatures::empty(), full) else {
+    let Some((mut reference, camera, image)) =
+        fixture(WgpuFeatures::empty(), full).or_else(|| fixture(WgpuFeatures::empty(), compact))
+    else {
         eprintln!("missing fixture: native GPU for terrain pixel comparisons");
         return;
     };
@@ -185,15 +245,31 @@ fn terrain_pixels_match_across_storage_limits_and_draw_modes() {
 /// Occlusion toggles and repeated uploads cannot leave a previously visible scene blank.
 #[test]
 fn terrain_pixels_survive_occlusion_toggles_and_reuploads() {
-    let features = WgpuFeatures::INDIRECT_FIRST_INSTANCE;
-    let Some((mut app, _, image)) = fixture(features, required_vertex_storage_buffers()) else {
-        eprintln!("missing fixture: native GPU with indirect draws for terrain reupload pixels");
-        return;
-    };
-    let empty = empty_frame(&mut app, &image);
-    insert_terrain(&mut app);
-    uploaded(&mut app, app_tests::KEYS.len());
-    let expected = coverage(&read_pixels(&app, &image), &empty);
+    for (features, storage) in [
+        (WgpuFeatures::empty(), minimum_vertex_storage_buffers()),
+        (
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+            required_vertex_storage_buffers(),
+        ),
+    ] {
+        let Some((mut app, _, image)) = fixture(features, storage) else {
+            eprintln!(
+                "missing fixture: native GPU supporting {features:?} and {storage} storage bindings"
+            );
+            continue;
+        };
+        assert_reuploads(&mut app, &image);
+    }
+}
+
+/// Preserves coverage through occlusion changes and complete residency replacement.
+fn assert_reuploads(app: &mut App, image: &Handle<Image>) {
+    let empty = empty_frame(app, image);
+    insert_terrain(app);
+    uploaded(app, app_tests::KEYS.len());
+    let pixels = read_pixels(app, image);
+    capture(app, image, "resident", &pixels);
+    let expected = coverage(&pixels, &empty);
     assert!(
         expected.iter().any(|covered| *covered),
         "terrain frame is empty"
@@ -206,10 +282,12 @@ fn terrain_pixels_survive_occlusion_toggles_and_reuploads() {
         app.world_mut()
             .resource_mut::<render_scene::ChunkOcclusionCulling>()
             .0 = enabled;
-        frame(&mut app);
+        frame(app);
+        let pixels = read_pixels(app, image);
+        capture(app, image, &format!("occlusion-{enabled}"), &pixels);
         assert_coverage(
             &expected,
-            &coverage(&read_pixels(&app, &image), &empty),
+            &coverage(&pixels, &empty),
             format_args!("occlusion enabled: {enabled}"),
         );
     }
@@ -220,14 +298,12 @@ fn terrain_pixels_survive_occlusion_toggles_and_reuploads() {
             .unwrap();
     }
     test_time::eventually("removed terrain pixels", || {
-        frame(&mut app);
-        read_pixels(&app, &image) == empty
+        frame(app);
+        read_pixels(app, image) == empty
     });
-    insert_terrain(&mut app);
-    uploaded(&mut app, app_tests::KEYS.len());
-    assert_coverage(
-        &expected,
-        &coverage(&read_pixels(&app, &image), &empty),
-        "terrain reuploaded",
-    );
+    insert_terrain(app);
+    uploaded(app, app_tests::KEYS.len());
+    let pixels = read_pixels(app, image);
+    capture(app, image, "reuploaded", &pixels);
+    assert_coverage(&expected, &coverage(&pixels, &empty), "terrain reuploaded");
 }

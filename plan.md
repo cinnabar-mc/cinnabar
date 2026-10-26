@@ -1097,9 +1097,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   The compact table still needs paging when its combined sources exceed one storage binding.
   Headless native-GPU fixtures compare completed terrain coverage across direct and indirect
   draws and both storage layouts, including occlusion toggles and removal/reupload controls.
-  These fixtures exercise the host driver; Android GPU-driver compatibility still needs devices.
-  Physical-device rendering and fallback
-  performance acceptance remain incomplete.
+  Native Android fixtures also capture completed frames through ADB, using the adapter's limits
+  while constraining the storage budget. Proprietary Adreno Vulkan drivers use direct terrain
+  draws after indirect draws produced empty frames on Adreno 619 and 750. Both devices pass the
+  coverage, occlusion and reupload fixtures with this fallback; PowerVR GE8320 also passes.
+  Mali-G57 and Mali-G78 fixture pipeline compilation still crashes without completed frames.
+  Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
+  remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates

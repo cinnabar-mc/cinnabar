@@ -54,6 +54,31 @@ They need no phone, game assets or server. Missing adapters or required capabili
 a named missing-fixture message; those cases remain unverified. These checks exercise client
 rendering logic on the host's driver and do not establish Android GPU-driver compatibility.
 
+The same tests can run directly on an arm64 Android device through ADB, without installing
+the app, downloading game assets or signing in. Prepare the executable before reserving a
+remote phone:
+
+```sh
+min_sdk=$(python3 -c 'import json; print(json.load(open("packaging/android/runtime.json"))["min_sdk"])')
+cargo ndk -t arm64-v8a --platform "$min_sdk" test --locked -p render --lib \
+  --features bevy/android-native-activity --no-run
+```
+
+Use the test executable printed by Cargo, optionally stripping its debug information with
+the NDK's `llvm-strip --strip-debug -o /tmp/terrain-test <test-executable>`. Then run:
+
+```sh
+bash packaging/android/test-terrain.sh /tmp/terrain-test <adb-serial> /tmp/terrain-capture
+```
+
+Use a fresh output directory for each device. The runner checks the device's Vulkan GPU,
+compares terrain across supported storage layouts and draw paths, and saves completed PNG
+frames with adapter metadata. Missing baseline GPU evidence fails the device run; unsupported
+optional paths remain named skips. Inspect those frames as well as the test result. The
+runner removes its temporary device files, but remote reservations must be released separately.
+These diagnostic scenes exercise the production terrain renderer; complete app startup,
+server streaming, shader packs and performance still need their own acceptance runs.
+
 ## Controls
 
 The stick moves, dragging elsewhere turns, and separate fingers hold jump, sneak, sprint,
