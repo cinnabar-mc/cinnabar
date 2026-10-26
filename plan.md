@@ -618,6 +618,8 @@ and rendered qualification remain incomplete.
   independently of placement state. Rendered trapdoor acceptance remains open.
   Held buttons retain their unpressed panel and first-person model offset independently
   of the inventory wall mounting. Rendered button acceptance remains open.
+  Held pressure plates retain their thin panel, inset cap artwork and item-space pivot
+  independently of floor placement. Rendered pressure-plate acceptance remains open.
   Ordinary held fences join their rail halves at the center and retain post-relative
   artwork. Held bamboo fences retain thicker slats and separate post and rail texture
   regions. Rendered fence acceptance remains open.

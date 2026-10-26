@@ -18,6 +18,7 @@ mod tests;
 mod buttons;
 mod fences;
 mod panes;
+mod pressure_plates;
 mod trapdoors;
 
 /// Composed block-item sheets and the visual IDs that select them.
@@ -85,6 +86,12 @@ pub fn collect_held(
             {
                 HeldDisplay::Button(visual)
             } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::PressurePlate)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::PressurePlate(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
                 == Some(assets::ModelFamily::Fence)
                 && assets::registry::pinned_block_identity(visual)
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
@@ -111,6 +118,7 @@ enum HeldDisplay {
     GlassPlate(u32),
     Trapdoor(u32),
     Button(u32),
+    PressurePlate(u32),
     Fence(u32, bool),
     Sprite,
 }
@@ -151,6 +159,7 @@ fn collect_shapes(
             Some(HeldDisplay::GlassPlate(shown)) => panes::model(world, shown),
             Some(HeldDisplay::Trapdoor(shown)) => trapdoors::model(world, shown),
             Some(HeldDisplay::Button(shown)) => buttons::model(world, shown),
+            Some(HeldDisplay::PressurePlate(shown)) => pressure_plates::model(world, shown),
             Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
             _ => None,
         }
@@ -175,6 +184,7 @@ fn collect_shapes(
                     HeldDisplay::GlassPlate(_)
                     | HeldDisplay::Trapdoor(_)
                     | HeldDisplay::Button(_)
+                    | HeldDisplay::PressurePlate(_)
                     | HeldDisplay::Fence(..),
                 ) => return None,
                 None if display.is_some()
