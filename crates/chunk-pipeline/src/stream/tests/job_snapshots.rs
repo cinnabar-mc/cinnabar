@@ -760,18 +760,58 @@ fn world_material_tags_reach_new_snapshots_and_remesh_until_they_are_cleared() {
     stream.resident.insert(key);
     let now = Instant::now();
     let revision = stream.mark_dirty_exact(key, now);
-    let before = stream.mesh_render_revision();
+    // The center section holds value 1.
     let tags: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8), (5, 2)]);
     stream.set_world_materials(Arc::clone(&tags), now);
+    assert!(
+        stream.revisions.is_current(key, revision),
+        "a request waits for the next poll"
+    );
+    assert!(Arc::ptr_eq(stream.requested_world_materials(), &tags));
+    stream.apply_world_materials(now);
     assert_eq!(&*capture_mesh(&stream, key).world_materials, &*tags);
-    assert!(stream.mesh_render_revision() > before);
     assert!(!stream.revisions.is_current(key, revision));
     // The same tags change nothing.
-    let unchanged = stream.mesh_render_revision();
-    stream.set_world_materials(Arc::clone(&tags), now);
-    assert_eq!(stream.mesh_render_revision(), unchanged);
+    let revision = stream.revisions.dirty(key).unwrap().revision;
+    stream.set_world_materials(Arc::from([(1_u32, 1_u8), (5, 2)]), now);
+    stream.apply_world_materials(now);
+    assert!(stream.revisions.is_current(key, revision));
     // Revocation clears them and remeshes back to Bedrock materials.
     stream.set_world_materials(Arc::from([]), now);
-    assert!(stream.mesh_render_revision() > unchanged);
+    stream.apply_world_materials(now);
+    assert!(!stream.revisions.is_current(key, revision));
     assert!(capture_mesh(&stream, key).world_materials.is_empty());
+}
+
+#[test]
+fn binding_a_block_remeshes_only_the_sections_that_hold_it() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    // The center holds value 1; every neighbour is uniformly value 3.
+    let neighbours: Vec<SubChunkKey> = center
+        .mesh_neighbourhood_dependents()
+        .filter(|key| *key != center)
+        .collect();
+    let mut revisions = Vec::new();
+    for key in neighbours.iter().copied().chain([center]) {
+        stream.resident.insert(key);
+        revisions.push((key, stream.mark_dirty_exact(key, now)));
+    }
+    let neighbour = neighbours[0];
+    stream.mesh_jobs.in_flight.insert(neighbour, revisions[0].1);
+    // Two requests before one poll apply once, as the latest.
+    stream.set_world_materials(Arc::from([(3_u32, 2_u8)]), now);
+    stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now);
+    stream.apply_world_materials(now);
+    for (key, revision) in &revisions {
+        assert_eq!(
+            stream.revisions.is_current(*key, *revision),
+            *key != center,
+            "only the section holding the bound block remeshes ({key:?})"
+        );
+    }
+    assert!(
+        stream.mesh_jobs.in_flight.contains_key(&neighbour),
+        "unaffected work is kept"
+    );
 }
