@@ -527,8 +527,10 @@ and rendered qualification remain incomplete.
   Movement retains signed byte rotations and exact network heights through tick and
   frame interpolation and predicted picking. Remote reset packets snap through the same
   owner as other player moves. Rotation-only player packets preserve active movement
-  and body yaw while applying pitch immediately. Specialized projectile and vehicle movement,
-  other remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  and body yaw while applying pitch immediately. Normal player moves place directly before
+  the first actor tick or when their target terrain is missing, preserving any active lerp.
+  Specialized projectile and vehicle movement, other remote-player packet modes,
+  stance and riding update timing, partially loaded terrain,
   and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.
