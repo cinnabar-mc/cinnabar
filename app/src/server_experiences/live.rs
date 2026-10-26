@@ -64,9 +64,12 @@ struct Instance<H> {
     pending_drawing_context: mod_host::presentation::Context,
     /// The helper's latest held references, independent of snapshot transfer progress.
     drawing_references: Vec<mod_render::retained::EntityKey>,
-    /// Counts changes to its world material declarations: each transaction carrying world
-    /// commands, and the stop that clears them.
+    /// Counts structural changes to its world material declarations: each transaction
+    /// carrying a world command other than a parameter-only update, and the stop that clears
+    /// them.
     world_revision: u64,
+    /// The materials whose parameters alone changed since the presenter last read them.
+    world_params: BTreeSet<u32>,
 }
 
 impl<H: Worker> Instance<H> {
@@ -139,6 +142,7 @@ impl<H> Instance<H> {
         if self.contributions.world != Default::default() {
             self.world_revision += 1;
         }
+        self.world_params.clear();
         self.contributions = Contributions::default();
         self.presentation.clear();
         self.drawing_references.clear();
@@ -294,6 +298,7 @@ impl<H: Worker> Live<H> {
                 pending_drawing_context: Default::default(),
                 drawing_references: Vec::new(),
                 world_revision: 0,
+                world_params: BTreeSet::new(),
             };
             if let Err(error) = admission {
                 let failure = CallFailure::startup(&instance.owner.bundle, &error);
@@ -606,7 +611,9 @@ impl<H: Worker> Live<H> {
     }
 
     /// Each running client part's world material declarations, in bundle order, with its share
-    /// of the signed GPU limit and its signed textures. A stopped part declares nothing.
+    /// of the signed GPU limit, what its share of the signed memory limit leaves once the
+    /// declarations themselves are charged, and its signed files. A stopped part declares
+    /// nothing.
     pub(super) fn world_bundles(
         &self,
     ) -> impl Iterator<Item = super::world_materials::BundleWorld<'_>> {
@@ -617,9 +624,27 @@ impl<H: Worker> Live<H> {
                 bundle,
                 world: &instance.contributions.world,
                 gpu_bytes: instance.capabilities.scope.gpu_bytes,
-                memory_bytes: instance.capabilities.scope.memory_bytes,
-                textures: &instance.files.textures,
+                memory_bytes: instance
+                    .capabilities
+                    .scope
+                    .memory_bytes
+                    .saturating_sub(instance.contributions.world.charge()),
+                files: &instance.files,
             })
+    }
+
+    /// Takes the materials whose parameters alone changed since the last call, with their
+    /// current parameters, as (bundle, material id, parameters).
+    pub(super) fn take_world_params(&mut self) -> Vec<(String, u32, Vec<f32>)> {
+        let mut changed = Vec::new();
+        for (bundle, instance) in &mut self.instances {
+            for id in std::mem::take(&mut instance.world_params) {
+                if let Some(spec) = instance.contributions.world.materials().get(&id) {
+                    changed.push((bundle.clone(), id, spec.params.clone()));
+                }
+            }
+        }
+        changed
     }
 
     /// Uses only host-owned status text in the persistent execution indicator; a stopped client
