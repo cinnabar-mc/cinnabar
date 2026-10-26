@@ -5687,6 +5687,7 @@ dependencies = [
  "anyhow",
  "cinnabar-cxb",
  "experience-runtime",
+ "experience-sdk",
  "image",
  "server-experience",
  "sha2",

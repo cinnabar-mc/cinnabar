@@ -46,6 +46,3 @@ fields = [
     { type = "integer", min = -100000000, max = 100000000 },
     { type = "integer", min = -100000000, max = 100000000 },
 ]
-
-# Filled by `cargo run -p material-fx`, because the hashes depend on the build.
-[files]
