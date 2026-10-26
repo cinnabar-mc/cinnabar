@@ -1209,19 +1209,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   New packet grants take effect after reconnecting; sessions without packet mods retain
   caching. Live server qualification remains incomplete.
   Local mods and server experiences still need runtime/input isolation, reload/reorder/
-  removal, consent, custom screen transitions and media qualification. Source polling
-  reuses immutable source bytes and verified packages while their selected files retain the
-  same identity and change timestamps, with content revalidated every two seconds (four
-  normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
-  Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as mouse Back elsewhere. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
-- Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Server Experience
   helpers have a restricted launch on Linux only (Landlock, seccomp, a delegated cgroup memory
   limit, resource limits, descriptor audit, contained compilation, fault-injection tests);
   macOS and Windows refuse it, Linux without a delegated memory controller refuses it, path
   metadata, inotify and robust-list reads remain a known information leak, the Linux launch
   awaits independent security review, and the client does not call it, so production execution
-  stays closed. Unmeasured shared
+  stays closed. Source polling
+  reuses immutable source bytes and verified packages while their selected files retain the
+  same identity and change timestamps, with content revalidated every two seconds (four
+  normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Generic resolved action filtering exposes synchronous module verdicts, retained
   releases and lifecycle reconciliation; timing and rates belong to modules, and
