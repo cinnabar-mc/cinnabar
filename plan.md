@@ -812,6 +812,7 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pending preparations before a new login.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Block-action carriers retain every accumulated action in tick order.
   Server-requested local swings retain their source and echo after inventory authority
   when the arm guard admits them; unknown-source parsing, matched live ordering,
   transport-batch acceptance and effect modifiers on authored item swing durations remain incomplete.

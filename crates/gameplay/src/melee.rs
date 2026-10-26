@@ -96,7 +96,7 @@ impl RefusedDestroy {
         // An abort carries the progress percent, which no refused start has made.
         let abort = action(protocol::BlockActionKind::AbortDestroy, 0);
         if self.reason == RefusedDestroyReason::CreativeNoBreak {
-            let _ = payload
+            payload
                 .actions
                 .push(action(protocol::BlockActionKind::StartDestroy, self.face));
             payload.creative_destroy = Some(crate::survival_mining::CreativeDestroyBlock {
@@ -105,8 +105,7 @@ impl RefusedDestroy {
                 face: self.face,
             });
         }
-        // At most two actions, within the bounded list.
-        let _ = payload.actions.push(abort);
+        payload.actions.push(abort);
         payload
     }
 }

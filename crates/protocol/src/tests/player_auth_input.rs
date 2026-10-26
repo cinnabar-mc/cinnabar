@@ -313,3 +313,46 @@ fn the_predicted_vehicle_flag_cannot_be_asserted_without_a_vehicle() {
         protocol::PlayerAuthInputError::UndeclaredVehicle
     );
 }
+
+/// Every accumulated action must survive the movement packet's encode/decode boundary.
+#[test]
+fn accumulated_block_actions_survive_one_input_packet() {
+    let mut interactions = protocol::PlayerAuthInputInteractions::default();
+    let expected: Vec<_> = (0..24)
+        .map(|index| protocol::BlockAction {
+            kind: if index % 2 == 0 {
+                protocol::BlockActionKind::StartDestroy
+            } else {
+                protocol::BlockActionKind::AbortDestroy
+            },
+            position: [index, 64, -index],
+            face: 1,
+        })
+        .collect();
+    for action in &expected {
+        interactions.block_actions.push(*action);
+    }
+    let packet = protocol::player_auth_input_with_interactions(snapshot(), &interactions).unwrap();
+    let decoded = decode_batch(encode(&packet).unwrap()).unwrap();
+    let packets::Packet::PlayerAuthInput(input) = &*decoded[0].data else {
+        panic!("expected player input");
+    };
+    assert!(input.input_data.contains(&InputData::Performblockactions));
+    let actions = input.player_block_actions.as_ref().unwrap();
+    assert_eq!(actions.len(), expected.len());
+    for (actual, expected) in actions.iter().zip(expected) {
+        assert_eq!(
+            actual.player_action_type.to_raw(),
+            expected.kind.wire_value()
+        );
+        assert_eq!(
+            [
+                actual.position.x.0,
+                actual.position.y.0,
+                actual.position.z.0
+            ],
+            expected.position
+        );
+        assert_eq!(actual.facing.0, i32::from(expected.face));
+    }
+}

@@ -11,8 +11,8 @@ mod prediction_sync;
 mod trace;
 
 pub use interactions::{
-    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
-    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputInteractions,
+    BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, InteractionEncodeError,
+    PlayerAuthInputInteractions,
 };
 pub use prediction_sync::{MovementPredictionSync, client_movement_prediction_sync};
 pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
