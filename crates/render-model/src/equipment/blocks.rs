@@ -92,6 +92,13 @@ pub fn collect_held(
             {
                 HeldDisplay::PressurePlate(visual)
             } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Slab)
+                && !flat
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Slab(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
                 == Some(assets::ModelFamily::Fence)
                 && assets::registry::pinned_block_identity(visual)
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
@@ -119,6 +126,7 @@ enum HeldDisplay {
     Trapdoor(u32),
     Button(u32),
     PressurePlate(u32),
+    Slab(u32),
     Fence(u32, bool),
     Sprite,
 }
@@ -160,6 +168,7 @@ fn collect_shapes(
             Some(HeldDisplay::Trapdoor(shown)) => trapdoors::model(world, shown),
             Some(HeldDisplay::Button(shown)) => buttons::model(world, shown),
             Some(HeldDisplay::PressurePlate(shown)) => pressure_plates::model(world, shown),
+            Some(HeldDisplay::Slab(shown)) => slab_model(world, shown),
             Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
             _ => None,
         }
@@ -185,6 +194,7 @@ fn collect_shapes(
                     | HeldDisplay::Trapdoor(_)
                     | HeldDisplay::Button(_)
                     | HeldDisplay::PressurePlate(_)
+                    | HeldDisplay::Slab(_)
                     | HeldDisplay::Fence(..),
                 ) => return None,
                 None if display.is_some()
@@ -335,6 +345,25 @@ fn template_model(
     )
     .ok()?;
     template_quads(&quads)
+}
+
+/// Centers the carried slab between its caps while retaining full-height double slabs.
+fn slab_model(
+    world: &RuntimeAssets,
+    visual: u32,
+) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
+    let (materials, mut vertices) =
+        cube_model(world, visual).or_else(|| template_model(world, visual))?;
+    let (min, max) = vertices
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), vertex| {
+            (min.min(vertex.position[1]), max.max(vertex.position[1]))
+        });
+    let center = (min + max) * 0.5;
+    for vertex in &mut vertices {
+        vertex.position[1] -= center;
+    }
+    Some((materials, vertices))
 }
 
 /// Maps bounded template geometry into the same material sheet used by held cubes.
