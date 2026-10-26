@@ -683,7 +683,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "material-fx"
 path = "tools/material-fx"
-allowed_dependencies = ["cinnabar-cxb", "experience-runtime", "server-experience"]
+allowed_dependencies = ["cinnabar-cxb", "experience-runtime", "experience-sdk", "server-experience"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]

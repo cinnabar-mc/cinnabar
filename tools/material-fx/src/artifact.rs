@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
+use experience_sdk::artifact::{ASSETS_DIR, INDEX_FILE, MANIFEST_FILE, SERVER_WASM};
 use sha2::{Digest, Sha256};
 
 use crate::{art, diorama, pictures};
@@ -115,7 +116,7 @@ fn block_textures() -> Vec<(String, Vec<u8>)> {
         .enumerate()
         .map(|(seed, (name, base, accent))| {
             (
-                format!("assets/{name}.png"),
+                format!("{ASSETS_DIR}/{name}.png"),
                 art::png(&pictures::block_look(*base, *accent, seed as u32)),
             )
         })
@@ -130,30 +131,30 @@ fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
-/// `experience.toml` with every other artifact file indexed under `[files]` by its SHA-256.
-pub fn manifest(source: &str, files: &[(&str, &[u8])]) -> String {
-    let mut manifest = source.trim_end().to_owned();
-    manifest.push('\n');
+/// The artifact's `files.toml` index: each of `files` by its SHA-256, one `"<path>" = "<sha256>"`
+/// line each.
+pub fn index(files: &[(&str, &[u8])]) -> String {
+    let mut index = String::new();
     for (path, bytes) in files {
         let digest = Sha256::digest(bytes);
         let hex = digest.iter().fold(String::new(), |mut hex, byte| {
             let _ = write!(hex, "{byte:02x}");
             hex
         });
-        let _ = writeln!(manifest, "\"{path}\" = \"{hex}\"");
+        let _ = writeln!(index, "\"{path}\" = \"{hex}\"");
     }
-    manifest
+    index
 }
 
 /// Builds the artifact under `out/experiences/materialfx`, keys under `out/keys`, and the
 /// client part bundle under `out/cxb`. Existing keys are kept, so a client that pinned the
 /// server keeps trusting it.
 pub fn build(root: &Path, out: &Path, guests: &Guests) -> Result<Built> {
-    let source = std::fs::read_to_string(root.join(SOURCE).join("experience.toml"))?;
+    let source = std::fs::read(root.join(SOURCE).join(MANIFEST_FILE))?;
     let artifact = out.join("experiences").join(ID);
     let textures = client_textures();
     let blocks = block_textures();
-    let mut files: Vec<(&str, &[u8])> = vec![("server.wasm", &guests.server)];
+    let mut files: Vec<(&str, &[u8])> = vec![(SERVER_WASM, &guests.server)];
     files.extend(
         blocks
             .iter()
@@ -167,8 +168,9 @@ pub fn build(root: &Path, out: &Path, guests: &Guests) -> Result<Built> {
     for (path, bytes) in &files {
         write(&artifact.join(path), bytes)?;
     }
-    let manifest_path = artifact.join("experience.toml");
-    write(&manifest_path, manifest(&source, &files).as_bytes())?;
+    let manifest_path = artifact.join(MANIFEST_FILE);
+    write(&manifest_path, &source)?;
+    write(&artifact.join(INDEX_FILE), index(&files).as_bytes())?;
     let keys = out.join("keys");
     std::fs::create_dir_all(&keys)?;
     let (publisher, server) = (keys.join("publisher.seed"), keys.join("server.seed"));
