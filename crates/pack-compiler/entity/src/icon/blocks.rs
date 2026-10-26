@@ -256,8 +256,11 @@ impl IconBlocks {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return Ok(None);
         };
-        if assets::facts::pack::face_slots(&record.name)
-            != Some(assets::facts::pack::FaceSlots::Pumpkin)
+        let bookshelf =
+            record.name.as_ref() == assets::facts::pack::PackBlock::ChiseledBookshelf.identifier();
+        if !bookshelf
+            && assets::facts::pack::face_slots(&record.name)
+                != Some(assets::facts::pack::FaceSlots::Pumpkin)
         {
             return Ok(None);
         }
@@ -266,9 +269,20 @@ impl IconBlocks {
         };
         let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
         for face in BlockFace::ALL {
-            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+            let source_face = if bookshelf {
+                match face {
+                    BlockFace::North => BlockFace::South,
+                    BlockFace::South => BlockFace::North,
+                    BlockFace::West => BlockFace::East,
+                    BlockFace::East => BlockFace::West,
+                    BlockFace::Up | BlockFace::Down => face,
+                }
+            } else {
+                face
+            };
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, source_face)
                 .map(String::into_boxed_str)
-                .or_else(|| resolve_carried_fallback_key(&pack.blocks, record, face))
+                .or_else(|| resolve_carried_fallback_key(&pack.blocks, record, source_face))
             else {
                 return Ok(None);
             };
@@ -663,3 +677,7 @@ mod button_tests;
 #[cfg(test)]
 #[path = "blocks/pumpkin_tests.rs"]
 mod pumpkin_tests;
+
+#[cfg(test)]
+#[path = "blocks/bookshelf_tests.rs"]
+mod bookshelf_tests;

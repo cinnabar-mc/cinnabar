@@ -603,6 +603,8 @@ and rendered qualification remain incomplete.
   Pumpkin GUI cubes keep their class-specific front artwork independently of held face
   sheets; jack o’lantern GUI cubes retain uniform texture brightness. Shared cube
   silhouette and texture-coordinate acceptance remains incomplete.
+  Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
+  placed book counts and the held world model.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Terrain-backed GUI meshes retain independently averaged texture levels and choose a

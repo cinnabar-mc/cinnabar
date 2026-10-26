@@ -76,9 +76,9 @@ pub(super) fn run(
     }
     let mut gui_tiles = BTreeMap::new();
     if let Some(blocks) = blocks {
-        for (&visual, held) in &carried_tiles {
+        for &visual in block_plan.keys() {
             if let Some(gui) = blocks.gui_cube_tiles(root, BlockVisualId(visual))?
-                && &gui != held
+                && carried_tiles.get(&visual) != Some(&gui)
             {
                 gui_tiles.insert(visual, gui);
             }
@@ -115,7 +115,12 @@ pub(super) fn run(
                         cube_blending(world, BlockVisualId(visual)),
                     )
                     .raster(),
-                    None,
+                    // GUI-only cube artwork keeps the world model binding for held rendering.
+                    (!carried_tiles.contains_key(&visual)).then(|| {
+                        blocks.map_or(BlockVisualId(visual), |blocks| {
+                            blocks.icon_state(BlockVisualId(visual))
+                        })
+                    }),
                 ))
             } else if plan.is_ok()
                 && !blocks
