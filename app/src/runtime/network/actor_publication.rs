@@ -71,13 +71,30 @@ pub(crate) fn advance_actor_motion(
     mut state: ResMut<client_presentation::actor_publication::ActorFrameState>,
     physics: Option<Res<LocalPhysicsController>>,
     time: Res<Time<Real>>,
+    network: Option<
+        Res<client_runtime::network::NetworkHandle<super::resource_packs::PackApplication>>,
+    >,
 ) {
+    if let Some(stream) = world.stream.as_mut() {
+        stream.capture_pick_motion(
+            network
+                .as_ref()
+                .and_then(|network| network.pick_trace())
+                .is_some(),
+        );
+    }
     client_presentation::actor_publication::advance_actor_motion(
         &mut state,
         world.stream.as_mut(),
         time.delta().min(simulation_clock::MAX_FRAME_ELAPSED),
         physics.and_then(|physics| physics.predicted_vehicle_feed()),
     );
+    if world.stream.is_some()
+        && let Some(trace) = network.as_ref().and_then(|network| network.pick_trace())
+        && let Some(step) = state.motion_step()
+    {
+        trace.advance(step.ticks, step.partial_tick);
+    }
 }
 
 /// Captures live owners and evaluates actor visuals after this frame's sends.

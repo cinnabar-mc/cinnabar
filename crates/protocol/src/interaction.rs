@@ -456,6 +456,14 @@ pub fn use_item_as_attack_packet(
     Ok(packet)
 }
 
+/// Whether a packet sends an actor attack transaction.
+#[must_use]
+pub fn is_actor_attack(packet: &crate::Packet) -> bool {
+    matches!(&*packet.data, packets::Packet::InventoryTransaction(packet)
+        if matches!(&packet.transaction, InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction { action_type, .. }
+            if *action_type == ItemUseOnActorInventoryTransactionActionType::Attack))
+}
+
 /// Native action aim rotation runs for actor attacks and held-item releases.
 #[must_use]
 pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {

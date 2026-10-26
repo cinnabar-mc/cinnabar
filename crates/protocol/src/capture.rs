@@ -1,14 +1,17 @@
-//! Capture v2: a recording of one session's packets, which `bedrock-replay` reads.
+//! Versioned packet captures, including opt-in numeric pick diagnostics.
 //!
-//! Every field is little-endian. The header is the magic `CNBRCAP2`, a `u16` format version,
-//! the `i32` protocol version and the `u64` start time in Unix milliseconds. Each record is a
-//! `u8` kind, `u32` packet ID, `u64` microseconds since the start, `u32` body length and the
-//! body. Kinds 0 and 1 are packets in their [`PacketDirection`]; kind 2 is a gap whose 8-byte
-//! body counts the packets dropped at that point; kind 3, with an empty body, ends a capture
-//! its size limit cut short. Markers carry packet ID 0.
+//! All fields are little-endian. The header is `CNBRCAP2`, a `u16` format version,
+//! `i32` protocol version and `u64` Unix start milliseconds. Record headers contain a
+//! `u8` kind, `u32` packet ID, `u64` elapsed microseconds and `u32` body length.
+//! Versions 2 and 3 use kinds 0/1 for clientbound/serverbound packets, 2 for an
+//! eight-byte dropped-record count and 3 for an empty final size-limit marker.
+//! Version 3 prefixes packet bodies with their `u64` session packet-tap sequence.
+//! Kind 4 contains a `u64` associated packet sequence and a fixed numeric pick payload
+//! described by [`PickState`]. Markers and picks carry packet ID zero. Older readers
+//! reject version 3 before reading any records. This reader also accepts version 2.
 //!
-//! A capture whose writer stopped mid-write, as when the client crashed, ends inside a record;
-//! [`read_capture`] keeps the complete records before it and reports the capture cut short.
+//! A writer stopped mid-write leaves a partial final record; [`read_capture`] keeps
+//! complete preceding records and reports the file cut short.
 
 use std::io::{self, Write};
 
@@ -17,10 +20,13 @@ use thiserror::Error;
 
 use crate::packet_tap::PacketDirection;
 
-/// The first bytes of every v2 capture.
+pub mod pick;
+pub use pick::{PickState, PickTrace};
+
+/// The stable magic of every versioned capture.
 pub const CAPTURE_MAGIC: [u8; 8] = *b"CNBRCAP2";
 /// The format version following the magic.
-pub const CAPTURE_VERSION: u16 = 2;
+pub const CAPTURE_VERSION: u16 = 3;
 /// Bytes before the first record.
 pub const CAPTURE_HEADER_BYTES: u64 = 8 + 2 + 4 + 8;
 /// Bytes of a record before its body.
@@ -40,14 +46,22 @@ pub struct CaptureHeader {
 }
 
 /// One capture record.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CaptureRecord {
     /// A packet body, after its header varint.
     Packet {
+        /// Session packet-tap sequence; zero in legacy v2 files.
+        sequence: u64,
         direction: PacketDirection,
         packet_id: u32,
         elapsed_us: u64,
         body: Bytes,
+    },
+    /// The frozen pick that produced one outgoing actor action.
+    Pick {
+        elapsed_us: u64,
+        packet_sequence: u64,
+        state: PickState,
     },
     /// `dropped` packets were not recorded at this point.
     Gap { elapsed_us: u64, dropped: u64 },
@@ -61,7 +75,8 @@ impl CaptureRecord {
     pub fn encoded_len(&self) -> u64 {
         RECORD_HEADER_BYTES
             + match self {
-                Self::Packet { body, .. } => body.len() as u64,
+                Self::Packet { body, .. } => 8 + body.len() as u64,
+                Self::Pick { .. } => 8 + pick::PICK_BYTES as u64,
                 Self::Gap { .. } => u64::from(GAP_BODY_BYTES),
                 Self::Truncated { .. } => 0,
             }
@@ -70,11 +85,31 @@ impl CaptureRecord {
     fn write_to(&self, out: &mut impl Write) -> io::Result<()> {
         let (kind, packet_id, elapsed_us, body): (u8, u32, u64, &[u8]) = match self {
             Self::Packet {
+                sequence,
                 direction,
                 packet_id,
                 elapsed_us,
                 body,
-            } => (*direction as u8, *packet_id, *elapsed_us, body.as_ref()),
+            } => {
+                let length = u32::try_from(body.len())
+                    .ok()
+                    .and_then(|n| n.checked_add(8))
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "packet body over 4 GiB")
+                    })?;
+                write_record_header(out, *direction as u8, *packet_id, *elapsed_us, length)?;
+                out.write_all(&sequence.to_le_bytes())?;
+                return out.write_all(body);
+            }
+            Self::Pick {
+                elapsed_us,
+                packet_sequence,
+                state,
+            } => {
+                write_record_header(out, 4, 0, *elapsed_us, 8 + pick::PICK_BYTES as u32)?;
+                out.write_all(&packet_sequence.to_le_bytes())?;
+                return out.write_all(&state.encode());
+            }
             Self::Gap {
                 elapsed_us,
                 dropped,
@@ -159,6 +194,7 @@ impl<W: Write> CaptureWriter<W> {
         if self.written + length + RECORD_HEADER_BYTES > self.limit {
             let elapsed_us = match record {
                 CaptureRecord::Packet { elapsed_us, .. }
+                | CaptureRecord::Pick { elapsed_us, .. }
                 | CaptureRecord::Gap { elapsed_us, .. }
                 | CaptureRecord::Truncated { elapsed_us } => *elapsed_us,
             };
@@ -170,6 +206,35 @@ impl<W: Write> CaptureWriter<W> {
         record.write_to(&mut self.out)?;
         self.written += length;
         Ok(true)
+    }
+
+    /// Writes associated records together or replaces both with the final size-limit marker.
+    pub fn write_pair(
+        &mut self,
+        record: &CaptureRecord,
+        associated: Option<&CaptureRecord>,
+    ) -> io::Result<bool> {
+        if self.ended {
+            return Ok(false);
+        }
+        if let Some(associated) = associated {
+            if self.written + record.encoded_len() + associated.encoded_len() + RECORD_HEADER_BYTES
+                > self.limit
+            {
+                let elapsed_us = match record {
+                    CaptureRecord::Packet { elapsed_us, .. } => *elapsed_us,
+                    _ => 0,
+                };
+                CaptureRecord::Truncated { elapsed_us }.write_to(&mut self.out)?;
+                self.written += RECORD_HEADER_BYTES;
+                self.ended = true;
+                return Ok(false);
+            }
+            self.write(record)?;
+            self.write(associated)
+        } else {
+            self.write(record)
+        }
     }
 
     /// Bytes written so far, header included.
@@ -208,22 +273,23 @@ pub enum CaptureError {
     AfterEnd { record: usize },
 }
 
-/// A v2 capture as read.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// A versioned capture as read.
+#[derive(Clone, Debug, PartialEq)]
 pub struct CaptureFile {
+    pub version: u16,
     pub header: CaptureHeader,
     pub records: Vec<CaptureRecord>,
     /// The file ends inside a record, which was left out: its writer stopped mid-write.
     pub cut_short: bool,
 }
 
-/// Whether `data` starts like a v2 capture.
+/// Whether `data` starts with the versioned capture magic.
 #[must_use]
 pub fn is_capture_v2(data: &[u8]) -> bool {
     data.starts_with(&CAPTURE_MAGIC)
 }
 
-/// Reads a whole v2 capture of at most [`MAX_CAPTURE_BYTES`]; packet bodies are views of
+/// Reads a whole versioned capture of at most [`MAX_CAPTURE_BYTES`]; packet bodies are views of
 /// `data`. A final record the file ends inside is dropped and reported as
 /// [`CaptureFile::cut_short`]; any other malformed record rejects the capture.
 pub fn read_capture(data: Bytes) -> Result<CaptureFile, CaptureError> {
@@ -241,7 +307,7 @@ fn read_capture_within(data: Bytes, max_bytes: u64) -> Result<CaptureFile, Captu
         return Err(CaptureError::TruncatedHeader);
     }
     let version = u16::from_le_bytes(data[8..10].try_into().expect("two bytes"));
-    if version != CAPTURE_VERSION {
+    if version != 2 && version != CAPTURE_VERSION {
         return Err(CaptureError::Version(version));
     }
     let header = CaptureHeader {
@@ -273,12 +339,40 @@ fn read_capture_within(data: Bytes, max_bytes: u64) -> Result<CaptureFile, Captu
         };
         let marker = |name| CaptureError::Marker { record, kind: name };
         records.push(match (PacketDirection::from_wire(kind), kind) {
-            (Some(direction), _) => CaptureRecord::Packet {
-                direction,
-                packet_id,
-                elapsed_us,
-                body: data.slice(start..end),
-            },
+            (Some(direction), _) => {
+                let (sequence, body_start) = if version >= 3 {
+                    if length < 8 {
+                        return Err(marker("packet sequence"));
+                    }
+                    (
+                        u64::from_le_bytes(data[start..start + 8].try_into().expect("eight bytes")),
+                        start + 8,
+                    )
+                } else {
+                    (0, start)
+                };
+                CaptureRecord::Packet {
+                    sequence,
+                    direction,
+                    packet_id,
+                    elapsed_us,
+                    body: data.slice(body_start..end),
+                }
+            }
+            (None, 4) if version >= 3 => {
+                if packet_id != 0 || length != 8 + pick::PICK_BYTES {
+                    return Err(marker("pick"));
+                }
+                let packet_sequence =
+                    u64::from_le_bytes(data[start..start + 8].try_into().expect("eight bytes"));
+                let state =
+                    PickState::decode(&data[start + 8..end]).ok_or_else(|| marker("pick"))?;
+                CaptureRecord::Pick {
+                    elapsed_us,
+                    packet_sequence,
+                    state,
+                }
+            }
             (None, KIND_GAP) => {
                 if packet_id != 0 || length != GAP_BODY_BYTES as usize {
                     return Err(marker("gap"));
@@ -304,6 +398,7 @@ fn read_capture_within(data: Bytes, max_bytes: u64) -> Result<CaptureFile, Captu
         offset = end;
     }
     Ok(CaptureFile {
+        version,
         header,
         records,
         cut_short,

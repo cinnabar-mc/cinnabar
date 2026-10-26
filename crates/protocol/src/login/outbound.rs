@@ -46,12 +46,14 @@ enum BatchState {
 struct PendingBatch {
     state: BatchState,
     status_epoch: Option<u64>,
+    picks: Vec<crate::packet_tap::PickEntry>,
 }
 
 impl PendingBatch {
     /// Transfers ordinary packet ownership before the first capacity or flush wait.
     fn new(packets: Vec<Packet>, opportunity: Option<Moment>) -> Self {
         Self {
+            picks: Vec::new(),
             state: BatchState::Queued {
                 packets,
                 opportunity,
@@ -80,7 +82,19 @@ impl PendingBatch {
                         self.status_epoch = Some(status.epoch);
                         packets.push(Packet::new(packet));
                     }
-                    let Some(frame) = crate::session_transport::batch_frame(packets) else {
+                    let frame = if writer.captures_picks()
+                        && packets.iter().any(|packet| packet.pick.is_some())
+                    {
+                        crate::session_transport::batch_frame_with_picks(packets).map(
+                            |(frame, picks)| {
+                                self.picks = picks;
+                                frame
+                            },
+                        )
+                    } else {
+                        crate::session_transport::batch_frame(packets)
+                    };
+                    let Some(frame) = frame else {
                         self.state = BatchState::Done;
                         continue;
                     };
@@ -117,8 +131,10 @@ impl PendingBatch {
                     if accepting.is_none() {
                         let frame = batch.frame.clone();
                         let writer = writer.clone();
+                        let picks = self.picks.clone();
+                        let replaced = batch.replaced;
                         *accepting = Some(Mutex::new(Box::pin(async move {
-                            writer.accept_prepared(frame).await
+                            writer.accept_prepared_picks(frame, picks, replaced).await
                         })));
                     }
                     // Admission cannot suspend after committing its permit. Keep the epoch

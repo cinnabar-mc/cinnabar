@@ -803,6 +803,7 @@ pub(crate) struct ActorStore {
     /// the frame advances the live actors; reused across frames.
     pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
+    capture_picks: bool,
     local_view_bobbing: bool,
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.

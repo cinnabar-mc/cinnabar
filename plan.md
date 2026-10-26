@@ -62,6 +62,8 @@ closes no gate and provides no new runtime or performance evidence.
   conformance findings, classify every decode error, and qualify frame and mutation
   latency against the current [live-testing requirements](docs/agents/live-testing.md).
   Use the current headless client workflow for scripted tests; keep captures local.
+  Opt-in packet captures retain attack and mouseover pick geometry, input-frame identities,
+  applied packet correspondence and remote actor time. Live comparison evidence remains open.
   Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
   live custom-dimension transfer acceptance remains open.
 

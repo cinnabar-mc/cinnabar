@@ -106,7 +106,7 @@ pub use interaction::{
     HeldItemRequest, ItemUseHand, ItemUseTrigger, PredictedSlotChange, SwingSource,
     click_air_packet, click_block_packet, click_block_transaction_packet,
     creative_destroy_block_packet, deny_destroy_block_packet, destroy_block_packet,
-    entity_hover_packet, is_aim_assist_rotation_action, release_item_packet,
+    entity_hover_packet, is_actor_attack, is_aim_assist_rotation_action, release_item_packet,
     start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
     swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };

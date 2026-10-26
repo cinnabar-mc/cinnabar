@@ -16,11 +16,37 @@ use crate::{
 use client_interaction::mining::hand_interaction_selection;
 use gameplay::mining::{creative_reach, protocol_input_mode, survival_reach};
 
+/// Attaches a frozen pick only to actor attacks built from that pick.
+pub(crate) fn capture_packets(
+    mut packets: Vec<protocol::Packet>,
+    state: Option<protocol::capture::PickState>,
+) -> Vec<protocol::Packet> {
+    if let Some(state) = state {
+        for packet in &mut packets {
+            if protocol::is_actor_attack(packet) {
+                packet.capture_pick(state);
+            }
+        }
+    }
+    packets
+}
+
+/// Numeric input identity at the transaction or publication boundary.
+pub(super) fn capture_identity(context: &MeleeContext) -> [u64; 2] {
+    context.input.snapshot().map_or([0; 2], |input| {
+        [
+            input.authority_generation.get().get(),
+            input.frame_sequence.get(),
+        ]
+    })
+}
+
 /// One actor's identity and its ordered boxes in the frame's geometry buffer.
 #[derive(Clone)]
 struct FrameActor {
     identity: ActorLifetimeId,
     boxes: Range<usize>,
+    capture: Option<protocol::capture::PickState>,
 }
 
 /// Published picking inputs contain no hit, classification or admission result.
@@ -34,6 +60,7 @@ struct Frame {
     index: HashMap<u64, usize>,
     boxes: Vec<([f32; 3], [f32; 3])>,
     assisted: Option<AimAssistTarget>,
+    capture: Option<protocol::capture::PickState>,
 }
 
 impl Frame {
@@ -48,6 +75,20 @@ impl Frame {
             client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
         self.position_authority = position_authority;
         self.assisted = context.aim.target;
+        let trace = context.network.pick_trace();
+        self.capture = trace.map(|trace| {
+            let (remote_tick, frame_alpha) = trace.clock();
+            let pick_frame = capture_identity(context);
+            protocol::capture::PickState {
+                pick_frame,
+                remote_tick,
+                frame_alpha,
+                applied_sequence: context.client_world.stream.as_ref().map_or(0, |stream| {
+                    trace.packet_sequence(stream.committed_sequence())
+                }),
+                ..Default::default()
+            }
+        });
         self.actors.clear();
         self.index.clear();
         self.boxes.clear();
@@ -59,8 +100,29 @@ impl Frame {
                 self.actors.push(FrameActor {
                     identity: world.actor_lifetime(actor.runtime_id).unwrap(),
                     boxes: start..self.boxes.len(),
+                    capture: self.capture.map(|mut state| {
+                        let trace = trace.expect("capture publication");
+                        state.target = actor.runtime_id;
+                        state.last_movement_sequence =
+                            trace.packet_sequence(actor.movement_revision);
+                        (
+                            state.previous_position,
+                            state.current_position,
+                            state.interpolation_steps,
+                        ) = world.pick_motion(actor);
+                        state
+                    }),
                 });
             }
+        }
+        if let Some(trace) = trace {
+            trace.retire(
+                context
+                    .client_world
+                    .stream
+                    .as_ref()
+                    .map_or(0, |stream| stream.committed_sequence()),
+            );
         }
         self.index.extend(
             self.actors
@@ -136,6 +198,7 @@ pub(crate) struct ResolvedTarget {
     pub(crate) direction: [f32; 3],
     pub(crate) action_rotation: Option<Quat>,
     pub(super) reach: AttackReach,
+    pub(crate) capture: Option<protocol::capture::PickState>,
 }
 
 /// Effective picking and attack distances that authorize one frozen actor action.
@@ -341,7 +404,41 @@ fn resolve_frame(
         }),
         _ => None,
     };
+    let capture = frame
+        .capture
+        .filter(|_| context.network.pick_trace().is_some())
+        .map(|mut state| {
+            state.press_frame = [identity.0.get().get(), identity.1.get()];
+            state.transaction_frame = capture_identity(context);
+            state.eye = origin;
+            state.direction = ray.direction().to_array();
+            state.assisted = assisted_actor;
+            if let Crosshair::Actor(hit) = crosshair {
+                let retained = &frame.actors[frame.index[&hit.runtime_id]];
+                let actor_state = retained.capture.expect("capture actor publication");
+                state.target = actor_state.target;
+                state.previous_position = actor_state.previous_position;
+                state.current_position = actor_state.current_position;
+                state.interpolation_steps = actor_state.interpolation_steps;
+                state.last_movement_sequence = actor_state.last_movement_sequence;
+                state.applied_sequence = actor_state.applied_sequence;
+                state.hit = hit.point;
+                if !assisted_actor {
+                    let actor = world.actor(hit.runtime_id).expect("eligible actor");
+                    state.pick_box = gameplay::melee::pick_box(
+                        frame.hit_boxes(hit.runtime_id),
+                        actor.entity_fact.pick_radius,
+                        origin,
+                        ray.direction().to_array(),
+                        actor_reach,
+                    )
+                    .map(|(_, bounds)| bounds);
+                }
+            }
+            state
+        });
     let value = ResolvedTarget {
+        capture,
         hover,
         crosshair,
         action_rotation: frame.action_rotation,
