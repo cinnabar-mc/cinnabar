@@ -10,7 +10,10 @@ use std::collections::{HashMap, HashSet};
 /// scanned once per mesh, and the sections each view draws this frame.
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct WorldTerrainSections {
-    masks: HashMap<Entity, (u64, u64)>,
+    /// Each section's mesh generation, slot mask and the refresh that last saw it.
+    masks: HashMap<Entity, (u64, u64, bool)>,
+    /// Flips each refresh, so sections a refresh did not see are dropped without a new map.
+    stamp: bool,
     /// Per view: the sections it draws, with their slot masks, and its cube and model fallback
     /// pipelines.
     views: HashMap<Entity, ViewDraws>,
@@ -23,6 +26,8 @@ pub(in crate::chunk) struct WorldTerrainSections {
     /// Whether a section's mesh may still carry a tag: set while any material is published,
     /// cleared once none is and no section's mesh carries a tag.
     tagged: bool,
+    /// The slots resident meshes carry, one bit each.
+    carried: u64,
 }
 
 impl WorldTerrainSections {
@@ -39,34 +44,44 @@ impl WorldTerrainSections {
     /// Whether this frame queues the world material terrain passes: while any material is
     /// published, and after the last is revoked until no section's mesh carries a tag, so a
     /// mesh tagged before revocation draws its Bedrock fallback until its remesh replaces it
-    /// rather than vanishing. Without materials it rescans every section in `all`, each with
-    /// its mesh generation, not only the visible ones; `mask_of` reads a section's slot mask.
+    /// rather than vanishing. Meanwhile it keeps every section's slot mask of `all` (each with
+    /// its mesh generation) current, reading a changed one with `mask_of`, and records the
+    /// slots they carry; a session that never published a material scans nothing.
     fn queueing(
         &mut self,
         has_materials: bool,
         all: impl Iterator<Item = (Entity, u64)>,
         mask_of: impl Fn(Entity) -> u64,
     ) -> bool {
-        if has_materials {
-            self.tagged = true;
-            return true;
+        if !has_materials && !self.tagged {
+            return false;
         }
-        if self.tagged {
-            let mut masks = HashMap::new();
-            for (entity, generation) in all {
-                let mask = match self.masks.get(&entity) {
-                    Some((cached, mask)) if *cached == generation => *mask,
-                    _ => mask_of(entity),
-                };
-                masks.insert(entity, (generation, mask));
+        self.stamp = !self.stamp;
+        let stamp = self.stamp;
+        let mut carried = 0;
+        for (entity, generation) in all {
+            let entry = self
+                .masks
+                .entry(entity)
+                .or_insert_with(|| (generation, mask_of(entity), stamp));
+            if entry.0 != generation {
+                *entry = (generation, mask_of(entity), stamp);
             }
-            self.masks = masks;
-            self.tagged = self.masks.values().any(|(_, mask)| *mask != 0);
+            entry.2 = stamp;
+            carried |= entry.1;
         }
+        self.masks.retain(|_, (_, _, seen)| *seen == stamp);
+        self.carried = carried;
+        self.tagged = has_materials || carried != 0;
         if !self.tagged {
             self.masks.clear();
         }
         self.tagged
+    }
+
+    /// The slots resident meshes carried at the last refresh, one bit each.
+    pub(in crate::chunk) fn carried(&self) -> u64 {
+        if self.tagged { self.carried } else { 0 }
     }
 }
 
@@ -176,7 +191,10 @@ pub(in crate::chunk) fn queue_world_material_chunks(
     views: Query<super::super::draw::ChunkViewQuery>,
     instances: Query<(Entity, &ChunkRenderInstance)>,
     pack: render_scene::shaderpack::ShaderPackDrawnViews,
-    failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
+    (failures, carried): (
+        Option<Res<render_scene::world_material::WorldMaterialFailures>>,
+        Option<Res<render_scene::world_material::WorldMaterialCarried>>,
+    ),
 ) {
     let sections = &mut *sections;
     sections.views.clear();
@@ -201,7 +219,11 @@ pub(in crate::chunk) fn queue_world_material_chunks(
         &world,
         |key| key.world.program,
     );
-    if !sections.queueing(world.has_materials(), all, mask_of) {
+    let queueing = sections.queueing(world.has_materials(), all, mask_of);
+    if let Some(carried) = carried.as_deref() {
+        carried.set(sections.carried());
+    }
+    if !queueing {
         return;
     }
     let opaque_draw = draw_functions
@@ -221,12 +243,8 @@ pub(in crate::chunk) fn queue_world_material_chunks(
                 continue;
             };
             let mask = match sections.masks.get(entity) {
-                Some((generation, mask)) if *generation == instance.generation => *mask,
-                _ => {
-                    let mask = slot_mask(instance);
-                    sections.masks.insert(*entity, (instance.generation, mask));
-                    mask
-                }
+                Some((generation, mask, _)) if *generation == instance.generation => *mask,
+                _ => slot_mask(instance),
             };
             if mask != 0 {
                 draws.push((*entity, mask));
@@ -311,10 +329,6 @@ pub(in crate::chunk) fn queue_world_material_chunks(
             failures,
         );
     }
-    // Despawned sections leave no stale masks behind.
-    sections
-        .masks
-        .retain(|entity, _| instances.contains(*entity));
 }
 
 /// Draws one section's tagged cube quads and model draws with the current pipeline of each
@@ -499,27 +513,44 @@ mod tests {
     fn revoked_materials_keep_queueing_the_fallback_until_no_mesh_carries_a_tag() {
         let section = |index| Entity::from_raw_u32(index).unwrap();
         let mut sections = WorldTerrainSections::default();
-        let none = std::iter::empty();
+        let scanned = &std::cell::Cell::new(0);
+        let count = |mask: u64| {
+            move |_| {
+                scanned.set(scanned.get() + 1);
+                mask
+            }
+        };
         assert!(
-            !sections.queueing(false, none, |_| 0),
+            !sections.queueing(false, [(section(1), 1)].into_iter(), count(0b1)),
             "a session without world materials queues nothing"
         );
-        assert!(sections.queueing(true, std::iter::empty(), |_| 0));
-        // Revoked: section 1's mesh still carries its tag, section 2's is already untagged.
+        assert_eq!(scanned.get(), 0, "and scans no section");
+        // Section 1 carries slot 0 and section 2 carries nothing.
         let stale = |entity| if entity == section(1) { 0b1 } else { 0 };
         let all = || [(section(1), 7), (section(2), 3)].into_iter();
+        assert!(sections.queueing(true, all(), stale));
+        assert_eq!(sections.carried(), 0b1);
+        // Revoked: section 1's mesh still carries its tag.
         assert!(
             sections.queueing(false, all(), stale),
             "a stale tagged mesh draws its Bedrock fallback instead of vanishing"
         );
         let plan = plan_view(vec![(section(1), 0b1)], |_| false, |_| None);
         assert_eq!(plan.bedrock, HashSet::from([section(1)]));
-        // Its remesh lands untagged, so the passes stop queueing.
+        // An unchanged mesh is not scanned again.
+        scanned.set(0);
+        assert!(sections.queueing(false, all(), count(0b1)));
+        assert_eq!(scanned.get(), 0);
+        // Its remesh lands untagged, so the passes stop queueing and nothing is carried.
         let remeshed = || [(section(1), 8), (section(2), 3)].into_iter();
         assert!(!sections.queueing(false, remeshed(), |_| 0));
+        assert_eq!(sections.carried(), 0);
         assert!(
             !sections.queueing(false, remeshed(), stale),
             "and stay stopped"
         );
+        // A despawned section's mask goes with it.
+        assert!(sections.queueing(true, [(section(2), 3)].into_iter(), stale));
+        assert_eq!(sections.masks.len(), 1);
     }
 }

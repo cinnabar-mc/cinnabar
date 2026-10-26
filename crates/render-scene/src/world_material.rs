@@ -2,8 +2,13 @@
 //! renderer.
 
 use bevy::prelude::Resource;
-use mod_render::world_material::publication::{Blend, Depth, WorldMaterialSet};
-use std::sync::Arc;
+use mod_render::world_material::publication::{
+    Blend, Depth, WorldMaterialParams, WorldMaterialSet,
+};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 /// The current world material set; replaced only when it changes, so an unchanged session
 /// extracts the same allocation.
@@ -11,6 +16,38 @@ use std::sync::Arc;
 #[extract_app(bevy::render::RenderApp)]
 pub struct WorldMaterialScene {
     pub set: Arc<WorldMaterialSet>,
+}
+
+/// Each drawn material's parameters, published apart from the set so a parameter update
+/// neither registers modules nor re-resolves bound blocks.
+#[derive(Resource, bevy::render::extract_resource::ExtractResource, Clone, Default)]
+#[extract_app(bevy::render::RenderApp)]
+pub struct WorldMaterialParamScene {
+    pub params: Arc<WorldMaterialParams>,
+}
+
+/// The block slots whose tag some resident terrain mesh carries, one bit per slot, which the
+/// render world observes and the main world reads before it hands a slot to another bundle.
+#[derive(Resource, Clone)]
+pub struct WorldMaterialCarried(Arc<AtomicU64>);
+
+impl Default for WorldMaterialCarried {
+    /// Every slot counts as carried until the render world has looked.
+    fn default() -> Self {
+        Self(Arc::new(AtomicU64::new(u64::MAX)))
+    }
+}
+
+impl WorldMaterialCarried {
+    /// The slots carried when the render world last looked.
+    pub fn get(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
+
+    /// Records the slots resident meshes carry.
+    pub fn set(&self, slots: u64) {
+        self.0.store(slots, Ordering::Release);
+    }
 }
 
 impl WorldMaterialScene {
@@ -74,7 +111,6 @@ impl WorldMaterialScene {
                 key: slot as u64 + 1,
                 material: Arc::clone(&material),
                 textures: Arc::from([]),
-                params: [0.0; 16],
                 depth: Depth::Test,
                 blend: Blend::Opaque,
             }));
@@ -110,6 +146,14 @@ impl WorldMaterialFailures {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains(&key)
     }
+
+    /// Forgets every recorded failure, as a session ends.
+    pub fn clear(&self) {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
 }
 
 #[cfg(test)]
@@ -128,6 +172,9 @@ mod tests {
         assert!(!failures.record(u64::MAX), "the set stays bounded");
         // Clones share one record across the main and render worlds.
         assert!(failures.clone().failed(3));
+        // A new session records again.
+        failures.clone().clear();
+        assert!(!failures.failed(3) && failures.record(u64::MAX));
     }
 
     #[test]
