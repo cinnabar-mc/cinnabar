@@ -1,9 +1,9 @@
 # Server client parts
 
 A client part is optional code offered by a server. Build a paired mod with
-[Cosmic](mods/README.md); host server callbacks with the
+[Cosmic](modding/src/appendix/paired-mods.md); host server callbacks with the
 [Experience runtime](experience-runtime.md). Personal client mods have
-[separate user grants](mods/personal.md).
+[separate user grants](modding/src/appendix/personal-mods.md).
 
 Execution currently requires `CINNABAR_DEV_SERVER_EXPERIENCES=1`. Production
 restricted launch is unavailable: consent alone does not enable production
@@ -101,7 +101,7 @@ events. Old-epoch events are discarded.
 
 ## Drawing and signed assets
 
-Use the [shared drawing contract](../crates/mod-api/README.md) for retained meshes,
+Use the [shared drawing contract](modding/src/appendix/drawing-helpers.md) for retained meshes,
 materials, camera anchors, primitives and actor masks. References bind to the native
 connection, dimension and actor incarnation. World changes clear old presentation;
 stale references and dependent draws are dropped and counted without stopping the

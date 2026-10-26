@@ -87,6 +87,7 @@ members = [
     "tools/architecture",
     "tools/bedrock-replay",
     "tools/devtool",
+    "tools/mod-docs",
     "tools/workspace-declarations",
     "tools/dist",
     "tools/jsonui-editor",
