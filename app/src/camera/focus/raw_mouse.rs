@@ -7,7 +7,7 @@
 //! thousands of messages before it can present the next frame. Gameplay locks the cursor and
 //! reads the reports for camera motion, so delivery resumes as soon as no menu is showing.
 use bevy::prelude::{App, NonSendMut, PostUpdate, Res};
-use client_shell::menu::MenuRuntime;
+use client_state::ScreenFocus;
 
 /// Platform control over raw relative-mouse reports reaching the event loop.
 pub(super) trait RawMouseReports {
@@ -40,13 +40,13 @@ impl RawMouseDelivery {
 }
 
 /// Raw reports are needed unless a menu is showing; menus use the cursor position instead.
-fn wants_raw_mouse(menu: Option<&MenuRuntime>) -> bool {
-    !menu.is_some_and(MenuRuntime::is_visible)
+fn wants_raw_mouse(focus: Option<&ScreenFocus>) -> bool {
+    !focus.is_some_and(|focus| focus.menu_visible)
 }
 
-/// Applies this frame's menu visibility after every screen has updated it.
-fn sync_raw_mouse(menu: Option<Res<MenuRuntime>>, mut delivery: NonSendMut<RawMouseDelivery>) {
-    delivery.deliver(wants_raw_mouse(menu.as_deref()));
+/// Applies the shell's final menu visibility for this frame.
+fn sync_raw_mouse(focus: Option<Res<ScreenFocus>>, mut delivery: NonSendMut<RawMouseDelivery>) {
+    delivery.deliver(wants_raw_mouse(focus.as_deref()));
 }
 
 /// Installs the delivery policy on the event-loop thread, which owns the raw input target.

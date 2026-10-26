@@ -6,7 +6,7 @@ use bevy::{
     },
     prelude::*,
 };
-use client_shell::menu::MenuRuntime;
+use client_state::ScreenFocus;
 use std::{cell::Cell, rc::Rc};
 
 /// An 8 kHz mouse, the highest polling rate reported against menu stalls.
@@ -52,11 +52,19 @@ fn reports_in(frame: usize) -> usize {
         - frame * REPORTS_PER_SECOND / FRAMES_PER_SECOND
 }
 
+/// The shell's published screen focus with the menu shown or hidden.
+fn menu_focus(menu_visible: bool) -> ScreenFocus {
+    ScreenFocus {
+        menu_visible,
+        ..ScreenFocus::default()
+    }
+}
+
 /// Builds the input stack with the raw-mouse policy and a visible menu.
 fn flood_app(os: &FakeOs) -> App {
     let mut app = App::new();
     app.add_plugins(InputPlugin)
-        .insert_resource(MenuRuntime::new(true, 2, "test".into()))
+        .insert_resource(menu_focus(true))
         .init_resource::<Frames>()
         .add_systems(Update, count_frame);
     install(&mut app, os.clone());
@@ -101,9 +109,7 @@ fn gameplay_receives_every_report_once_the_menu_closes() {
     let os = FakeOs::new();
     let mut app = flood_app(&os);
     flood_frame(&mut app, &os, 0);
-    app.world_mut()
-        .resource_mut::<MenuRuntime>()
-        .set_visible(false);
+    app.insert_resource(menu_focus(false));
     // Delivery resumes at the end of the frame that closes the menu.
     assert_eq!(flood_frame(&mut app, &os, 1), 0);
     for frame in 2..FRAMES_PER_SECOND {
@@ -118,9 +124,7 @@ fn gameplay_receives_every_report_once_the_menu_closes() {
     assert_eq!(os.changes.get(), 2);
 
     // Reopening a menu, such as pause, stops delivery again.
-    app.world_mut()
-        .resource_mut::<MenuRuntime>()
-        .set_visible(true);
+    app.insert_resource(menu_focus(true));
     flood_frame(&mut app, &os, 0);
     assert_eq!(flood_frame(&mut app, &os, 1), 0);
     assert_eq!(os.changes.get(), 3);
