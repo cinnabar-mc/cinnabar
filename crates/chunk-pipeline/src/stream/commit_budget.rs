@@ -42,9 +42,9 @@ impl WorldStream {
             .frame_deadline
             .take()
             .unwrap_or_else(|| self.poll_deadline.unwrap_or(now + self.poll_budget));
-        // After a whole allocation of polling between frames, the service carries the
-        // backlog: the frame keeps the floor allocation and leaves chunk-data commits to it.
-        // Idle ownership does not earn polling credit.
+        // A full allocation of service polling that advanced commits carries the backlog:
+        // the frame keeps the floor allocation and leaves chunk-data commits to it.
+        // Idle ownership and worker-only service do not earn this credit.
         let offloaded = self.between_frames_service
             && self.service_yield.is_none()
             && self.service_poll_time >= self.poll_budget;
@@ -107,6 +107,10 @@ impl WorldStream {
         let _ = kind;
         let result = work(self);
         self.record_service_item(started);
+        #[cfg(test)]
+        if let Some(observer) = self.after_service_item {
+            observer(self, kind);
+        }
         result
     }
 

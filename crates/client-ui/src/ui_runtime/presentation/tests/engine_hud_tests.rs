@@ -177,6 +177,18 @@ fn crosshair(input: &render_model::UiRenderInput, side: f32) -> Option<[f32; 4]>
     })
 }
 
+/// Settings with the Bedrock hotbar position turned off, for Java's flush hotbar.
+fn java_hotbar_settings() -> launcher::menu::settings_options::SettingsOptions {
+    use launcher::menu::settings_options::{BEDROCK_HOTBAR_OPTION, SETTINGS_OPTIONS};
+    let mut settings = launcher::menu::settings_options::SettingsOptions::default();
+    let option = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == BEDROCK_HOTBAR_OPTION.name)
+        .unwrap();
+    settings.set(option, 0);
+    settings
+}
+
 fn select_slot(player_runtime: &mut player_state::PlayerState, runtime: &mut UiRuntime) {
     runtime.retain_local_selected_equipment(
         player_runtime,

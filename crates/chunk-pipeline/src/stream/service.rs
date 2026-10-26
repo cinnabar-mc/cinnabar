@@ -270,7 +270,11 @@ impl WorldStreamService {
             .serving_since
             .map_or(Duration::ZERO, |since| since.elapsed());
         let mut stream = lent.stream;
-        stream.service_poll_time = lent.busy;
+        stream.service_poll_time = if lent.report.commit_steps == 0 {
+            Duration::ZERO
+        } else {
+            lent.busy
+        };
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!(
             "stream.service_received",

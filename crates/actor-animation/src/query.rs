@@ -326,10 +326,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         // 26.50 returns the signed actor shake counter as float.
         Q::ShakeTime => actor.shake_time() as f32,
         Q::HurtDirection => actor.hurt_direction().unwrap_or(0.0),
-        Q::IsCarryingBlock => truth(
-            metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0)
-                != 0.0,
-        ),
+        Q::IsCarryingBlock => truth(carries_block(actor, context)),
         Q::MainHandItemUseDuration => item_use::remaining_ticks(evaluator),
         Q::MainHandItemMaxDuration => context.main_hand_max_use_ticks as f32,
         Q::ItemRemainingUseDuration => item_use::remaining(evaluator, arguments),
@@ -656,6 +653,18 @@ fn in_water(actor: &dyn AnimatedActor, input: &ActorTickInput) -> bool {
 
 fn health(actor: &dyn AnimatedActor) -> Option<f32> {
     actor.health().map(|health| health.current)
+}
+
+/// Reports a carried block other than air. The synced value is a block runtime id, and an
+/// empty-handed enderman reports the session's air id rather than zero.
+fn carries_block(actor: &dyn AnimatedActor, context: &ActorTickContext) -> bool {
+    let key = ActorDataKey::CarryBlockRuntimeID.wire_value();
+    let Some(ActorMetadataValue::Int(runtime_id)) = actor.metadata().get(&key) else {
+        return false;
+    };
+    context
+        .air_block_network_id
+        .is_some_and(|air| *runtime_id as u32 != air)
 }
 
 fn metadata_number(actor: &dyn AnimatedActor, key: u32) -> Option<f32> {

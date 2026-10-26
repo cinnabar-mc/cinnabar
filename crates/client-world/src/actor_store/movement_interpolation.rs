@@ -30,6 +30,28 @@ pub(super) fn duration(interpolation: ActorInterpolation) -> Option<u32> {
 }
 
 impl ActorSnapshot {
+    /// Applies rotation mode immediately while preserving the current movement target and counters.
+    pub(super) fn apply_player_rotation(
+        &mut self,
+        movement: &protocol::ActorMoveEvent,
+        sequence: u64,
+    ) {
+        let state = &mut self.status.movement_interpolation;
+        state.last_received.get_or_insert(self.received_pose);
+        if let Some(pitch) = movement.pitch.filter(|value| value.is_finite()) {
+            self.pitch = signed_pitch(pitch);
+        }
+        if let Some(head_yaw) = movement.head_yaw.filter(|value| value.is_finite()) {
+            self.received_pose.head_yaw = head_yaw;
+        }
+        state.head_ticks = self.interpolation_ticks_remaining.max(state.rotation_ticks);
+        self.on_ground = movement.on_ground.or(self.on_ground);
+        self.movement_revision = sequence;
+        self.player_mode = movement.player_mode;
+        self.source_tick = movement.source_tick;
+        self.teleported = false;
+    }
+
     /// Applies a native height displacement and keeps its collision-feet projection coherent.
     pub(super) fn translate_native_height(&mut self, delta: f32) {
         let mut pose = self.current_pose();

@@ -38,6 +38,9 @@ mod attack_swing_tests;
 #[path = "published_tests/attack_hit_position.rs"]
 mod attack_hit_position_tests;
 
+#[path = "published_tests/attack_pick_range.rs"]
+mod attack_pick_range_tests;
+
 #[path = "published_tests/attack_fields.rs"]
 mod attack_fields_tests;
 

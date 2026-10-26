@@ -34,14 +34,11 @@ fn snapshot() -> PlayerAuthInputSnapshot {
 fn interactions(predict: bool) -> PlayerAuthInputInteractions {
     let mut value = PlayerAuthInputInteractions::default();
     if predict {
-        value
-            .block_actions
-            .push(BlockAction {
-                kind: BlockActionKind::PredictDestroy,
-                position: [13, 71, -29],
-                face: 5,
-            })
-            .unwrap();
+        value.block_actions.push(BlockAction {
+            kind: BlockActionKind::PredictDestroy,
+            position: [13, 71, -29],
+            face: 5,
+        });
     }
     value
 }

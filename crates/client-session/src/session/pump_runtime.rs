@@ -166,10 +166,10 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P, E>(
     let experience_start = Instant::now();
     let mut experience_rate = None;
     let mut pending_world_event = None;
-    let mut last_blob_cache_stats = None;
+    let mut blob_cache_telemetry = BlobCacheTelemetry::default();
     if session.blob_cache_enabled() {
         let stats = session.blob_cache_stats();
-        emit_blob_cache_telemetry(stats);
+        blob_cache_telemetry.emit_initial(stats, 0);
         if !send_control_event_or_cancel(
             &control_event_tx,
             &mut shutdown_rx,
@@ -182,7 +182,6 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P, E>(
         {
             return;
         }
-        last_blob_cache_stats = Some(stats);
     }
 
     async fn end_pump_with_transfer<S: NetworkSession, P>(
@@ -359,11 +358,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P, E>(
                     continue;
                 }
                 emit_packet_id_trace(&mut session, &observation);
-                try_emit_blob_cache_telemetry(
-                    &session,
-                    &control_event_tx,
-                    &mut last_blob_cache_stats,
-                );
+                blob_cache_telemetry.try_emit(&session, &control_event_tx, now_ms);
                 let wrapped = wrap_inbound_world_event(&mut sequencer, &readiness_ingress, *event);
                 trace_decoded(session.latency_trace_position(), &wrapped);
                 pending_world_event = Some(wrapped);

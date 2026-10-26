@@ -145,6 +145,7 @@ impl WorldStream {
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,
             poll_heavy_guarantee: false,
+            worker_service_due: false,
             service_yield: None,
             between_frames_service: false,
             service_poll_time: Duration::ZERO,
@@ -152,6 +153,8 @@ impl WorldStream {
             retention_cursor: None,
             maintenance_items: 0,
             service_item_max: Duration::ZERO,
+            #[cfg(test)]
+            after_service_item: None,
             maintenance_guarantee: true,
             chunk_data_offloaded: false,
             commit_steps: 0,
