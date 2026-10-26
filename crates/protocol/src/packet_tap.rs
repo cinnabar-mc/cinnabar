@@ -294,7 +294,7 @@ pub(crate) fn record_serverbound_picks(
         let original = picks
             .iter()
             .enumerate()
-            .find(|(index, original)| !used[*index] && &original.frame == entry.frame())
+            .find(|(index, original)| !used[*index] && original.frame == entry.frame())
             .filter(|(_, original)| {
                 !replaced
                     || !picks
