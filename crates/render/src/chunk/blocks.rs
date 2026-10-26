@@ -144,11 +144,23 @@ struct Blocks {
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct BlockPass;
 
+#[derive(Resource)]
+struct Installed;
+
 /// Installs background arena preparation and native drawing alongside retained meshes.
 pub(crate) fn install(app: &mut App) {
+    if !app.is_plugin_added::<crate::ChunkRenderPlugin>()
+        || app
+            .sub_app(RenderApp)
+            .world()
+            .contains_resource::<Installed>()
+    {
+        return;
+    }
     crate::pipeline_warmup::register::<Pipelines>(app);
     let render = app.sub_app_mut(RenderApp);
     render
+        .insert_resource(Installed)
         .init_resource::<Blocks>()
         .add_systems(RenderStartup, bevy::render::init_gpu_resource::<Pipelines>)
         .add_systems(
