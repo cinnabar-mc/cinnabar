@@ -135,3 +135,17 @@ fn freshness_detects_missing_edited_and_removed_pages() {
     sync(directory.path(), &pages, false).unwrap();
     assert!(!directory.path().join("reference/old.md").exists());
 }
+
+/// Pages checked out with CRLF line endings still count as current.
+#[test]
+fn freshness_accepts_crlf_checkouts() {
+    let directory = tempfile::tempdir().unwrap();
+    let pages = BTreeMap::from([("reference/api.md".into(), format!("{HEADER}# API\n"))]);
+    fs::create_dir_all(directory.path().join("reference")).unwrap();
+    fs::write(
+        directory.path().join("reference/api.md"),
+        format!("{HEADER}# API\n").replace('\n', "\r\n"),
+    )
+    .unwrap();
+    sync(directory.path(), &pages, true).unwrap();
+}

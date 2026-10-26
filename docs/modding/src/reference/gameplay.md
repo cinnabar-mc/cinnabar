@@ -319,8 +319,9 @@ set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
 ```
 
 Requires interaction authority; a non-none range also requires a current gameplay frame.
-Can only shorten actor pick and attack reach within the current mode and input limits;
-none restores ordinary game-mode rules. A grant does not permit extended reach.
+Overrides local actor pick and attack range up to MAX_ENTITY_REACH_BLOCKS; none restores
+ordinary mode and input limits. Attack eligibility, obstruction and server validation
+still apply. Does not change mining or block-use reach.
 
 <a id="pulse-attack"></a>
 

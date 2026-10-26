@@ -157,7 +157,9 @@ fn sync(source: &Path, pages: &BTreeMap<String, String>, check: bool) -> Result<
                 let relative = format!("reference/{}", path.file_name().unwrap().to_string_lossy());
                 if !pages.contains_key(&relative) {
                     ensure!(
-                        fs::read_to_string(&path)?.starts_with(HEADER),
+                        fs::read_to_string(&path)?
+                            .replace("\r\n", "\n")
+                            .starts_with(HEADER),
                         "unexpected handwritten reference: {}",
                         path.display()
                     );
@@ -171,7 +173,9 @@ fn sync(source: &Path, pages: &BTreeMap<String, String>, check: bool) -> Result<
     }
     for (relative, content) in pages {
         let path = source.join(relative);
-        if fs::read_to_string(&path).ok().as_ref() != Some(content) {
+        // A CRLF checkout (core.autocrlf on Windows) holds current pages too.
+        let current = fs::read_to_string(&path).map(|text| text.replace("\r\n", "\n"));
+        if current.ok().as_ref() != Some(content) {
             stale.push(relative.clone());
             if !check {
                 fs::create_dir_all(path.parent().unwrap())?;
