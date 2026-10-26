@@ -21,6 +21,7 @@ type bedrockTargetManifest struct {
 	Artifacts    map[string]string `json:"artifacts"`
 }
 
+// effectiveTrackedAttributes reads the attributes Git will apply from the index.
 func effectiveTrackedAttributes(root, carrier string) (map[string]string, error) {
 	command := exec.Command("git", "-C", root, "check-attr", "--cached", "-z", "text", "eol", "--", carrier)
 	output, err := command.CombinedOutput()
@@ -74,6 +75,7 @@ func TestBedrockTargetCarrierAutocrlfUpgrade(t *testing.T) {
 	}
 }
 
+// testBedrockTargetCarrierAutocrlfUpgrade checks a real checkout across the LF-pinning upgrade.
 func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding string) {
 	t.Helper()
 	sourceRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -127,8 +129,8 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	}
 
 	cloneRoot := filepath.Join(t.TempDir(), "upgrade")
-	if output, err := exec.Command("git", "clone", "--quiet", "--shared", "--no-checkout", sourceRoot, cloneRoot).CombinedOutput(); err != nil {
-		t.Fatalf("git clone failed: %v: %s", err, output)
+	if output, err := exec.Command("git", "init", "--quiet", cloneRoot).CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, output)
 	}
 	runGit := func(arguments ...string) string {
 		t.Helper()
@@ -142,10 +144,13 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	runGit("config", "core.autocrlf", "true")
 	runGit("config", "user.name", "Cinnabar Test")
 	runGit("config", "user.email", "cinnabar-test@example.invalid")
-	runGit("checkout", "--quiet", "--detach", "HEAD")
 	writeClone := func(path string, contents []byte) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(cloneRoot, filepath.FromSlash(path)), contents, 0o644); err != nil {
+		destination := filepath.Join(cloneRoot, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(destination, contents, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -189,17 +194,20 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	if !bytes.Equal(candidateCheckout, candidateCarrier) {
 		t.Fatalf("candidate checkout did not rematerialize exact tracked-LF carrier bytes: got %x, want %s", sha256.Sum256(candidateCheckout), candidateDigest)
 	}
-	command := exec.Command("go", "test", ".", "-run", "^TestBedrockTargetManifestOwnsEveryProductionCarrier$", "-count=1")
-	command.Dir = filepath.Join(cloneRoot, "tools", "registrygen")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("candidate target manifest test failed after upgrade: %v: %s", err, output)
-	}
+	checkBedrockTargetCarriers(t, cloneRoot)
 }
 
 // TestBedrockTargetManifestOwnsEveryProductionCarrier prevents runtime,
 // build, and packaging defaults from selecting protocols independently.
 func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	root := filepath.Join("..", "..")
+	target := checkBedrockTargetCarriers(t, root)
+	checkBedrockTargetConsumers(t, root, target)
+}
+
+// checkBedrockTargetCarriers validates the target identity, carrier hashes and checkout attributes.
+func checkBedrockTargetCarriers(t *testing.T, root string) bedrockTargetManifest {
+	t.Helper()
 	payload, err := os.ReadFile(filepath.Join(root, "assets", "bedrock-target.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -238,6 +246,12 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 			t.Fatalf("raw-byte target carrier %s is not pinned to tracked LF checkout bytes: %+v", carrier, attributes)
 		}
 	}
+	return target
+}
+
+// checkBedrockTargetConsumers checks that production and acceptance code use the shared target.
+func checkBedrockTargetConsumers(t *testing.T, root string, target bedrockTargetManifest) {
+	t.Helper()
 	consumers := map[string][]string{
 		"Makefile":                                       {"assets/bedrock-target.json", "physics-assets"},
 		"crates/assets/src/carriers.rs":                  {target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "vanilla-v2193.mcbea"},
