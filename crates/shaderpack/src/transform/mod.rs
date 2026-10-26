@@ -102,7 +102,7 @@ pub(crate) fn transform(
     iface: &mut ProgramInterface,
     names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
-    validate_delimiters(&pp.tokens)?;
+    items::validate_delimiters(&pp.tokens)?;
     let lg = stage_tokens(&pp.tokens, stage, pp.version, names.software_fused_dot)?;
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
@@ -271,32 +271,6 @@ fn stage_tokens(
     let wide = wide.as_deref().unwrap_or(tokens);
     let fused = dot::order(wide, software_fused_dot);
     legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, version)
-}
-
-/// Rejects unbalanced token groups before a compatibility parser inspects their contents.
-fn validate_delimiters(tokens: &[Tok]) -> Result<(), TransformError> {
-    let mut delimiters = Vec::new();
-    for token in tokens {
-        if token.is("(") || token.is("[") || token.is("{") {
-            delimiters.push(token);
-        } else if token.is(")") || token.is("]") || token.is("}") {
-            let expected = match token.text() {
-                ")" => "(",
-                "]" => "[",
-                _ => "{",
-            };
-            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
-                return Err(TransformError::new(
-                    "unmatched closing delimiter",
-                    token.line,
-                ));
-            }
-        }
-    }
-    if let Some(open) = delimiters.last() {
-        return Err(TransformError::new("unclosed delimiter", open.line));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
