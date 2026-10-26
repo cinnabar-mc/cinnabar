@@ -619,7 +619,9 @@ fn hud_and_emote_dolls_share_admission_near_the_frame_budget() {
         .gui_models
         .sources
         .held
-        .insert(key.clone(), super::super::held::HeldModel::ready(held));
+        .entry(key.identifier.clone())
+        .or_default()
+        .insert(key.metadata, super::super::held::HeldModel::ready(held));
     presentation.player_preview_gear.hands[0] = Some(PreviewHandItem {
         grip: None,
         glint: None,

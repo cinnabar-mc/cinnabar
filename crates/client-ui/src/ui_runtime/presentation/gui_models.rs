@@ -152,7 +152,7 @@ pub struct PreparedGuiModels {
     pub(super) faded_thumbnails: BTreeSet<IconKey>,
     pub(super) required_pages: usize,
     pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
-    held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
+    held: held::HeldModels,
     pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
 }
 
@@ -812,12 +812,7 @@ impl UiPresentationRuntime {
                 hand.charged_projectile,
                 None,
             );
-            let held = |metadata| {
-                self.gui_models.sources.held.get(&assets::ItemVisualKey {
-                    identifier: identifier.into(),
-                    metadata,
-                })
-            };
+            let held = |metadata| self.gui_models.sources.held.get(identifier)?.get(&metadata);
             let base = (!pack_model_suppressed)
                 .then(|| held(metadata).or_else(|| held(0)))
                 .flatten();

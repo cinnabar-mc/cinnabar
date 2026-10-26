@@ -253,22 +253,22 @@ fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
     presentation.set_gui_models(&world, &entities).unwrap();
     let mut sprites = 0;
     let icons = presentation.icon_catalog.as_deref().unwrap();
-    for (key, held) in &presentation.gui_models.sources.held {
-        let Some(model) = held.model(icons) else {
-            continue;
-        };
-        if matches!(model.placements[0], PreviewHeldPlacement::Sprite { .. }) {
-            // Carried artwork can differ from the inventory thumbnail.
-            let sprite = icons
-                .lookup_held_index(&key.identifier, key.metadata)
-                .unwrap();
-            let original = presentation.icon_refs.as_ref().unwrap()[sprite];
-            assert_eq!(
-                (model.source.page, model.source.uv),
-                (original.page, original.uv)
-            );
-            assert!((model.source.page as usize) < presentation.textures.dynamic_start());
-            sprites += 1;
+    for (identifier, variants) in &presentation.gui_models.sources.held {
+        for (metadata, held) in variants {
+            let Some(model) = held.model(icons) else {
+                continue;
+            };
+            if matches!(model.placements[0], PreviewHeldPlacement::Sprite { .. }) {
+                // Carried artwork can differ from the inventory thumbnail.
+                let sprite = icons.lookup_held_index(identifier, *metadata).unwrap();
+                let original = presentation.icon_refs.as_ref().unwrap()[sprite];
+                assert_eq!(
+                    (model.source.page, model.source.uv),
+                    (original.page, original.uv)
+                );
+                assert!((model.source.page as usize) < presentation.textures.dynamic_start());
+                sprites += 1;
+            }
         }
     }
     assert!(
