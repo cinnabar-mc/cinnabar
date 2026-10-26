@@ -28,7 +28,7 @@ fn add_request(component: &mut Vec<u8>, request: &[u8]) -> Result<()> {
     };
     component.push(0);
     section.encode(component);
-    mod_host::declarations_snapshot(component)?.requested?;
+    let _ = mod_host::declarations_snapshot(component)?.requested?;
     Ok(())
 }
 
