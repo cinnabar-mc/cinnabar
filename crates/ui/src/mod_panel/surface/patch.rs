@@ -153,6 +153,31 @@ mod tests {
     }
 
     #[test]
+    fn sparse_updates_restore_only_republished_projection_anchors() {
+        let mut current = surface(json!({"#tag":{"project":{"world":[0,0,-10]}},
+            "#actor":{"project":{"actor":42}}}));
+        for value in current.bindings.values_mut() {
+            value.invalidate_projection();
+        }
+        let unrelated = SurfacePatch::parse(r##"{"binding_changes":{"#fps":"61"}}"##)
+            .unwrap()
+            .apply(&current, SurfaceRole::Hud)
+            .unwrap();
+        for name in ["#tag", "#actor"] {
+            assert!(unrelated.bindings[name].projection().is_some());
+            assert!(unrelated.bindings[name].active_projection().is_none());
+        }
+        let restored = SurfacePatch::parse(
+            r##"{"binding_changes":{"#tag":{"project":{"world":[0,0,-10]}}}}"##,
+        )
+        .unwrap()
+        .apply(&unrelated, SurfaceRole::Hud)
+        .unwrap();
+        assert!(restored.bindings["#tag"].active_projection().is_some());
+        assert!(restored.bindings["#actor"].active_projection().is_none());
+    }
+
+    #[test]
     fn surface_patches_replace_or_merge_bindings_and_keep_omitted_values() {
         let current = surface(json!({"#fps":"60","#cps":"0"}));
         let merged = SurfacePatch::parse(r##"{"binding_changes":{"#fps":"61"}}"##)

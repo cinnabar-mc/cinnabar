@@ -81,6 +81,7 @@ impl MiningAdmission {
         })?;
         Some(crate::melee::PressContext {
             refused_destroy: None,
+            actor_life: None,
             tick: sample.tick,
             player_position: sample.position,
             input_mode: protocol::PlayerInputMode::Mouse,

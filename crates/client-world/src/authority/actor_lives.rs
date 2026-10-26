@@ -278,4 +278,73 @@ mod tests {
         );
         assert_eq!(world.actor_lives().count(), 0);
     }
+    /// One collection after death and revival must retain the life from each commit.
+    #[test]
+    fn batched_combat_retains_lives_across_status_attribute_and_local_health_deaths() {
+        for runtime_id in [1, 2] {
+            for death_source in 0..3 {
+                if runtime_id != 1 && death_source == 2 {
+                    continue;
+                }
+                let mut world = world();
+                let before = life(&world, runtime_id).unwrap().life;
+                status(&mut world, 2, runtime_id, ActorStatusKind::TotemActivate);
+                match death_source {
+                    0 => status(&mut world, 3, runtime_id, ActorStatusKind::Death),
+                    1 => health(&mut world, 3, runtime_id, 0.),
+                    _ => local_health(&mut world, 3, 0),
+                }
+                let after = life(&world, runtime_id).unwrap().life;
+                assert_ne!(before, after);
+                status(&mut world, 4, runtime_id, ActorStatusKind::SpawnAlive);
+                assert_eq!(life(&world, runtime_id).unwrap().life, after);
+                status(&mut world, 5, runtime_id, ActorStatusKind::TotemActivate);
+                let recorded: Vec<_> = world
+                    .combat_evidence()
+                    .map(|event| (event.kind, event.life))
+                    .collect();
+                let mut expected = vec![(super::super::ActorCombatKind::Totem, before)];
+                if death_source == 0 {
+                    expected.push((super::super::ActorCombatKind::Death, after));
+                }
+                expected.push((super::super::ActorCombatKind::Totem, after));
+                assert_eq!(
+                    recorded, expected,
+                    "actor {runtime_id}, death source {death_source}"
+                );
+            }
+        }
+    }
+
+    /// Respawn and runtime-ID reuse cannot relabel evidence still in the retained history.
+    #[test]
+    fn batched_combat_retains_lives_across_respawn_and_readmission() {
+        let mut world = world();
+        let first = life(&world, 2).unwrap().life;
+        status(&mut world, 2, 2, ActorStatusKind::TotemActivate);
+        spawn(&mut world, 3, 2);
+        let respawned = life(&world, 2).unwrap().life;
+        status(&mut world, 4, 2, ActorStatusKind::TotemActivate);
+        world
+            .apply_ordered_event(
+                WorldEvent::Actor(ActorEvent::Remove(protocol::ActorRemoveEvent {
+                    dimension: 0,
+                    unique_id: 2,
+                })),
+                Some(5),
+            )
+            .unwrap();
+        spawn(&mut world, 6, 2);
+        let readmitted = life(&world, 2).unwrap().life;
+        status(&mut world, 7, 2, ActorStatusKind::TotemActivate);
+        assert_ne!(first, respawned);
+        assert_ne!(respawned, readmitted);
+        assert_eq!(
+            world
+                .combat_evidence()
+                .map(|event| event.life)
+                .collect::<Vec<_>>(),
+            [first, respawned, readmitted]
+        );
+    }
 }

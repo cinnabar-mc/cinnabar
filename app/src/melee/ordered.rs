@@ -79,6 +79,13 @@ pub(crate) fn press(
     };
     let mut press = PressContext {
         refused_destroy: None,
+        actor_life: match picked.crosshair {
+            Crosshair::Actor(hit) => stream
+                .authority()
+                .actor(hit.runtime_id)
+                .map(|actor| actor.life().life),
+            _ => None,
+        },
         tick: sample.tick,
         player_position: sample.position,
         input_mode: protocol_input_mode(input.context.mode),

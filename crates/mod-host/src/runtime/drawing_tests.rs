@@ -371,3 +371,86 @@ fn a_trapped_event_revokes_committed_and_staged_geometry_and_masks() {
     assert!(instance.render().0.retained.is_empty());
     assert!(instance.render().0.masks.is_empty());
 }
+
+#[test]
+fn dimension_rebind_invalidates_old_drawing_and_observations_before_callbacks() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let directory = tempfile::tempdir().unwrap();
+    let bytes = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    let mut host = crate::ModHost::prepare_snapshot_in_session(
+        &directory.path().join("drawing.wat"),
+        bytes,
+        ModGrants {
+            render: true,
+            ..Default::default()
+        },
+        None,
+        Some(session),
+    )
+    .unwrap();
+    // Set up native world-owned output under the same path used by guest imports.
+    host.grants.world_draw = true;
+    host.instance.store.data_mut().grants.world_draw = true;
+    let state = host.instance.store.data_mut();
+    let geometry = state.create_geometry(mesh(3)).unwrap().unwrap();
+    state.render.commit();
+    state.world.commands.push("old-world-command".into());
+    state.player_state.world = Some(crate::WorldObservation {
+        session: 1,
+        world: "fixture".into(),
+        dimension: 0,
+        position: (0., 0., 0.),
+        alive: true,
+        runtime_id: 1,
+    });
+    assert!(!host.render().0.retained.is_empty());
+    let identity = host.instance.filter_identity;
+    host.bind_drawing_world(session, false);
+    assert!(host.is_active());
+    assert_eq!(host.instance.filter_identity, identity);
+    assert!(!host.grants().world_draw);
+    assert!(host.render().0.retained.is_empty());
+    let state = host.instance.store.data_mut();
+    assert!(state.player_state.world.is_none());
+    assert!(state.world.commands.is_empty());
+    assert!(
+        state
+            .render
+            .retained
+            .remove(mod_api::drawing::DrawingHandle {
+                owner: geometry.owner,
+                generation: geometry.generation,
+                slot: geometry.slot
+            })
+            .is_err()
+    );
+    host.bind_drawing_session(DrawingSession {
+        dimension: 1,
+        ..session
+    });
+    assert!(host.is_active());
+    let state = host.instance.store.data_mut();
+    assert!(state.grants.world_draw);
+    assert!(
+        state
+            .render
+            .retained
+            .remove(mod_api::drawing::DrawingHandle {
+                owner: geometry.owner,
+                generation: geometry.generation,
+                slot: geometry.slot
+            })
+            .is_err()
+    );
+    let resources = state.render.retained.snapshot();
+    assert_eq!((resources.connection, resources.dimension), (1, 1));
+}

@@ -309,6 +309,29 @@ impl Layer {
             .is_some_and(|value| value.projection().is_some())
         {
             self.projected.remove(name);
+            let visible = projected_visible_name(name);
+            for (index, part) in self.parts.iter_mut().enumerate() {
+                if part
+                    .spec
+                    .floating
+                    .as_ref()
+                    .is_some_and(|floating| floating.offset == name)
+                {
+                    self.moves[index] = None;
+                } else {
+                    part.set_item(name, None);
+                    write_projection(part, name, &visible, None);
+                }
+            }
+            for part in self
+                .embedded
+                .values_mut()
+                .filter_map(|embedded| embedded.part.as_mut())
+            {
+                part.set_item(name, None);
+                write_projection(part, name, &visible, None);
+            }
+            return;
         }
         let transitioning = self.surface.transitions.contains_key(name)
             && value.as_ref().and_then(SurfaceValue::numbers).is_some();
@@ -386,10 +409,12 @@ impl Layer {
     ) {
         let surface = Arc::clone(&self.surface);
         for (name, value) in &surface.bindings {
-            let Some(projection) = value.projection() else {
+            if value.projection().is_none() {
                 continue;
-            };
-            let offset = values::project(projection, camera, root, actor, self.authority);
+            }
+            let offset = value.active_projection().and_then(|projection| {
+                values::project(projection, camera, root, actor, self.authority)
+            });
             if self.projected.get(name) == Some(&offset) {
                 continue;
             }

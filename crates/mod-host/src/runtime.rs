@@ -3,6 +3,7 @@ mod input_host;
 mod output_lifecycle;
 mod presentation;
 mod recovery;
+mod world_lifecycle;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
     GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
@@ -950,6 +951,9 @@ fn commit(store: &mut Store<State>) {
 /// an event's staged changes to those outputs are dropped by the next frame.
 fn commit_event(store: &mut Store<State>) {
     let state = store.data_mut();
+    if !state.world_output_available() {
+        state.clear_world_output();
+    }
     state.render.commit_retained();
     state.hud.commit();
     state.presentation.commit();

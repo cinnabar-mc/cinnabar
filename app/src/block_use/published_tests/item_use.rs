@@ -115,6 +115,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
     }
     let press = PressContext {
         refused_destroy: None,
+        actor_life: None,
         tick: 101,
         player_position: [4.5, 2.620_01, 8.5],
         input_mode: protocol::PlayerInputMode::Mouse,

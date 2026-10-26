@@ -187,3 +187,38 @@ fn reload_preserves_installed_text_metrics() {
     host.frame(false).unwrap();
     assert!(host.is_active(), "the replacement still measures text");
 }
+
+#[test]
+fn dimension_loading_preserves_the_published_surface_and_connection_change_removes_it() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let (_directory, mut host) = load("call $surface", "call $patch", true);
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().unwrap());
+    host.frame(false).unwrap();
+    let (surface, revision) = host.hud_surface().map(|(s, r)| (Arc::clone(s), r)).unwrap();
+    for dimension in [1, 0] {
+        host.bind_drawing_world(host.drawing_session().unwrap(), false);
+        let (retained, retained_revision) = host.hud_surface().unwrap();
+        assert!(Arc::ptr_eq(&surface, retained));
+        assert_eq!(revision, retained_revision);
+        host.bind_drawing_session(DrawingSession {
+            dimension,
+            ..session
+        });
+        let (retained, retained_revision) = host.hud_surface().unwrap();
+        assert!(Arc::ptr_eq(&surface, retained));
+        assert_eq!(revision, retained_revision);
+        assert!(!host.needs_drawing_restart());
+    }
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        ..session
+    });
+    assert!(host.is_revoked());
+    assert!(host.hud_surface().is_none());
+}

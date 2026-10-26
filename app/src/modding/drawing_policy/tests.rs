@@ -325,3 +325,70 @@ fn drawing_fence_tracks_actor_incarnations_without_server_negotiation() {
     rebuild_frame([], None, &mut frame);
     assert_eq!(frame.connection, 0);
 }
+
+#[test]
+fn dimension_loading_gap_keeps_the_guest_under_the_same_actor_authority() {
+    let bytes = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let directory = tempfile::tempdir().unwrap();
+    let stream = stream();
+    let session = DrawingSession {
+        connection: stream.authority().actor_session_id(),
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    let host = ModHost::prepare_snapshot_in_session(
+        &directory.path().join("guest.wasm"),
+        bytes,
+        ModGrants {
+            render: true,
+            ..Default::default()
+        },
+        None,
+        Some(session),
+    )
+    .unwrap();
+    let mut hosts = ModHosts::new(host, vec![]);
+    let mut world = World::new();
+    world.insert_resource(crate::runtime::world::ClientWorld {
+        stream: Some(stream),
+        ..Default::default()
+    });
+    let mut state = SystemState::<super::super::gameplay::GameplayContext>::new(&mut world);
+    assert!(!bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .dimension_transfer
+        .begin(
+            1,
+            1,
+            protocol::ChangeDimensionEvent {
+                dimension: 1,
+                ..Default::default()
+            },
+            1,
+            true,
+            std::time::Duration::ZERO,
+        );
+    assert!(bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    assert!(hosts.host(0).is_active());
+    assert!(!hosts.host(0).needs_drawing_restart());
+    assert_eq!(hosts.host(0).drawing_session(), Some(session));
+    assert!(!hosts.host(0).grants().render);
+    assert!(!bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .dimension_transfer = Default::default();
+    assert!(bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    assert!(hosts.host(0).is_active());
+    assert!(hosts.host(0).grants().render);
+    assert!(!hosts.host(0).needs_drawing_restart());
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .stream = Some(self::stream());
+    assert!(bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    assert!(hosts.host(0).is_revoked());
+}

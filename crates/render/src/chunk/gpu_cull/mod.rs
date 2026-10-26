@@ -19,6 +19,8 @@ mod limits_tests;
 pub(in crate::chunk) mod model;
 mod node;
 pub(in crate::chunk) mod occlusion;
+#[cfg(test)]
+mod pixel_tests;
 mod prepare;
 mod queue;
 pub(in crate::chunk) use queue::GpuCullQueue;
@@ -148,7 +150,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(info.backend),
-        apple_gpu(&info),
+        direct_draws_required(&info),
     );
     let submission = gpu_cull_submission(
         draw_mode,

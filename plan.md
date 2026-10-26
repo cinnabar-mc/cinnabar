@@ -1124,8 +1124,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
-  Physical-device rendering and fallback
-  performance acceptance remain incomplete.
+  Headless native-GPU fixtures compare completed terrain coverage across direct and indirect
+  draws and both storage layouts, including occlusion toggles and removal/reupload controls.
+  Native Android fixtures also capture completed frames through ADB, using the adapter's limits
+  while constraining the storage budget. Proprietary Adreno Vulkan drivers use direct terrain
+  draws after indirect draws produced empty frames on Adreno 619 and 750. Both devices pass the
+  coverage, occlusion and reupload fixtures with this fallback; PowerVR GE8320 also passes.
+  Mali-G57, Mali-G78 and Mali-G715 fixture pipeline compilation still crashes without completed
+  frames.
+  Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
+  with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
+  CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
+  is from one report.
+  Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
+  remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
   directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
   for new worlds. An Android-adapted GNU runtime starts BDS, creates
@@ -1323,7 +1335,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
   item, potion and effect tables and the installation's food; `player-state` reports the server
   world clock, totem activations as combat events and each admitted actor's life, which changes
-  on every spawn and death regardless of distance. Offline regressions cover grants, bounds,
+  on every spawn and death regardless of distance. Retained combat events also expose the actor's
+  life at commit time, with death events using the life after death. Offline regressions cover grants, bounds,
   merging, roster mapping and span placement. Tipped-arrow facts report the carried potion's
   durations until the native arrow duration is referenced, and displayed-client acceptance of
   the presentation parameters remains pending.
@@ -1413,6 +1426,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.
+  Personal-mod dimension transfers retain guest memory and HUD surfaces while fencing
+  world output and observations. Every callback suppresses world output during loading;
+  native presentation parameters reset, and world projection bindings stay hidden until
+  the guest republishes their anchors. Production-presenter regressions cover missing
+  cameras, actor despawns, loading gaps and destination rebinding. Deferred catalog
+  notifications survive while departed screen geometry and input are discarded.
+  Connection and permission changes still require fresh
+  guests; identical source replacements reuse in-memory compilation. Host regression
+  and admission timing checks cover this lifecycle; fresh live transfer acceptance
+  remains pending.
   Server-day HUD rows now consume scoped native clock observations and leave missing
   or stale clocks unknown. Clock/host regressions are included; executed checks and
   populated-world acceptance remain pending.

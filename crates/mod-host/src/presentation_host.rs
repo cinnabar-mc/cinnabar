@@ -42,6 +42,13 @@ pub(super) struct PresentationState {
 }
 
 impl PresentationState {
+    /// All native presentation parameters, including global styles, are world-scoped.
+    /// Reset through normal publication so consumers observe a fresh revision immediately.
+    pub fn clear_world(&mut self) {
+        self.pending = Some(ModPresentation::default());
+        self.commit();
+    }
+
     /// Starts a callback with nothing staged and a fresh write allowance.
     pub fn begin(&mut self) {
         self.pending = None;

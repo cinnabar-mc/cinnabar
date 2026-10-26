@@ -782,6 +782,7 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
         crosshair,
         &gameplay::melee::PressContext {
             refused_destroy: None,
+            actor_life: None,
             tick: 102,
             player_position: [4.5, 2.620_01, 8.5],
             input_mode: protocol::PlayerInputMode::Mouse,

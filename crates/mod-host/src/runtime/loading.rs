@@ -5,7 +5,24 @@ use wasmtime::{
     component::{Component, HasSelf, Linker},
 };
 
+#[cfg(test)]
+mod tests;
+
 impl Instance {
+    /// Clears world-scoped observations and output while preserving guest memory and HUD.
+    pub(crate) fn clear_drawing_world(&mut self) {
+        let state = self.store.data_mut();
+        state.clear_world_output();
+        state.terrain.clear_world();
+        state.player_state.revoke();
+        state.snapshot = None;
+        state.gameplay_facts = Default::default();
+        state.controls.begin_frame();
+        state.touch.restart_guest();
+        state.pressed = false;
+        state.events.modifiers = Default::default();
+    }
+
     /// Revokes previously published drawing and installs the current admission ceiling.
     pub(crate) fn bind_drawing_policy(
         &mut self,
@@ -69,9 +86,10 @@ impl Instance {
         declared: Declared,
         panel_bundle: Option<Arc<ui::mod_panel::PanelBundle>>,
     ) -> Result<Self> {
+        let component = Component::new(engine, bytes)?;
         Self::new_with_drawing_policy(
             engine,
-            bytes,
+            &component,
             grants,
             settings,
             declared,
@@ -83,7 +101,7 @@ impl Instance {
     /// Installs session limits before instantiation and init can call any import.
     pub(crate) fn new_with_drawing_policy(
         engine: &Engine,
-        bytes: &[u8],
+        component: &Component,
         grants: ModGrants,
         settings: String,
         declared: Declared,
@@ -94,7 +112,6 @@ impl Instance {
             || grants.clone(),
             |session| grants.for_drawing_session(session),
         );
-        let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
         FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         let mut state = State::new(grants, settings, declared);
@@ -108,7 +125,7 @@ impl Instance {
             state.render.masks.bind(session);
         }
         state.controls.bundle = panel_bundle.filter(|_| state.grants.controls);
-        let pre = linker.instantiate_pre(&component)?;
+        let pre = linker.instantiate_pre(component)?;
         exports::Exports::check(&pre)?;
         Self::instantiate(pre, state)
     }
@@ -174,7 +191,7 @@ impl Instance {
     pub(crate) fn replacement(
         &self,
         engine: &Engine,
-        bytes: &[u8],
+        component: &Component,
         grants: ModGrants,
         settings: String,
         declared: Declared,
@@ -189,7 +206,7 @@ impl Instance {
         }
         let mut candidate = Self::new_with_drawing_policy(
             engine,
-            bytes,
+            component,
             grants,
             settings,
             declared,

@@ -21,6 +21,7 @@ pub use runtime::cinnabar::extension::action_filter::{
     ActionFrame, ActionVerdict, FilteredAction, Held as ActionHeld, Transition as ActionTransition,
     TransitionKind,
 };
+mod compiled;
 mod component_assets;
 mod exclusive;
 mod execution;
@@ -118,7 +119,6 @@ use {
     runtime::Instance,
     server_experience::{screen::ScreenLayout, session_data::SessionData},
     std::{path::PathBuf, sync::Arc},
-    wasmtime::Engine,
 };
 
 /// Maximum bytes accepted before compilation or allocation of a package buffer.
@@ -156,8 +156,7 @@ pub enum Source {
 }
 /// A developer-selected component with transactional reload and trap quarantine.
 pub struct ModHost {
-    engine: Engine,
-    _ticker: execution::EpochTicker,
+    compiled: Arc<compiled::CompiledComponent>,
     instance: Instance,
     embedded_font: Option<Arc<[u8]>>,
     embedded_logo: Option<Arc<[u8]>>,
@@ -178,6 +177,7 @@ pub struct ModHost {
     session: Arc<SessionData>,
     drawing_session: Option<mod_api::drawing::DrawingSession>,
     drawing_restart: DrawingRestart,
+    drawing_world_active: bool,
 }
 
 /// Builds an empty, unfocused control snapshot for a frame with no routed input.

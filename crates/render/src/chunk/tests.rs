@@ -33,8 +33,9 @@ fn target_expectation(
     }
 }
 
-fn opaque_runtime_assets() -> &'static RuntimeAssets {
-    static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
+/// Shared original opaque artwork for meshing and completed-frame rendering fixtures.
+pub(super) fn opaque_runtime_assets() -> &'static Arc<RuntimeAssets> {
+    static ASSETS: OnceLock<Arc<RuntimeAssets>> = OnceLock::new();
     ASSETS.get_or_init(|| {
         let compiled = CompiledAssets {
             visuals: vec![
@@ -101,7 +102,7 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
             },
         };
         let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");
-        RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets")
+        Arc::new(RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets"))
     })
 }
 

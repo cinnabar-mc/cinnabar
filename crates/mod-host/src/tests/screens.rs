@@ -12,6 +12,8 @@ use server_experience::{
 use sha2::{Digest, Sha256};
 use std::{path::Path, sync::OnceLock};
 
+mod world_changes;
+
 const PROBE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../examples/mods/screen-probe"

@@ -18,6 +18,13 @@ pub struct ActorLifeObservation {
     pub life: ActorLife,
 }
 
+/// A retained combat event and its actor life captured by the owning authority.
+#[derive(Clone, Copy, Debug)]
+pub struct RecordedCombatObservation {
+    pub event: CombatObservation,
+    pub life: Option<u64>,
+}
+
 /// Callback-scoped read-only facts captured by native owning adapters.
 #[derive(Clone, Default)]
 pub struct ModuleObservations {
@@ -27,7 +34,7 @@ pub struct ModuleObservations {
     pub vitals: Option<VitalsObservation>,
     pub ping_ms: Option<u32>,
     pub actors: Vec<ObservedActor>,
-    pub combat: Vec<CombatObservation>,
+    pub combat: Vec<RecordedCombatObservation>,
     /// Every admitted actor in the current dimension, sorted by runtime ID; shared by every mod
     /// in one frame.
     pub actor_lives: Arc<Vec<ActorLifeObservation>>,
@@ -102,13 +109,17 @@ pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
             && facts
                 .combat
                 .windows(2)
-                .all(|events| events[0].sequence < events[1].sequence)
-            && facts.combat.iter().all(|e| e.sequence != 0
-                && e.session != 0
-                && e.runtime_id != 0
-                && finite(e.position)
-                && e.distance
-                    .is_none_or(|n| n.is_finite() && (0.0..=128.0).contains(&n))),
+                .all(|events| events[0].event.sequence < events[1].event.sequence)
+            && facts
+                .combat
+                .iter()
+                .map(|recorded| &recorded.event)
+                .all(|e| e.sequence != 0
+                    && e.session != 0
+                    && e.runtime_id != 0
+                    && finite(e.position)
+                    && e.distance
+                        .is_none_or(|n| n.is_finite() && (0.0..=128.0).contains(&n))),
         "invalid combat observation"
     );
     ensure!(
@@ -155,16 +166,19 @@ mod tests {
                 },
                 max_health: Some(20.),
             }],
-            combat: vec![CombatObservation {
-                sequence: 1,
-                session: 1,
-                dimension: 0,
-                kind: CombatKind::Hurt,
-                local: false,
-                player: true,
-                runtime_id: 5,
-                distance: None,
-                position: (0., 0., 0.),
+            combat: vec![RecordedCombatObservation {
+                life: Some(1),
+                event: CombatObservation {
+                    sequence: 1,
+                    session: 1,
+                    dimension: 0,
+                    kind: CombatKind::Hurt,
+                    local: false,
+                    player: true,
+                    runtime_id: 5,
+                    distance: None,
+                    position: (0., 0., 0.),
+                },
             }],
             ..Default::default()
         }

@@ -4,6 +4,7 @@ mod experience;
 mod experience_modal;
 mod gameplay_hud;
 mod hud_surfaces;
+mod hud_world_lifecycle;
 mod mod_hud;
 mod mod_panel;
 mod mod_panel_drag;

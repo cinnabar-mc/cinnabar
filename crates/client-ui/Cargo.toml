@@ -9,6 +9,7 @@ publish = false
 platform-specific = ["macos"]
 reads = [
     "assets/cinnangles-sans-source.json",
+    "crates/mod-api/wit/extension.wit",
     "crates/protocol/fixtures/*",
 ]
 
@@ -71,6 +72,7 @@ wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4.77"
 
 [dev-dependencies]
+mod-api = { path = "../mod-api" }
 chunk-pipeline = { path = "../chunk-pipeline" }
 update-manifest = { path = "../update-manifest" }
 cosmetics = { path = "../cosmetics", features = ["test-support"] }

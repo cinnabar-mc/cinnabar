@@ -10,4 +10,6 @@ pub const MAX_OBSERVED_ACTOR_NAME_BYTES: usize = 128;
 pub const MAX_OBSERVED_COMBAT_EVENTS: usize = 64;
 /// Runtime IDs one `read-actor-lives` call may request.
 pub const MAX_ACTOR_LIFE_READS: usize = 64;
+/// Sequences one `read-combat-lives` call may request, covering the retained history.
+pub const MAX_COMBAT_LIFE_READS: usize = MAX_OBSERVED_COMBAT_EVENTS;
 pub const MAX_COMBAT_READ_EVENTS: usize = 4;
