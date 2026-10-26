@@ -53,4 +53,4 @@ Any trap, guest error or missed deadline quarantines the instance. A guest error
 
 Write accordingly. Handle malformed batches by forwarding them, not by returning an error, unless you intend to end your mod's part in the session. Keep per-batch work well inside 250 ms; the deadline is a wall clock, so a slow machine is not an excuse the host accepts. And remember that `start` sees the whole startup sequence at once: the 5-second budget is sized for reading it, not for work you could defer to `tick`.
 
-See the [packet-mod reference](../reference/packet-mod.md) for the exact export signatures and record fields.
+See the [packet-mod world](../reference/worlds.md#packet-mod) for the exact export signatures and the linked record fields.

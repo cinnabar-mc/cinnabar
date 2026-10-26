@@ -49,7 +49,7 @@ The `drawing` interface (`cinnabar:world-draw/drawing`) keeps geometry alive acr
 
 The flow is handles all the way down: `create_geometry` uploads a mesh or polyline and returns a handle, `create` places an instance of it at a world, block, camera or entity anchor, `update` moves it, `remove` deletes it, and `replace_frame_group` swaps a named group for callback-lifetime output. Remove instances before their geometry. Retained budgets per owner: `MAX_DRAW_INSTANCES` (1024) instances, `MAX_DRAW_GEOMETRIES` (256) geometries, `MAX_DRAW_VERTICES` (65,536) vertices, `MAX_DRAW_INDICES` (196,608) indices and `MAX_DRAW_MATERIALS` (8) custom materials.
 
-The `mod_api::drawing::shapes` helpers build geometry records for you — `box_wireframe`, `circle`, `sphere_wireframe`, `arrow`, `polyline`, `path_gradient`, `grid`, `chunk_border` — and `mod_api::drawing::instance` fills an instance with depth testing, premultiplied blending and identity placement as defaults. A minimal use, from `crates/mod-api/README.md`:
+The `mod_api::drawing::shapes` helpers build geometry records for you — `box_wireframe`, `circle`, `sphere_wireframe`, `arrow`, `polyline`, `path_gradient`, `grid`, `chunk_border` — and `mod_api::drawing::instance` fills an instance with depth testing, premultiplied blending and identity placement as defaults. A minimal use:
 
 ```rust
 use mod_api::drawing::{api, instance, shapes};
@@ -89,4 +89,4 @@ The region's cells are indexed `((x * size-z) + z) * size-y + y` relative to the
 
 Errors are typed: `denied`, `unavailable`, `invalid-query`, `out-of-range`, `budget-exhausted` or `limit-exceeded`. On `limit-exceeded`, shrink the query. Sampling is host work, but your own pathfinding and caching over the result still spend frame fuel, so work through a large region incrementally with `budget::remaining-fuel`, as [How mods run](how-mods-run.md) describes.
 
-See the [camera](../reference/camera.md), [gameplay](../reference/gameplay.md), [render](../reference/render.md), [terrain](../reference/terrain.md) and [drawing](../reference/drawing.md) reference pages for exact types.
+See the [camera](../reference/camera.md), [gameplay](../reference/gameplay.md), [render](../reference/render.md), [terrain](../reference/terrain.md) and [drawing](../reference/world-draw-drawing.md) reference pages for exact types.
