@@ -38,7 +38,7 @@ pub(super) fn attempt(
 
 impl WorldMaterialPresenter {
     /// Publishes `bundle`'s compute declarations into `computes` while it may run extra
-    /// passes, charging each its cells and, unless the bundle compiled it already this session,
+    /// passes, keeping them cached while that permission is withdrawn, charging each its cells and, unless the bundle compiled it already this session,
     /// its pipeline against `budget` (GPU bytes left, host memory left); `pipelines` holds the
     /// bundle's compiled sets and the sets claimed across bundles this rebuild. Returns where
     /// each published one landed, by declaration id; `live` collects the declarations seen.
@@ -54,6 +54,15 @@ impl WorldMaterialPresenter {
             .allowed()
             .contains(&Permission::RenderWorldMaterialPasses)
         {
+            // Withdrawn, the declarations stay cached, so restoring the permission brings back
+            // the same computes, whose pipelines stay charged for the session anyway.
+            live.extend(
+                bundle
+                    .world
+                    .computes()
+                    .keys()
+                    .map(|id| (bundle.bundle.to_owned(), *id)),
+            );
             return slots;
         }
         for (&id, spec) in bundle.world.computes() {

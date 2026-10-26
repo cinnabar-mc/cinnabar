@@ -360,3 +360,60 @@ fn a_material_never_reads_another_bundles_cells_when_an_earlier_bundle_stops() {
     );
     assert_eq!(glass_cells(&presenter), Some(own));
 }
+
+#[test]
+fn toggling_a_permission_near_the_gpu_limit_reuses_both_forms_and_keeps_the_computes() {
+    let wave = "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }
+fn displace(input: WorldVertexInput) -> vec3<f32> { return input.normal * parameter(0u); }";
+    let mut world = glass_world();
+    world
+        .set_material(
+            1,
+            Some(&glass_spec(
+                wave,
+                WorldEffects {
+                    displacement_blocks: Some(1.0),
+                    ..WorldEffects::default()
+                },
+            )),
+        )
+        .unwrap();
+    let permissions = every_permission();
+    // Room for the compute and the material in both forms, its displacing one and the one
+    // without, and no more: a third set of pipelines would not fit.
+    let gpu_bytes = 128 * 32 + 3 * PIPELINE_CHARGE_BYTES + BIND_GROUP_CHARGE_BYTES;
+    let rebuild = |presenter: &mut WorldMaterialPresenter, withdrawn: &BTreeSet<Permission>| {
+        presenter.rebuild([BundleWorld {
+            bundle: "example.bundle",
+            world: &world,
+            gpu_bytes,
+            memory_bytes: u64::MAX,
+            files: &NO_FILES,
+            permissions: &permissions,
+            withdrawn,
+        }])
+    };
+    let mut presenter = WorldMaterialPresenter::inline();
+    rebuild(&mut presenter, &BTreeSet::new());
+    let compute = presenter.set().computes[0].key;
+    let vertex = BTreeSet::from([Permission::RenderWorldMaterialVertex]);
+    for _ in 0..3 {
+        rebuild(&mut presenter, &vertex);
+        assert_eq!(glass(&presenter).displacement_blocks, None);
+        rebuild(&mut presenter, &BTreeSet::new());
+        assert_eq!(
+            glass(&presenter).displacement_blocks,
+            Some(1.0),
+            "the restored form reuses its pipelines at no new charge"
+        );
+    }
+    let passes = BTreeSet::from([Permission::RenderWorldMaterialPasses]);
+    rebuild(&mut presenter, &passes);
+    assert!(presenter.set().computes.is_empty());
+    rebuild(&mut presenter, &BTreeSet::new());
+    assert_eq!(
+        presenter.set().computes.first().map(|compute| compute.key),
+        Some(compute),
+        "a withdrawn compute stays cached and comes back as it was"
+    );
+}
