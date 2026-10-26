@@ -14,6 +14,8 @@ use super::CUBE_FACES;
 mod bamboo_fence;
 pub use bamboo_fence::carried_quads as carried_bamboo_fence_quads;
 mod plants;
+mod walls;
+pub use walls::carried_quads as carried_wall_quads;
 
 /// Largest material tile side drawn; session overlays resample to at most 128.
 pub const MAX_GUI_TILE_SIDE: usize = 128;
@@ -219,7 +221,7 @@ pub fn block_item_quads(
             {
                 out.extend(inventory_fence_quads(faces[BlockFace::South as usize]));
             } else if first.flags & MODEL_TEMPLATE_FLAG_WALL != 0 {
-                out.extend(carried_wall_quads(faces));
+                out.extend(walls::inventory_quads(faces));
             } else {
                 let parts = crate::model_template_parts(templates, template)
                     .ok_or(GuiBlockReject::Geometry)?;
@@ -430,57 +432,6 @@ fn inventory_fence_quads(material: u32) -> impl Iterator<Item = GuiBlockQuad> {
                 }
             })
         })
-}
-
-/// Two end pillars and a lower span, matching the authored `geometry.wall_render` item.
-fn carried_wall_quads(materials: [u32; 6]) -> Vec<GuiBlockQuad> {
-    let post_uvs = [
-        [0, 0, 8, 16],
-        [0, 0, 8, 16],
-        [8, 8, 0, 0],
-        [8, 8, 0, 0],
-        [0, 0, 8, 16],
-        [0, 0, 8, 16],
-    ];
-    let elements = [
-        ([64, 0, 192], [192, 256, 320], post_uvs),
-        ([64, 0, -64], [192, 256, 64], post_uvs),
-        (
-            [80, 0, 16],
-            [176, 208, 240],
-            [
-                [0, 0, 4, 13],
-                [0, 0, 4, 13],
-                [6, 4, 0, 0],
-                [6, 4, 0, 0],
-                [0, 0, 6, 13],
-                [0, 0, 6, 13],
-            ],
-        ),
-    ];
-    let mut out = Vec::with_capacity(elements.len() * 6);
-    for (min, max, uvs) in elements {
-        for (face, (corners, uv)) in carried_cuboid_faces(min, max)
-            .into_iter()
-            .zip(uvs)
-            .enumerate()
-        {
-            out.push(GuiBlockQuad {
-                // The item's root turns the wall across X, independently of world connections.
-                corners: corners.map(|[x, y, z]| [z, y, 1.0 - x]),
-                uvs: carried_face_uvs(face, uv),
-                material: materials[match BlockFace::ALL[face] {
-                    BlockFace::West => BlockFace::South,
-                    BlockFace::East => BlockFace::North,
-                    BlockFace::North => BlockFace::West,
-                    BlockFace::South => BlockFace::East,
-                    vertical => vertical,
-                } as usize],
-                two_sided: false,
-            });
-        }
-    }
-    out
 }
 
 /// Outward-facing cuboid corners from fixed-point block coordinates.

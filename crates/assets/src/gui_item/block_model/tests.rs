@@ -2,6 +2,7 @@ use super::*;
 use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
 
 mod carried_fences;
+mod carried_walls;
 
 #[test]
 fn azalea_inventory_has_a_separate_stem_and_open_bottom_canopy() {
@@ -444,9 +445,9 @@ fn vanilla_gates_use_the_custom_carried_inventory_axis() {
 }
 
 #[test]
-fn carried_walls_preserve_directional_materials() {
+fn inventory_walls_preserve_directional_materials() {
     let materials = BlockFace::ALL.map(|face| face as u32 + 1);
-    for quad in carried_wall_quads(materials) {
+    for quad in walls::inventory_quads(materials) {
         let [a, b, c, _] = quad.corners;
         let u = std::array::from_fn::<_, 3, _>(|i| b[i] - a[i]);
         let v = std::array::from_fn::<_, 3, _>(|i| c[i] - a[i]);

@@ -1026,3 +1026,4 @@ fn attachment_placement_shared_endpoint_composes_once() {
     assert_eq!(work, 1);
     assert!(Arc::ptr_eq(&poses[0], &poses[1]));
 }
+mod walls;

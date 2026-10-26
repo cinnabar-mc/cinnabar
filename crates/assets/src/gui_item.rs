@@ -14,8 +14,8 @@ mod sculk_sensor;
 mod sculk_shrieker;
 pub use block_model::{
     GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_gui_quads,
-    block_item_quads, carried_bamboo_fence_quads, carried_fence_quads, cube_face, face_brightness,
-    material_tile,
+    block_item_quads, carried_bamboo_fence_quads, carried_fence_quads, carried_wall_quads,
+    cube_face, face_brightness, material_tile,
 };
 pub use cube_model::full_cube_model_quads;
 pub use dried_ghast::{DRIED_GHAST_TENTACLES, dried_ghast_quads};

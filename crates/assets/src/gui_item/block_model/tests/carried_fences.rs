@@ -66,7 +66,7 @@ fn carried_bamboo_fences_keep_distinct_post_and_slat_regions_on_every_side() {
 }
 
 /// Finds an outward-facing corner's texture coordinate from a design-pixel position.
-fn uv_at(quads: &[GuiBlockQuad], face: BlockFace, point: [f32; 3]) -> Option<[f32; 2]> {
+pub(super) fn uv_at(quads: &[GuiBlockQuad], face: BlockFace, point: [f32; 3]) -> Option<[f32; 2]> {
     let point = point.map(|v| v / 16.0);
     let (axis, positive) = match face {
         BlockFace::West => (0, false),

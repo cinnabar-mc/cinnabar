@@ -5,6 +5,7 @@ mod carpets;
 mod fences;
 mod pressure_plates;
 mod slabs;
+mod walls;
 
 fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
     let mut mips = Vec::new();
