@@ -374,6 +374,31 @@ fn textures_that_do_not_fit_the_shares_are_never_decoded_or_held() {
     assert_eq!(presenter.held_texels(), 0);
 }
 
+#[test]
+fn ending_the_session_releases_retired_charges() {
+    let textures = Vec::new();
+    let budget = PIPELINE_CHARGE_BYTES * 2;
+    let mut presenter = WorldMaterialPresenter::default();
+    for round in 0..3 {
+        presenter.rebuild([bundle(
+            &world(&[(1, distinct(round))], &[]),
+            &textures,
+            budget,
+        )]);
+    }
+    assert!(
+        presenter.set().published().next().is_none(),
+        "the session's retired pipelines used up the share"
+    );
+    let revision = presenter.set().revision;
+    assert!(presenter.end_session(), "ending publishes the empty set");
+    assert!(presenter.set().revision > revision);
+    // The bundle reconnects with the same share.
+    assert!(presenter.rebuild([bundle(&world(&[(1, distinct(3))], &[]), &textures, budget)]));
+    let key = presenter.set().published().next().unwrap().key;
+    assert!(key > 3, "keys keep counting across sessions");
+}
+
 /// `world` declared by the bundle `name` with unbounded shares and no textures.
 fn named<'a>(name: &'a str, world: &'a WorldMaterials) -> BundleWorld<'a> {
     BundleWorld {

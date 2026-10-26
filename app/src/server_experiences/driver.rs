@@ -39,9 +39,6 @@ pub(super) struct ExperienceService {
     )>,
     /// The client parts' world materials as the renderer draws them.
     world: super::world_materials::WorldMaterialPresenter,
-    /// The runtime and world contribution revision `world` was last built from; `None` before
-    /// any build or after the runtime ended.
-    world_built: Option<(u64, u64)>,
 }
 
 impl ExperienceService {
@@ -97,7 +94,6 @@ pub(crate) fn configure(app: &mut App) {
         items: Default::default(),
         hotbar: None,
         world: Default::default(),
-        world_built: None,
     })
     .add_systems(
         Update,
@@ -532,9 +528,9 @@ fn present_media(
     }
 }
 
-/// Publishes the client parts' world materials when their contributions change. Ending the
-/// runtime (F9, a stop or a disconnect) publishes an empty set, which restores every Bedrock
-/// material without a reconnect.
+/// Publishes the client parts' world materials when their world declarations change. Ending
+/// the runtime (F9, a stop or a disconnect) ends the presenter's session and publishes an empty
+/// set, which restores every Bedrock material without a reconnect.
 fn present_world_materials(
     mut service: ResMut<ExperienceService>,
     scene: Option<ResMut<render_scene::world_material::WorldMaterialScene>>,
@@ -546,20 +542,7 @@ fn present_world_materials(
             .world
             .note_compile_failures(|key| failures.failed(key));
     }
-    let revision = service
-        .live
-        .as_ref()
-        .map(super::live::Live::world_contribution);
-    if revision == service.world_built
-        && (revision.is_some() || service.world.set().materials.is_empty())
-    {
-        return;
-    }
-    service.world_built = revision;
-    let changed = match &service.live {
-        Some(live) => service.world.rebuild(live.world_bundles()),
-        None => service.world.rebuild(std::iter::empty()),
-    };
+    let changed = service.world.follow(service.live.as_ref());
     if changed && let Some(mut scene) = scene {
         scene.set = std::sync::Arc::clone(service.world.set());
     }

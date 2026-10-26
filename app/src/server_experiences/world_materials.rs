@@ -154,10 +154,12 @@ pub(super) struct WorldMaterialPresenter {
     /// GPU bytes of each bundle's replaced or removed materials: the renderer cannot destroy
     /// a compiled pipeline, so they stay charged for the session.
     retired: BTreeMap<String, u64>,
-    /// Slots by index. A slot belongs to the bundle that first drew in it for the session and
-    /// only that bundle's materials reuse it, so a mesh still carrying a stale tag never draws
-    /// with another bundle's shader.
+    /// Slots by index. A slot belongs to the bundle that first drew in it until the session
+    /// ends and only that bundle's materials reuse it, so a mesh still carrying a stale tag
+    /// never draws with another bundle's shader.
     slots: Vec<Slot>,
+    /// The runtime and world contribution revision the set was last built from.
+    built: Option<(u64, u64)>,
 }
 
 impl WorldMaterialPresenter {
@@ -169,6 +171,55 @@ impl WorldMaterialPresenter {
     /// The most recent failures, oldest first, at most [`MAX_DIAGNOSTICS`].
     pub(super) fn diagnostics(&self) -> impl Iterator<Item = &str> {
         self.diagnostics.iter().map(String::as_str)
+    }
+
+    /// Rebuilds the set from `live`'s declarations only when they changed since the last
+    /// build. Another runtime, or none, ends the previous session first, releasing its
+    /// retired charges and slots. Returns whether the set changed.
+    pub(super) fn follow<H: super::worker::Worker>(
+        &mut self,
+        live: Option<&super::live::Live<H>>,
+    ) -> bool {
+        let built = live.map(super::live::Live::world_contribution);
+        if built == self.built {
+            return false;
+        }
+        let mut changed = false;
+        if built.map(|(run, _)| run) != self.built.map(|(run, _)| run) {
+            changed = self.end_session();
+        }
+        self.built = built;
+        if let Some(live) = live {
+            changed |= self.rebuild(live.world_bundles());
+        }
+        changed
+    }
+
+    /// Forgets the session's declarations, charges, slots and diagnostics, publishing an empty
+    /// set when the drawn one was not; returns whether it published. Keys and revisions keep
+    /// counting, so a renderer never mistakes a new session's material for an old one.
+    pub(super) fn end_session(&mut self) -> bool {
+        let changed = *self.set
+            != WorldMaterialSet {
+                revision: self.set.revision,
+                ..WorldMaterialSet::default()
+            };
+        let revision = self.revision + u64::from(changed);
+        let set = if changed {
+            Arc::new(WorldMaterialSet {
+                revision,
+                ..WorldMaterialSet::default()
+            })
+        } else {
+            Arc::clone(&self.set)
+        };
+        *self = Self {
+            next_key: self.next_key,
+            revision,
+            set,
+            ..Self::default()
+        };
+        changed
     }
 
     /// Rebuilds the set from every bundle's declarations; returns whether it changed. An

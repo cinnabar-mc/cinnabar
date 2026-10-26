@@ -179,3 +179,34 @@ fn only_world_commands_and_stops_change_the_world_contribution() {
         "each runtime has its own identity"
     );
 }
+
+#[test]
+fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
+    let budget = crate::server_experiences::world_materials::PIPELINE_CHARGE_BYTES;
+    let mut live = bound();
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .capabilities
+        .scope
+        .gpu_bytes = budget;
+    let mut presenter = WorldMaterialPresenter::default();
+    assert!(presenter.follow(Some(&live)));
+    assert!(presenter.set().entity("example:moth").is_some());
+    assert!(!presenter.follow(Some(&live)), "nothing changed");
+    // Replacing the drawn material retires its pipeline, which uses up the share.
+    callback(&mut live, 1, vec![redeclare(1)]);
+    presenter.follow(Some(&live));
+    assert!(presenter.set().entity("example:moth").is_none());
+    // The session ends and the same bundle reconnects with the same share.
+    let mut again = bound();
+    again
+        .instances
+        .get_mut("bundle0")
+        .unwrap()
+        .capabilities
+        .scope
+        .gpu_bytes = budget;
+    assert!(presenter.follow(Some(&again)));
+    assert!(presenter.set().entity("example:moth").is_some());
+}
