@@ -251,3 +251,47 @@ fn fuel_recovery_keeps_presentation_and_discards_failed_parameter_writes() {
         (&published, revision)
     );
 }
+
+#[test]
+fn fuel_recovery_seeds_the_initial_panel_before_sparse_init() {
+    use cinnabar::extension::panel::Host as _;
+    let (engine, _ticker) = crate::execution::engine().unwrap();
+    let bundle: ui::mod_panel::PanelBundle = serde_json::from_value(serde_json::json!({
+        "panel": {"surface": crate::tests::panel_surface("initial"), "toggle_key":"F10",
+            "controls":[{"kind":"toggle","id":"initial","label":"Initial","value":false}]},
+        "surfaces":{"other":crate::tests::panel_surface("other")},
+        "control_schemas":{"other":[{"kind":"toggle","id":"other","label":"Other","value":false}]}
+    }))
+    .unwrap();
+    bundle.validate().unwrap();
+    let patch = r#"{"controls":[{"id":"initial","value":true}]}"#;
+    let mut instance = Instance::new(
+        &engine,
+        crate::tests::recovery_edit_guest(patch, true).as_bytes(),
+        ModGrants {
+            controls: true,
+            settings: true,
+            ..Default::default()
+        },
+        String::new(),
+        Declared::default(),
+        Some(std::sync::Arc::new(bundle)),
+    )
+    .unwrap();
+    instance
+        .store
+        .data_mut()
+        .update_content(r#"{"surface":"other"}"#.into())
+        .unwrap()
+        .unwrap();
+    commit(&mut instance.store);
+    assert_eq!(instance.panel().unwrap().controls[0].id(), "other");
+    instance.store.data_mut().pressed = true;
+    instance.frame(CallbackOutcome::Executed).unwrap_err();
+    assert!(instance.is_active());
+    assert!(instance.recover_frame_fuel().unwrap());
+    assert!(matches!(&instance.panel().unwrap().controls[0],
+        ui::mod_panel::Control::Toggle { id, value: true, .. } if id == "initial"));
+    instance.frame(CallbackOutcome::Executed).unwrap();
+    assert!(instance.is_active());
+}

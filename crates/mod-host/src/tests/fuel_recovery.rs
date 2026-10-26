@@ -186,30 +186,12 @@ fn failed_recovery_initialization_quarantines_instead_of_retrying() {
 fn edit_host(live: bool) -> (tempfile::TempDir, ModHost) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("edits.wat");
-    let package = include_str!("../../../mod-api/wit/extension.wit")
-        .lines()
-        .next()
-        .unwrap()
-        .trim_start_matches("package ")
-        .trim_end_matches(';');
-    let (name, version) = package.split_once('@').unwrap();
     let panel = serde_json::json!({"surface": panel_surface("edits"), "toggle_key": "ShiftRight",
         "controls": [{"kind":"text", "id":"value", "label":"Value", "value":r#"{"v":0}"#,
             "live":live,"navigation_keys":true},
             {"kind":"keybind", "id":"capture", "label":"Capture", "key":"KeyQ", "capturing":false}]});
     let json = panel.to_string();
-    let escaped: String = json
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("\\{byte:02x}"))
-        .collect();
-    let source = include_str!("recovery_edits.wat")
-        .replace("$INPUT", &format!("{name}/input@{version}"))
-        .replace("$SETTINGS", &format!("{name}/settings@{version}"))
-        .replace("$HUD", &format!("{name}/hud@{version}"))
-        .replace("$PANEL_INTERFACE", &format!("{name}/panel@{version}"))
-        .replace("$PANEL_JSON", &escaped)
-        .replace("$PANEL_LENGTH", &json.len().to_string());
+    let source = recovery_edit_guest(&json, false);
     std::fs::write(&path, source).unwrap();
     std::fs::write(settings_companion(&path), r#"{"v":0}"#).unwrap();
     let mut host = ModHost::load_with_grants(

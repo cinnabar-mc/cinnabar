@@ -107,10 +107,7 @@ impl Instance {
             session.permissions = state.grants.drawing_permissions();
             state.render.masks.bind(session);
         }
-        if let Some(bundle) = panel_bundle.filter(|_| state.grants.controls) {
-            state.controls.panel = Some(bundle.panel.clone());
-            state.controls.bundle = Some(bundle);
-        }
+        state.controls.bundle = panel_bundle.filter(|_| state.grants.controls);
         let pre = linker.instantiate_pre(&component)?;
         exports::Exports::check(&pre)?;
         Self::instantiate(pre, state)
@@ -140,6 +137,11 @@ impl Instance {
         pre: &wasmtime::component::InstancePre<State>,
         store: &mut Store<State>,
     ) -> Result<(exports::Exports, u64)> {
+        // Fresh memory starts on the admitted initial panel, regardless of the old route.
+        let state = store.data_mut();
+        if let Some(bundle) = &state.controls.bundle {
+            state.controls.panel = Some(bundle.panel.clone());
+        }
         store.limiter(|state| &mut state.limits);
         let initial = FRAME_FUEL;
         crate::execution::arm(store, initial, true)?;

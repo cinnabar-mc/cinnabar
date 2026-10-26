@@ -6,6 +6,37 @@ pub(crate) fn panel_surface(name: &str) -> serde_json::Value {
     serde_json::json!({"screen":format!("{name}.root"),
         "document":serde_json::json!({"namespace":name,"root":{"type":"panel"}}).to_string()})
 }
+
+/// Builds a value-editing guest that sets its panel or sparsely patches an admitted bundle.
+pub(crate) fn recovery_edit_guest(panel: &str, patch: bool) -> String {
+    let package = include_str!("../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let escaped: String = panel
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("\\{byte:02x}"))
+        .collect();
+    include_str!("tests/recovery_edits.wat")
+        .replace(
+            "set-content",
+            if patch {
+                "update-content"
+            } else {
+                "set-content"
+            },
+        )
+        .replace("$INPUT", &format!("{name}/input@{version}"))
+        .replace("$SETTINGS", &format!("{name}/settings@{version}"))
+        .replace("$HUD", &format!("{name}/hud@{version}"))
+        .replace("$PANEL_INTERFACE", &format!("{name}/panel@{version}"))
+        .replace("$PANEL_JSON", &escaped)
+        .replace("$PANEL_LENGTH", &panel.len().to_string())
+}
 #[path = "tests/camera.rs"]
 mod camera;
 mod collection_reveal;
