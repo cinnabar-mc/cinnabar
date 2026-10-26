@@ -117,11 +117,10 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .template
                 .and_then(|id| shape.templates.get(id as usize))
                 .filter(|template| {
-                    shape.render_kind != assets::facts::BlockRenderKind::BambooFence
-                        && template.flags
-                            & (assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                                | assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER)
-                            != 0
+                    template.flags
+                        & (assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD
+                            | assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER)
+                        != 0
                 })
                 .map_or(item_gui::BlockModelOrder::Depth, |_| {
                     item_gui::BlockModelOrder::Paint

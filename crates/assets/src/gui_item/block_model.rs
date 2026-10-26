@@ -11,6 +11,7 @@ use crate::{
 
 use super::CUBE_FACES;
 
+mod bamboo_fence;
 mod plants;
 
 /// Largest material tile side drawn; session overlays resample to at most 128.
@@ -114,10 +115,15 @@ pub fn block_gui_quads(
     }
     if kind == VisualKind::Model
         && flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0
-        && render_kind != crate::facts::BlockRenderKind::BambooFence
     {
         let material = faces[BlockFace::South as usize];
-        return Ok(gui_fence_quads(material));
+        return Ok(
+            if render_kind == crate::facts::BlockRenderKind::BambooFence {
+                bamboo_fence::quads(material)
+            } else {
+                gui_fence_quads(material)
+            },
+        );
     }
     let mut carried = block_item_quads(kind, faces, template, templates, quads)?;
     if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_HEAVY_CORE != 0 {

@@ -668,7 +668,7 @@ fn gui_fence_rail_halves_restart_their_texture_without_changing_held_meshes() {
 }
 
 #[test]
-fn bamboo_inventory_remains_independent_of_wooden_fence_uvs() {
+fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
     let templates = [ModelTemplate {
         quad_start: 0,
         quad_count: 0,
@@ -683,18 +683,40 @@ fn bamboo_inventory_remains_independent_of_wooden_fence_uvs() {
         &[],
     )
     .unwrap();
-    let held = block_item_quads(VisualKind::Model, [7; 6], Some(0), &templates, &[]).unwrap();
-    assert_eq!(gui, held);
-    let ordinary = block_gui_quads(
-        Default::default(),
-        VisualKind::Model,
-        [7; 6],
-        Some(0),
-        &templates,
-        &[],
-    )
-    .unwrap();
-    assert_ne!(gui, ordinary);
+    let post = gui
+        .iter()
+        .find(|q| q.corners.iter().all(|p| p[2] == 0.25) && q.corners.iter().any(|p| p[1] == 1.0))
+        .unwrap();
+    let min_u = post
+        .uvs
+        .iter()
+        .map(|uv| uv[0])
+        .fold(f32::INFINITY, f32::min);
+    let max_u = post
+        .uvs
+        .iter()
+        .map(|uv| uv[0])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert_eq!([min_u, max_u], [0.0, 255.0 / 1024.0]);
+    let rear_slat = gui
+        .iter()
+        .find(|q| {
+            q.corners.iter().all(|p| p[0] == 7.0 / 16.0)
+                && q.corners.iter().any(|p| p[2] == -2.0 / 16.0)
+                && q.corners.iter().any(|p| p[1] == 15.0 / 16.0)
+        })
+        .unwrap();
+    assert_eq!(
+        rear_slat
+            .corners
+            .iter()
+            .map(|p| p[1])
+            .fold(f32::INFINITY, f32::min),
+        12.0 / 16.0
+    );
+    for (point, uv) in rear_slat.corners.iter().zip(rear_slat.uvs) {
+        assert_eq!(uv, [0.5 + point[2] + 2.0 / 16.0, 15.0 / 16.0 - point[1]]);
+    }
 }
 
 #[test]
