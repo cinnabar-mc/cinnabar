@@ -25,6 +25,11 @@ mod presentation;
 pub mod primitive_shapes;
 pub mod terrain_units;
 mod ui;
+mod ui_model;
+mod ui_publication_pool;
+pub use ui_model::{
+    UI_MODEL_LAYER_BITS, UiModelBone, UiModelPose, project_ui_model_vertex, ui_model_instance,
+};
 pub mod ui_page_uniform;
 mod ui_textures;
 mod visibility;

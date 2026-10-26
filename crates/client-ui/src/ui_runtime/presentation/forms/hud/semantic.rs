@@ -167,7 +167,7 @@ impl SemanticHud {
         changed |= replace(&mut model.bubbles_visible, bubbles);
         changed |= replace(
             &mut model.paper_doll,
-            frame.paper_doll_visible && hotbar && settings.value(SettingId::HidePaperdoll) == 0,
+            frame.paper_doll_requested(player.facts.player_game_mode(), settings),
         );
         changed |= replace(
             &mut model.effects_visible,

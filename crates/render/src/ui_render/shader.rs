@@ -15,6 +15,23 @@ pub(crate) fn source(raw: &str) -> String {
     let raw = raw.replace("UI_REPEAT_DECODER", render_api::ui_repeat::WGSL_DECODER);
     let raw = raw.replace("UI_SHADOW_DECODER", render_api::ui_shadow::WGSL);
     raw.replace(
+        "UI_STYLE_MODEL_VERTEX",
+        &format!("{}u", render_api::UI_STYLE_MODEL_VERTEX),
+    )
+    .replace(
+        "UI_MODEL_LAYER_BITS",
+        &format!("{}u", render_model::UI_MODEL_LAYER_BITS),
+    )
+    .replace(
+        "// ACTOR_SHADE_CONSTANTS",
+        &format!(
+            "const ACTOR_SHADE: array<f32, 5> = array({});",
+            render_api::ACTOR_SHADE_COEFFICIENTS
+                .map(|value| format!("{value:?}"))
+                .join(", ")
+        ),
+    )
+    .replace(
         "GLINT_TINT_RGB",
         &crate::material_shader::glint_tint_source(),
     )
