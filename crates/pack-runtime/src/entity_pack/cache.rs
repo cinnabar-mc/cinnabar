@@ -328,7 +328,7 @@ fn load_entry(
 
 /// Reads what [`store_entry`] wrote: `length` bytes of reads, presence flag and pack.
 fn decode_entry(
-    entry: &mut dyn std::io::Read,
+    entry: &mut dyn Read,
     length: u64,
 ) -> Option<(
     Option<Arc<SessionEntityPack>>,
