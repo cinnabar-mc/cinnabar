@@ -55,12 +55,13 @@ pub struct Published {
     pub blend: Blend,
 }
 
-/// Every drawable world material and what binds to it. Slots index `materials`.
+/// Every drawable world material and what binds to it. Slots index `materials`; an empty slot
+/// keeps its index free so the slots after it, and the tags meshes carry for them, stay put.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldMaterialSet {
     /// Changes whenever any material or binding changes.
     pub revision: u64,
-    pub materials: Vec<Published>,
+    pub materials: Vec<Option<Published>>,
     /// Entity identifier to the slot its every bone draws with.
     pub entities: BTreeMap<Box<str>, u16>,
     /// Block identifier to the slot its every state draws with.
@@ -68,15 +69,20 @@ pub struct WorldMaterialSet {
 }
 
 impl WorldMaterialSet {
+    /// Every published material, in slot order.
+    pub fn published(&self) -> impl Iterator<Item = &Published> {
+        self.materials.iter().flatten()
+    }
+
     /// The material bound to entity `identifier`, if any.
     pub fn entity(&self, identifier: &str) -> Option<(u16, &Published)> {
         let slot = *self.entities.get(identifier)?;
-        Some((slot, self.materials.get(usize::from(slot))?))
+        Some((slot, self.materials.get(usize::from(slot))?.as_ref()?))
     }
 
     /// The material bound to block `identifier`, if any.
     pub fn block(&self, identifier: &str) -> Option<(u16, &Published)> {
         let slot = *self.blocks.get(identifier)?;
-        Some((slot, self.materials.get(usize::from(slot))?))
+        Some((slot, self.materials.get(usize::from(slot))?.as_ref()?))
     }
 }
