@@ -158,86 +158,152 @@ impl WorldAuthority<'_> {
     }
 }
 
-/// A bundle's retained world materials and bindings, by guest-chosen id.
+/// A bundle's retained world materials and bindings, by guest-chosen id, indexed so every
+/// change costs a lookup rather than a scan.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldMaterials {
-    pub materials: BTreeMap<u32, WorldMaterialSpec>,
-    pub bindings: BTreeMap<u32, WorldBinding>,
+    materials: BTreeMap<u32, WorldMaterialSpec>,
+    bindings: BTreeMap<u32, WorldBinding>,
+    /// The binding id of each bound target.
+    targets: BTreeMap<WorldTarget, u32>,
+    /// How many bindings name each bound material.
+    uses: BTreeMap<u32, usize>,
+    /// [`Self::charge`], kept as declarations change.
+    charge: u64,
 }
 
 impl WorldMaterials {
-    /// Replaces or removes material `id`; removal is refused while a binding names it.
-    pub fn set_material(&mut self, id: u32, spec: Option<&WorldMaterialSpec>) -> Result<()> {
-        match spec {
-            Some(spec) => {
-                self.materials.insert(id, spec.clone());
-            }
-            None => {
-                ensure!(
-                    !self.bindings.values().any(|binding| binding.material == id),
-                    "world material in use"
-                );
-                self.materials.remove(&id);
-            }
-        }
-        Ok(())
+    /// The held materials by id.
+    pub fn materials(&self) -> &BTreeMap<u32, WorldMaterialSpec> {
+        &self.materials
     }
 
-    /// Replaces or removes binding `id`; a binding must name a held material, and one target
-    /// takes one binding.
-    pub fn set_binding(&mut self, id: u32, binding: Option<&WorldBinding>) -> Result<()> {
-        match binding {
-            Some(binding) => {
-                ensure!(
-                    self.materials.contains_key(&binding.material),
-                    "unknown world material"
-                );
-                ensure!(
-                    !self
-                        .bindings
-                        .iter()
-                        .any(|(other, held)| *other != id && held.target == binding.target),
-                    "target already bound"
-                );
-                self.bindings.insert(id, binding.clone());
+    /// The held bindings by id.
+    pub fn bindings(&self) -> &BTreeMap<u32, WorldBinding> {
+        &self.bindings
+    }
+
+    /// Replaces or removes material `id`, returning the material it replaced; removal is
+    /// refused while a binding names it.
+    pub fn set_material(
+        &mut self,
+        id: u32,
+        spec: Option<&WorldMaterialSpec>,
+    ) -> Result<Option<WorldMaterialSpec>> {
+        self.set_material_within(id, spec, u64::MAX)
+    }
+
+    /// [`Self::set_material`], refused with nothing changed when the declarations would then
+    /// exceed `memory_bytes`.
+    pub fn set_material_within(
+        &mut self,
+        id: u32,
+        spec: Option<&WorldMaterialSpec>,
+        memory_bytes: u64,
+    ) -> Result<Option<WorldMaterialSpec>> {
+        let held = self.materials.get(&id).map_or(0, material_charge);
+        match spec {
+            Some(spec) => {
+                let charge = self.charge - held + material_charge(spec);
+                ensure!(charge <= memory_bytes, MEMORY_REFUSAL);
+                self.charge = charge;
+                Ok(self.materials.insert(id, spec.clone()))
             }
             None => {
-                self.bindings.remove(&id);
+                ensure!(!self.uses.contains_key(&id), "world material in use");
+                self.charge -= held;
+                Ok(self.materials.remove(&id))
             }
         }
-        Ok(())
+    }
+
+    /// Replaces or removes binding `id`, returning the binding it replaced; a binding must
+    /// name a held material, and one target takes one binding.
+    pub fn set_binding(
+        &mut self,
+        id: u32,
+        binding: Option<&WorldBinding>,
+    ) -> Result<Option<WorldBinding>> {
+        self.set_binding_within(id, binding, u64::MAX)
+    }
+
+    /// [`Self::set_binding`], refused with nothing changed when the declarations would then
+    /// exceed `memory_bytes`.
+    pub fn set_binding_within(
+        &mut self,
+        id: u32,
+        binding: Option<&WorldBinding>,
+        memory_bytes: u64,
+    ) -> Result<Option<WorldBinding>> {
+        let held = self.bindings.get(&id).map_or(0, binding_charge);
+        if let Some(binding) = binding {
+            ensure!(
+                self.materials.contains_key(&binding.material),
+                "unknown world material"
+            );
+            ensure!(
+                self.targets
+                    .get(&binding.target)
+                    .is_none_or(|other| *other == id),
+                "target already bound"
+            );
+            let charge = self.charge - held + binding_charge(binding);
+            ensure!(charge <= memory_bytes, MEMORY_REFUSAL);
+            self.charge = charge;
+        } else {
+            self.charge -= held;
+        }
+        let previous = match binding {
+            Some(binding) => self.bindings.insert(id, binding.clone()),
+            None => self.bindings.remove(&id),
+        };
+        if let Some(previous) = &previous {
+            self.targets.remove(&previous.target);
+            if let Some(uses) = self.uses.get_mut(&previous.material) {
+                *uses -= 1;
+                if *uses == 0 {
+                    self.uses.remove(&previous.material);
+                }
+            }
+        }
+        if let Some(binding) = binding {
+            self.targets.insert(binding.target.clone(), id);
+            *self.uses.entry(binding.material).or_default() += 1;
+        }
+        Ok(previous)
     }
 
     /// Bytes the host holds of these declarations: each material's source, texture paths and
     /// parameters and each binding's identifier, plus [`WORLD_DECLARATION_OVERHEAD_BYTES`] each.
     pub fn charge(&self) -> u64 {
-        let materials = self.materials.values().map(|spec| {
-            spec.source.len() as u64
-                + spec
-                    .textures
-                    .iter()
-                    .map(|path| path.len() as u64)
-                    .sum::<u64>()
-                + spec.params.len() as u64 * 4
-        });
-        let bindings = self
-            .bindings
-            .values()
-            .map(|binding| binding.target.identifier().len() as u64);
-        materials
-            .chain(bindings)
-            .map(|bytes| bytes + WORLD_DECLARATION_OVERHEAD_BYTES)
-            .sum()
+        self.charge
     }
 
     /// Whether the held declarations fit the bundle's signed memory limit.
     pub fn check(&self, memory_bytes: u64) -> Result<()> {
-        ensure!(
-            self.charge() <= memory_bytes,
-            "world materials exceed the bundle's memory limit"
-        );
+        ensure!(self.charge <= memory_bytes, MEMORY_REFUSAL);
         Ok(())
     }
+}
+
+/// Why a declaration that would exceed the bundle's memory limit is refused.
+const MEMORY_REFUSAL: &str = "world materials exceed the bundle's memory limit";
+
+/// Bytes the host holds of one material declaration.
+fn material_charge(spec: &WorldMaterialSpec) -> u64 {
+    spec.source.len() as u64
+        + spec
+            .textures
+            .iter()
+            .map(|path| path.len() as u64)
+            .sum::<u64>()
+        + spec.params.len() as u64 * 4
+        + WORLD_DECLARATION_OVERHEAD_BYTES
+}
+
+/// Bytes the host holds of one binding.
+fn binding_charge(binding: &WorldBinding) -> u64 {
+    binding.target.identifier().len() as u64 + WORLD_DECLARATION_OVERHEAD_BYTES
 }
 
 #[cfg(test)]

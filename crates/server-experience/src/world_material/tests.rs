@@ -222,3 +222,35 @@ fn only_the_memory_limit_bounds_how_many_declarations_a_bundle_holds() {
     world.check(charge).unwrap();
     assert!(world.check(charge - 1).is_err());
 }
+
+#[test]
+fn a_refused_change_leaves_the_declarations_and_their_charge_unchanged() {
+    let mut world = WorldMaterials::default();
+    world
+        .set_material(1, Some(&spec(WorldDepth::Test, &[])))
+        .unwrap();
+    let binding = |name: &str| WorldBinding {
+        target: WorldTarget::Block(format!("example:{name}")),
+        material: 1,
+    };
+    world.set_binding(0, Some(&binding("lamp"))).unwrap();
+    let held = world.clone();
+    let charge = world.charge();
+    assert!(
+        world
+            .set_binding_within(1, Some(&binding("post")), charge)
+            .is_err(),
+        "the second binding does not fit"
+    );
+    assert!(world.set_binding(1, Some(&binding("lamp"))).is_err());
+    assert_eq!(world, held);
+    // Rebinding a target to the binding that holds it, and moving a binding, keep the index.
+    world.set_binding(0, Some(&binding("lamp"))).unwrap();
+    world.set_binding(0, Some(&binding("post"))).unwrap();
+    world.set_binding(1, Some(&binding("lamp"))).unwrap();
+    world.set_binding(0, None).unwrap();
+    world.set_binding(1, None).unwrap();
+    world.set_material(1, None).unwrap();
+    assert_eq!(world, WorldMaterials::default());
+    assert_eq!(world.charge(), 0);
+}

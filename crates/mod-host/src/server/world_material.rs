@@ -6,23 +6,48 @@ use server_experience::world_material::{
     WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget,
 };
 
+/// The previous value of one staged declaration, which restores it.
+pub(super) enum Undo {
+    Material(u32, Option<WorldMaterialSpec>),
+    Binding(u32, Option<WorldBinding>),
+}
+
 impl State {
-    /// The world materials `command` would leave staged, checked against the bundle's memory,
-    /// or `None` when it declares no world material or binding.
-    pub(super) fn stage_world(
-        &self,
-        command: &Command,
-    ) -> Result<Option<server_experience::world_material::WorldMaterials>, String> {
-        let mut staged = self.world_staged.clone();
-        let changed = match command {
-            Command::WorldMaterial { id, material } => staged.set_material(*id, material.as_ref()),
-            Command::WorldBinding { id, binding } => staged.set_binding(*id, binding.as_ref()),
-            _ => return Ok(None),
+    /// Applies `command`'s world declaration in place, checked against the bundle's memory,
+    /// and records how to undo it; does nothing for other commands. A refused declaration
+    /// changes nothing.
+    pub(super) fn stage_world(&mut self, command: &Command) -> Result<(), String> {
+        let memory = self.capabilities.scope.memory_bytes;
+        let undo = match command {
+            Command::WorldMaterial { id, material } => self
+                .world
+                .set_material_within(*id, material.as_ref(), memory)
+                .map(|previous| Undo::Material(*id, previous)),
+            Command::WorldBinding { id, binding } => self
+                .world
+                .set_binding_within(*id, binding.as_ref(), memory)
+                .map(|previous| Undo::Binding(*id, previous)),
+            _ => return Ok(()),
         };
-        changed
-            .and_then(|()| staged.check(self.capabilities.scope.memory_bytes))
-            .map_err(|error| error.to_string())?;
-        Ok(Some(staged))
+        self.world_undo
+            .push(undo.map_err(|error| error.to_string())?);
+        Ok(())
+    }
+
+    /// Undoes the declarations staged since the last committed transaction, newest first.
+    /// Each restores a state the declarations were in before, so none can be refused.
+    pub(super) fn roll_back_world(&mut self) {
+        while let Some(undo) = self.world_undo.pop() {
+            let restored = match undo {
+                Undo::Material(id, previous) => {
+                    self.world.set_material(id, previous.as_ref()).map(drop)
+                }
+                Undo::Binding(id, previous) => {
+                    self.world.set_binding(id, previous.as_ref()).map(drop)
+                }
+            };
+            debug_assert!(restored.is_ok(), "an undo restores a held state");
+        }
     }
 
     /// Validates the shader within the per-callback compile budget, after the declaration's
@@ -34,8 +59,8 @@ impl State {
             .validate_material(spec)
             .map_err(|error| error.to_string())?;
         if self
-            .world_staged
-            .materials
+            .world
+            .materials()
             .get(&id)
             .is_some_and(|staged| staged.same_program(spec))
         {

@@ -38,7 +38,7 @@ fn world_declarations_are_refused_against_retained_state_and_kept_across_commits
         .unwrap();
     state.stage(bind(1)).unwrap().unwrap();
     // Committing keeps the declarations for later callbacks.
-    state.world = state.world_staged.clone();
+    state.world_undo.clear();
     state.begin_output().unwrap();
     assert!(
         state
@@ -117,7 +117,7 @@ fn hostile_world_shaders_are_refused_when_declared_and_compiles_are_bounded() {
             .is_err()
     );
     // A new callback gets a fresh compile budget.
-    state.world = state.world_staged.clone();
+    state.world_undo.clear();
     state.begin_output().unwrap();
     state
         .set_material(9, spec(plain, Depth::Test))
@@ -148,4 +148,50 @@ fn redeclaring_only_parameters_spends_no_compile() {
             .unwrap();
     }
     assert_eq!(state.world_compiles, 1);
+}
+
+#[test]
+fn staging_a_declaration_copies_none_of_the_others_and_a_failed_callback_undoes_it() {
+    use server_experience::world_material::{
+        WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget,
+    };
+    let mut state = state();
+    state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
+    state.capabilities.namespace = Some("example".into());
+    state.capabilities.scope.memory_bytes = server_experience::policy::MAX_GUEST_MEMORY;
+    let material = |id: u32| WorldMaterialSpec {
+        source: format!(
+            "fn shade(input: WorldMaterialInput) -> Surface {{ return Surface(vec3<f32>({id}.0), 1.0, vec3<f32>(0.0)); }}"
+        ),
+        textures: Vec::new(),
+        params: vec![0.0; 16],
+        depth: WorldDepth::Test,
+        blend: WorldBlend::Opaque,
+    };
+    for id in 0..200 {
+        state
+            .stage_world(&Command::WorldMaterial {
+                id,
+                material: Some(material(id)),
+            })
+            .unwrap();
+    }
+    state.world_undo.clear();
+    let committed = state.world.clone();
+    let bind = Command::WorldBinding {
+        id: 0,
+        binding: Some(WorldBinding {
+            target: WorldTarget::Block("example:lamp".into()),
+            material: 7,
+        }),
+    };
+    let (staged, allocations) = test_alloc::count(|| state.stage_world(&bind));
+    staged.unwrap();
+    assert!(
+        allocations < 16,
+        "staging one binding made {allocations} allocations"
+    );
+    // A failed callback's next output starts from what was committed.
+    state.begin_output().unwrap();
+    assert_eq!(state.world, committed);
 }
