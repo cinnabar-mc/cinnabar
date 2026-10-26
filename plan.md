@@ -531,7 +531,8 @@ and rendered qualification remain incomplete.
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
   Movement retains signed byte rotations and exact network heights through tick and
-  frame interpolation and predicted picking. Remote reset packets snap through the same
+  frame interpolation. Interaction picks use completed actor steps while pending motion
+  remains separate. Remote reset packets snap through the same
   owner as other player moves. Rotation-only player packets preserve active movement
   and body yaw while applying pitch immediately. Normal player moves place directly before
   the first actor tick or when their target terrain is missing, preserving any active lerp.

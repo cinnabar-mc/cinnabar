@@ -15,11 +15,11 @@ fn assert_remote_actor_motion_advances(ticker: gameplay::movement::MovementTicke
     let mut app = App::new();
     app.add_systems(
         Update,
-        capture_predicted_box.in_set(client_state::ClientFrameSet::NetworkSend),
+        capture_pick_box.in_set(client_state::ClientFrameSet::NetworkSend),
     );
     let (mut schedule, mut world) = production(&mut app);
     world.insert_resource(movement);
-    world.init_resource::<PredictedBox>();
+    world.init_resource::<PickedBox>();
     world.init_resource::<client_state::SemanticInputSnapshot>();
     world.init_resource::<LocalMovementSpeedAuthority>();
     world.init_resource::<LocomotionState>();
@@ -64,10 +64,17 @@ fn assert_remote_actor_motion_advances(ticker: gameplay::movement::MovementTicke
         )
     };
     assert!((position[2] - 3.0).abs() < 1e-4);
-    let predicted = world.resource::<PredictedBox>().0;
-    assert!(predicted.is_some());
-
     for (index, expected_z) in [6.0, 9.0, 9.0].into_iter().enumerate() {
+        let before = world
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .authority()
+            .actor(2)
+            .unwrap()
+            .hit_boxes()
+            .next();
         world
             .resource_mut::<Time<Real>>()
             .advance_by(simulation_clock::TICK_DURATION);
@@ -76,12 +83,7 @@ fn assert_remote_actor_motion_advances(ticker: gameplay::movement::MovementTicke
             .unwrap();
         schedule.run(&mut world);
 
-        let expected_box = predicted.map(|(mut low, mut high)| {
-            low[2] += expected_z - position[2];
-            high[2] += expected_z - position[2];
-            (low, high)
-        });
-        assert_eq!(world.resource::<PredictedBox>().0, expected_box);
+        assert_eq!(world.resource::<PickedBox>().0, before);
         let client = world.resource::<ClientWorld>();
         let authority = client.stream.as_ref().unwrap().authority();
         let mut expected_position = position;

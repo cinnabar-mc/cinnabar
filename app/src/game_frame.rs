@@ -61,8 +61,8 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
                 .chain()
                 .in_set(ClientFrameSet::ActorPreparation),
         )
-        // The camera's vehicle look and picks in Interaction and NetworkSend read this
-        // frame's remote actor positions.
+        // Vehicle look and collision queries use staged motion; interaction boxes keep
+        // completed remote actor steps until actor preparation.
         .add_systems(
             Update,
             crate::runtime::network::advance_actor_motion

@@ -48,19 +48,27 @@ impl Frame {
             client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
         self.position_authority = position_authority;
         self.assisted = context.aim.target;
+        if let Some(stream) = context.client_world.stream.as_ref() {
+            self.publish_actors(stream.authority());
+        } else {
+            self.actors.clear();
+            self.index.clear();
+            self.boxes.clear();
+        }
+    }
+
+    /// Retains completed actor geometry without changing the frame's camera ray.
+    fn publish_actors(&mut self, world: &client_world::WorldAuthority) {
         self.actors.clear();
         self.index.clear();
         self.boxes.clear();
-        if let Some(stream) = context.client_world.stream.as_ref() {
-            let world = stream.authority();
-            for actor in world.remote_actors() {
-                let start = self.boxes.len();
-                self.boxes.extend(world.pick_hit_boxes(actor));
-                self.actors.push(FrameActor {
-                    identity: world.actor_lifetime(actor.runtime_id).unwrap(),
-                    boxes: start..self.boxes.len(),
-                });
-            }
+        for actor in world.remote_actors() {
+            let start = self.boxes.len();
+            self.boxes.extend(world.pick_hit_boxes(actor));
+            self.actors.push(FrameActor {
+                identity: world.actor_lifetime(actor.runtime_id).unwrap(),
+                boxes: start..self.boxes.len(),
+            });
         }
         self.index.extend(
             self.actors
@@ -86,6 +94,11 @@ pub(crate) struct FrameInputs {
 }
 
 impl FrameInputs {
+    /// Updates next frame's retained geometry after the remote actor step completes.
+    pub(super) fn complete_actor_frame(&mut self, world: &client_world::WorldAuthority) {
+        Arc::make_mut(&mut self.current).publish_actors(world);
+    }
+
     /// Identifies a complete published frame without advancing the two frame buffers.
     pub(super) fn has_current(&self, position: PositionAuthorityGeneration) -> bool {
         self.current.position_authority == position && self.current.origin.outbound_ray().is_some()
@@ -284,6 +297,13 @@ fn resolve_frame(
                     world.camera_aim_assist_eligible(actor) == Some(true)
                         && frame.actors.iter().any(|actor| actor.identity == identity)
                         && target.within_pick_range(ray.origin(), actor_reach as f32)
+                        && frame.hit_boxes(actor.runtime_id).any(|(minimum, maximum)| {
+                            (0..3).all(|axis| {
+                                target.point[axis] >= minimum[axis] - actor.entity_fact.pick_radius
+                                    && target.point[axis]
+                                        <= maximum[axis] + actor.entity_fact.pick_radius
+                            })
+                        })
                 })
                 .map(|_| {
                     assisted_actor = true;

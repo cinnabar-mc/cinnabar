@@ -108,7 +108,7 @@ pub(super) fn picked_point(world: &World) -> [f32; 3] {
 }
 
 /// Applies one ordered actor movement and advances the requested interpolation steps.
-fn move_actor(world: &mut World, position: [Option<f32>; 3], ticks: u32) {
+pub(super) fn move_actor(world: &mut World, position: [Option<f32>; 3], ticks: u32) {
     let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
     let stream = client.stream.as_mut().unwrap();
     let sequence = stream.committed_sequence() + 1;
@@ -151,6 +151,41 @@ fn attack_hit_position_keeps_the_previous_frame_intercept_when_the_actor_moves()
     assert_eq!(actor.runtime_id, 99);
     assert_eq!(actor.hit_position, previous);
     assert_eq!(actor.from_position, [4.5, 2.620_01, 8.5]);
+}
+
+#[test]
+fn attack_hit_position_retains_completed_geometry_after_catchup() {
+    for assisted in [false, true] {
+        let (mut world, mut captured) = attack_fixture(7.5);
+        if assisted {
+            let (minimum, maximum) = actor_pick_bounds(&world);
+            let lifetime = actor_pick_lifetime(&world);
+            world
+                .resource_mut::<client_presentation::aim_assist::AimAssistFrame>()
+                .target = Some(client_presentation::aim_assist::AimAssistTarget {
+                kind: client_presentation::aim_assist::TargetKind::Actor(lifetime),
+                minimum,
+                maximum,
+                point: (minimum + maximum) * 0.5,
+                direction: Vec3::NEG_Z,
+                score: 0.0,
+            });
+            world
+                .run_system_cached(crate::melee::prepare_melee)
+                .unwrap();
+        }
+        let before = picked_point(&world);
+        move_actor(&mut world, [None, None, Some(6.66)], 2);
+        let completed = picked_point(&world);
+        assert_ne!(before, completed);
+        world
+            .run_system_cached(crate::melee::complete_melee_actor_frame)
+            .unwrap();
+        attack(&mut world);
+        let packets = captured.drain();
+        let tx = packets.iter().find_map(observe_transaction).unwrap();
+        assert_eq!(tx.actor_use().unwrap().hit_position, completed);
+    }
 }
 
 #[test]
