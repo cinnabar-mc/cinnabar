@@ -84,10 +84,10 @@ mod tests {
         assert_eq!(clipped.physical_position, view.physical_position);
         assert_eq!(clipped.physical_size, bevy::math::UVec2::new(488, 238));
         assert_eq!(clipped.depth, view.depth);
-        assert_eq!(
-            camera_viewport(Some(&view), None, [508, 248]),
-            Some(clipped)
-        );
+        let camera = camera_viewport(Some(&view), None, [508, 248]).unwrap();
+        assert_eq!(camera.physical_position, clipped.physical_position);
+        assert_eq!(camera.physical_size, clipped.physical_size);
+        assert_eq!(camera.depth, clipped.depth);
         assert_eq!(
             camera_viewport(None, None, [508, 248])
                 .unwrap()
