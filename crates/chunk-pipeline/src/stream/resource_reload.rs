@@ -302,8 +302,10 @@ impl WorldStream {
 pub(in crate::stream) const WORLD_MATERIAL_HOLD_ROUNDS: u64 = 600;
 
 /// Sorted network values whose entry differs between `old` and `new`, both sorted by value,
-/// and, of those, the ones whose change moves which faces they hide (see-through or displaced,
-/// or not), so the sections beside a section holding them remesh too.
+/// and, of those, the ones whose change moves which faces they hide, so the sections beside a
+/// section holding them remesh too: whether they hide faces at all (see-through or displaced,
+/// or not) changed, or a see-through one changed tag, which decides the faces it hides of
+/// same-tag neighbours across a section border.
 fn changed_tag_values(
     old: &[::meshing::WorldMaterialBlock],
     new: &[::meshing::WorldMaterialBlock],
@@ -324,7 +326,10 @@ fn changed_tag_values(
         if before != after {
             let value = before.or(after).map_or(0, |block| block.network_value);
             changed.push(value);
-            if hides(before) != hides(after) {
+            let see_through = before.is_some_and(|block| block.see_through)
+                || after.is_some_and(|block| block.see_through);
+            let retagged = before.map(|block| block.tag) != after.map(|block| block.tag);
+            if hides(before) != hides(after) || (see_through && retagged) {
                 occluding.push(value);
             }
         }

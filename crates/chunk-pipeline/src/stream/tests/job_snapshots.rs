@@ -888,6 +888,32 @@ fn a_block_a_material_starts_moving_remeshes_the_sections_beside_it_too() {
     );
 }
 
+#[test]
+fn a_see_through_block_bound_to_another_material_remeshes_the_sections_beside_it_too() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    let sections: Vec<SubChunkKey> = center.mesh_neighbourhood_dependents().collect();
+    for key in &sections {
+        stream.resident.insert(*key);
+        stream.mark_dirty_exact(*key, now);
+    }
+    let glass = |tag| ::meshing::WorldMaterialBlock::new(1, tag, true);
+    stream
+        .set_world_materials(Arc::from([glass(1)]), now)
+        .unwrap();
+    for key in &sections {
+        stream.settle_world_material(*key, None);
+    }
+    // Still see-through, but now same-tag culling across the borders pairs it differently.
+    let mut remeshed = stream
+        .set_world_materials(Arc::from([glass(2)]), now)
+        .unwrap();
+    remeshed.sort();
+    let mut expected = sections.clone();
+    expected.sort();
+    assert_eq!(remeshed, expected);
+}
+
 /// Acknowledges `key`'s current dirty revision as uploaded, as the renderer does once its mesh
 /// is drawn.
 fn publish(stream: &mut WorldStream, key: SubChunkKey) {
