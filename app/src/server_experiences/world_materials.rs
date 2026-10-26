@@ -29,6 +29,10 @@ pub(super) const PIPELINE_CHARGE_BYTES: u64 = 256 * 1024;
 /// Provisional: GPU bytes charged for each drawn material's uniform and bind group, on top of
 /// its textures.
 pub(super) const BIND_GROUP_CHARGE_BYTES: u64 = 4 * 1024;
+/// Provisional: GPU bytes the process's retained pipelines may charge across every session,
+/// one bundle's largest signed GPU share. Bevy cannot drop a compiled pipeline, so once it is
+/// full a program new to the process is refused while those already compiled keep drawing.
+pub(super) const PROCESS_PIPELINE_BYTES: u64 = server_experience::policy::MAX_GPU_BYTES;
 /// Failure descriptions kept for the session's diagnostics, newest last.
 pub(super) const MAX_DIAGNOSTICS: usize = 16;
 
@@ -59,6 +63,8 @@ pub(super) struct WorldMaterialPresenter {
     /// The pipelines each bundle drew with this session. Bevy keeps every compiled pipeline,
     /// so each distinct set stays charged to the bundle's GPU share until the session ends.
     compiled: BTreeMap<String, HashSet<Pipelines>>,
+    /// Every set of pipelines the process compiled, across sessions.
+    retained: HashSet<Pipelines>,
     slots: slots::Slots,
     /// What the render world last observed of the block slots meshes carry.
     carried: slots::Carried,
@@ -96,6 +102,7 @@ impl WorldMaterialPresenter {
             reported: BTreeSet::new(),
             diagnostics: VecDeque::new(),
             compiled: BTreeMap::new(),
+            retained: HashSet::new(),
             slots: slots::Slots::default(),
             carried: slots::Carried::default(),
             reclaimable: 0,
@@ -232,82 +239,18 @@ impl WorldMaterialPresenter {
         let mut drawn: BTreeMap<(String, u32), Published> = BTreeMap::new();
         let mut values = BTreeMap::new();
         let mut live = BTreeSet::new();
+        let mut claimed = HashSet::new();
         for bundle in &bundles {
-            let mut compiled = self.compiled.remove(bundle.bundle).unwrap_or_default();
-            // Every set of pipelines the bundle compiled this session stays charged.
-            let mut gpu = bundle
-                .gpu_bytes
-                .saturating_sub(compiled.len() as u64 * PIPELINE_CHARGE_BYTES);
-            let mut memory = bundle.memory_bytes;
-            let mut reserved = HashSet::new();
-            let mut newly = HashSet::new();
-            for (&id, spec) in bundle.world.materials() {
-                let key = (bundle.bundle.to_owned(), id);
-                live.insert(key.clone());
-                let mut cached = match self.cache.remove(&key) {
-                    // New parameters keep the compiled shader, its key and its charge.
-                    Some(mut cached) if cached.spec.same_program(spec) => {
-                        if cached.spec.params != spec.params {
-                            spec.params.clone_into(&mut cached.spec.params);
-                        }
-                        cached
-                    }
-                    _ => {
-                        self.next_key += 1;
-                        Cached::admit(
-                            spec,
-                            self.next_key,
-                            bundle.files,
-                            &self.executor,
-                            &self.done,
-                        )
-                    }
-                };
-                let identity = cached.pipelines();
-                // A program the bundle already compiled costs only its bind group.
-                let pipeline = BIND_GROUP_CHARGE_BYTES
-                    + match identity {
-                        Some(identity)
-                            if compiled.contains(&identity) || reserved.contains(&identity) =>
-                        {
-                            0
-                        }
-                        _ => PIPELINE_CHARGE_BYTES,
-                    };
-
-                let attempt = cached.attempt;
-                let declared = params(&cached.spec.params);
-                match cached.fit(
-                    gpu,
-                    memory,
-                    pipeline,
-                    bundle.files,
-                    &self.executor,
-                    &self.done,
-                ) {
-                    Fit::Drawable(published, charge) => {
-                        gpu -= charge.gpu;
-                        memory -= charge.memory;
-                        values.insert(published.key, declared);
-                        drawn.insert(key.clone(), published.clone());
-                        reserved.extend(identity);
-                        newly.extend(identity);
-                    }
-                    Fit::Pending(charge) => {
-                        gpu -= charge.gpu;
-                        memory -= charge.memory;
-                        if charge.gpu != 0 {
-                            reserved.extend(identity);
-                        }
-                    }
-                    Fit::Refused(reason) => self.report(bundle.bundle, id, attempt, &reason),
-                }
-                self.cache.insert(key, cached);
-            }
-            compiled.extend(newly);
-            self.compiled.insert(bundle.bundle.to_owned(), compiled);
+            self.admit(bundle, &mut drawn, &mut values, &mut live, &mut claimed);
         }
         self.cache.retain(|key, _| live.contains(key));
+        // Attempts no longer cached cannot recur, so their reports go with them.
+        let cache = &self.cache;
+        self.reported.retain(|(bundle, id, attempt, _)| {
+            cache
+                .get(&(bundle.clone(), *id))
+                .is_some_and(|cached| cached.attempt == *attempt)
+        });
         let (materials, entities, blocks) = self.bind(&bundles, drawn);
         let mut changed = false;
         if materials != self.set.materials
@@ -331,6 +274,150 @@ impl WorldMaterialPresenter {
             changed = true;
         }
         changed
+    }
+
+    /// Admits `bundle`'s declarations against its shares, adding what draws to `drawn` and its
+    /// parameters to `values` and every declaration to `live`. One admission job runs per
+    /// bundle, and a newer attempt's job replaces an older one's; nothing new draws until all
+    /// of the bundle's materials are measured; and a set of pipelines new to the process waits
+    /// for room in the process's pipeline budget, which `claimed` reserves across bundles.
+    fn admit(
+        &mut self,
+        bundle: &BundleWorld<'_>,
+        drawn: &mut BTreeMap<(String, u32), Published>,
+        values: &mut BTreeMap<u64, [f32; 16]>,
+        live: &mut BTreeSet<(String, u32)>,
+        claimed: &mut HashSet<Pipelines>,
+    ) {
+        let mut entries: Vec<(u32, Cached)> = Vec::new();
+        for (&id, spec) in bundle.world.materials() {
+            let key = (bundle.bundle.to_owned(), id);
+            let cached = match self.cache.remove(&key) {
+                // New parameters keep the compiled shader, its key and its charge.
+                Some(mut cached) if cached.spec.same_program(spec) => {
+                    if cached.spec.params != spec.params {
+                        spec.params.clone_into(&mut cached.spec.params);
+                    }
+                    cached
+                }
+                _ => {
+                    self.next_key += 1;
+                    Cached::new(spec, self.next_key)
+                }
+            };
+            live.insert(key);
+            entries.push((id, cached));
+        }
+        for (_, cached) in &mut entries {
+            cached.settle();
+        }
+        let mut job = entries.iter().position(|(_, cached)| cached.running());
+        // The newest unmeasured attempt measures next; work that finishes at once lets the
+        // next one start.
+        while let Some(newest) = (0..entries.len())
+            .filter(|&index| entries[index].1.unmeasured())
+            .max_by_key(|&index| entries[index].1.attempt)
+            && job.is_none_or(|running| entries[running].1.attempt < entries[newest].1.attempt)
+        {
+            if let Some(running) = job {
+                entries[running].1.cancel();
+            }
+            entries[newest]
+                .1
+                .measure(bundle.files, &self.executor, &self.done);
+            job = entries[newest].1.running().then_some(newest);
+        }
+        let measured = entries.iter().all(|(_, cached)| cached.measured());
+        let mut compiled = self.compiled.remove(bundle.bundle).unwrap_or_default();
+        // Every set of pipelines the bundle compiled this session stays charged.
+        let mut gpu = bundle
+            .gpu_bytes
+            .saturating_sub(compiled.len() as u64 * PIPELINE_CHARGE_BYTES);
+        let mut memory = bundle.memory_bytes;
+        let mut reserved = HashSet::new();
+        let mut newly = HashSet::new();
+        for index in 0..entries.len() {
+            let (id, attempt) = (entries[index].0, entries[index].1.attempt);
+            let identity = entries[index].1.pipelines();
+            let shared = identity.is_some_and(|identity| {
+                compiled.contains(&identity) || reserved.contains(&identity)
+            });
+            // A program the bundle already compiled costs only its bind group.
+            let pipeline = BIND_GROUP_CHARGE_BYTES + if shared { 0 } else { PIPELINE_CHARGE_BYTES };
+            let mut fit = entries[index].1.fit(gpu, memory, pipeline);
+            if let (Fit::Decode(_) | Fit::Drawable(..), Some(identity)) = (&fit, identity)
+                && !self.retained.contains(&identity)
+                && !claimed.contains(&identity)
+            {
+                let held = (self.retained.len() + claimed.len()) as u64 + 1;
+                if held.saturating_mul(PIPELINE_CHARGE_BYTES) > PROCESS_PIPELINE_BYTES {
+                    entries[index].1.cancel();
+                    fit =
+                        Fit::Refused("the client's world material pipeline memory is full".into());
+                } else {
+                    claimed.insert(identity);
+                }
+            }
+            if let Fit::Decode(charge) = fit {
+                // Nothing new draws before every material of the bundle is measured.
+                if !measured {
+                    continue;
+                }
+                let free = job
+                    .is_none_or(|running| running == index || entries[running].1.attempt < attempt);
+                if !free {
+                    // Its charge stays reserved while the bundle's one job runs.
+                    gpu -= charge.gpu;
+                    memory -= charge.memory;
+                    reserved.extend(identity);
+                    continue;
+                }
+                if let Some(running) = job.filter(|running| *running != index) {
+                    entries[running].1.cancel();
+                }
+                entries[index]
+                    .1
+                    .decode(bundle.files, &self.executor, &self.done);
+                job = entries[index].1.running().then_some(index);
+                fit = entries[index].1.fit(gpu, memory, pipeline);
+            }
+            match fit {
+                Fit::Drawable(published, charge) => {
+                    gpu -= charge.gpu;
+                    memory -= charge.memory;
+                    values.insert(published.key, params(&entries[index].1.spec.params));
+                    drawn.insert((bundle.bundle.to_owned(), id), published);
+                    reserved.extend(identity);
+                    newly.extend(identity);
+                    if let Some(identity) = identity {
+                        claimed.remove(&identity);
+                        self.retained.insert(identity);
+                    }
+                }
+                Fit::Pending(charge) | Fit::Decode(charge) => {
+                    gpu -= charge.gpu;
+                    memory -= charge.memory;
+                    if charge.gpu != 0 {
+                        reserved.extend(identity);
+                    }
+                }
+                Fit::Refused(reason) => self.report(bundle.bundle, id, attempt, &reason),
+            }
+        }
+        compiled.extend(newly);
+        self.compiled.insert(bundle.bundle.to_owned(), compiled);
+        for (id, cached) in entries {
+            self.cache.insert((bundle.bundle.to_owned(), id), cached);
+        }
+    }
+
+    /// How many admission jobs run.
+    #[cfg(test)]
+    fn jobs(&self) -> usize {
+        self.cache
+            .values()
+            .filter(|cached| cached.running())
+            .count()
     }
 
     /// Gives every drawn material a slot and resolves every binding to its material's slot.
@@ -450,16 +537,6 @@ impl WorldMaterialPresenter {
         }
         self.diagnostics
             .push_back(format!("{bundle} world material {id}: {reason}"));
-        // Attempts no longer cached cannot recur, so their entries go with them. The attempt
-        // being reported may be out of the cache while it is charged, so it stays.
-        let cache = &self.cache;
-        self.reported
-            .retain(|(listed, listed_id, listed_attempt, _)| {
-                (listed == bundle && *listed_id == id && *listed_attempt == attempt)
-                    || cache
-                        .get(&(listed.clone(), *listed_id))
-                        .is_some_and(|cached| cached.attempt == *listed_attempt)
-            });
     }
 
     /// Bytes of decoded texels the presenter holds.
