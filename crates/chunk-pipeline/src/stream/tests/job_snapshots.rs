@@ -910,3 +910,10 @@ fn an_unloaded_section_settles_the_change_it_was_held_for() {
     assert!(stream.set_world_materials(Arc::from([]), now).is_some());
 }
 
+#[test]
+fn the_applied_tags_name_their_slots() {
+    let (mut stream, _) = fixture();
+    assert_eq!(stream.world_material_slots(), 0);
+    stream.set_world_materials(Arc::from([(1_u32, 1_u8), (7, 4)]), Instant::now());
+    assert_eq!(stream.world_material_slots(), 0b1001);
+}
