@@ -156,7 +156,10 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
         &BTreeMap::new(),
     )
     .unwrap();
-    assert_eq!(models.len(), icons.entries().len());
+    assert_eq!(
+        models.values().map(BTreeMap::len).sum::<usize>(),
+        icons.entries().len()
+    );
     let skin = IconRef {
         color_mask: None,
         page: 0,
