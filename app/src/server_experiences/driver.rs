@@ -81,6 +81,7 @@ pub(crate) fn configure(app: &mut App) {
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
     app.init_resource::<render_scene::world_material::WorldMaterialScene>();
+    app.init_resource::<render_scene::world_material::WorldMaterialParamScene>();
     app.insert_resource(ExperienceService {
         settings_path,
         cache_root,
@@ -527,13 +528,18 @@ fn present_media(
     }
 }
 
-/// Publishes the client parts' world materials when their world declarations change. Ending
-/// the runtime (F9, a stop or a disconnect) ends the presenter's session and publishes an empty
-/// set, which restores every Bedrock material without a reconnect.
+/// Publishes the client parts' world materials when their world declarations change, and
+/// their parameters alone when only those change. Ending the runtime (F9, a stop or a
+/// disconnect) ends the presenter's session and publishes an empty set, which restores every
+/// Bedrock material without a reconnect, and forgets the session's compile failures.
 fn present_world_materials(
     mut service: ResMut<ExperienceService>,
     scene: Option<ResMut<render_scene::world_material::WorldMaterialScene>>,
-    failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
+    params: Option<ResMut<render_scene::world_material::WorldMaterialParamScene>>,
+    (failures, carried): (
+        Option<Res<render_scene::world_material::WorldMaterialFailures>>,
+        Option<Res<render_scene::world_material::WorldMaterialCarried>>,
+    ),
 ) {
     let service = &mut *service;
     if let Some(failures) = failures.as_deref() {
@@ -541,9 +547,25 @@ fn present_world_materials(
             .world
             .note_compile_failures(|key| failures.failed(key));
     }
-    let changed = service.world.follow(service.live.as_ref());
-    if changed && let Some(mut scene) = scene {
+    let run = service.world.run();
+    let carried = carried.as_deref().map_or(u64::MAX, |carried| carried.get());
+    if !service.world.follow(service.live.as_mut(), carried) {
+        return;
+    }
+    if service.world.run() != run
+        && let Some(failures) = failures.as_deref()
+    {
+        failures.clear();
+    }
+    if let Some(mut scene) = scene
+        && !std::sync::Arc::ptr_eq(&scene.set, service.world.set())
+    {
         scene.set = std::sync::Arc::clone(service.world.set());
+    }
+    if let Some(mut params) = params
+        && !std::sync::Arc::ptr_eq(&params.params, service.world.params())
+    {
+        params.params = std::sync::Arc::clone(service.world.params());
     }
 }
 

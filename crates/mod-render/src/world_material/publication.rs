@@ -50,7 +50,6 @@ pub struct Published {
     pub key: u64,
     pub material: Arc<WorldMaterial>,
     pub textures: Arc<[Texture]>,
-    pub params: [f32; 16],
     pub depth: Depth,
     pub blend: Blend,
 }
@@ -69,6 +68,14 @@ pub struct WorldMaterialSet {
 }
 
 impl WorldMaterialSet {
+    /// A set drawing nothing, at `revision`.
+    pub fn empty(revision: u64) -> Self {
+        Self {
+            revision,
+            ..Self::default()
+        }
+    }
+
     /// Every published material, in slot order.
     pub fn published(&self) -> impl Iterator<Item = &Published> {
         self.materials.iter().flatten()
@@ -85,4 +92,13 @@ impl WorldMaterialSet {
         let slot = *self.blocks.get(identifier)?;
         Some((slot, self.materials.get(usize::from(slot))?.as_ref()?))
     }
+}
+
+/// Each drawn material's parameters by key. They change without republishing the set, so a
+/// parameter update compiles, uploads and remeshes nothing.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldMaterialParams {
+    /// Changes whenever any parameter changes.
+    pub revision: u64,
+    pub values: BTreeMap<u64, [f32; 16]>,
 }

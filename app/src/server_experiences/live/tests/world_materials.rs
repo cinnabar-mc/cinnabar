@@ -19,6 +19,7 @@ fn bound() -> Live<FakeWorker> {
         .insert(Permission::RenderWorldMaterial);
     instance.capabilities.namespace = Some("example".into());
     instance.capabilities.scope.memory_bytes = server_experience::policy::MAX_GUEST_MEMORY;
+    instance.capabilities.scope.gpu_bytes = u64::MAX;
     let material = WorldMaterialSpec {
         source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
         textures: Vec::new(),
@@ -63,7 +64,7 @@ fn present(live: &Live<FakeWorker>, presenter: &mut WorldMaterialPresenter) -> b
 #[test]
 fn a_stopped_client_part_revokes_its_world_materials_in_one_publication() {
     let mut live = bound();
-    let mut presenter = WorldMaterialPresenter::default();
+    let mut presenter = WorldMaterialPresenter::inline();
     assert!(present(&live, &mut presenter));
     let bound = std::sync::Arc::clone(presenter.set());
     assert!(bound.entity("example:moth").is_some() && bound.block("example:lamp").is_some());
@@ -182,7 +183,10 @@ fn only_world_commands_and_stops_change_the_world_contribution() {
 
 #[test]
 fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
-    let budget = crate::server_experiences::world_materials::PIPELINE_CHARGE_BYTES;
+    use crate::server_experiences::world_materials::{
+        BIND_GROUP_CHARGE_BYTES, PIPELINE_CHARGE_BYTES,
+    };
+    let budget = PIPELINE_CHARGE_BYTES + BIND_GROUP_CHARGE_BYTES;
     let mut live = bound();
     live.instances
         .get_mut("bundle0")
@@ -190,13 +194,16 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
         .capabilities
         .scope
         .gpu_bytes = budget;
-    let mut presenter = WorldMaterialPresenter::default();
-    assert!(presenter.follow(Some(&live)));
+    let mut presenter = WorldMaterialPresenter::inline();
+    assert!(presenter.follow(Some(&mut live), u64::MAX));
     assert!(presenter.set().entity("example:moth").is_some());
-    assert!(!presenter.follow(Some(&live)), "nothing changed");
+    assert!(
+        !presenter.follow(Some(&mut live), u64::MAX),
+        "nothing changed"
+    );
     // Replacing the drawn material retires its pipeline, which uses up the share.
     callback(&mut live, 1, vec![redeclare(1)]);
-    presenter.follow(Some(&live));
+    presenter.follow(Some(&mut live), u64::MAX);
     assert!(presenter.set().entity("example:moth").is_none());
     // The session ends and the same bundle reconnects with the same share.
     let mut again = bound();
@@ -207,6 +214,89 @@ fn a_new_runtime_starts_without_the_last_sessions_retired_charges() {
         .capabilities
         .scope
         .gpu_bytes = budget;
-    assert!(presenter.follow(Some(&again)));
+    assert!(presenter.follow(Some(&mut again), u64::MAX));
     assert!(presenter.set().entity("example:moth").is_some());
+}
+
+#[test]
+fn new_parameters_patch_the_published_ones_without_a_new_set() {
+    let mut live = bound();
+    let mut presenter = WorldMaterialPresenter::inline();
+    assert!(presenter.follow(Some(&mut live), u64::MAX));
+    let set = std::sync::Arc::clone(presenter.set());
+    let key = set.entity("example:moth").unwrap().1.key;
+    let flash = |value: f32| Command::WorldMaterial {
+        id: 1,
+        material: Some(WorldMaterialSpec {
+            source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }"
+                .into(),
+            textures: Vec::new(),
+            params: vec![value],
+            depth: WorldDepth::Test,
+            blend: WorldBlend::Opaque,
+        }),
+    };
+    let structure = live.world_contribution();
+    callback(&mut live, 1, vec![flash(0.75)]);
+    assert_eq!(
+        live.world_contribution(),
+        structure,
+        "a parameter-only update is no structural change"
+    );
+    assert!(presenter.follow(Some(&mut live), u64::MAX));
+    assert!(
+        std::sync::Arc::ptr_eq(&set, presenter.set()),
+        "the set is not rebuilt or republished"
+    );
+    assert_eq!(presenter.params().values[&key][0], 0.75);
+    assert!(!presenter.follow(Some(&mut live), u64::MAX), "nothing more");
+}
+
+#[test]
+fn the_retained_declarations_and_decoded_textures_share_one_memory_ledger() {
+    let mut live = bound();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance.files = std::sync::Arc::new(server_experience::screen::Files {
+        namespace: "example".into(),
+        templates: Default::default(),
+        textures: vec![("textures/glow.png".to_owned(), {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+                .write_to(&mut bytes, image::ImageFormat::Png)
+                .unwrap();
+            bytes.into_inner()
+        })],
+    });
+    let source = "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }";
+    let textured = WorldMaterialSpec {
+        source: source.into(),
+        textures: vec!["textures/glow.png".into()],
+        params: Vec::new(),
+        depth: WorldDepth::Test,
+        blend: WorldBlend::Opaque,
+    };
+    instance
+        .capabilities
+        .assets
+        .insert("textures/glow.png".to_owned());
+    callback(
+        &mut live,
+        1,
+        vec![Command::WorldMaterial {
+            id: 1,
+            material: Some(textured),
+        }],
+    );
+    // Room for the declarations and the decoded texels on their own, but not for both.
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    let declarations = instance.contributions.world.charge();
+    instance.capabilities.scope.memory_bytes = declarations + 8 * 8 * 4 + source.len() as u64 - 1;
+    let mut presenter = WorldMaterialPresenter::inline();
+    presenter.follow(Some(&mut live), u64::MAX);
+    assert!(presenter.set().entity("example:moth").is_none());
+    assert!(
+        presenter
+            .diagnostics()
+            .any(|line| line.contains("memory limit"))
+    );
 }

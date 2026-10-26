@@ -266,7 +266,6 @@ pub(crate) fn register_all_shaders(
 /// One material's GPU resources.
 struct Entry {
     variant: WorldVariant,
-    params: [f32; 16],
     /// One more than the material's slot, which its terrain quads carry.
     tag: u8,
     uniform: Buffer,
@@ -328,6 +327,7 @@ impl WorldMaterialGpu {
 /// use it complete, so retirement never invalidates a frame in flight.
 pub(crate) fn prepare(
     scene: Option<Res<WorldMaterialScene>>,
+    params: Option<Res<render_scene::world_material::WorldMaterialParamScene>>,
     phase: Option<Res<WorldMaterialPhase>>,
     device: Option<Res<RenderDevice>>,
     queue: Option<Res<RenderQueue>>,
@@ -366,14 +366,17 @@ pub(crate) fn prepare(
             if let Some(published) = published
                 && let Some(entry) = gpu.entries.get_mut(&published.key)
             {
-                entry.params = published.params;
                 entry.tag = u8::try_from(slot + 1).unwrap_or(0);
             }
         }
     }
     let phase = phase.map_or(0.0, |phase| phase.0);
-    for entry in gpu.entries.values() {
-        let words = abi::frame_uniform(phase, entry.tag, &entry.params);
+    let values = params.as_deref().map(|params| &params.params.values);
+    for (key, entry) in &gpu.entries {
+        let params = values
+            .and_then(|values| values.get(key))
+            .unwrap_or(&[0.0; 16]);
+        let words = abi::frame_uniform(phase, entry.tag, params);
         queue.write_buffer(&entry.uniform, 0, bytemuck::cast_slice(&words));
     }
 }
@@ -452,7 +455,6 @@ fn create(
     );
     Some(Entry {
         variant,
-        params: published.params,
         tag: 0,
         uniform,
         bind_group,
@@ -468,10 +470,14 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
         return;
     }
     app.init_resource::<WorldMaterialScene>()
+        .init_resource::<render_scene::world_material::WorldMaterialParamScene>()
         .init_resource::<WorldMaterialPhase>()
         .init_resource::<render_scene::world_material::WorldMaterialFailures>()
+        .init_resource::<render_scene::world_material::WorldMaterialCarried>()
         .add_plugins((
             ExtractResourcePlugin::<WorldMaterialScene>::default(),
+            ExtractResourcePlugin::<render_scene::world_material::WorldMaterialParamScene>::default(
+            ),
             ExtractResourcePlugin::<WorldMaterialPhase>::default(),
         ));
     // Renderer-only test apps install no main schedules.
@@ -485,10 +491,15 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
         .world()
         .resource::<render_scene::world_material::WorldMaterialFailures>()
         .clone();
+    let carried = app
+        .world()
+        .resource::<render_scene::world_material::WorldMaterialCarried>()
+        .clone();
     if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
         render_app
             .init_resource::<WorldMaterialGpu>()
             .insert_resource(failures)
+            .insert_resource(carried)
             .add_systems(
                 bevy::render::Render,
                 prepare.in_set(bevy::render::RenderSystems::PrepareResources),

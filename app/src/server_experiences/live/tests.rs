@@ -135,6 +135,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     pending_drawing_context: Default::default(),
                     drawing_references: Vec::new(),
                     world_revision: 0,
+                    world_params: BTreeSet::new(),
                 },
             )
         })
