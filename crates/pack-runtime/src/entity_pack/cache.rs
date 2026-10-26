@@ -77,9 +77,19 @@ impl Default for EntityCache {
     }
 }
 
+/// Background disk-cache writes queued or running.
+static PENDING_STORES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Whether every queued background store has finished, so offline reports can include its cost.
+#[cfg(any(test, feature = "test-support"))]
+pub fn stores_idle() -> bool {
+    PENDING_STORES.load(std::sync::atomic::Ordering::Acquire) == 0
+}
+
 /// Writes optional disk-cache entries on one worker, with room for one waiting entry.
 /// Overflow or incomplete writes leave a cache miss; joins never wait for disk encoding.
 fn store_in_background(write: Box<dyn FnOnce() + Send>) {
+    use std::sync::atomic::Ordering;
     type Writes = std::sync::Mutex<std::sync::mpsc::SyncSender<Box<dyn FnOnce() + Send>>>;
     static WRITER: std::sync::OnceLock<Option<Writes>> = std::sync::OnceLock::new();
     let writer = WRITER.get_or_init(|| {
@@ -94,11 +104,16 @@ fn store_in_background(write: Box<dyn FnOnce() + Send>) {
     let Some(writer) = writer else {
         return;
     };
+    PENDING_STORES.fetch_add(1, Ordering::AcqRel);
     let queued = writer
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .try_send(write);
+        .try_send(Box::new(move || {
+            write();
+            PENDING_STORES.fetch_sub(1, Ordering::AcqRel);
+        }));
     if queued.is_err() {
+        PENDING_STORES.fetch_sub(1, Ordering::AcqRel);
         tracing::debug!("a compiled entity pack was not stored while others were");
     }
 }
