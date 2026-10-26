@@ -18,6 +18,8 @@ pub(super) struct MaterialBindings {
     bindings: Vec<Binding>,
     /// Whether each binding matched some block state.
     matched: Vec<std::cell::Cell<bool>>,
+    /// Binding indices by block identifier, in document order.
+    by_block: HashMap<Box<str>, Vec<usize>>,
 }
 
 struct Binding {
@@ -106,7 +108,23 @@ impl MaterialBindings {
         })
         .collect::<Vec<_>>();
         let matched = bindings.iter().map(|_| Default::default()).collect();
-        Self { bindings, matched }
+        let mut by_block = HashMap::<Box<str>, Vec<usize>>::new();
+        for (index, binding) in bindings.iter().enumerate() {
+            by_block
+                .entry(binding.block.clone())
+                .or_default()
+                .push(index);
+        }
+        Self {
+            bindings,
+            matched,
+            by_block,
+        }
+    }
+
+    /// The indices of the bindings naming block `name`, in document order.
+    fn for_block(&self, name: &str) -> &[usize] {
+        self.by_block.get(name).map_or(&[], Vec::as_slice)
     }
 
     /// Bindings that matched no block state.
@@ -120,52 +138,41 @@ impl MaterialBindings {
         block: &'a CustomBlock,
         values: Option<&'a [CustomStateValue]>,
     ) -> impl Iterator<Item = &'a Binding> + 'a {
-        self.bindings
+        self.for_block(&block.name)
             .iter()
-            .zip(&self.matched)
-            .filter(move |(binding, _)| {
-                binding.block.as_ref() == block.name.as_ref()
-                    && states_match(binding, block, values)
-            })
-            .map(|(binding, matched)| {
-                matched.set(true);
-                binding
+            .filter(move |&&index| states_match(&self.bindings[index], block, values))
+            .map(|&index| {
+                self.matched[index].set(true);
+                &self.bindings[index]
             })
     }
 
-    /// The masks of every binding matching `block` in the state with `values`, so the last
-    /// match decides an instance's masks as it decides its render method.
-    pub(super) fn state_masks(
-        &self,
-        block: &CustomBlock,
-        values: Option<&[CustomStateValue]>,
-    ) -> StateMasks {
-        StateMasks(
-            self.matching(block, values)
-                .map(|binding| (binding.instance.clone(), binding.masks.clone()))
-                .collect(),
-        )
-    }
-
-    /// Applies the bindings matching `block` in the state with `values`, in document order.
+    /// Applies the bindings matching `block` in the state with `values`, in document order, and
+    /// returns their masks.
     pub(super) fn apply(
         &self,
         block: &CustomBlock,
         values: Option<&[CustomStateValue]>,
         components: &mut CustomVisualComponents,
-    ) {
-        let Some(materials) = components.materials.as_mut() else {
-            return;
-        };
-        for binding in self.matching(block, values) {
-            for instance in materials.iter_mut().filter(|instance| {
-                binding.instance.as_deref().is_none_or(|pattern| {
-                    assets::entity_render_pattern_matches(pattern, &instance.name)
-                })
-            }) {
-                instance.render_method = binding.method;
+    ) -> StateMasks {
+        let matching: Vec<_> = self.matching(block, values).collect();
+        if let Some(materials) = components.materials.as_mut() {
+            for binding in &matching {
+                for instance in materials.iter_mut().filter(|instance| {
+                    binding.instance.as_deref().is_none_or(|pattern| {
+                        assets::entity_render_pattern_matches(pattern, &instance.name)
+                    })
+                }) {
+                    instance.render_method = binding.method;
+                }
             }
         }
+        StateMasks(
+            matching
+                .into_iter()
+                .map(|binding| (binding.instance.clone(), binding.masks.clone()))
+                .collect(),
+        )
     }
 }
 
@@ -229,12 +236,12 @@ impl Builder<'_> {
             };
             // Every matching binding counts as matched; the last one draws.
             let mut selected = None;
-            for (index, binding) in bindings.bindings.iter().enumerate() {
-                if binding.block.as_ref() == record.name.as_ref()
-                    && binding
-                        .instance
-                        .as_deref()
-                        .is_none_or(|pattern| pattern == "*")
+            for &index in bindings.for_block(&record.name) {
+                let binding = &bindings.bindings[index];
+                if binding
+                    .instance
+                    .as_deref()
+                    .is_none_or(|pattern| pattern == "*")
                     && vanilla_states_match(binding, record)
                 {
                     bindings.matched[index].set(true);
