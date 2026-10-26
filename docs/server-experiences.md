@@ -155,12 +155,18 @@ manifest entries uses the low-level bundle path below.
 ## Restricted helper (Linux)
 
 `Helper::spawn_restricted` starts `mod-host restricted-server-helper` contained; other platforms
-refuse it. The parent first creates a cgroup for the helper below the nearest ancestor of its own
-cgroup that delegates the memory controller to its user, as a systemd user session does, and sets
-its `memory.max` to 1.5 GiB and `memory.swap.max` to 0, so every page the helper is charged for,
-shared memory files included, counts and none can spill to swap. Without such a cgroup the launch
-fails closed with that reason. The cgroup is removed once the helper is reaped, and empty ones left
-by clients that no longer run are removed on the next launch.
+refuse it. The parent first creates a cgroup for the helper, under a random name, below the
+nearest ancestor of its own cgroup that delegates the memory and pids controllers to its user, as
+a systemd user session does. It sets `memory.max` to 1.5 GiB and `memory.swap.max` to 0, so every
+page the helper is charged for, shared memory files included, counts and none can spill to swap,
+and `pids.max` to 8 tasks, so threads cannot exhaust the user's task budget. Where the cpu
+controller is delegated too, `cpu.max` holds the helper to one core; where it is not, the launch
+goes ahead and the helper's CPU time is unbounded, limited only by the callback deadline. Without
+the memory and pids controllers the launch fails closed with that reason. The client holds a lock
+on the cgroup's directory while it is in use and removes the cgroup once the helper is reaped. A
+later launch clears cgroups whose client is gone (unlocked, with their limits set): it kills any
+helper still in one through `cgroup.kill`, which also catches a helper that somehow outlived its
+death signal, and removes the cgroup once empty.
 
 Between `fork` and `exec` the child joins that cgroup; the parent clears the environment, starts
 it in `/`, has `exec` close every descriptor but the three stdio pipes (marking each close-on-exec,
@@ -174,7 +180,7 @@ ordinary program dumpable again, the helper first makes itself undumpable once m
 Before reading the component, the helper audits that it runs a single thread (Landlock covers only
 the calling thread and those it starts), holds no other descriptor (listing `/proc/self/fd`, so
 one numbered above the new limit cannot escape, and failing without it), no environment, those
-limits and its cgroup's memory limit. It then denies itself everything else: a Landlock ruleset
+limits and its cgroup's memory and task limits. It then denies itself everything else: a Landlock ruleset
 that handles every right the kernel knows and grants none (no file or directory can be opened;
 TCP bind and connect on ABI 4, signals and abstract sockets outside itself on ABI 6, and any right
 a later ABI adds, since each right is probed from the running kernel), and a seccomp filter, on
@@ -194,7 +200,7 @@ component, and a kernel without Landlock refuses. The component compiles after t
 the compiler is contained too, under the same limits and the parent's callback deadline.
 `crates/mod-host/tests/restricted_faults.rs` injects each forbidden operation into a contained
 child, and `tests/helper.rs` runs a real component restricted; both skip, naming what is missing,
-on a kernel without Landlock or without a delegated memory controller.
+on a kernel without Landlock or without delegated memory and pids controllers.
 
 Known gap: the helper can still learn metadata the lockdown does not hide. Path-based `stat`,
 `statx`, `access` and `readlink` report whether files exist and their sizes, owners and times

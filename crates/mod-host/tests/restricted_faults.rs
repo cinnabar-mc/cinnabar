@@ -6,8 +6,8 @@
 #![cfg(target_os = "linux")]
 
 use mod_host::helper::restricted::{
-    DATA_LIMIT_BYTES, DESCRIPTOR_LIMIT, LIMITS, MEMORY_LIMIT_BYTES, contain, inherited_descriptors,
-    lock_down, missing_feature,
+    DATA_LIMIT_BYTES, DESCRIPTOR_LIMIT, LIMITS, MEMORY_LIMIT_BYTES, TASK_LIMIT, cgroup_limits_hold,
+    contain, inherited_descriptors, lock_down, missing_feature,
 };
 use std::{
     os::{fd::AsRawFd, unix::process::CommandExt},
@@ -176,6 +176,56 @@ fn fill_memory_files(total: u64) -> String {
             return status(-1);
         }
         written += CHUNK as u64;
+    }
+    "allowed".into()
+}
+
+/// Starts up to `count` threads that wait until all have started or one could not, and reports
+/// how many started.
+fn start_threads(count: usize) -> String {
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let released = std::sync::Arc::new(std::sync::Mutex::new(released));
+    let mut threads = Vec::new();
+    for _ in 0..count {
+        let released = std::sync::Arc::clone(&released);
+        match std::thread::Builder::new().spawn(move || {
+            let _ = released.lock().unwrap().recv();
+        }) {
+            Ok(thread) => threads.push(thread),
+            Err(_) => break,
+        }
+    }
+    let started = threads.len();
+    drop(release);
+    for thread in threads {
+        let _ = thread.join();
+    }
+    format!("threads {started}")
+}
+
+/// Busies `threads` threads until the process has used `budget` of CPU time in all.
+fn spin(threads: usize, budget: std::time::Duration) -> String {
+    /// The CPU time the whole process has used.
+    fn used() -> std::time::Duration {
+        let mut time = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: clock_gettime fills the struct.
+        unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut time) };
+        std::time::Duration::new(time.tv_sec as u64, time.tv_nsec as u32)
+    }
+    let workers: Vec<_> = (0..threads)
+        .map(|_| {
+            std::thread::spawn(move || {
+                while used() < budget {
+                    std::hint::spin_loop();
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        let _ = worker.join();
     }
     "allowed".into()
 }
@@ -390,6 +440,8 @@ fn run(op: &str) -> String {
             status(unsafe { libc::syscall(libc::SYS_mq_unlink, c"restricted-probe".as_ptr()) })
         }
         "shared-memory" => fill_memory_files(MEMORY_LIMIT_BYTES + (64 << 20)),
+        "many-threads" => start_threads(TASK_LIMIT as usize * 4),
+        "spin" => spin(4, std::time::Duration::from_millis(600)),
         other => format!("unknown {other}"),
     }
 }
@@ -585,6 +637,51 @@ fn the_cgroup_bounds_shared_memory() {
     assert!(!cgroup.exists(), "{}", cgroup.display());
 }
 
+/// The helper cannot run more tasks than its cgroup allows, however it creates threads, so it
+/// cannot exhaust its user's task budget.
+#[test]
+fn the_cgroup_bounds_tasks() {
+    if !lockdown_supported() {
+        return;
+    }
+    let report = probe("many-threads");
+    let started: u64 = report
+        .strip_prefix("threads ")
+        .and_then(|count| count.parse().ok())
+        .unwrap_or_else(|| panic!("{report}"));
+    // The probe's main and test threads count too.
+    assert!(started > 0 && started + 2 <= TASK_LIMIT, "{report}");
+}
+
+/// Where the cpu controller is delegated, threads that busy several cores are throttled to one.
+#[test]
+fn the_cgroup_bounds_cpu_where_delegated() {
+    if !lockdown_supported() {
+        return;
+    }
+    if std::thread::available_parallelism().map_or(1, usize::from) < 2 {
+        eprintln!("skipping: missing a second CPU core to exceed one core's bandwidth");
+        return;
+    }
+    let (report, output, containment) = run_probe("spin", |command| contain(command).unwrap());
+    if !containment.cgroup().join("cpu.max").exists() {
+        eprintln!("skipping: missing a delegated cgroup v2 cpu controller");
+        return;
+    }
+    assert_eq!(
+        report.as_deref(),
+        Some("allowed"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stat = std::fs::read_to_string(containment.cgroup().join("cpu.stat")).unwrap();
+    let throttled = stat
+        .lines()
+        .find_map(|line| line.strip_prefix("nr_throttled "))
+        .and_then(|count| count.parse::<u64>().ok());
+    assert!(throttled.is_some_and(|count| count > 0), "{stat}");
+}
+
 /// Launches like [`contain`], descriptors and limits included, but leaves the child in this
 /// process's cgroup, as when the helper's cgroup could not be joined.
 fn contain_outside_cgroup(command: &mut Command) {
@@ -613,13 +710,17 @@ fn contain_outside_cgroup(command: &mut Command) {
     };
 }
 
-/// A helper whose own cgroup does not hold it to the memory limit refuses to lock down, so it
+/// A helper whose own cgroup does not hold it to the memory and task limits refuses to lock down, so it
 /// never serves.
 #[test]
-fn a_helper_outside_a_memory_limited_cgroup_fails_its_audit() {
+fn a_helper_outside_a_limited_cgroup_fails_its_audit() {
+    if cgroup_limits_hold() {
+        eprintln!("skipping: this test's own cgroup already holds it to a helper's limits");
+        return;
+    }
     let report = probe_with("read-file", contain_outside_cgroup);
     assert!(report.starts_with("lockdown-failed"), "{report}");
-    assert!(report.contains("memory limit"), "{report}");
+    assert!(report.contains("memory and task limits"), "{report}");
 }
 
 /// The helper cannot drop the death signal that ties it to the client, become dumpable again,
