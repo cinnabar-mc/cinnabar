@@ -71,6 +71,7 @@ impl ProgramTranslation {
 
 /// Inputs shared by every program of one translation.
 pub(crate) struct Context<'a> {
+    pub software_fused_dot: bool,
     pub cancelled: &'a (dyn Fn() -> bool + Sync),
     pub source: &'a PackSource,
     pub options: &'a [PackOption],
@@ -328,6 +329,7 @@ fn compile_stages(
             return (drafts, HashSet::new());
         }
         let names = ResourceNames {
+            software_fused_dot: cx.software_fused_dot,
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
             normalize_legacy: normalize_legacy(out.stages[*i].stage, pp),

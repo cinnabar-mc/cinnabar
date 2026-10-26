@@ -40,6 +40,9 @@ pub struct Request {
     pub options: Option<PathBuf>,
     pub dimension: String,
     pub environment: Environment,
+    /// Whether this backend needs integer-backed fused dot accumulation.
+    #[serde(default)]
+    pub software_fused_dot: bool,
     pub purpose: Purpose,
 }
 
@@ -305,6 +308,7 @@ fn translate(request: Request, cancelled: &(impl Fn() -> bool + Sync)) -> Result
         folder: pack.dimension_folder(&request.dimension, &request.environment),
         options: crate::normalize_values(pack.options(), &saved),
         environment: request.environment,
+        software_fused_dot: request.software_fused_dot,
         ..Default::default()
     };
     let translation = pack

@@ -5,6 +5,7 @@
     reason = "names missing GPU fixtures when tests skip"
 )]
 
+mod dot;
 #[cfg(target_os = "windows")]
 mod fxc;
 mod geometry_frames;

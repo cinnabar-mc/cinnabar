@@ -254,6 +254,12 @@ fn host_environment() -> Environment {
     }
 }
 
+/// Uses exact dot steps on DX12 and CPU adapters without requiring optional float64 support.
+fn software_fused_dot(gpu: &GpuContext) -> bool {
+    let info = gpu.adapter.get_info();
+    info.backend == wgpu::Backend::Dx12 || info.device_type == wgpu::DeviceType::Cpu
+}
+
 /// Stops retired workers before opening files or submitting another GPU construction batch.
 fn check_cancelled(progress: &LoadProgress) -> Result<(), String> {
     if progress.is_cancelled() {
@@ -290,6 +296,7 @@ pub(crate) fn load(
         options: options.map(Path::to_owned),
         dimension: dimension.to_owned(),
         environment: host_environment(),
+        software_fused_dot: software_fused_dot(gpu),
         purpose: shaderpack::worker::Purpose::Render,
     };
     let mut worker = shaderpack::worker::Running::start(compiler, &request)?;
@@ -344,6 +351,7 @@ pub(crate) fn build(
 ) -> Result<PackGpu, String> {
     let config = TranslateConfig {
         options: values.clone(),
+        software_fused_dot: software_fused_dot(gpu),
         ..translate_config(pack, dimension)
     };
     let started = std::time::Instant::now();

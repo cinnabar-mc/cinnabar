@@ -838,6 +838,7 @@ mod tests {
         static NO_CLASSES: std::sync::LazyLock<SamplerClasses> =
             std::sync::LazyLock::new(SamplerClasses::default);
         ResourceNames {
+            software_fused_dot: false,
             image_formats,
             sampler_classes: &NO_CLASSES,
             normalize_legacy: true,

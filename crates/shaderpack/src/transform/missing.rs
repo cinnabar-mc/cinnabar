@@ -49,7 +49,12 @@ pub(crate) fn vertex_outputs(
     let Some(main_body) = main_body else {
         return Ok(None);
     };
-    let fragment = super::stage_tokens(&fragment.tokens, StageKind::Fragment, fragment.version)?;
+    let fragment = super::stage_tokens(
+        &fragment.tokens,
+        StageKind::Fragment,
+        fragment.version,
+        false,
+    )?;
     let mut outputs = Vec::new();
     let mut initializers = Vec::new();
     for item in split_items(&fragment.toks) {

@@ -21,7 +21,7 @@ float iris_dot(vec4 a, vec4 b) { return fma(a.w, b.w, fma(a.z, b.z, fma(a.y, b.y
 /// Routes `dot` calls in function bodies through the `iris_dot` helpers, or `None` when the
 /// stage has none to route. Stages that use double precision keep the built-in: the helpers
 /// only have single-precision overloads.
-pub(super) fn order(src: &[Tok]) -> Option<Vec<Tok>> {
+pub(super) fn order(src: &[Tok], software_fma: bool) -> Option<Vec<Tok>> {
     if src.iter().any(|t| {
         t.ident()
             .is_some_and(|n| n == "double" || n.starts_with("dvec"))
@@ -31,7 +31,10 @@ pub(super) fn order(src: &[Tok]) -> Option<Vec<Tok>> {
     let constant = super::items::constant_contexts(src);
     let identifiers: std::collections::HashSet<_> = src.iter().filter_map(Tok::ident).collect();
     let mut helper = "iris_dot".to_string();
-    while identifiers.contains(helper.as_str()) {
+    while identifiers
+        .iter()
+        .any(|name| *name == helper || name.starts_with(&format!("{helper}_")))
+    {
         helper.push('_');
     }
     let items = super::items::split_items(src);
@@ -77,14 +80,23 @@ pub(super) fn order(src: &[Tok]) -> Option<Vec<Tok>> {
     if !routed {
         return None;
     }
+    let helpers = if software_fma {
+        format!(
+            "{}{}",
+            include_str!("dot_fma.glsl"),
+            HELPERS.replace("fma(", "iris_dot_fma(")
+        )
+    } else {
+        HELPERS.to_owned()
+    };
     let mut out = Vec::new();
-    for item in super::items::split_items(&lex(HELPERS)) {
-        let (_, params) = super::items::func_params(&item).unwrap();
+    for item in super::items::split_items(&lex(&helpers)) {
+        let (lp, params) = super::items::func_params(&item).unwrap();
         let types = signature(&params);
-        if !user_types.contains(&types) {
+        if item[lp - 1].ident() != Some("iris_dot") || !user_types.contains(&types) {
             out.extend(item.into_iter().map(|token| {
-                if token.ident() == Some("iris_dot") {
-                    id(&helper).at(token.line)
+                if let Some(name) = token.ident().filter(|name| name.starts_with("iris_dot")) {
+                    id(&format!("{helper}{}", &name["iris_dot".len()..])).at(token.line)
                 } else {
                     token
                 }
@@ -122,7 +134,7 @@ mod tests {
     /// Reorders a fixture expression and emits its resulting token stream.
     fn ordered(src: &str) -> Option<String> {
         let mut e = Emitter::default();
-        e.tokens(&order(&lex(src))?);
+        e.tokens(&order(&lex(src), false)?);
         Some(e.finish().0)
     }
 
