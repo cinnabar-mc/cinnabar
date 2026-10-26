@@ -236,13 +236,32 @@ impl GuiModelPreparation {
         }
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
+        let unshaded_visuals = entities
+            .item_visuals()
+            .iter()
+            .filter_map(|definition| {
+                let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+                    return None;
+                };
+                (assets::gui_item::cube_lighting(&definition.key.identifier)
+                    == assets::gui_item::CubeLighting::Unshaded)
+                    .then_some(block_visual.0)
+            })
+            .collect::<BTreeSet<_>>();
+        let lighting_for_visual = |visual| {
+            if unshaded_visuals.contains(&visual) {
+                assets::gui_item::CubeLighting::Unshaded
+            } else {
+                assets::gui_item::CubeLighting::Directional
+            }
+        };
         for (visual, sprite) in &sources {
             if !cube_shape_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
                 continue;
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
             held_sources.insert(*visual, icon);
-            if let Some(mesh) = item_gui::cube(sheet_faces(icon)) {
+            if let Some(mesh) = item_gui::cube(sheet_faces(icon), lighting_for_visual(*visual)) {
                 meshes.insert(*visual, mesh);
             }
         }
@@ -341,7 +360,12 @@ impl GuiModelPreparation {
                 // reclaim their pages. A full atlas leaves the original thumbnail intact.
                 let Some(mesh) = atlas.try_insert(
                     [([sprite.width, sprite.height], sprite.rgba8.as_ref())],
-                    |icons| item_gui::cutout_cube(sheet_faces(icons[0])),
+                    |icons| {
+                        item_gui::cutout_cube(
+                            sheet_faces(icons[0]),
+                            lighting_for_visual(block_visual.0),
+                        )
+                    },
                 ) else {
                     continue;
                 };

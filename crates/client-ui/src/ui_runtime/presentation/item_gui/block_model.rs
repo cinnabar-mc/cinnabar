@@ -4,12 +4,13 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::gui_item::{
-    GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, face_brightness, project_cube,
+    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, face_brightness,
+    project_cube,
 };
 use ui::UiMesh;
 
 use {
-    super::{atlas_uv, batch, vertex},
+    super::{atlas_uv, batch, shade, vertex},
     assets::gui_item::GUI_ITEM_SIDE,
     ui::IconRef,
 };
@@ -18,6 +19,7 @@ use {
 /// cannot wrap.
 pub(in crate::ui_runtime::presentation) fn mesh(
     quads: &[(GuiBlockQuad, IconRef)],
+    lighting: CubeLighting,
 ) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(quads.len() * 4);
     let mut by_page: BTreeMap<u16, Vec<u32>> = BTreeMap::new();
@@ -33,7 +35,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         {
             return None;
         }
-        let shade = (face_brightness(quad.corners) * f32::from(u8::MAX)) as u8;
+        let shade = shade(face_brightness(quad.corners), lighting);
         let start = vertices.len() as u32;
         for (corner, uv) in quad.corners.into_iter().zip(quad.uvs) {
             let [x, y, z] = project_cube(corner);

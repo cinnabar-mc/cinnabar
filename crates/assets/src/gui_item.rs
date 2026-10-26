@@ -8,6 +8,8 @@ mod cube_model;
 mod dried_ghast;
 mod dripleaf;
 pub use dripleaf::dripleaf_quads;
+mod lighting;
+pub use lighting::{CubeLighting, cube_lighting};
 mod sculk_sensor;
 mod sculk_shrieker;
 pub use block_model::{

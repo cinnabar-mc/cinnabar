@@ -209,8 +209,8 @@ mod tests {
             uv: [0, 0, 16, 16],
             glint: false,
         };
-        let source = super::super::item_gui::cube([icon; 6]).unwrap();
-        let other = super::super::item_gui::cube([icon; 6]).unwrap();
+        let source = super::super::item_gui::cube([icon; 6], Default::default()).unwrap();
+        let other = super::super::item_gui::cube([icon; 6], Default::default()).unwrap();
         let faded = [255, 255, 255, 128];
         let mut meshes = ModulatedMeshes::default();
         let first = meshes.get(&source, faded, false).unwrap();

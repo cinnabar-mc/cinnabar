@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use assets::gui_item::CUBE_FACES;
+use assets::gui_item::{CUBE_FACES, CubeLighting};
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use ui::IconRef;
@@ -25,12 +25,12 @@ use assets::gui_item::GUI_ITEM_SIDE;
 
 /// Cubes with three visible faces. `faces` retains the carried texture in `BlockFace::ALL` order.
 /// Other block shapes (slabs, stairs, fences) draw through [`block_model`].
-pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
+pub(super) fn cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(CUBE_FACES.len() * 4);
     let mut indices = Vec::with_capacity(CUBE_FACES.len() * 6);
     let mut batches = Vec::with_capacity(CUBE_FACES.len());
     for (face, positions, uvs, brightness) in CUBE_FACES {
-        let shade = (brightness * f32::from(u8::MAX)) as u8;
+        let shade = shade(brightness, lighting);
         let texture = faces[face as usize];
         if texture.uv[2] <= texture.uv[0] || texture.uv[3] <= texture.uv[1] {
             return None;
@@ -59,7 +59,7 @@ pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
 
 /// Draws the cube's camera-facing surfaces with alpha-tested texels.
 /// The caller normalizes non-blended texels and retains thumbnails for fractional blending.
-pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
+pub(super) fn cutout_cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option<Arc<UiMesh>> {
     let quads = CUBE_FACES.map(|(face, corners, uvs, _)| {
         (
             assets::gui_item::GuiBlockQuad {
@@ -71,7 +71,15 @@ pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
             faces[face as usize],
         )
     });
-    block_model(&quads)
+    block_model(&quads, lighting)
+}
+
+/// Converts directional face lighting or uniform brightness to the shared byte-space tint.
+fn shade(brightness: f32, lighting: CubeLighting) -> u8 {
+    match lighting {
+        CubeLighting::Directional => (brightness * f32::from(u8::MAX)) as u8,
+        CubeLighting::Unshaded => u8::MAX,
+    }
 }
 
 fn cube_project(point: [f32; 3]) -> [f32; 2] {

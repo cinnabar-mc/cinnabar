@@ -455,7 +455,7 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
         {
             continue;
         }
-        if let Some(mesh) = item_gui::cube(sheet_faces(*placed)) {
+        if let Some(mesh) = item_gui::cube(sheet_faces(*placed), Default::default()) {
             models.insert(icon_key(*thumbnail), mesh);
         }
     }

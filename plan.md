@@ -607,6 +607,9 @@ and rendered qualification remain incomplete.
   pinned catalog.
   The hotbar catalog comparison still has open shape, artwork and item-variant differences;
   animated dials and glint also require phase-matched acceptance.
+  Glowstone, sea lanterns, shroomlight and froglight GUI cubes retain uniform texture
+  brightness. The emissive-cube census rejects missing classifications after registry
+  changes; partial emissive faces and entries marked incomplete still need acceptance.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
