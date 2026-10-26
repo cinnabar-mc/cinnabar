@@ -2,6 +2,20 @@ use super::*;
 use crate::gpu_snapshot::Gpu as Fixture;
 use wgpu::util::DeviceExt;
 
+#[test]
+fn portal_resources_retry_a_resize_after_old_attachment_storage_retires() {
+    let bytes = 2560 * 1440 * 4 * ATTACHMENT_SAMPLE_BYTES;
+    let ledger = mod_render::GpuLedger::new(mod_api::drawing::MAX_CLIP_ATTACHMENT_BYTES);
+    let old = ledger.allocate(bytes, || Some(())).unwrap();
+    assert!(reserve_attachment(&ledger, bytes, bytes).unwrap().is_none());
+    drop(old);
+    let replacement = reserve_attachment(&ledger, bytes, 0).unwrap().unwrap();
+    assert_eq!(ledger.used(), bytes);
+    assert!(reserve_attachment(&ledger, ledger.limit() + 1, 0).is_err());
+    drop(replacement);
+    assert_eq!(ledger.used(), 0);
+}
+
 /// Uses the production clip shader and stencil state against deterministic tiny attachments.
 #[test]
 fn masks_hide_occluded_pixels_intersect_parents_and_isolate_content_depth() {

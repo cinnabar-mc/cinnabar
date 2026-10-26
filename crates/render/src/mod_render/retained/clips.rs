@@ -12,7 +12,13 @@ use bevy::{
     },
 };
 use render_scene::{ModRenderScene, mod_scene::retained::DrawingFrame};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 pub(super) const SHADER: Handle<Shader> =
     bevy::asset::uuid_handle!("c659be43-e915-4472-bc82-4ebc46174340");
@@ -35,6 +41,8 @@ pub(super) fn source(msaa: bool, source: &str) -> String {
 }
 
 pub(crate) const FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
+/// Conservative depth/stencil storage per physical sample, including backend padding.
+const ATTACHMENT_SAMPLE_BYTES: u64 = 8;
 
 /// Requires the final intersection level without changing any mask coverage.
 pub(crate) fn content_stencil() -> StencilState {
@@ -110,6 +118,7 @@ struct Target {
     world_depth: TextureViewId,
     binding: BindGroup,
     _charge: mod_render::GpuAllocation<()>,
+    bytes: u64,
 }
 
 #[derive(Resource, Default)]
@@ -118,6 +127,37 @@ struct Targets {
     masks: HashMap<pipeline::Key, CachedRenderPipelineId>,
     contents: HashMap<pipeline::Key, CachedRenderPipelineId>,
     ledgers: HashMap<u64, mod_render::GpuLedger>,
+    retiring: HashMap<u64, Arc<AtomicU64>>,
+}
+
+/// Defers an affordable replacement while earlier attachment storage is retiring.
+fn reserve_attachment(
+    ledger: &mod_render::GpuLedger,
+    bytes: u64,
+    retiring: u64,
+) -> Result<Option<mod_render::GpuAllocation<()>>, mod_render::retained::ErrorCode> {
+    if let Some(charge) = ledger.allocate(bytes, || Some(())) {
+        return Ok(Some(charge));
+    }
+    if bytes <= ledger.limit()
+        && ledger.used().saturating_sub(retiring).saturating_add(bytes) <= ledger.limit()
+    {
+        Ok(None)
+    } else {
+        Err(mod_render::retained::ErrorCode::BudgetExceeded)
+    }
+}
+
+/// Keeps replaced storage charged and identifies bytes that GPU completion will release.
+fn retire_target(
+    targets: &mut Targets,
+    owner: u64,
+    target: Target,
+    retired: &mut Vec<(Target, Arc<AtomicU64>)>,
+) {
+    let pending = Arc::clone(targets.retiring.entry(owner).or_default());
+    pending.fetch_add(target.bytes, Ordering::AcqRel);
+    retired.push((target, pending));
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -200,7 +240,7 @@ fn prepare(
         .collect();
     for key in removed {
         if let Some(old) = targets.targets.remove(&key) {
-            retired.push(old);
+            retire_target(&mut targets, key.1, old, &mut retired);
         }
     }
     for (&(entity, owner), view) in &gpu.views {
@@ -226,9 +266,12 @@ fn prepare(
                 || t.world_depth != crate::scene_sampling::view_depth(depth).id()
         }) {
             if let Some(old) = targets.targets.remove(&key) {
-                retired.push(old);
+                retire_target(&mut targets, owner, old, &mut retired);
             }
-            let bytes = u64::from(size.width) * u64::from(size.height) * u64::from(samples) * 8;
+            let bytes = u64::from(size.width)
+                * u64::from(size.height)
+                * u64::from(samples)
+                * ATTACHMENT_SAMPLE_BYTES;
             let ledger = mod_render::GpuReservation::ledger_for(&scene.gpu_reservations, owner)
                 .cloned()
                 .unwrap_or_else(|| {
@@ -240,13 +283,17 @@ fn prepare(
                         })
                         .clone()
                 });
-            let Some(charge) = ledger.allocate(bytes, || Some(())) else {
-                fail_owner(
-                    &scene,
-                    owner,
-                    mod_render::retained::ErrorCode::BudgetExceeded,
-                );
-                continue;
+            let retiring = targets
+                .retiring
+                .get(&owner)
+                .map_or(0, |bytes| bytes.load(Ordering::Acquire));
+            let charge = match reserve_attachment(&ledger, bytes, retiring) {
+                Ok(Some(charge)) => charge,
+                Ok(None) => continue,
+                Err(code) => {
+                    fail_owner(&scene, owner, code);
+                    continue;
+                }
             };
             let Some(texture) =
                 crate::gpu_allocation::checked(&device, "clip depth", bytes, || {
@@ -287,6 +334,7 @@ fn prepare(
                     world_depth: crate::scene_sampling::view_depth(depth).id(),
                     binding,
                     _charge: charge,
+                    bytes,
                 },
             );
         }
@@ -321,8 +369,21 @@ fn prepare(
             .iter()
             .any(|r| r.clips.keys().any(|id| id.owner == *owner))
     });
+    targets.retiring.retain(|owner, pending| {
+        pending.load(Ordering::Acquire) != 0
+            || scene
+                .retained
+                .iter()
+                .any(|resources| resources.clips.keys().any(|id| id.owner == *owner))
+    });
     if !retired.is_empty() {
-        crate::device_poll::on_frame_complete(&queue, move || drop(retired));
+        crate::device_poll::on_frame_complete(&queue, move || {
+            for (target, pending) in retired {
+                let bytes = target.bytes;
+                drop(target);
+                pending.fetch_sub(bytes, Ordering::AcqRel);
+            }
+        });
     }
 }
 

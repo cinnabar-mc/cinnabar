@@ -15,6 +15,8 @@ use render_scene::{
 pub(crate) mod drawing;
 mod prepare;
 mod sorting;
+#[cfg(test)]
+mod tests;
 use sorting::{Face, Order};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, SpecializerKey)]
@@ -24,6 +26,7 @@ struct Key {
     clipped: bool,
     always: bool,
     additive: bool,
+    mirrored: bool,
 }
 struct Specialization;
 impl Specializer<RenderPipeline> for Specialization {
@@ -42,6 +45,12 @@ impl Specializer<RenderPipeline> for Specialization {
             },
             descriptor,
         )?;
+        if key.mirrored {
+            descriptor.primitive.front_face = match descriptor.primitive.front_face {
+                FrontFace::Ccw => FrontFace::Cw,
+                FrontFace::Cw => FrontFace::Ccw,
+            };
+        }
         let depth = descriptor.depth_stencil.as_mut().unwrap();
         if key.clipped {
             depth.format = crate::mod_render::retained::clips::FORMAT;
@@ -245,15 +254,18 @@ impl crate::pipeline_warmup::PrewarmPipelines for Pipelines {
         for clipped in [false, true] {
             for always in [false, true] {
                 for additive in [false, true] {
-                    let key = Key {
-                        msaa: view.msaa,
-                        hdr: view.hdr,
-                        clipped,
-                        always,
-                        additive,
-                    };
-                    for variants in &mut self.variants {
-                        ids.push(variants.specialize(cache, key)?);
+                    for mirrored in [false, true] {
+                        let key = Key {
+                            msaa: view.msaa,
+                            hdr: view.hdr,
+                            clipped,
+                            always,
+                            additive,
+                            mirrored,
+                        };
+                        for variants in &mut self.variants {
+                            ids.push(variants.specialize(cache, key)?);
+                        }
                     }
                 }
             }

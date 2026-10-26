@@ -234,12 +234,12 @@ pub(super) fn prepare(
         placement.active = false;
     }
     let removed: Vec<_> = placements
-        .keys()
-        .filter(|(view, id)| {
+        .iter()
+        .filter(|((view, id), placement)| {
             views.get(*view).is_err()
-                || !scene.retained.iter().any(|r| r.instances.contains_key(id))
+                || !placement_is_current(&scene.retained, &live, *id, &placement.native.geometry)
         })
-        .copied()
+        .map(|(key, _)| *key)
         .collect();
     let mut retired_placements = Vec::new();
     let mut retired_orders = Vec::new();
@@ -296,7 +296,8 @@ pub(super) fn prepare(
                 )
                 .inverse();
                 let matrix = rotation * Mat4::from_cols_array_2d(&resolved.transform);
-                if !matrix.determinant().is_finite() || matrix.determinant().abs() < 1e-10 {
+                let determinant = matrix.determinant();
+                if !determinant.is_finite() || determinant.abs() < 1e-10 {
                     continue;
                 }
                 let key = Key {
@@ -305,6 +306,7 @@ pub(super) fn prepare(
                     clipped: instance.clip.is_some(),
                     always: instance.depth == Depth::Always,
                     additive: instance.blend == Blend::Additive,
+                    mirrored: determinant < 0.,
                 };
                 let ids: Option<Vec<_>> = pipelines
                     .variants
@@ -466,4 +468,20 @@ pub(super) fn prepare(
             drop((retired, retired_placements, retired_orders))
         });
     }
+}
+
+/// Keeps a placement only while its instance still names the same live grid generation.
+pub(super) fn placement_is_current(
+    resources: &[Arc<mod_render::retained::Resources>],
+    live: &BTreeMap<DrawingHandle, Arc<mod_render::retained::Geometry>>,
+    id: DrawingHandle,
+    geometry: &Arc<mod_render::retained::Geometry>,
+) -> bool {
+    resources
+        .iter()
+        .filter_map(|resources| resources.instances.get(&id))
+        .any(|instance| {
+            live.get(&instance.geometry)
+                .is_some_and(|current| Arc::ptr_eq(current, geometry))
+        })
 }
