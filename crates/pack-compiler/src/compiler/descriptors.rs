@@ -19,6 +19,9 @@ pub(super) fn descriptor_for(
     if visuals::barrel::is_record(record) {
         return visuals::barrel::descriptor(pack, record, face);
     }
+    if visuals::mapped_face::is_record(record) {
+        return visuals::mapped_face::descriptor(pack, record, face);
+    }
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
     let (path, state_variant) = if is_model_visual(record) {

@@ -3363,6 +3363,40 @@
       ]
     },
     {
+      "id": "render-observer",
+      "fact": "render:Observer",
+      "status": "verified",
+      "members": [
+        "minecraft:observer"
+      ]
+    },
+    {
+      "id": "render-dispenser",
+      "fact": "render:Dispenser",
+      "status": "verified",
+      "members": [
+        "minecraft:dispenser",
+        "minecraft:dropper"
+      ]
+    },
+    {
+      "id": "render-crafter",
+      "fact": "render:Crafter",
+      "status": "verified",
+      "members": [
+        "minecraft:crafter"
+      ]
+    },
+    {
+      "id": "render-piston-base",
+      "fact": "render:PistonBase",
+      "status": "verified",
+      "members": [
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ]
+    },
+    {
       "id": "render-composter",
       "fact": "render:Composter",
       "status": "provisional",
