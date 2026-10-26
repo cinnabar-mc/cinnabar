@@ -35,6 +35,9 @@ fn entity_hover_new_actor_reports_the_retained_world_point_once() {
 #[test]
 fn entity_hover_retains_completed_geometry_after_catchup() {
     let (mut app, mut captured) = hover_app();
+    app.world_mut()
+        .run_system_cached(crate::melee::prepare_melee)
+        .unwrap();
     let before = attack_hit_position_tests::picked_point(app.world());
     attack_hit_position_tests::move_actor(app.world_mut(), [None, None, Some(6.66)], 2);
     let completed = attack_hit_position_tests::picked_point(app.world());

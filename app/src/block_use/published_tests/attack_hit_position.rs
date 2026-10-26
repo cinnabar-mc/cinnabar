@@ -303,12 +303,12 @@ fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry()
             .resource_mut::<InteractionOriginSnapshot>()
             .assist_direction(direction);
         assert_ne!(picked_point(&world), point.to_array());
-        if let Some(x) = moved_x {
-            move_actor(&mut world, [Some(x), None, None], 3);
-        }
         world
             .run_system_cached(crate::melee::prepare_melee)
             .unwrap();
+        if let Some(x) = moved_x {
+            move_actor(&mut world, [Some(x), None, None], 3);
+        }
         attack(&mut world);
         let packets = captured.drain();
         let tx = packets.iter().find_map(observe_transaction).unwrap();
