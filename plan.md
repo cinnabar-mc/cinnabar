@@ -151,9 +151,7 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   tag carries (`MAX_BLOCK_SLOTS`; 255 for entities) and the 64 compile failures one session
   reports (`MAX_WORLD_MATERIAL_FAILURES`). Composed modules and their pipelines stay
   registered for the process because Bevy cannot drop a pipeline; a session charges the ones
-  its bundles compiled, but distinct programs from many sessions still accumulate. A freed
-  block slot is reused once no resident mesh carries its tag, without waiting for mesh
-  uploads still queued with the old tags.
+  its bundles compiled, but distinct programs from many sessions still accumulate.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no

@@ -549,7 +549,9 @@ fn present_world_materials(
             .note_compile_failures(|key| failures.failed(key));
     }
     let run = service.world.run();
-    let carried = carried.as_deref().map_or(u64::MAX, |carried| carried.get());
+    let carried = carried
+        .as_deref()
+        .map_or((0, u64::MAX), |carried| carried.get());
     if !service.world.follow(service.live.as_mut(), carried) {
         return;
     }

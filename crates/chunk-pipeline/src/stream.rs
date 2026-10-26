@@ -380,8 +380,6 @@ pub struct WorldStream {
     /// Sorted network values of blocks a programmable world material shades, with one more
     /// than its slot; see [`WorldStream::set_world_materials`].
     world_materials: Arc<[(u32, u8)]>,
-    /// Tags requested since the last poll, which the next poll applies in one round.
-    pending_world_materials: Option<Arc<[(u32, u8)]>>,
     seasonal_foliage: seasonal_foliage::SeasonalFoliage,
     /// Dimension at the newest admitted wire position; commits may still lag behind it.
     ingress_dimension: i32,

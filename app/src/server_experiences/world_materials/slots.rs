@@ -17,6 +17,42 @@ pub(super) struct Owner {
 struct Slot {
     owner: Owner,
     material: Option<u32>,
+    /// The carried observation count when its last material left it; `None` if none ever drew
+    /// in it, so no mesh can carry its tag.
+    freed_at: Option<u64>,
+}
+
+/// What the render world last observed of the block slots resident meshes carry.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Carried {
+    /// Observations made so far.
+    pub count: u64,
+    /// One bit per carried block slot.
+    pub mask: u64,
+}
+
+impl Default for Carried {
+    /// Every slot counts as carried until the render world has looked.
+    fn default() -> Self {
+        Self {
+            count: 0,
+            mask: u64::MAX,
+        }
+    }
+}
+
+impl Slot {
+    /// Whether another bundle may take this empty slot at `index`: an entity slot carries no
+    /// mesh tag, and a block slot is free once an observation made at least two render frames
+    /// after it was emptied shows no mesh carrying its tag. The two frames cover an upload
+    /// extracted before the emptying frame that the render world had not made resident yet.
+    fn reclaimable(&self, index: usize, carried: Carried) -> bool {
+        self.material.is_none()
+            && (index >= publication::MAX_BLOCK_SLOTS
+                || self.freed_at.is_none_or(|at| {
+                    at.saturating_add(2) <= carried.count && carried.mask & (1 << index) == 0
+                }))
+    }
 }
 
 /// A drawn material asking for a slot.
@@ -36,14 +72,14 @@ pub(super) struct Slots {
 impl Slots {
     /// Gives each request a slot: the one it drew in last if that still suits it, else a free
     /// slot of the right range its bundle owns, else a free slot no mesh carries (`carried`
-    /// holds one bit per block slot), else a new one. A block-bound material takes a block slot
+    /// is what the render world last observed), else a new one. A block-bound material takes a block slot
     /// when one is free and an entity slot otherwise, where only its entity bindings reach it;
     /// an entity-only material takes an entity slot first. A request no slot suits is left out.
     pub(super) fn assign(
         &mut self,
         run: u64,
         requests: &[Request<'_>],
-        carried: u64,
+        carried: Carried,
     ) -> BTreeMap<(String, u32), u16> {
         let owned =
             |slot: &Slot, bundle: &str| slot.owner.run == run && slot.owner.bundle == bundle;
@@ -57,6 +93,9 @@ impl Slots {
                         && (!request.blocks || index < publication::MAX_BLOCK_SLOTS)
                 })
             });
+            if slot.material.is_some() && keep.is_none() {
+                slot.freed_at = Some(carried.count);
+            }
             slot.material = keep.map(|request| request.id);
             if let Some(request) = keep {
                 held[index] = true;
@@ -81,9 +120,7 @@ impl Slots {
             let free = |index: usize, slot: &Slot| {
                 !held[index]
                     && slot.material.is_none()
-                    && (owned(slot, request.bundle)
-                        || index >= publication::MAX_BLOCK_SLOTS
-                        || carried & (1 << index) == 0)
+                    && (owned(slot, request.bundle) || slot.reclaimable(index, carried))
             };
             let found = ranges.iter().find_map(|range| {
                 let mine = range.clone().find(|&index| {
@@ -113,6 +150,7 @@ impl Slots {
                         bundle: request.bundle.to_owned(),
                     },
                     material: None,
+                    freed_at: None,
                 });
                 held.push(false);
             }
@@ -128,12 +166,24 @@ impl Slots {
         assigned
     }
 
-    /// Empties every slot without giving it up, as a session ends: each stays reserved for its
-    /// owner until no mesh carries its tag.
-    pub(super) fn empty(&mut self) {
+    /// Empties every slot without giving it up, as a session ends at observation `count`: each
+    /// stays reserved for its owner until no mesh carries its tag.
+    pub(super) fn empty(&mut self, count: u64) {
         for slot in &mut self.slots {
-            slot.material = None;
+            if slot.material.take().is_some() {
+                slot.freed_at = Some(count);
+            }
         }
+    }
+
+    /// How many empty block slots another bundle could take under `carried`.
+    pub(super) fn reclaimable(&self, carried: Carried) -> usize {
+        self.slots
+            .iter()
+            .enumerate()
+            .take(publication::MAX_BLOCK_SLOTS)
+            .filter(|(index, slot)| slot.freed_at.is_some() && slot.reclaimable(*index, carried))
+            .count()
     }
 
     /// The number of slots the table spans.

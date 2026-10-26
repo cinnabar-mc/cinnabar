@@ -76,7 +76,6 @@ impl WorldStream {
         let maintenance_items = self.maintenance_items;
         self.service_item_max = Duration::ZERO;
         let frame_deadline = self.begin_poll_work(Instant::now());
-        self.apply_world_materials(Instant::now());
         let mut report = WorldStreamPoll::default();
         // Ready zero-byte work needs no decode, lighting or geometry scheduler pass.
         let removal_budget = self
