@@ -186,8 +186,8 @@ impl BlockGrid {
     fn edit_index(&self, edit: BlockEdit) -> Result<usize, DrawError> {
         if (0..3).any(|axis| edit.position[axis] >= self.size[axis])
             || edit.cell.palette as usize >= self.palette.len()
-            || edit.cell.sky_light.is_some_and(|v| v > 15)
-            || edit.cell.block_light.is_some_and(|v| v > 15)
+            || edit.cell.sky_light.is_some_and(|v| v > MAX_BLOCK_LIGHT)
+            || edit.cell.block_light.is_some_and(|v| v > MAX_BLOCK_LIGHT)
         {
             return Err(error(ErrorCode::Invalid, "block edit"));
         }
@@ -241,8 +241,8 @@ impl BlockGrid {
             || self.palette.is_empty()
             || self.cells.iter().any(|cell| {
                 cell.palette as usize >= self.palette.len()
-                    || cell.sky_light.is_some_and(|v| v > 15)
-                    || cell.block_light.is_some_and(|v| v > 15)
+                    || cell.sky_light.is_some_and(|v| v > MAX_BLOCK_LIGHT)
+                    || cell.block_light.is_some_and(|v| v > MAX_BLOCK_LIGHT)
             })
         {
             return Err(error(ErrorCode::Invalid, "block cells or light"));
@@ -379,7 +379,7 @@ impl BlockGrid {
                 let cell = self.cell(std::array::from_fn(|axis| position[axis] + origin[axis]));
                 meshing::lighting::MeshLightSample::try_new(
                     cell.and_then(|v| v.block_light).unwrap_or(0),
-                    cell.and_then(|v| v.sky_light).unwrap_or(15),
+                    cell.and_then(|v| v.sky_light).unwrap_or(MAX_BLOCK_LIGHT),
                 )
                 .expect("admitted light")
             };

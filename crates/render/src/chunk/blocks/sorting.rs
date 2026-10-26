@@ -84,7 +84,8 @@ pub(super) fn sort(
 ) -> Option<Order> {
     let refs = references(&native.faces, camera, direction);
     let count = refs.len() as u32;
-    let buffer = ledger.allocate((refs.len() * 8).max(8) as u64, || {
+    let bytes = refs.len().max(1) * std::mem::size_of::<[u32; 2]>();
+    let buffer = ledger.allocate(bytes as u64, || {
         crate::gpu_allocation::buffer_with_data(
             &device,
             &queue,
