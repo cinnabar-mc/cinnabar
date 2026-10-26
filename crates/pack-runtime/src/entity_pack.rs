@@ -60,6 +60,8 @@ pub fn vanilla_pack_dir() -> Option<PathBuf> {
 }
 
 mod cache;
+#[cfg(any(test, feature = "test-support"))]
+pub use cache::stores_idle;
 use cache::{Compiled, ENTITY_CACHE, EntityInputs};
 
 /// Compiles the stack's entity files: the inner `None` when it defines no usable entity, the

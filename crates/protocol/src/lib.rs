@@ -204,12 +204,12 @@ pub use login::{
     WRITE_FAILURE_DRAIN, WebSessionReader, login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
-    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
-    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,
-    PlayerAuthInputError, PlayerAuthInputInteractions, PlayerAuthInputSnapshot,
-    PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode, PredictedVehicleInput,
-    client_movement_prediction_sync, player_auth_input, player_auth_input_trace_sample,
-    player_auth_input_with_interactions, player_auth_input_with_mining_request,
+    BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, InteractionEncodeError,
+    MovementPredictionSync, PlayerAuthInputError, PlayerAuthInputInteractions,
+    PlayerAuthInputSnapshot, PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode,
+    PredictedVehicleInput, client_movement_prediction_sync, player_auth_input,
+    player_auth_input_trace_sample, player_auth_input_with_interactions,
+    player_auth_input_with_mining_request,
 };
 pub use packet::{Packet, PacketKind};
 pub use particle::{

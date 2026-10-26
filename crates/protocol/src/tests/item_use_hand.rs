@@ -164,13 +164,11 @@ fn item_use_hand_embedded_bytes_preserve_hand_stack_and_following_fields() {
         for action in [0, 2] {
             let request = block_request(hand);
             let mut block_actions = BlockActions::new();
-            block_actions
-                .push(BlockAction {
-                    kind: BlockActionKind::CrackBlock,
-                    position: [1, 2, -3],
-                    face: 4,
-                })
-                .unwrap();
+            block_actions.push(BlockAction {
+                kind: BlockActionKind::CrackBlock,
+                position: [1, 2, -3],
+                face: 4,
+            });
             let packet = protocol::player_auth_input_with_interactions(
                 movement(),
                 &PlayerAuthInputInteractions {
