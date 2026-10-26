@@ -1,6 +1,6 @@
 # Camera and rendering
 
-This guide covers the camera policies, the world-space drawing interfaces and the terrain reads behind them. Camera work splits across two interfaces: `gameplay` for reads and rotation, `camera` for per-frame view policy. Rendering splits by lifetime: `render` for output that lives for one callback, the world-draw `drawing` interface for retained geometry, and `masks` for retained actor silhouettes.
+This guide covers the camera policies, the world-space drawing interfaces and the terrain reads behind them. Camera work splits across two interfaces: `gameplay` for reads and rotation, `camera` for per-frame view policy. Rendering uses `render` for immediate primitives and retained post-process passes, the world-draw `drawing` interface for retained geometry, and `masks` for retained actor silhouettes.
 
 ## Camera reads and rotation
 
@@ -25,11 +25,11 @@ The `camera` interface is opt-in policy that expires unless renewed. All of it n
 
 ## Post-process passes and primitives
 
-The `render` interface needs the `render` grant; reading scene depth also needs `render_depth`.
+Immediate primitives need `render` or `world_draw`. Post-process pass calls need `render` or `render_post`, and reading scene depth also needs `render_depth`. These grants apply within the current world's drawing policy.
 
 `register_pass` validates a WGSL pass: a `pass_spec` with a name, an order, a depth flag, and source defining `fn effect(uv: vec2<f32>) -> vec3<f32>` against the host prelude. Passes run after the scene and before the HUD, ordered by `order` then name. `update_pass` sets a retained enable flag and up to `MAX_PASS_PARAMS` (16) floats exposed to the shader as `param(i)`, and `remove_pass` unregisters. `examples/mods/render-sample` registers a vignette this way and toggles it per frame.
 
-`draw` appends world-space primitives — decals, ribbons, beams and billboards — and `draw_lines` appends depth-tested lines. Each successful callback replaces the drawn set, so redraw everything you want visible, every frame.
+`draw` appends world-space primitives — decals, ribbons, beams and billboards — and `draw_lines` appends depth-tested lines. A successful `init` or `frame` publishes a replacement drawn set, so redraw everything you want visible, every frame. Event callbacks do not publish immediate primitives by themselves.
 
 | Limit | Value | Constant |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ The `render` interface needs the `render` grant; reading scene depth also needs 
 | Render and retained drawing calls per callback | 32 | `MAX_RENDER_CALLS` |
 | Shader bytes | 16 KiB | `MAX_SHADER_BYTES` |
 | Bytes in a pass name | 32 | `MAX_PASS_NAME_BYTES` |
-| Decals / ribbons / beams / billboards per draw | 64 / 32 / 16 / 512 | `MAX_RENDER_DECALS`, `MAX_RENDER_RIBBONS`, `MAX_RENDER_BEAMS`, `MAX_RENDER_BILLBOARDS` |
+| Decals / ribbons / beams / billboards across a frame's draw calls | 64 / 32 / 16 / 512 | `MAX_RENDER_DECALS`, `MAX_RENDER_RIBBONS`, `MAX_RENDER_BEAMS`, `MAX_RENDER_BILLBOARDS` |
 | Points in one ribbon | 64 | `MAX_RIBBON_POINTS` |
 | Largest primitive extent | 64 blocks | `MAX_PRIMITIVE_EXTENT_BLOCKS` |
 
@@ -67,7 +67,7 @@ let drawing = api::create(&draw).expect("drawing instance admitted");
 
 Keep both handles in your state and `update` the instance to move the drawing instead of rebuilding geometry. Handles belong to one component and session: session changes, reload, revocation and dimension transfers invalidate them. Explicit instances persist until removed or revoked; frame groups expire on the next successful callback.
 
-The `masks` interface builds retained union silhouettes of actors: resolve an actor with `entity`, `create` a mask, `select` its members, `set_style` its outline and glow, and optionally `register_effect` a post effect sampling it, which also needs `render_post`. At most `MAX_MASKS` (8) masks with `MAX_MASK_ENTITIES` (32) actors each.
+The `masks` interface builds retained union silhouettes of actors under `entity_highlight`: resolve an actor with `entity`, `create` a mask, `select` its members, `set_style` its outline and glow, and optionally `register_effect` a post effect sampling it, which also needs `render_post`. The `entity` lookup additionally needs `entity_observe` and `render_through_walls`; masks that ignore depth also need `render_through_walls`. At most `MAX_MASKS` (8) masks with `MAX_MASK_ENTITIES` (32) actors each; both constants are in `mod_api::drawing`.
 
 ## Terrain
 

@@ -2,7 +2,7 @@
 
 A paired mod is one Rust project with a server guest and a client part, shipped in one `.cmod`. The example is Cosmic, in `examples/mods/cosmic`: it registers Moon rock and Moon key, sends a ping to the server, and draws a moon label when the reply arrives.
 
-Paired mods use a different API from personal mods. The client part is built with the Experience SDK's `client` feature against the `server-bundle` world, not with `mod-api`; the server operator offers the signed client bundle to players, and the client part's permissions are declared in the project rather than granted by the player in Settings → Mods. For the personal-mod model, see [Getting started](getting-started.md).
+Paired mods use a different API from personal mods. The client part is built with the Experience SDK's `client` feature against the `server-bundle` world, not with `mod-api`; the server operator offers the signed client bundle to players. Its declared permissions are subject to the client-code consent flow and host policy, rather than the personal-mod controls in Settings → Mods. For the personal-mod model, see [Getting started](getting-started.md).
 
 ## Install the tools
 
@@ -80,7 +80,7 @@ impl ClientPart for Client {
 
 From `examples/mods/cosmic/src/server.rs` and `src/client.rs`, with imports trimmed. The client part's authored initialisation and callbacks wait for the server's matching registry fingerprint; a mismatch stops the part and asks for a rebuild, so shared definitions and the two halves cannot drift apart silently. Treat that as a build signal, not player authorisation: always validate requests against server state, because a matching registry does not authorise the player who sent the message.
 
-Field bounds are part of the declaration. Scalars take optional `min`/`max`; strings and typed ids require `#[field(max_bytes = N)]` counting UTF-8 bytes; a `Vec<T>` of a supported scalar requires `#[field(max_items = N)]`. Unsupported field types fail generation.
+Field bounds are part of the declaration. Integer scalars take optional `min`/`max`; strings and typed ids require `#[field(max_bytes = N)]` counting UTF-8 bytes; a `Vec<T>` of a supported scalar requires `#[field(max_items = N)]`, plus `max_bytes` for text or typed-id elements. Booleans are supported too; floating-point and unsupported field types fail generation.
 
 Assets under `assets/server/` go only to the server artifact and `assets/client/` only to the client bundle; anything else ships in both, which is where block textures and item icons belong. Every file generates a compile-checked constant such as `assets::ASSET_MOON_PNG`.
 
@@ -106,4 +106,4 @@ cinnabar-cxb mod build --project cosmic --release
 cinnabar-cxb mod install cosmic/dist/cosmic.cmod --server /path/to/world
 ```
 
-Give the `.cmod` to the server operator. The first build creates `cosmic/.local/publisher.seed`, which signs the client bundle: keep it private and retain it for later builds, or players will not accept your updates as yours. The server offers players only the signed client bundle and the ordinary resource pack; it does not send the server guest. Installation refuses an existing mod id — to replace one, stop the server and remove `<world>/mods/<id>` first.
+Give the `.cmod` to the server operator. The first build creates `cosmic/.local/publisher.seed`, which signs the client bundle: keep it private and retain it for later builds. A different seed creates a different publisher identity, so existing publisher trust does not carry over. The server offers players only the signed client bundle and the ordinary resource pack; it does not send the server guest. Installation refuses an existing mod id — to replace one, stop the server and remove `<world>/mods/<id>` first.

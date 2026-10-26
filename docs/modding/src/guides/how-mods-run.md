@@ -5,11 +5,11 @@
 A personal mod exports two required callbacks:
 
 - `init` runs once when the component starts.
-- `frame` runs once per frame.
+- `frame` runs once per admitted frame; the shared budget can defer it.
 
 In Rust you implement the generated `Guest` trait and export it, as in [Getting started](getting-started.md). Everything your mod does happens inside a callback: you read observations and input, then publish output. Output is committed only after the callback returns successfully. If a callback traps, everything it staged in that callback is discarded, so the game never sees half of a frame's work.
 
-Callbacks are also transactional across a session. Joining, disconnecting or changing connections creates a fresh guest, so observations cannot carry across a connection boundary. A dimension transfer on the same connection keeps guest memory and HUD surfaces, but world drawing handles and pending world output are cleared: rebuild world drawing after a transfer, as [Camera and rendering](camera-and-rendering.md) describes.
+Joining, disconnecting or changing connections requires a fresh guest, so observations cannot carry across a connection boundary. A dimension transfer on the same connection keeps guest memory and HUD surfaces, but world drawing handles, native presentation policies, environment overrides and pending world output are cleared: rebuild world output after a transfer, as [Camera and rendering](camera-and-rendering.md) describes.
 
 ### The `player-mod` events
 
@@ -44,7 +44,7 @@ if budget::remaining_fuel() > 3_000 {
 }
 ```
 
-It needs no grant, because it reads no game state. The pattern the first-party Cinnabar Client mod uses in its `fuel.rs` is worth copying: record `remaining_fuel()` at the start of the callback, keep a target below the 200,000 trap line, and before each piece of optional work check that what is left still covers the work that must follow it. Work you skip stays queued in your own state for the next callback. Measuring actual fuel beats guessing a fixed step count, because the same code costs different fuel depending on what the host imports did before it.
+It needs no grant, because it reads no game state. Record `remaining_fuel()` at the start of the callback, keep a target below the 200,000 frame trap line, and before each piece of optional work check that what is left still covers the work that must follow it. Work you skip stays queued in your own state for the next callback. Measuring remaining fuel beats guessing a fixed step count, because earlier work in the callback leaves less fuel for the next piece.
 
 Guest memory is capped at 16 MiB for personal mods.
 
@@ -53,11 +53,11 @@ Guest memory is capped at 16 MiB for personal mods.
 A frame callback that runs out of fuel is treated differently from every other failure, because a single expensive frame is often transient:
 
 1. The host retains the mod's committed output and marks the instance as recovering; the trapped component is never entered again.
-2. It restarts the mod in a fresh store — guest memory resets, `init` runs again — on the loading budget.
+2. It reserves the shared loading lane and restarts the mod in a fresh store — guest memory resets and `init` runs again. The usual `init` fuel rule still applies: only a component exporting `data-changed` gets `LOAD_FUEL` for `init`.
 3. If the mod overruns the frame budget three times in a row (`MAX_CONSECUTIVE_FRAME_OVERRUNS`), or the restart itself fails, the mod is quarantined.
 
 Any other trap — a panic, a memory fault, exceeding a per-callback call cap — quarantines the mod straight away. Quarantine clears that mod's outputs: labels, surfaces, annotations, drawing, retained state. Other mods are unaffected.
 
-A quarantined mod recovers by reloading a valid changed component, from Settings → Mods or by replacing the file and reloading as in [Getting started](getting-started.md). Permission changes also reload the mod; revoking a grant never turns an existing quarantine into a recoverable state — the quarantine stands until a reload succeeds.
+A quarantined mod can be restarted with Reload in Settings → Mods, even if the component bytes have not changed. Fix a persistent trap before restarting it. Development components selected through the environment are watched for changed bytes; an invalid replacement keeps the old instance. Permission changes also prepare a replacement under the new grants; revocation alone does not reactivate a quarantined instance.
 
 Write defensively with this in mind: check the `Result` a host import returns instead of assuming it succeeded, because a denied or failed call returns an error you can react to, while a panic costs you the whole instance.

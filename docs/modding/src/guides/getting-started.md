@@ -14,7 +14,7 @@ Guest code is ordinary Rust built for `wasm32-unknown-unknown`. The `mod-host` t
 
 ## A new project
 
-Start from the hello example in `examples/mods/hello`. It is a complete personal mod: a crate that depends on `mod-api`, implements the generated `Guest` trait, and exports itself as the `extension` world.
+Start from the hello example in `examples/mods/hello`. It is a complete personal mod: a crate that depends on `mod-api`, implements the generated `Guest` trait, and exports itself as the `extension` world. The commands below build that example in place. `cinnabar-cxb mod new` scaffolds paired projects only; it does not create a personal-mod project.
 
 ```toml
 [package]
@@ -34,7 +34,7 @@ mod-api = { path = "../../../crates/mod-api" }
 workspace = true
 ```
 
-Copy the directory, point the `mod-api` path at the checkout's `crates/mod-api`, and give the package your own name. The source, from `examples/mods/hello/src/lib.rs`:
+To make your own mod, copy the directory, point the `mod-api` path at the checkout's `crates/mod-api`, and give the package your own name. The manifest above inherits values and lints from the checkout's workspace: add an in-tree copy to the root `workspace.members`, or, for a copy outside the checkout, replace the inherited package fields with explicit values and remove `[lints]`. Use your new package and artifact names in the build commands. The source, from `examples/mods/hello/src/lib.rs`:
 
 ```rust
 use mod_api::bindings::{
@@ -82,7 +82,7 @@ Import the packed component in Settings → Mods, review its permissions and ena
 
 Reload rereads the installed path, so to update a mod, replace that file atomically and reload. An invalid replacement keeps the previous instance running. A successful reload resets guest memory — your statics start again — and preserves the companion settings described in [Settings and storage](settings-and-storage.md).
 
-For development you can skip the library: set `CINNABAR_MOD_COMPONENT` to an absolute component path. `CINNABAR_MOD_PACKAGE` takes precedence over it, and `CINNABAR_MOD_SET` selects an ordered JSON list of components. Registered enabled mods run before environment-selected ones. The client still needs its normal runtime carriers either way.
+For development you can skip the library: set `CINNABAR_MOD_COMPONENT` to an absolute component path. `CINNABAR_MOD_PACKAGE` takes precedence over it, and `CINNABAR_MOD_SET` takes precedence over both: set it to the path of a JSON file containing `{"version":1,"mods":[{"component":"/absolute/mod.wasm","grants":{}}]}`. Each entry names either a `component` or a `package` and has its own grants. Registered enabled mods run before environment-selected ones. The client still needs its normal runtime carriers either way.
 
 At most `MAX_LOADED_MODS` (4) local mods run at once.
 

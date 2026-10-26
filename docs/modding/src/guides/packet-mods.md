@@ -37,15 +37,15 @@ Packet mods run on wall-clock deadlines instead of the per-frame fuel budget oth
 | Limit | Value | Constant |
 | --- | --- | --- |
 | Component or module size | 256 MiB | `MAX_PACKET_MOD_BYTES` |
-| Linear memory | 1 GiB | `PACKET_MOD_MEMORY_BYTES` |
+| Each linear memory | 1 GiB | `PACKET_MOD_MEMORY_BYTES` |
 | Returned data per call | 256 MiB | `PACKET_MOD_TRANSFER_BYTES` |
 | Instantiation deadline | 60 s | `PACKET_MOD_LOAD_DEADLINE` |
 | `start` deadline | 5 s | `PACKET_MOD_START_DEADLINE` |
-| `on_batch`, `tick`, `stop` deadline | 250 ms | `PACKET_MOD_CALL_DEADLINE` |
+| Ordinary `on_batch`, `tick`, `stop` deadline | 250 ms | `PACKET_MOD_CALL_DEADLINE` |
 
-Each session instantiates the mod afresh under the load deadline.
+Each session instantiates the mod afresh under the load deadline. Startup server batches delivered through `on_batch` use the 5-second start deadline too.
 
-WASI is linked only with the `wasi` grant, and only clocks, randomness and captured output: no files, environment, arguments or network. Without the grant, the component runs with no WASI at all.
+WASI is linked only with the `wasi` grant, and only clocks, randomness and captured output: no files, environment, arguments or network. Without the grant, WASI imports are not linked; a component that requires them fails to load.
 
 ## Failure means pass-through
 

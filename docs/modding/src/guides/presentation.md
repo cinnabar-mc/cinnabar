@@ -2,7 +2,7 @@
 
 The `presentation` interface restyles native presentation: how nametags read, what clings to actors, how items describe themselves, and which chat text is clickable. It needs the `hud` grant, and per-actor rows need more: a row for a player needs the `players` grant, a row for any other actor needs `entities`. Rows your grants do not admit never apply.
 
-Every call is retained: it replaces your mod's previous value of that kind once the callback succeeds, and stays until you replace it, clear it, or the mod is unloaded or quarantined. A callback may make at most 8 presentation calls; one more traps it.
+Every successful call is retained: it replaces your mod's previous value of that kind once the callback succeeds, and stays until you replace it, clear it, or the mod is unloaded or quarantined. A dimension transfer also clears these world-scoped policies. A callback may make at most 8 presentation calls; one more traps it.
 
 ```rust
 use mod_api::bindings::cinnabar::extension::presentation::{
@@ -14,7 +14,7 @@ Types below are the generated Rust names for the WIT records in the [presentatio
 
 ## Nametag style
 
-`set_nametag_style` takes an optional `nametag-style`; none restores native nametags. The style covers the whole tag: `hide` (and `hide_players`, `hide_passengers`), `show_self`, `show_when_hud_hidden`, `opacity` from 0 to 1, `scale` from 0.5 to 3, `border_width` from 0 to 8, `shadow`, and optional `rgba` colours for text, your own text, border and background. Present text colours replace the native ones; annotation spans keep their own colours.
+`set_nametag_style` takes an optional `nametag-style`; none releases your mod's style so the next mod's style, or native nametags, can apply. The style covers the whole tag: `hide` (and `hide_players`, `hide_passengers`), `show_self`, `show_when_hud_hidden`, `opacity` from 0 to 1, `scale` from 0.5 to 3, `border_width` from 0 to 8, `shadow`, and optional `rgba` colours for text, your own text, border and background. Present text colours replace the native ones; annotation spans keep their own colours.
 
 ## Annotations
 
@@ -45,7 +45,7 @@ All in `mod_api::presentation`. An empty span list leaves that surface native, s
 
 ## Tooltip lines
 
-`set_tooltip_lines` adds one extra line of plain text to item tooltips. Each line names an `identifier`, an optional `metadata` (none matches every variant), the `text`, and a colour. Use the `facts` interface from [World and player](world-and-player.md) to decide what a line should say: durability, food and potion facts are exactly the raw material tooltip lines are for.
+`set_tooltip_lines` replaces your mod's list of extra plain-text tooltip lines. Each line names an `identifier`, an optional `metadata` (none matches every variant), the `text`, and a colour. Use the `facts` interface from [World and player](world-and-player.md) to decide what a line should say: durability, food and potion facts are exactly the raw material tooltip lines are for.
 
 ## Chat actions
 
@@ -55,7 +55,7 @@ All in `mod_api::presentation`. An empty span list leaves that surface native, s
 
 The client merges loaded mods in load order:
 
-- The earliest mod that sets a nametag style, a hurt overlay or chat actions owns that policy outright. Later mods' values for the same policy are ignored while the owner's stand.
+- The earliest mod with a nonempty nametag style, a hurt overlay with either colour set, or a nonempty chat-action list owns that policy outright. Later mods' values for the same policy are ignored while the owner's stand; clearing it lets a later mod take over.
 - For each runtime id and surface, the earliest mod whose grants admit the actor's kind owns the annotation and tint rows for that actor.
 - Tooltip lines append in load order, up to the per-item cap.
 

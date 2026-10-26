@@ -14,7 +14,7 @@ Depending on the grants it holds, a mod can:
 - draw in the world with bounded primitives, retained geometry and sandboxed post-process passes, and read nearby terrain;
 - store its own settings in a small companion file.
 
-Mods cannot mutate the world, and personal mods get no raw packet access. The exceptions and the rules around them are covered in [Packet mods](guides/packet-mods.md).
+Personal mods have no direct world-editing API and get no raw packet access. Server guests can change their server's world; trusted packet mods can change session traffic. The latter's rules are covered in [Packet mods](guides/packet-mods.md).
 
 ## The kinds of mods
 
@@ -37,6 +37,6 @@ The guides take you from a first running mod to each area of the API:
 - [Input](guides/input.md), [Presentation](guides/presentation.md), [World and player](guides/world-and-player.md), [Camera and rendering](guides/camera-and-rendering.md) — the capability areas, one guide each.
 - [Paired mods](guides/paired-mods.md) and [Packet mods](guides/packet-mods.md) — the two kinds that go beyond a personal mod.
 
-Alongside the guides, the reference has one generated page per WIT interface, at `reference/<interface>.md` — for example [the presentation reference](reference/presentation.md) lists every function and type of the `presentation` interface with its exact signature. Read the guide for how an area fits together, and the reference when you need a signature or a field list.
+Alongside the guides, the reference documents the WIT interfaces — for example [the presentation reference](reference/presentation.md) lists every function and type of the `presentation` interface with its exact signature. Read the guide for how an area fits together, and the reference when you need a signature or a field list.
 
-Guides for HUD modules and menu panels are coming once the UI toolkit they will build on is ready. Until then, the `hud`, `panel` and `screen` interfaces are documented in the reference only.
+This book does not yet have guides for HUD modules and menu panels. The `hud`, `panel` and `screen` interfaces are covered by the reference.

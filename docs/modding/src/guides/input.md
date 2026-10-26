@@ -1,6 +1,6 @@
 # Input
 
-Input comes through the `input` interface, which needs the `controls` grant. Everything in it is local: key names, edges and events from this machine. Reading input never synthesizes gameplay input; the request functions at the end of this guide are the narrow exceptions, each with its own grant.
+Input comes through the `input` interface. Its controls, text and field reads and key reservations need `controls`; the demo action read, `demo_pressed`, is ungated. Everything in it is local: key names, edges and events from this machine. Reading input never synthesizes gameplay input; the request functions at the end of this guide are the narrow exceptions, each with its own grant.
 
 ## Reading a frame of input
 
@@ -10,10 +10,10 @@ Call `input::read_controls` in `frame` to get this frame's `controls` record:
 | --- | --- |
 | `seconds` | Frame time, in seconds |
 | `focused` | Whether the client window is focused |
-| `gameplay` | Whether gameplay owns input this frame (no menu or screen is up) |
+| `gameplay` | Whether this mod received a gameplay snapshot this frame; it is false while a menu owns input and can also be false when your grants do not admit a gameplay snapshot |
 | `panel_open` | Whether your mod's panel is open |
 | `keys_pressed` | Physical non-repeat key edges this frame. Pointer buttons arrive as `MouseLeft`, `MouseRight`, `MouseMiddle` |
-| `keys_held` | Physical keys held this frame, including reserved ones |
+| `keys_held` | Physical keys held this frame, including your reserved ones; keys reserved by an earlier mod are withheld |
 | `events` | Panel control events (`id`, `value`) delivered to your mod |
 | `pointer` | Pointer position in HUD GUI units, only while your open panel owns input; otherwise none |
 | `wheel` | Wheel notches this frame while your panel owns input; positive scrolls up |
@@ -33,7 +33,7 @@ Two further reads serve mods with text fields:
 
 ## Reserving keys
 
-`input::reserve_keys` takes a list of physical key names to reserve before the ordinary gameplay router samples them. Reserve the keys your mod consumes so the game does not also act on them, and renew the reservation as your state changes — the first-party Cinnabar Client mod re-reserves whenever it rebuilds its key set, rather than assuming an old reservation still matches what it needs.
+`input::reserve_keys` takes a list of physical key names to reserve before the ordinary gameplay router samples them. The reservation is retained after a successful callback. Reserve the keys your mod consumes so the game does not also act on them, and replace the reservation when your key set changes; an empty list releases it.
 
 ## Touch buttons
 
@@ -58,7 +58,7 @@ Separate grants let a mod request actions instead of only observing input. Each 
 | `gameplay::request_command` | `commands` | Sends a player command request after the frame returns; the command name must be granted. At most 4 per frame and 10 per second, each at most 128 bytes |
 | `gameplay::set_attack_reach` | `interaction` | Bounded local attack range, never beyond `MAX_ENTITY_REACH_BLOCKS` (6.0); none restores game-mode rules |
 
-Server movement, hunger and item-use restrictions still apply to all of these. They are requests the vanilla client could make, not overrides of server rules.
+Server movement, hunger and item-use restrictions still apply to all of these. The host stages local requests; it does not grant server permission to carry them out.
 
 ## Filtering attack and use actions
 
