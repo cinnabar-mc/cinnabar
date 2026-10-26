@@ -133,12 +133,14 @@ pub(crate) fn gather_particles(
             draws
                 .iter()
                 .filter(|(_, mask, _)| mask & particle_slots != 0)
-                .filter_map(|(entity, _, _)| Some((*entity, instances.get(*entity).ok()?)))
+                .filter_map(|(entity, mask, _)| {
+                    Some((*entity, *mask, instances.get(*entity).ok()?))
+                })
         };
-        for (entity, instance) in emitting() {
+        for (entity, _, instance) in emitting() {
             cached.refresh(entity, instance);
         }
-        let lists = emitting().map(|(entity, _)| cached.blocks(entity));
+        let lists = emitting().map(|(entity, mask, _)| (cached.blocks(entity), mask));
         let gathered = merge(lists, particle_slots);
         if !gathered.is_empty() {
             targets.blocks.insert(view, gathered);
@@ -146,28 +148,31 @@ pub(crate) fn gather_particles(
     }
 }
 
-/// The blocks of `lists` whose slot is in `particle_slots`, by slot, each once at its centre in
-/// block order.
+/// The blocks of `lists` (each a section's sorted bound blocks with the slots it carries)
+/// whose slot is in `particle_slots`, by slot, at their centres: each slot's run of every
+/// section in turn, in section order, so no frame sorts them. Sections hold no block in common,
+/// so each block appears once.
 fn merge<'a>(
-    lists: impl IntoIterator<Item = &'a [(u16, [i32; 3])]>,
+    lists: impl IntoIterator<Item = (&'a [(u16, [i32; 3])], u64)>,
     particle_slots: u64,
 ) -> std::collections::BTreeMap<u16, Vec<[f32; 4]>> {
-    let mut blocks: Vec<(u16, [i32; 3])> = lists
-        .into_iter()
-        .flatten()
-        .copied()
-        .filter(|(slot, _)| particle_slots & (1 << slot) != 0)
-        .collect();
-    blocks.sort_unstable();
-    blocks.dedup();
     let mut gathered = std::collections::BTreeMap::<u16, Vec<[f32; 4]>>::new();
-    for (slot, [x, y, z]) in blocks {
-        gathered.entry(slot).or_default().push([
-            x as f32 + 0.5,
-            y as f32 + 0.5,
-            z as f32 + 0.5,
-            1.0,
-        ]);
+    for (blocks, mask) in lists {
+        let mut wanted = mask & particle_slots;
+        while wanted != 0 {
+            let slot = wanted.trailing_zeros() as u16;
+            wanted &= wanted - 1;
+            let start = blocks.partition_point(|(held, _)| *held < slot);
+            let end = blocks.partition_point(|(held, _)| *held <= slot);
+            if start == end {
+                continue;
+            }
+            gathered.entry(slot).or_default().extend(
+                blocks[start..end]
+                    .iter()
+                    .map(|(_, [x, y, z])| [*x as f32 + 0.5, *y as f32 + 0.5, *z as f32 + 0.5, 1.0]),
+            );
+        }
     }
     gathered
 }
@@ -245,12 +250,12 @@ mod tests {
         let blocks = bound_blocks(&model_section([16, 32, 48], 3));
         let expected = std::collections::BTreeMap::from([(2_u16, vec![[19.5, 36.5, 53.5, 1.0]])]);
         assert_eq!(
-            merge([&*blocks], 0b100),
+            merge([(&*blocks, u64::MAX)], 0b100),
             expected,
             "the model block emits from its own cell"
         );
         assert!(
-            merge([&*blocks], 0b011).is_empty(),
+            merge([(&*blocks, u64::MAX)], 0b011).is_empty(),
             "slots without particles gather nothing"
         );
     }
@@ -288,14 +293,16 @@ mod tests {
         section.generation += 1;
         cached.refresh(entity, &section);
         assert_eq!(cached.blocks(entity), [(1, [3, 4, 5])].as_slice());
-        // Sections merge into one list per slot in block order, each block once.
+        // Sections merge into one list per slot, section by section, and only the slots a
+        // section carries are looked up.
         let other = bound_blocks(&model_section([16, 0, 0], 1));
         assert_eq!(
-            merge([&*other, first.as_slice(), first.as_slice()], 0b1),
+            merge([(&*other, 0b1), (first.as_slice(), 0b1)], 0b1),
             std::collections::BTreeMap::from([(
                 0_u16,
-                vec![[3.5, 4.5, 5.5, 1.0], [19.5, 4.5, 5.5, 1.0]]
+                vec![[19.5, 4.5, 5.5, 1.0], [3.5, 4.5, 5.5, 1.0]]
             )])
         );
+        assert!(merge([(&*other, 0b10)], 0b11).is_empty());
     }
 }
