@@ -482,17 +482,21 @@ fn remote_combat_statuses_obey_actor_grants_while_local_intent_remains_player_ow
         String::new(),
         Default::default(),
     );
-    let event = |sequence, player, local, kind| crate::CombatObservation {
-        sequence,
-        session: 7,
-        dimension: 0,
-        player,
-        local,
-        kind,
-        runtime_id: sequence,
-        distance: None,
-        position: (0., 0., 0.),
-    };
+    let event =
+        |sequence, player, local, kind| crate::module_observations::RecordedCombatObservation {
+            life: Some(sequence + 100),
+            event: crate::CombatObservation {
+                sequence,
+                session: 7,
+                dimension: 0,
+                player,
+                local,
+                kind,
+                runtime_id: sequence,
+                distance: None,
+                position: (0., 0., 0.),
+            },
+        };
     state.player_state.observations.combat = vec![
         event(1, true, false, crate::CombatKind::Hurt),
         event(2, false, false, crate::CombatKind::Hurt),
@@ -729,4 +733,98 @@ fn actor_lives_are_bounded_unlimited_by_actor_reads_and_callback_scoped() {
     state.player_state.begin_frame();
     state.player_state.clear_presentation();
     assert_eq!(state.read_actor_lives(vec![1]).unwrap().unwrap(), [None]);
+}
+
+/// Both combat reads use identical kind grants, preserve request order and share one allowance.
+#[test]
+fn combat_lives_follow_event_grants_bounds_order_and_callback_lifetime() {
+    use crate::module_observations::RecordedCombatObservation;
+    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
+    state.player_state.observations.combat = (1..=4)
+        .map(|sequence| RecordedCombatObservation {
+            event: crate::CombatObservation {
+                sequence,
+                session: 7,
+                dimension: 0,
+                runtime_id: sequence,
+                kind: if sequence == 4 {
+                    crate::CombatKind::AttackAdmitted
+                } else {
+                    crate::CombatKind::Totem
+                },
+                local: sequence == 3,
+                player: sequence != 2,
+                distance: None,
+                position: (0., 0., 0.),
+            },
+            life: Some(sequence + 100),
+        })
+        .collect();
+    assert!(state.read_combat_lives(vec![1]).unwrap().is_err());
+    state.grants.player_state = true;
+    for (players, entities, expected) in [
+        (false, false, vec![None, None, Some(103), Some(104)]),
+        (true, false, vec![Some(101), None, Some(103), Some(104)]),
+        (false, true, vec![None, Some(102), Some(103), Some(104)]),
+        (true, true, vec![Some(101), Some(102), Some(103), Some(104)]),
+    ] {
+        state.player_state.begin_frame();
+        state.grants.players = players;
+        state.grants.entities = entities;
+        assert_eq!(
+            state.read_combat_lives(vec![1, 2, 3, 4]).unwrap().unwrap(),
+            expected
+        );
+        let visible = state.read_combat(0, 4).unwrap().unwrap();
+        assert_eq!(
+            visible
+                .iter()
+                .map(|event| event.sequence)
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .enumerate()
+                .filter_map(|(index, life)| life.map(|_| index as u64 + 1))
+                .collect::<Vec<_>>()
+        );
+    }
+    assert_eq!(
+        state
+            .read_combat_lives(vec![4, 1, 4, 0, 5])
+            .unwrap()
+            .unwrap(),
+        [Some(104), Some(101), Some(104), None, None]
+    );
+    assert!(
+        state
+            .read_combat_lives(vec![1; mod_api::MAX_COMBAT_LIFE_READS + 1])
+            .unwrap()
+            .is_err()
+    );
+    assert_eq!(
+        state
+            .read_combat_lives(vec![1; mod_api::MAX_COMBAT_LIFE_READS])
+            .unwrap()
+            .unwrap(),
+        vec![Some(101); mod_api::MAX_COMBAT_LIFE_READS]
+    );
+    assert_eq!(state.read_combat_lives(vec![]).unwrap().unwrap(), []);
+    state.player_state.begin_frame();
+    for _ in 0..MAX_IMPORT_WRITES {
+        state.read_combat(0, 4).unwrap().unwrap();
+    }
+    assert!(state.read_combat_lives(vec![1]).is_err());
+    state.player_state.begin_frame();
+    for _ in 0..MAX_IMPORT_WRITES {
+        state.read_combat_lives(vec![1]).unwrap().unwrap();
+    }
+    assert!(state.read_combat(0, 4).is_err());
+    state.player_state.begin_frame();
+    state.player_state.observations.combat.remove(0);
+    assert_eq!(
+        state.read_combat_lives(vec![1, 2]).unwrap().unwrap(),
+        [None, Some(102)]
+    );
+    state.player_state.clear_presentation();
+    assert_eq!(state.read_combat_lives(vec![2]).unwrap().unwrap(), [None]);
 }

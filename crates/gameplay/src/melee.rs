@@ -62,6 +62,8 @@ pub struct PressContext {
     pub item_attack: Option<ItemAttackPress>,
     /// The reached block when the game mode or held item refuses to start destroying it.
     pub refused_destroy: Option<RefusedDestroy>,
+    /// Current target life sampled for this admission attempt, never retained with a queued press.
+    pub actor_life: Option<u64>,
 }
 
 /// A block press whose destroy fails at its start, as vanilla reports it.
@@ -129,6 +131,8 @@ pub struct AdmittedActorAttack {
     pub sequence: u64,
     pub tick: u64,
     pub hit: ActorHit,
+    /// Target life at outbound admission, retained even if packets change it before observation.
+    pub life: Option<u64>,
 }
 
 /// Attack-press state; `actor_in_front` vetoes mining behind a targeted actor.
@@ -451,6 +455,7 @@ pub fn resolve_and_send(
                     sequence,
                     tick: press.tick,
                     hit,
+                    life: press.actor_life,
                 });
             }
             outcome.missed_swing

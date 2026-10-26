@@ -256,6 +256,13 @@ fn maintain_attacks(
             picked.crosshair,
             PressContext {
                 refused_destroy: None,
+                actor_life: match picked.crosshair {
+                    gameplay::melee::Crosshair::Actor(hit) => stream
+                        .authority()
+                        .actor(hit.runtime_id)
+                        .map(|actor| actor.life().life),
+                    _ => None,
+                },
                 tick: sample.tick,
                 player_position: sample.position,
                 input_mode: protocol_input_mode(input.input_mode),

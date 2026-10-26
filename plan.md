@@ -1319,7 +1319,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
   item, potion and effect tables and the installation's food; `player-state` reports the server
   world clock, totem activations as combat events and each admitted actor's life, which changes
-  on every spawn and death regardless of distance. Offline regressions cover grants, bounds,
+  on every spawn and death regardless of distance. Retained combat events also expose the actor's
+  life at commit time, with death events using the life after death. Offline regressions cover grants, bounds,
   merging, roster mapping and span placement. Tipped-arrow facts report the carried potion's
   durations until the native arrow duration is referenced, and displayed-client acceptance of
   the presentation parameters remains pending.

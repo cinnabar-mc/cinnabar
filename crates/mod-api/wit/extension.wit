@@ -234,8 +234,8 @@ interface player-state {
         max-health: option<f32>,
     }
     /// `totem` is a totem-of-undying activation on `runtime-id`, local or remote, and `death` a
-    /// server death notice. The stream reports no actor lifetimes: a mod keeping a count per actor
-    /// follows them with `read-actor-lives`.
+    /// server death notice. Read event lives with `read-combat-lives` and current actor lives
+    /// with `read-actor-lives`.
     enum combat-kind { attack-admitted, hurt, death, totem }
     record combat-event {
         sequence: u64, session: u64, dimension: s32, kind: combat-kind,
@@ -264,6 +264,12 @@ interface player-state {
     /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
     /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
     read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;
+    /// The actor's `read-actor-lives` life when each combat event was recorded, in request order.
+    /// Death events carry the life after the death. Compare lives within one session.
+    /// None when the event is no longer retained, belongs to another session or dimension, or
+    /// the caller cannot read it. Requires the same grants as `read-combat` and shares its
+    /// callback allowance. At most MAX_COMBAT_LIFE_READS sequences.
+    read-combat-lives: func(sequences: list<u64>) -> result<list<option<u64>>, string>;
     record chat-message { sequence: u64, text: string }
     /// Newest 32 retained received messages, filtered by sequence > after, in FIFO order.
     /// limit is 1 through 4; individual text fields are at most 256 UTF-8 bytes.
