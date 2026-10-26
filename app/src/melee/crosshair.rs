@@ -391,7 +391,7 @@ fn resolve_frame(
         .and_then(|observed| observed.value.as_ref())
         .map(|block| block.hit_distance());
     // Hover, attack and interaction share one target: the pick ray finds actors along the
-    // whole pick range, but only a hit within the game-mode cap becomes the targeted actor.
+    // whole pick range, but only a hit within the effective attack range becomes the target.
     let mut crosshair = classify(actor, block_distance, attack_reach);
     if !assisted_actor && let Some(position) = frame.pick_position {
         crosshair = gameplay::melee::trim_actor_pick(crosshair, position, actor_reach);
