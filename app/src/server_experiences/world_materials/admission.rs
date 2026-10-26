@@ -207,7 +207,11 @@ pub(super) enum Fit {
 
 /// A declaration's last outcome, kept while its program is unchanged.
 pub(super) struct Cached {
+    /// The declaration with only the effects its bundle may draw now.
     pub spec: WorldMaterialSpec,
+    /// The effects the declaration asked for, before any was dropped, which the cache keys
+    /// on too: an effect never granted refuses the declaration.
+    pub declared: WorldEffects,
     /// Its superseded jobs still running, which the presenter takes with [`Self::orphans`].
     abandoned: Vec<Orphan>,
     /// Numbers this admission attempt, so a failure is reported once per attempt; it is also
@@ -217,10 +221,12 @@ pub(super) struct Cached {
 }
 
 impl Cached {
-    /// A new admission attempt of `spec`, not measured yet.
-    pub(super) fn new(spec: &WorldMaterialSpec, attempt: u64) -> Self {
+    /// A new admission attempt of `spec`, which `declared` effects permit to draw, not
+    /// measured yet.
+    pub(super) fn new(spec: &WorldMaterialSpec, declared: WorldEffects, attempt: u64) -> Self {
         Self {
             spec: spec.clone(),
+            declared,
             abandoned: Vec::new(),
             attempt,
             outcome: Outcome::Unmeasured,
@@ -236,11 +242,17 @@ impl Cached {
         }
     }
 
-    /// An admission attempt of `spec` refused for `reason` before any work.
-    pub(super) fn refused(spec: &WorldMaterialSpec, attempt: u64, reason: String) -> Self {
+    /// An admission attempt of `spec`, declared with `declared` effects, refused for `reason`
+    /// before any work.
+    pub(super) fn refused(
+        spec: &WorldMaterialSpec,
+        declared: WorldEffects,
+        attempt: u64,
+        reason: String,
+    ) -> Self {
         Self {
             outcome: Outcome::Refused(reason),
-            ..Self::new(spec, attempt)
+            ..Self::new(spec, declared, attempt)
         }
     }
 

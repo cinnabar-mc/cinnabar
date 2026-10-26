@@ -439,7 +439,9 @@ impl WorldMaterialPresenter {
             let spec = &permitted(declared, &allowed, &cells);
             let cached = match self.cache.remove(&key) {
                 // New parameters keep the compiled shader, its key and its charge.
-                Some(mut cached) if cached.spec.same_program(spec) => {
+                Some(mut cached)
+                    if cached.spec.same_program(spec) && cached.declared == declared.effects =>
+                {
                     if cached.spec.params != spec.params {
                         spec.params.clone_into(&mut cached.spec.params);
                     }
@@ -451,9 +453,13 @@ impl WorldMaterialPresenter {
                         self.adopt_orphans(bundle.bundle, &mut previous);
                     }
                     self.next_key += 1;
-                    match check_effects(spec, &allowed) {
-                        Ok(()) => Cached::new(spec, self.next_key),
-                        Err(reason) => Cached::refused(spec, self.next_key, reason),
+                    // The declaration is checked as declared against what the bundle was granted,
+                    // so an effect it was never granted refuses it rather than being dropped.
+                    match check_effects(declared, bundle.permissions) {
+                        Ok(()) => Cached::new(spec, declared.effects, self.next_key),
+                        Err(reason) => {
+                            Cached::refused(spec, declared.effects, self.next_key, reason)
+                        }
                     }
                 }
             };
@@ -786,12 +792,15 @@ fn permitted(
     }
 }
 
-/// Checks a material's effects again: their ranges and their permissions, which the helper's
-/// validation does not prove.
-fn check_effects(spec: &WorldMaterialSpec, allowed: &BTreeSet<Permission>) -> Result<(), String> {
+/// Checks a material's declared effects again against its bundle's granted `permissions`:
+/// their ranges and their permissions, which the helper's validation does not prove.
+fn check_effects(
+    spec: &WorldMaterialSpec,
+    permissions: &BTreeSet<Permission>,
+) -> Result<(), String> {
     let assets = BTreeSet::new();
     WorldAuthority {
-        permissions: allowed,
+        permissions,
         namespace: None,
         assets: &assets,
     }
