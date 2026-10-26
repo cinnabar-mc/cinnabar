@@ -31,6 +31,7 @@ tracing.workspace = true
 assets = { path = "../assets" }
 bytemuck = { version = "1", features = ["derive"] }
 glam.workspace = true
+half = "2.7.1"
 render-api = { path = "../render-api" }
 sha2.workspace = true
 world = { path = "../world" }
