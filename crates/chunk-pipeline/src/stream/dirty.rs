@@ -447,6 +447,13 @@ impl WorldStream {
         }
     }
     pub(super) fn mark_forced_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
+        self.cancel_mesh_job(key);
+        self.mark_forced_dirty_keeping_job(key, now)
+    }
+
+    /// [`Self::mark_forced_dirty_exact`] without cancelling `key`'s job in flight: the job
+    /// finishes, its result is refused as stale, and `key` remeshes at the new revision.
+    pub(super) fn mark_forced_dirty_keeping_job(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         let urgent = self
             .mesh_jobs
             .pending
@@ -463,7 +470,6 @@ impl WorldStream {
                     } if *changed_key == key
                 )
             });
-        self.cancel_mesh_job(key);
         let revision = self.revisions.force_dirty_since(key, now);
         self.enqueue_mesh_revision(
             key,
