@@ -89,6 +89,8 @@ The helper reads legacy raw captures and versioned captures, identified by their
   Zero packet sequences mean unavailable; v2 packets have no sequence. The alpha describes
   rendering and does not translate the recorded simulation box. Assisted points are flagged
   and have no clipped box. Empty mouseover reports use target zero and no box.
+  Relay replacements omit pick diagnostics when identical input packet bytes carry different
+  frozen states, because the surviving producer cannot be identified.
 
 Serverbound records are counted and ignored. The report's `capture` section gives the
 `format`, `serverbound_records_ignored`, `dropped_packets` from gap records and whether

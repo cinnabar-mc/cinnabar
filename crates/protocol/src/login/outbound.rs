@@ -46,7 +46,7 @@ enum BatchState {
 struct PendingBatch {
     state: BatchState,
     status_epoch: Option<u64>,
-    picks: Vec<(Bytes, crate::capture::PickState)>,
+    picks: Vec<crate::packet_tap::PickEntry>,
 }
 
 impl PendingBatch {
@@ -82,21 +82,20 @@ impl PendingBatch {
                         self.status_epoch = Some(status.epoch);
                         packets.push(Packet::new(packet));
                     }
-                    if writer.captures_picks() {
-                        self.picks = packets
-                            .iter()
-                            .filter_map(|packet| {
-                                let state = packet.pick.as_deref()?;
-                                let mut entry = Vec::new();
-                                crate::codec::encode_entry(packet, &mut entry).ok()?;
-                                Some((Bytes::from(entry), *state))
-                            })
-                            .collect();
-                    }
                     let Some(frame) = crate::session_transport::batch_frame(packets) else {
                         self.state = BatchState::Done;
                         continue;
                     };
+                    if writer.captures_picks() && packets.iter().any(|packet| packet.pick.is_some())
+                    {
+                        self.picks = wire::Frames::new(frame.slice(1..), usize::MAX)
+                            .zip(packets.iter())
+                            .map(|(entry, packet)| crate::packet_tap::PickEntry {
+                                frame: entry.expect("encoded packet entry").frame().clone(),
+                                state: packet.pick.as_deref().copied(),
+                            })
+                            .collect();
+                    }
                     let writer = writer.clone();
                     self.state = BatchState::Preparing(Mutex::new(Box::pin(async move {
                         writer.prepare(frame).await
@@ -131,8 +130,9 @@ impl PendingBatch {
                         let frame = batch.frame.clone();
                         let writer = writer.clone();
                         let picks = self.picks.clone();
+                        let replaced = batch.replaced;
                         *accepting = Some(Mutex::new(Box::pin(async move {
-                            writer.accept_prepared_picks(frame, picks).await
+                            writer.accept_prepared_picks(frame, picks, replaced).await
                         })));
                     }
                     // Admission cannot suspend after committing its permit. Keep the epoch

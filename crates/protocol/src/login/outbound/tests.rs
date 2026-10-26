@@ -553,7 +553,6 @@ async fn sent_attacks_and_mouseovers_keep_their_matching_frozen_picks_once() {
     let tap = std::sync::Arc::new(PickCaptureTap::new());
     session.transport = session.transport.with_tap(Some(tap.clone()));
     let mut outbound = session.outbound().unwrap();
-    let stack = crate::NetworkItemStack::empty();
     let state = crate::capture::PickState {
         target: 42,
         hit: [0.0, 1.0, -2.0],
@@ -562,17 +561,7 @@ async fn sent_attacks_and_mouseovers_keep_their_matching_frozen_picks_once() {
         transaction_frame: [1, 12],
         ..Default::default()
     };
-    let mut attack = crate::use_actor_packet(crate::ActorUseRequest {
-        actor_runtime_id: state.target,
-        action: crate::ActorUseAction::Attack,
-        selected_slot: 0,
-        selected_item: crate::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
-            .unwrap(),
-        player_position: state.eye,
-        hit_position: state.hit,
-    })
-    .unwrap();
-    attack.capture_pick(state);
+    let attack = captured_attack(state);
     let mut hover = crate::entity_hover_packet(Some((state.target, state.hit)));
     hover.capture_pick(state);
     let mut writer = std::pin::pin!(writer);
@@ -603,4 +592,82 @@ async fn sent_attacks_and_mouseovers_keep_their_matching_frozen_picks_once() {
         crate::capture::CaptureRecord::Packet { sequence: 3, .. },
         crate::capture::CaptureRecord::Pick { packet_sequence: 3, state: last, .. },
     ] if *first == state && *last == state));
+}
+
+/// Builds a real actor transaction with capture metadata outside its wire payload.
+fn captured_attack(state: crate::capture::PickState) -> Packet {
+    let stack = crate::NetworkItemStack::empty();
+    let mut packet = crate::use_actor_packet(crate::ActorUseRequest {
+        actor_runtime_id: state.target,
+        action: crate::ActorUseAction::Attack,
+        selected_slot: 0,
+        selected_item: crate::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+            .unwrap(),
+        player_position: state.eye,
+        hit_position: state.hit,
+    })
+    .unwrap();
+    packet.capture_pick(state);
+    packet
+}
+
+#[test]
+fn relay_replacements_do_not_guess_between_identical_packet_producers() {
+    let first = crate::capture::PickState {
+        target: 42,
+        press_frame: [1, 10],
+        ..Default::default()
+    };
+    let second = crate::capture::PickState {
+        press_frame: [1, 11],
+        ..first
+    };
+    for (replaced, second_state) in [
+        (false, Some(second)),
+        (true, Some(second)),
+        (false, None),
+        (true, None),
+    ] {
+        let tap = PickCaptureTap::new();
+        let mut other = captured_attack(second);
+        if second_state.is_none() {
+            other.pick = None;
+        }
+        let packets = [captured_attack(first), other];
+        let original = crate::session_transport::batch_frame(&packets).unwrap();
+        let picks = wire::Frames::new(original.slice(1..), usize::MAX)
+            .zip([Some(first), second_state])
+            .map(|(entry, state)| crate::packet_tap::PickEntry {
+                frame: entry.unwrap().frame().clone(),
+                state,
+            })
+            .collect::<Vec<_>>();
+        let output = if replaced {
+            crate::session_transport::batch_frame(&packets[1..]).unwrap()
+        } else {
+            original
+        };
+        crate::packet_tap::record_serverbound_picks(&tap, &output, &picks, replaced);
+        let bytes = tap.capture.into_inner().unwrap().into_inner();
+        let file = crate::capture::read_capture(Bytes::from(bytes)).unwrap();
+        let states = file
+            .records
+            .iter()
+            .filter_map(|record| match record {
+                crate::capture::CaptureRecord::Pick { state, .. } => Some(*state),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if replaced {
+            assert!(states.is_empty());
+            assert_eq!(file.records.len(), 1);
+        } else {
+            let expected = [Some(first), second_state]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            assert_eq!(states, expected);
+            assert_eq!(file.records.len(), 2 + expected.len());
+        }
+    }
 }

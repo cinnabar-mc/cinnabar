@@ -274,27 +274,44 @@ fn read_varuint32(bytes: &[u8]) -> Option<(u32, usize)> {
 #[cfg(test)]
 mod tests;
 
+/// One original encoded entry and its optional numeric pick, retained through relay preparation.
+#[derive(Clone)]
+pub(crate) struct PickEntry {
+    pub(crate) frame: Bytes,
+    pub(crate) state: Option<crate::capture::PickState>,
+}
+
 /// Records final relay output and attaches picks only to unchanged original packet entries.
 pub(crate) fn record_serverbound_picks(
     tap: &dyn PacketTap,
     frame: &Bytes,
-    picks: &[(Bytes, crate::capture::PickState)],
+    picks: &[PickEntry],
+    replaced: bool,
 ) {
     let mut used = vec![false; picks.len()];
     for entry in bedrock_protocol_1_26_51::wire::Frames::new(frame.slice(1..), usize::MAX).flatten()
     {
-        let state = picks
+        let original = picks
             .iter()
             .enumerate()
-            .find(|(index, (original, _))| !used[*index] && original == entry.frame());
-        let body = entry.body();
-        if let Some((index, (_, state))) = state {
+            .find(|(index, original)| !used[*index] && &original.frame == entry.frame())
+            .filter(|(_, original)| {
+                !replaced
+                    || !picks
+                        .iter()
+                        .any(|other| other.frame == original.frame && other.state != original.state)
+            });
+        let state = original.and_then(|(index, original)| {
             used[index] = true;
+            original.state
+        });
+        let body = entry.body();
+        if let Some(state) = state {
             tap.record_with_pick(
                 PacketDirection::Serverbound,
                 entry.header().id,
                 PacketBody::whole(&body),
-                *state,
+                state,
             );
         } else {
             tap.record(

@@ -97,6 +97,7 @@ impl Shared {
 /// A relay's final frame, retaining its write-order gate until queue admission.
 pub(crate) struct PreparedBatch {
     pub(crate) frame: Bytes,
+    pub(crate) replaced: bool,
     _gate: Option<OwnedMutexGuard<()>>,
 }
 
@@ -164,15 +165,21 @@ impl BatchWriter {
     /// Runs the relay once, keeping its replacement and FIFO gate separate from capacity waits.
     pub(crate) async fn prepare(&self, frame: Bytes) -> Option<PreparedBatch> {
         let Some(shared) = &self.relay else {
-            return Some(PreparedBatch { frame, _gate: None });
+            return Some(PreparedBatch {
+                frame,
+                replaced: false,
+                _gate: None,
+            });
         };
         let gate = Arc::clone(&shared.gate).lock_owned().await;
         if !shared.active.load(Ordering::Acquire) {
             return Some(PreparedBatch {
                 frame,
+                replaced: false,
                 _gate: Some(gate),
             });
         }
+        let mut replaced = false;
         let frame = match shared.relay.outbound(&frame[1..]) {
             None => frame,
             Some(body) => {
@@ -182,12 +189,14 @@ impl BatchWriter {
                 } else if body.is_empty() {
                     return None;
                 } else {
+                    replaced = true;
                     batch_frame_from_body(&body)
                 }
             }
         };
         Some(PreparedBatch {
             frame,
+            replaced,
             _gate: Some(gate),
         })
     }
@@ -203,14 +212,15 @@ impl BatchWriter {
     pub(crate) async fn accept_prepared_picks(
         &self,
         frame: Bytes,
-        picks: Vec<(Bytes, crate::capture::PickState)>,
+        picks: Vec<crate::packet_tap::PickEntry>,
+        replaced: bool,
     ) -> Result<FrameWritten, BridgeError> {
         if picks.is_empty() {
             return self.accept_prepared(frame).await;
         }
         let written = self.frames.accept(frame.clone()).await?;
         if let Some(tap) = &self.tap {
-            crate::packet_tap::record_serverbound_picks(tap.as_ref(), &frame, &picks);
+            crate::packet_tap::record_serverbound_picks(tap.as_ref(), &frame, &picks, replaced);
         }
         Ok(written)
     }
