@@ -17,6 +17,7 @@ mod tests;
 
 mod buttons;
 mod fences;
+mod gates;
 mod panes;
 mod pressure_plates;
 mod trapdoors;
@@ -116,6 +117,14 @@ pub fn collect_held(
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
             {
                 HeldDisplay::Wall(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Gate)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+                && assets::facts::block_render_fact(&key.identifier).kind
+                    != assets::facts::BlockRenderKind::BambooGate
+            {
+                HeldDisplay::Gate(visual)
             } else if flat {
                 HeldDisplay::Sprite
             } else {
@@ -137,6 +146,7 @@ enum HeldDisplay {
     CenteredBlock(u32),
     Fence(u32, bool),
     Wall(u32),
+    Gate(u32),
     Sprite,
 }
 
@@ -180,6 +190,7 @@ fn collect_shapes(
             Some(HeldDisplay::CenteredBlock(shown)) => centered_carried_model(world, shown),
             Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
             Some(HeldDisplay::Wall(shown)) => walls::model(world, shown),
+            Some(HeldDisplay::Gate(shown)) => gates::model(world, shown),
             _ => None,
         }
         .or_else(|| {
@@ -206,7 +217,8 @@ fn collect_shapes(
                     | HeldDisplay::PressurePlate(_)
                     | HeldDisplay::CenteredBlock(_)
                     | HeldDisplay::Fence(..)
-                    | HeldDisplay::Wall(_),
+                    | HeldDisplay::Wall(_)
+                    | HeldDisplay::Gate(_),
                 ) => return None,
                 None if display.is_some()
                     && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>

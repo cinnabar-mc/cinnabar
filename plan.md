@@ -628,6 +628,8 @@ and rendered qualification remain incomplete.
   regions. Rendered fence acceptance remains open.
   Held walls retain two posts, separate rail halves, position-derived artwork and their
   first-person model origin. Rendered wall acceptance remains open.
+  Ordinary held fence gates retain carried post-cap and rail artwork independently of
+  their placed orientation. Rendered gate and bamboo gate acceptance remain open.
   Bedrock hand rigs shade posed normals in world space and interpolate their combined
   directional and eye light in gamma space. Held block emission supplies a minimum
   light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
