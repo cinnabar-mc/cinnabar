@@ -484,6 +484,9 @@ reservations. Equipment placement reuses unchanged owner and attachment inputs. 
 retain clip masks and name indices sized to each skeleton. Rig plans and prepared skins
 share cape and cosmetic attachment bindings. Hardware crowd captures and full temporal/visual
 qualification remain open.
+Remote players remain eligible while their collision box contains the camera. Render and
+animation bounds containing the eye survive frustum rejection after distance admission;
+matched overlapping-player visual qualification remains open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
@@ -530,8 +533,10 @@ and rendered qualification remain incomplete.
   Movement retains signed byte rotations and exact network heights through tick and
   frame interpolation and predicted picking. Remote reset packets snap through the same
   owner as other player moves. Rotation-only player packets preserve active movement
-  and body yaw while applying pitch immediately. Specialized projectile and vehicle movement,
-  other remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  and body yaw while applying pitch immediately. Normal player moves place directly before
+  the first actor tick or when their target terrain is missing, preserving any active lerp.
+  Specialized projectile and vehicle movement, other remote-player packet modes,
+  stance and riding update timing, partially loaded terrain,
   and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.
@@ -1612,7 +1617,11 @@ reference hardware, frame/hitch, streaming, join and capture budgets. Capture th
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
 
-Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
+Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
+compression to and from disk, so storing or loading one stages no encoded copy of its
+artwork pixels. Prepared actor artwork pages still copy multi-layer pack entity textures
+that the session entity pack also keeps, so those pixels stay resident twice during a
+session; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
 Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
 their admission metadata and file hashes. Decoded and compiled session outputs are freed
