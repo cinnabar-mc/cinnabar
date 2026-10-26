@@ -88,7 +88,7 @@ fn native_hand_samples_preserve_unorm_source_bytes() {
         512,
         256,
     );
-    for (value, pair) in actual.chunks_exact(2).enumerate() {
+    for (value, pair) in actual.as_chunks::<2>().0.iter().enumerate() {
         assert_eq!(pair[0], pair[1], "source byte {value}");
     }
 }
