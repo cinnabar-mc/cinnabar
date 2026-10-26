@@ -676,6 +676,8 @@ pub struct LocalPlayerFeed {
     pub flying: bool,
     /// Predicted elytra glide; overrides the streamed gliding flag on the local rig.
     pub gliding: bool,
+    /// Predicted swimming pose; overrides the streamed swimming flag on the local rig.
+    pub swimming: bool,
     /// Predicted Riptide spin pose, independent of swimming and gliding.
     pub spinning: bool,
     /// Consecutive completed gliding ticks, which ease the body into its glide tilt.
