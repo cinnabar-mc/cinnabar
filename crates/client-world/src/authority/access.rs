@@ -132,6 +132,8 @@ impl WorldAuthority {
             !remap.is_identity(),
         );
         self.id_remap = Arc::new(remap);
+        self.actors
+            .set_air_block_network_id(self.block_network_id(self.air_block_id));
     }
     /// Captures the session registry view used by one admitted decode job.
     pub fn decode_ids(&self, dimension: i32) -> crate::ingestion::DecodeIds {

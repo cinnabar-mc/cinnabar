@@ -807,6 +807,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and 256-byte tag limits are implementation bounds; removing them remains incomplete
   parity work.
   Complex legacy aliases, full native tags and general Molang remain incomplete.
+  Item registries keep every entry: a network ID repeated for a different item goes to the
+  later entry, as Bedrock maps IDs in packet order. Which components win when one
+  identifier repeats with different non-empty components is unverified (the later entry
+  is kept), and an identifier repeated under a second ID still keeps both IDs.
   Digger tag programs are prepared off the frame thread at bootstrap and registry
   replacement; replacements retain only active queries and session retirement drops
   pending preparations before a new login.
