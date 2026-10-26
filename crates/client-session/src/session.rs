@@ -917,9 +917,7 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S, observation: &Sessio
 mod blob_cache_telemetry;
 #[cfg(test)]
 use blob_cache_telemetry::bounded_counter_log_due;
-use blob_cache_telemetry::{
-    emit_blob_cache_telemetry, send_final_blob_cache_telemetry, try_emit_blob_cache_telemetry,
-};
+use blob_cache_telemetry::{BlobCacheTelemetry, send_final_blob_cache_telemetry};
 mod bootstrap;
 pub(crate) mod experience;
 mod forms;

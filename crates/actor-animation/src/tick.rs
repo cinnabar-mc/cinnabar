@@ -114,6 +114,9 @@ pub struct ActorTickContext {
     pub properties: Option<Arc<[PropertyDefinition]>>,
     /// Item-render query units and contexts differ from ordinary actor queries.
     pub attachable: Option<super::attachable::AttachableQueryContext>,
+    /// The session's wire runtime id for air, which an empty-handed enderman syncs as its
+    /// carried block.
+    pub air_block_network_id: Option<u32>,
 }
 
 /// One worn armor stack as the armor queries read it.
