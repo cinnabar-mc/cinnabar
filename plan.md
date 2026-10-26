@@ -157,7 +157,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   for the previous one to remesh before applying anyway (`WORLD_MATERIAL_HOLD_ROUNDS`). Composed modules and their pipelines stay
   registered for the process because Bevy cannot drop a pipeline; a session charges the ones
   its bundles compiled, and the per-server shares and process ceiling bound them across
-  sessions.
+  sessions. Known gap: once four pinned servers have filled the ceiling in one run, every later
+  server's new programs are refused until the client restarts. The follow-up is pipeline
+  eviction in the cinnabar-mc/bevy fork, so the pipelines of servers no longer connected can be
+  freed.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no
