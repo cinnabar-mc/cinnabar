@@ -1331,8 +1331,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Grids reuse terrain meshing, native atlas and lighting, and share unchanged section
   output after edits. Bounded workers prepare meshes, GPU arenas and transparency order;
   clips intersect visible masks and give their contents independent depth. Async admission
-  errors reach personal mods and helper client parts. The example's acceptance captures,
-  final integration checks and hardware frame-cost qualification remain incomplete.
+  errors reach personal mods and helper client parts. The example exercises a three-by-three
+  chunk view with lava and has headless acceptance captures. Hardware frame-cost qualification
+  remains incomplete.
   Atmosphere and shader packs share time-override precedence:
   capture pin, personal mod, client part, then authoritative server time. Headless planet /
   star-cube rendering and F9 teardown are captured; hardware performance qualification
