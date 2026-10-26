@@ -618,6 +618,8 @@ and rendered qualification remain incomplete.
   independently of placement state. Rendered trapdoor acceptance remains open.
   Held buttons retain their unpressed panel and first-person model offset independently
   of the inventory wall mounting. Rendered button acceptance remains open.
+  Ordinary held fences join their rail halves at the center and retain post-relative
+  artwork. Bamboo uses its separate carried layout; rendered fence acceptance remains open.
   Bedrock hand rigs shade posed normals in world space and interpolate their combined
   directional and eye light in gamma space. Held block emission supplies a minimum
   light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
