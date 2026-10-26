@@ -293,6 +293,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   columns do not consume later dispatch scans. Changed light faces return pending
   neighbours to readiness without replacing their revision or queue age. Completing
   an adjacent solve also wakes excluded neighbours when their shared face is unchanged.
+  Exact whole-output light and valid provenance equality skips repeated boundary scans
+  while the captured snapshots still match; changed outputs retain their existing scans.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
   Foreground chunk-data offload requires a full allocation of service polling
