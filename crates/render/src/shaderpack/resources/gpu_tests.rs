@@ -400,6 +400,8 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
         ("colortex4", "gaux1"),
         ("shadowcolor0", "shadowcolor"),
     ] {
+        // Reflection canonicalizes buffer aliases before resource binding.
+        let binding = shaderpack::canonical_sampler_name(sampler);
         let properties = format!("texture.composite.{property} = sample.png\n");
         let (_directory, pack) = png_pack(&properties);
         let translation = pack.translate(&Default::default());
@@ -407,26 +409,26 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
         let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D2, 0)
+                .custom("composite", &binding, TextureDimension::D2, 0)
                 .is_some(),
             "{property} aliases {sampler}"
         );
         // A flip releases images bound to colour buffers, never to shadow buffers.
         assert_eq!(
             builder
-                .custom("composite", sampler, TextureDimension::D2, u32::MAX)
+                .custom("composite", &binding, TextureDimension::D2, u32::MAX)
                 .is_none(),
             !sampler.starts_with("shadowcolor"),
             "{property} released as {sampler}"
         );
         assert!(
             builder
-                .custom("deferred", sampler, TextureDimension::D2, 0)
+                .custom("deferred", &binding, TextureDimension::D2, 0)
                 .is_none()
         );
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D3, 0)
+                .custom("composite", &binding, TextureDimension::D3, 0)
                 .is_none()
         );
     }
