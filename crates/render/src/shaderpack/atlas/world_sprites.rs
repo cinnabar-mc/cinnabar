@@ -147,10 +147,12 @@ impl WorldMaterialSprites {
     }
 }
 
-/// Sprite pipelines requested so far, by material.
+/// Sprite pipelines of the published programs, by variant.
 #[derive(Resource, Default)]
 pub(crate) struct WorldSpritePipelines {
     ids: HashMap<WorldVariant, CachedRenderPipelineId>,
+    /// The published revision `ids` was last pruned to.
+    pruned: Option<u64>,
 }
 
 /// One world material sprite ready to render this frame.
@@ -239,12 +241,21 @@ pub(crate) fn render_world_sprites(
     let slots = sprites.rects.len();
     let mut ready = Vec::new();
     if let Some(world) = world.as_deref() {
+        let pipelines = &mut *pipelines;
+        crate::world_material::prune_pipelines(
+            &mut pipelines.ids,
+            &mut pipelines.pruned,
+            world,
+            |variant| variant.program,
+        );
         for slot in bound
             .iter()
             .map(|&slot| usize::from(slot))
             .filter(|&slot| slot < slots)
         {
-            let Some((variant, group)) = world.slot(slot as u16) else {
+            let (Some((variant, group)), Some(key)) =
+                (world.slot(slot as u16), world.material_key(slot as u16))
+            else {
                 continue;
             };
             let id = *pipelines
@@ -254,7 +265,7 @@ pub(crate) fn render_world_sprites(
             if let Some(pipeline) = cache.get_render_pipeline(id) {
                 ready.push(ReadySprite {
                     slot,
-                    key: variant.key,
+                    key,
                     pipeline,
                     group,
                 });

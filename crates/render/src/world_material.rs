@@ -35,10 +35,12 @@ pub(crate) const ACTOR_SHADERS: u64 = u64::from_le_bytes(*b"wmactor\0");
 pub(crate) const TERRAIN_SHADERS: u64 = u64::from_le_bytes(*b"wmterra\0");
 pub(crate) const MODEL_SHADERS: u64 = u64::from_le_bytes(*b"wmmodel\0");
 
-/// What distinguishes a world material's pipelines from the base ones.
+/// What distinguishes a world material's pipelines from the base ones. Pipelines follow the
+/// program, not the material, so materials and sessions declaring the same program share them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct WorldVariant {
-    pub key: u64,
+    /// The program's content identity ([`abi::WorldMaterial::program`]).
+    pub program: u128,
     pub textures: u8,
     pub blend: Blend,
     pub depth: Depth,
@@ -47,16 +49,16 @@ pub(crate) struct WorldVariant {
 impl WorldVariant {
     pub(crate) fn of(published: &Published) -> Option<Self> {
         Some(Self {
-            key: published.key,
+            program: published.material.program(),
             textures: u8::try_from(published.textures.len()).ok()?,
             blend: published.blend,
             depth: published.depth,
         })
     }
 
-    /// This material's module in the renderer `namespace`.
+    /// This program's module in the renderer `namespace`.
     pub(crate) fn shader(self, namespace: u64) -> Handle<Shader> {
-        shader(namespace, self.key)
+        shader(namespace, self.program)
     }
 
     /// The shader definitions selecting the host's handling of the material's blend class.
@@ -76,10 +78,10 @@ impl WorldVariant {
     }
 }
 
-/// The module of material `key` in renderer `namespace`.
-fn shader(namespace: u64, key: u64) -> Handle<Shader> {
+/// The module of `program` in renderer `namespace`.
+fn shader(namespace: u64, program: u128) -> Handle<Shader> {
     Handle::Uuid(
-        Uuid::from_u64_pair(namespace, key),
+        Uuid::from_u64_pair(namespace ^ (program >> 64) as u64, program as u64),
         std::marker::PhantomData,
     )
 }
@@ -148,40 +150,53 @@ pub(crate) struct ShaderFamily {
     pub build: fn(String, String) -> Shader,
 }
 
-/// Registers each published material's composed modules for every renderer, and removes those
-/// no longer published so a revoked material's modules are not retained.
+/// Registers each published program's composed modules for every renderer, once per program.
+/// Modules stay registered after their materials are revoked: Bevy's pipeline cache cannot
+/// drop a pipeline, and removing its module requeues it to retry the missing module every
+/// frame, so a kept module leaves its compiled pipelines idle instead, and a later material or
+/// session declaring the same program reuses them without compiling.
 pub(crate) fn register_shaders(
     families: &[ShaderFamily],
     scene: &WorldMaterialScene,
     shaders: &mut bevy::asset::Assets<Shader>,
-    registered: &mut BTreeSet<u64>,
+    registered: &mut BTreeSet<u128>,
 ) {
-    let live: BTreeSet<u64> = scene.set.published().map(|m| m.key).collect();
     for published in scene.set.published() {
-        if WorldVariant::of(published).is_none() || !registered.insert(published.key) {
+        let Some(variant) = WorldVariant::of(published) else {
+            continue;
+        };
+        if !registered.insert(variant.program) {
             continue;
         }
         for family in families {
             let source = published.material.library(family.group);
             let path = format!(
-                "src/world_material/{:x}_{}.wesl",
-                family.namespace, published.key
+                "src/world_material/{:x}_{:032x}.wesl",
+                family.namespace, variant.program
             );
             let _ = shaders.insert(
-                shader(family.namespace, published.key).id(),
+                variant.shader(family.namespace).id(),
                 (family.build)(source, path),
             );
         }
     }
-    registered.retain(|key| {
-        let keep = live.contains(key);
-        if !keep {
-            for family in families {
-                shaders.remove(shader(family.namespace, *key).id());
-            }
-        }
-        keep
-    });
+}
+
+/// Drops the entries of `ids` whose program `gpu` no longer publishes, once per published
+/// revision, so pipeline lookups and failure scans cover only live programs; `program` reads an
+/// entry's program. A dropped program's pipelines stay in Bevy's cache with their module and
+/// are found again if it is published again.
+pub(crate) fn prune_pipelines<K, Id>(
+    ids: &mut std::collections::HashMap<K, Id>,
+    pruned: &mut Option<u64>,
+    gpu: &WorldMaterialGpu,
+    program: impl Fn(&K) -> u128,
+) {
+    if *pruned == gpu.revision {
+        return;
+    }
+    *pruned = gpu.revision;
+    ids.retain(|key, _| gpu.publishes(program(key)));
 }
 
 /// The error a pipeline failed with for good, if it did. A module the cache has not received
@@ -206,14 +221,18 @@ pub(crate) fn lasting_error(
 /// failure to the session.
 pub(crate) fn record_failures(
     cache: &PipelineCache,
-    pipelines: impl IntoIterator<Item = (u64, bevy::render::render_resource::CachedRenderPipelineId)>,
+    pipelines: impl IntoIterator<Item = (u128, bevy::render::render_resource::CachedRenderPipelineId)>,
+    gpu: &WorldMaterialGpu,
     failures: &render_scene::world_material::WorldMaterialFailures,
 ) {
-    for (key, id) in pipelines {
-        if let Some(error) = lasting_error(cache.get_render_pipeline_state(id))
-            && failures.record(key)
-        {
-            bevy::log::warn!(key, %error, "world material pipeline failed to compile");
+    for (program, id) in pipelines {
+        let Some(error) = lasting_error(cache.get_render_pipeline_state(id)) else {
+            continue;
+        };
+        for key in gpu.keys_of(program) {
+            if failures.record(key) {
+                bevy::log::warn!(key, %error, "world material pipeline failed to compile");
+            }
         }
     }
 }
@@ -222,7 +241,7 @@ pub(crate) fn record_failures(
 pub(crate) fn register_all_shaders(
     scene: Option<Res<WorldMaterialScene>>,
     shaders: Option<ResMut<bevy::asset::Assets<Shader>>>,
-    mut registered: Local<BTreeSet<u64>>,
+    mut registered: Local<BTreeSet<u128>>,
 ) {
     let (Some(scene), Some(mut shaders)) = (scene, shaders) else {
         return;
@@ -276,6 +295,26 @@ impl WorldMaterialGpu {
     /// The variant of the material in `slot`.
     pub(crate) fn variant(&self, slot: u16) -> Option<WorldVariant> {
         self.slot(slot).map(|(variant, _)| variant)
+    }
+
+    /// The key of the material in `slot`.
+    pub(crate) fn material_key(&self, slot: u16) -> Option<u64> {
+        (*self.slots.get(usize::from(slot))?).filter(|key| self.entries.contains_key(key))
+    }
+
+    /// Whether a material with `program` has resources.
+    pub(crate) fn publishes(&self, program: u128) -> bool {
+        self.entries
+            .values()
+            .any(|entry| entry.variant.program == program)
+    }
+
+    /// The keys of the materials with `program`.
+    pub(crate) fn keys_of(&self, program: u128) -> impl Iterator<Item = u64> + '_ {
+        self.entries
+            .iter()
+            .filter(move |(_, entry)| entry.variant.program == program)
+            .map(|(key, _)| *key)
     }
 }
 
@@ -487,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn revocation_removes_every_renderers_modules() {
+    fn one_program_registers_one_module_per_renderer_that_revocation_keeps() {
         let mut shaders = bevy::asset::Assets::<Shader>::default();
         let mut registered = BTreeSet::new();
         let families = [
@@ -496,10 +535,18 @@ mod tests {
         ];
         let published = scene();
         register_shaders(&families, &published, &mut shaders, &mut registered);
-        let key = published.set.published().next().unwrap().key;
+        let variant = WorldVariant::of(published.set.published().next().unwrap()).unwrap();
         for family in &families {
-            assert!(shaders.get(shader(family.namespace, key).id()).is_some());
+            assert!(shaders.get(variant.shader(family.namespace).id()).is_some());
         }
+        let modules = shaders.len();
+        // The same program under a new key, as a later session declares it, reuses the module.
+        let mut again = scene();
+        let set = std::sync::Arc::make_mut(&mut again.set);
+        set.materials[0].as_mut().unwrap().key = 99;
+        register_shaders(&families, &again, &mut shaders, &mut registered);
+        assert_eq!(shaders.len(), modules);
+        // Revocation keeps the module, so its pipelines idle instead of waiting for it forever.
         register_shaders(
             &families,
             &WorldMaterialScene::default(),
@@ -507,9 +554,54 @@ mod tests {
             &mut registered,
         );
         for family in &families {
-            assert!(shaders.get(shader(family.namespace, key).id()).is_none());
+            assert!(shaders.get(variant.shader(family.namespace).id()).is_some());
         }
-        assert!(registered.is_empty());
+        // Another program has modules of its own.
+        let mut other = scene();
+        let set = std::sync::Arc::make_mut(&mut other.set);
+        let material = set.materials[0].as_mut().unwrap();
+        material.material = std::sync::Arc::new(abi::WorldMaterial {
+            source: "fn shade(input: WorldMaterialInput) -> Surface { return Surface(vec3<f32>(1.0), 1.0, vec3<f32>(0.0)); }".into(),
+            textures: 1,
+        });
+        let other_variant = WorldVariant::of(material).unwrap();
+        assert_ne!(other_variant.program, variant.program);
+        register_shaders(&families, &other, &mut shaders, &mut registered);
+        assert_eq!(shaders.len(), modules + families.len());
+    }
+
+    #[test]
+    fn pipeline_ids_of_programs_no_longer_published_are_pruned() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        world.init_resource::<WorldMaterialGpu>();
+        world.insert_resource(scene());
+        world.run_system_once(prepare).unwrap();
+        let live = world
+            .resource::<WorldMaterialGpu>()
+            .variant(0)
+            .unwrap()
+            .program;
+        let mut ids = std::collections::HashMap::from([(live, 1_u32), (live ^ 1, 2)]);
+        let mut pruned = None;
+        prune_pipelines(
+            &mut ids,
+            &mut pruned,
+            world.resource::<WorldMaterialGpu>(),
+            |program| *program,
+        );
+        assert_eq!(ids.keys().copied().collect::<Vec<_>>(), [live]);
+        // Revocation leaves nothing to scan.
+        world.insert_resource(WorldMaterialScene::default());
+        world.run_system_once(prepare).unwrap();
+        prune_pipelines(
+            &mut ids,
+            &mut pruned,
+            world.resource::<WorldMaterialGpu>(),
+            |program| *program,
+        );
+        assert!(ids.is_empty());
     }
 
     #[test]

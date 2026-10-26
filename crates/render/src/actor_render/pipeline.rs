@@ -41,6 +41,8 @@ pub(crate) struct ActorPipeline {
         (ActorPipelineContract, crate::world_material::WorldVariant),
         CachedRenderPipelineId,
     >,
+    /// The published revision `world_ids` was last pruned to.
+    world_pruned: Option<u64>,
     /// The frame's world draws, as (tagged word, host raster), whose world material pipeline is
     /// ready in every view; the others draw as Bedrock.
     pub(super) world_ready: WorldReady,
@@ -79,6 +81,7 @@ impl FromWorld for ActorPipeline {
                 descriptor.clone(),
             ),
             world_ids: Default::default(),
+            world_pruned: None,
             world_ready: Default::default(),
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
@@ -396,6 +399,15 @@ pub(super) fn prepare_actor_pipelines(
             }));
     }
     pipeline.settle_failures(&cache, |id| targets::compile_outcome(&cache, id));
+    if let Some(world) = world.as_deref() {
+        let pipeline = &mut *pipeline;
+        crate::world_material::prune_pipelines(
+            &mut pipeline.world_ids,
+            &mut pipeline.world_pruned,
+            world,
+            |(_, variant)| variant.program,
+        );
+    }
     if let Some(frame) = &frame {
         pipeline.adopt_session_rasters(&frame.authored_rasters);
     }
@@ -483,13 +495,14 @@ pub(super) fn prepare_actor_pipelines(
         })
         .unwrap_or_default();
     pipeline.world_ready = world_ready;
-    if let Some(failures) = failures.as_deref() {
+    if let (Some(failures), Some(world)) = (failures.as_deref(), world.as_deref()) {
         crate::world_material::record_failures(
             &cache,
             pipeline
                 .world_ids
                 .iter()
-                .map(|((_, variant), id)| (variant.key, *id)),
+                .map(|((_, variant), id)| (variant.program, *id)),
+            world,
             failures,
         );
     }
