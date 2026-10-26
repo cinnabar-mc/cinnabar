@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 /// Resolves a small documented contract without relying on the checkout's WIT files.
 fn fixture(body: &str) -> Resolve {
@@ -12,6 +13,96 @@ fn fixture(body: &str) -> Resolve {
 #[test]
 fn committed_book_is_current() {
     generate(&repository(), true).unwrap();
+}
+
+#[test]
+fn readable_titles_keep_exact_wit_identifiers() {
+    for (package, interface, title) in [
+        ("extension", "presentation", "Presentation"),
+        ("extension", "action-filter", "Action filter"),
+        ("extension", "player-state", "Player state"),
+        ("extension", "hud", "HUD"),
+        ("world-draw", "assets", "World drawing: assets"),
+        ("world-draw", "drawing", "World drawing: drawing"),
+        ("world-draw", "masks", "World drawing: masks"),
+        ("server-experience", "ui", "Server experience: UI"),
+        ("session", "items", "Session: items"),
+        (
+            "future-tools",
+            "new-interface",
+            "Future tools: new interface",
+        ),
+    ] {
+        let mut resolve = Resolve::default();
+        resolve
+            .push_str(
+                "title.wit",
+                &format!(
+                    "package test:{package}@1.2.3;\n\
+                     /// A documented interface.\n\
+                     /// Grants: None.\n\
+                     interface {interface} {{}}\n\
+                     /// A component.\n\
+                     world component {{ import {interface}; }}"
+                ),
+            )
+            .unwrap();
+        let pages = pages(&resolve).unwrap();
+        let files = interfaces(&resolve).unwrap();
+        let file = files.keys().next().unwrap();
+        let page = &pages[&format!("reference/{file}.md")];
+        assert!(
+            page.starts_with(&format!(
+                "{HEADER}# {title}\n\n`test:{package}/{interface}@1.2.3`\n\n"
+            )),
+            "{package}/{interface}: expected heading {title} and exact WIT identifier"
+        );
+        assert!(pages["SUMMARY.md"].contains(&format!("[{title}](reference/{file}.md)")));
+        assert!(pages["reference/index.md"].contains(&format!("[{title}]({file}.md)")));
+        assert!(
+            pages["reference/worlds.md"]
+                .contains(&format!("[test:{package}/{interface}@1.2.3]({file}.md)"))
+        );
+    }
+}
+
+#[test]
+fn title_overrides_are_current_and_titles_are_distinct() {
+    let resolve = resolve(&repository()).unwrap();
+    assert!(
+        resolve
+            .packages
+            .iter()
+            .any(|(_, package)| package.name.name == PRIMARY_PACKAGE),
+        "missing primary reference package: {PRIMARY_PACKAGE}"
+    );
+    let names: BTreeSet<_> = resolve
+        .packages
+        .iter()
+        .map(|(_, package)| package.name.name.as_str())
+        .chain(
+            resolve
+                .interfaces
+                .iter()
+                .filter_map(|(_, interface)| interface.name.as_deref()),
+        )
+        .collect();
+    let mut overrides = BTreeSet::new();
+    for (name, title) in render::TITLE_OVERRIDES {
+        assert!(names.contains(name), "unused title override: {name}");
+        assert!(overrides.insert(name), "duplicate title override: {name}");
+        assert_ne!(*title, name.replace('-', " "), "redundant override: {name}");
+    }
+    let interfaces = interfaces(&resolve).unwrap();
+    let renderer = render::Renderer {
+        resolve: &resolve,
+        interfaces: &interfaces,
+    };
+    let mut titles = BTreeSet::new();
+    for id in interfaces.values() {
+        let title = renderer.interface_title(*id);
+        assert!(titles.insert(title.clone()), "duplicate title: {title}");
+    }
 }
 
 #[test]

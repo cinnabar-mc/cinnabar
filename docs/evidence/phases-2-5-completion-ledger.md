@@ -199,13 +199,13 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership and deferred-mesh promotion are implemented. Light dependency notifications coalesce until geometry can check readiness; broader publication acceptance remains open. See the publication and sub-chunk request batching continuation in `plan.md`. |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership and deferred-mesh promotion are implemented. Light dependency notifications coalesce and compete across camera queue generations until geometry can check readiness; broader publication acceptance remains open. See the publication and sub-chunk request batching continuation in `plan.md`. |
 | Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Full publication qualification is pending. |
 | Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership, deferred-mesh promotion and stalled cached-terrain recovery are implemented. Ordinary polls keep intake first; interrupted worker service resumes with bounded completion and refill work. Foreground offload requires service polling that advanced commits. Broader publication acceptance remains open. See `plan.md`. |
 | Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Controlled cache deadlines cover idle input, cancellation, full-column payload retention, shared-hash retries, ordering and resets. Reclaim regressions cover downstream progress, full intake windows, bounded worker continuation and foreground handoff credit. Full publication qualification is pending. |
 | Review commit | Independent review is pending. |
 | Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
-| Performance/resource witness | Live join, streaming and hardware budgets remain open. |
+| Performance/resource witness | Exact whole-output light and valid provenance equality reuses boundary evidence only while prior identities match. Changed outputs retain their existing scans. Live join, streaming and hardware budgets remain open. |
 | Final status | Open |
 
 ## P2.7-ATMOSPHERE

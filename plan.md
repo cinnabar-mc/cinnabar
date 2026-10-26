@@ -255,8 +255,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   poll budget, with backoff while neighbours or light remain unavailable. Completed light
   members coalesce dependency notifications alongside ready and deferred candidates without
   preparing geometry. All three queues share bounded camera refresh and retirement across
-  queue generations. Before geometry dispatch, ranked notifications receive readiness
-  checks within the existing work limit once worker capacity exists. Their deferred owner
+  queue generations. Before geometry dispatch, ranked notifications from either camera
+  generation receive readiness checks within the existing work limit once worker capacity
+  exists, without waiting for unrelated queue refresh. Checked promotions use the current
+  dispatch view's rank. Their deferred owner
   returns to ready only when its known halo is current, owed neighbours have arrived and
   output credit is available, so blocked notifications leave ready geometry eligible.
   This includes distant geometry outside direct camera
@@ -303,6 +305,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   columns do not consume later dispatch scans. Changed light faces return pending
   neighbours to readiness without replacing their revision or queue age. Completing
   an adjacent solve also wakes excluded neighbours when their shared face is unchanged.
+  Exact whole-output light and valid provenance equality skips repeated boundary scans
+  while the captured snapshots still match; changed outputs retain their existing scans.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
   Foreground chunk-data offload requires a full allocation of service polling

@@ -11,6 +11,123 @@ use super::super::containers::{ContainerAuthority, container_frame};
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::presentation::HudFrame;
 
+/// Animated artwork updates the icon table while immutable creative rows keep their storage.
+#[test]
+fn animated_creative_icons_reuse_rows_and_publish_current_artwork() {
+    const ENTRIES: usize = 256;
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime =
+        crate::test_support::creative_with(&mut player, u32::try_from(ENTRIES).unwrap());
+    runtime.screen_state_mut().select_tab(SEARCH_TAB);
+    let original = ui::IconRef {
+        page: 3,
+        uv: [0, 0, 4, 4],
+        color_mask: None,
+        glint: false,
+    };
+    let prefix = [original; 2];
+    let mut frame = HudFrame::default();
+    // Entries past the book's rows must not shift the inventory's following icon indices.
+    frame.window_icons.book_entries = vec![Some(original); ENTRIES + 1];
+    frame.window_icons.book_entries[1] = None;
+    frame.window_icons.book_entries[ENTRIES - 1] = None;
+    let source = ContainerAuthority::new(&player, &runtime);
+    let mut cache = None;
+    book_data(
+        &source,
+        &mut DataSource::new(),
+        &container_frame(&frame),
+        &mut prefix.to_vec(),
+        true,
+        &mut cache,
+    );
+    let rows = Arc::clone(cache.as_ref().unwrap().rows());
+    assert_eq!(rows.len(), ENTRIES);
+    let target = 25;
+    let table_index = prefix.len() + target - 1;
+    for page in [4, 5, 3] {
+        let animated = ui::IconRef {
+            page,
+            uv: [4, 0, 8, 4],
+            glint: true,
+            ..original
+        };
+        frame.window_icons.book_entries[target] = Some(animated);
+        let mut icons = Vec::with_capacity(ENTRIES + prefix.len());
+        icons.extend_from_slice(&prefix);
+        let ((), allocations) = test_alloc::count(|| {
+            book_data(
+                &source,
+                &mut DataSource::new(),
+                &container_frame(&frame),
+                &mut icons,
+                true,
+                &mut cache,
+            );
+        });
+        assert!(
+            allocations < ENTRIES / 4,
+            "animation must not rebuild creative rows: {allocations} allocations"
+        );
+        assert!(Arc::ptr_eq(&rows, cache.as_ref().unwrap().rows()));
+        assert_eq!(&icons[..prefix.len()], &prefix);
+        assert_eq!(icons.len(), prefix.len() + ENTRIES - 2);
+        assert_eq!(icons[table_index], animated);
+        assert_eq!(
+            rows[target].values["#item_renderer_data"],
+            json_ui::Scalar::Num(table_index as f64)
+        );
+    }
+}
+
+/// A newly missing icon changes table positions and must rebuild the rows that address them.
+#[test]
+fn creative_icon_availability_refreshes_renderer_indices() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::creative_with(&mut player, 4);
+    runtime.screen_state_mut().select_tab(SEARCH_TAB);
+    let icon = ui::IconRef {
+        page: 3,
+        uv: [0, 0, 4, 4],
+        color_mask: None,
+        glint: false,
+    };
+    let mut frame = HudFrame::default();
+    frame.window_icons.book_entries = vec![Some(icon), Some(icon), None, Some(icon)];
+    let source = ContainerAuthority::new(&player, &runtime);
+    let mut cache = None;
+    book_data(
+        &source,
+        &mut DataSource::new(),
+        &container_frame(&frame),
+        &mut Vec::new(),
+        true,
+        &mut cache,
+    );
+    let before = Arc::clone(cache.as_ref().unwrap().rows());
+    assert_eq!(
+        before[3].values["#item_renderer_data"],
+        json_ui::Scalar::Num(2.0)
+    );
+    frame.window_icons.book_entries[1] = None;
+    let mut icons = Vec::new();
+    book_data(
+        &source,
+        &mut DataSource::new(),
+        &container_frame(&frame),
+        &mut icons,
+        true,
+        &mut cache,
+    );
+    let after = cache.as_ref().unwrap().rows();
+    assert!(!Arc::ptr_eq(&before, after));
+    assert_eq!(
+        after[3].values["#item_renderer_data"],
+        json_ui::Scalar::Num(1.0)
+    );
+    assert_eq!(icons, [icon; 2]);
+}
+
 #[test]
 fn prewarmed_recipe_rows_follow_saved_tab_before_controller_capture() {
     use protocol::{CreativeCategory, CreativeGroup, InventoryOptions, InventoryTab};
@@ -85,7 +202,7 @@ fn prewarmed_recipe_rows_follow_saved_tab_before_controller_capture() {
     }
 }
 
-/// Scroll and pointer changes reuse rows; tab, group, catalog and icon changes invalidate them.
+/// Scroll and pointer changes reuse rows; tab, group, catalog and icon-slot changes invalidate them.
 #[test]
 fn creative_rows_follow_their_inputs() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -110,7 +227,6 @@ fn creative_rows_follow_their_inputs() {
         &ContainerAuthority::new(&player_runtime, &runtime),
         &container_frame(&frame),
         0,
-        &[],
         &items,
     );
     let reuse =

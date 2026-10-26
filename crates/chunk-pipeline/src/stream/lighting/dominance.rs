@@ -7,6 +7,8 @@ impl WorldStream {
         replacement: &SubChunkLight,
         replacement_direct: &DirectSkyMask,
     ) -> [bool; 6] {
+        #[cfg(test)]
+        super::equality::work::record(2);
         let Some(previous) = self.lighting.store.light(key) else {
             return [false; 6];
         };
@@ -53,6 +55,8 @@ impl WorldStream {
         }
         std::array::from_fn(|face| {
             face_cells(face).all(|(source, _)| {
+                #[cfg(test)]
+                super::equality::work::record(3);
                 [LightChannel::Block, LightChannel::Sky]
                     .into_iter()
                     .all(|channel| {

@@ -1,11 +1,26 @@
 //! Interface, world and callback pages from the resolved contract.
 
-use crate::{HEADER, anchor, cell, docs, imported, owner_anchor};
+use crate::{HEADER, PRIMARY_PACKAGE, anchor, cell, docs, imported, owner_anchor};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use wit_parser::{
     Docs, Function, InterfaceId, Resolve, Type, TypeDefKind, TypeId, WorldItem, WorldKey,
 };
+
+// Only names whose spelling or wording does not follow the kebab-case derivation.
+pub(super) const TITLE_OVERRIDES: &[(&str, &str)] = &[
+    ("world-draw", "world drawing"),
+    ("hud", "HUD"),
+    ("ui", "UI"),
+];
+
+/// Turns a WIT name into words, preserving established acronyms and natural wording.
+fn readable_name(name: &str) -> String {
+    TITLE_OVERRIDES
+        .iter()
+        .find_map(|(source, title)| (*source == name).then(|| (*title).to_owned()))
+        .unwrap_or_else(|| name.replace('-', " "))
+}
 
 pub(super) struct Renderer<'a> {
     pub resolve: &'a Resolve,
@@ -16,6 +31,20 @@ impl Renderer<'_> {
     /// Names the versioned package as well as its interface, including repeated short names.
     pub fn interface_name(&self, id: InterfaceId) -> String {
         self.resolve.id_of(id).expect("named package interface")
+    }
+
+    /// Derives a readable title and qualifies dependencies by their owning package.
+    pub fn interface_title(&self, id: InterfaceId) -> String {
+        let interface = &self.resolve.interfaces[id];
+        let name = readable_name(interface.name.as_deref().expect("named interface"));
+        let package = &self.resolve.packages[interface.package.expect("interface package")];
+        let mut title = if package.name.name == PRIMARY_PACKAGE {
+            name
+        } else {
+            format!("{}: {name}", readable_name(&package.name.name))
+        };
+        title[..1].make_ascii_uppercase();
+        title
     }
 
     /// Finds the generated file for an interface already admitted to the page set.
@@ -46,8 +75,10 @@ impl Renderer<'_> {
     pub fn interface(&self, id: InterfaceId) -> Result<String> {
         let interface = &self.resolve.interfaces[id];
         let name = self.interface_name(id);
+        let title = self.interface_title(id);
         let (grants, prose) = self.grants(&interface.docs, &name)?;
-        let mut page = format!("{HEADER}# {name}\n\n{prose}\n\n**Grants:** {grants}\n\n");
+        let mut page =
+            format!("{HEADER}# {title}\n\n`{name}`\n\n{prose}\n\n**Grants:** {grants}\n\n");
         for (name, ty) in &interface.types {
             if imported(self.resolve, *ty) {
                 page.push_str(&format!(

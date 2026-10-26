@@ -8,8 +8,8 @@ mdbook build docs/modding
 ```
 
 It uses no custom preprocessors, network access or files outside this directory.
-The guide pages are placeholders while the guides are being written. Existing
-author documentation is preserved in the appendices.
+The guides explain how to build personal, paired and packet mods. Existing author
+documentation is preserved in the appendices.
 
 From a full Cinnabar checkout, regenerate the API pages and navigation with:
 
