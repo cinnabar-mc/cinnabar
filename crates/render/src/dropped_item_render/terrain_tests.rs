@@ -93,6 +93,7 @@ fn fixture() -> App {
         })]),
         &[],
         &[],
+        &[],
         1.0,
     );
     app.finish();
