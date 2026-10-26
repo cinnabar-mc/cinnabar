@@ -666,7 +666,7 @@ fn native_skin_hand_uploads_match_source_dimensions_and_reuse_textures() {
 fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
     for samples in [1, 2, 4, 8] {
         for hdr in [false, true] {
-            let descriptor = specialized_pipeline(hand_rig_layout(), samples, hdr);
+            let descriptor = specialized_pipeline(hand_rig_layout(), samples, hdr, false);
             assert_eq!(descriptor.multisample.count, samples);
             assert_eq!(
                 descriptor.depth_stencil.unwrap().format,
@@ -729,4 +729,44 @@ fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
             );
         }
     }
+}
+
+#[test]
+fn bedrock_sdr_hands_use_gamma_blending_independently_of_java_and_hdr() {
+    for java in [false, true] {
+        let light = if java {
+            light().with_java_lighting(Mat4::IDENTITY)
+        } else {
+            light()
+        };
+        for hdr in [false, true] {
+            assert_eq!(
+                bindings::hand_uses_encoded_color(&light, hdr),
+                !java && !hdr
+            );
+        }
+    }
+    let mut entries = std::array::from_fn(|_| None);
+    let mut created = 0;
+    for encoded in [false, true, false, true] {
+        let id = memoized_pipeline(&mut entries, 1, false, encoded, || {
+            created += 1;
+            created
+        })
+        .unwrap();
+        assert_eq!(id, if encoded { 2 } else { 1 });
+        let descriptor = specialized_pipeline(hand_rig_layout(), 1, false, encoded);
+        assert_eq!(
+            descriptor.fragment.unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .format,
+            if encoded {
+                TextureFormat::Rgba8Unorm
+            } else {
+                render_scene::SCENE_COLOR_FORMAT
+            }
+        );
+    }
+    assert_eq!(created, 2);
 }
