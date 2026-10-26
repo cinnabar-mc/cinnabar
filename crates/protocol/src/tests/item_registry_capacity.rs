@@ -314,3 +314,47 @@ fn malformed_registry_nbt_remains_a_wire_error() {
         WorldPacketError::Wire(WorldWireError::Item(ItemPacketError::InvalidItemNbt))
     ));
 }
+
+#[test]
+fn a_repeated_network_id_goes_to_the_later_item_without_dropping_the_registry() {
+    let entry = |name: &str, id: i16, data: Nbt, component_based: bool| ItemData {
+        item_name: name.into(),
+        item_id: wire::I16LE(id),
+        is_component_based: component_based,
+        item_version: ItemVersion::Datadriven,
+        item_component_data: data,
+    };
+    // A proxy that has no ID for newer vanilla items sends them all as ID 0,
+    // alongside the custom items the session depends on.
+    let packet = ItemRegistryPacket {
+        item_data: vec![
+            entry("test:blaster", 300, empty_compound(), true),
+            entry("minecraft:bundle", 0, capacity_component(1), true),
+            entry("minecraft:red_wool_slab", 0, empty_compound(), false),
+            entry("test:blaster", 300, capacity_component(16), true),
+            entry("minecraft:stick", 5, capacity_component(64), true),
+            entry("minecraft:stone", 5, empty_compound(), false),
+        ],
+    };
+    let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
+        into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .unwrap()
+    else {
+        panic!("expected item registry")
+    };
+    let by_id = |id: i32| {
+        let matches = registry
+            .entries
+            .iter()
+            .filter(|entry| entry.network_id == id)
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "network ID {id} must name one item");
+        matches[0]
+    };
+    assert_eq!(registry.entries.len(), 3);
+    assert_eq!(by_id(300).identifier.as_ref(), "test:blaster");
+    assert_eq!(by_id(300).negotiated_max_stack_size, Some(16));
+    assert_eq!(by_id(0).identifier.as_ref(), "minecraft:red_wool_slab");
+    assert_eq!(by_id(5).identifier.as_ref(), "minecraft:stone");
+}
