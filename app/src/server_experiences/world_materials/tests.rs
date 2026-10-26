@@ -592,3 +592,93 @@ fn admission_runs_off_the_frame_and_publishes_once_done() {
     assert!(presenter.set().entity("example:moth").is_some());
     assert_eq!(run_held(), 0, "an unchanged rebuild starts no work");
 }
+
+/// A presenter whose admission jobs wait in `held` until the test runs them.
+fn held(held: &Arc<std::sync::Mutex<Vec<admission::Job>>>) -> WorldMaterialPresenter {
+    WorldMaterialPresenter::with_executor(admission::Executor::Held(Arc::clone(held)))
+}
+
+/// Runs the held jobs, the last `count` only when given; returns how many ran.
+fn run_jobs(held: &Arc<std::sync::Mutex<Vec<admission::Job>>>, last: Option<usize>) -> usize {
+    let mut jobs = held.lock().unwrap();
+    let from = last.map_or(0, |count| jobs.len().saturating_sub(count));
+    let ran: Vec<admission::Job> = jobs.drain(from..).collect();
+    drop(jobs);
+    let count = ran.len();
+    for job in ran {
+        job();
+    }
+    count
+}
+
+#[test]
+fn one_admission_job_runs_per_bundle_and_the_newest_attempt_wins() {
+    let jobs = Arc::default();
+    let mut presenter = held(&jobs);
+    let three = world(&[(1, distinct(1)), (2, distinct(2)), (3, distinct(3))], &[]);
+    presenter.rebuild([named("example.bundle", &three)]);
+    assert_eq!(presenter.jobs(), 1, "three new materials, one job");
+    // A guest replacing its program every callback keeps one job, the newest attempt's.
+    for round in 4..12 {
+        let replaced = world(
+            &[(1, distinct(1)), (2, distinct(2)), (3, distinct(round))],
+            &[],
+        );
+        presenter.rebuild([named("example.bundle", &replaced)]);
+        assert_eq!(presenter.jobs(), 1);
+        let running = presenter
+            .cache
+            .values()
+            .find(|cached| cached.running())
+            .unwrap();
+        assert_eq!(
+            running.attempt, presenter.next_key,
+            "the newest attempt runs"
+        );
+    }
+}
+
+#[test]
+fn a_bundle_admits_nothing_new_until_every_material_is_measured() {
+    let jobs = Arc::default();
+    let mut presenter = held(&jobs);
+    let two = world(&[(1, distinct(1)), (2, distinct(2))], &[]);
+    presenter.rebuild([named("example.bundle", &two)]);
+    // The newer material measures first; the other is not measured yet.
+    assert_eq!(run_jobs(&jobs, Some(1)), 1);
+    presenter.rebuild([named("example.bundle", &two)]);
+    assert_eq!(
+        jobs.lock().unwrap().len(),
+        1,
+        "only the other material's measure runs: nothing decodes before both are measured"
+    );
+    assert!(presenter.set().published().next().is_none());
+    // Settled, both draw.
+    for _ in 0..4 {
+        run_jobs(&jobs, None);
+        presenter.rebuild([named("example.bundle", &two)]);
+    }
+    assert_eq!(presenter.set().published().count(), 2);
+}
+
+#[test]
+fn programs_new_to_the_process_wait_once_its_pipeline_budget_is_full() {
+    let room = (PROCESS_PIPELINE_BYTES / PIPELINE_CHARGE_BYTES) as u32;
+    let many: Vec<(u32, WorldMaterialSpec)> = (0..=room).map(|id| (id, distinct(id))).collect();
+    let held = world(&many, &[]);
+    let mut presenter = WorldMaterialPresenter::inline();
+    presenter.rebuild([named("example.bundle", &held)]);
+    // Unbound materials still draw; their parameters count them past the slot table.
+    assert_eq!(presenter.params().values.len(), room as usize);
+    assert!(
+        presenter
+            .diagnostics()
+            .any(|line| line.contains("pipeline memory is full"))
+    );
+    // A later session still draws the programs the process compiled, but no new one.
+    presenter.end_session();
+    presenter.run = 2;
+    let later = world(&[(1, distinct(1)), (2, distinct(room + 1))], &[]);
+    presenter.rebuild([named("example.bundle", &later)]);
+    assert_eq!(presenter.params().values.len(), 1);
+}
