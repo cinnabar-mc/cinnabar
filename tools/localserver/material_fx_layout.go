@@ -103,6 +103,12 @@ func materialFxLayoutRecords(view showcaseViewpoint) [][]cinnabarext.Scalar {
 	return records
 }
 
+// materialFxMobFeet is where the showcase mob at index stands: at foot level in a row four blocks in
+// front of the player, two blocks apart and centred on them.
+func materialFxMobFeet(view showcaseViewpoint, index int) mgl32.Vec3 {
+	return view.at(float32(index*2-(len(materialFxEntities)-1)), 4)
+}
+
 // materialFxActors spawns the showcase entities at foot level in a row four blocks in front of
 // the player, facing them.
 func materialFxActors(view showcaseViewpoint) []packet.Packet {
@@ -111,7 +117,7 @@ func materialFxActors(view showcaseViewpoint) []packet.Packet {
 		id := int64(materialFxFirstID + index)
 		packets = append(packets, &packet.AddActor{
 			EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: entity.id,
-			Position: view.at(float32(index*2-(len(materialFxEntities)-1)), 4),
+			Position: materialFxMobFeet(view, index),
 			Yaw:      view.facingBack(), HeadYaw: view.facingBack(), BodyYaw: view.facingBack(),
 			EntityMetadata: actorBurstMetadata(),
 		})
