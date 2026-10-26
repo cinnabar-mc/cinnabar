@@ -32,3 +32,10 @@ fn only_the_enderman_renderer_draws_a_carried_block() {
         None
     );
 }
+
+#[test]
+fn an_unsolved_carrier_does_not_darken_its_block() {
+    assert_eq!(carried_light(Some((4, 12))), (4, 12));
+    assert_eq!(carried_light(Some((0, 0))), (0, 0));
+    assert_eq!(carried_light(None), (15, 15));
+}

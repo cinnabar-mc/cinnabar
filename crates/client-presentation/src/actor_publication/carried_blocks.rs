@@ -22,6 +22,16 @@ pub(crate) struct CarriedBlock {
     pub(crate) light: (u8, u8),
 }
 
+/// The light a carried block draws with while its carrier's light is unsolved. The body then
+/// draws white without the lightmap, so the block takes the lightmap's brightest sample instead
+/// of solved darkness.
+const UNSOLVED_CARRIER_LIGHT: (u8, u8) = (15, 15);
+
+/// The `(block, sky)` light a carried block draws with, given its carrier body's light.
+fn carried_light(body_light: Option<(u8, u8)>) -> (u8, u8) {
+    body_light.unwrap_or(UNSOLVED_CARRIER_LIGHT)
+}
+
 /// The wire block runtime id an actor's native renderer draws as carried: only endermen draw
 /// their synced carried block. Air is returned as synced; the caller skips it.
 fn carried_block_runtime_id(
@@ -56,7 +66,7 @@ pub(super) fn carried_blocks_for(
                 body.world_from_actor,
                 actor.render_scale(),
             )?;
-            let light = crate::presentation::actors::body_light(body, stream).unwrap_or((0, 0));
+            let light = carried_light(crate::presentation::actors::body_light(body, stream));
             Some(CarriedBlock {
                 block_runtime_id,
                 world_from_block,
