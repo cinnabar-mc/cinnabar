@@ -258,6 +258,10 @@ impl WorldMaterialPresenter {
                 .running
                 .iter()
                 .any(|key| self.cache.get(key).is_some_and(Cached::finished))
+            || self
+                .computes
+                .values()
+                .any(computes::CachedCompute::finished)
     }
 
     /// Forgets the session's declarations, charges and diagnostics and empties its slots,
@@ -270,7 +274,7 @@ impl WorldMaterialPresenter {
             cached.cancel();
             self.adopt_orphans(&bundle, &mut cached);
         }
-        self.computes.clear();
+        self.drop_computes(&BTreeSet::new());
         self.reported.clear();
         self.diagnostics.clear();
         self.compiled.clear();
@@ -335,7 +339,7 @@ impl WorldMaterialPresenter {
                 &mut claimed,
             );
         }
-        self.computes.retain(|key, _| live_computes.contains(key));
+        self.drop_computes(&live_computes);
         let removed: Vec<(String, u32)> = self
             .cache
             .keys()
@@ -429,11 +433,23 @@ impl WorldMaterialPresenter {
             .saturating_sub(compiled.iter().map(admission::set_bytes).sum())
             .saturating_sub(orphaned.0);
         let mut memory = bundle.memory_bytes.saturating_sub(orphaned.1);
+        // One job runs per bundle, its computes' validations and its materials' admission
+        // together, counting superseded ones until they return.
+        let owner = (self.run, bundle.bundle.to_owned());
+        let mut busy = self.orphans.iter().any(|(job, _)| *job == owner)
+            || self.cache.iter().any(|((held, _), cached)| {
+                // A job whose result is in is done; its material takes it below.
+                held == bundle.bundle && cached.running() && !cached.finished()
+            })
+            || self.computes.iter().any(|((held, _), cached)| {
+                held == bundle.bundle && cached.running() && !cached.finished()
+            });
         let cells = self.publish_computes(
             bundle,
             (computes, live_computes),
             (&mut gpu, &mut memory),
             (&mut compiled, claimed),
+            &mut busy,
         );
         let mut entries: Vec<(u32, Cached)> = Vec::new();
         for (&id, declared) in bundle.world.materials() {
@@ -471,13 +487,12 @@ impl WorldMaterialPresenter {
         for (_, cached) in &mut entries {
             cached.settle();
         }
-        // One job runs per bundle, counting superseded ones until they return; with none
-        // running the oldest unmeasured attempt measures next, so churning one material never
-        // starves another, and work that finishes at once lets the next one start.
-        let mut busy = self
-            .orphans
-            .iter()
-            .any(|(owner, _)| *owner == (self.run, bundle.bundle.to_owned()))
+        // One job runs per bundle, counting superseded ones until they return and a compute
+        // validating; with none running the oldest unmeasured attempt measures next, so
+        // churning one material never starves another, and work that finishes at once lets
+        // the next one start.
+        let mut busy = busy
+            || self.orphans.iter().any(|(job, _)| *job == owner)
             || entries.iter().any(|(_, cached)| cached.running());
         while !busy
             && let Some(oldest) = (0..entries.len())

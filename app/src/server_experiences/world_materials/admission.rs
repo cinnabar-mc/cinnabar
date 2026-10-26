@@ -52,7 +52,7 @@ pub(super) struct Pending<T> {
 
 impl<T> Pending<T> {
     /// Takes the result if the job finished.
-    fn take(&mut self) -> Option<T> {
+    pub(super) fn take(&mut self) -> Option<T> {
         self.result
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -60,7 +60,7 @@ impl<T> Pending<T> {
     }
 
     /// Whether the job's result arrived and awaits [`Self::take`].
-    fn ready(&self) -> bool {
+    pub(super) fn ready(&self) -> bool {
         self.result
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -68,7 +68,7 @@ impl<T> Pending<T> {
     }
 
     /// Tells the job to stop and returns the flag that clears once it really has.
-    fn abandon(self) -> Arc<AtomicBool> {
+    pub(super) fn abandon(self) -> Arc<AtomicBool> {
         self.cancel.store(true, Ordering::Release);
         self.alive
     }
@@ -101,7 +101,7 @@ impl Executor {
     /// Starts `job`, handing it the cancel flag it checks between steps. A finished job
     /// publishes its result, then clears its alive flag, then counts itself in `done`, so
     /// whoever sees either signal finds the result already there.
-    fn spawn<T: Send + 'static>(
+    pub(super) fn spawn<T: Send + 'static>(
         &self,
         job: impl FnOnce(&AtomicBool) -> T + Send + 'static,
         done: &Arc<AtomicU64>,
