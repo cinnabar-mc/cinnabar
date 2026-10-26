@@ -1,4 +1,4 @@
-//! Creative rows remain immutable until the catalog, names, selected groups or icons change.
+//! Creative rows remain immutable until the catalog, names, selected groups or icon slots change.
 //! Other books reuse their rows while every row's shown inputs stay the same.
 
 use std::{
@@ -19,7 +19,6 @@ use {
 pub struct BookCache {
     inputs: Inputs,
     first_icon: usize,
-    icons: Vec<IconRef>,
     items: Arc<[CollectionItem]>,
 }
 
@@ -29,6 +28,7 @@ enum Inputs {
     Rows {
         creative: bool,
         rows: Vec<RowKey>,
+        icons: Vec<IconRef>,
     },
 }
 
@@ -49,7 +49,7 @@ struct CreativeInputs {
     registry: Option<Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,
     name_generation: u64,
     expanded: BTreeSet<u32>,
-    source_icons: Vec<Option<IconRef>>,
+    icon_slots: Vec<bool>,
 }
 
 impl BookCache {
@@ -77,7 +77,14 @@ impl BookCache {
         if cache.first_icon != icons.len() || !cached.matches(source, catalog, frame) {
             return false;
         }
-        icons.extend_from_slice(&cache.icons);
+        icons.extend(
+            frame
+                .book_entries
+                .iter()
+                .take(cache.items.len())
+                .flatten()
+                .copied(),
+        );
         data.set_shared_collection(COLLECTION, Arc::clone(&cache.items));
         true
     }
@@ -96,6 +103,7 @@ impl BookCache {
         let Inputs::Rows {
             creative: cached_creative,
             rows: cached,
+            icons: cached_icons,
         } = &cache.inputs
         else {
             return false;
@@ -107,7 +115,7 @@ impl BookCache {
         {
             return false;
         }
-        icons.extend_from_slice(&cache.icons);
+        icons.extend_from_slice(cached_icons);
         data.set_shared_collection(COLLECTION, Arc::clone(&cache.items));
         true
     }
@@ -121,9 +129,12 @@ impl BookCache {
         items: &Arc<[CollectionItem]>,
     ) -> Self {
         Self {
-            inputs: Inputs::Rows { creative, rows },
+            inputs: Inputs::Rows {
+                creative,
+                rows,
+                icons: icons[first_icon..].to_vec(),
+            },
             first_icon,
-            icons: icons[first_icon..].to_vec(),
             items: Arc::clone(items),
         }
     }
@@ -132,7 +143,6 @@ impl BookCache {
         source: &dyn ContainerSource,
         frame: &ContainerFrame<'_>,
         first_icon: usize,
-        icons: &[IconRef],
         items: &Arc<[CollectionItem]>,
     ) -> Option<Self> {
         let catalog = Self::eligible(source)?;
@@ -150,10 +160,9 @@ impl BookCache {
                     .cloned(),
                 name_generation: source.item_name_generation(),
                 expanded: state.creative_expanded.clone(),
-                source_icons: frame.book_entries.to_vec(),
+                icon_slots: frame.book_entries.iter().map(Option::is_some).collect(),
             })),
             first_icon,
-            icons: icons[first_icon..].to_vec(),
             items: Arc::clone(items),
         })
     }
@@ -177,7 +186,11 @@ impl CreativeInputs {
             )
             && self.name_generation == source.item_name_generation()
             && self.expanded == *state.creative_expanded
-            && self.source_icons[..] == *frame.book_entries
+            && self
+                .icon_slots
+                .iter()
+                .copied()
+                .eq(frame.book_entries.iter().map(Option::is_some))
     }
 }
 
