@@ -20,6 +20,9 @@ pub(in crate::chunk) struct WorldTerrainSections {
     /// Per view: its sections still drawing their Bedrock fallback, whose tagged translucent
     /// model draws the transparent queue draws as Bedrock in their ordinary translucent order.
     bedrock: HashMap<Entity, HashSet<Entity>>,
+    /// Whether a section's mesh may still carry a tag: set while any material is published,
+    /// cleared once none is and no section's mesh carries a tag.
+    tagged: bool,
 }
 
 impl WorldTerrainSections {
@@ -31,6 +34,39 @@ impl WorldTerrainSections {
     /// Takes `view`'s sections queued this frame with their Bedrock fallback.
     pub(in crate::chunk) fn take_bedrock(&mut self, view: Entity) -> HashSet<Entity> {
         self.bedrock.remove(&view).unwrap_or_default()
+    }
+
+    /// Whether this frame queues the world material terrain passes: while any material is
+    /// published, and after the last is revoked until no section's mesh carries a tag, so a
+    /// mesh tagged before revocation draws its Bedrock fallback until its remesh replaces it
+    /// rather than vanishing. Without materials it rescans every section in `all`, each with
+    /// its mesh generation, not only the visible ones; `mask_of` reads a section's slot mask.
+    fn queueing(
+        &mut self,
+        has_materials: bool,
+        all: impl Iterator<Item = (Entity, u64)>,
+        mask_of: impl Fn(Entity) -> u64,
+    ) -> bool {
+        if has_materials {
+            self.tagged = true;
+            return true;
+        }
+        if self.tagged {
+            let mut masks = HashMap::new();
+            for (entity, generation) in all {
+                let mask = match self.masks.get(&entity) {
+                    Some((cached, mask)) if *cached == generation => *mask,
+                    _ => mask_of(entity),
+                };
+                masks.insert(entity, (generation, mask));
+            }
+            self.masks = masks;
+            self.tagged = self.masks.values().any(|(_, mask)| *mask != 0);
+        }
+        if !self.tagged {
+            self.masks.clear();
+        }
+        self.tagged
     }
 }
 
@@ -138,7 +174,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
     mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<super::super::draw::ChunkViewQuery>,
-    instances: Query<&ChunkRenderInstance>,
+    instances: Query<(Entity, &ChunkRenderInstance)>,
     pack: render_scene::shaderpack::ShaderPackDrawnViews,
     failures: Option<Res<render_scene::world_material::WorldMaterialFailures>>,
 ) {
@@ -146,10 +182,21 @@ pub(in crate::chunk) fn queue_world_material_chunks(
     sections.views.clear();
     sections.translucent.clear();
     sections.bedrock.clear();
-    let Some(world) = world.filter(|world| world.has_materials()) else {
+    let Some(world) = world else {
         sections.masks.clear();
         return;
     };
+    let all = instances
+        .iter()
+        .map(|(entity, instance)| (entity, instance.generation));
+    let mask_of = |entity| {
+        instances
+            .get(entity)
+            .map_or(0, |(_, instance)| slot_mask(instance))
+    };
+    if !sections.queueing(world.has_materials(), all, mask_of) {
+        return;
+    }
     let opaque_draw = draw_functions
         .read()
         .id::<DrawWorldMaterialTerrainCommands>();
@@ -163,7 +210,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
             .into_iter()
             .flat_map(|class| class.iter_visible())
         {
-            let Ok(instance) = instances.get(*entity) else {
+            let Ok((_, instance)) = instances.get(*entity) else {
                 continue;
             };
             let mask = match sections.masks.get(entity) {
@@ -437,6 +484,34 @@ mod tests {
             plan.bedrock,
             HashSet::from([section(2)]),
             "the translucent pass draws the unready sections' translucent models as Bedrock"
+        );
+    }
+
+    #[test]
+    fn revoked_materials_keep_queueing_the_fallback_until_no_mesh_carries_a_tag() {
+        let section = |index| Entity::from_raw_u32(index).unwrap();
+        let mut sections = WorldTerrainSections::default();
+        let none = std::iter::empty();
+        assert!(
+            !sections.queueing(false, none, |_| 0),
+            "a session without world materials queues nothing"
+        );
+        assert!(sections.queueing(true, std::iter::empty(), |_| 0));
+        // Revoked: section 1's mesh still carries its tag, section 2's is already untagged.
+        let stale = |entity| if entity == section(1) { 0b1 } else { 0 };
+        let all = || [(section(1), 7), (section(2), 3)].into_iter();
+        assert!(
+            sections.queueing(false, all(), stale),
+            "a stale tagged mesh draws its Bedrock fallback instead of vanishing"
+        );
+        let plan = plan_view(vec![(section(1), 0b1)], |_| false, |_| None);
+        assert_eq!(plan.bedrock, HashSet::from([section(1)]));
+        // Its remesh lands untagged, so the passes stop queueing.
+        let remeshed = || [(section(1), 8), (section(2), 3)].into_iter();
+        assert!(!sections.queueing(false, remeshed(), |_| 0));
+        assert!(
+            !sections.queueing(false, remeshed(), stale),
+            "and stay stopped"
         );
     }
 }
