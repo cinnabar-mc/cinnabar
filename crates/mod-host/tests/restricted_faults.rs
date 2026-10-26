@@ -19,6 +19,10 @@ const PROBE: &str = "probe-op:";
 
 /// Whether this system can lock a helper down. Otherwise it prints the missing feature, and
 /// the calling test skips.
+#[expect(
+    clippy::print_stderr,
+    reason = "a missing kernel feature must report why the test skips"
+)]
 fn lockdown_supported() -> bool {
     match missing_feature() {
         None => true,
