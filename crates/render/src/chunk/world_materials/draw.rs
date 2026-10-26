@@ -2,18 +2,20 @@
 
 use super::*;
 use bevy::ecs::system::lifetimeless::SQuery;
+use bevy::prelude::{Changed, RemovedComponents};
 use bevy::render::render_resource::CachedRenderPipelineId;
 use bevy::shader::Shader;
 use std::collections::{HashMap, HashSet};
 
-/// World material slots each section carries, by entity and mesh generation, so a section is
-/// scanned once per mesh, and the sections each view draws this frame.
+/// World material slots each section carries, kept from the sections whose mesh changed or
+/// that went away, so a section is scanned once per mesh and no frame walks every section,
+/// and the sections each view draws this frame.
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct WorldTerrainSections {
-    /// Each section's mesh generation, slot mask and the refresh that last saw it.
-    masks: HashMap<Entity, (u64, u64, bool)>,
-    /// Flips each refresh, so sections a refresh did not see are dropped without a new map.
-    stamp: bool,
+    /// Each tagged section's slot mask.
+    masks: HashMap<Entity, u64>,
+    /// How many sections carry each slot.
+    counts: SlotCounts,
     /// Per view: the sections it draws, with their slot masks, and its cube and model fallback
     /// pipelines.
     views: HashMap<Entity, ViewDraws>,
@@ -23,11 +25,6 @@ pub(in crate::chunk) struct WorldTerrainSections {
     /// Per view: its sections still drawing their Bedrock fallback, whose tagged translucent
     /// model draws the transparent queue draws as Bedrock in their ordinary translucent order.
     bedrock: HashMap<Entity, HashSet<Entity>>,
-    /// Whether a section's mesh may still carry a tag: set while any material is published,
-    /// cleared once none is and no section's mesh carries a tag.
-    tagged: bool,
-    /// The slots resident meshes carry, one bit each.
-    carried: u64,
 }
 
 impl WorldTerrainSections {
@@ -41,47 +38,63 @@ impl WorldTerrainSections {
         self.bedrock.remove(&view).unwrap_or_default()
     }
 
+    /// Records the slot masks of `changed` sections, each with the mask its new mesh carries,
+    /// and forgets the `removed` ones.
+    fn track(
+        &mut self,
+        changed: impl IntoIterator<Item = (Entity, u64)>,
+        removed: impl IntoIterator<Item = Entity>,
+    ) {
+        for (entity, mask) in changed {
+            let previous = if mask == 0 {
+                self.masks.remove(&entity)
+            } else {
+                self.masks.insert(entity, mask)
+            };
+            self.count(previous.unwrap_or(0), mask);
+        }
+        for entity in removed {
+            if let Some(previous) = self.masks.remove(&entity) {
+                self.count(previous, 0);
+            }
+        }
+    }
+
+    /// Moves one section's slot counts from `previous` to `mask`.
+    fn count(&mut self, previous: u64, mask: u64) {
+        for slot in slots(previous) {
+            self.counts.0[usize::from(slot)] -= 1;
+        }
+        for slot in slots(mask) {
+            self.counts.0[usize::from(slot)] += 1;
+        }
+    }
+
+    /// The slots resident meshes carry, one bit each.
+    pub(in crate::chunk) fn carried(&self) -> u64 {
+        self.counts
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count != 0)
+            .fold(0, |carried, (slot, _)| carried | 1 << slot)
+    }
+
     /// Whether this frame queues the world material terrain passes: while any material is
     /// published, and after the last is revoked until no section's mesh carries a tag, so a
     /// mesh tagged before revocation draws its Bedrock fallback until its remesh replaces it
-    /// rather than vanishing. Meanwhile it keeps every section's slot mask of `all` (each with
-    /// its mesh generation) current, reading a changed one with `mask_of`, and records the
-    /// slots they carry; a session that never published a material scans nothing.
-    fn queueing(
-        &mut self,
-        has_materials: bool,
-        all: impl Iterator<Item = (Entity, u64)>,
-        mask_of: impl Fn(Entity) -> u64,
-    ) -> bool {
-        if !has_materials && !self.tagged {
-            return false;
-        }
-        self.stamp = !self.stamp;
-        let stamp = self.stamp;
-        let mut carried = 0;
-        for (entity, generation) in all {
-            let entry = self
-                .masks
-                .entry(entity)
-                .or_insert_with(|| (generation, mask_of(entity), stamp));
-            if entry.0 != generation {
-                *entry = (generation, mask_of(entity), stamp);
-            }
-            entry.2 = stamp;
-            carried |= entry.1;
-        }
-        self.masks.retain(|_, (_, _, seen)| *seen == stamp);
-        self.carried = carried;
-        self.tagged = has_materials || carried != 0;
-        if !self.tagged {
-            self.masks.clear();
-        }
-        self.tagged
+    /// rather than vanishing.
+    fn queueing(&self, has_materials: bool) -> bool {
+        has_materials || self.counts.0.iter().any(|count| *count != 0)
     }
+}
 
-    /// The slots resident meshes carried at the last refresh, one bit each.
-    pub(in crate::chunk) fn carried(&self) -> u64 {
-        if self.tagged { self.carried } else { 0 }
+/// How many sections carry each of the 64 slots a mask names.
+struct SlotCounts([u32; 64]);
+
+impl Default for SlotCounts {
+    fn default() -> Self {
+        Self([0; 64])
     }
 }
 
@@ -177,6 +190,12 @@ pub(in crate::chunk) fn ready<'w>(
     Some((cache.get_render_pipeline(id)?, group, variant))
 }
 
+/// The sections whose mesh changed since the queue last ran, and those that went away.
+type SectionChanges<'w, 's> = (
+    Query<'w, 's, (Entity, &'static ChunkRenderInstance), Changed<ChunkRenderInstance>>,
+    RemovedComponents<'w, 's, ChunkRenderInstance>,
+);
+
 /// Queues the opaque world material item of each view that sees a tagged section, and records
 /// the view's sections whose translucent materials are ready, which the transparent queue
 /// draws merged into their ordinary translucent order.
@@ -189,7 +208,8 @@ pub(in crate::chunk) fn queue_world_material_chunks(
     mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<super::super::draw::ChunkViewQuery>,
-    instances: Query<(Entity, &ChunkRenderInstance)>,
+    instances: Query<&ChunkRenderInstance>,
+    (changed, mut removed): SectionChanges,
     pack: render_scene::shaderpack::ShaderPackDrawnViews,
     (failures, carried): (
         Option<Res<render_scene::world_material::WorldMaterialFailures>>,
@@ -200,17 +220,18 @@ pub(in crate::chunk) fn queue_world_material_chunks(
     sections.views.clear();
     sections.translucent.clear();
     sections.bedrock.clear();
+    // Only sections whose mesh changed are scanned; every frame reads the removals.
+    sections.track(
+        changed
+            .iter()
+            .map(|(entity, instance)| (entity, slot_mask(instance))),
+        removed.read(),
+    );
+    if let Some(carried) = carried.as_deref() {
+        carried.set(sections.carried());
+    }
     let Some(world) = world else {
-        sections.masks.clear();
         return;
-    };
-    let all = instances
-        .iter()
-        .map(|(entity, instance)| (entity, instance.generation));
-    let mask_of = |entity| {
-        instances
-            .get(entity)
-            .map_or(0, |(_, instance)| slot_mask(instance))
     };
     let pipeline = &mut *pipeline;
     crate::world_material::prune_pipelines(
@@ -219,11 +240,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
         &world,
         |key| key.world.program,
     );
-    let queueing = sections.queueing(world.has_materials(), all, mask_of);
-    if let Some(carried) = carried.as_deref() {
-        carried.set(sections.carried());
-    }
-    if !queueing {
+    if !sections.queueing(world.has_materials()) {
         return;
     }
     let opaque_draw = draw_functions
@@ -239,13 +256,10 @@ pub(in crate::chunk) fn queue_world_material_chunks(
             .into_iter()
             .flat_map(|class| class.iter_visible())
         {
-            let Ok((_, instance)) = instances.get(*entity) else {
+            if !instances.contains(*entity) {
                 continue;
-            };
-            let mask = match sections.masks.get(entity) {
-                Some((generation, mask, _)) if *generation == instance.generation => *mask,
-                _ => slot_mask(instance),
-            };
+            }
+            let mask = sections.masks.get(entity).copied().unwrap_or(0);
             if mask != 0 {
                 draws.push((*entity, mask));
             }
@@ -513,44 +527,50 @@ mod tests {
     fn revoked_materials_keep_queueing_the_fallback_until_no_mesh_carries_a_tag() {
         let section = |index| Entity::from_raw_u32(index).unwrap();
         let mut sections = WorldTerrainSections::default();
-        let scanned = &std::cell::Cell::new(0);
-        let count = |mask: u64| {
-            move |_| {
-                scanned.set(scanned.get() + 1);
-                mask
-            }
-        };
         assert!(
-            !sections.queueing(false, [(section(1), 1)].into_iter(), count(0b1)),
+            !sections.queueing(false),
             "a session without world materials queues nothing"
         );
-        assert_eq!(scanned.get(), 0, "and scans no section");
-        // Section 1 carries slot 0 and section 2 carries nothing.
-        let stale = |entity| if entity == section(1) { 0b1 } else { 0 };
-        let all = || [(section(1), 7), (section(2), 3)].into_iter();
-        assert!(sections.queueing(true, all(), stale));
-        assert_eq!(sections.carried(), 0b1);
-        // Revoked: section 1's mesh still carries its tag.
+        // Sections 1 and 2 both carry slot 0; section 2 also carries slot 3.
+        sections.track([(section(1), 0b1), (section(2), 0b1001)], []);
+        assert_eq!(sections.carried(), 0b1001);
+        // Revoked: their meshes still carry the tags.
         assert!(
-            sections.queueing(false, all(), stale),
+            sections.queueing(false),
             "a stale tagged mesh draws its Bedrock fallback instead of vanishing"
         );
         let plan = plan_view(vec![(section(1), 0b1)], |_| false, |_| None);
         assert_eq!(plan.bedrock, HashSet::from([section(1)]));
-        // An unchanged mesh is not scanned again.
-        scanned.set(0);
-        assert!(sections.queueing(false, all(), count(0b1)));
-        assert_eq!(scanned.get(), 0);
-        // Its remesh lands untagged, so the passes stop queueing and nothing is carried.
-        let remeshed = || [(section(1), 8), (section(2), 3)].into_iter();
-        assert!(!sections.queueing(false, remeshed(), |_| 0));
+        // Section 2 remeshes untagged; slot 0 stays carried by section 1.
+        sections.track([(section(2), 0)], []);
+        assert_eq!(sections.carried(), 0b1);
+        // Section 1 goes away, so nothing is carried and the passes stop queueing.
+        sections.track([], [section(1)]);
         assert_eq!(sections.carried(), 0);
-        assert!(
-            !sections.queueing(false, remeshed(), stale),
-            "and stay stopped"
-        );
-        // A despawned section's mask goes with it.
-        assert!(sections.queueing(true, [(section(2), 3)].into_iter(), stale));
-        assert_eq!(sections.masks.len(), 1);
+        assert!(!sections.queueing(false));
+        assert!(sections.masks.is_empty());
+    }
+
+    #[test]
+    fn a_withdrawn_upload_never_reaches_the_renderer_while_other_uploads_stay() {
+        use render_scene::{ChunkRenderQueue, ChunkUploadPriority};
+        let mut queue = ChunkRenderQueue::default();
+        let (tagged, other) = (SubChunkKey::new(0, 0, 0, 0), SubChunkKey::new(0, 1, 0, 0));
+        for key in [tagged, other] {
+            queue
+                .try_insert(
+                    key,
+                    crate::chunk::tests::solid_test_mesh(),
+                    ChunkUploadPriority::new(0.0),
+                )
+                .unwrap();
+        }
+        let other_bytes = render_scene::chunk::pending_upload_byte_len(&queue.pending[&other]);
+        // A world material tag change withdraws the section still carrying the old tag.
+        queue.withdraw_uploads([tagged]);
+        assert!(!queue.pending.contains_key(&tagged));
+        assert!(!queue.render_manifest.contains_key(&tagged));
+        assert!(queue.pending.contains_key(&other));
+        assert_eq!(queue.pending_bytes, other_bytes);
     }
 }
