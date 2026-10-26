@@ -17,7 +17,7 @@ use std::{
     io::Cursor,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -39,44 +39,92 @@ pub(super) enum Executor {
     Held(Arc<Mutex<Vec<Job>>>),
 }
 
-/// A running job's result, taken once it finishes. Dropping a pool job's handle cancels it.
-pub(super) enum Pending<T> {
+/// Where a job's result arrives.
+enum Result_<T> {
     Task(bevy::tasks::Task<T>),
     #[cfg(test)]
     Slot(Arc<Mutex<Option<T>>>),
 }
 
+/// A running job: its result, taken once it finishes, and the flags it shares with the job.
+/// Dropping a pool job's handle cancels it only if it has not started; a started job runs
+/// until it returns, which its alive flag reports.
+pub(super) struct Pending<T> {
+    result: Result_<T>,
+    /// Set until the job returns, or is dropped without running.
+    alive: Arc<AtomicBool>,
+    /// Tells the job it is superseded, so it stops at its next step.
+    cancel: Arc<AtomicBool>,
+}
+
 impl<T> Pending<T> {
     /// Takes the result if the job finished.
     fn take(&mut self) -> Option<T> {
-        match self {
-            Pending::Task(task) => bevy::tasks::futures::check_ready(task),
+        match &mut self.result {
+            Result_::Task(task) => bevy::tasks::futures::check_ready(task),
             #[cfg(test)]
-            Pending::Slot(slot) => slot.lock().unwrap_or_else(PoisonError::into_inner).take(),
+            Result_::Slot(slot) => slot.lock().unwrap_or_else(PoisonError::into_inner).take(),
         }
+    }
+
+    /// Tells the job to stop and returns the flag that clears once it really has.
+    fn abandon(self) -> Arc<AtomicBool> {
+        self.cancel.store(true, Ordering::Release);
+        self.alive
+    }
+}
+
+/// Clears a job's alive flag when the job returns or is dropped unrun.
+struct Alive(Arc<AtomicBool>);
+
+impl Drop for Alive {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// A superseded job still running, whose bundle starts nothing new and whose charge stays
+/// reserved until it returns.
+pub(super) struct Orphan {
+    pub alive: Arc<AtomicBool>,
+    pub charge: Charge,
+}
+
+impl Orphan {
+    /// Whether the job still runs.
+    pub(super) fn alive(&self) -> bool {
+        self.alive.load(Ordering::Acquire)
     }
 }
 
 impl Executor {
-    /// Starts `job`; `done` counts it when it finishes.
+    /// Starts `job`, handing it the cancel flag it checks between steps; `done` counts it
+    /// when it finishes.
     fn spawn<T: Send + 'static>(
         &self,
-        job: impl FnOnce() -> T + Send + 'static,
+        job: impl FnOnce(&AtomicBool) -> T + Send + 'static,
         done: &Arc<AtomicU64>,
     ) -> Pending<T> {
-        let done = Arc::clone(done);
+        let alive = Arc::new(AtomicBool::new(true));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (done, guard, flag) = (
+            Arc::clone(done),
+            Alive(Arc::clone(&alive)),
+            Arc::clone(&cancel),
+        );
         let job = move || {
-            let result = job();
+            let _guard = guard;
+            let result = job(&flag);
             done.fetch_add(1, Ordering::Release);
             result
         };
-        match self {
-            Executor::Pool => Pending::Task(
+        let result = match self {
+            Executor::Pool => Result_::Task(
                 bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default)
                     .spawn(async move { job() }),
             ),
             #[cfg(test)]
-            Executor::Inline => Pending::Slot(Arc::new(Mutex::new(Some(job())))),
+            Executor::Inline => Result_::Slot(Arc::new(Mutex::new(Some(job())))),
             #[cfg(test)]
             Executor::Held(held) => {
                 let slot = Arc::new(Mutex::new(None));
@@ -86,8 +134,13 @@ impl Executor {
                     .push(Box::new(move || {
                         *filled.lock().unwrap_or_else(PoisonError::into_inner) = Some(job());
                     }));
-                Pending::Slot(slot)
+                Result_::Slot(slot)
             }
+        };
+        Pending {
+            result,
+            alive,
+            cancel,
         }
     }
 }
@@ -138,6 +191,8 @@ pub(super) enum Fit {
 /// A declaration's last outcome, kept while its program is unchanged.
 pub(super) struct Cached {
     pub spec: WorldMaterialSpec,
+    /// Its superseded jobs still running, which the presenter takes with [`Self::orphans`].
+    abandoned: Vec<Orphan>,
     /// Numbers this admission attempt, so a failure is reported once per attempt; it is also
     /// the material's key, and a newer attempt's job replaces an older one's.
     pub attempt: u64,
@@ -149,6 +204,7 @@ impl Cached {
     pub(super) fn new(spec: &WorldMaterialSpec, attempt: u64) -> Self {
         Self {
             spec: spec.clone(),
+            abandoned: Vec::new(),
             attempt,
             outcome: Outcome::Unmeasured,
         }
@@ -182,8 +238,10 @@ impl Cached {
             self.spec.textures.clone(),
             Arc::clone(files),
         );
-        self.outcome =
-            Outcome::Measuring(executor.spawn(move || measure(&source, &textures, &files), done));
+        self.outcome = Outcome::Measuring(executor.spawn(
+            move |cancel| measure(&source, &textures, &files, cancel),
+            done,
+        ));
         self.settle();
     }
 
@@ -198,19 +256,45 @@ impl Cached {
             return;
         };
         let (textures, files) = (self.spec.textures.clone(), Arc::clone(files));
-        let job = executor.spawn(move || decode_all(&textures, &files).map(Arc::from), done);
+        let job = executor.spawn(
+            move |cancel| decode_all(&textures, &files, cancel).map(Arc::from),
+            done,
+        );
         self.outcome = Outcome::Decoding(measured.clone(), job);
         self.settle();
     }
 
-    /// Cancels its running job: dropping the handle stops a pool job, and the attempt goes back
-    /// to the step that job was taking.
+    /// Abandons its running job, which stops at its next step: the attempt goes back to the
+    /// step that job was taking, and the job stays an orphan, its decode charged, until it
+    /// returns.
     pub(super) fn cancel(&mut self) {
-        self.outcome = match std::mem::replace(&mut self.outcome, Outcome::Unmeasured) {
-            Outcome::Measuring(_) => Outcome::Unmeasured,
-            Outcome::Decoding(measured, _) => Outcome::Waiting(measured),
-            other => other,
-        };
+        let (alive, charge, outcome) =
+            match std::mem::replace(&mut self.outcome, Outcome::Unmeasured) {
+                Outcome::Measuring(job) => (
+                    job.abandon(),
+                    Charge { gpu: 0, memory: 0 },
+                    Outcome::Unmeasured,
+                ),
+                Outcome::Decoding(measured, job) => (
+                    job.abandon(),
+                    Charge {
+                        gpu: measured.texels,
+                        memory: measured.texels,
+                    },
+                    Outcome::Waiting(measured),
+                ),
+                other => {
+                    self.outcome = other;
+                    return;
+                }
+            };
+        self.outcome = outcome;
+        self.abandoned.push(Orphan { alive, charge });
+    }
+
+    /// Takes its abandoned jobs that may still run.
+    pub(super) fn orphans(&mut self) -> Vec<Orphan> {
+        std::mem::take(&mut self.abandoned)
     }
 
     /// The identity of the pipelines this material compiles, once measured.
@@ -257,6 +341,7 @@ impl Cached {
             None
         };
         if let Some(reason) = refusal {
+            self.cancel();
             self.outcome = Outcome::Waiting(measured);
             return Fit::Refused(reason.into());
         }
@@ -325,7 +410,15 @@ fn depth(depth: WorldDepth) -> Depth {
 
 /// Validates the shader again and reads the declared textures' sizes from their headers,
 /// decoding nothing; the helper's validation is not trusted.
-fn measure(source: &str, textures: &[String], files: &Files) -> Result<Measured, String> {
+fn measure(
+    source: &str,
+    textures: &[String],
+    files: &Files,
+    cancel: &AtomicBool,
+) -> Result<Measured, String> {
+    if cancel.load(Ordering::Acquire) {
+        return Err(SUPERSEDED.into());
+    }
     let material = abi::compose(source, textures.len())?;
     let mut texels = 0_u64;
     for path in textures {
@@ -349,11 +442,21 @@ fn signed<'a>(path: &str, files: &'a Files) -> Result<&'a [u8], String> {
         .ok_or_else(|| format!("{path} is not a signed texture"))
 }
 
-/// Decodes every texture of `paths`.
-fn decode_all(paths: &[String], files: &Files) -> Result<Vec<Texture>, String> {
+/// Why a superseded job stopped early.
+const SUPERSEDED: &str = "superseded";
+
+/// Decodes every texture of `paths`, stopping before the next one once `cancel` is set.
+pub(super) fn decode_all(
+    paths: &[String],
+    files: &Files,
+    cancel: &AtomicBool,
+) -> Result<Vec<Texture>, String> {
     paths
         .iter()
         .map(|path| {
+            if cancel.load(Ordering::Acquire) {
+                return Err(SUPERSEDED.into());
+            }
             decode(signed(path, files)?).ok_or_else(|| format!("{path} is not a bounded PNG"))
         })
         .collect()

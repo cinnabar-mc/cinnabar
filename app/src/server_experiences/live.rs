@@ -601,6 +601,11 @@ impl<H: Worker> Live<H> {
         Some(&self.screens)
     }
 
+    /// The pinned key of the server this runtime's grant came from.
+    pub(super) fn server_key(&self) -> &str {
+        &self.grant.offer.offer.server_key
+    }
+
     /// This runtime's identity and a revision that changes whenever any client part's world
     /// material declarations may have changed, and only then.
     pub(super) fn world_contribution(&self) -> (u64, u64) {
