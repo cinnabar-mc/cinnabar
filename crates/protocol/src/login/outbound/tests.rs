@@ -588,7 +588,6 @@ async fn sent_attacks_and_mouseovers_keep_their_matching_frozen_picks_once() {
     assert_eq!(decoded.len(), 3);
     drop(outbound);
     drop(session);
-    drop(writer);
     let capture = std::sync::Arc::try_unwrap(tap)
         .ok()
         .unwrap()
