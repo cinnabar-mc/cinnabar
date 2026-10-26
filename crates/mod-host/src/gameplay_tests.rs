@@ -1,6 +1,6 @@
 use super::*;
-use crate::ModGrants;
-use cinnabar::extension::{events::Host as _, gameplay::Host as _};
+use crate::{DamageShake, ModGrants};
+use cinnabar::extension::{camera::Host as _, events::Host as _, gameplay::Host as _};
 
 /// Intents need movement authority and focused gameplay, commit atomically and expire each frame.
 #[test]
@@ -44,6 +44,7 @@ fn camera_and_relayed_position_reads_follow_their_grants() {
     };
     let facts = GameplayFacts {
         camera: Some(camera),
+        damage_shake: None,
         relayed_position: Some(vector(4.0, 64.0, 6.0)),
         use_held: false,
     };
@@ -87,6 +88,52 @@ fn camera_and_relayed_position_reads_follow_their_grants() {
             ..facts
         },
     ] {
+        assert!(validate_facts(&invalid).is_err());
+    }
+    assert!(validate_facts(&facts).is_ok());
+}
+
+/// The damage shake needs the camera grant rather than a pose grant, stays readable while a
+/// menu owns input, reads none while idle and must be finite to reach a guest.
+#[test]
+fn damage_shake_read_needs_the_camera_grant() {
+    let shake = DamageShake {
+        roll: -9.5,
+        pitch: 0.0,
+    };
+    let facts = GameplayFacts {
+        damage_shake: Some(shake),
+        ..Default::default()
+    };
+    let mut denied = state(ModGrants {
+        players: true,
+        terrain: true,
+        ..Default::default()
+    });
+    denied.gameplay_facts = facts;
+    assert_eq!(
+        denied.read_damage_shake().unwrap(),
+        Err("camera capability denied".into())
+    );
+    let mut granted = state(ModGrants {
+        camera: true,
+        ..Default::default()
+    });
+    granted.gameplay_facts = facts;
+    assert_eq!(granted.read_damage_shake().unwrap(), Ok(Some(shake)));
+    granted.snapshot = None;
+    assert_eq!(
+        granted.read_damage_shake().unwrap(),
+        Ok(Some(shake)),
+        "a menu owning input keeps the shake, as it keeps a tilt"
+    );
+    granted.gameplay_facts = GameplayFacts::default();
+    assert_eq!(granted.read_damage_shake().unwrap(), Ok(None), "idle");
+    for (roll, pitch) in [(f32::NAN, 0.0), (0.0, f32::INFINITY)] {
+        let invalid = GameplayFacts {
+            damage_shake: Some(DamageShake { roll, pitch }),
+            ..facts
+        };
         assert!(validate_facts(&invalid).is_err());
     }
     assert!(validate_facts(&facts).is_ok());

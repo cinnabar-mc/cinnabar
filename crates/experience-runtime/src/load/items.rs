@@ -68,6 +68,7 @@ pub(super) fn validate_items(
             display_name,
             icon,
             max_stack,
+            listed: true,
         });
     }
     Ok(checked)

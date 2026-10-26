@@ -153,6 +153,33 @@
           "count": 1,
           "data": "010000"
         }
+      },
+      {
+        "type": "pass_interaction"
+      },
+      {
+        "type": "set_container_slot",
+        "pos": {
+          "x": 12,
+          "y": 65,
+          "z": -7
+        },
+        "slot": 3,
+        "stack": {
+          "id": "minecraft:iron_ingot",
+          "metadata": 0,
+          "count": 8,
+          "data": null
+        }
+      },
+      {
+        "type": "set_redstone_power",
+        "pos": {
+          "x": 12,
+          "y": 64,
+          "z": -7
+        },
+        "power": 15
       }
     ]
   }

@@ -128,6 +128,7 @@ fn apply_touch_events(
 pub(crate) fn drive_gameplay_touch_targets(
     mut touches: ResMut<Touches>,
     touch_input: Option<Res<Messages<TouchInput>>>,
+    claimed: Option<Res<super::touch_pointer::UiTouchStarts>>,
     mut touch_cursor: Local<MessageCursor<TouchInput>>,
     mut ui: ResMut<UiRuntimeResource>,
     mut targets: ResMut<SemanticTouchTargets>,
@@ -174,13 +175,21 @@ pub(crate) fn drive_gameplay_touch_targets(
         cancel_mod_button_contacts(&mut state);
     }
     let size = [window.width().max(1.0), window.height().max(1.0)];
-    let events = events.iter().map(|event| {
-        let position = [
-            (event.position.x / size[0]).clamp(0.0, 1.0),
-            (event.position.y / size[1]).clamp(0.0, 1.0),
-        ];
-        (event.id, event.phase, position)
-    });
+    let events = events
+        .iter()
+        .filter(|event| {
+            event.phase != TouchPhase::Started
+                || !claimed
+                    .as_ref()
+                    .is_some_and(|claimed| claimed.0.contains(&event.id))
+        })
+        .map(|event| {
+            let position = [
+                (event.position.x / size[0]).clamp(0.0, 1.0),
+                (event.position.y / size[1]).clamp(0.0, 1.0),
+            ];
+            (event.id, event.phase, position)
+        });
     let TouchFrame {
         lifted,
         pressed,
@@ -535,6 +544,42 @@ mod tests {
             apply_touch_events(&mut state, [(3, TouchPhase::Ended, [0.75, 0.75])], controls)
                 .unwrap();
         assert!(outside.mod_taps.is_empty() && outside.lifted.is_empty());
+    }
+
+    /// Releasing over a mod button cannot transfer a gesture from its original control.
+    #[test]
+    fn mod_buttons_do_not_take_touches_started_elsewhere() {
+        let button = touch::mod_button(0).unwrap();
+        let other = touch::mod_button(1).unwrap();
+        let controls = |position: [f32; 2]| {
+            let (hit_id, min, max) = if position[0] < 0.25 {
+                (touch::JOYSTICK, [0., 0.], [0.25, 1.])
+            } else if position[0] < 0.5 {
+                (other, [0.25, 0.], [0.5, 1.])
+            } else if position[0] < 0.75 {
+                return None;
+            } else {
+                (button, [0.75, 0.], [1., 1.])
+            };
+            Some(TouchControlRegion {
+                hit_id,
+                bounds: TouchBounds { min, max },
+            })
+        };
+        for start in [[0.125, 0.5], [0.375, 0.5], [0.625, 0.5]] {
+            let mut state = TouchControlState::default();
+            apply_touch_events(&mut state, [(1, TouchPhase::Started, start)], controls).unwrap();
+            let frame = apply_touch_events(
+                &mut state,
+                [
+                    (1, TouchPhase::Moved, [0.875, 0.5]),
+                    (1, TouchPhase::Ended, [0.875, 0.5]),
+                ],
+                controls,
+            )
+            .unwrap();
+            assert!(frame.mod_taps.is_empty());
+        }
     }
 
     /// A finger held on a mod button is cancelled when the buttons change, while other fingers

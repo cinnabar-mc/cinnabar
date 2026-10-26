@@ -121,6 +121,8 @@ func visualCable(assets map[string]string) BlockDef {
 		ID:          "probe:cable",
 		DisplayName: "Probe Cable",
 		Mining:      Mining{Breakable: &Breakable{Hardness: 1}},
+		Drops:       DropsItself,
+		Item:        ItemListed,
 		States:      states,
 		Placement:   []PlacementState{PlacementFacingDirection},
 		Visual: &Visual{
@@ -466,6 +468,8 @@ func TestCubePermutationEmptyBones(t *testing.T) {
 	def := BlockDef{
 		ID: "probe:lamp", DisplayName: "Probe Lamp",
 		Mining:       Mining{Breakable: &Breakable{Hardness: 1}},
+		Drops:        DropsItself,
+		Item:         ItemListed,
 		States:       []StateDef{boolState("on")},
 		Visual:       &Visual{Materials: []Material{{Instance: allFaces, Path: assets["counter.png"], RenderMethod: RenderOpaque}}},
 		Permutations: []Permutation{{When: Condition{{is("on", true)}}, Bones: &bones}},
@@ -500,6 +504,7 @@ func TestZeroRotationAfterPermutation(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			def := BlockDef{ID: "probe:lamp", DisplayName: "Probe Lamp", Mining: Mining{Breakable: &Breakable{Hardness: 1}}, States: []StateDef{boolState("on")},
+				Drops: DropsItself, Item: ItemListed,
 				Visual:       &Visual{Materials: []Material{{Instance: allFaces, Path: assets["counter.png"], RenderMethod: RenderOpaque}}},
 				Permutations: []Permutation{{When: Condition{{is("on", true)}}, Rotation: &QuarterTurns{Y: 1}}, {When: c.when, Rotation: &QuarterTurns{}}},
 			}

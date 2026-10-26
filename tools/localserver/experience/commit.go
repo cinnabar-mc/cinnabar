@@ -113,6 +113,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	if err := slotsCurrent(actor, snap, plan.slots); err != nil {
 		return nil, err
 	}
+	if err := containersCurrent(tx, snap, plan.containers); err != nil {
+		return nil, err
+	}
 	if err := h.validateEntities(tx, exp, ev, snap, actor, ops); err != nil {
 		return nil, err
 	}
@@ -179,6 +182,14 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 			h.log.Error("validated slot write failed", "experience", exp, "slot", w.slot, "error", err)
 		}
 	}
+	for _, w := range plan.containers {
+		if err := w.inv.SetItem(w.slot, w.stack); err != nil {
+			h.log.Error("validated container write failed", "experience", exp, "pos", w.pos, "slot", w.slot, "error", err)
+		}
+	}
+	for _, w := range plan.powers {
+		h.applyPower(tx, exp, ev.instance, w)
+	}
 	for _, drop := range plan.drops {
 		tx.AddEntity(entity.NewItem(world.EntitySpawnOpts{Position: drop.pos.Vec3Centre()}, drop.stack))
 	}
@@ -193,6 +204,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
 	}
 	h.applyEntities(tx, exp, ev, actor, ops)
+	if plan.pass {
+		passInteraction(actor, ev)
+	}
 	var sends []*SendClientOp
 	for _, op := range ops {
 		switch {
@@ -269,7 +283,8 @@ type itemDrop struct {
 }
 
 // commitPlan is what validate found the ops to write, in their order. overlays holds the
-// checked overlay list of each set_overlays op, by the op's index.
+// checked overlay list of each set_overlays op, by the op's index; pass is set when the result
+// passes its interaction's click on.
 type commitPlan struct {
 	writes   []dataWrite
 	slots    []slotWrite
@@ -277,6 +292,11 @@ type commitPlan struct {
 	updates  []*ScheduleUpdateOp
 	states   []stateWrite
 	overlays map[int]*overlayList
+	pass     bool
+	// containers are the validated set_container_slot ops, in their order.
+	containers []containerWrite
+	// powers are the validated set_redstone_power ops, in their order.
+	powers []powerWrite
 }
 
 // tickDuration is one game tick, which a scheduled update counts in.
@@ -509,6 +529,30 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 				plan.overlays = make(map[int]*overlayList)
 			}
 			plan.overlays[i] = list
+		case op.PassInteraction != nil:
+			switch {
+			case ev.call.Interact == nil || ev.interaction == nil:
+				return commitPlan{}, fmt.Errorf("%w: op %d passes on the click of no interaction", errInvalid, i)
+			case plan.pass:
+				return commitPlan{}, fmt.Errorf("%w: op %d passes the click on again", errInvalid, i)
+			}
+			plan.pass = true
+		case op.SetContainerSlot != nil:
+			w, err := h.containerWrite(exp, snap, op.SetContainerSlot)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d: %v", errInvalid, i, err)
+			}
+			plan.containers = append(plan.containers, w)
+		case op.SetRedstonePower != nil:
+			c, err := writable(i, op.SetRedstonePower.Pos, true)
+			if err != nil {
+				return commitPlan{}, err
+			}
+			w, err := h.powerWriteOf(exp, c, op.SetRedstonePower)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
+			}
+			plan.powers = append(plan.powers, w)
 		default:
 			return commitPlan{}, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}

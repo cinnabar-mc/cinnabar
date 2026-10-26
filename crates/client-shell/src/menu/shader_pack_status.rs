@@ -31,6 +31,11 @@ struct Failure {
 }
 
 impl MenuRuntime {
+    /// Whether load feedback still needs a final outcome or cancellation update.
+    pub(super) fn has_shader_pack_feedback(&self) -> bool {
+        self.shader_pack_status.loading.is_some()
+    }
+
     /// Mirrors the render host's `load` state at `now`: raises the toast each change calls
     /// for and keeps the failure for the Renderer row. Touches `runtime` only on a change.
     pub fn sync_shader_pack_status(

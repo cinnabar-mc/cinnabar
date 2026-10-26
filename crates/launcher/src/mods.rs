@@ -28,6 +28,7 @@ pub enum Action {
     MoveDown(u64),
     Permission(u64, usize, bool),
     AllowRequested(u64),
+    GrantAll(u64),
     RevokeAll(u64),
     Customize(u64),
     ShowAllPermissions(u64),

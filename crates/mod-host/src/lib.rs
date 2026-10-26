@@ -55,7 +55,8 @@ pub use runtime::cinnabar::extension::player_state::{
     WorldObservation, WorldTime as WorldTimeObservation,
 };
 pub use runtime::cinnabar::extension::{
-    events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
+    camera::DamageShake, events::Cue as ModCue, input::Controls as ControlFrame,
+    panel::Event as ControlEvent,
 };
 
 pub use runtime::cinnabar::extension::terrain::{
@@ -77,6 +78,8 @@ pub use terrain::{
 pub struct GameplayFacts {
     /// The presented camera pose, including third-person and rig offsets.
     pub camera: Option<GameplayCameraPose>,
+    /// The full-strength native damage shake of the last presented view, in a connected world.
+    pub damage_shake: Option<DamageShake>,
     /// The local feet position last relayed to the server, in a connected world.
     pub relayed_position: Option<GameplayVector3>,
     /// A physical binding holds the use control.

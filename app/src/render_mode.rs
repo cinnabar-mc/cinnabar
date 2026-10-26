@@ -197,32 +197,18 @@ impl Plugin for RenderModePlugin {
                 shader_pack_revision: 0,
             })
             .init_resource::<ShaderPackRequest>()
-            .add_message::<bevy::window::WindowFocused>()
-            .init_resource::<shader_pack::reload::ShaderPackReloadReport>()
             .add_systems(Startup, seed_render_mode)
             .add_systems(
                 Update,
                 (
-                    shader_pack::refresh_shader_packs,
-                    shader_pack::reload::reload_on_key,
-                    shader_pack::reload::apply_reload,
                     apply_menu_render_mode,
-                    shader_pack::sync_shader_pack_request,
-                    shader_pack::status::sync_shader_pack_status,
-                    shader_pack::reload::report_reload,
                     authored_textures::update_authored_textures,
                     apply_render_mode_to_cameras,
                     sync_enhanced_bloom,
                 )
                     .chain(),
             );
-        app.init_resource::<shader_options::ShaderOptionsHost>()
-            .add_systems(
-                Update,
-                shader_options::drive_shader_options.after(apply_menu_render_mode),
-            );
-        shader_pack::import::configure(app);
-        shader_pack::removal::configure(app);
+        shader_pack::configure(app);
     }
 }
 

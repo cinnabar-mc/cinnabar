@@ -141,6 +141,19 @@ impl MenuRuntime {
         self.shader_pack_import = PackImport::Idle;
     }
 
+    /// Whether a shader screen, queued command or picker still needs its host to run.
+    #[must_use]
+    pub fn has_shader_pack_work(&self) -> bool {
+        self.takes_shader_pack_drops()
+            || self.shader_pack_request.is_some()
+            || self.shader_pack_reload
+            || self.shader_pack_import != PackImport::Idle
+            || self.shader_pack_remove_request.is_some()
+            || self.shader_pack_removing.is_some()
+            || self.has_shader_option_work()
+            || self.has_shader_pack_feedback()
+    }
+
     /// Whether files dropped on the window go to the shader-pack folder while the Shaders
     /// tab, which lists the packs, is on screen.
     #[must_use]

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math"
+	"strconv"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/world"
@@ -80,7 +81,8 @@ func (h *Host) network(tx *world.Tx, d *dispatcher, ev event, snap *snapshot) {
 	appendNetwork(snap, members, truncated)
 }
 
-// appendNetwork keeps a breadth-first prefix that fits beside the rest of the callback frame.
+// appendNetwork keeps a breadth-first prefix that fits beside the rest of the callback frame and
+// the containers' reserve.
 func appendNetwork(snap *snapshot, members []member, truncated bool) {
 	held := make(map[cube.Pos]bool, len(snap.cells))
 	for _, st := range snap.cells {
@@ -95,7 +97,7 @@ func appendNetwork(snap *snapshot, members []member, truncated bool) {
 		network.Truncated = true
 		return
 	}
-	remaining := maxFrameBytes - len(base)
+	remaining := maxFrameBytes - containerFrameReserve - len(base)
 	zeroPos, _ := json.Marshal(BlockPos{})
 	type cachedCell struct {
 		cell Cell
@@ -132,7 +134,11 @@ func appendNetwork(snap *snapshot, members []member, truncated bool) {
 			}
 			cell = cached.cell
 			cell.Pos = pos
+			cell.Power = m.st.power
 			cost += cached.size + len(encodedPos) - len(zeroPos)
+			if cell.Power > 0 {
+				cost += len(`,"power":`) + len(strconv.Itoa(int(cell.Power)))
+			}
 			if len(snap.req.Snapshot) > 0 {
 				cost++
 			}

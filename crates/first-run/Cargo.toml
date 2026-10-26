@@ -14,7 +14,6 @@ anyhow.workspace = true
 assets = { path = "../assets" }
 bootstrap-ui = { path = "../bootstrap-ui" }
 diagnostics = { path = "../diagnostics" }
-gilrs = "0.11.2"
 launcher = { path = "../launcher" }
 launcher-host = { path = "../launcher-host" }
 render-model = { path = "../render-model" }

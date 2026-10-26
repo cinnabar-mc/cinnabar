@@ -12,6 +12,7 @@ reads = [
     "crates/mod-api/native-frame-v1.json",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/action_filter.wat",
+    "crates/mod-host/src/tests/hud_surface.wat",
 ]
 
 [dependencies]
@@ -39,6 +40,7 @@ sha2 = { workspace = true }
 tracing.workspace = true
 
 [dev-dependencies]
+client-ui = { path = "../client-ui", features = ["test-support"] }
 tempfile = "3"
 
 [lints]

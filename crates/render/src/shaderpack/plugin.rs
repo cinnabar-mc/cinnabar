@@ -27,9 +27,9 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderSystems,
-        extract_component::ExtractComponentPlugin,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        extract_resource::{ExtractResource, extract_resource},
         renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue, ViewQuery},
+        sync_component::SyncComponentPlugin,
         view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
@@ -68,9 +68,9 @@ type LoaderKey = (PathBuf, Option<PathBuf>, i32, u64);
 
 /// The pack being loaded or shown, including the option file it reads.
 #[derive(Resource, Default)]
-struct Loader {
-    key: Option<LoaderKey>,
-    job: Option<Mutex<mpsc::Receiver<LoadResult>>>,
+pub(super) struct Loader {
+    pub(super) key: Option<LoaderKey>,
+    pub(super) job: Option<Mutex<mpsc::Receiver<LoadResult>>>,
     retiring: bool,
 }
 
@@ -826,6 +826,7 @@ pub(crate) struct ShaderpackPass;
 #[derive(Resource)]
 struct GraphInstalled;
 
+/// Installs the optional passes once the core render schedule exists.
 fn install_graph(world: &mut World) {
     if world.contains_resource::<GraphInstalled>() {
         return;
@@ -869,20 +870,6 @@ fn publish_id_maps(loaded: Res<LoadedShaderPack>, mut maps: ResMut<ShaderPackIdM
     };
 }
 
-/// Keeps opted-in cameras compatible with the host's single-sample depth reads.
-fn admit_cameras(
-    mut cameras: Query<(&mut bevy::render::view::Msaa, &mut Camera3d), With<ShaderPackRendering>>,
-) {
-    for (mut msaa, mut camera) in &mut cameras {
-        msaa.set_if_neq(bevy::render::view::Msaa::Off);
-        let usage = wgpu::TextureUsages::from(camera.depth_texture_usages)
-            | wgpu::TextureUsages::TEXTURE_BINDING;
-        if wgpu::TextureUsages::from(camera.depth_texture_usages) != usage {
-            camera.depth_texture_usages = usage.into();
-        }
-    }
-}
-
 pub(super) fn build(app: &mut App) {
     app.init_resource::<ShaderPackRequest>()
         .init_resource::<ShaderPackStatus>()
@@ -896,19 +883,20 @@ pub(super) fn build(app: &mut App) {
         .init_resource::<Loader>()
         .init_resource::<ViewFailures>()
         .add_plugins((
-            ExtractComponentPlugin::<ShaderPackRendering>::default(),
-            ExtractResourcePlugin::<LoadedShaderPack>::default(),
-            ExtractResourcePlugin::<ShaderPackFrameInputs>::default(),
-            ExtractResourcePlugin::<ShaderPackActorIds>::default(),
-            ExtractResourcePlugin::<DedicatedGraphicsMemory>::default(),
+            SyncComponentPlugin::<ShaderPackRendering>::default(),
             ShaderpackGeometryPlugin,
             ShaderpackAtlasPlugin,
         ))
         .add_systems(
             Update,
-            (drive_loader, receive_view_failures, publish_id_maps).chain(),
+            (drive_loader, receive_view_failures, publish_id_maps)
+                .chain()
+                .run_if(super::scheduling::main_work_pending),
         )
-        .add_systems(PostUpdate, admit_cameras);
+        .add_systems(
+            PostUpdate,
+            super::scheduling::admit_cameras.run_if(super::scheduling::main_work_pending),
+        );
 }
 
 /// Queues actor conversion kernels only for a loaded pack with an opted-in camera.
@@ -943,7 +931,15 @@ pub(super) fn finish(app: &mut App) {
         .init_resource::<crate::actor::gpu::ArtworkRawViews>()
         .add_systems(
             bevy::render::ExtractSchedule,
-            crate::actor::gpu::extract_artwork_raw_views,
+            (
+                super::scheduling::extract_cameras,
+                extract_resource::<LoadedShaderPack, RenderApp, ()>,
+                extract_resource::<ShaderPackFrameInputs, RenderApp, ()>,
+                extract_resource::<ShaderPackActorIds, RenderApp, ()>,
+                extract_resource::<DedicatedGraphicsMemory, RenderApp, ()>,
+                crate::actor::gpu::extract_artwork_raw_views,
+            )
+                .in_set(super::scheduling::ShaderPackSystems),
         )
         .add_systems(
             Render,
@@ -969,7 +965,8 @@ pub(super) fn finish(app: &mut App) {
                     configure_replacement.after(prepare_views),
                 ),
                 super::lightmap::update_lightmap.in_set(RenderSystems::PrepareResources),
-            ),
+            )
+                .in_set(super::scheduling::ShaderPackSystems),
         );
     install_graph(render_app.world_mut());
 }

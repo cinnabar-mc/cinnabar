@@ -840,3 +840,63 @@ fn hidden_hud_elements_combine_across_mods_and_hosts_share_hud_observations() {
     hosts.observe_hud(Some(viewport), [ElementState::default(); 4], None);
     assert!(hosts.host(0).hud_surface().is_none());
 }
+
+#[test]
+fn unchanged_hud_metrics_are_installed_on_replacement_hosts() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("measure.wat");
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let source = include_str!("../../../mod-host/src/tests/hud_surface.wat")
+        .replace("$HUD", &format!("{name}/hud@{version}"))
+        .replace("$SURFACE_LENGTH", "0")
+        .replace("$PATCH_LENGTH", "0")
+        .replace("$TEXT_LENGTH", "0")
+        .replace("$SURFACE", "")
+        .replace("$PATCH", "")
+        .replace("$TEXT", "")
+        .replace("$WIDTH", "427")
+        .replace("$SCALE", "3")
+        .replace("$INIT", "")
+        .replace("$FRAME", "call $measure-sans")
+        .replace("$ERROR", "0");
+    std::fs::write(&path, source).unwrap();
+    let load = || {
+        ModHost::load_with_grants(
+            &path,
+            ModGrants {
+                hud: true,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let mut hosts = ModHosts::new(load(), Vec::new());
+    let font = std::sync::Arc::new(assets::carriers::startup::diagnostic_font_catalog().unwrap());
+    let metrics = std::sync::Arc::new(mod_ui::LabelMetrics::new(
+        font,
+        client_ui::test_support::text_metrics(
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+            Some(2),
+        ),
+    ));
+    let observe = |hosts: &mut ModHosts| {
+        hosts.observe_hud(
+            None,
+            Default::default(),
+            Some(std::sync::Arc::clone(&metrics)),
+        )
+    };
+    observe(&mut hosts);
+    hosts.host_mut(0).frame(false).unwrap();
+    *hosts.host_mut(0) = load();
+    observe(&mut hosts);
+    hosts.host_mut(0).frame(false).unwrap();
+    assert!(hosts.host(0).is_active());
+}

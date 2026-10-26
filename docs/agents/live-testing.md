@@ -22,7 +22,9 @@ fresh output from that run. A missing capture is incomplete validation.
 
 Headless sessions render through a hidden window. They can verify pixels and
 rendering work, but displayed-frame pacing, OS focus, and occlusion gates require
-appropriate presentation evidence and remain incomplete without it.
+appropriate presentation evidence and remain incomplete without it. With no swap chain
+to wait on, the render world's frame poll waits for the GPU once three frames are queued,
+so an uncapped hidden client runs at the GPU's completion rate.
 
 A signed-in capture account still receives Xbox join requests and other toasts, which `F1` does
 not hide. `--hide-toasts` (`developer-control` builds only) stops drawing toasts for the session

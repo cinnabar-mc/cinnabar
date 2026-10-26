@@ -1074,6 +1074,12 @@ validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
+The setup and crash windows use Apple's Game Controller framework on macOS for controller
+buttons and hotplugging, including controllers unavailable through HID compatibility.
+HID-only controllers retain their existing backend, with duplicate native delivery suppressed.
+Gameplay enables Bevy's controller device plugin. Physical Xbox controller acceptance on
+macOS, including gameplay input, remains incomplete.
+
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
 
@@ -1198,7 +1204,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   update replacement and ordered publication. The app connects menu actions and supplies
   canonical package validation, registration edits and retirement acknowledgements.
   The Mods settings list starts with compact headers and opens one whole card at a time;
-  actions and permission details remain inside that card. Packet mods that read world data
+  actions and permission details remain inside that card. Permission customization offers
+  Grant all when no grants are enabled, and Revoke all when any grant is enabled.
+  Packet mods that read world data
   need complete chunks, so their connections disable the blob cache on both login legs.
   New packet grants take effect after reconnecting; sessions without packet mods retain
   caching. Live server qualification remains incomplete.
@@ -1339,7 +1347,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   displayed-frame pacing and complete rendering acceptance. Packet extensions now
   present guest-computed detached views, extrapolated by velocity between callbacks,
   with exactly reported look capture, movement capture and view tilt through the
-  shared camera owners; interactive flight, perspective release, teleport and tilt
+  shared camera owners. Offline regressions cover queued look and time across packet
+  callbacks, retained camera baselines beyond the submission history, and text metrics
+  across guest replacement and reload; interactive flight, perspective release, teleport and tilt
   acceptance remain unverified in a displayed client. Panel previews now
   select owner-scoped HUD cards, including preview-only cards, and share retained
   gameplay artwork. Optional measured fitting sizes and aligns their painted bounds
@@ -1405,7 +1415,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
 - Experimental Java shader packs (Iris/OptiFine format) are built into every client channel.
-  Shaders start Off.
+  Shaders start Off. Terrain expansion currently needs nine compute storage buffers:
+  six packed-chunk sources plus three job, vertex-output and atlas-remap buffers.
+  Shader packs cannot load on adapters limited to eight; reducing that requirement remains open.
   Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
@@ -1428,7 +1440,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
   builds cancel between source, pixel and upload stages, and one cancelled build retires before its
   replacement starts. Trusted helper shaders and their pipeline cache are created only when requested,
-  then released after Off; idle view and geometry preparation record no shader work.
+  then released after Off. Lifecycle conditions skip shader-pack system bodies in the main,
+  extraction and render schedules while Off with no requests, including after unloading;
+  open shader screens and unfinished import, option and removal workers keep their hosts running.
   Leaving the pack releases the nametag overlay layer, and shared actor, item,
   particle and block-entity artwork allows the raw `Rgba8Unorm` view only while a camera
   draws a pack, recreated when that changes. Import result queues are created only after
@@ -1442,11 +1456,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Incomplete: matched shader-feature-off versus feature-on/no-pack startup, frame-time,
   memory and visual acceptance across supported backends. A matched software-Vulkan
   diagnostic pair has identical world pixels and GPU allocation totals, with no idle shader
-  or pipeline creation. Differing startup/menu timings, feature-only CPU bookkeeping and
-  unmatched menu-preview phases prevent zero-cost acceptance. Hardware Vulkan, Metal and
-  DX12 timing, memory and visual acceptance remain open. `shaderpack` loads packs,
-  Incomplete: matched pre-integration versus integrated/no-pack startup, frame-time,
-  memory and visual acceptance across supported backends. `shaderpack` loads packs,
+  or pipeline creation. A headless software-Vulkan follow-up records zero idle shader-pack
+  system executions after lifecycle gating; the scheduling conditions still run. Variable
+  startup/menu timings and unmatched menu-preview phases prevent zero-cost acceptance.
+  Hardware Vulkan, Metal and DX12 timing, memory and visual acceptance remain open.
+  `shaderpack` loads packs,
   parses `shaders.properties`, options, Iris
   option menus, profiles and option files, evaluates custom uniforms and translates programs
   to validated naga modules, with calls ordered after forward declarations and generated

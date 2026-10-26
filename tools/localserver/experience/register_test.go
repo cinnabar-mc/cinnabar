@@ -156,13 +156,16 @@ func renamed(loaded Loaded, id string) Loaded {
 	return out
 }
 
-// testBlock is a breakable block whose every face shows the texture at path.
+// testBlock is a breakable block whose every face shows the texture at path, which drops itself
+// and has a listed item.
 func testBlock(id, path string) BlockDef {
 	return BlockDef{
 		ID:          id,
 		DisplayName: "Test Block",
 		Textures:    []Texture{{Slot: allFaces, Path: path}},
 		Mining:      Mining{Breakable: &Breakable{Hardness: 1}},
+		Drops:       DropsItself,
+		Item:        ItemListed,
 	}
 }
 
@@ -371,6 +374,75 @@ func TestMiningMapsToBreakInfo(t *testing.T) {
 		}
 		assertNothingRegistered(t, loaded)
 	})
+}
+
+// A block that drops nothing leaves its drops to the guest, and a block without an item cannot
+// drop itself; unknown drops or item kinds are refused.
+func TestBlockDropsFollowItsRule(t *testing.T) {
+	path := writeTexture(t, "block.png", 1, 1)
+	def := testBlock("drops:block", path)
+	def.Drops, def.Item = DropsNothing, ItemNone
+	bt, err := newBlockType("drops", def, newAssetCache())
+	if err != nil {
+		t.Fatalf("newBlockType: %v", err)
+	}
+	if drops := (Block{t: bt}).BreakInfo().Drops(item.ToolNone{}, nil); len(drops) != 0 {
+		t.Errorf("a block that drops nothing drops %v", drops)
+	}
+	if pick := (Block{t: bt}).Pick(); !pick.Empty() {
+		t.Errorf("picking a block without an item gives %v", pick)
+	}
+	for _, tc := range []struct {
+		drops BlockDrops
+		item  BlockItem
+		want  string
+	}{
+		{DropsItself, ItemNone, "it has no item, so it cannot drop itself"},
+		{"", ItemListed, "its drops"},
+		{DropsItself, "", "its item"},
+	} {
+		def.Drops, def.Item = tc.drops, tc.item
+		if _, err := newBlockType("drops", def, newAssetCache()); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("drops %q item %q: %v; want an error containing %q", tc.drops, tc.item, err, tc.want)
+		}
+	}
+}
+
+// The probe's content rules reach Dragonfly: its bus has no item and drops nothing, and is in no
+// creative group; its node's item is registered but unlisted; its counter is listed and picking
+// it gives its item.
+func TestContentRulesRegistered(t *testing.T) {
+	reg := registered(t)
+	inCreative := func(it world.Item) bool {
+		return slices.ContainsFunc(creative.Items(), func(i creative.Item) bool { return i.Stack.Item() == it })
+	}
+	bus, _ := reg.Lookup("probe:bus")
+	if _, ok := world.ItemByName("probe:bus", 0); ok {
+		t.Error("probe:bus, which has no item, is registered as an item")
+	}
+	if drops := bus.BreakInfo().Drops(item.ToolNone{}, nil); len(drops) != 0 {
+		t.Errorf("probe:bus drops %v, want nothing", drops)
+	}
+	if !bus.Pick().Empty() {
+		t.Errorf("picking probe:bus gives %v, want nothing", bus.Pick())
+	}
+	node, _ := reg.Lookup(probeNode)
+	if got, ok := world.ItemByName(probeNode, 0); !ok || got != world.Item(node) {
+		t.Errorf("ItemByName(%q) = %v, %v; want its unlisted item", probeNode, got, ok)
+	}
+	if inCreative(node) {
+		t.Errorf("%s, whose item is unlisted, is in the creative inventory", probeNode)
+	}
+	counter, _ := reg.Lookup(probeCounter)
+	if !inCreative(counter) {
+		t.Errorf("%s, whose item is listed, is not in the creative inventory", probeCounter)
+	}
+	if pick := counter.Pick(); pick.Item() != world.Item(counter) {
+		t.Errorf("picking %s gives %v, want its item", probeCounter, pick)
+	}
+	if _, err := reg.makeStack("probe", NewStack{ID: "probe:bus", Count: 1}); err == nil {
+		t.Error("a stack of probe:bus, which has no item, was made")
+	}
 }
 
 // A texture may be maxTextureSide pixels wide and high, and maxTextureBytes long; one pixel or

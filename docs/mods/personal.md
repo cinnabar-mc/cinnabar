@@ -48,6 +48,7 @@ other grants with the [development switches](../../crates/client-extensions/src/
 | --- | --- |
 | Read-only inventory/effects, poses and physics | `player-state` and `gameplay` in extension WIT; unavailable data is optional, not inferred |
 | Camera, item use, movement and attack requests | WIT `gameplay`; frame-local policies expire even when a callback is deferred |
+| Native damage shake | `camera.read-damage-shake` with `camera`: the last presented shake at full strength, in `view-tilt` degrees, so a suppressing tilt can redraw it at another intensity |
 | Controls, settings and personal panels | WIT `input`, `settings`, `panel`; settings use a bounded companion file |
 | Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
 | HUD surface, text metrics and vanilla elements | WIT `hud`; see [HUD surfaces](#hud-surfaces); retained output clears on quarantine/reload/unload |
@@ -262,3 +263,8 @@ cannot share a registration with gameplay/package mod authority. Grant changes
 revoke current authority; reload selects the next session's source. Optional
 `CINNABAR_PACKET_MOD_WASI=1` adds clocks, randomness and captured output, never
 files or network. See [packet WIT](../../crates/mod-api/wit/extension.wit) for callbacks.
+
+Native-frame guests must be rebuilt with the current SDK, including guests using
+only the legacy `frame` callback. The version-one JSON payload now includes look,
+movement and elapsed-time fields; older strict decoders reject these added fields
+even though the version number is unchanged.

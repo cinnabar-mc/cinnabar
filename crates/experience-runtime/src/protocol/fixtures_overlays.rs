@@ -114,9 +114,12 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             data: None,
             states: Vec::new(),
             overlays: overlays.clone(),
+            // The bus is a redstone block, here beside a powered lever.
+            power: 15,
         }],
         network: None,
         inventory: None,
+        containers: None,
         call: Call::Interact {
             player: "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10".to_owned(),
             pos: host,

@@ -25,6 +25,13 @@ pub(super) struct ShaderOptionsHost {
     retiring: Option<Mutex<shaderpack::worker::Running>>,
 }
 
+/// Whether an editor, save or retiring reader still owns work after its screen closes.
+pub(super) fn work_pending(world: &World) -> bool {
+    world
+        .get_resource::<ShaderOptionsHost>()
+        .is_some_and(|host| host.open.is_some() || host.writer.is_some() || host.retiring.is_some())
+}
+
 /// One open screen and where its pack's values are saved.
 struct Open {
     name: String,
