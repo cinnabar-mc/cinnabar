@@ -322,3 +322,44 @@ fn replacing_or_removing_a_material_the_budget_rejected_charges_no_retired_pipel
         presenter.diagnostics().collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn textures_that_do_not_fit_the_shares_are_never_decoded_or_held() {
+    // Eight materials, each with its own 64x64 texture, against a memory share for about two.
+    let texels = 64 * 64 * 4;
+    let textures: Vec<(String, Vec<u8>)> = (0..8)
+        .map(|index| (format!("textures/{index}.png"), png(64, 64)))
+        .collect();
+    let materials: Vec<(u32, WorldMaterialSpec)> = (0..8)
+        .map(|index| {
+            let path = format!("textures/{index}.png");
+            (index, spec(PLAIN, &[path.as_str()]))
+        })
+        .collect();
+    let held = world(&materials, &[]);
+    let memory = 2 * texels + 4096;
+    let mut presenter = WorldMaterialPresenter::default();
+    presenter.rebuild([BundleWorld {
+        memory_bytes: memory,
+        ..bundle(&held, &textures, u64::MAX)
+    }]);
+    assert_eq!(presenter.set().materials.len(), 2);
+    assert!(
+        presenter.held_texels() <= memory,
+        "the host holds {} decoded bytes against a share of {memory}",
+        presenter.held_texels()
+    );
+    // The GPU share bounds decoding the same way.
+    let gpu = 2 * (texels + PIPELINE_CHARGE_BYTES);
+    let mut presenter = WorldMaterialPresenter::default();
+    presenter.rebuild([bundle(&held, &textures, gpu)]);
+    assert_eq!(presenter.set().materials.len(), 2);
+    assert_eq!(presenter.held_texels(), 2 * texels);
+    // A share that shrinks below a drawn material releases its decoded texels.
+    presenter.rebuild([BundleWorld {
+        memory_bytes: 64,
+        ..bundle(&held, &textures, gpu)
+    }]);
+    assert!(presenter.set().materials.is_empty());
+    assert_eq!(presenter.held_texels(), 0);
+}

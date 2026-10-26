@@ -36,15 +36,104 @@ pub(super) struct BundleWorld<'a> {
     pub textures: &'a [(String, Vec<u8>)],
 }
 
-/// A declaration's last outcome, kept while the declaration is unchanged.
+/// A declaration's last outcome, kept while its program is unchanged.
 struct Cached {
     spec: WorldMaterialSpec,
-    /// Numbers this admission attempt, so a failure is reported once per attempt.
+    /// Numbers this admission attempt, so a failure is reported once per attempt; it is also
+    /// the material's key.
     attempt: u64,
-    outcome: Result<Published, String>,
+    outcome: Outcome,
     /// Whether this attempt's material ever reached the drawn set, and so may hold compiled
     /// pipelines that replacing or removing it leaves charged.
     published: bool,
+}
+
+/// What admitting a declaration last produced.
+enum Outcome {
+    /// Drawable, with its decoded textures.
+    Ready(Published),
+    /// A valid shader whose charge did not fit its bundle's remaining shares when last tried.
+    /// It holds no decoded texels; its textures decode once the charge fits.
+    Waiting {
+        material: Arc<abi::WorldMaterial>,
+        /// Bytes its declared textures decode to, read from their headers.
+        texels: u64,
+    },
+    /// Refused for this reason until its program changes.
+    Refused(String),
+}
+
+/// What one material costs its bundle.
+#[derive(Clone, Copy)]
+struct Charge {
+    gpu: u64,
+    memory: u64,
+}
+
+impl Cached {
+    /// Charges the material against the `gpu` and `memory` bytes its bundle has left, decoding
+    /// its textures only once the charge fits; returns the drawable material and its charge.
+    /// A material that no longer fits gives up its decoded textures, so the host never holds
+    /// texels its bundle's shares do not cover.
+    fn fit(
+        &mut self,
+        gpu: u64,
+        memory: u64,
+        textures: &[(String, Vec<u8>)],
+    ) -> Result<(&Published, Charge), String> {
+        let texels = match &self.outcome {
+            Outcome::Refused(reason) => return Err(reason.clone()),
+            Outcome::Ready(published) => published.textures.iter().map(Texture::bytes).sum(),
+            Outcome::Waiting { texels, .. } => *texels,
+        };
+        let charge = Charge {
+            gpu: texels.saturating_add(PIPELINE_CHARGE_BYTES),
+            memory: ((self.spec.source.len() + self.spec.params.len() * 4) as u64)
+                .saturating_add(texels),
+        };
+        let refusal = if charge.gpu > gpu {
+            Some("exceeds the bundle's GPU limit")
+        } else if charge.memory > memory {
+            Some("exceeds the bundle's memory limit")
+        } else {
+            None
+        };
+        if let Some(reason) = refusal {
+            if let Outcome::Ready(published) = &self.outcome {
+                self.outcome = Outcome::Waiting {
+                    material: Arc::clone(&published.material),
+                    texels,
+                };
+            }
+            return Err(reason.into());
+        }
+        if let Outcome::Waiting { material, .. } = &self.outcome {
+            self.outcome = match decode_all(&self.spec, textures) {
+                Ok(decoded) => Outcome::Ready(Published {
+                    key: self.attempt,
+                    material: Arc::clone(material),
+                    textures: decoded.into(),
+                    params: params(&self.spec.params),
+                    depth: match self.spec.depth {
+                        WorldDepth::Test => Depth::Test,
+                        WorldDepth::Always => Depth::Always,
+                    },
+                    blend: match self.spec.blend {
+                        WorldBlend::Opaque => Blend::Opaque,
+                        WorldBlend::Cutout => Blend::Cutout,
+                        WorldBlend::Premultiplied => Blend::Premultiplied,
+                        WorldBlend::Additive => Blend::Additive,
+                    },
+                }),
+                Err(reason) => Outcome::Refused(reason),
+            };
+        }
+        match &self.outcome {
+            Outcome::Ready(published) => Ok((published, charge)),
+            Outcome::Refused(reason) => Err(reason.clone()),
+            Outcome::Waiting { .. } => unreachable!("a fitting material was decoded"),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -73,7 +162,7 @@ impl WorldMaterialPresenter {
     }
 
     /// Rebuilds the set from every bundle's declarations; returns whether it changed. An
-    /// unchanged declaration keeps its compiled material and key.
+    /// unchanged program keeps its compiled material and key.
     pub(super) fn rebuild<'a>(
         &mut self,
         bundles: impl IntoIterator<Item = BundleWorld<'a>>,
@@ -89,91 +178,49 @@ impl WorldMaterialPresenter {
             for (&id, spec) in &bundle.world.materials {
                 let key = (bundle.bundle.to_owned(), id);
                 live.insert(key.clone());
-                let (attempt, outcome) = match self.cache.get(&key) {
-                    Some(cached) if cached.spec == *spec => {
-                        (cached.attempt, cached.outcome.clone())
-                    }
+                let mut cached = match self.cache.remove(&key) {
                     // New parameters keep the compiled shader, its key and its charge; the
                     // renderer writes them into the material's uniform.
-                    Some(Cached {
-                        spec: cached,
-                        attempt,
-                        outcome: Ok(published),
-                        published: drawn,
-                    }) if cached.same_program(spec) => {
-                        let updated = Cached {
-                            spec: spec.clone(),
-                            attempt: *attempt,
-                            outcome: Ok(Published {
-                                params: params(&spec.params),
-                                ..published.clone()
-                            }),
-                            published: *drawn,
-                        };
-                        let result = (updated.attempt, updated.outcome.clone());
-                        self.cache.insert(key.clone(), updated);
-                        result
+                    Some(mut cached) if cached.spec.same_program(spec) => {
+                        if cached.spec != *spec {
+                            if let Outcome::Ready(published) = &mut cached.outcome {
+                                published.params = params(&spec.params);
+                            }
+                            cached.spec = spec.clone();
+                        }
+                        cached
                     }
                     previous => {
                         if previous.is_some_and(|cached| cached.published) {
                             self.retire(bundle.bundle);
                         }
                         self.next_key += 1;
-                        let outcome = admit(self.next_key, spec, bundle.textures);
-                        self.cache.insert(
-                            key.clone(),
-                            Cached {
-                                spec: spec.clone(),
-                                attempt: self.next_key,
-                                outcome: outcome.clone(),
-                                published: false,
-                            },
-                        );
-                        (self.next_key, outcome)
+                        Cached {
+                            spec: spec.clone(),
+                            attempt: self.next_key,
+                            outcome: measure(spec, bundle.textures),
+                            published: false,
+                        }
                     }
                 };
-                let published = match outcome {
-                    Ok(published) => published,
-                    Err(reason) => {
-                        self.report(bundle.bundle, id, attempt, &reason);
-                        continue;
-                    }
-                };
-                let charge = published
-                    .textures
-                    .iter()
-                    .map(Texture::bytes)
-                    .sum::<u64>()
-                    .saturating_add(PIPELINE_CHARGE_BYTES);
                 // Retirements this rebuild already made count against what the material may use.
-                let remaining = bundle
+                let gpu = bundle
                     .gpu_bytes
                     .saturating_sub(self.retired.get(bundle.bundle).copied().unwrap_or(0))
                     .saturating_sub(used);
-                if charge > remaining {
-                    self.report(bundle.bundle, id, attempt, "exceeds the bundle's GPU limit");
-                    continue;
+                match cached.fit(gpu, memory, bundle.textures) {
+                    Ok((published, charge)) => {
+                        if let Ok(slot) = u16::try_from(materials.len()) {
+                            used += charge.gpu;
+                            memory -= charge.memory;
+                            materials.push(published.clone());
+                            slots.insert(id, slot);
+                            cached.published = true;
+                        }
+                    }
+                    Err(reason) => self.report(bundle.bundle, id, cached.attempt, &reason),
                 }
-                let host_bytes = memory_charge(spec, &published);
-                if host_bytes > memory {
-                    self.report(
-                        bundle.bundle,
-                        id,
-                        attempt,
-                        "exceeds the bundle's memory limit",
-                    );
-                    continue;
-                }
-                used += charge;
-                memory -= host_bytes;
-                let Ok(slot) = u16::try_from(materials.len()) else {
-                    continue;
-                };
-                materials.push(published);
-                slots.insert(id, slot);
-                if let Some(cached) = self.cache.get_mut(&key) {
-                    cached.published = true;
-                }
+                self.cache.insert(key, cached);
             }
             for binding in bundle.world.bindings.values() {
                 let Some(&slot) = slots.get(&binding.material) else {
@@ -219,22 +266,18 @@ impl WorldMaterialPresenter {
             self.retire(&bundle);
         }
         self.cache.retain(|key, _| live.contains(key));
-        let set = WorldMaterialSet {
-            revision: self.revision,
-            materials,
-            entities,
-            blocks,
-        };
-        if set.materials == self.set.materials
-            && set.entities == self.set.entities
-            && set.blocks == self.set.blocks
+        if materials == self.set.materials
+            && entities == self.set.entities
+            && blocks == self.set.blocks
         {
             return false;
         }
         self.revision += 1;
         self.set = Arc::new(WorldMaterialSet {
             revision: self.revision,
-            ..set
+            materials,
+            entities,
+            blocks,
         });
         true
     }
@@ -246,7 +289,9 @@ impl WorldMaterialPresenter {
             .cache
             .iter()
             .filter_map(|((bundle, id), cached)| {
-                let published = cached.outcome.as_ref().ok()?;
+                let Outcome::Ready(published) = &cached.outcome else {
+                    return None;
+                };
                 failed(published.key).then(|| (bundle.clone(), *id, cached.attempt))
             })
             .collect();
@@ -275,73 +320,98 @@ impl WorldMaterialPresenter {
         }
         self.diagnostics
             .push_back(format!("{bundle} world material {id}: {reason}"));
-        // Attempts no longer cached cannot recur, so their entries go with them.
+        // Attempts no longer cached cannot recur, so their entries go with them. The attempt
+        // being reported may be out of the cache while it is charged, so it stays.
         let cache = &self.cache;
-        self.reported.retain(|(bundle, id, attempt, _)| {
-            cache
-                .get(&(bundle.clone(), *id))
-                .is_some_and(|cached| cached.attempt == *attempt)
-        });
+        self.reported
+            .retain(|(listed, listed_id, listed_attempt, _)| {
+                (listed == bundle && *listed_id == id && *listed_attempt == attempt)
+                    || cache
+                        .get(&(listed.clone(), *listed_id))
+                        .is_some_and(|cached| cached.attempt == *listed_attempt)
+            });
+    }
+
+    /// Bytes of decoded texels the presenter holds.
+    #[cfg(test)]
+    fn held_texels(&self) -> u64 {
+        self.cache
+            .values()
+            .filter_map(|cached| match &cached.outcome {
+                Outcome::Ready(published) => Some(
+                    published
+                        .textures
+                        .iter()
+                        .map(|t| t.rgba.len() as u64)
+                        .sum::<u64>(),
+                ),
+                _ => None,
+            })
+            .sum()
     }
 }
 
-/// Host bytes a published material holds: its shader source, parameters and decoded textures.
-fn memory_charge(spec: &WorldMaterialSpec, published: &Published) -> u64 {
-    let textures: u64 = published
-        .textures
-        .iter()
-        .map(|texture| texture.rgba.len() as u64)
-        .sum();
-    (spec.source.len() + spec.params.len() * 4) as u64 + textures
+/// Validates the shader again and reads the declared textures' sizes from their headers,
+/// decoding nothing; the helper's validation is not trusted.
+fn measure(spec: &WorldMaterialSpec, textures: &[(String, Vec<u8>)]) -> Outcome {
+    let measured = (|| {
+        let material = abi::compose(&spec.source, spec.textures.len())?;
+        let mut texels = 0_u64;
+        for path in &spec.textures {
+            let (width, height) = dimensions(signed(path, textures)?)
+                .ok_or_else(|| format!("{path} is not a bounded PNG"))?;
+            texels += u64::from(width) * u64::from(height) * 4;
+        }
+        Ok::<_, String>(Outcome::Waiting {
+            material: Arc::new(material),
+            texels,
+        })
+    })();
+    measured.unwrap_or_else(Outcome::Refused)
 }
 
-/// Validates the shader again and decodes the declared textures; the helper's validation is
-/// not trusted.
-fn admit(
-    key: u64,
+/// The signed bytes of the texture at `path`.
+fn signed<'a>(path: &str, textures: &'a [(String, Vec<u8>)]) -> Result<&'a [u8], String> {
+    textures
+        .iter()
+        .find(|(listed, _)| listed == path)
+        .map(|(_, bytes)| bytes.as_slice())
+        .ok_or_else(|| format!("{path} is not a signed texture"))
+}
+
+/// Decodes every texture `spec` declares.
+fn decode_all(
     spec: &WorldMaterialSpec,
     textures: &[(String, Vec<u8>)],
-) -> Result<Published, String> {
-    let material = abi::compose(&spec.source, spec.textures.len())?;
-    let decoded = spec
-        .textures
+) -> Result<Vec<Texture>, String> {
+    spec.textures
         .iter()
         .map(|path| {
-            let bytes = textures
-                .iter()
-                .find(|(listed, _)| listed == path)
-                .map(|(_, bytes)| bytes.as_slice())
-                .ok_or_else(|| format!("{path} is not a signed texture"))?;
-            decode(bytes).ok_or_else(|| format!("{path} is not a bounded PNG"))
+            decode(signed(path, textures)?).ok_or_else(|| format!("{path} is not a bounded PNG"))
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(Published {
-        key,
-        material: Arc::new(material),
-        textures: decoded.into(),
-        params: params(&spec.params),
-        depth: match spec.depth {
-            WorldDepth::Test => Depth::Test,
-            WorldDepth::Always => Depth::Always,
-        },
-        blend: match spec.blend {
-            WorldBlend::Opaque => Blend::Opaque,
-            WorldBlend::Cutout => Blend::Cutout,
-            WorldBlend::Premultiplied => Blend::Premultiplied,
-            WorldBlend::Additive => Blend::Additive,
-        },
-    })
+        .collect()
 }
 
-/// Decodes a PNG of at most [`MAX_TEXTURE_EXTENT`] texels a side to RGBA8.
-fn decode(bytes: &[u8]) -> Option<Texture> {
+/// A PNG reader bounded to [`MAX_TEXTURE_EXTENT`] texels a side.
+fn reader(bytes: &[u8]) -> image::ImageReader<Cursor<&[u8]>> {
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_TEXTURE_EXTENT);
     limits.max_image_height = Some(MAX_TEXTURE_EXTENT);
     limits.max_alloc = Some(u64::from(MAX_TEXTURE_EXTENT).pow(2) * 8);
     reader.limits(limits);
-    let image = reader.decode().ok()?.to_rgba8();
+    reader
+}
+
+/// A bounded PNG's size from its header alone.
+fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let (width, height) = reader(bytes).into_dimensions().ok()?;
+    (width <= MAX_TEXTURE_EXTENT && height <= MAX_TEXTURE_EXTENT).then_some((width, height))
+}
+
+/// Decodes a PNG of at most [`MAX_TEXTURE_EXTENT`] texels a side to RGBA8.
+fn decode(bytes: &[u8]) -> Option<Texture> {
+    let image = reader(bytes).decode().ok()?.to_rgba8();
     Some(Texture {
         width: image.width(),
         height: image.height(),
