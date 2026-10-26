@@ -61,19 +61,12 @@ impl MeleeTarget {
 /// Retains completed actor boxes with this frame's ray for the next frame's interactions.
 pub(crate) fn complete_melee_actor_frame(
     world: Res<ClientWorld>,
-    input: Res<SemanticInputSnapshot>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
 ) {
-    let current = input.snapshot().is_some_and(|input| {
-        target.prepared
-            == Some((
-                input.authority_generation,
-                input.frame_sequence,
-                movement.position_authority_identity().1,
-            ))
-    });
-    if current && let Some(stream) = world.stream.as_ref() {
+    if target.has_published_inputs(movement.position_authority_identity().1)
+        && let Some(stream) = world.stream.as_ref()
+    {
         target.frames.complete_actor_frame(stream.authority());
     }
 }

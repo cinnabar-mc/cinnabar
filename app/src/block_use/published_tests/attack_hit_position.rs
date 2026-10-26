@@ -188,6 +188,37 @@ fn attack_hit_position_retains_completed_geometry_after_catchup() {
     }
 }
 
+/// Publishes a frame whose interaction admission waits for its hotbar announcement.
+pub(super) fn defer_hand_admission(world: &mut World) {
+    {
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        let mode = player.facts.player_game_mode();
+        player.inventory.queue_local_hotbar_selection(1, mode);
+        assert!(client_interaction::mining::hand_interaction_selection(&player).is_none());
+    }
+    world
+        .run_system_cached(crate::melee::prepare_melee)
+        .unwrap();
+}
+
+#[test]
+fn attack_hit_position_retains_completed_geometry_while_hand_admission_waits() {
+    let (mut world, mut captured) = attack_fixture(7.5);
+    defer_hand_admission(&mut world);
+    move_actor(&mut world, [None, None, Some(6.66)], 2);
+    let completed = picked_point(&world);
+    world
+        .run_system_cached(crate::melee::complete_melee_actor_frame)
+        .unwrap();
+    world
+        .run_system_cached(crate::hotbar::flush_hotbar_selection)
+        .unwrap();
+    attack(&mut world);
+    let packets = captured.drain();
+    let tx = packets.iter().find_map(observe_transaction).unwrap();
+    assert_eq!(tx.actor_use().unwrap().hit_position, completed);
+}
+
 #[test]
 fn attack_hit_position_uses_the_published_ray_when_the_press_frame_looks_away() {
     let (mut world, mut captured) = attack_fixture(7.5);
