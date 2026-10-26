@@ -81,6 +81,7 @@ fn format_trace_line(
         "head_yaw": sample.head_yaw,
         "input_mode": sample.input_mode,
         "camera_orientation": sample.camera_orientation,
+        "interact_rotation": sample.interact_rotation,
     });
     serde_json::to_string(&line).ok()
 }
@@ -130,6 +131,7 @@ mod tests {
             yaw: 88.5,
             head_yaw: 90.0,
             camera_orientation: [0.25, -0.5, 0.75],
+            interact_rotation: [-4.25, 88.5],
             flags: PlayerInputFlags::JUMPING
                 | PlayerInputFlags::SPRINTING
                 | PlayerInputFlags::HORIZONTAL_COLLISION,
