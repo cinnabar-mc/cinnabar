@@ -814,10 +814,17 @@ fn published_effects(effects: &WorldEffects, cells: &BTreeMap<u32, u16>) -> Effe
             count: particles.count,
             radius_blocks: particles.radius_blocks,
         }),
-        cells: effects
-            .cells
-            .and_then(|compute| cells.get(&compute).copied()),
+        cells: resolve_cells(effects, cells),
     }
+}
+
+/// Where in this rebuild's computes the cells `effects` reads were published, by compute id.
+/// Each rebuild resolves them again, as a compute's index shifts whenever an earlier one comes
+/// or goes, so a kept material never reads another compute's cells.
+fn resolve_cells(effects: &WorldEffects, cells: &BTreeMap<u32, u16>) -> Option<u16> {
+    effects
+        .cells
+        .and_then(|compute| cells.get(&compute).copied())
 }
 
 /// A declaration's parameters as the sixteen the renderer uploads, missing ones zero.
