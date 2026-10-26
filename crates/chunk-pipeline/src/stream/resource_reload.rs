@@ -150,24 +150,34 @@ impl WorldStream {
 
     /// Tags the blocks in `tags` (network value, one more than the world material slot;
     /// sorted, values unique) for their world material passes, and returns the sections it
-    /// withdrew. Binding, unbinding or revoking a material remeshes only the sections whose
-    /// palettes hold a value whose tag changed, withdrawing their queued and in-flight
-    /// results, so those blocks draw with their Bedrock materials again without a reconnect;
-    /// other meshes and work are kept. The caller applies at most one change a frame and
-    /// withdraws the returned sections' uploads still queued for the renderer, so no mesh
-    /// carrying a tag from before the change reaches it afterwards.
+    /// remeshes, or `None` while the previous change's resident sections are still dirty, so at
+    /// most one change is outstanding and alternating changes converge at meshing speed.
+    /// Binding, unbinding or revoking a material remeshes only the sections whose palettes hold
+    /// a value whose tag changed: their queued results are withdrawn and a job in flight
+    /// finishes and is refused as stale, so those blocks draw with their Bedrock materials
+    /// again without a reconnect; other meshes and work are kept. The caller withdraws the
+    /// returned sections' uploads still queued for the renderer, so no mesh carrying a tag from
+    /// before the change reaches it afterwards.
     pub fn set_world_materials(
         &mut self,
         tags: Arc<[(u32, u8)]>,
         now: Instant,
-    ) -> Vec<SubChunkKey> {
+    ) -> Option<Vec<SubChunkKey>> {
         debug_assert!(tags.windows(2).all(|pair| pair[0].0 < pair[1].0));
         let changed = changed_tag_values(&self.world_materials, &tags);
-        // Adopting an equal set keeps the caller's pointer comparison cheap.
-        self.world_materials = tags;
         if changed.is_empty() {
-            return Vec::new();
+            // Adopting an equal set keeps the caller's pointer comparison cheap.
+            self.world_materials = tags;
+            return Some(Vec::new());
         }
+        let mut outstanding = std::mem::take(&mut self.world_material_outstanding);
+        outstanding
+            .retain(|key| self.resident.contains(key) && self.revisions.dirty(*key).is_some());
+        if !outstanding.is_empty() {
+            self.world_material_outstanding = outstanding;
+            return None;
+        }
+        self.world_materials = tags;
         let terrain = self.authority.terrain();
         let affected: HashSet<SubChunkKey> = self
             .resident
@@ -193,14 +203,17 @@ impl WorldStream {
             })
             .collect();
         for key in &affected {
-            self.mark_forced_dirty_exact(*key, now);
-            self.mesh_jobs.in_flight.remove(key);
-            self.urgent_mesh_in_flight.remove(key);
+            self.mark_forced_dirty_keeping_job(*key, now);
         }
         self.retain_mesh_changes(|change| {
             !matches!(change, WorldMeshChange::Upsert { key, .. } if affected.contains(key))
         });
-        affected.into_iter().collect()
+        self.world_material_outstanding = affected
+            .iter()
+            .copied()
+            .filter(|key| self.resident.contains(key))
+            .collect();
+        Some(affected.into_iter().collect())
     }
 
     /// The world material tags meshing applies, as the caller last set them.
