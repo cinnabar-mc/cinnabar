@@ -788,12 +788,7 @@ impl DroppedItemPublisher<'_, '_> {
                 rope_ribbon(
                     from, rope.to, camera, segments, sag, half_width, color, lines,
                 );
-                // A lead takes the light of the actor it holds, as the base game shades it
-                // with that actor's parameters.
-                let (block, sky) = match rope.kind {
-                    RopeKind::Lead => stream.light_level_at(rope.from),
-                    RopeKind::FishingLine => (15, 15),
-                };
+                let (block, sky) = stream.rope_light(rope);
                 line_lights.push(DynamicLightRun {
                     end: lines.len() as u32,
                     block,
