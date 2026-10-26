@@ -168,7 +168,7 @@ so a later failed step still reaches `spawn`; where `close_range` cannot, every 
 the hard limit), sets `PR_SET_NO_NEW_PRIVS`, makes the child undumpable and killed with its parent
 (refusing to run if that parent died first), and sets resource limits: 1 GiB of private writable
 memory and of file size (`RLIMIT_DATA`, `RLIMIT_FSIZE`) under the cgroup's limit, 64 descriptors,
-and no core files, locked memory, message queues or real-time priority. Because `exec` makes an
+and no core files, locked memory, message queues, queued signals or real-time priority. Because `exec` makes an
 ordinary program dumpable again, the helper first makes itself undumpable once more.
 
 Before reading the component, the helper audits that it runs a single thread (Landlock covers only

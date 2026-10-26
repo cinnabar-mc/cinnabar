@@ -286,6 +286,20 @@ fn run(op: &str) -> String {
         "thread-name" => status(i64::from(unsafe {
             libc::prctl(libc::PR_SET_NAME, c"probe".as_ptr(), 0, 0, 0)
         })),
+        // A blocked real-time signal queued to the helper itself.
+        "queue-signal" => status(i64::from(unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigaddset(&mut set, libc::SIGRTMIN());
+            libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+            libc::sigqueue(
+                libc::getpid(),
+                libc::SIGRTMIN(),
+                libc::sigval {
+                    sival_ptr: std::ptr::null_mut(),
+                },
+            )
+        })),
         "dumpable" => format!("dumpable {}", unsafe {
             libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0)
         }),
@@ -425,6 +439,15 @@ fn the_lockdown_bounds_memory_and_descriptors() {
     }
     assert!(probe("memory").starts_with("denied"));
     assert_eq!(probe("limits"), format!("nofile {DESCRIPTOR_LIMIT}"));
+}
+
+/// The helper cannot queue signals, which would draw on its user's pending-signal budget.
+#[test]
+fn the_lockdown_denies_queued_signals() {
+    if !lockdown_supported() {
+        return;
+    }
+    assert_eq!(probe("queue-signal"), format!("denied {}", libc::EAGAIN));
 }
 
 /// The helper may query and set its own resource limits but not the client's, which shares

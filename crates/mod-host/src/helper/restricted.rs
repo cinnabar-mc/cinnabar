@@ -97,7 +97,7 @@ pub fn contain(command: &mut Command) -> Result<Containment> {
 
 /// The resource limits a contained helper runs under.
 #[cfg(target_os = "linux")]
-pub const LIMITS: [(libc::__rlimit_resource_t, u64); 7] = [
+pub const LIMITS: [(libc::__rlimit_resource_t, u64); 8] = [
     (libc::RLIMIT_DATA, DATA_LIMIT_BYTES),
     (libc::RLIMIT_NOFILE, DESCRIPTOR_LIMIT),
     // The runtime sizes anonymous memory files for linear memory images; Landlock already
@@ -107,6 +107,9 @@ pub const LIMITS: [(libc::__rlimit_resource_t, u64); 7] = [
     (libc::RLIMIT_MEMLOCK, 0),
     (libc::RLIMIT_MSGQUEUE, 0),
     (libc::RLIMIT_RTPRIO, 0),
+    // Queued signals count against the user's budget; the helper queues none, while signals
+    // the kernel raises for faults bypass the limit.
+    (libc::RLIMIT_SIGPENDING, 0),
 ];
 
 /// Runs in the child between `fork` and `exec`: only raw system calls, no allocation. Moves
