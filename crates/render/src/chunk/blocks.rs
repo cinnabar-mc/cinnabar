@@ -1,7 +1,7 @@
 //! Independent terrain arenas for retained block grids, built without frame-thread meshing.
 
 use crate::chunk::*;
-use bevy::render::render_resource::CachedRenderPipelineId;
+use bevy::render::render_resource::{CachedRenderPipelineId, FrontFace};
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use gpu::resource_geometry::PreparedResourceGeometry;
 use mod_api::drawing::DrawingHandle;
