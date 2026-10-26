@@ -795,7 +795,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions, item-tag scripts and live custom-block mining acceptance
   remain incomplete.
   Server items' `minecraft:digger` speeds replace tool speed and harvest for blocks
-  matched by name or tag query. Native block tags other than the pickaxe, axe, shovel
+  matched by name or tag query; as in Bedrock, a descriptor without states that carries
+  a tag query matches by tags, even beside a name. Native block tags other than the pickaxe, axe, shovel
   and hoe destructible tags are not carried yet. Serialized state restrictions compare
   the target's prepared values in both palette modes. Unknown native tags and unsupported
   queries stay unresolved, including under negation, and fall back to hand mining.
