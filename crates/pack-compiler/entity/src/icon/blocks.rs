@@ -38,9 +38,6 @@ const FLAT_FAMILIES: [ModelFamily; 10] = [
 /// the carried texture flat: barrier and the light blocks.
 const FLAT_TRAITS: BlockTraits = BlockTraits::INVISIBLE.union(BlockTraits::LIGHT_BLOCK);
 
-/// Block whose item draws its authored front on the south face.
-const OBSERVER: &str = "minecraft:observer";
-
 pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
     /// `None` when the pack lacks the block and terrain catalogs.
@@ -203,7 +200,7 @@ impl IconBlocks {
         if block.support() == VisualSupport::VanillaFallback
             && self.records.get(visual.0 as usize).is_some_and(|record| {
                 record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier()
-                    || record.name.as_ref() == OBSERVER
+                    || record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
                     || record
                         .traits
                         .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
@@ -284,7 +281,9 @@ impl IconBlocks {
                     return Ok(None);
                 };
                 transform
-            } else if carried && record.name.as_ref() == OBSERVER {
+            } else if carried
+                && record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
+            {
                 // The base game's observer item draws its default state turned south, whose
                 // south face shows the authored north slot and whose north face the south slot.
                 match face {

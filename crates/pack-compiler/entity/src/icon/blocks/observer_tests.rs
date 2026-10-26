@@ -1,5 +1,9 @@
 use super::*;
 
+use assets::facts::pack::PackBlock;
+
+const OBSERVER: PackBlock = PackBlock::Observer;
+
 /// The observer item is a carried cube whose south face shows the authored front, like the
 /// base game's item drawn in its south-facing pose.
 #[test]
@@ -24,10 +28,9 @@ fn observer_inventory_faces_show_the_front_toward_the_viewer() {
         .into_vec()
         .into_iter()
         .filter(|r| {
-            matches!(
-                r.name.as_ref(),
-                OBSERVER | "minecraft:air" | "minecraft:stone"
-            )
+            [OBSERVER, PackBlock::Air, PackBlock::Stone]
+                .iter()
+                .any(|block| r.name.as_ref() == block.identifier())
         })
         .collect();
     let root = tempfile::tempdir().unwrap();
@@ -84,7 +87,10 @@ fn observer_inventory_faces_show_the_front_toward_the_viewer() {
     let world = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
     let blocks = IconBlocks::read(root.path()).unwrap();
     let mut seen = 0;
-    for record in records.iter().filter(|r| r.name.as_ref() == OBSERVER) {
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == OBSERVER.identifier())
+    {
         let visual = BlockVisualId(record.sequential_id);
         assert!(
             blocks.is_carried_cube(&world, visual),
