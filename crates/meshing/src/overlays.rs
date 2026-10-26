@@ -120,6 +120,7 @@ pub(crate) fn mesh_overlays<I: LightingInputs + ?Sized>(
                 local,
                 part_template,
                 turn,
+                visible,
                 emitting,
             ) else {
                 continue;

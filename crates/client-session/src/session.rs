@@ -86,6 +86,8 @@ pub enum NetworkControlEvent<P = ()> {
         /// The login identity for this connection, independent of actor display names.
         identity: protocol::session_wire::SessionIdentity,
         world: WorldBootstrap,
+        /// Initial local-player pitch and yaw in degrees.
+        player_rotation: [f32; 2],
         environment: WorldEnvironmentBootstrap,
         custom_blocks: CustomBlocks,
         inventory: InventoryEvent,
@@ -365,9 +367,18 @@ pub struct NetworkHandle<P = ()> {
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
     unflushed: Mutex<frame_flush::FrameFlush>,
+    pick_trace: Option<Arc<std::sync::OnceLock<Arc<protocol::capture::PickTrace>>>>,
 }
 
 impl<P> NetworkHandle<P> {
+    /// Capture diagnostics are absent unless the session's opt-in file started successfully.
+    pub fn pick_trace(&self) -> Option<&Arc<protocol::capture::PickTrace>> {
+        self.pick_trace
+            .as_ref()?
+            .get()
+            .filter(|trace| trace.active())
+    }
+
     /// Queues the readiness boundary after the loading screen can close.
     pub fn finish_loading(&self) -> bool {
         let mut frame = self.unflushed.lock().expect("outbound frame lock");
@@ -652,6 +663,7 @@ fn empty_network_channels<P>() -> (
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
             experience_gate: Arc::default(),
             unflushed: Default::default(),
+            pick_trace: Default::default(),
         },
         physics_reanchor_rx,
     )
@@ -693,6 +705,16 @@ trait NetworkSession: execution::SessionOwner {
                 .await
                 .map(InboundWorldEvent::Event)
         }
+    }
+
+    /// The capture packet sequence behind the world event just delivered.
+    fn ingress_capture_sequence(&self) -> u64 {
+        0
+    }
+
+    /// Capture-only mapping for the world event just delivered.
+    fn pick_trace(&self) -> Option<Arc<protocol::capture::PickTrace>> {
+        None
     }
 
     fn decode_error_count(&self) -> u64;
@@ -764,6 +786,14 @@ impl<R: execution::SessionRead> NetworkSession for protocol::PlaySession<R> {
             InboundWorldEvent::Event,
             |event, payload| InboundWorldEvent::LevelChunk { event, payload },
         )
+    }
+
+    fn ingress_capture_sequence(&self) -> u64 {
+        protocol::PlaySession::ingress_capture_sequence(self)
+    }
+
+    fn pick_trace(&self) -> Option<Arc<protocol::capture::PickTrace>> {
+        protocol::PlaySession::pick_trace(self)
     }
 
     fn decode_error_count(&self) -> u64 {

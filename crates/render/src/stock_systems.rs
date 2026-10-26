@@ -35,10 +35,13 @@ use bevy::{
     transform::StaticTransformOptimizations,
 };
 
+mod serial_transforms;
+mod serial_visibility;
 #[cfg(test)]
 mod tests;
 
-/// Removes the stock systems whose inputs the client never creates.
+/// Removes the stock systems whose inputs the client never creates and runs Bevy's per-entity
+/// view-visibility bookkeeping and hierarchy-free transform sync serially.
 ///
 /// Add it after `RenderPlugin`, `CorePipelinePlugin`, `CameraPlugin`, `MeshPlugin` and
 /// `TransformPlugin` have built.
@@ -49,6 +52,8 @@ impl Plugin for StockSystemsPlugin {
         // No client entity has a parent, so static-tree dirty marking would track nothing.
         app.insert_resource(StaticTransformOptimizations::Disabled)
             .add_systems(PostStartup, remove_unused_main_systems);
+        serial_visibility::install(app);
+        serial_transforms::install(app);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             // RenderStartup reruns after device recovery; the removed systems stay removed.
             render_app.add_systems(RenderStartup, remove_unused_render_systems.run_if(run_once));
@@ -64,8 +69,9 @@ enum Scheduled {
 }
 
 /// Mesh-entity bounds and change marking, visibility ranges, GPU-culled entities and the
-/// deferred-camera MSAA check: the client spawns no `Mesh3d`, `Mesh2d`, `VisibilityRange`,
-/// `NoCpuCulling` or `DeferredPrepass` component.
+/// deferred-camera MSAA check: the client spawns no `Mesh3d`, `Mesh2d`, `VisibilityRange` or
+/// `DeferredPrepass` component, and nothing reads the `ViewVisibility` of the chunk entities
+/// that carry `NoCpuCulling`.
 fn remove_unused_main_systems(world: &mut World) {
     remove(
         world,

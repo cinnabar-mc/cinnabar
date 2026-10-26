@@ -107,6 +107,9 @@ mod queue_writes;
 mod screen_overlay_render;
 mod shader_asset;
 mod shader_safety;
+#[cfg(test)]
+#[path = "shader_safety/spirv_tests.rs"]
+mod shader_spirv_tests;
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
 pub use self::shaderpack::geometry::{
     BlockEntityIdFn, CONSTANT_VERTEX_BUFFER, DEFAULT_GEOMETRY_BUDGET_BYTES,

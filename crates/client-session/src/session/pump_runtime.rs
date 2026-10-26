@@ -360,6 +360,9 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P, E>(
                 emit_packet_id_trace(&mut session, &observation);
                 blob_cache_telemetry.try_emit(&session, &control_event_tx, now_ms);
                 let wrapped = wrap_inbound_world_event(&mut sequencer, &readiness_ingress, *event);
+                if let Some(trace) = session.pick_trace() {
+                    trace.world(wrapped.identity().1, session.ingress_capture_sequence());
+                }
                 trace_decoded(session.latency_trace_position(), &wrapped);
                 pending_world_event = Some(wrapped);
                 if let Some(transfer) = session.take_server_transfer() {

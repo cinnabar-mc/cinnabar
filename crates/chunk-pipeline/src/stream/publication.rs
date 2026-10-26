@@ -195,7 +195,7 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.authority.advance_actor_interpolation_ticks(ticks)
     }
-    /// Predicts remote actor positions for this frame's picks without advancing them.
+    /// Stages remote motion for vehicle and collision queries without advancing live actors.
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.authority.predict_remote_actor_motion(ticks)
     }

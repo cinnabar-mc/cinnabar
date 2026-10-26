@@ -123,11 +123,11 @@ fn sea_pickle_clusters_keep_individual_bodies_and_only_live_tips() {
             visual.model_template().unwrap(),
         )
         .unwrap();
-        assert!(
-            parts
-                .iter()
-                .all(|p| p.quad_count as usize <= assets::MAX_MODEL_TEMPLATE_QUADS)
-        );
+        let body_len = if dry { 7 } else { 9 };
+        assert!(parts.iter().all(|p| {
+            p.quad_count as usize <= assets::MAX_MODEL_TEMPLATE_QUADS
+                && (p.quad_count as usize).is_multiple_of(body_len)
+        }));
         let template = parts[0];
         let quad_count: usize = parts.iter().map(|p| p.quad_count as usize).sum();
         let quads = &runtime.model_quads()[template.quad_start as usize..][..quad_count];
@@ -225,6 +225,17 @@ fn sea_pickle_clusters_keep_individual_bodies_and_only_live_tips() {
             assert!(cap.positions.iter().all(|p| p[1] == inset_y));
             assert!((12..=13).contains(&(bounds[1][1] - inset_y)));
             assert_eq!(cap.flags & assets::MODEL_QUAD_FLAG_FACE_MASK, 2);
+            assert!(
+                body[..6]
+                    .iter()
+                    .all(|q| q.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE == 0)
+            );
+            assert!(
+                body[6..]
+                    .iter()
+                    .all(|q| q.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE != 0),
+                "the cap and tips keep the body's shade"
+            );
             assert_eq!(cap.uvs.iter().map(|uv| uv[0]).min(), Some(2048));
             assert_eq!(cap.uvs.iter().map(|uv| uv[0]).max(), Some(3072));
             if !dry {

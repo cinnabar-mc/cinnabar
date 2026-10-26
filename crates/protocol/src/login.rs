@@ -77,7 +77,7 @@ pub struct PlaySession<R = bridge::FramedReader> {
     pending_ordinary: Option<(WorldIngress, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
-    ingress_position: (u64, u32), // core frame and slot of the packet behind the last ingress
+    ingress_position: crate::packet_tap::PacketOrigin,
 }
 
 enum WorldIngress {
@@ -148,7 +148,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             pending_ordinary: None,
             server_disconnect: None,
             server_transfer: None,
-            ingress_position: (0, 0),
+            ingress_position: Default::default(),
         }
     }
 
@@ -386,18 +386,31 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         self.packet_id_trace.drain()
     }
 
+    /// Returns capture-only world/packet correspondence for the active transport.
+    pub fn pick_trace(&self) -> Option<std::sync::Arc<crate::capture::PickTrace>> {
+        self.transport.pick_trace()
+    }
+
     /// The latency-trace connection, core batch frame and in-frame index of the packet received
     /// last; see [`bridge::latency_trace`].
     #[must_use]
     pub fn latency_trace_position(&self) -> (u64, u64, u32) {
         let (conn, _, _) = self.transport.trace_position();
-        (conn, self.ingress_position.0, self.ingress_position.1)
+        (
+            conn,
+            self.ingress_position.trace.0,
+            self.ingress_position.trace.1,
+        )
     }
 
     /// The core frame and slot of the packet the transport delivered last.
-    fn delivered_position(&self) -> (u64, u32) {
-        let (_, frame, index) = self.transport.trace_position();
-        (frame, index)
+    fn delivered_position(&self) -> crate::packet_tap::PacketOrigin {
+        self.transport.packet_origin()
+    }
+
+    /// The captured packet behind the last delivered world item, including delayed cache work.
+    pub fn ingress_capture_sequence(&self) -> u64 {
+        self.ingress_position.capture_sequence
     }
 
     /// Number of receive-side decode/decompression failures observed in play.
@@ -452,7 +465,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 .pop_recovery_ready()
             {
                 // Recovery is the client's own resync request; no core packet produced it.
-                self.ingress_position = (0, 0);
+                self.ingress_position = Default::default();
                 return Ok(WorldIngress::Event(WorldEvent::ChunkResync(recovery)));
             }
             if let Some(event) = self.pending_blob_cache_events.pop_front() {
@@ -578,7 +591,10 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 }
                 Err(error) => return Err(self.fail_session(error)),
             };
-            if !ordinary_blocked && bridge::latency_trace::active().is_some() {
+            if !ordinary_blocked
+                && (bridge::latency_trace::active().is_some()
+                    || self.transport.pick_trace().is_some())
+            {
                 let origin = self.delivered_position();
                 self.blob_cache
                     .as_mut()

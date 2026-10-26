@@ -19,11 +19,11 @@ forbidden_artifacts = [
 # Original art, never Mojang content.
 [[owned_artifacts]]
 path = "examples/mods/cosmic/assets/moon.png"
-ownership_record = "docs/mod-projects.md"
+ownership_record = "docs/modding/src/appendix/paired-projects.md"
 
 [[owned_artifacts]]
 path = "examples/experiences/terminal-client/assets/terminal.png"
-ownership_record = "docs/mod-projects.md"
+ownership_record = "docs/modding/src/appendix/paired-projects.md"
 
 [[owned_artifacts]]
 path = "assets/panorama/"
@@ -2216,3 +2216,15 @@ name = "experience-space-client"
 path = "examples/experiences/space-client"
 allowed_dependencies = ["experience-sdk"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+# Standalone modding book and its checked WIT reference.
+[[crates]]
+name = "mod-docs"
+path = "tools/mod-docs"
+allowed_dependencies = ["mod-api", "mod-host", "server-experience", "ui"]
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[identifier_literal_exceptions]]
+path = "tools/mod-docs/src/types.rs"
+literal = "string"
+reason = "WIT primitive type vocabulary in the API documentation renderer."

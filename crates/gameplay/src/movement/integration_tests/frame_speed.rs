@@ -133,8 +133,9 @@ fn gliding_sprint_speed_stays_stable_between_physics_ticks_and_after_replay() {
                 ..Default::default()
             });
             frame.facts.elytra_ready = true;
+            // Hold the press into the second 25 ms frame so the first tick samples it held.
             frame.jump.pressed = index == 0;
-            frame.jump.held = index == 0;
+            frame.jump.held = index < 2;
             frame.delta = Duration::from_millis(25);
             frame.now += frame.delta * index;
             assert!(locals.advance(

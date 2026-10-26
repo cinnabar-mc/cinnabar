@@ -54,6 +54,18 @@ They need no phone, game assets or server. Missing adapters or required capabili
 a named missing-fixture message; those cases remain unverified. These checks exercise client
 rendering logic on the host's driver and do not establish Android GPU-driver compatibility.
 
+With SPIRV-Tools installed, also validate the translated Vulkan programs:
+
+```sh
+cargo test --locked -p render --lib terrain_spirv_validates -- --nocapture
+```
+
+Set `SPIRV_VAL` if `spirv-val` is outside `PATH`. The check covers Vulkan 1.0 through 1.3,
+shader debug settings, storage layouts and runtime bounds checks. A missing validator produces
+a named missing-fixture message; allocation-layout checks still run. Host terrain fixtures also
+honor `WGPU_DEBUG=0` to exercise release-style shader debug settings while retaining shader
+runtime checks.
+
 The same tests can run directly on an arm64 Android device through ADB, without installing
 the app, downloading game assets or signing in. Prepare the executable before reserving a
 remote phone:

@@ -61,6 +61,8 @@ pub(super) fn light_face_changed(
     replacement_direct: &DirectSkyMask,
     offset: [i32; 3],
 ) -> bool {
+    #[cfg(test)]
+    lighting::equality::work::record(0);
     let uniform_channel = |light: Option<&SubChunkLight>, channel| match light {
         None => Some(0),
         Some(light) if light.channel(channel).is_uniform() => light.get(channel, 0, 0, 0),
@@ -91,6 +93,8 @@ pub(super) fn light_face_changed(
             || direct_before != direct_after;
     }
     for [x, y, z] in sampled_light_shell(offset) {
+        #[cfg(test)]
+        lighting::equality::work::record(1);
         for channel in [LightChannel::Block, LightChannel::Sky] {
             let before = previous
                 .and_then(|light| light.get(channel, x, y, z))

@@ -1,5 +1,5 @@
 //! Physical input for vanilla's mob effect screen: the Mob Effects binding opens and closes
-//! it, and Escape, Back, the controller's cancel button and its close button dismiss it.
+//! it, and Escape, Menu Cancel, the controller's cancel button and its close button dismiss it.
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     ecs::system::SystemParam,
@@ -15,7 +15,9 @@ use bevy::{
 };
 use client_shell::menu::{
     MenuRuntime,
-    settings_options::control_bindings::{binding_key, binding_mouse_button, gamepad_button},
+    settings_options::control_bindings::{
+        binding_key, binding_mouse_button, gamepad_button, menu_cancel_key, menu_cancel_mouse,
+    },
 };
 use client_shell::physical_input::set_cursor_capture;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
@@ -132,7 +134,10 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         {
             input.runtime.toggle_mob_effect_screen(now);
             owned |= open || input.runtime.mob_effect_screen().is_open();
-        } else if open && event.key_code == KeyCode::Escape {
+        } else if open
+            && (event.key_code == KeyCode::Escape
+                || menu_cancel_key(input.menu.as_deref(), event.key_code))
+        {
             input.runtime.close_mob_effect_screen();
         }
     }
@@ -154,7 +159,7 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
             gamepad_button(&menu.settings_snapshot().0, GamepadButton::East)
         });
         if close_clicked
-            || input.mouse.just_pressed(MouseButton::Back)
+            || menu_cancel_mouse(input.menu.as_deref(), &input.mouse).is_some()
             || input.pads.iter().any(|pad| pad.just_pressed(cancel))
         {
             input.runtime.close_mob_effect_screen();

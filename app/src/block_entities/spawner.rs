@@ -1,5 +1,6 @@
 //! Spawner contents use the actor evaluator, artwork pages and draw publication.
 use crate::runtime::world::ClientWorld;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Mat4, Projection, Query, Res, ResMut, Resource, Transform, Vec3, With};
 use client_presentation::{
     actor_publication::{ActorFrameState, PreparedActorPublication},
@@ -14,10 +15,10 @@ use client_world::DisplayActorStore;
 use render_model::spawner::{SpawnerDisplayClock, spawner_actor_transform};
 use render_model::{ActorArtworkPages, ActorCullView, matrix_rows};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::BTreeSet,
     sync::{Arc, Weak},
 };
-use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE};
+use world::{BlockEntityKey, BlockEntityNbt, Chunk, ChunkKey, SUB_CHUNK_SIDE};
 
 use super::system::{SCAN_RADIUS_BLOCKS as DISPLAY_SCAN_RADIUS, columns};
 const DEFAULT_ACTIVATION_RANGE: f32 = 16.0;
@@ -30,11 +31,25 @@ struct Column {
 }
 impl Column {
     /// Whether the column still owns the index used by this scan.
-    fn is_current(&self, source: &Arc<EntityIndex>) -> bool {
-        self.source
-            .upgrade()
-            .is_some_and(|previous| Arc::ptr_eq(&previous, source))
+    fn is_current(&self, chunk: &Chunk) -> bool {
+        chunk.holds_block_entities(&self.source)
     }
+}
+
+/// Everything a column pass reads besides the pool's own scans.
+#[derive(Clone, PartialEq, Eq)]
+struct ListingInputs {
+    window: columns::ColumnWindow,
+    mode: assets::NetworkIdMode,
+    registry: [u8; 32],
+}
+
+/// Spawner requests on spawner blocks, as `(column, display index)` in scan order.
+struct Listing {
+    /// Present only when the pass left every column in range current, so an identical pass
+    /// would rescan nothing and list the same requests.
+    settled: Option<ListingInputs>,
+    requests: Vec<(ChunkKey, usize)>,
 }
 #[derive(Clone)]
 struct Request {
@@ -60,6 +75,8 @@ struct Pool {
     spins: HashMap<[i32; 3], Clock>,
     poses: PoseConversions,
     layers: LayerPoseCache,
+    /// The last column pass, reused while its inputs and the terrain are unchanged.
+    listing: Option<Listing>,
 }
 
 #[derive(Resource, Default)]
@@ -127,6 +144,91 @@ fn column(source: Arc<EntityIndex>, previous: Option<&Column>) -> Column {
     }
 }
 
+/// Refreshes current, near or budgeted column scans in range, drops scans that left it, and
+/// lists the requests that sit on a spawner block.
+fn list_spawners(
+    pool: &mut Pool,
+    store: &world::ChunkStore,
+    dimension: i32,
+    inputs: ListingInputs,
+) -> Listing {
+    let [xs, zs] = inputs.window.columns.clone();
+    let eye_column = inputs.window.eye_column;
+    let scans = &pool.columns;
+    let selected =
+        pool.rescans
+            .select(inputs.window.stale_distant(dimension, store, |key, chunk| {
+                scans.get(&key).is_none_or(|scan| !scan.is_current(chunk))
+            }));
+    let side = SUB_CHUNK_SIDE as i32;
+    let mut rescans_left = columns::MAX_COLUMN_RESCANS_PER_FRAME;
+    let mut settled = true;
+    let mut requests = Vec::new();
+    for x in xs.clone() {
+        for z in zs.clone() {
+            let key = ChunkKey::new(dimension, x, z);
+            let Some(chunk) = store.chunk(key) else {
+                continue;
+            };
+            let near = columns::is_near_column(eye_column, x, z);
+            let mut deferred = 0;
+            let budget = if near || selected.contains(&Some(key)) {
+                &mut rescans_left
+            } else {
+                &mut deferred
+            };
+            let Some(scan) = columns::frame_scan(
+                pool.columns.remove(&key),
+                chunk,
+                near,
+                budget,
+                Column::is_current,
+                |previous| column(chunk.shared_block_entities(), previous.as_ref()),
+            ) else {
+                settled = false;
+                continue;
+            };
+            settled &= scan.is_current(chunk);
+            for (index, request) in scan.displays.iter().enumerate() {
+                let [x, y, z] = request.position;
+                let backing = chunk
+                    .sub_chunk(y.div_euclid(side))
+                    .and_then(|part| {
+                        part.runtime_id(
+                            0,
+                            x.rem_euclid(side) as u8,
+                            y.rem_euclid(side) as u8,
+                            z.rem_euclid(side) as u8,
+                        )
+                    })
+                    .and_then(|id| {
+                        assets::facts::BlockEntityFacts::pinned().for_registry(
+                            id,
+                            inputs.mode,
+                            inputs.registry,
+                        )
+                    });
+                if backing.is_some_and(|fact| {
+                    fact.entity.renderer == assets::facts::BlockEntityRenderer::MobSpawner
+                }) {
+                    requests.push((key, index));
+                }
+            }
+            pool.columns.insert(key, scan);
+        }
+    }
+    pool.columns.retain(|key, _| {
+        key.dimension == dimension
+            && xs.contains(&key.x)
+            && zs.contains(&key.z)
+            && store.chunk(*key).is_some()
+    });
+    Listing {
+        settled: settled.then_some(inputs),
+        requests,
+    }
+}
+
 /// Publishes client-owned display actors into this frame's normal actor draw batch.
 pub(crate) fn prepare_spawner_actors(
     world: Res<ClientWorld>,
@@ -163,6 +265,7 @@ pub(crate) fn prepare_spawner_actors(
             spins: Default::default(),
             poses: Default::default(),
             layers: Default::default(),
+            listing: None,
         });
     }
     let pool = publisher.0.as_mut().unwrap();
@@ -197,102 +300,34 @@ pub(crate) fn prepare_spawner_actors(
     if let Some((rotation, position)) = state.sampling_camera() {
         pool.actors.set_camera(rotation, position);
     }
-    let eye = view.eye_translation();
-    let authority = stream.authority();
-    let local = authority.actor(authority.local_player_runtime_id());
-    let mut players: Vec<Vec3> = authority
-        .present_remote_players()
-        .filter_map(|actor| {
-            actor
-                .interpolated_position(step.partial_tick)
-                .map(Vec3::from_array)
-        })
-        .collect();
-    if local.is_some_and(|actor| authority.camera_aim_assist_eligible(actor) == Some(true)) {
-        players.push(view.feet_translation());
-    }
+    let (eye, feet) = (view.eye_translation(), view.feet_translation());
     let range = |center: f32| {
         ((center - DISPLAY_SCAN_RADIUS) / SUB_CHUNK_SIDE as f32).floor() as i32
             ..=((center + DISPLAY_SCAN_RADIUS) / SUB_CHUNK_SIDE as f32).floor() as i32
     };
-    let side = SUB_CHUNK_SIDE as i32;
-    let eye_column = [eye.x, eye.z].map(|axis| (axis / SUB_CHUNK_SIDE as f32).floor() as i32);
-    let store = stream.collision_store();
-    let scans = &pool.columns;
-    let selected = pool.rescans.select(
-        range(eye.x)
-            .flat_map(|x| range(eye.z).map(move |z| ChunkKey::new(session.1, x, z)))
-            .filter(|key| {
-                !columns::is_near_column(eye_column, key.x, key.z)
-                    && store.chunk(*key).is_some_and(|chunk| {
-                        scans
-                            .get(key)
-                            .is_none_or(|scan| !scan.is_current(&chunk.shared_block_entities()))
-                    })
-            }),
-    );
-    let mut rescans_left = columns::MAX_COLUMN_RESCANS_PER_FRAME;
-    let mut columns = BTreeSet::new();
-    let mut candidates = Vec::new();
-    for x in range(eye.x) {
-        for z in range(eye.z) {
-            let key = ChunkKey::new(session.1, x, z);
-            let Some(chunk) = store.chunk(key) else {
-                continue;
-            };
-            columns.insert(key);
-            let near = columns::is_near_column(eye_column, x, z);
-            let mut deferred = 0;
-            let budget = if near || selected.contains(&Some(key)) {
-                &mut rescans_left
-            } else {
-                &mut deferred
-            };
-            let Some(scan) = columns::frame_scan(
-                pool.columns.remove(&key),
-                chunk,
-                near,
-                budget,
-                |scan, chunk| scan.is_current(&chunk.shared_block_entities()),
-                |previous| column(chunk.shared_block_entities(), previous.as_ref()),
-            ) else {
-                continue;
-            };
-            pool.columns.insert(key, scan);
-            for (index, request) in pool.columns[&key].displays.iter().enumerate() {
-                let [x, y, z] = request.position;
-                let backing = chunk
-                    .sub_chunk(y.div_euclid(side))
-                    .and_then(|part| {
-                        part.runtime_id(
-                            0,
-                            x.rem_euclid(side) as u8,
-                            y.rem_euclid(side) as u8,
-                            z.rem_euclid(side) as u8,
-                        )
-                    })
-                    .and_then(|id| {
-                        assets::facts::BlockEntityFacts::pinned().for_registry(
-                            id,
-                            stream.network_id_mode(),
-                            collisions.breg_sha256(),
-                        )
-                    });
-                if !backing.is_some_and(|fact| {
-                    fact.entity.renderer == assets::facts::BlockEntityRenderer::MobSpawner
-                }) {
-                    continue;
-                }
-                if display_center(request.position).distance_squared(eye)
-                    > DISPLAY_SCAN_RADIUS * DISPLAY_SCAN_RADIUS
-                {
-                    continue;
-                }
-                candidates.push((key, index));
-            }
-        }
-    }
-    pool.columns.retain(|key, _| columns.contains(key));
+    let inputs = ListingInputs {
+        window: columns::ColumnWindow {
+            terrain: stream.collision_store().content_revision(),
+            columns: [range(eye.x), range(eye.z)],
+            eye_column: [eye.x, eye.z].map(|axis| (axis / SUB_CHUNK_SIDE as f32).floor() as i32),
+        },
+        mode: stream.network_id_mode(),
+        registry: collisions.breg_sha256(),
+    };
+    let listing = match pool.listing.take() {
+        Some(listing) if listing.settled.as_ref() == Some(&inputs) => listing,
+        _ => list_spawners(pool, stream.collision_store(), session.1, inputs),
+    };
+    let mut candidates: Vec<(ChunkKey, usize)> = listing
+        .requests
+        .iter()
+        .copied()
+        .filter(|&(key, index)| {
+            display_center(pool.columns[&key].displays[index].position).distance_squared(eye)
+                <= DISPLAY_SCAN_RADIUS * DISPLAY_SCAN_RADIUS
+        })
+        .collect();
+    pool.listing = Some(listing);
     let view = camera
         .single()
         .ok()
@@ -314,6 +349,24 @@ pub(crate) fn prepare_spawner_actors(
         .map(|request| request.position)
         .collect();
     pool.actors.retain(&wanted);
+    let players = if candidates.is_empty() {
+        Vec::new()
+    } else {
+        let authority = stream.authority();
+        let local = authority.actor(authority.local_player_runtime_id());
+        let mut players: Vec<Vec3> = authority
+            .present_remote_players()
+            .filter_map(|actor| {
+                actor
+                    .interpolated_position(step.partial_tick)
+                    .map(Vec3::from_array)
+            })
+            .collect();
+        if local.is_some_and(|actor| authority.camera_aim_assist_eligible(actor) == Some(true)) {
+            players.push(feet);
+        }
+        players
+    };
     let mut visible = BTreeSet::new();
     let mut displays = Vec::new();
     for (key, index) in candidates {
@@ -394,7 +447,7 @@ fn display_batch(
     let mut batch = ActorPresentationBatch {
         submissions: Vec::new(),
         skin_layers: Vec::new(),
-        artwork: HashMap::new(),
+        artwork: Default::default(),
     };
     pool.poses.begin_frame();
     let mut sampled = pool.actors.frame(partial_tick);

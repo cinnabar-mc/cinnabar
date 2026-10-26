@@ -3,6 +3,7 @@ mod armour_tests;
 mod bodies;
 #[cfg(test)]
 mod cape_tests;
+pub(crate) mod carried_blocks;
 mod cloth_contacts;
 mod commit;
 mod companions;
@@ -410,6 +411,9 @@ pub fn prepare_actor_render_frame(
         fishing_line_anchors.retain(|known| known.runtime_id != anchor.runtime_id);
         fishing_line_anchors.push(anchor);
     }
+    let carried_blocks = stream.map_or_else(Vec::new, |stream| {
+        carried_blocks::carried_blocks_for(&batch, stream)
+    });
     drop(preparation);
     register_geometries(
         &mut params.hand_builder.0,
@@ -461,6 +465,7 @@ pub fn prepare_actor_render_frame(
         crate::dropped_items::DroppedItemFrame {
             partial_tick: step.partial_tick,
             fishing_line_anchors: &fishing_line_anchors,
+            carried_blocks: &carried_blocks,
             prepared_blocks: params
                 .equipment
                 .as_deref()

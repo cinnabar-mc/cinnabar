@@ -1,29 +1,49 @@
 package cinnabar:world-draw@0.1.0;
 
 /// Owner and connection scoped resources. Every mutation is a callback transaction.
+/// Grants: `world_draw` for mutations; `entity_observe` for observation, `entity_highlight` for attachment, `render_through_walls` for elevated depth and `render_material` for custom materials. capabilities reports granted bits.
 interface drawing {
+    /// Independent authority bits; advertised support does not itself grant another capability.
     flags permissions {
         world-draw, entity-observe, entity-highlight, render-through-walls,
         render-material, render-post,
     }
+    /// An opaque token scoped to one owner incarnation; never construct or reuse another owner's token.
     record handle { owner: u64, generation: u64, slot: u64 }
+    /// A typed refusal; stale and in-use resources need lifecycle handling rather than blind retries.
     enum error-code { denied, invalid, budget-exceeded, stale-handle, unsupported, in-use }
+    /// A stable error category and a host diagnostic intended for humans.
     record draw-error { code: error-code, detail: string }
 
+    /// Local-space position, linear colour, UV and custom material data for one source vertex.
     record vertex { position: tuple<f32, f32, f32>, color: tuple<f32, f32, f32, f32>, uv: tuple<f32, f32>, data: tuple<f32, f32, f32, f32> }
+    /// Triangle vertices and indices; indices address this mesh's own vertex list.
     record mesh { vertices: list<vertex>, indices: list<u32> }
+    /// Ordered local vertices; closed connects the last vertex to the first without repeating it.
     record polyline { vertices: list<vertex>, closed: bool }
+    /// Chooses indexed triangles or a host-expanded polyline.
     variant geometry-spec { triangles(mesh), line(polyline) }
+    /// A double-precision origin in one dimension for local geometry coordinates.
     record world-anchor { dimension: s32, origin: tuple<f64, f64, f64> }
+    /// An integer block origin in one dimension.
     record block-anchor { dimension: s32, position: tuple<s32, s32, s32> }
+    /// An authorized retained actor reference, optionally following its body rotation.
     record entity-anchor { entity: handle, body-rotation: bool }
+    /// Selects the coordinate frame; entity attachment and elevated depth need separate authority.
     variant anchor { %world(world-anchor), block(block-anchor), camera, entity(entity-anchor) }
+    /// Local translation, quaternion rotation and scale applied to the retained geometry.
     record transform { translation: tuple<f32, f32, f32>, rotation: tuple<f32, f32, f32, f32>, scale: tuple<f32, f32, f32> }
+    /// Depth-tested coverage or elevated coverage requiring through-wall authority.
     enum depth { test, always }
+    /// Premultiplied alpha composition or additive emission.
     enum blend { premultiplied, additive }
+    /// Interprets line width in world units or physical pixels.
     enum width-mode { %world, pixels }
+    /// The host-expanded shape at a polyline corner.
     enum join { bevel, miter, round }
+    /// The host-expanded shape at each open polyline endpoint.
     enum cap { butt, round }
+    /// One retained geometry placement; geometry and material handles belong to the same owner.
     record instance {
         geometry: handle, material: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
         tint: tuple<f32, f32, f32, f32>, depth: depth, blend: blend,
@@ -32,37 +52,52 @@ interface drawing {
     /// Custom procedural fragments use the render-material grant, without textures or depth output.
     /// Successful creation means source validation succeeded; native compilation may still fail.
     create-material: func(source: string) -> result<handle, draw-error>;
+    /// Reports this instance's independently granted drawing permissions, including when drawing is denied.
     capabilities: func() -> permissions;
+    /// An authorized actor reference paired with its session runtime ID; release the reference when finished.
     record observed-entity { entity: handle, runtime-id: u64 }
     /// Returns bounded host-selected actor references; retained references need explicit release.
     observe-entities: func() -> result<list<observed-entity>, draw-error>;
+    /// Allocates validated geometry owned by this component; mutations commit only on callback success.
     create-geometry: func(spec: geometry-spec) -> result<handle, draw-error>;
+    /// Allocates one retained instance referencing this owner's geometry and optional material.
     create: func(spec: instance) -> result<handle, draw-error>;
+    /// Atomically replaces an existing instance's specification after a successful callback.
     update: func(id: handle, spec: instance) -> result<_, draw-error>;
+    /// Replaces the named callback-lifetime group; it expires at the next successful callback.
     replace-frame-group: func(name: string, draws: list<instance>) -> result<_, draw-error>;
+    /// Releases this owner's resource; referenced geometry or materials return in-use.
     remove: func(id: handle) -> result<_, draw-error>;
 }
 
 /// Retained union silhouettes. Tokens are private to one component and session.
+/// Grants: `entity_highlight`; actor lookup also requires `entity_observe` and `render_through_walls`, elevated coverage requires `render_through_walls`, and effects require `render_post`.
 interface masks {
     use drawing.{handle, draw-error};
+    /// Depth-tested coverage or elevated coverage requiring through-wall authority.
     enum depth-policy { test, always }
+    /// Display-space colour components, including alpha coverage.
     record rgba { r: f32, g: f32, b: f32, a: f32 }
     /// Display-space colours and physical-pixel radii; zero alpha disables a layer.
     record style { outline: rgba, outline-radius: f32, glow: rgba, glow-radius: f32 }
+    /// A named, ordered post effect retaining references to this owner's masks.
     record effect-spec { name: string, order: s32, source: string, masks: list<handle> }
     /// Resolves an already authorized actor. Unfiltered lookup requires observation authority.
     entity: func(runtime-id: u64) -> result<handle, draw-error>;
+    /// Creates an empty retained mask; its depth policy is fixed at creation.
     create: func(depth: depth-policy) -> result<handle, draw-error>;
     /// Atomically replaces membership; an empty selection clears coverage.
     select: func(mask: handle, entities: list<handle>) -> result<_, draw-error>;
+    /// Releases an owned mask once no retained effect references it.
     remove: func(mask: handle) -> result<_, draw-error>;
+    /// Replaces the host-composed outline and glow; none removes the style without releasing the mask.
     set-style: func(mask: handle, appearance: option<style>) -> result<_, draw-error>;
     /// Arbitrary sampling also requires the separately negotiated render-post capability.
     register-effect: func(spec: effect-spec) -> result<_, draw-error>;
 }
 
 /// Reads only immutable package files verified by the host, without filesystem access.
+/// Grants: `world_draw`; only this component's verified package files are readable.
 interface assets {
     use drawing.{draw-error};
     /// A missing or unowned file is refused. Reads share the callback's byte budget.

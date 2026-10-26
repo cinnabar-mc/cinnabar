@@ -19,6 +19,7 @@ use super::{
     model::{
         CullCamera, CullPhase, CullRecord, CullStream, CullViewInput, CullViewUniform, STREAM_COUNT,
     },
+    order::{DrawOrder, eye_sub_chunk},
     slots::{CullSlots, cull_record},
     storage::CullStorage,
 };
@@ -72,6 +73,7 @@ pub(in crate::chunk) struct GpuCull {
     draw_counts: Option<Buffer>,
     draw_offsets: Option<Buffer>,
     pub(super) table: CullSlots,
+    order: DrawOrder,
     pub(super) pyramid: Option<PreparedPyramid>,
     pub(super) bind_groups: Option<[wgpu::BindGroup; 2]>,
     bound_pyramid: Option<TextureViewId>,
@@ -90,6 +92,7 @@ impl GpuCull {
             draw_counts: None,
             draw_offsets: None,
             table: CullSlots::default(),
+            order: DrawOrder::default(),
             pyramid: None,
             bind_groups: None,
             bound_pyramid: None,
@@ -259,6 +262,13 @@ pub(super) fn prepare_gpu_cull(
         ));
         cull.bound_pyramid = pyramid_id;
     }
+    cull.order.update(
+        cull.table.records(),
+        eye_sub_chunk(extracted.world_from_view.translation()),
+    );
+    if let Some((first, slots)) = cull.order.take_stale() {
+        storage.write_order(&queue, first, slots);
+    }
     cull.prepared_view = Some(view.entity);
     feedback.prepare(
         &device,
@@ -295,6 +305,7 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
         cull.storage = Some(storage);
         cull.bind_groups = None;
         cull.table.mark_all_dirty();
+        cull.order.mark_stale();
     }
     let storage = cull.storage.as_ref().expect("storage was just ensured");
     let uploaded = crate::gpu_allocation::checked(

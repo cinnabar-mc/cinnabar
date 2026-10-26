@@ -11,6 +11,13 @@ use client_state::ClientFrameSet;
 pub(crate) fn configure(app: &mut App) {
     app.add_systems(
         Update,
+        crate::melee::complete_melee_actor_frame
+            .after(crate::runtime::network::complete_actor_motion_trace)
+            .after(ClientFrameSet::NetworkSend)
+            .in_set(ClientFrameSet::ActorPreparation),
+    );
+    app.add_systems(
+        Update,
         crate::block_use::retain_block_use_pick
             .run_if(resource_exists::<client_interaction::movement::PhysicsCollisionRegistries>)
             .in_set(client_state::ClientInteractionSet::RetainPick)

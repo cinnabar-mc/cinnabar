@@ -149,6 +149,7 @@ impl PreparedResourceGeometry {
                 .iter()
                 .map(|(&entity, allocation)| (entity, &allocation.gpu)),
         );
+        self.arena.transparent_model_changes.record_all();
         let keys: HashMap<_, _> = instances
             .iter()
             .map(|(entity, instance)| (instance.key, entity))

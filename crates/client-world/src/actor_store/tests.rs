@@ -455,6 +455,7 @@ fn player_network_teleport_snaps_to_feet_space() {
 fn remote_player_converges_to_received_position_in_three_ticks() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
 
     let actor = store.get(42).unwrap();
@@ -476,6 +477,7 @@ fn remote_player_converges_to_received_position_in_three_ticks() {
 fn new_target_restarts_three_ticks_from_current_smoothed_position() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.advance_interpolation_ticks(1);
     store.apply(1, 3, player_move(42, 12.0, false));
@@ -490,6 +492,7 @@ fn new_target_restarts_three_ticks_from_current_smoothed_position() {
 fn multiple_packets_before_one_tick_use_only_the_latest_target() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.apply(1, 3, player_move(42, 12.0, false));
     store.advance_interpolation_ticks(1);
@@ -501,6 +504,7 @@ fn multiple_packets_before_one_tick_use_only_the_latest_target() {
 fn teleport_snaps_received_previous_and_current_positions() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.advance_interpolation_ticks(1);
     store.apply(1, 3, player_move(42, 100.0, true));
@@ -979,7 +983,7 @@ fn movement_flag_update_reads_both_flag_words_and_skips_absent_ones() {
     assert_eq!(crate::MovementFlagUpdate::from_metadata(&[unrelated]), None);
 }
 
-/// Remote MovePlayer Rotation turns without moving and Reset snaps without a lerp.
+/// Remote rotation preserves body yaw, and Reset snaps without a lerp.
 #[test]
 fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     let mut store = ActorStore::new(1, 0);
@@ -1000,7 +1004,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
         turned.position, before,
         "rotation mode never moves the player"
     );
-    assert_eq!(turned.yaw, 90.0);
+    assert_eq!(turned.yaw, 0.0);
 
     store.apply_player_move(1, 3, 0, movement(protocol::MovePlayerMode::Reset, 30.0));
     let reset = store.get(42).unwrap();

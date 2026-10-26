@@ -215,3 +215,54 @@ fn dedicated_drops_use_current_models_and_preserve_session_artwork_and_fallbacks
         }
     }
 }
+
+#[test]
+fn carried_blocks_draw_world_models_at_their_placement_and_skip_air() {
+    let (_, terrain) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
+    let (icons, stream) = fixture_item(ITEM, 0, 1);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    world.insert_resource(ChunkTextureAssets::new(terrain));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    let placement = [
+        [0.5, 0.0, 0.0, 10.0],
+        [0.0, 0.5, 0.0, 64.8125],
+        [0.0, 0.0, 0.5, 10.75],
+    ];
+    let carried = |block_runtime_id| crate::actor_publication::carried_blocks::CarriedBlock {
+        block_runtime_id,
+        world_from_block: placement,
+        light: (4, 12),
+    };
+    for (block_runtime_id, drawn) in [(1, true), (0, false)] {
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            DroppedItemFrame {
+                carried_blocks: &[carried(block_runtime_id)],
+                ..Default::default()
+            },
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        let carried: Vec<_> = scene
+            .instances
+            .iter()
+            .filter(|instance| instance.world_from_item == placement)
+            .collect();
+        assert_eq!(
+            carried.len(),
+            usize::from(drawn),
+            "block {block_runtime_id}"
+        );
+        if let Some(instance) = carried.first() {
+            assert!(matches!(
+                scene.models[instance.model as usize],
+                DroppedItemModel::Block(_) | DroppedItemModel::Cube(_)
+            ));
+            assert_eq!((instance.block_level, instance.sky_level), (4, 12));
+        }
+    }
+}

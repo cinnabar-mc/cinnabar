@@ -69,3 +69,6 @@ pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
 
 /// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
+
+/// Selects a retained model vertex whose position and normal use a GPU bone palette.
+pub const UI_STYLE_MODEL_VERTEX: u32 = 1 << 17;

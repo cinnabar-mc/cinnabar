@@ -903,6 +903,7 @@ mod render_distance;
 mod request_admission;
 mod request_lifecycle;
 mod request_order;
+mod sample_cache;
 mod service;
 mod streaming_harness;
 mod sub_chunk_recovery;

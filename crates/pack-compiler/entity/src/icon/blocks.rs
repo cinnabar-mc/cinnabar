@@ -200,6 +200,7 @@ impl IconBlocks {
         if block.support() == VisualSupport::VanillaFallback
             && self.records.get(visual.0 as usize).is_some_and(|record| {
                 record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier()
+                    || record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
                     || record
                         .traits
                         .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
@@ -280,6 +281,16 @@ impl IconBlocks {
                     return Ok(None);
                 };
                 transform
+            } else if carried
+                && record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
+            {
+                // The base game's observer item draws its default state turned south, whose
+                // south face shows the authored north slot and whose north face the south slot.
+                match face {
+                    BlockFace::North => (BlockFace::South, 0),
+                    BlockFace::South => (BlockFace::North, 0),
+                    _ => (face, 0),
+                }
             } else if record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier() {
                 // The inventory pose faces south with its top upright.
                 match face {
@@ -595,6 +606,10 @@ mod tests;
 #[cfg(test)]
 #[path = "blocks/crafter_tests.rs"]
 mod crafter_tests;
+
+#[cfg(test)]
+#[path = "blocks/observer_tests.rs"]
+mod observer_tests;
 
 #[cfg(test)]
 #[path = "blocks/lightning_rod_tests.rs"]

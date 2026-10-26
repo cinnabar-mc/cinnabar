@@ -167,7 +167,7 @@ fn read_v2(data: Bytes, summary: &mut CaptureSummary) -> Result<Vec<Entry>> {
         protocol::PROTOCOL_VERSION
     );
     let records = file.records;
-    summary.format = 2;
+    summary.format = file.version;
     summary.records = records.len();
     summary.truncated = file.cut_short;
     summary.capture_started_unix_ms = Some(header.started_unix_ms);
@@ -180,6 +180,7 @@ fn read_v2(data: Bytes, summary: &mut CaptureSummary) -> Result<Vec<Entry>> {
                 packet_id,
                 elapsed_us,
                 body,
+                ..
             } => entries.push(Entry {
                 record,
                 id: packet_id,
@@ -194,6 +195,7 @@ fn read_v2(data: Bytes, summary: &mut CaptureSummary) -> Result<Vec<Entry>> {
                 summary.dropped_packets = summary.dropped_packets.saturating_add(dropped);
             }
             CaptureRecord::Truncated { .. } => summary.truncated = true,
+            CaptureRecord::Pick { .. } => {}
         }
     }
     Ok(entries)

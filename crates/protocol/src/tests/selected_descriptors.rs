@@ -221,6 +221,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         yaw: 180.0,
         head_yaw: 180.0,
         camera_orientation: [0.0, 0.0, -1.0],
+        interact_rotation: [0.0, 180.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
         vehicle: None,

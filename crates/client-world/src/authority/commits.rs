@@ -228,7 +228,13 @@ impl WorldAuthority {
                     ActorEvent::Attributes(update) => Some(update.runtime_id),
                     _ => None,
                 };
-                let result = self.actors.apply(self.actor_session_id, sequence, event);
+                let target_resident = self.player_move_target_resident(&event);
+                let result = self.actors.apply_with_player_move_terrain(
+                    self.actor_session_id,
+                    sequence,
+                    event,
+                    target_resident,
+                );
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some(runtime_id) = death
                     && self

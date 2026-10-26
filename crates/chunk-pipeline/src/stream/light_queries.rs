@@ -39,6 +39,19 @@ impl WorldStream {
         }
     }
 
+    /// Light that shades a rope. A lead takes the light of the actor it holds, as the base
+    /// game's `ActorRenderer::renderLeash` draws it with that actor's
+    /// `ActorShaderManager::setupShaderParameters`; light not yet solved leaves it unlit like
+    /// the actor's body. A fishing line stays fully lit.
+    #[must_use]
+    pub fn rope_light(&self, rope: &client_world::RopeView) -> (u8, u8) {
+        rope.leashed
+            .and_then(|(runtime_id, feet)| {
+                self.actor_light_at(self.authority().actor(runtime_id)?, feet)
+            })
+            .unwrap_or((15, 15))
+    }
+
     /// Retained `(block, sky)` light or the dimension default beyond its height.
     /// `None` identifies invalid coordinates or unresolved light within the height range.
     #[must_use]

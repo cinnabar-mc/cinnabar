@@ -65,21 +65,23 @@ pub(crate) struct BlockUseContext<'w, 's> {
 }
 
 /// Drains physical interactions before physics, then evaluates the buffered held picks.
-pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
+pub(crate) fn produce_block_use(
+    world: &mut bevy::prelude::World,
+    mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
+) {
     if !world.contains_resource::<PhysicsCollisionRegistries>() {
         return;
     }
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
+        &mut windows,
     );
     if !crate::ordered_interactions::pending(world) {
-        world
-            .run_system_cached(maintain_block_use)
+        crate::ordered_interactions::run_cached(world, maintain_block_use, ())
             .expect("block maintenance resources");
     } else {
-        world
-            .run_system_cached(held::discard_tick_picks)
+        crate::ordered_interactions::run_cached(world, held::discard_tick_picks, ())
             .expect("block pick retirement resources");
     }
 }
@@ -113,7 +115,7 @@ mod startup_tests {
     #[test]
     fn input_maintenance_waits_for_deferred_world_resources() {
         let mut world = bevy::prelude::World::new();
-        super::produce_block_use(&mut world);
+        world.run_system_cached(super::produce_block_use).unwrap();
         assert!(!world.contains_resource::<crate::ordered_interactions::InteractionRuntime>());
     }
 }

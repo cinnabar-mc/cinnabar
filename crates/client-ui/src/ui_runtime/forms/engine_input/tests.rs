@@ -53,6 +53,7 @@ fn complete_large_menu_final_button_sends_its_original_wire_index() {
                     pointer_edges: vec![down],
                     wheel: Vec::new(),
                     typed: Vec::new(),
+                    menu_cancel: None,
                     now: if down { 0.0 } else { 0.01 },
                     animator: None,
                 },
@@ -198,6 +199,7 @@ fn toggle_submit(touch: bool) {
                 pointer_edges: vec![down],
                 wheel: Vec::new(),
                 typed: Vec::new(),
+                menu_cancel: None,
                 now: if down { 0.0 } else { 0.01 },
                 animator: None,
             },
@@ -360,6 +362,7 @@ fn review_pointer_release_then_press_keeps_the_second_capture() {
             pointer_edges: vec![false, true],
             wheel: Vec::new(),
             typed: Vec::new(),
+            menu_cancel: None,
             now: 0.0,
             animator: None,
         },
@@ -411,6 +414,7 @@ fn review_ui_release_applies_the_final_control_drag_position() {
                 pointer_edges: vec![down],
                 wheel: Vec::new(),
                 typed: Vec::new(),
+                menu_cancel: None,
                 now: 0.0,
                 animator: None,
             },
@@ -469,6 +473,7 @@ fn review_ui_release_applies_the_final_scrollbar_position() {
             pointer_edges: vec![false],
             wheel: Vec::new(),
             typed: Vec::new(),
+            menu_cancel: None,
             now: 0.0,
             animator: None,
         },
@@ -812,6 +817,7 @@ fn a_completed_form_swipe_preserves_fling_and_overscroll_motion() {
                 pointer_edges: vec![false],
                 wheel: Vec::new(),
                 typed: Vec::new(),
+                menu_cancel: None,
                 now: 0.0,
                 animator: None,
             },
@@ -834,5 +840,173 @@ fn a_completed_form_swipe_preserves_fling_and_overscroll_motion() {
         engine.cancel_pointer_input();
         assert!(engine.view.scroll_state["list"].motion.is_none());
         assert!(engine.scroll_clock.is_none());
+    }
+}
+
+/// A Menu Cancel key bound to an editing key keeps typing, deletion and paste while an edit box
+/// owns typed keys, and acts as Escape only when none does.
+#[test]
+fn menu_cancel_key_yields_to_a_selected_edit_box() {
+    for key in [KeyboardKey::Backspace, KeyboardKey::KeyV, KeyboardKey::KeyX] {
+        assert_eq!(menu_cancel_as_escape(key, Some(key), true), key);
+        assert_eq!(
+            menu_cancel_as_escape(key, Some(key), false),
+            KeyboardKey::Escape
+        );
+    }
+    assert_eq!(
+        menu_cancel_as_escape(KeyboardKey::KeyX, Some(KeyboardKey::KeyV), false),
+        KeyboardKey::KeyX
+    );
+
+    // Through a server form whose selected edit box takes the keys.
+    for (key, text) in [
+        (KeyboardKey::KeyX, Some("x")),
+        (KeyboardKey::Backspace, None),
+    ] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let mut presentation = mini_engine_presentation();
+        presentation.set_server_ui_pack(&ServerUiPack {
+            ui_layers: vec![vec![(
+                "ui/server_form.json".into(),
+                br#"{
+                    "namespace": "server_form",
+                    "cancel_screen": {
+                        "type": "screen",
+                        "button_mappings": [{
+                            "from_button_id": "button.menu_cancel",
+                            "to_button_id": "button.menu_exit",
+                            "mapping_type": "global"
+                        }]
+                    },
+                    "third_party_server_screen@server_form.cancel_screen": {
+                        "$screen_content": "server_form.main_screen_content"
+                    },
+                    "form_button": {
+                        "type": "edit_box", "size": [200, 30], "text_control": "display",
+                        "max_length": 50,
+                        "button_mappings": [{ "from_button_id": "button.menu_select",
+                            "to_button_id": "button.text_edit_box_selected",
+                            "mapping_type": "pressed", "handle_select": true,
+                            "handle_deselect": false }],
+                        "controls": [{ "display": { "type": "label", "text": "A",
+                            "size": [200, 30] } }]
+                    }
+                }"#
+                .to_vec(),
+            )]],
+            ..Default::default()
+        });
+        let mut runtime = pack_harness::action_form(&mut player_runtime, "Shop", &["A"]);
+        presentation
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let identity = runtime.server_forms().active().unwrap().identity;
+        let frame = presentation.form_engine_frame(identity).unwrap().clone();
+        let edit = frame
+            .hits
+            .iter()
+            .find(|hit| hit.kind == json_ui::HitKind::EditBox)
+            .unwrap()
+            .key
+            .clone();
+        {
+            let engine = runtime.server_forms_mut().engine_mut();
+            engine.view.focused = Some(edit.clone());
+            engine.dispatcher.button(
+                &frame.hits,
+                &mut engine.view,
+                json_ui::ButtonInput {
+                    id: "button.menu_select",
+                    down: true,
+                    point: None,
+                    mode: json_ui::InputMode::Gamepad,
+                    now: 0.0,
+                },
+            );
+        }
+        assert!(editing(&runtime, &frame), "{key:?}");
+        drive(
+            &mut runtime,
+            &frame,
+            EngineInput {
+                touch: false,
+                cursor: None,
+                keys: &[],
+                pointer: PointerButtons::default(),
+                pointer_edges: Vec::new(),
+                wheel: Vec::new(),
+                typed: vec![(key, text.map(Into::into), false)],
+                menu_cancel: Some(key),
+                now: 0.0,
+                animator: None,
+            },
+        );
+        assert!(editing(&runtime, &frame), "{key:?}");
+        let mut sent = Vec::new();
+        let _ = super::super::flush_form_response(
+            &mut runtime,
+            |_| false,
+            |packet| {
+                sent.push(packet);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(sent.is_empty(), "{key:?}");
+    }
+}
+
+/// With no edit box selected, the Menu Cancel key dismisses the form through its screen cancel.
+#[test]
+fn menu_cancel_key_dismisses_a_form_without_an_edit_box() {
+    for menu_cancel in [None, Some(KeyboardKey::KeyX)] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let mut presentation = cancel_presentation();
+        let mut runtime = pack_harness::action_form(&mut player_runtime, "Shop", &["Buy"]);
+        presentation
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let identity = runtime.server_forms().active().unwrap().identity;
+        let frame = presentation.form_engine_frame(identity).unwrap().clone();
+        drive(
+            &mut runtime,
+            &frame,
+            EngineInput {
+                touch: false,
+                cursor: None,
+                keys: &[],
+                pointer: PointerButtons::default(),
+                pointer_edges: Vec::new(),
+                wheel: Vec::new(),
+                typed: vec![(KeyboardKey::KeyX, Some("x".into()), false)],
+                menu_cancel,
+                now: 0.0,
+                animator: None,
+            },
+        );
+        let mut sent = Vec::new();
+        let _ = super::super::flush_form_response(
+            &mut runtime,
+            |_| false,
+            |packet| {
+                sent.push(packet);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(sent.is_empty(), menu_cancel.is_none(), "{menu_cancel:?}");
     }
 }
