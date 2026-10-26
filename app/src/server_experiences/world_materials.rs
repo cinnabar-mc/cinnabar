@@ -60,8 +60,10 @@ pub(super) struct WorldMaterialPresenter {
     /// so each distinct set stays charged to the bundle's GPU share until the session ends.
     compiled: BTreeMap<String, HashSet<Pipelines>>,
     slots: slots::Slots,
-    /// The block slots whose tag a mesh may still carry, one bit each.
-    carried: u64,
+    /// What the render world last observed of the block slots meshes carry.
+    carried: slots::Carried,
+    /// How many empty block slots another bundle could take at the last look.
+    reclaimable: usize,
     /// Whether a drawable material found no slot, so a freed slot should rebuild.
     starved: bool,
     /// The runtime and world contribution revision the set was last built from.
@@ -95,7 +97,8 @@ impl WorldMaterialPresenter {
             diagnostics: VecDeque::new(),
             compiled: BTreeMap::new(),
             slots: slots::Slots::default(),
-            carried: u64::MAX,
+            carried: slots::Carried::default(),
+            reclaimable: 0,
             starved: false,
             built: None,
             run: 0,
@@ -134,13 +137,14 @@ impl WorldMaterialPresenter {
     /// Follows `live`'s declarations: another runtime, or none, ends the previous session
     /// first; a structural change, finished admission work or a freed slot a material waits
     /// for rebuilds the set; parameter-only changes patch the published parameters. `carried`
-    /// holds one bit per block slot whose tag a mesh may still carry. Returns whether the set
-    /// or the parameters changed.
+    /// is the render world's latest (observation count, carried block slots). Returns whether
+    /// the set or the parameters changed.
     pub(super) fn follow<H: super::worker::Worker>(
         &mut self,
         live: Option<&mut super::live::Live<H>>,
-        carried: u64,
+        (count, mask): (u64, u64),
     ) -> bool {
+        let carried = slots::Carried { count, mask };
         let built = live.as_deref().map(super::live::Live::world_contribution);
         let run = built.map_or(0, |(run, _)| run);
         let mut changed = false;
@@ -148,8 +152,10 @@ impl WorldMaterialPresenter {
             changed = self.end_session();
             self.run = run;
         }
-        // A bit that cleared frees a slot a starved material may take.
-        let freed = self.starved && self.carried & !carried != 0;
+        // A slot that became reclaimable may go to a material that found none.
+        let reclaimable = self.slots.reclaimable(carried);
+        let freed = self.starved && reclaimable > self.reclaimable;
+        self.reclaimable = reclaimable;
         self.carried = carried;
         let finished = self.done.load(Ordering::Acquire);
         let settled = finished != self.seen;
@@ -178,7 +184,7 @@ impl WorldMaterialPresenter {
         self.reported.clear();
         self.diagnostics.clear();
         self.compiled.clear();
-        self.slots.empty();
+        self.slots.empty(self.carried.count);
         self.starved = false;
         self.built = None;
         let mut changed = false;

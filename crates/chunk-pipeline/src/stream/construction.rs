@@ -100,7 +100,6 @@ impl WorldStream {
             startup_terrain_announced: true,
             java_meshing: None,
             world_materials: Arc::from([]),
-            pending_world_materials: None,
             seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
             ingress_dimension: bootstrap.dimension,
             deferred_ingress: VecDeque::new(),

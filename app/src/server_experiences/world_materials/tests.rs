@@ -464,30 +464,55 @@ fn slots_stay_with_their_bundle_so_stale_tags_never_draw_another_bundles_shader(
     assert!(set.materials[usize::from(a_slot)].is_none());
 }
 
+/// The render world's observation number `count`, carrying the block slots in `mask`.
+fn carried(count: u64, mask: u64) -> slots::Carried {
+    slots::Carried { count, mask }
+}
+
 #[test]
 fn a_freed_slot_goes_to_another_bundle_only_once_no_mesh_carries_its_tag() {
     let lamp =
         |id, name: &str, material| (id, WorldTarget::Block(format!("example:{name}")), material);
     let first = world(&[(1, distinct(1))], &[lamp(0, "first", 1)]);
     let second = world(&[(1, distinct(2))], &[lamp(0, "second", 1)]);
-    let mut presenter = WorldMaterialPresenter::inline();
-    presenter.carried = 0;
-    presenter.rebuild([named("a.bundle", &first)]);
-    let (a_slot, _) = presenter.set().block("example:first").unwrap();
-    // The first bundle stops while a mesh still carries its slot.
-    presenter.carried = 1 << a_slot;
-    presenter.rebuild([named("b.bundle", &second)]);
-    let (b_slot, _) = presenter.set().block("example:second").unwrap();
-    assert_ne!(b_slot, a_slot);
-    // Once remeshed, the slot is free for anyone.
-    presenter.carried = 0;
     let more = world(
         &[(1, distinct(2)), (2, distinct(3))],
         &[lamp(0, "second", 1), lamp(1, "third", 2)],
     );
+    let mut presenter = WorldMaterialPresenter::inline();
+    presenter.carried = carried(9, 0);
+    presenter.rebuild([named("a.bundle", &first)]);
+    let (a_slot, _) = presenter.set().block("example:first").unwrap();
+    // The first bundle stops at observation 10, while a mesh still carries its slot.
+    presenter.carried = carried(10, 1 << a_slot);
+    presenter.rebuild([named("b.bundle", &second)]);
+    let (b_slot, _) = presenter.set().block("example:second").unwrap();
+    assert_ne!(b_slot, a_slot);
+    // The next observation shows no resident mesh carrying it, but an upload extracted before
+    // the stop may not be resident yet, so the slot stays reserved.
+    presenter.carried = carried(11, 0);
     presenter.rebuild([named("b.bundle", &more)]);
+    let (third, _) = presenter.set().block("example:third").unwrap();
+    assert_ne!(
+        third, a_slot,
+        "a queued stale upload keeps its slot reserved"
+    );
+    // Two observations after the stop, with no mesh carrying it, the slot is anyone's.
+    presenter.carried = carried(12, 0);
+    let fourth = world(
+        &[(1, distinct(2)), (2, distinct(3)), (3, distinct(4))],
+        &[
+            lamp(0, "second", 1),
+            lamp(1, "third", 2),
+            lamp(2, "fourth", 3),
+        ],
+    );
+    presenter.rebuild([named("b.bundle", &fourth)]);
     assert_eq!(
-        presenter.set().block("example:third").map(|(slot, _)| slot),
+        presenter
+            .set()
+            .block("example:fourth")
+            .map(|(slot, _)| slot),
         Some(a_slot)
     );
 }
@@ -519,10 +544,10 @@ fn a_new_session_keeps_off_the_slots_meshes_still_carry() {
     let lamp = |name: &str| (0, WorldTarget::Block(format!("example:{name}")), 1);
     let old = world(&[(1, distinct(1))], &[lamp("old")]);
     let mut presenter = WorldMaterialPresenter::inline();
-    presenter.carried = 0;
+    presenter.carried = carried(4, 0);
     presenter.rebuild([named("example.bundle", &old)]);
     let (old_slot, _) = presenter.set().block("example:old").unwrap();
-    presenter.carried = 1 << old_slot;
+    presenter.carried = carried(5, 1 << old_slot);
     presenter.end_session();
     presenter.run = 2;
     // The same bundle in the next session binds another program.
