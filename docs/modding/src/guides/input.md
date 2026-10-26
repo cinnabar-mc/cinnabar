@@ -56,7 +56,9 @@ Separate grants let a mod request actions instead of only observing input. Each 
 | `gameplay::pulse_attack` | `interaction` | One attack-press edge, only while the physical attack control is held |
 | `item_use::pulse_use` | `item_use` | One item-use press edge for the next gameplay tick, only while the physical use control is held; skips only the client's use repeat delays |
 | `gameplay::request_command` | `commands` | Sends a player command request after the frame returns; the command name must be granted. At most 4 per frame and 10 per second, each at most 128 bytes |
-| `gameplay::set_attack_reach` | `interaction` | Shortens actor pick and attack reach within the current mode and input limits; a value needs a current gameplay frame, and none restores game-mode rules. The grant never extends reach |
+| `gameplay::set_attack_reach` | `interaction` | Sets local actor pick and attack range from 0 through `MAX_ENTITY_REACH_BLOCKS`; a value needs a current gameplay frame, and none restores game-mode rules |
+
+The reach override can shorten or extend the local range, within the [current cap](../reference/limits.md). It does not enable attacks forbidden by the game mode, and block obstructions still apply.
 
 Server movement, hunger and item-use restrictions still apply to all of these. The host stages local requests; it does not grant server permission to carry them out.
 
