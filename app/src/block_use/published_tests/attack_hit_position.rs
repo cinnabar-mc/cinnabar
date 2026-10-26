@@ -190,8 +190,30 @@ fn attack_hit_position_retains_completed_geometry_after_catchup() {
 
 /// Publishes a frame whose interaction admission waits for its hotbar announcement.
 pub(super) fn defer_hand_admission(world: &mut World) {
+    let runtime_id = world
+        .resource::<crate::runtime::world::ClientWorld>()
+        .stream
+        .as_ref()
+        .unwrap()
+        .local_player_runtime_id();
     {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        let session = player.inventory.session_id();
+        player
+            .inventory
+            .publish_local_runtime_id(session, runtime_id)
+            .unwrap();
+        player
+            .inventory
+            .ledger_mut()
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: 1,
+                },
+                stack: protocol::NetworkItemStack::empty(),
+                storage_item: None,
+            }));
         let mode = player.facts.player_game_mode();
         player.inventory.queue_local_hotbar_selection(1, mode);
         assert!(client_interaction::mining::hand_interaction_selection(&player).is_none());
@@ -199,6 +221,17 @@ pub(super) fn defer_hand_admission(world: &mut World) {
     world
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
+}
+
+/// Sends the pending announcement and confirms that hand admission has resumed.
+pub(super) fn resume_hand_admission(world: &mut World) {
+    assert!(
+        world
+            .run_system_cached(crate::hotbar::ordered::flush_existing)
+            .unwrap()
+    );
+    let player = world.resource::<client_state::PlayerRuntime>();
+    assert!(client_interaction::mining::hand_interaction_selection(player).is_some());
 }
 
 #[test]
@@ -210,9 +243,7 @@ fn attack_hit_position_retains_completed_geometry_while_hand_admission_waits() {
     world
         .run_system_cached(crate::melee::complete_melee_actor_frame)
         .unwrap();
-    world
-        .run_system_cached(crate::hotbar::flush_hotbar_selection)
-        .unwrap();
+    resume_hand_admission(&mut world);
     attack(&mut world);
     let packets = captured.drain();
     let tx = packets.iter().find_map(observe_transaction).unwrap();

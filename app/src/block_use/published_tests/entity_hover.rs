@@ -60,9 +60,7 @@ fn entity_hover_retains_completed_geometry_while_hand_admission_waits() {
     app.world_mut()
         .run_system_cached(crate::melee::complete_melee_actor_frame)
         .unwrap();
-    app.world_mut()
-        .run_system_cached(crate::hotbar::flush_hotbar_selection)
-        .unwrap();
+    attack_hit_position_tests::resume_hand_admission(app.world_mut());
     assert_eq!(
         hover_tick(&mut app, &mut captured, 102),
         [(99, Some(completed))]
