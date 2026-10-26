@@ -156,6 +156,7 @@ struct VisualCompiler {
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
     facing_cube_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     command_block_templates: BTreeMap<([u32; 6], usize), u32>,
+    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,
@@ -271,6 +272,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.command_block_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
+        ordered_rule!(super::mapped_face::compile_rule(
+            record,
+            inputs,
+            &mut self.mapped_face_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads
