@@ -578,3 +578,47 @@ fn local_gait_retries_restore_only_the_changed_movement_tick() {
         fresh.rigs.values().next().unwrap().motion.walk_state()
     );
 }
+
+/// Hurt events arriving after movement stay after that tick when its displacement is replayed.
+#[test]
+fn local_gait_corrections_preserve_intervening_and_consecutive_hurt_events() {
+    let (actors, mut corrected) = fixture();
+    let (_, mut fresh) = fixture();
+    early(&actors, &mut corrected, 1);
+    early(&actors, &mut fresh, 1);
+    let authority = (
+        SessionGeneration::new(1),
+        PositionAuthorityGeneration::new(1),
+    );
+    let movement = |tick, step| LocalSwingMotionSample {
+        tick,
+        delta: [step, 0.2, 0.0],
+        yaw: 0.0,
+        progress: LocalSwingProgress::default(),
+    };
+    for tick in 1..=3 {
+        corrected.sync_local_swing_motion(1, authority, [movement(tick, 0.3)]);
+        corrected.hurt_java_limbs(1);
+        corrected.sync_local_swing_motion(1, authority, [movement(tick, 0.1)]);
+        corrected.hurt_java_limbs(1);
+        corrected.sync_local_swing_motion(1, authority, [movement(tick, 0.2)]);
+        fresh.sync_local_swing_motion(1, authority, [movement(tick, 0.2)]);
+        fresh.hurt_java_limbs(1);
+        fresh.hurt_java_limbs(1);
+        let actual = corrected.get(1).unwrap().java;
+        let expected = fresh.get(1).unwrap().java;
+        assert_eq!(actual.limb_swing, expected.limb_swing, "tick {tick}");
+        assert_eq!(actual.limb_amount, expected.limb_amount, "tick {tick}");
+    }
+    let boosted = fresh.get(1).unwrap().java.limb_amount[1];
+    corrected.sync_local_swing_motion(1, authority, [movement(4, 0.2)]);
+    fresh.sync_local_swing_motion(1, authority, [movement(4, 0.2)]);
+    let actual = corrected.get(1).unwrap().java;
+    let expected = fresh.get(1).unwrap().java;
+    assert_eq!(actual.limb_swing, expected.limb_swing);
+    assert_eq!(actual.limb_amount, expected.limb_amount);
+    assert!(
+        actual.limb_amount[1] < boosted,
+        "a new movement tick consumes the boost"
+    );
+}

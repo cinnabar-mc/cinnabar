@@ -19,6 +19,7 @@ pub(super) struct State {
     before: [f32; 2],
     before_walk: Option<(WalkState, [f32; 2], [f32; 2])>,
     previous_walk: Option<WalkState>,
+    hurt_after_walk: bool,
     riding: bool,
     on_fire: bool,
 }
@@ -43,6 +44,11 @@ impl State {
     /// Physics-owned torso and leg cycles never advance on the independent actor clock.
     pub(super) fn active(&self) -> bool {
         self.authority.is_some()
+    }
+
+    /// Hurt impulses applied after the latest movement tick survive its correction replay.
+    pub(super) fn note_hurt(&mut self) {
+        self.hurt_after_walk = self.last.is_some();
     }
 
     /// Retains tick-owned posture and fire state for the local movement observations.
@@ -119,6 +125,7 @@ impl State {
         } else {
             self.before = motion.body_yaw;
             self.before_walk = Some((previous_walk, motion.limb_swing, motion.limb_amount));
+            self.hurt_after_walk = false;
         }
         if advance_walk {
             self.previous_walk = Some(walk.walk_state());
@@ -132,6 +139,9 @@ impl State {
                 actor_walk: false,
             });
             motion.advance_limbs(sample.delta);
+            if self.hurt_after_walk {
+                motion.hurt_limbs();
+            }
         }
         body::advance(
             &mut motion.body_yaw,

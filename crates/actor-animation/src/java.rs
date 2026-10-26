@@ -76,6 +76,11 @@ impl JavaMotion {
         self.limb_swing[1] += self.limb_amount[1];
     }
 
+    /// Applies a hurt impulse without advancing the movement cycle.
+    pub(super) fn hurt_limbs(&mut self) {
+        self.limb_amount[1] = HURT_LIMB_AMOUNT;
+    }
+
     /// The final attack frame wraps forward before the next tick returns to rest.
     #[must_use]
     pub fn swing_progress(self, alpha: f32) -> f32 {
@@ -194,7 +199,8 @@ impl JavaMotionState {
 
     /// A hurt event immediately resets limb motion, including consecutive hits.
     pub(super) fn hurt(&mut self) {
-        self.motion.limb_amount[1] = HURT_LIMB_AMOUNT;
+        self.motion.hurt_limbs();
+        self.local_body.note_hurt();
     }
 
     pub(super) fn advance(&mut self, tick: &JavaTick<'_>) {
