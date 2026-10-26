@@ -254,7 +254,7 @@ fn layered_hud_surface_keeps_foreground_text_and_collection_art() {
             {"tiles":{"type":"panel","cinnabar_collection":"tiles","offset":[20,90],
                 "anchor_from":"top_left","anchor_to":"top_left"}}
         ]}}).to_string(),
-        "collections":{"tiles":{"definition":{"columns":1,"viewport":[180,60],
+        "collections":{"tiles":{"definition":{"columns":1,"viewport":[200,60],
             "template":{"screen":"tile.root","document":json!({"namespace":"tile","root":{
                 "type":"custom","renderer":"cinnabar_vector_path","size":[180,60],
                 "color":[1,0.7,0.2,1],"bindings":[
@@ -265,10 +265,16 @@ fn layered_hud_surface_keeps_foreground_text_and_collection_art() {
             }}).to_string()},"items":[{"art":{"paths":[[[10,10],[90,50],[170,10]]],
                 "view_box":[0,0,180,60],"stroke_width":4,"closed":false}}]},"order":[0]}}
     })).unwrap();
+    surface.validate_hud().unwrap();
     let player = player_state::PlayerState::new(1);
     let mut p = presentation();
+    let without = snapshot::rasterize(&frame(&player, &mut p));
     publish(&mut p, Some(&Arc::new(surface.clone())));
     let drawn = frame(&player, &mut p);
+    assert!(
+        snapshot::rasterize(&drawn) != without,
+        "the mod HUD must draw"
+    );
     snapshot::write(&drawn, "mod-hud-surface");
     let mut whole = surface;
     let mut document: serde_json::Value = serde_json::from_str(&whole.document).unwrap();

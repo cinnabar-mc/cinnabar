@@ -666,7 +666,7 @@ fn hud_collection_art_matches_panel_renderer_inputs() {
     let surface: Surface = serde_json::from_value(json!({"screen":"hud.root",
         "document":json!({"namespace":"hud","root":{"type":"panel","controls":[
             {"tiles":{"type":"panel","cinnabar_collection":"tiles"}}]}}).to_string(),
-        "collections":{"tiles":{"definition":{"columns":1,"viewport":[20,20],
+        "collections":{"tiles":{"definition":{"columns":1,"viewport":[40,20],
             "template":{"screen":"tile.root","document":json!({"namespace":"tile","root":{
                 "type":"custom","renderer":"cinnabar_vector_path","size":[20,20],
                 "bindings":[
