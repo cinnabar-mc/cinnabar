@@ -517,3 +517,239 @@ fn removed_bindings_draw_as_never_bound() {
         assert!(patched.2 == fresh.2, "painted nodes after {case}");
     }
 }
+
+/// Overlapping subtrees draw in the same order as the unsplit engine document, including
+/// after a definition update adds a descendant layer.
+#[test]
+fn descendant_layers_keep_global_paint_order() {
+    let mut authored = (*surface(json!({}))).clone();
+    let mut document: Value = serde_json::from_str(&authored.document).unwrap();
+    document["root"]["controls"] = json!([
+        {"front":{"type":"panel","controls":[{"text":{"type":"label","text":"HUD",
+            "layer":10,"size":[20,10],"anchor_from":"top_left","anchor_to":"top_left"}}]}},
+        {"back":rect([0.,0.],json!([]))}
+    ]);
+    document["root"]["controls"][1]["back"]["layer"] = json!(5);
+    authored.document = document.to_string();
+    let mut whole = authored.clone();
+    document["root"] = json!({"type":"panel","size":["100%","100%"],
+        "controls":[{"whole":document["root"].clone()}]});
+    whole.document = document.to_string();
+    let mut harness = Harness::new();
+    let mut ui = ModUi::default();
+    publish(&mut ui, &[(OWNER, 1, &Arc::new(whole))]);
+    harness.paint(&mut ui, false);
+    let expected: Vec<_> = harness
+        .nodes
+        .iter()
+        .filter(|node| *node.visual() != ui::UiVisual::None)
+        .map(|node| node.visual().clone())
+        .collect();
+    assert!(
+        expected
+            .iter()
+            .any(|draw| matches!(draw, ui::UiVisual::Text { .. }))
+    );
+    for update in [false, true] {
+        let mut ui = ModUi::default();
+        if update {
+            let mut initial = authored.clone();
+            let mut document: Value = serde_json::from_str(&initial.document).unwrap();
+            document["root"]["controls"][0]["front"]["controls"][0]["text"]["layer"] = json!(0);
+            initial.document = document.to_string();
+            publish(&mut ui, &[(OWNER, 1, &Arc::new(initial))]);
+            harness.paint(&mut ui, false);
+        }
+        publish(&mut ui, &[(OWNER, 2, &Arc::new(authored.clone()))]);
+        harness.paint(&mut ui, false);
+        let actual: Vec<_> = harness
+            .nodes
+            .iter()
+            .filter(|node| *node.visual() != ui::UiVisual::None)
+            .map(|node| node.visual().clone())
+            .collect();
+        assert_eq!(actual, expected, "definition update: {update}");
+    }
+}
+
+/// A binding that stops naming an item stays replaced when another icon refreshes.
+#[test]
+fn item_type_changes_survive_icon_refreshes() {
+    for replacement in [
+        json!(""),
+        json!({"project":{"world":[0,0,-10]}}),
+        json!(0.75),
+    ] {
+        let mut first = (*surface(bindings())).clone();
+        let mut document: Value = serde_json::from_str(&first.document).unwrap();
+        let icon = document["root"]["controls"][2].clone();
+        let mut other = icon.clone();
+        other["icon"]["bindings"][0]["binding_name"] = json!("#other");
+        document["root"]["controls"] = json!([{"card":{"type":"panel","controls":[icon,other]}}]);
+        first.document = document.to_string();
+        first
+            .bindings
+            .insert("#other".into(), first.bindings["#helmet"].clone());
+        let mut ui = ModUi::default();
+        let mut harness = Harness::new();
+        harness.icon = Some(IconRef {
+            page: 0,
+            uv: [0, 0, 16, 16],
+            glint: false,
+            color_mask: None,
+        });
+        publish(&mut ui, &[(OWNER, 1, &Arc::new(first.clone()))]);
+        harness.paint(&mut ui, false);
+        first.bindings.insert(
+            "#helmet".into(),
+            serde_json::from_value(replacement.clone()).unwrap(),
+        );
+        if replacement.is_number() {
+            first.transitions =
+                serde_json::from_value(json!({"#helmet":{"duration":1,"from":0}})).unwrap();
+        }
+        publish(&mut ui, &[(OWNER, 2, &Arc::new(first))]);
+        ui.set_hud_projection(Some(camera()), &|_| None);
+        harness.paint(&mut ui, false);
+        let expected = ui.hud_surface_bindings(OWNER).unwrap()["#helmet"].clone();
+        for icon in [None, harness.icon] {
+            harness.icon = icon;
+            harness.paint(&mut ui, false);
+            assert_eq!(
+                ui.hud_surface_bindings(OWNER).unwrap()["#helmet"],
+                expected,
+                "replacement: {replacement}"
+            );
+        }
+    }
+}
+
+/// Removing the last transition, or one of several, immediately restores its target.
+#[test]
+fn removed_transitions_restore_authored_targets() {
+    for keep_other in [false, true] {
+        let mut first = (*surface(json!({"#a":[10,10],"#b":1}))).clone();
+        first.transitions = serde_json::from_value(json!({
+            "#a":{"duration":1,"from":[0,0]},"#b":{"duration":1,"from":0}
+        }))
+        .unwrap();
+        let mut layer = layer::Layer::new(
+            OWNER,
+            1,
+            Arc::new(first.clone()),
+            ActorAuthority::default(),
+            [640., 360.],
+        );
+        layer.advance(0., true, [640., 360.]);
+        layer.advance(0.5, true, [640., 360.]);
+        assert_eq!(layer.resolved()["#b"], Scalar::Num(0.5));
+        first.transitions.remove("#b");
+        if !keep_other {
+            first.transitions.clear();
+        }
+        assert!(layer.publish(2, Arc::new(first), ActorAuthority::default()));
+        layer.advance(0.5, true, [640., 360.]);
+        assert_eq!(layer.resolved()["#b"], Scalar::Num(1.));
+        layer.advance(0.75, true, [640., 360.]);
+        assert_eq!(layer.resolved()["#b"], Scalar::Num(1.));
+        if keep_other {
+            assert_eq!(layer.resolved()["#a"], Scalar::Json(json!([7.5, 7.5])));
+        }
+    }
+}
+
+/// Both surface paths publish the admitted artwork into the renderer's collection input.
+#[test]
+fn hud_collection_art_matches_panel_renderer_inputs() {
+    let art = json!({"paths":[[[0.,0.],[12.,8.],[0.,8.]]],"view_box":[0.,0.,12.,8.],
+        "stroke_width":2,"closed":false});
+    let surface: Surface = serde_json::from_value(json!({"screen":"hud.root",
+        "document":json!({"namespace":"hud","root":{"type":"panel","controls":[
+            {"tiles":{"type":"panel","cinnabar_collection":"tiles"}}]}}).to_string(),
+        "collections":{"tiles":{"definition":{"columns":1,"viewport":[20,20],
+            "template":{"screen":"tile.root","document":json!({"namespace":"tile","root":{
+                "type":"custom","renderer":"cinnabar_vector_path","size":[20,20],
+                "bindings":[
+                    {"binding_name":"#item_art_paths","binding_name_override":"#paths"},
+                    {"binding_name":"#item_art_view_box","binding_name_override":"#view_box"},
+                    {"binding_name":"#item_art_stroke_width","binding_name_override":"#stroke_width"},
+                    {"binding_name":"#item_art_closed","binding_name_override":"#closed"}]
+            }}).to_string()},"items":[{"art":art}]},"order":[0]}}
+    })).unwrap();
+    surface.validate_hud().unwrap();
+    let mut panel = crate::test_support::sample_panel();
+    panel.surface = surface.clone();
+    let mut panel_data = json_ui::DataSource::new();
+    crate::mod_panel::surface::collections(&panel, &mut panel_data);
+    let layer = layer::Layer::new(
+        OWNER,
+        1,
+        Arc::new(surface),
+        ActorAuthority::default(),
+        [640., 360.],
+    );
+    let render = |catalog: &json_ui::Catalog, reference: &str, data: &json_ui::DataSource| {
+        let control = json_ui::resolve(catalog, reference, &Context::default())
+            .control
+            .unwrap();
+        let context = Context::default();
+        let library = json_ui::CatalogLibrary {
+            catalog,
+            context: &context,
+        };
+        let bound = json_ui::bind(&control, data, &library);
+        let metrics = ArtMetrics;
+        let laid = json_ui::layout(
+            &bound,
+            [640., 360.],
+            &json_ui::LayoutEnv {
+                text: &metrics,
+                textures: &metrics,
+            },
+        );
+        json_ui::emit(
+            &laid,
+            &json_ui::LayoutEnv {
+                text: &metrics,
+                textures: &metrics,
+            },
+        )
+        .into_iter()
+        .filter_map(|node| match node.draw {
+            json_ui::Draw::Custom { renderer, data }
+                if renderer == json_ui::vector_path::RENDERER =>
+            {
+                Some(data)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+    };
+    let catalog = crate::mod_panel::surface::catalog(&panel.surface).unwrap();
+    let expected = render(&catalog, &panel.surface.screen, &panel_data);
+    assert_eq!(expected.len(), 1);
+    assert_eq!(expected[0]["paths"], art["paths"]);
+    let actual: Vec<_> = layer
+        .parts
+        .iter()
+        .flat_map(|part| {
+            let document = document::Document::build(&panel.surface).unwrap();
+            render(&document.catalog, &part.spec.reference, part.data())
+        })
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+struct ArtMetrics;
+impl json_ui::TextMeasure for ArtMetrics {
+    /// The art fixture contains no text.
+    fn extent(&self, _: &str) -> [f64; 2] {
+        [0.; 2]
+    }
+}
+impl json_ui::TextureSource for ArtMetrics {
+    /// The art fixture contains no sprites.
+    fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
+        None
+    }
+}

@@ -60,7 +60,7 @@ impl Document {
             .cloned()
             .unwrap_or_default();
         let mut parts = Vec::new();
-        if splittable(&root, &children) {
+        if splittable(&root, &children, &document) {
             let mut ordered: Vec<(i64, usize, Value)> = children
                 .into_iter()
                 .enumerate()
@@ -221,6 +221,9 @@ impl Document {
         if measured_from(child_body.get("size"), &["%sm"]) {
             return Err("HUD surface root child is measured from its siblings".into());
         }
+        if !flat_descendant_layers(child_body, &document) {
+            return Err("HUD surface descendant layers must paint with their root".into());
+        }
         let mut spec = PartSpec {
             reference: format!("{namespace}.{local}"),
             bindings: BTreeSet::new(),
@@ -256,8 +259,9 @@ fn catalog(document: &str) -> Result<Catalog, String> {
 }
 
 /// Whether each child of `root` lays out the same alone as beside its siblings, and the root
-/// itself draws nothing that every part would repeat.
-fn splittable(root: &Value, children: &[Value]) -> bool {
+/// itself draws nothing that every part would repeat. Descendants must stay on their
+/// subtree's layer so cached fragments preserve global paint order.
+fn splittable(root: &Value, children: &[Value], document: &Value) -> bool {
     let kind = root.get("type").and_then(Value::as_str);
     children.len() > 1
         && matches!(kind, Some("panel" | "screen" | "input_panel"))
@@ -266,8 +270,25 @@ fn splittable(root: &Value, children: &[Value]) -> bool {
             child
                 .as_object()
                 .and_then(|named| named.values().next())
-                .is_some_and(|body| !measured_from(body.get("size"), &["%sm"]))
+                .is_some_and(|body| {
+                    !measured_from(body.get("size"), &["%sm"])
+                        && flat_descendant_layers(body, document)
+                })
         })
+}
+
+/// Whether every descendant, including collection tiles, stays on its parent's layer.
+/// Layered subtrees stay whole because replay cannot interleave their cached draws.
+fn flat_descendant_layers(body: &Value, document: &Value) -> bool {
+    let template = body
+        .get("grid_item_template")
+        .and_then(Value::as_str)
+        .and_then(|reference| reference.split_once('.'))
+        .map(|(_, local)| &document[local]);
+    children(body).chain(template).all(|child| {
+        child.get("layer").and_then(Value::as_i64).unwrap_or(0) == 0
+            && flat_descendant_layers(child, document)
+    })
 }
 
 /// Whether a size names a unit such as children (`%c`, `%cm`) or siblings (`%sm`).
