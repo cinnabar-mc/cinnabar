@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn world_pipelines_swap_only_the_fragment_module_and_add_their_bind_group() {
         let variant = WorldVariant {
-            key: 7,
+            program: 7,
             textures: 2,
             blend: Blend::Premultiplied,
             depth: mod_render::world_material::publication::Depth::Test,
@@ -184,8 +184,11 @@ mod tests {
                 .depth_write_enabled,
             Some(false)
         );
-        // Distinct materials never share a pipeline.
-        let other = WorldVariant { key: 8, ..variant };
+        // Distinct programs never share a pipeline.
+        let other = WorldVariant {
+            program: 8,
+            ..variant
+        };
         assert_ne!(other.shader(ACTOR_SHADERS), variant.shader(ACTOR_SHADERS));
     }
 

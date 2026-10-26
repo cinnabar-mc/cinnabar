@@ -45,6 +45,20 @@ pub fn frame_uniform(phase: f32, tag: u8, params: &[f32]) -> [f32; FRAME_UNIFORM
 }
 
 impl WorldMaterial {
+    /// The program's content identity: the first 128 bits of the SHA-256 of its texture count
+    /// and validated source, which are all its composed modules depend on. A
+    /// collision-resistant digest, so one guest cannot make another's program draw its module.
+    pub fn program(&self) -> u128 {
+        use sha2::Digest;
+        let mut digest = sha2::Sha256::new();
+        digest.update((self.textures as u64).to_le_bytes());
+        digest.update(self.source.as_bytes());
+        let bytes: [u8; 32] = digest.finalize().into();
+        let mut prefix = [0; 16];
+        prefix.copy_from_slice(&bytes[..16]);
+        u128::from_le_bytes(prefix)
+    }
+
     /// The WGSL a host appends to its fragment module: the guest source, its input and
     /// surface types, `param`, `texture` and `world_material_resolve`, over the frame uniform
     /// at binding 0 of `group`, the declared textures from binding 1 and the sampler after
