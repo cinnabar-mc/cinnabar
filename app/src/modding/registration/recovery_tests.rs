@@ -32,7 +32,7 @@ fn select_entry(root: &std::path::Path, entry: Entry) {
 }
 
 #[test]
-fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() {
+fn registered_connection_round_trip_restarts_without_a_source_or_registration_edit() {
     let directory = tempfile::tempdir().unwrap();
     let mut prepared = candidate(directory.path(), "drawing.wasm", "Hello");
     let mut entry = prepared.registration.clone();
@@ -85,7 +85,7 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
         .frame_host_mut()
         .unwrap()
         .bind_drawing_session(mod_api::drawing::DrawingSession {
-            dimension: 1,
+            connection: 2,
             ..session
         });
     prepared

@@ -114,6 +114,14 @@ pub(crate) struct TerrainState {
     revision: u64,
 }
 impl TerrainState {
+    /// Discards world samples while keeping stamps unique for the surviving guest.
+    pub fn clear_world(&mut self) {
+        *self = Self {
+            revision: self.revision,
+            ..Default::default()
+        };
+    }
+
     pub fn begin_frame(&mut self) {
         self.pending_queries.clear();
         self.pending_searches.clear();
@@ -310,6 +318,32 @@ mod tests {
             overrides: vec![],
         }
     }
+    #[test]
+    fn returning_to_a_dimension_cannot_reuse_an_old_terrain_stamp() {
+        let mut terrain = TerrainState::default();
+        terrain.pending_queries.push(query(0, 1));
+        terrain.commit();
+        terrain.refresh(0, |_, _| TerrainRefresh::Replace(Box::new(region())));
+        let Sample::Region(previous) = &terrain.subscriptions[0].1 else {
+            panic!("missing sample")
+        };
+        let previous = previous.stamp;
+        terrain.clear_world();
+        assert!(terrain.subscriptions.is_empty());
+        terrain.pending_queries.push(query(0, 1));
+        terrain.commit();
+        terrain.refresh(0, |_, old| {
+            assert!(old.is_none());
+            TerrainRefresh::Replace(Box::new(region()))
+        });
+        let Sample::Region(next) = &terrain.subscriptions[0].1 else {
+            panic!("missing sample")
+        };
+        assert_eq!(previous.session, next.stamp.session);
+        assert_eq!(previous.dimension, next.stamp.dimension);
+        assert_ne!(previous.revision, next.stamp.revision);
+    }
+
     #[test]
     fn bounds_reject_overflow_empty_volume_distance_and_oversized_regions() {
         assert_eq!(terrain_query_size(&query(-1, 1), [0.; 3]), Ok([2, 1, 1]));

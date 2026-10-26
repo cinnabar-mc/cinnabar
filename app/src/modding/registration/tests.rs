@@ -958,3 +958,48 @@ fn the_real_watcher_restarts_unchanged_bytes_under_each_drawing_fence() {
         assert!(!runtime.hosts.host(0).needs_drawing_restart());
     }
 }
+
+#[test]
+fn active_dimension_rebinds_do_not_queue_redundant_admission() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let directory = tempfile::tempdir().unwrap();
+    let mut candidate = candidate(directory.path(), "guest.wasm", "Hello");
+    let mut snapshot = source_snapshot(candidate.registration.clone()).unwrap();
+    let host = candidate.frame_host_mut().unwrap();
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().unwrap());
+    let admitted = Admitted {
+        source: snapshot.identity,
+        drawing: Some(session),
+    };
+    for dimension in [1, 0] {
+        host.bind_drawing_world(host.drawing_session().unwrap(), false);
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+        host.bind_drawing_session(DrawingSession {
+            dimension,
+            ..session
+        });
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+    }
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
+    assert!(host.reload_if_changed().unwrap());
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        permissions: DrawingPermissions::default(),
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
+}

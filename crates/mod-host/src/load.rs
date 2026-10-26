@@ -156,7 +156,7 @@ impl ModHost {
         let assets = ComponentAssets::read(bytes)?;
         grants.validate()?;
         let path = &source.settings_anchor();
-        let (engine, ticker) = execution::engine()?;
+        let compiled = crate::compiled::CompiledComponent::get(&source, bytes, &assets.executable)?;
         let settings_writer = if grants.settings {
             Some(settings::SettingsWriter::prepare(path).context("start mod settings writer")?)
         } else {
@@ -178,8 +178,8 @@ impl ModHost {
         };
         let settings_seed = grants.settings.then(|| seed.clone());
         let instance = Instance::new_with_drawing_policy(
-            &engine,
-            &assets.executable,
+            &compiled.engine,
+            &compiled.component,
             grants.clone(),
             seed,
             declared,
@@ -187,8 +187,7 @@ impl ModHost {
             session,
         )?;
         Ok(Self {
-            engine,
-            _ticker: ticker,
+            compiled,
             instance,
             embedded_font: assets.font,
             embedded_logo: assets.logo,
@@ -208,6 +207,7 @@ impl ModHost {
             session: Arc::default(),
             drawing_session: session,
             drawing_restart: DrawingRestart::None,
+            drawing_world_active: session.is_some_and(|session| session.connection != 0),
         })
     }
 
@@ -278,11 +278,13 @@ impl ModHost {
             .clone()
             .or(assets.panel_bundle)
             .filter(|_| grants.controls);
+        let compiled =
+            crate::compiled::CompiledComponent::get(&self.source, bytes, &assets.executable)?;
         let mut candidate = self
             .instance
             .replacement(
-                &self.engine,
-                &assets.executable,
+                &compiled.engine,
+                &compiled.component,
                 grants.clone(),
                 self.instance.settings().to_owned(),
                 declared,
@@ -292,6 +294,7 @@ impl ModHost {
         candidate.set_session(Arc::clone(&self.session));
         candidate.set_food_catalog(self.instance.food_catalog());
         self.instance = candidate;
+        self.compiled = compiled;
         self.admitted_digest = digest;
         self.drawing_restart = DrawingRestart::None;
         self.embedded_font = assets.font;

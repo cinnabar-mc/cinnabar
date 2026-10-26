@@ -23,14 +23,34 @@ pub(crate) struct EpochTicker {
     worker: Option<JoinHandle<()>>,
 }
 
+/// Runtime-varying configuration of the personal-mod engine. Fixed options are owned below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EnginePolicy {
+    pub backtrace: bool,
+}
+
+impl EnginePolicy {
+    /// Captures configuration once so a cached component cannot outlive its engine policy.
+    pub fn current() -> Self {
+        Self {
+            backtrace: std::env::var_os("CINNABAR_MOD_BACKTRACE").is_some(),
+        }
+    }
+}
+
 /// Builds a fuel-metered synchronous engine with epoch checks and a bounded guest stack.
 pub(crate) fn engine() -> Result<(Engine, EpochTicker)> {
+    engine_with_policy(EnginePolicy::current())
+}
+
+/// Builds exactly the configuration captured in a personal component cache key.
+pub(crate) fn engine_with_policy(policy: EnginePolicy) -> Result<(Engine, EpochTicker)> {
     let mut config = Config::new();
     config
         .wasm_component_model(true)
         .consume_fuel(true)
         .epoch_interruption(true)
-        .wasm_backtrace(std::env::var_os("CINNABAR_MOD_BACKTRACE").is_some())
+        .wasm_backtrace(policy.backtrace)
         .wasm_memory64(false)
         .wasm_multi_memory(false)
         .wasm_relaxed_simd(false)

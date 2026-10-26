@@ -89,8 +89,10 @@ impl SourceSnapshot {
         }
         match &self.drawing {
             Some(drawing) if !drawing.restartable() => false,
-            Some(drawing) if drawing.needs_restart() => true,
-            _ => admitted.drawing != self.drawing_policy(),
+            // An active guest has already rebound its dimension in place. Only the host's
+            // trust-boundary revocation requires another admission of unchanged bytes.
+            Some(drawing) => drawing.needs_restart(),
+            None => admitted.drawing.is_some(),
         }
     }
 

@@ -41,6 +41,14 @@ Optional grants default off in [`ModGrants`](../../crates/mod-host/src/grants.rs
 A component may request them in top-level `cinnabar:grants` JSON; requests grant
 nothing by themselves. Commands authorize only the requested names. Settings can
 revoke individual grants or all grants; permission changes reload that mod.
+
+Joining, disconnecting or changing connections creates a fresh guest so observations
+cannot carry across connection boundaries. Same-connection dimension transfers retain
+guest memory and HUD surfaces, including while world observations are unavailable.
+World drawing handles, observations and pending world output are cleared on transfer
+and rebound to the destination; mods must rebuild their world drawing. Replacements
+reuse an in-memory compiled component only for identical mod bytes and engine policy.
+Changed bytes invalidate that entry, and unloading the mod releases it.
 Explicit environment-selected components get the environment grant and opt into
 other grants with the [development switches](../../crates/client-extensions/src/modding/grants.rs).
 
