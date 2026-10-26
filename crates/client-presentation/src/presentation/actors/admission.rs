@@ -5,7 +5,7 @@ pub fn within_actor_candidate_cube(position: [f32; 3], camera: [f32; 3]) -> bool
     })
 }
 
-/// Rejects distant actors and player bodies containing the camera before frame model sampling.
+/// Rejects distant actors before frame model sampling, including the non-player candidate cube.
 pub(crate) fn actor_is_render_candidate(
     actor: &client_world::ActorSnapshot,
     partial_tick: f32,
@@ -18,17 +18,6 @@ pub(crate) fn actor_is_render_candidate(
         return true;
     };
     let camera = view.camera_position.to_array();
-    if matches!(actor.kind, protocol::ActorKind::Player { .. })
-        && view.camera_position.is_finite()
-        && actor.bounding_box_at(feet).is_some_and(|(low, high)| {
-            (0..3).all(|axis| {
-                low[axis] < high[axis] && camera[axis] >= low[axis] && camera[axis] <= high[axis]
-            })
-        })
-    {
-        // Reject the body before skin and equipment layers can cover the entire view.
-        return false;
-    }
     (!matches!(actor.kind, protocol::ActorKind::Entity { .. })
         || within_actor_candidate_cube(feet, camera))
         && view.contains_distance(feet)
