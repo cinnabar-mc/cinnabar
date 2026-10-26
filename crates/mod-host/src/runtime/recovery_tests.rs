@@ -21,7 +21,7 @@ fn fuel_guest(engine: &wasmtime::Engine, grants: ModGrants) -> Instance {
 }
 
 #[test]
-fn fuel_recovery_preserves_queued_native_edits() {
+fn fuel_recovery_reverts_native_edits_when_reinitializing_controls() {
     let (engine, _ticker) = crate::execution::engine().unwrap();
     let mut instance = fuel_guest(
         &engine,
@@ -37,10 +37,13 @@ fn fuel_recovery_preserves_queued_native_edits() {
         "controls": [{"kind":"text","id":"name","label":"Name","value":"Main",
             "min_chars":1,"max_chars":8,"live":true}]
     });
-    cinnabar::extension::panel::Host::set_content(instance.store.data_mut(), panel.to_string())
-        .unwrap()
+    let bundle = ui::mod_panel::PanelBundle::parse(
+        &serde_json::json!({"panel":panel,"surfaces":{}}).to_string(),
+    )
+    .unwrap();
+    instance
+        .set_panel_bundle(std::sync::Arc::new(bundle))
         .unwrap();
-    commit(&mut instance.store);
     instance.frame(CallbackOutcome::Executed).unwrap_err();
     instance
         .queue_text_events(vec![ui::mod_panel::TextEvent {
@@ -58,17 +61,12 @@ fn fuel_recovery_preserves_queued_native_edits() {
         .unwrap();
     assert!(instance.recover_frame_fuel().unwrap());
     assert!(
-        matches!(&instance.panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Live")
+        matches!(&instance.panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Main")
     );
     let state = instance.store.data_mut();
     state.controls.begin_text_frame();
-    assert_eq!(
-        state.read_text_events().unwrap().unwrap()[0].value,
-        "Edited"
-    );
-    assert!(
-        matches!(&state.read_field_events().unwrap().unwrap()[0], cinnabar::extension::input::FieldEvent::Change(event) if event.value == "Live")
-    );
+    assert!(state.read_text_events().unwrap().unwrap().is_empty());
+    assert!(state.read_field_events().unwrap().unwrap().is_empty());
 }
 
 #[test]

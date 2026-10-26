@@ -188,7 +188,7 @@ fn edit_host(live: bool) -> (tempfile::TempDir, ModHost) {
     let path = directory.path().join("edits.wat");
     let panel = serde_json::json!({"surface": panel_surface("edits"), "toggle_key": "ShiftRight",
         "controls": [{"kind":"text", "id":"value", "label":"Value", "value":r#"{"v":0}"#,
-            "live":live,"navigation_keys":true},
+            "min_chars":4,"live":live,"navigation_keys":true},
             {"kind":"keybind", "id":"capture", "label":"Capture", "key":"KeyQ", "capturing":false}]});
     let json = panel.to_string();
     let source = recovery_edit_guest(&json, false);
@@ -212,7 +212,7 @@ fn edit_host(live: bool) -> (tempfile::TempDir, ModHost) {
 }
 
 #[test]
-fn fuel_recovery_replays_latest_native_text_queued_before_the_overrun() {
+fn fuel_recovery_reverts_native_text_queued_before_the_overrun() {
     let (_directory, mut host) = edit_host(true);
     host.queue_text_events(vec![
         ui::mod_panel::TextEvent {
@@ -229,7 +229,7 @@ fn fuel_recovery_replays_latest_native_text_queued_before_the_overrun() {
 }
 
 #[test]
-fn fuel_recovery_replays_field_values_without_submit_or_key_edges() {
+fn fuel_recovery_reverts_field_values_without_replaying_edges() {
     use ui::mod_panel::{FieldEvent, FieldKey, TextEvent};
     let (_directory, mut host) = edit_host(true);
     host.queue_field_events(vec![
@@ -252,7 +252,7 @@ fn fuel_recovery_replays_field_values_without_submit_or_key_edges() {
 }
 
 #[test]
-fn fuel_recovery_carries_non_live_submitted_values_without_repeating_submit() {
+fn fuel_recovery_reverts_non_live_submissions_to_committed_preferences() {
     let (_directory, mut host) = edit_host(false);
     host.queue_field_events(vec![ui::mod_panel::FieldEvent::Submit(
         ui::mod_panel::TextEvent {
@@ -262,6 +262,31 @@ fn fuel_recovery_carries_non_live_submitted_values_without_repeating_submit() {
     )])
     .unwrap();
     assert_edit_recovery(&mut host);
+}
+
+#[test]
+fn fuel_recovery_rejects_values_below_the_initialized_control_minimum() {
+    let (_directory, mut host) = edit_host(false);
+    let mut previous = serde_json::to_value(host.panel().unwrap()).unwrap();
+    previous["controls"][0]["min_chars"] = serde_json::json!(0);
+    host.set_panel_bundle(&serde_json::json!({"panel":previous,"surfaces":{}}).to_string())
+        .unwrap();
+    host.queue_field_events(vec![ui::mod_panel::FieldEvent::Submit(
+        ui::mod_panel::TextEvent {
+            id: "value".into(),
+            value: "{}".into(),
+        },
+    )])
+    .unwrap();
+    host.frame(true).unwrap_err();
+    assert!(host.is_active());
+    host.frame(false).unwrap();
+    assert!(host.is_active());
+    assert!(
+        matches!(&host.panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == r#"{"v":0}"#)
+    );
+    assert_eq!(host.label(), Some(r#"{"v":0}"#));
+    assert_eq!(host.settings_snapshot(), Some(r#"{"v":0}"#));
 }
 
 #[test]
@@ -288,7 +313,7 @@ fn fuel_recovery_discards_edits_for_controls_replaced_by_init() {
     assert_eq!(host.settings_snapshot(), Some(r#"{"v":0}"#));
 }
 
-/// Checks that a fresh guest reapplies and saves the displayed native value after rollback.
+/// Checks that rejected edits revert to the initialized panel and committed preferences.
 fn assert_edit_recovery(host: &mut ModHost) {
     host.frame(true).unwrap_err();
     assert!(host.is_active());
@@ -299,10 +324,10 @@ fn assert_edit_recovery(host: &mut ModHost) {
     );
     host.frame(false).unwrap();
     assert!(host.is_active());
-    assert_eq!(host.label(), Some(r#"{"v":2}"#));
-    assert_eq!(host.settings_snapshot(), Some(r#"{"v":2}"#));
+    assert_eq!(host.label(), Some(r#"{"v":0}"#));
+    assert_eq!(host.settings_snapshot(), Some(r#"{"v":0}"#));
     assert!(
-        matches!(&host.panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == r#"{"v":2}"#)
+        matches!(&host.panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == r#"{"v":0}"#)
     );
     assert!(matches!(
         &host.panel().unwrap().controls[1],

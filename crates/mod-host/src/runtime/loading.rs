@@ -132,16 +132,20 @@ impl Instance {
         })
     }
 
-    /// Initializes admitted code in a fresh store, retaining its host state even on failure.
+    /// Initializes admitted code with fresh controls, keeping the store available on failure.
     pub(super) fn initialize(
         pre: &wasmtime::component::InstancePre<State>,
         store: &mut Store<State>,
     ) -> Result<(exports::Exports, u64)> {
-        // Fresh memory starts on the admitted initial panel, regardless of the old route.
+        // Fresh memory starts from admitted controls, without edits owned by the old guest.
         let state = store.data_mut();
-        if let Some(bundle) = &state.controls.bundle {
-            state.controls.panel = Some(bundle.panel.clone());
-        }
+        state.controls.panel = state
+            .controls
+            .bundle
+            .as_ref()
+            .map(|bundle| bundle.panel.clone());
+        state.controls.finish_text_frame(false);
+        state.controls.layout = None;
         store.limiter(|state| &mut state.limits);
         let initial = FRAME_FUEL;
         crate::execution::arm(store, initial, true)?;

@@ -209,52 +209,12 @@ impl ControlState {
         self.text_events_in_frame = true;
     }
 
-    /// Keeps the latest values after a failed callback without replaying consumed actions.
-    pub(super) fn retain_value_edits(&mut self) {
-        use ui::mod_panel::FieldEvent;
-        let mut seen = std::collections::HashSet::new();
-        self.text_events.reverse();
-        self.text_events
-            .retain(|event| seen.insert(event.id.clone()));
-        self.text_events.reverse();
-        seen.clear();
-        self.field_events.reverse();
-        self.field_events.retain_mut(|event| {
-            let value = match event {
-                FieldEvent::Change(value) | FieldEvent::Submit(value) => value,
-                FieldEvent::Key(_) => return false,
-            };
-            if !seen.insert(value.id.clone()) {
-                return false;
-            }
-            *event = FieldEvent::Change(value.clone());
-            true
-        });
-        self.field_events.reverse();
-    }
-
-    /// Hides input outside frame callbacks and consumes it once delivery is complete.
-    pub(super) fn finish_text_frame(&mut self, retain: bool) {
+    /// Keeps input for a deferred frame while preventing unrelated callbacks from reading it.
+    pub(super) fn finish_text_frame(&mut self, deferred: bool) {
         self.text_events_in_frame = false;
-        if !retain {
+        if !deferred {
             self.text_events.clear();
             self.field_events.clear();
-        }
-    }
-}
-
-/// Re-admits native values after initialization; a replaced control discards its old input.
-pub(super) fn restore_value_edits(state: &mut State) {
-    let text = std::mem::take(&mut state.controls.text_events);
-    let fields = std::mem::take(&mut state.controls.field_events);
-    for event in text {
-        if let Err(error) = queue_text_events(state, vec![event]) {
-            tracing::debug!(%error, "discarded native text for a replaced control");
-        }
-    }
-    for event in fields {
-        if let Err(error) = admit_field_events(state, vec![event], true) {
-            tracing::debug!(%error, "discarded native field input for a replaced control");
         }
     }
 }
@@ -606,15 +566,6 @@ pub(super) fn queue_field_events(
     state: &mut State,
     events: Vec<ui::mod_panel::FieldEvent>,
 ) -> Result<()> {
-    admit_field_events(state, events, false)
-}
-
-/// Validates native field input; recovery can synchronize submitted values on non-live fields.
-fn admit_field_events(
-    state: &mut State,
-    events: Vec<ui::mod_panel::FieldEvent>,
-    recovered_values: bool,
-) -> Result<()> {
     use ui::mod_panel::{Control, FieldEvent, MAX_PANEL_EVENTS};
     ensure!(state.grants.controls, "controls capability denied");
     if events.is_empty() {
@@ -642,10 +593,7 @@ fn admit_field_events(
         };
         match event {
             FieldEvent::Change(e) => {
-                ensure!(
-                    *live || recovered_values,
-                    "native change event requires a live field"
-                );
+                ensure!(*live, "native change event requires a live field");
                 ui::mod_panel::validate_text_value(&e.value, 0, *max_chars)
                     .map_err(anyhow::Error::msg)?;
             }

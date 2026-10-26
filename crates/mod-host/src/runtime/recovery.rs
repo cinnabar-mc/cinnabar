@@ -53,7 +53,6 @@ impl Instance {
                 return Err(error.context("mod quarantined after frame fuel recovery failed"));
             }
         }
-        controls::restore_value_edits(self.store.data_mut());
         self.set_panel_open(open);
         Ok(true)
     }
