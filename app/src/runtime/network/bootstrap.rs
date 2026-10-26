@@ -191,7 +191,7 @@ pub(super) fn apply(
     );
     #[cfg(not(target_arch = "wasm32"))]
     {
-        ui_runtime.experiences.marker = packs.extension_marker.take();
+        ui_runtime.session.experiences.marker = packs.extension_marker.take();
     }
     player_runtime.facts.publish_bootstrap_game_modes(
         player_game_mode,
@@ -225,6 +225,7 @@ pub(super) fn apply(
             custom_blocks: &custom_blocks,
             item_registry: world_item_registry,
             world_default_game_mode,
+            player_game_mode_uses_world_default,
             terrain_before_spawn,
         },
         &packs,

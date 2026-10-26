@@ -1,6 +1,7 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{
-    CameraDelta, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot, GameplaySnapshot,
+    CameraDelta, GameplayCameraPose, GameplayCameraRig, GameplayControlModes, GameplayFacts,
+    GameplayMob, GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot,
     GameplayVector3, ModCue,
 };
 use anyhow::{Result, bail, ensure};
@@ -15,8 +16,12 @@ use mod_api::{
 /// Mob input, the retained rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
-    pub movement_toggles: Option<cinnabar::extension::gameplay::MovementToggles>,
-    pending_movement_toggles: Option<cinnabar::extension::gameplay::MovementToggles>,
+    /// Sprint and sneak held for the current frame only.
+    pub movement_intents: Option<GameplayMovementIntents>,
+    pending_movement_intents: Option<GameplayMovementIntents>,
+    /// Control modes replacing the player's own for the current frame only.
+    pub control_modes: Option<GameplayControlModes>,
+    pending_control_modes: Option<GameplayControlModes>,
     pub mobs: Vec<GameplayMob>,
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
@@ -34,8 +39,10 @@ pub(super) struct WorldState {
 impl WorldState {
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
-        self.movement_toggles = None;
-        self.pending_movement_toggles = None;
+        self.movement_intents = None;
+        self.pending_movement_intents = None;
+        self.control_modes = None;
+        self.pending_control_modes = None;
         self.polls = 0;
         self.mobs.clear();
         self.commands.clear();
@@ -55,7 +62,8 @@ impl WorldState {
     }
 
     pub fn commit(&mut self) {
-        self.movement_toggles = self.pending_movement_toggles.take();
+        self.movement_intents = self.pending_movement_intents.take();
+        self.control_modes = self.pending_control_modes.take();
         if let Some(rig) = self.pending_rig.take() {
             self.rig = rig;
         }
@@ -188,6 +196,21 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
     Ok(())
 }
 
+/// Rejects non-finite client facts before any guest can read them.
+pub(super) fn validate_facts(facts: &GameplayFacts) -> Result<()> {
+    ensure!(
+        facts.camera.is_none_or(|camera| finite(&camera.position)
+            && camera.yaw.is_finite()
+            && camera.pitch.is_finite())
+            && facts
+                .damage_shake
+                .is_none_or(|shake| shake.roll.is_finite() && shake.pitch.is_finite())
+            && facts.relayed_position.as_ref().is_none_or(finite),
+        "invalid gameplay facts"
+    );
+    Ok(())
+}
+
 /// Movement and pose must refer to the same captured input authority.
 pub(super) fn validate_movement(
     snapshot: Option<&GameplaySnapshot>,
@@ -208,21 +231,34 @@ pub(super) fn validate_movement(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
-    fn set_movement_toggles(
+    /// Stages sprint and sneak holds for this focused gameplay frame; none releases both.
+    fn set_movement_intents(
         &mut self,
-        policy: Option<cinnabar::extension::gameplay::MovementToggles>,
+        intents: Option<GameplayMovementIntents>,
     ) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        if policy.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
-            return Ok(Err("movement toggles require focused gameplay".into()));
+        if intents.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
+            return Ok(Err("movement intents require focused gameplay".into()));
         }
-        self.world.pending_movement_toggles = policy;
+        self.world.pending_movement_intents = intents;
+        Ok(Ok(()))
+    }
+    /// Stages control modes for this focused gameplay frame; none restores the player's own.
+    fn set_control_modes(
+        &mut self,
+        modes: Option<GameplayControlModes>,
+    ) -> Result<Result<(), String>> {
+        self.motion.write()?;
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if modes.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
+            return Ok(Err("control modes require focused gameplay".into()));
+        }
+        self.world.pending_control_modes = modes;
         Ok(Ok(()))
     }
     fn read_movement(&mut self) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {
@@ -233,31 +269,26 @@ impl cinnabar::extension::gameplay::Host for State {
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        Ok(Ok(self.movement))
+        Ok(Ok(self.motion.snapshot))
     }
 
     fn cancel_jump(&mut self) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        self.pending_jump_cancel = true;
+        self.motion.pending_jump_cancel = true;
         Ok(Ok(()))
     }
 
     fn pulse_jump(&mut self) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
         if !self
-            .movement
+            .motion
+            .snapshot
             .as_ref()
             .is_some_and(|movement| movement.eligible && !movement.jump_held)
         {
@@ -265,11 +296,12 @@ impl cinnabar::extension::gameplay::Host for State {
                 "jump requires eligible captured gameplay without held jump".into(),
             ));
         }
-        self.pending_jump = true;
+        self.motion.pending_jump = true;
         Ok(Ok(()))
     }
 
-    fn set_show_real_position(&mut self, enabled: bool) -> Result<Result<(), String>> {
+    /// The feet position the client last relayed to the server, in a connected world.
+    fn read_relayed_position(&mut self) -> Result<Result<Option<GameplayVector3>, String>> {
         self.packet_delay_writes += 1;
         if self.packet_delay_writes > MAX_IMPORT_WRITES {
             bail!("packet delay import budget exhausted");
@@ -277,8 +309,7 @@ impl cinnabar::extension::gameplay::Host for State {
         if !self.grants.packet_delay {
             return Ok(Err("packet delay capability denied".into()));
         }
-        self.pending_show_real_position = Some(enabled);
-        Ok(Ok(()))
+        Ok(Ok(self.gameplay_facts.relayed_position))
     }
 
     fn set_packet_delay(&mut self, delay_ms: u32) -> Result<Result<(), String>> {
@@ -302,6 +333,21 @@ impl cinnabar::extension::gameplay::Host for State {
 
     fn pulse_attack(&mut self) -> Result<Result<(), String>> {
         State::pulse_attack(self)
+    }
+
+    /// The presented camera, available with the same grants and frame as `read-frame`.
+    fn read_camera(&mut self) -> Result<Result<Option<GameplayCameraPose>, String>> {
+        self.gameplay_reads += 1;
+        if self.gameplay_reads > MAX_IMPORT_WRITES {
+            bail!("gameplay read budget exhausted");
+        }
+        if !(self.grants.players || self.grants.terrain) {
+            return Ok(Err("local pose capability denied".into()));
+        }
+        Ok(Ok(self
+            .gameplay_facts
+            .camera
+            .filter(|_| self.snapshot.is_some())))
     }
 
     fn read_frame(&mut self) -> Result<Result<Option<GameplaySnapshot>, String>> {

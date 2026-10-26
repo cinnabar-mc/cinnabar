@@ -1,25 +1,25 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
-use crate::GameplaySnapshot;
 use anyhow::{Result, bail};
 
-/// Only a successful callback may publish policy for its current world scope.
+/// A use pulse staged by the running frame callback and published only when it succeeds.
 #[derive(Default)]
 pub(super) struct ItemUsePolicy {
-    pending: bool,
+    pending_pulse: bool,
     writes: u32,
-    pub committed: Option<(u64, i32)>,
+    /// The current frame's committed pulse, read before the action filter runs.
+    pub pulse: bool,
 }
 
 impl ItemUsePolicy {
-    pub fn commit(&mut self, snapshot: Option<&GameplaySnapshot>) {
-        self.committed = snapshot
-            .filter(|_| self.pending)
-            .map(|frame| (frame.session, frame.dimension));
+    /// Publishes a pulse only from a callback that saw a gameplay frame.
+    pub fn commit(&mut self, gameplay: bool) {
+        self.pulse = std::mem::take(&mut self.pending_pulse) && gameplay;
     }
 }
 
 impl cinnabar::extension::item_use::Host for State {
-    fn set_delay_fix(&mut self, enabled: bool) -> Result<Result<(), String>> {
+    /// Stages one use press edge while gameplay owns input and the use control is held.
+    fn pulse_use(&mut self) -> Result<Result<(), String>> {
         self.item_use_policy.writes += 1;
         if self.item_use_policy.writes > MAX_IMPORT_WRITES {
             bail!("item-use import budget exhausted");
@@ -27,7 +27,10 @@ impl cinnabar::extension::item_use::Host for State {
         if !self.grants.item_use {
             return Ok(Err("item-use capability denied".into()));
         }
-        self.item_use_policy.pending = enabled;
+        if self.snapshot.is_none() || !self.gameplay_facts.use_held {
+            return Ok(Err("use pulse requires a held current gameplay use".into()));
+        }
+        self.item_use_policy.pending_pulse = true;
         Ok(Ok(()))
     }
 }

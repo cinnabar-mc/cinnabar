@@ -71,7 +71,7 @@ pub(crate) fn drive_world_inventory_keys(
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
     presentation: Option<Res<UiPresentationResource>>,
     mut runtime: ResMut<UiRuntimeResource>,
-    emote_input: Option<Res<client_state::EmoteInputConsumed>>,
+    emote_input: Option<Res<client_state::ScreenInputConsumed>>,
     swing: DropSwing,
     touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
     book_transport: (
@@ -327,9 +327,19 @@ pub(super) fn apply_inventory_pointer(
             now_millis,
         };
         let actions = runtime.screen_state_mut().pointer.step(frame);
+        // A Shift-click on a creative-layout hotbar slot deletes its stack.
+        let auto_destroy =
+            shift && gui.is_some_and(|gui| presentation.inventory_auto_place_destroys(gui));
         for action in actions {
             let was_open = runtime.inventory_open();
-            runtime.perform_pointer_action(player_runtime, action);
+            match action {
+                crate::ui_runtime::inventory_drag::PointerAction::QuickMove(hit)
+                    if auto_destroy =>
+                {
+                    let _ = runtime.destroy_on_auto_place(player_runtime, hit);
+                }
+                action => runtime.perform_pointer_action(player_runtime, action),
+            }
             if was_open
                 && !runtime.inventory_open()
                 && let Some(focus) = focus.as_deref_mut()
@@ -339,16 +349,29 @@ pub(super) fn apply_inventory_pointer(
         }
     }
     if !scrollbar_owned && hit.is_none() && !mod_owned {
+        use ui_screens::containers::presses::HeldStackPress;
         // A held stack clicked off the screen's panels is dropped: all of it
-        // on a primary click, one item on a secondary click.
-        let outside = gui.is_some_and(|gui| {
-            presentation.inventory_press_drops(gui, physical_size, window.scale_factor(), screen)
+        // on a primary click, one item on a secondary click. A primary click on
+        // the item grid's empty background deletes it in creative.
+        let press = gui.and_then(|gui| {
+            presentation.inventory_held_stack_press(
+                gui,
+                physical_size,
+                window.scale_factor(),
+                screen,
+            )
         });
-        if outside && (primary_pressed || secondary_pressed) {
-            let amount = (!primary_pressed).then_some(1);
-            let _ = runtime
-                .inventory_ledger_mut(player_runtime)
-                .begin_drop(DropSource::Cursor, amount);
+        match press {
+            Some(HeldStackPress::Drop) if primary_pressed || secondary_pressed => {
+                let amount = (!primary_pressed).then_some(1);
+                let _ = runtime
+                    .inventory_ledger_mut(player_runtime)
+                    .begin_drop(DropSource::Cursor, amount);
+            }
+            Some(HeldStackPress::Destroy) if primary_pressed => {
+                let _ = runtime.destroy_held_on_item_grid(player_runtime);
+            }
+            _ => {}
         }
     }
 }

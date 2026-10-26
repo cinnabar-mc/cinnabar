@@ -185,7 +185,6 @@ impl NativeMenu {
             pending.shift_held = input.shift_held;
             pending.viewport = input.viewport;
             pending.hud_geometry = input.hud_geometry;
-            pending.preview_sizes = input.preview_sizes;
             pending.events.extend(input.events);
             pending.keys.extend(input.keys);
         } else {
@@ -364,7 +363,7 @@ mod tests {
     /// Prepares a real native catalog without retaining an executable or asset fixture.
     fn output() -> Arc<MenuOutput> {
         let panel: ui::mod_panel::Panel = serde_json::from_value(serde_json::json!({
-            "title":"Menu","toggle_key":"ShiftRight","dark":true,"controls":[],
+            "toggle_key":"ShiftRight","controls":[],
             "surface":{"screen":"fixture.root","document":serde_json::json!({
                 "namespace":"fixture","root":{"type":"panel","controls":[]}
             }).to_string()}

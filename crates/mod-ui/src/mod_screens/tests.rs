@@ -154,6 +154,28 @@ fn overlay_primary_and_secondary_clicks_win_over_full_screen_dismiss_hits() {
 }
 
 #[test]
+fn guest_replacement_discards_package_screen_gestures() {
+    for secondary in [false, true] {
+        let mut presentation = overlapping_screens();
+        let click = |p: &mut ModUi, pressed, released| {
+            if secondary {
+                p.secondary_press_mod_screens(Some([5.0, 5.0]), pressed, released)
+            } else {
+                p.press_mod_screens(Some([5.0, 5.0]), pressed, released)
+            }
+        };
+        assert_eq!(click(&mut presentation, true, false), None);
+        presentation.reset_mod_screens();
+        let screens = presentation.mod_screens.as_mut().unwrap();
+        screens.overlay.frame = Some(button_frame("overlay", [20.0, 20.0]));
+        screens.view.frame = Some(button_frame("dismiss", [200.0, 100.0]));
+        assert_eq!(click(&mut presentation, false, true), None);
+        assert_eq!(click(&mut presentation, true, false), None);
+        assert!(click(&mut presentation, false, true).is_some());
+    }
+}
+
+#[test]
 fn overlay_wheel_scrolls_blank_viewports_with_and_without_an_open_view() {
     for view_open in [false, true] {
         let mut presentation = overlapping_screens();

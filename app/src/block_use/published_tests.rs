@@ -38,11 +38,17 @@ mod attack_swing_tests;
 #[path = "published_tests/attack_hit_position.rs"]
 mod attack_hit_position_tests;
 
+#[path = "published_tests/attack_pick_range.rs"]
+mod attack_pick_range_tests;
+
 #[path = "published_tests/attack_fields.rs"]
 mod attack_fields_tests;
 
 #[path = "published_tests/attack_admission.rs"]
 mod attack_admission_tests;
+
+#[path = "published_tests/attack_while_using.rs"]
+mod attack_while_using_tests;
 
 #[path = "published_tests/attack_validation.rs"]
 mod attack_validation_tests;
@@ -73,6 +79,9 @@ mod repeat_clock_tests;
 
 #[path = "published_tests/touch.rs"]
 mod touch_tests;
+
+#[path = "published_tests/harvesting.rs"]
+mod harvesting_tests;
 
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
@@ -198,8 +207,7 @@ fn fixture_with_entity_assets(
     let mut origin = InteractionOriginSnapshot::default();
     origin.publish_from_local_player_frame(&carrier);
     // The frame before this one picked along the same ray.
-    let mut block_use = BlockUseRuntime::default();
-    block_use.retain_pick(&origin, movement.position_authority_identity());
+    let block_use = BlockUseRuntime::default();
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(7));
     player
         .facts
@@ -231,6 +239,7 @@ fn fixture_with_entity_assets(
     assert!(snapshot.phases[Action::Use as usize].pressed);
     let mut world = World::new();
     world.init_resource::<client_state::ScreenFocus>();
+    world.init_resource::<client_state::GameplayScreenControls>();
     world.insert_resource(client_state::SemanticInputSnapshot(
         semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
     ));
@@ -259,6 +268,7 @@ fn fixture_with_entity_assets(
         .resource_mut::<Time<Real>>()
         .advance_by(Duration::from_millis(1_000));
     world.init_resource::<Messages<client_audio::audio::LocalBlockCue>>();
+    world.init_resource::<Messages<client_audio::audio::predicted::LocalAttackCue>>();
     world.insert_resource(player);
     world.insert_resource(block_use);
     world.init_resource::<SwingTracker>();
@@ -271,6 +281,9 @@ fn fixture_with_entity_assets(
         },
         PrimaryWindow,
     ));
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
     (world, captured)
 }
 
@@ -416,12 +429,7 @@ fn a_moving_press_measures_reach_from_the_pre_tick_eye() {
         .enqueue_completed_physics(sample)
         .unwrap();
     let ahead = frame_origin(&world, Vec3::new(4.5, 2.5, 12.3), Quat::IDENTITY);
-    let authority = world
-        .resource::<MovementTicker>()
-        .position_authority_identity();
-    world
-        .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&ahead, authority);
+    retain_pick(&mut world, &ahead);
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
 }
@@ -537,7 +545,7 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
     for _ in 0..2 {
         world.run_system_cached(produce_block_use).unwrap();
         world
-            .run_system_cached(client_interaction::block_use::retain_block_use_pick)
+            .run_system_cached(crate::block_use::retain_block_use_pick)
             .unwrap();
         world
             .run_system_cached(crate::item_use::produce_item_use)
@@ -607,15 +615,13 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     });
     let mut movement = world.resource_mut::<MovementTicker>();
     movement.reset(7, 100, start);
-    let authority = movement.position_authority_identity();
     let mut physics = client_interaction::movement::LocalPhysicsController::default();
     physics.reanchor_network_position(start, 100, true);
     world.insert_resource(physics);
     let eye = Vec3::from_array(start);
     let previous = frame_origin(&world, eye, pick);
-    world
-        .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&previous, authority);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    retain_pick(&mut world, &previous);
     world.insert_resource(client_presentation::local_player::LocalViewPose::new(
         eye,
         Quat::IDENTITY,
@@ -694,7 +700,7 @@ fn held_attempts(frame_micros: u64) -> Vec<(u64, [i32; 3])> {
         floor_fixture([4.5, 2.620_01, 8.32], Quat::from_rotation_x(-0.9601));
     let mut router = crate::semantic_controls::SemanticInputRuntime::default();
     // The reanchor discards its first elapsed time; spend it so both rates tick together.
-    hold(&mut world, &mut router, Vec::new(), Vec::new());
+    hold_fixed_ray(&mut world, &mut router, Vec::new(), Vec::new());
     world
         .resource_mut::<Time<Real>>()
         .advance_by(Duration::ZERO);
@@ -710,7 +716,7 @@ fn held_attempts(frame_micros: u64) -> Vec<(u64, [i32; 3])> {
         } else {
             Vec::new()
         };
-        hold(&mut world, &mut router, Vec::new(), buttons);
+        hold_fixed_ray(&mut world, &mut router, Vec::new(), buttons);
         world
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_micros(frame_micros));
@@ -779,6 +785,7 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
         crosshair,
         &gameplay::melee::PressContext {
             refused_destroy: None,
+            actor_life: None,
             tick: 102,
             player_position: [4.5, 2.620_01, 8.5],
             input_mode: protocol::PlayerInputMode::Mouse,
@@ -1062,7 +1069,7 @@ fn a_hotbar_switch_mid_hold_repeats_with_the_new_block_before_the_tick() {
     let (mut world, mut captured) =
         floor_fixture([4.5, 2.620_01, 8.32], Quat::from_rotation_x(-0.9601));
     let mut router = crate::semantic_controls::SemanticInputRuntime::default();
-    hold(&mut world, &mut router, Vec::new(), vec![2]);
+    hold_fixed_ray(&mut world, &mut router, Vec::new(), vec![2]);
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(transaction_targets(&mut captured), [[4, 0, 7]]);
     set_hotbar_stack(&mut world, 1, Some("minecraft:dirt"));
@@ -1072,7 +1079,7 @@ fn a_hotbar_switch_mid_hold_repeats_with_the_new_block_before_the_tick() {
         .set_local_selected_slot(1);
     let mut sent = Vec::new();
     for _ in 0..8 {
-        hold(&mut world, &mut router, Vec::new(), vec![2]);
+        hold_fixed_ray(&mut world, &mut router, Vec::new(), vec![2]);
         world
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_millis(50));
@@ -1118,4 +1125,50 @@ fn an_unrelated_inventory_request_does_not_delay_a_placement() {
     hold(&mut world, &mut router, Vec::new(), vec![2]);
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(transaction_targets(&mut captured), [[4, 0, 7]]);
+}
+
+#[path = "published_tests/frame_picks.rs"]
+mod frame_picks;
+
+/// Captures the supplied frame without replacing the current action origin.
+fn retain_pick(world: &mut World, origin: &InteractionOriginSnapshot) {
+    let current = world.resource::<InteractionOriginSnapshot>().clone();
+    world.insert_resource(origin.clone());
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
+    world.insert_resource(current);
+}
+
+#[path = "published_tests/cooldown.rs"]
+mod cooldown;
+
+#[path = "published_tests/bridging.rs"]
+mod bridging;
+
+/// Publishes another frame from the fixture's fixed camera ray against its updated world.
+fn publish_fixed_pick(world: &mut World) {
+    let pick = world
+        .resource::<BlockUseRuntime>()
+        .pick(world.resource::<MovementTicker>());
+    if let Some(pick) = pick {
+        let origin = frame_origin(
+            world,
+            pick.origin,
+            Quat::from_rotation_arc(Vec3::NEG_Z, pick.direction),
+        );
+        retain_pick(world, &origin);
+    }
+}
+
+/// Advances input for a fixture that presents the same camera ray on every frame.
+fn hold_fixed_ray(
+    world: &mut World,
+    router: &mut crate::semantic_controls::SemanticInputRuntime,
+    keys: Vec<u16>,
+    buttons: Vec<u8>,
+) -> semantic_input::ActionSnapshot {
+    let snapshot = hold(world, router, keys, buttons);
+    publish_fixed_pick(world);
+    snapshot
 }

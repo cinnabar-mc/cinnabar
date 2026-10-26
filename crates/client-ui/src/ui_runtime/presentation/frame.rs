@@ -50,6 +50,7 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        self.hud_elements.hide_all();
         self.hud_frame.mount_equipment = runtime.screen_state().mount_equipment;
         #[cfg(feature = "tracy")]
         let _build_span = tracing::info_span!("ui.build").entered();
@@ -176,7 +177,7 @@ impl UiPresentationRuntime {
                                 metrics,
                                 content,
                             );
-                            self.append_mod_widgets(
+                            self.append_hud_surfaces(
                                 player_runtime,
                                 runtime,
                                 nodes,
@@ -235,6 +236,11 @@ impl UiPresentationRuntime {
                     }
                     Scene::Emote => {
                         self.append_emote_screen(
+                            runtime, nodes, next, metrics, content, now_millis,
+                        )?;
+                    }
+                    Scene::MobEffects => {
+                        self.append_mob_effect_screen(
                             runtime, nodes, next, metrics, content, now_millis,
                         )?;
                     }
@@ -309,6 +315,9 @@ impl UiPresentationRuntime {
             }
             if !scenes.contains(&Scene::Emote) {
                 self.close_emote_screen();
+            }
+            if !scenes.contains(&Scene::MobEffects) {
+                self.close_mob_effect_screen();
             }
             if !scenes.contains(&Scene::SignEditor) {
                 self.hide_sign_editor();

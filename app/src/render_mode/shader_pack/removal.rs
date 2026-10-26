@@ -20,12 +20,20 @@ struct RemovalOutcome {
 #[derive(Resource, Default)]
 struct RemovalWorker(Option<(String, Mutex<mpsc::Receiver<RemovalOutcome>>)>);
 
+/// Whether a deletion outcome still needs polling after its screen closes.
+pub(super) fn work_pending(world: &World) -> bool {
+    world
+        .get_resource::<RemovalWorker>()
+        .is_some_and(|worker| worker.0.is_some())
+}
+
 /// Orders removal after menu choices and before the renderer sees its new request.
 pub(in crate::render_mode) fn configure(app: &mut App) {
     app.init_resource::<RemovalWorker>().add_systems(
         Update,
         (start_removal, finish_removal)
             .chain()
+            .in_set(super::ShaderPackUiSystems)
             .after(super::super::apply_menu_render_mode)
             .before(super::sync_shader_pack_request),
     );

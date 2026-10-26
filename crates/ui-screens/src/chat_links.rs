@@ -97,7 +97,7 @@ pub fn hits(
     layouts: &mut TextLayoutCache,
     scale: f32,
     origin: [f32; 2],
-    annotations: &[ui::mod_hud::ChatAction],
+    annotations: &[ui::mod_presentation::ChatAction],
 ) -> Vec<(String, UiRect, String)> {
     let mut result = Vec::new();
     for node in nodes {
@@ -368,7 +368,7 @@ mod tests {
         let scale = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
         let mut layouts = TextLayoutCache::new(32, 1 << 20);
         let node = history_node("Alex: meet at 10 64 -20 please", 500.);
-        let actions = [ui::mod_hud::ChatAction {
+        let actions = [ui::mod_presentation::ChatAction {
             text: "10 64 -20".into(),
             action: "marker_0".into(),
         }];

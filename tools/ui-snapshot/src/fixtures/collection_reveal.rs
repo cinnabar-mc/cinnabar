@@ -24,8 +24,8 @@ pub(super) fn fixture(reveal: bool) -> Fixture {
                 "anchor_from":"top_left","anchor_to":"top_left","text":"#item_name",
                 "bindings":[{"binding_name":"#item_name"}]}}
         ]}}).to_string()});
-    let panel: Panel = serde_json::from_value(json!({"title":"Collection focus","toggle_key":"F10",
-        "reference_size":[640,360],"dark":true,"controls":[],
+    let panel: Panel = serde_json::from_value(json!({"toggle_key":"F10",
+        "reference_size":[640,360],"controls":[],
         "surface":{"screen":"menu.root","document":json!({"namespace":"menu",
             "root":{"type":"panel","size":[640,360],"controls":[
                 {"heading":{"type":"label","text":"Collection focus","size":[452,24],"offset":[90,8],

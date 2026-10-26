@@ -1,4 +1,5 @@
-use super::{JavaMotion, LocalSwingProgress, java::body};
+use super::motion::WalkState;
+use super::{ActorTickInput, JavaMotion, LocalSwingProgress, MotionInput, MotionState, java::body};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 /// Resolved local motion and attack observations from one completed simulation tick.
@@ -10,12 +11,17 @@ pub struct LocalSwingMotionSample {
     pub progress: LocalSwingProgress,
 }
 
-/// One local body clock retains only the latest tick's reversible heading step.
+/// Local body and leg motion retain the latest physics tick's reversible step.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct State {
     authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
     last: Option<LocalSwingMotionSample>,
     before: [f32; 2],
+    before_walk: Option<(WalkState, [f32; 2], [f32; 2])>,
+    previous_walk: Option<WalkState>,
+    hurt_after_walk: bool,
+    riding: bool,
+    on_fire: bool,
 }
 
 impl State {
@@ -35,17 +41,61 @@ impl State {
         }
     }
 
-    /// Physics-owned headings never advance on the independent actor clock.
+    /// Physics-owned torso and leg cycles never advance on the independent actor clock.
     pub(super) fn active(&self) -> bool {
         self.authority.is_some()
     }
 
-    /// A changed latest tick replays its heading from the retained pre-tick checkpoint.
+    /// Hurt impulses applied after the latest movement tick survive its correction replay.
+    pub(super) fn note_hurt(&mut self) {
+        self.hurt_after_walk = self.last.is_some();
+    }
+
+    /// Retains tick-owned posture and fire state for the local movement observations.
+    pub(super) fn observe_walk(&mut self, riding: bool, on_fire: bool) {
+        self.riding = riding;
+        self.on_fire = on_fire;
+    }
+
+    /// Interpolates local walking on the physics fraction while other pose inputs retain their clock.
+    pub(super) fn sample_walk(
+        &self,
+        input: ActorTickInput,
+        walk: &MotionState,
+        alpha: f32,
+    ) -> Option<ActorTickInput> {
+        let previous = self.previous_walk?;
+        let alpha = render_model::legacy_combat::partial_tick(alpha);
+        let sample = |from: f32, to: f32| from + (to - from) * alpha;
+        Some(ActorTickInput {
+            distance_moved: sample(previous.distance, walk.distance),
+            move_speed: sample(previous.speed.min(1.0), walk.speed.min(1.0)),
+            ..input
+        })
+    }
+
+    /// Whether local gait endpoints differ or the retained actor input has yet to catch up.
+    pub(super) fn walk_changed(&self, walk: &MotionState, input: ActorTickInput) -> bool {
+        self.previous_walk.is_some_and(|previous| {
+            previous.distance != walk.distance
+                || previous.speed != walk.speed
+                || input.distance_moved != walk.distance
+                || input.move_speed != walk.speed.min(1.0)
+        })
+    }
+
+    /// Whether physics has supplied a gait pair for this simulation identity.
+    pub(super) fn has_walk(&self) -> bool {
+        self.previous_walk.is_some()
+    }
+
+    /// A changed latest tick replays movement from its retained pre-tick checkpoint.
     pub(super) fn apply(
         &mut self,
         authority: (SessionGeneration, PositionAuthorityGeneration),
         sample: LocalSwingMotionSample,
         motion: &mut JavaMotion,
+        walk: &mut MotionState,
     ) -> bool {
         if self.authority != Some(authority)
             || self.last.is_some_and(|last| sample.tick < last.tick)
@@ -53,6 +103,11 @@ impl State {
             return false;
         }
         let previous_heading = motion.body_yaw;
+        let previous_limbs = (motion.limb_swing, motion.limb_amount);
+        let previous_walk = walk.walk_state();
+        let advance_walk = self
+            .last
+            .is_none_or(|last| sample.tick != last.tick || sample.delta != last.delta);
         if let Some(last) = self.last.filter(|last| sample.tick == last.tick) {
             motion.body_frame_alpha = sample.progress.frame_alpha;
             if sample.delta == last.delta
@@ -62,8 +117,31 @@ impl State {
                 return false;
             }
             motion.body_yaw = self.before;
+            if advance_walk && let Some((saved, swing, amount)) = self.before_walk {
+                walk.restore_walk(saved);
+                motion.limb_swing = swing;
+                motion.limb_amount = amount;
+            }
         } else {
             self.before = motion.body_yaw;
+            self.before_walk = Some((previous_walk, motion.limb_swing, motion.limb_amount));
+            self.hurt_after_walk = false;
+        }
+        if advance_walk {
+            self.previous_walk = Some(walk.walk_state());
+            walk.advance_walk(&MotionInput {
+                delta: sample.delta,
+                riding: self.riding,
+                player: true,
+                yaw: sample.yaw,
+                head_yaw: sample.yaw,
+                on_fire: self.on_fire,
+                actor_walk: false,
+            });
+            motion.advance_limbs(sample.delta);
+            if self.hurt_after_walk {
+                motion.hurt_limbs();
+            }
         }
         body::advance(
             &mut motion.body_yaw,
@@ -74,11 +152,13 @@ impl State {
         motion.body_frame_alpha = sample.progress.frame_alpha;
         self.last = Some(sample);
         motion.body_yaw != previous_heading
+            || (motion.limb_swing, motion.limb_amount) != previous_limbs
+            || walk.walk_state() != previous_walk
     }
 }
 
 impl super::ActorAnimationStore {
-    /// Binds Java torso ticks to the local simulation, including a rig created after binding.
+    /// Binds local torso and leg ticks to the simulation, including a rig created after binding.
     pub fn set_local_motion_authority(
         &mut self,
         runtime_id: u64,
@@ -109,7 +189,7 @@ impl super::ActorAnimationStore {
         }
     }
 
-    /// Applies only local torso motion; tick clocks, equip, limbs and cape remain untouched.
+    /// Applies local torso and leg motion once per physics tick, retaining action and cape clocks.
     pub fn sync_local_swing_motion(
         &mut self,
         runtime_id: u64,
@@ -128,10 +208,12 @@ impl super::ActorAnimationStore {
         };
         let mut changed = false;
         for sample in samples {
-            changed |= state
-                .java
-                .local_body
-                .apply(authority, sample, &mut state.java.motion);
+            changed |= state.java.local_body.apply(
+                authority,
+                sample,
+                &mut state.java.motion,
+                &mut state.motion,
+            );
         }
         changed
     }

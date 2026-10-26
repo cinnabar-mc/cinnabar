@@ -1,5 +1,5 @@
 use super::*;
-use crate::modding::{hud_editor, registration::HostMetadata};
+use crate::modding::registration::HostMetadata;
 
 /// Loads an inert guest whose source identifies its associated metadata.
 fn host(directory: &std::path::Path, name: &str) -> ModHost {
@@ -24,10 +24,6 @@ fn host_mutations_keep_metadata_and_retained_owners_attached_to_their_guests() {
     runtime.push_host(second, HostMetadata::environment(20));
     assert!(runtime.render_sources.is_empty());
     runtime.push_host(third, HostMetadata::environment(30));
-    runtime.hud_editor_owner = Some(hud_editor::Owner {
-        host: 2,
-        session: 7,
-    });
     runtime.screens = ScreenState {
         owner: Some(2),
         data_change: Some(ModEvent::Action {
@@ -50,8 +46,6 @@ fn host_mutations_keep_metadata_and_retained_owners_attached_to_their_guests() {
         runtime.metadata[1].owner,
         mod_ui::PanelUiOwner::Environment(30)
     );
-    assert_eq!(runtime.hud_editor_owner.unwrap().host, 1);
-    assert_eq!(runtime.hud_editor_owner.unwrap().session, 7);
     assert_eq!(runtime.screens.owner, Some(1));
     assert!(runtime.controls.keys_pressed.is_empty());
     assert!(runtime.render_sources.is_empty());
@@ -68,7 +62,6 @@ fn host_mutations_keep_metadata_and_retained_owners_attached_to_their_guests() {
         runtime.metadata[1].owner,
         mod_ui::PanelUiOwner::Environment(20)
     );
-    assert_eq!(runtime.hud_editor_owner.unwrap().host, 0);
     assert_eq!(runtime.screens.owner, Some(0));
     assert!(
         matches!(&runtime.screens.data_change, Some(ModEvent::Action { id, .. }) if id == "third")
@@ -82,7 +75,6 @@ fn host_mutations_keep_metadata_and_retained_owners_attached_to_their_guests() {
         runtime.metadata[0].owner,
         mod_ui::PanelUiOwner::Environment(20)
     );
-    assert!(runtime.hud_editor_owner.is_none());
     assert!(runtime.screens.owner.is_none());
     assert!(runtime.screens.data_change.is_none());
 }

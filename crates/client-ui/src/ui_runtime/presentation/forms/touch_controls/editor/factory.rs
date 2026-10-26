@@ -11,7 +11,7 @@ pub(super) fn anchors() -> BTreeMap<String, Anchor> {
     anchors
 }
 /// Matches JSON-UI anchor names exhaustively against the editor's anchor enum.
-fn json_name(anchor: Anchor) -> &'static str {
+pub(in super::super) fn json_name(anchor: Anchor) -> &'static str {
     match anchor {
         Anchor::TopLeft => "top_left",
         Anchor::TopCenter => "top_middle",

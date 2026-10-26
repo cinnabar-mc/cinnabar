@@ -43,6 +43,27 @@ pub(crate) fn drive_block_cues(
     );
 }
 
+/// Voices the local player's attack sounds from its eye in the frame the attack is sent.
+pub(crate) fn drive_attack_cues(
+    cues: MessageReader<client_audio::audio::predicted::LocalAttackCue>,
+    world: Res<ClientWorld>,
+    view: Res<LocalViewPose>,
+    engine: ResMut<AudioEngine>,
+    profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
+) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::Audio));
+    client_audio::audio::predicted::drive_attack_cues(
+        cues,
+        client_audio::observations::WorldObservation {
+            stream: world.stream.as_ref(),
+        },
+        view.eye_translation(),
+        engine,
+    );
+}
+
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_consume_audio(

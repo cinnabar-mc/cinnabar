@@ -5,6 +5,7 @@ use mod_host::ModGrants;
 
 const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
 const PLAYER_STATE_ENV: &str = "CINNABAR_MOD_PLAYER_STATE";
+const CLOCK_ENV: &str = "CINNABAR_MOD_CLOCK";
 const ITEM_USE_ENV: &str = "CINNABAR_MOD_ITEM_USE";
 const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
 const CONTROLS_ENV: &str = "CINNABAR_MOD_CONTROLS";
@@ -56,6 +57,7 @@ pub fn environment_grants() -> ModGrants {
         terrain: std::env::var("CINNABAR_MOD_TERRAIN").is_ok_and(|value| value == "1"),
         players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
         player_state: std::env::var(PLAYER_STATE_ENV).is_ok_and(|value| value == "1"),
+        clock: std::env::var(CLOCK_ENV).is_ok_and(|value| value == "1"),
         item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
         camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),

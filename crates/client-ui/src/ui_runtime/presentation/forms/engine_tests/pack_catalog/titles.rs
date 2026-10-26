@@ -253,10 +253,13 @@ pub(super) fn published_frame(
         ui_layers: vec![pack.to_vec()],
         ..Default::default()
     })));
-    runtime.hud.set_title(Arc::from(title), 1, 0);
-    runtime.hud.set_subtitle(Arc::from(subtitle), 2, 0);
+    runtime.session.hud.set_title(Arc::from(title), 1, 0);
+    runtime.session.hud.set_subtitle(Arc::from(subtitle), 2, 0);
     if !actionbar.is_empty() {
-        runtime.hud.set_actionbar(Arc::from(actionbar), 3, 0);
+        runtime
+            .session
+            .hud
+            .set_actionbar(Arc::from(actionbar), 3, 0);
     }
     let input = presentation
         .build(
@@ -322,12 +325,16 @@ fn subtitle_binding_survives_the_native_title_fade_and_works_without_a_title() {
             ..Default::default()
         })));
         if with_title {
-            runtime.hud.set_title(Arc::from("Transient title"), 1, 0);
+            runtime
+                .session
+                .hud
+                .set_title(Arc::from("Transient title"), 1, 0);
         }
         runtime
+            .session
             .hud
             .set_subtitle(Arc::from("Retained overlay"), 2, 0);
-        runtime.hud.expire(10_000);
+        runtime.session.hud.expire(10_000);
         presentation
             .build(
                 &player,

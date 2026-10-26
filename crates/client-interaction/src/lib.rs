@@ -30,13 +30,6 @@ impl Plugin for ClientInteractionPlugin {
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(ClientInteractionSet::HotbarSend)
                     .before(ClientFrameSet::ActorPreparation),
-            )
-            .add_systems(
-                Update,
-                block_use::retain_block_use_pick
-                    .in_set(ClientInteractionSet::RetainPick)
-                    .in_set(client_presentation::local_player::LocalPlayerFrameSet::Interaction)
-                    .in_set(ClientFrameSet::Interaction),
             );
     }
 }

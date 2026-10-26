@@ -76,6 +76,9 @@ grants! {
     /// Allows read-only current-session local inventory and status effect snapshots.
     #[permission("Player status", false)]
     pub player_state: bool,
+    /// Allows reading the local wall-clock time and UTC offset.
+    #[permission("Clock", false)]
+    pub clock: bool,
     /// Allows this instance to replace visual time and local menu branding.
     #[permission("Environment", false)]
     pub environment: bool,
@@ -151,7 +154,7 @@ grants! {
     /// Allows a package's vanilla inventory requests: creative takes and recipe fills.
     #[permission("Inventory requests", true)]
     pub inventory: bool,
-    /// Allows retained full-block highlights of matching loaded blocks.
+    /// Allows a packet mod's explicit full-block highlights in its render frame.
     #[permission("Block highlights", false)]
     pub block_highlights: bool,
     /// Allows retained local fullbright lighting, without altering server light data.
@@ -165,9 +168,33 @@ grants! {
     pub wasi: bool,
 }
 
+impl ModGrants {
+    /// Keeps chunk bodies inline when any active mod has authority to read session packets.
+    pub fn enables_upstream_client_cache<'a>(active: impl IntoIterator<Item = &'a Self>) -> bool {
+        !active.into_iter().any(|grants| grants.packets)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_active_packet_authority_disables_the_upstream_cache() {
+        let frame = ModGrants {
+            terrain: true,
+            ..Default::default()
+        };
+        let packets = ModGrants {
+            packets: true,
+            ..Default::default()
+        };
+        assert!(ModGrants::enables_upstream_client_cache([]));
+        assert!(ModGrants::enables_upstream_client_cache([&frame]));
+        assert!(!ModGrants::enables_upstream_client_cache([
+            &frame, &packets
+        ]));
+    }
+
     #[test]
     fn descriptors_cover_every_serialized_grant_and_default_off() {
         let grants = ModGrants::default();

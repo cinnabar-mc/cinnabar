@@ -29,11 +29,16 @@ const airID = "minecraft:air"
 // current and the result valid before it applies anything. Client messages that a commit stages
 // go out through channels afterwards, and client messages that players send queue like events.
 type Host struct {
-	reg     *Registry
-	store   *Store
-	log     *slog.Logger
-	worldID string
-	worlds  worldBindings
+	reg        *Registry
+	store      *Store
+	log        *slog.Logger
+	worldID    string
+	worlds     worldBindings
+	manager    worldManager
+	players    playerLocations
+	simulation simulationClock
+	// worldChanged observes publication in tests, before the coordinator releases its fence.
+	worldChanged func(uuid.UUID, WorldHandle, uint64) bool
 	// channels is the server half of the client parts; nil when the server has none, which
 	// drops every staged client message.
 	channels ClientChannels
@@ -49,19 +54,23 @@ type Host struct {
 	// before its commit. It is a test seam.
 	afterCall func()
 
-	// closed stops admission: once set, hooks queue nothing.
-	closed atomic.Bool
+	// closed stops normal admission; tracked sessions may still queue their final leave.
+	closed     atomic.Bool
+	admission  sync.RWMutex
+	shutdownMu sync.Mutex
 	// stop is closed by Close, which ends Run.
 	stop chan struct{}
 	// workers counts the running workers.
 	workers sync.WaitGroup
+	// done closes once Run has stopped every worker.
+	done chan struct{}
 
 	// mu guards the fields below.
 	mu sync.Mutex
 	// resume is closed while the Host runs and open while it is paused.
 	resume chan struct{}
 	// running is set by Run, and closing by Close.
-	running, closing bool
+	running, closing, stopping bool
 }
 
 // dispatcher is the queue and supervisor of one Experience.
@@ -69,6 +78,10 @@ type dispatcher struct {
 	id     string
 	sup    *Supervisor
 	events chan event
+	// pending retains interrupted work until Drain takes ownership after the worker stops.
+	pending []event
+	// deliveryErr records final leaves explicitly abandoned after a callback or commit failure.
+	deliveryErr error
 	// seq numbers the events that the worker runs. Only the worker uses it.
 	seq uint64
 	// dropped counts the events dropped for a full queue or the neighbor cap.
@@ -99,6 +112,9 @@ type neighborTick struct {
 // event is one hook's callback, queued for its Experience's worker. A client message's or an
 // epoch's event has no world until its snapshot finds the actor's.
 type event struct {
+	barrier  chan struct{}
+	epoch    uint64
+	tick     uint64
 	w        *world.World
 	instance worldInstance
 	// anchor is the block the callback is for. It bounds the snapshot and the writes.
@@ -106,13 +122,22 @@ type event struct {
 	// actor is the player who caused the event; nil for a neighbor event.
 	actor *world.EntityHandle
 	call  Call
+	// interaction is an interaction's click, which a result that passes it on replays.
+	interaction *interaction
+	// inventory and slots retain live player observations from their owning transaction.
+	inventory *Inventory
+	slots     []item.Stack
+	// entities retain owned actors from the same transaction as a player observation.
+	entities []EntitySnapshot
+	// ridingElsewhere retains occupancy outside this mod's actor snapshot.
+	ridingElsewhere bool
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and
 // an epoch are about their player: they run in the world that player is in, and have an anchor
 // and a snapshot only with that player's focus.
 func (c Call) anchored() bool {
-	return (c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil
+	return c.Entity == nil && c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
 }
 
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
@@ -133,6 +158,7 @@ func NewHost(
 		dispatchers: make(map[string]*dispatcher, len(sups)),
 		tell:        messageTeller{},
 		stop:        make(chan struct{}),
+		done:        make(chan struct{}),
 		resume:      make(chan struct{}),
 	}
 	close(h.resume)
@@ -146,6 +172,11 @@ func NewHost(
 		}
 	}
 	h.holder = &sinkHolder{h}
+	if reg != nil {
+		for _, t := range reg.entityTypes {
+			t.host = h
+		}
+	}
 	installedHooks.Store(h.holder)
 	return h
 }
@@ -156,11 +187,13 @@ func (h *Host) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	h.mu.Lock()
-	if h.running || h.closing {
+	if h.running || h.closing || h.stopping {
 		h.mu.Unlock()
 		return
 	}
 	h.running = true
+	h.workers.Go(func() { h.runPlayerTicks(ctx) })
+	h.workers.Go(func() { h.runSimulationTicks(ctx) })
 	for _, d := range h.dispatchers {
 		h.workers.Go(func() { h.work(ctx, d) })
 	}
@@ -171,6 +204,7 @@ func (h *Host) Run(ctx context.Context) {
 	}
 	cancel()
 	h.workers.Wait()
+	close(h.done)
 }
 
 // Pause stops the workers before their next snapshot or commit while paused is true; Pause(false)
@@ -202,19 +236,23 @@ func (h *Host) Reload(id string) error {
 // Close stops admitting events, cancels the workers and waits for them, uninstalls the Host's
 // hooks, flushes the store and closes every supervisor. Calls after the first return nil.
 func (h *Host) Close() error {
+	h.shutdownMu.Lock()
+	defer h.shutdownMu.Unlock()
 	h.mu.Lock()
 	if h.closing {
 		h.mu.Unlock()
 		return nil
 	}
 	h.closing = true
-	h.closed.Store(true)
-	close(h.stop)
 	h.mu.Unlock()
-	h.workers.Wait()
+	h.stopAdmission()
+	h.stopWorkers()
 	installedHooks.CompareAndSwap(h.holder, nil)
 
 	var errs []error
+	if err := h.closeWorlds(); err != nil {
+		errs = append(errs, err)
+	}
 	if err := h.store.Flush(); err != nil {
 		errs = append(errs, fmt.Errorf("flushing experience data: %w", err))
 	}
@@ -255,9 +293,10 @@ func (h *Host) useOnBlock(
 		return false
 	}
 	b = b.placed(user, target, face, clickPos)
+	placed := b.inWorld(nil)
 	before := blockID(tx.Block(target))
-	placer.PlaceBlock(target, b, ctx)
-	if tx.Block(target) != world.Block(b) {
+	placer.PlaceBlock(target, placed, ctx)
+	if tx.Block(target) != placed {
 		return false
 	}
 	instance, ok := h.worlds.of(tx.World())
@@ -276,9 +315,11 @@ func (h *Host) useOnBlock(
 }
 
 // activate queues on-interact for the user's interaction. The clicked face comes from the
-// client unchecked, so a face out of range is ignored; the interaction stays consumed.
+// client unchecked, so a face out of range is ignored; the interaction stays consumed. A click
+// position within the cell becomes the call's hit, in pixels. The click and the held item are
+// kept for a result that passes the click on.
 func (h *Host) activate(
-	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, _ *item.UseContext,
+	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, ctx *item.UseContext,
 ) {
 	instance, ok := h.worlds.of(tx.World())
 	if u == nil || !ok {
@@ -289,11 +330,30 @@ func (h *Host) activate(
 		return
 	}
 	actor := u.H()
-	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
+	click := &interaction{face: clickedFace}
+	if ctx != nil && ctx.ClickPos != nil {
+		click.pos = *ctx.ClickPos
+	}
+	click.held, _ = u.HeldItems()
+	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, interaction: click, call: Call{
 		Interact: &InteractCall{
-			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace],
+			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace], Hit: hitOf(ctx),
 		},
 	}})
+}
+
+// hitOf is the click position that ctx carries, in pixels, when it lies within the cell.
+func hitOf(ctx *item.UseContext) *Pixel {
+	if ctx == nil || ctx.ClickPos == nil {
+		return nil
+	}
+	click := ctx.ClickPos.Mul(blockPixels)
+	for _, axis := range click {
+		if !(axis >= 0 && axis <= blockPixels) {
+			return nil
+		}
+	}
+	return &Pixel{X: float32(click[0]), Y: float32(click[1]), Z: float32(click[2])}
 }
 
 // neighbourUpdateTick queues on-neighbor-changed, at most once per position and
@@ -328,7 +388,8 @@ func (h *Host) scheduledTick(b Block, pos cube.Pos, tx *world.Tx) {
 }
 
 // breakHandler deletes the broken block's data. A player's break then queues on-break with that
-// data; a break without a user, such as an explosion, notifies nothing.
+// data, a harvest unless the player's game mode takes nothing from what it breaks; a break
+// without a user, such as an explosion, notifies nothing.
 func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {
 	instance, ok := h.worlds.of(tx.World())
 	if !ok {
@@ -345,11 +406,13 @@ func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {
 	}
 	actor := u.H()
 	id := actor.UUID().String()
+	p, isPlayer := u.(*player.Player)
+	harvest := isPlayer && !p.GameMode().CreativeInventory()
 	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
 		Break: &BreakCall{Change: Change{
 			Pos: blockPos(pos), Actor: &id, Cause: CausePlayer, BeforeID: b.t.id,
 			AfterID: blockID(tx.Block(pos)), PreviousData: previous,
-		}},
+		}, Harvest: harvest},
 	}})
 }
 
@@ -381,10 +444,13 @@ func (h *Host) admitNeighbor(d *dispatcher, tx *world.Tx, pos cube.Pos) bool {
 
 // enqueue queues ev for the Experience exp without blocking, dropping it when the queue is full.
 func (h *Host) enqueue(exp string, ev event) {
+	h.admission.RLock()
+	defer h.admission.RUnlock()
 	d, ok := h.dispatchers[exp]
 	if !ok || h.closed.Load() {
 		return
 	}
+	ev.epoch = h.epoch(ev.actor)
 	select {
 	case d.events <- ev:
 	default:
@@ -401,28 +467,59 @@ func (h *Host) drop(d *dispatcher) {
 
 // work runs the Experience's events one at a time until ctx is done.
 func (h *Host) work(ctx context.Context, d *dispatcher) {
-	for {
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			return
 		case ev := <-d.events:
-			h.dispatch(ctx, d, ev)
+			if ev.barrier != nil {
+				close(ev.barrier)
+				continue
+			}
+			if err := h.dispatch(ctx, d, ev); err != nil {
+				if ctx.Err() != nil {
+					d.pending = append(d.pending, ev)
+					return
+				}
+				if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
+					d.deliveryErr = errors.Join(d.deliveryErr, fmt.Errorf("undelivered leave: %w", err))
+				}
+			}
 		}
 	}
 }
 
 // dispatch runs one event: its snapshot, its callback and, for a committed outcome, its commit.
-// A failed or rejected callback or an error publishes nothing; the supervisor has counted a
-// failure already.
-func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
+// Errors let the owner retain interrupted work and report undelivered final leaves.
+func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) (err error) {
 	// A cancelled worker takes no more events, though select may still pick one.
 	if ctx.Err() != nil || !h.resumed(ctx) {
-		return
+		return ctx.Err()
 	}
-	// A quarantined Experience's events are dropped before they cost a world task.
+	if ev.call.Timer != nil {
+		if !h.timerCurrent(d.id, ev.call.Timer.Handle) {
+			return nil
+		}
+		defer func() {
+			if err == nil || ctx.Err() == nil {
+				h.finishTimer(d.id, ev.call.Timer.Handle)
+			}
+		}()
+	}
+	if ev.call.Tick != nil {
+		if !h.claimTick(d.id, &ev) {
+			return nil
+		}
+		handle := ev.instance.handle
+		defer func() {
+			if err == nil || ctx.Err() == nil {
+				h.finishTick(d.id, handle)
+			}
+		}()
+	}
 	if d.sup.Quarantined() {
 		h.log.Debug("event of a quarantined experience dropped", "experience", d.id)
-		return
+		return errQuarantined
 	}
 	d.seq++
 	snap, err := h.snapshot(ctx, d, &ev)
@@ -430,31 +527,33 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 		if ctx.Err() == nil {
 			h.log.Warn("snapshot failed", "experience", d.id, "error", err)
 		}
-		return
+		return err
 	}
 	if ev.call.Interact != nil {
 		d.recordFocus(ev, snap)
 	}
-	outcome, err := d.sup.Call(snap.req)
-	switch {
-	case errors.Is(err, errQuarantined):
-		// Quarantined between the check above and the call.
-		h.log.Debug("event of a quarantined experience dropped", "experience", d.id)
-		return
-	case err != nil:
+	outcome, err := d.sup.call(ctx, snap.req)
+	if err != nil {
 		h.log.Warn("callback error", "experience", d.id, "error", err)
-		return
+		return err
 	}
 	if h.afterCall != nil {
 		h.afterCall()
 	}
 	if r := outcome.Rejected; r != nil {
 		h.log.Debug("callback rejected", "experience", d.id, "reason", r.Reason)
+		return nil
 	}
-	if outcome.Committed == nil || !h.resumed(ctx) {
-		return
+	if failed := outcome.Failed; failed != nil {
+		return fmt.Errorf("callback failed: %s", failed.Reason)
 	}
-	h.commit(ctx, d, ev, snap, outcome.Committed.Ops)
+	if d.sup.Quarantined() {
+		return errQuarantined
+	}
+	if !h.resumed(ctx) || ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return h.commit(ctx, d, ev, snap, outcome.Committed.Ops)
 }
 
 // snapshot is what a worker read of the world for an event: the callback request and the state
@@ -467,6 +566,9 @@ type snapshot struct {
 	// slots are the actor's inventory slots as the snapshot holds them, which the commit checks
 	// again where it writes; nil without an actor.
 	slots []item.Stack
+	// containers are the request's loaded containers as the snapshot holds them, by listed
+	// position, which the commit checks again where it writes.
+	containers map[cube.Pos]containerState
 }
 
 // cellState is the state of one snapshot cell that a commit must find unchanged, and the length
@@ -476,12 +578,16 @@ type cellState struct {
 	loaded bool
 	id     string
 	// owned is set for this Experience's own block with a store entry, which block holds with
-	// its states.
+	// its states, and overlays with its overlays when it is an overlay host.
 	owned    bool
 	block    Block
+	overlays *overlayList
 	token    Token
 	hasToken bool
 	dataLen  uint64
+	// power is the redstone power that an owned redstone block receives. The commit does not
+	// check it.
+	power uint8
 }
 
 // snapshot reads the event's anchor and its loaded neighbors in a fresh task of the event's
@@ -490,24 +596,44 @@ type cellState struct {
 // one its snapshot holds no cell.
 func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot, error) {
 	var snap snapshot
-	if ev.call.anchored() {
+	if ev.call.Player != nil {
+		return h.observationSnapshot(d, *ev), nil
+	}
+	despawn := ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned"
+	if !h.playerCurrent(*ev) {
+		return snapshot{}, errStale
+	}
+	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil || ev.call.Entity != nil {
 		valid := false
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) {
+			if !h.playerCurrent(*ev) {
+				return
+			}
 			instance, ok := h.worlds.of(tx.World())
 			valid = ok && instance.handle == ev.instance.handle
 			if valid {
 				snap = h.read(tx, d, *ev)
 			}
 		})); err != nil {
+			if despawn && errors.Is(err, world.ErrWorldClosed) {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, err
 		}
 		if !valid {
+			if despawn {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, fmt.Errorf("%w: world instance changed", errStale)
 		}
 		return snap, nil
 	}
 	found := false
 	task := ev.actor.Do(func(tx *world.Tx, actor world.Entity) {
+		h.reconcilePlayer(actor.(*player.Player), false)
+		if !h.playerCurrent(*ev) {
+			return
+		}
 		if ev.instance, found = h.worlds.of(tx.World()); found {
 			ev.w = tx.World()
 			h.focusOn(tx, d, ev, actor)
@@ -518,6 +644,9 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 		return snapshot{}, fmt.Errorf("finding the actor of a player's callback: %w", err)
 	}
 	if !found {
+		if !h.playerCurrent(*ev) {
+			return snapshot{}, errStale
+		}
 		return snapshot{}, errors.New("the actor of a player's callback is in an unbound world instance")
 	}
 	return snap, nil
@@ -536,15 +665,20 @@ func await(ctx context.Context, task *world.Task) error {
 
 // read builds the event's snapshot in tx: the anchor and its six neighbors within the world's
 // height, loaded or not, with the data of the owned ones, then the members of the anchor's
-// network; nothing for an unanchored call.
+// network and the containers in reach of both; nothing for an unanchored call.
 func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
+	snap := h.readFixed(tx, d, ev)
+	h.network(tx, d, ev, &snap)
+	h.containers(tx, d, ev, &snap)
+	return snap
+}
+
+// readFixed builds every non-truncatable callback field before the network gets its frame budget.
+func (h *Host) readFixed(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	r := tx.Range()
 	snap := snapshot{
 		req: CallbackRequest{
-			Info: Info{
-				WorldID: h.worldID, DimensionID: ev.instance.id, Tick: uint64(tx.CurrentTick()),
-				EventSequence: d.seq,
-			},
+			Info:       newInfo(h.worldID, ev.instance.id, uint64(tx.CurrentTick()), d.seq),
 			WorldMinY:  int32(r.Min()),
 			WorldMaxY:  int32(r.Max()),
 			DataBudget: h.store.Budget(d.id),
@@ -576,6 +710,8 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		cell := Cell{Pos: blockPos(pos), Loaded: st.loaded, ID: st.id, Owned: st.owned}
 		if st.owned {
 			cell.States = st.block.states()
+			cell.Overlays = st.overlays.list()
+			cell.Power = st.power
 			if data, ok := h.store.Data(d.id, ev.instance.storeKey(pos)); ok {
 				s := hex.EncodeToString(data)
 				cell.Data = &s
@@ -585,7 +721,12 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		snap.req.Snapshot = append(snap.req.Snapshot, cell)
 		snap.cells = append(snap.cells, st)
 	}
-	h.network(tx, d, ev, &snap)
+	if d.sup != nil && d.sup.registered.Simulation {
+		snap.req.Info.Simulation = h.simulationContext(d.id, ev, d.seq)
+	}
+	if d.sup != nil && d.sup.registered.Worlds != nil {
+		snap.req.Info.Context = h.worldContext(tx, d, ev, snap.req.Actor)
+	}
 	return snap
 }
 
@@ -600,10 +741,13 @@ func (h *Host) cellState(tx *world.Tx, exp string, instance worldInstance, pos c
 	}
 	st.loaded = true
 	st.id = blockID(b)
-	own, ok := b.(Block)
+	own, overlays, ok := ownBlock(b)
 	st.owned = ok && own.t.exp == exp && st.hasToken
 	if st.owned {
-		st.block = own
+		st.block, st.overlays = own, overlays
+		if own.t.redstone {
+			st.power = receivedPower(tx, pos)
+		}
 	}
 	return st
 }

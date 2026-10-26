@@ -22,8 +22,7 @@ fn authored() -> Panel {
         "bindings":[{"binding_name":"(#surface_width > 1)","binding_name_override":"#visible"}],
         "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":action,"mapping_type":"pressed"}]})
     };
-    panel.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
-        transitions: Default::default(),
+    panel.surface = Surface { collections: Default::default(),        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[
@@ -35,7 +34,7 @@ fn authored() -> Panel {
             ]
         }}).to_string(),
         bindings: std::collections::BTreeMap::from([("#surface_color".into(), SurfaceValue::Vector(vec![1.,0.,0.,1.]))]),
-    });
+    };
     panel
 }
 
@@ -103,8 +102,6 @@ fn changed_surface_bindings_reuse_the_catalog_and_respect_host_dimensions() {
     let mut panel = authored();
     panel
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#surface_width".into(), SurfaceValue::Number(1.));
     presentation
@@ -121,7 +118,7 @@ fn changed_surface_bindings_reuse_the_catalog_and_respect_host_dimensions() {
             .catalog
             .unwrap(),
     );
-    panel.surface.as_mut().unwrap().bindings.insert(
+    panel.surface.bindings.insert(
         "#surface_color".into(),
         SurfaceValue::Vector(vec![0., 1., 0., 1.]),
     );
@@ -148,10 +145,9 @@ fn changed_surface_bindings_reuse_the_catalog_and_respect_host_dimensions() {
 fn prepared_panel_routes_reuse_resolution_and_layout_on_return() {
     let initial = authored();
     let mut second = initial.clone();
-    let mut document: serde_json::Value =
-        serde_json::from_str(&second.surface.as_ref().unwrap().document).unwrap();
+    let mut document: serde_json::Value = serde_json::from_str(&second.surface.document).unwrap();
     document["screen"]["controls"][0]["color"]["radius"] = json!(7);
-    second.surface.as_mut().unwrap().document = document.to_string();
+    second.surface.document = document.to_string();
     let bundle = ui::mod_panel::PanelBundle::parse(
         &json!({"panel":initial,"surfaces":{"other":second.surface}}).to_string(),
     )
@@ -198,19 +194,7 @@ fn prepared_panel_falls_back_for_changed_wrapper_facts() {
     let prepared = mod_ui::PreparedPanelUi::prepare(Arc::new(bundle)).unwrap();
     let mut variants = Vec::new();
     let mut changed = initial.clone();
-    changed.dark = !changed.dark;
-    variants.push(changed);
-    let mut changed = initial.clone();
-    changed.title = "Another title".into();
-    variants.push(changed);
-    let mut changed = initial.clone();
     changed.toggle_key = "F8".into();
-    variants.push(changed);
-    let mut changed = initial.clone();
-    changed.theme = ui::mod_panel::Theme::Monochrome;
-    variants.push(changed);
-    let mut changed = initial.clone();
-    changed.style = ui::mod_panel::Style::Compact;
     variants.push(changed);
     let mut changed = initial.clone();
     changed.reference_size = Some([300.0, 200.0]);
@@ -250,8 +234,7 @@ fn prepared_panel_falls_back_for_changed_wrapper_facts() {
 fn reference_size_keeps_bottom_control_visible_and_clickable_in_small_viewports() {
     let mut panel = panel();
     panel.reference_size = Some([495.0, 304.0]);
-    panel.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
-        transitions: Default::default(),
+    panel.surface = Surface { collections: Default::default(),        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"dialog":{
@@ -268,7 +251,7 @@ fn reference_size_keeps_bottom_control_visible_and_clickable_in_small_viewports(
             }}]
         }}).to_string(),
         bindings: Default::default(),
-    });
+    };
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
@@ -327,9 +310,8 @@ fn custom_panel_buttons_render_captured_press_and_clear_feedback_on_release_and_
         json!({"type":"custom","renderer":"cinnabar_rounded_rectangle",
             "size":["100%","100%"],"radius":0,"color":color})
     };
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         collections: Default::default(),
-        previews: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
@@ -345,7 +327,7 @@ fn custom_panel_buttons_render_captured_press_and_clear_feedback_on_release_and_
         }})
         .to_string(),
         bindings: Default::default(),
-    });
+    };
     let mut p = mini_engine_presentation();
     p.mod_ui_mut()
         .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
@@ -414,7 +396,7 @@ fn custom_panel_buttons_render_captured_press_and_clear_feedback_on_release_and_
 #[test]
 fn static_local_template_routes_native_click_with_scalar_override() {
     let mut spec = authored();
-    let surface = spec.surface.as_mut().unwrap();
+    let surface = &mut spec.surface;
     surface.document=json!({"namespace":"extension","route":{"type":"button","size":[70,20],"$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"$action","mapping_type":"pressed"}]},"screen":{"type":"screen","size":["100%","100%"],"controls":[{"chosen@extension.route":{"offset":[20,20],"$action":"mod.control:0"}}]}}).to_string();
     let mut presentation = mini_engine_presentation();
     presentation
@@ -436,7 +418,7 @@ fn static_local_template_routes_native_click_with_scalar_override() {
 #[test]
 fn static_template_runtime_expression_tracks_bound_visibility_without_rebuilding() {
     let mut spec = authored();
-    let surface = spec.surface.as_mut().unwrap();
+    let surface = &mut spec.surface;
     surface.document=json!({"namespace":"extension","route":{"type":"button","size":[70,20],"$condition|default":"(#runtime_value = 'On')","bindings":[{"binding_name":"$condition","binding_name_override":"#visible"}],"button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.control:0","mapping_type":"pressed"}]},"screen":{"type":"screen","size":["100%","100%"],"controls":[{"chosen@extension.route":{"offset":[20,20]}}]}}).to_string();
     surface
         .bindings
@@ -462,8 +444,6 @@ fn static_template_runtime_expression_tracks_bound_visibility_without_rebuilding
             .unwrap(),
     );
     spec.surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#runtime_value".into(), SurfaceValue::Text("Off".into()));
     presentation
@@ -499,7 +479,7 @@ fn two_axis_capture_clamps_and_commits_release_without_resuming() {
         max: 100.,
         step: 1.,
     });
-    spec.surface = Some(ui::mod_panel::Surface { collections: Default::default(), previews: Default::default(),transitions:Default::default(),screen:"vector_test.root".into(),bindings:Default::default(),document:json!({"namespace":"vector_test","root":{"type":"panel","size":[200,150],"controls":[{"area":{"type":"button","size":[100,100],"button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.vector:1:4","mapping_type":"pressed"}]}}]}}).to_string()});
+    spec.surface = ui::mod_panel::Surface { collections: Default::default(), transitions:Default::default(),screen:"vector_test.root".into(),bindings:Default::default(),document:json!({"namespace":"vector_test","root":{"type":"panel","size":[200,150],"controls":[{"area":{"type":"button","size":[100,100],"button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.vector:1:4","mapping_type":"pressed"}]}}]}}).to_string()};
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
@@ -564,14 +544,13 @@ fn relative_two_axis_drag_preserves_the_grab_offset_and_clamps_release() {
         unreachable!()
     };
     *value = 30.0;
-    spec.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
-transitions: Default::default(), screen: "drag.root".into(),
+    spec.surface = Surface { collections: Default::default(),transitions: Default::default(), screen: "drag.root".into(),
         bindings: Default::default(), document: json!({"namespace":"drag","root":{
             "type":"panel","size":[400,300],"controls":[{"handle":{
                 "type":"button","offset":[80,50],"size":[100,50],"button_mappings":[{
                     "from_button_id":"button.menu_select","to_button_id":"mod.drag:1:4","mapping_type":"pressed"
                 }]
-            }}]}}).to_string() });
+            }}]}}).to_string() };
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()

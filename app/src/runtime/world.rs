@@ -30,6 +30,7 @@ mod player_list_tests;
 mod service;
 mod sub_chunk_requests;
 mod terrain_generation;
+pub(crate) mod vehicle_look;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 pub(crate) use sub_chunk_requests::sub_chunk_request_center;
@@ -57,7 +58,6 @@ use client_world::CommittedControlEvent;
 
 use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
-use client_ui::block_cracks::reconcile_world_block_cracks;
 use protocol::BlobCacheStats;
 use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
@@ -504,9 +504,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     .facts
                     .clear_actor_movement_authority(clock.session_generation());
             }
-            if let Some(item_use) = item_use.as_deref_mut() {
-                item_use.adopt_server_using_item(flags.using_item);
-            }
             let previous = player_runtime.facts.is_immobile();
             player_runtime
                 .facts
@@ -551,6 +548,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     ..change
                 },
                 stream.local_player_runtime_id(),
+                !respawn.awaiting_respawn(),
                 time.elapsed(),
             );
         }
@@ -775,7 +773,7 @@ pub(crate) fn drive_world_stream(
     } else {
         time.delta_secs()
     });
-    reconcile_world_block_cracks(&mut ui_runtime, stream);
+    ui_runtime.project_block_cracks(stream.block_crack_snapshot());
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world

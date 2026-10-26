@@ -3,7 +3,10 @@
 use super::*;
 
 /// Counts the final records emitted for one plate or textured run.
-pub(super) fn record_cost(style: Option<&ui::mod_hud::NametagStyle>, plate: bool) -> usize {
+pub(super) fn record_cost(
+    style: Option<&ui::mod_presentation::NametagStyle>,
+    plate: bool,
+) -> usize {
     1 + style.map_or(0, |style| {
         if plate {
             4 * usize::from(style.border_color.is_some())
@@ -16,7 +19,7 @@ pub(super) fn record_cost(style: Option<&ui::mod_hud::NametagStyle>, plate: bool
 /// Applies bounded cosmetic overrides without changing record order or depth selection.
 pub(in crate::ui_runtime::presentation) fn style_scene(
     scene: &mut NametagScene,
-    style: &ui::mod_hud::NametagStyle,
+    style: &ui::mod_presentation::NametagStyle,
     own_actor: Option<u64>,
 ) {
     if style.hide {
@@ -85,15 +88,10 @@ pub(in crate::ui_runtime::presentation) fn style_scene(
                 } else {
                     style.text_color
                 };
-                let replace = if own && style.own_text_color.is_some() {
-                    style.replace_own_text_color
-                } else {
-                    style.replace_text_color
-                };
-                if let Some(color) = text_color {
-                    for (channel, tint) in record.color[..3].iter_mut().zip(color) {
-                        *channel = if replace { tint } else { *channel * tint };
-                    }
+                if let Some(color) = text_color
+                    && record.text != render_model::NAMETAG_ANNOTATION_TEXT
+                {
+                    record.color[..3].copy_from_slice(&color[..3]);
                     record.color[3] *= color[3];
                 }
                 record.color[3] *= style.opacity;

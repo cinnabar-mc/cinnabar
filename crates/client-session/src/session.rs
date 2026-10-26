@@ -38,8 +38,8 @@ pub struct NetworkConfig {
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
-    /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
-    pub client_blob_cache: protocol::ClientBlobCache,
+    /// Verified blobs outlive play; absent when this connection needs inline chunk bodies.
+    pub client_blob_cache: Option<protocol::ClientBlobCache>,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: protocol::ClientSkin,
     /// The player's language, input mode and GUI scale, reported at login.
@@ -612,6 +612,7 @@ impl<P> NetworkHandle<P> {
         let Some(thread) = self.thread.take() else {
             return;
         };
+        let shutdown = bridge::leave_profile::LeaveProfile::current().section("network_shutdown");
         if thread.is_finished() {
             let _ = thread.join();
             return;
@@ -621,6 +622,8 @@ impl<P> NetworkHandle<P> {
         let _ = thread::Builder::new()
             .name("bedrock-network-reaper".to_owned())
             .spawn(move || {
+                let _shutdown = shutdown;
+                let _span = tracing::info_span!("session.network_shutdown").entered();
                 let _ = thread.join();
             });
     }

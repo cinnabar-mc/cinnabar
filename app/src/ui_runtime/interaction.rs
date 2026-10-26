@@ -1,3 +1,4 @@
+use client_shell::physical_input::set_cursor_capture;
 use launcher::menu::settings_options::BindingId;
 mod chat;
 mod chat_coordinates;
@@ -26,7 +27,7 @@ use bevy::{
         With,
     },
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
+    window::{CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
 use client_shell::menu::settings_options::control_bindings::{
@@ -213,7 +214,7 @@ fn route_press(
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if binding_mouse_button(menu, BindingId::Inventory, button) {
-            runtime.toggle_inventory(player_runtime, authority);
+            runtime.toggle_inventory(player_runtime, authority.map(|world| world.inventory_ui()));
             return (PressRoute::Binding, true);
         }
         if !runtime.inventory_open() {
@@ -295,7 +296,7 @@ pub(crate) fn drive_chat_keyboard_input(
     mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
     (emote_input, driven, world): (
-        Option<Res<client_state::EmoteInputConsumed>>,
+        Option<Res<client_state::ScreenInputConsumed>>,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::runtime::world::ClientWorld>>,
     ),
@@ -375,8 +376,7 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if !input_available {
@@ -385,14 +385,14 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if runtime.sign_editor().is_open()
         || runtime.server_forms().owns_input()
         || runtime.data_driven_ui().owns_input()
         || runtime.emotes().is_open()
+        || runtime.mob_effect_screen().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation
             .as_ref()
@@ -411,8 +411,7 @@ pub(crate) fn drive_chat_keyboard_input(
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     let keyboard_events: Vec<_> = keyboard_messages.read().cloned().collect();
@@ -425,6 +424,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&keys),
                 button,
                 now_millis,
@@ -490,7 +490,10 @@ pub(crate) fn drive_chat_keyboard_input(
         if (mouse_bindings && binding_mouse(menu.as_deref(), BindingId::Inventory, &mouse_buttons))
             || binding_gamepad(menu.as_deref(), BindingId::Inventory, &gamepads)
         {
-            runtime.toggle_inventory(&mut player_runtime, authority);
+            runtime.toggle_inventory(
+                &mut player_runtime,
+                authority.map(|world| world.inventory_ui()),
+            );
             dismissed |= !runtime.inventory_open();
             inventory_ownership_changed = true;
             consumed_gameplay = true;
@@ -520,6 +523,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,
@@ -651,7 +655,10 @@ pub(crate) fn drive_chat_keyboard_input(
                     && (key == KeyCode::Escape
                         || binding_key(menu.as_deref(), BindingId::Inventory, key)) => {}
                 key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
-                    runtime.toggle_inventory(&mut player_runtime, authority);
+                    runtime.toggle_inventory(
+                        &mut player_runtime,
+                        authority.map(|world| world.inventory_ui()),
+                    );
                     inventory_ownership_changed = true;
                 }
                 // Escape returns from a player mod's view to the container, and the hidden
@@ -695,6 +702,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 keyboard_usage(input.key_code).map(semantic_input::PhysicalControl::KeyboardUsage),
                 now_millis,
@@ -705,7 +713,10 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             match input.key_code {
                 key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
-                    runtime.toggle_inventory(&mut player_runtime, authority);
+                    runtime.toggle_inventory(
+                        &mut player_runtime,
+                        authority.map(|world| world.inventory_ui()),
+                    );
                     inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
@@ -768,12 +779,15 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         match input.key_code {
             // Repeats keep editing the draft, but only a fresh press cancels or sends it.
-            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if input.repeat => {}
+            KeyCode::Escape if input.repeat => {}
             KeyCode::Escape => {
                 runtime.close_chat();
             }
-            KeyCode::Enter | KeyCode::NumpadEnter => {
+            _ if chat_modifiers::submit_key(input) => {
                 // Enter always sends; Tab completes.
+                if input.repeat {
+                    continue;
+                }
                 let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
                 if runtime.queue_chat_send(now_millis).is_ok() {
                     runtime.close_chat();
@@ -842,6 +856,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,

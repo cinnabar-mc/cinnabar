@@ -30,6 +30,7 @@ fn installed(id: u64, name: &str) -> InstalledMod {
 fn update_actions_target_only_the_mod_with_a_newer_release() {
     let mut snapshot = Snapshot::default();
     snapshot.library.installed = vec![installed(1, "zoom"), installed(2, "minimap")];
+    snapshot.details_expanded = Some(2);
     snapshot
         .library
         .updates
@@ -58,6 +59,7 @@ fn downloadable_mod_update_button_installs_instead_of_opening_a_browser() {
             .unwrap(),
     );
     snapshot.library.installed.push(item);
+    snapshot.details_expanded = Some(2);
     snapshot
         .library
         .updates
@@ -164,6 +166,7 @@ fn consent_offers_only_declared_requests_and_metadata_drives_warnings() {
                 }],
                 ..Default::default()
             },
+            details_expanded: Some(1),
             ..Default::default()
         };
         let (hits, labels) = render(snapshot.clone());
@@ -214,13 +217,14 @@ fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
             installed: vec![item],
             ..Default::default()
         },
+        details_expanded: Some(1),
         customizing: Some(1),
         ..Default::default()
     };
     let (hits, labels) = render(snapshot.clone());
     assert!(hits.contains(&command(Action::Permission(1, 1, true))));
     assert!(!hits.contains(&command(Action::Permission(1, 0, true))));
-    assert!(hits.contains(&command(Action::RevokeAll(1))));
+    assert!(hits.contains(&command(Action::GrantAll(1))));
     assert!(hits.contains(&command(Action::ShowAllPermissions(1))));
     assert!(!labels.iter().any(|label| label == "Allows camera output."));
     let action = Some(command(Action::Permission(1, 1, true)));
@@ -259,6 +263,56 @@ fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
     }
 }
 
+#[test]
+fn bulk_permissions_grant_when_none_are_enabled_and_revoke_any_existing_grant() {
+    for declared in [false, true] {
+        for enabled in [false, true] {
+            for busy in [false, true] {
+                let mut item = installed(1, "zoom");
+                item.permissions[0].requested = declared.then_some(true);
+                let mut optional = item.permissions[0].clone();
+                optional.name = "HUD".into();
+                optional.requested = declared.then_some(false);
+                optional.enabled = enabled;
+                item.permissions.push(optional);
+                let snapshot = Snapshot {
+                    library: Library {
+                        installed: vec![item],
+                        busy,
+                        ..Default::default()
+                    },
+                    details_expanded: Some(1),
+                    customizing: Some(1),
+                    ..Default::default()
+                };
+                for width in [800.0, 300.0] {
+                    let (hits, labels, _) =
+                        render_at(snapshot.clone(), &HashMap::new(), width, None, None);
+                    let (label, action, absent_label, absent_action) = if enabled {
+                        (
+                            "Revoke all",
+                            Action::RevokeAll(1),
+                            "Grant all",
+                            Action::GrantAll(1),
+                        )
+                    } else {
+                        (
+                            "Grant all",
+                            Action::GrantAll(1),
+                            "Revoke all",
+                            Action::RevokeAll(1),
+                        )
+                    };
+                    assert!(labels.iter().any(|text| text == label));
+                    assert!(!labels.iter().any(|text| text == absent_label));
+                    assert_eq!(hits.contains(&command(action)), !busy);
+                    assert!(!hits.contains(&command(absent_action)));
+                }
+            }
+        }
+    }
+}
+
 /// Every native build exposes mod import without a feature availability branch.
 #[test]
 fn empty_library_offers_import() {
@@ -268,23 +322,81 @@ fn empty_library_offers_import() {
 }
 
 #[test]
-fn collapsed_cards_show_requested_permission_summary_and_actions() {
-    let snapshot = Snapshot {
+fn header_activation_discloses_the_whole_card_and_hides_every_action_on_collapse() {
+    let mut first = installed(1, "zoom");
+    first.metadata.description = Some("The full zoom description.".into());
+    first.metadata.authors = Some("Example Author".into());
+    let mut snapshot = Snapshot {
         library: Library {
-            installed: vec![installed(1, "zoom")],
+            installed: vec![first, installed(2, "minimap")],
+            active: vec![ActiveMod {
+                id: 1,
+                status: Status::Running,
+            }],
             ..Default::default()
         },
         ..Default::default()
     };
-    let (hits, labels) = render(snapshot);
-    assert!(
-        labels
-            .iter()
-            .any(|label| label == "Permissions: 0 of 1 requested allowed")
-    );
-    assert!(labels.iter().any(|label| label == "Customize"));
-    assert!(hits.contains(&command(Action::Enable(1))));
-    assert!(!hits.contains(&command(Action::Permission(1, 0, true))));
+    for id in [1, 2] {
+        let (hits, labels) = render(snapshot.clone());
+        assert!(hits.contains(&command(Action::ReadMore(id))));
+        assert!(
+            !hits.iter().any(|action| matches!(action,
+                MenuAction::Mods(action) if !matches!(action,
+                    Action::Import | Action::ReloadAll | Action::ToggleActive
+                    | Action::ToggleAvailable | Action::ReadMore(_)
+                )
+            )),
+            "collapsed cards expose only their headers: {hits:?}"
+        );
+        assert!(!labels.iter().any(|label| label == "Customize"));
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label == "The full zoom description.")
+        );
+        assert_eq!(snapshot.apply(Action::ReadMore(id)), None);
+        let (hits, labels) = render(snapshot.clone());
+        let toggle = if id == 1 {
+            Action::Disable(id)
+        } else {
+            Action::Enable(id)
+        };
+        assert!(hits.contains(&command(toggle)));
+        assert!(hits.contains(&command(Action::Remove(id))));
+        assert!(hits.contains(&command(Action::Customize(id))));
+        assert!(labels.iter().any(|label| label == "0 of 1 permissions"));
+        if id == 1 {
+            assert!(
+                labels
+                    .iter()
+                    .any(|label| label == "The full zoom description.")
+            );
+            assert!(labels.iter().any(|label| label == "By Example Author"));
+        }
+        snapshot.apply(Action::ReadMore(id));
+    }
+}
+
+#[test]
+fn opening_another_card_closes_the_previous_card_across_groups() {
+    let mut snapshot = Snapshot {
+        library: Library {
+            installed: vec![installed(1, "zoom"), installed(2, "minimap")],
+            active: vec![ActiveMod {
+                id: 1,
+                status: Status::Running,
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    for id in [1, 2, 1] {
+        snapshot.apply(Action::ReadMore(id));
+        let (hits, _) = render(snapshot.clone());
+        assert!(hits.contains(&command(Action::Remove(id))));
+        assert!(!hits.contains(&command(Action::Remove(3 - id))));
+    }
 }
 
 #[test]
@@ -317,7 +429,7 @@ fn the_enabled_mod_is_the_active_card_with_its_status_and_controls() {
         assert!(hits.contains(&command(action)), "{action:?}");
     }
     assert!(!hits.contains(&command(Action::Enable(second.id))));
-    assert!(hits.contains(&command(Action::Remove(first.id))));
+    assert!(!hits.contains(&command(Action::Remove(first.id))));
     for label in [
         "Active mods (1)",
         "My mods (1)",
@@ -468,6 +580,7 @@ fn update_progress_shows_download_stats_and_distinguishes_installing_from_reload
                 .unwrap(),
         );
         snapshot.library.installed.push(item);
+        snapshot.details_expanded = Some(2);
         let mut progress = UpdateProgress::stage(2, phase);
         if phase == UpdatePhase::Downloading {
             progress.received_bytes = 512 * 1024;

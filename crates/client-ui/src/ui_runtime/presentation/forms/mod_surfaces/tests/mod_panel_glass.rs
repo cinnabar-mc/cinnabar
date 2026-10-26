@@ -42,9 +42,8 @@ fn glass_panel(world: Option<f64>, rotation: f64) -> Panel {
             },
         );
     }
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         collections: Default::default(),
-        previews: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"pane":{
@@ -57,7 +56,7 @@ fn glass_panel(world: Option<f64>, rotation: f64) -> Panel {
         .to_string(),
         bindings,
         transitions,
-    });
+    };
     panel
 }
 

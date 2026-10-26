@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 /// Fixed-point resolution of persisted normalized positions.
 const UNITS: f32 = 10_000.;
+/// Mod button placements kept for mods that are not loaded, beyond which later names drop.
+const MAX_MOD_PLACEMENTS: usize = 64;
 
 /// Only explicit placements are stored; an empty map retains the authored touch layout.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -30,7 +32,12 @@ impl TouchLayout {
             );
         }
     }
-    /// Removes obsolete control identities and malformed fixed-point coordinates.
+    /// Keeps only the placements whose names satisfy `keep`.
+    pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        self.0.retain(|name, _| keep(name));
+    }
+    /// Removes obsolete control identities and malformed fixed-point coordinates. Mod button
+    /// placements are kept by name, bounded, whether or not their mod is loaded.
     pub(super) fn validate(&mut self) {
         if let Some(position) = self.0.remove("emote") {
             self.0.entry("utilities".into()).or_insert(position);
@@ -39,10 +46,15 @@ impl TouchLayout {
             serde_json::from_slice(assets::TOUCH_LAYOUT).expect("built-in touch layout parses");
         let mut names = std::collections::BTreeSet::new();
         control_names(&document, &mut names);
+        let mut mods = 0;
         self.0.retain(|name, at| {
-            name != "look"
-                && names.contains(name.as_str())
-                && at.iter().all(|v| f32::from(*v) <= UNITS)
+            let known = if ui::mod_touch::is_placement_name(name) {
+                mods += 1;
+                mods <= MAX_MOD_PLACEMENTS
+            } else {
+                name != "look" && names.contains(name.as_str())
+            };
+            known && at.iter().all(|v| f32::from(*v) <= UNITS)
         });
     }
 }
@@ -125,5 +137,27 @@ mod tests {
         assert_eq!(old.touch_layout(), &TouchLayout::default());
         let corrupt = SettingsOptions::decode(br#"{"touch_layout":{"jump":[65535,4]}}"#).unwrap();
         assert_eq!(corrupt.touch_layout().position("jump"), None);
+    }
+
+    /// Mod button placements persist by id while their mod is unloaded, within a bound.
+    #[test]
+    fn mod_button_placements_persist_by_name_and_are_bounded() {
+        let mut layout = TouchLayout::default();
+        layout.set("mod-client-menu", [0.25, 0.5]);
+        layout.set("mod-Bad", [0.25, 0.5]);
+        for index in 0..MAX_MOD_PLACEMENTS {
+            layout.set(&format!("mod-x{index:03}"), [0.5, 0.5]);
+        }
+        let mut options = SettingsOptions::default();
+        options.set_touch_layout(layout);
+        let decoded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        let layout = decoded.touch_layout();
+        assert_eq!(layout.position("mod-client-menu"), Some([0.25, 0.5]));
+        assert_eq!(layout.position("mod-Bad"), None);
+        assert_eq!(layout.position("mod-x000"), Some([0.5, 0.5]));
+        assert_eq!(
+            layout.position(&format!("mod-x{:03}", MAX_MOD_PLACEMENTS - 1)),
+            None
+        );
     }
 }

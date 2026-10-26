@@ -14,7 +14,9 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::anchor_probe::{ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS, AnchorProbeState, BeforeTick};
+use super::anchor_probe::{
+    ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS, AnchorMover, AnchorProbeState, BeforeTick,
+};
 use super::anchor_probe_evidence::{
     MARKER_BYTE_CAP, MARKER_PREFIX, MAX_SEALING_COLLIDERS, failure_marker_lines,
 };
@@ -28,6 +30,22 @@ use sim::{
     Aabb, CollisionQuery, CollisionWorld, MovementInput, ProvenancedCollider, Vec3, WorldQueryError,
 };
 
+/// Probes a standing anchor at `feet` for an idle player with no retained
+/// climber contact or fall distance.
+fn idle_probe(
+    probe: &mut AnchorProbeState,
+    world: &(impl CollisionWorld + ?Sized),
+    feet: Vec3,
+) -> BeforeTick {
+    let state = sim::PlayerState::new(feet);
+    let input = MovementInput::default();
+    let mover = AnchorMover {
+        state: &state,
+        input: &input,
+    };
+    probe.before_tick(world, mover, feet, sim::PLAYER_HEIGHT)
+}
+
 #[test]
 fn absent_anchor_defers_depenetration_until_terrain_arrives() {
     let mut registry = sim::CollisionRegistry::new();
@@ -40,10 +58,7 @@ fn absent_anchor_defers_depenetration_until_terrain_arrives() {
     let mut probe = AnchorProbeState::new();
     probe.note_hard_anchor();
     let absent = sim::PaletteWorld::for_movement(&store, &registry, 0);
-    assert_eq!(
-        probe.before_tick(&absent, feet, sim::PLAYER_HEIGHT),
-        BeforeTick::Proceed
-    );
+    assert_eq!(idle_probe(&mut probe, &absent, feet), BeforeTick::Proceed);
     store
         .mark_chunk_loaded(world::ChunkKey::new(0, 1, 0))
         .unwrap();
@@ -55,7 +70,7 @@ fn absent_anchor_defers_depenetration_until_terrain_arrives() {
         )
         .unwrap();
     let arrived = sim::PaletteWorld::for_movement(&store, &registry, 0);
-    let BeforeTick::Adjust(cleared) = probe.before_tick(&arrived, feet, sim::PLAYER_HEIGHT) else {
+    let BeforeTick::Adjust(cleared) = idle_probe(&mut probe, &arrived, feet) else {
         panic!("the deferred anchor must be cleared against newly arrived terrain");
     };
     assert!(
@@ -418,6 +433,71 @@ fn a_replay_under_a_low_ceiling_keeps_a_crouched_anchor_in_place() {
     );
 }
 
+/// The post-replay probe uses the compact spin body, so a low ceiling that
+/// a spinning player fits beneath cannot shove it sideways.
+#[test]
+fn a_replay_under_a_low_ceiling_keeps_a_spinning_anchor_in_place() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 71.620_01, 0.5], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 71.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    let crouching = MovementInput {
+        sneaking: true,
+        ..MovementInput::default()
+    };
+    let first = physics
+        .advance(Duration::from_millis(50), crouching, &CrouchCeiling)
+        .samples
+        .pop()
+        .expect("one crouched sample");
+    ticker.enqueue_completed_physics(first).unwrap();
+    let spin = client_world::MovementFlagUpdate {
+        spinning: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(0, spin);
+    let established = physics
+        .advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &CrouchCeiling,
+        )
+        .samples
+        .pop()
+        .expect("one spinning sample");
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+    let established_tick = established.tick;
+    let spinning_position = established.position;
+    ticker.enqueue_completed_physics(established).unwrap();
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        spinning_position,
+        established_tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &CrouchCeiling,
+    )
+    .expect("the replay applies");
+
+    let resumed = physics
+        .advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &CrouchCeiling,
+        )
+        .samples
+        .pop()
+        .expect("one resumed sample");
+    assert_eq!(
+        (resumed.position[0], resumed.position[2]),
+        (spinning_position[0], spinning_position[2]),
+        "the probe moved a spinning anchor that already fits",
+    );
+}
+
 #[test]
 fn transient_collision_unavailability_keeps_todays_blocked_behavior() {
     struct DeferredRoom {
@@ -699,7 +779,7 @@ fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
     state.note_hard_anchor();
     state.testing_set_evidence_enabled(true);
     assert_eq!(
-        state.before_tick(&UnitShaft, SHAFT_FEET, sim::PLAYER_HEIGHT),
+        idle_probe(&mut state, &UnitShaft, SHAFT_FEET),
         BeforeTick::Proceed
     );
 
@@ -1051,9 +1131,9 @@ fn evidence_instrumentation_never_changes_probe_decisions() {
         state.testing_set_evidence_enabled(evidence_enabled);
         state.note_hard_anchor();
         vec![
-            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // failed probe: proceeds
-            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // already resolved: proceeds
-            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT),
+            idle_probe(&mut state, world, SHAFT_FEET), // failed probe: proceeds
+            idle_probe(&mut state, world, SHAFT_FEET), // already resolved: proceeds
+            idle_probe(&mut state, world, SHAFT_FEET),
         ]
     }
 

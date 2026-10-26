@@ -130,16 +130,20 @@ fn legacy_release_without_build_still_triggers_a_check() {
 }
 
 /// A verified notice model lets consent tests avoid any network or platform installer.
-fn ready(writable: bool) -> Ready {
+pub(super) fn ready(writable: bool) -> Ready {
     Ready {
         expires: OffsetDateTime::UNIX_EPOCH + time::Duration::days(1),
         stage: PathBuf::from("ready"),
-        channel: Channel::Beta,
-        switch_now: false,
+        switch_from: None,
         target: None,
         lease: None,
         notice: Notice {
-            version: "2.0.0".into(),
+            release: update_manifest::build::Build {
+                version: "2.0.0".into(),
+                number: 2,
+                channel: Some(update_manifest::channel::Channel::Beta),
+            },
+            switching: false,
             writable,
             protocol_required: false,
         },
@@ -381,6 +385,7 @@ fn a_repair_download_authenticates_the_offer_when_the_running_copy_is_already_at
     offer.stage = stage;
     offer.target = Some(root.path().join("installed"));
     let current = update_manifest::build::Build {
+        channel: None,
         version: "2.0.0".into(),
         number: 2,
     };
@@ -478,10 +483,13 @@ fn a_new_owner_restores_downloaded_offers_while_the_completion_stamp_is_fresh() 
             .unwrap();
     let (stage, reader) = update_installer::stage::retain(&directory, &writer, &selected).unwrap();
     passive.offer(
-        Ready::new(stage, reader, selected, false, true),
+        Ready::new(stage, reader, selected, None, true),
         passive.generation,
     );
-    assert_eq!(passive.ready.as_ref().unwrap().notice.version, "2.0.0");
+    assert_eq!(
+        passive.ready.as_ref().unwrap().notice.release.version,
+        "2.0.0"
+    );
     assert_eq!(worker::last_check(root.path(), Channel::Beta), Some(100));
 }
 
@@ -539,10 +547,19 @@ fn an_explicit_switch_downloads_an_older_release_instead_of_retaining_a_newer_st
         update_installer::stage::verify(&directory, &keys, check, OffsetDateTime::UNIX_EPOCH)
             .unwrap();
     let (stage, reader) = update_installer::stage::retain(&directory, &writer, &selected).unwrap();
-    state.offer(Ready::new(stage, reader, selected, true, false), generation);
+    state.offer(
+        Ready::new(
+            stage,
+            reader,
+            selected,
+            Some(update_manifest::build::Build::current()),
+            false,
+        ),
+        generation,
+    );
     assert!(!state.finish_check(generation, true, false));
     let offer = state.ready.as_ref().unwrap();
-    assert_eq!(offer.notice.version, "0.0.1");
+    assert_eq!(offer.notice.release.version, "0.0.1");
     assert_eq!(offer.notice.action(), Action::Download);
     assert_eq!(
         std::fs::read(offer.stage.join(update_installer::stage::ARTIFACT_FILE)).unwrap(),
@@ -650,10 +667,10 @@ fn reselecting_a_channel_restores_its_cached_release_before_the_next_deadline() 
             .unwrap();
     let (directory, reader) =
         update_installer::stage::retain(&directory, &writer, &selected).unwrap();
-    state.ready = Some(Ready::new(directory, reader, selected, false, true));
+    state.ready = Some(Ready::new(directory, reader, selected, None, true));
     let restored = state.ready.unwrap();
-    assert_eq!(restored.notice.version, "2.0.0");
-    assert_eq!(restored.channel, Channel::Beta);
+    assert_eq!(restored.notice.release.version, "2.0.0");
+    assert_eq!(restored.notice.release.channel, Some(Channel::Beta));
     assert_eq!(
         std::fs::read(restored.stage.join(update_installer::stage::ARTIFACT_FILE)).unwrap(),
         payload
@@ -693,7 +710,7 @@ fn renewed_envelopes_replace_expiring_stages_and_offers_without_a_download() {
     );
     let selected = update_installer::stage::verify(&reused, &keys, check, now).unwrap();
     let (stage, reader) = update_installer::stage::retain(&reused, &writer, &selected).unwrap();
-    let offer = Ready::new(stage, reader, selected, false, true);
+    let offer = Ready::new(stage, reader, selected, None, true);
     assert_eq!(offer.expires, manifest.expires);
     assert_eq!(
         std::fs::read(offer.stage.join(update_installer::stage::ARTIFACT_FILE)).unwrap(),
@@ -801,7 +818,7 @@ fn a_retained_offer_stays_valid_when_the_shared_cache_changes() {
     let selected =
         worker::retained_manifest(Some(&accepted), &keys, check, OffsetDateTime::UNIX_EPOCH)
             .unwrap();
-    assert_eq!(selected.version, accepted.notice.version);
+    assert_eq!(selected.version, accepted.notice.release.version);
     assert_eq!(
         std::fs::read(accepted.stage.join(update_installer::stage::ARTIFACT_FILE)).unwrap(),
         b"accepted release"

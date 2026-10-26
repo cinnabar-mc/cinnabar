@@ -1,5 +1,7 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
+use crate::DamageShake;
 use anyhow::{Result, bail};
+use mod_api::native_camera::ViewTilt;
 
 /// Ephemeral output published only after a successful frame callback.
 #[derive(Default)]
@@ -8,14 +10,15 @@ pub(super) struct CameraPolicy {
     pub committed: bool,
     pub pending_view_scale: Option<[f32; 2]>,
     pub committed_view_scale: Option<[f32; 2]>,
-    pub pending_hurt_style: Option<render_api::HurtCameraStyle>,
-    pub committed_hurt_style: Option<render_api::HurtCameraStyle>,
+    pub pending_view_tilt: Option<ViewTilt>,
+    pub committed_view_tilt: Option<ViewTilt>,
 }
 
 impl cinnabar::extension::camera::Host for State {
-    fn set_hurt_camera_style(
+    /// Stages a current-frame tilt, kept even while a menu owns input; none restores the view.
+    fn set_view_tilt(
         &mut self,
-        style: Option<cinnabar::extension::camera::HurtCameraStyle>,
+        tilt: Option<cinnabar::extension::camera::ViewTilt>,
     ) -> Result<Result<(), String>> {
         self.camera_writes += 1;
         if self.camera_writes > MAX_IMPORT_WRITES {
@@ -27,19 +30,17 @@ impl cinnabar::extension::camera::Host for State {
         if !self.grants.camera {
             return Ok(Err("camera capability denied".into()));
         }
-        self.camera_policy.pending_hurt_style = match style {
-            None => None,
-            Some(style) => {
-                match render_api::HurtCameraStyle::new(style.intensity, style.old_tilt) {
-                    Some(style) => Some(style),
-                    None => {
-                        return Ok(Err(
-                            "hurt camera intensity is outside its finite bounds".into()
-                        ));
-                    }
-                }
-            }
-        };
+        let tilt = tilt.map(|tilt| ViewTilt {
+            roll: tilt.roll,
+            pitch: tilt.pitch,
+            suppress_hurt_shake: tilt.suppress_hurt_shake,
+        });
+        if !tilt.is_none_or(ViewTilt::is_valid) {
+            return Ok(Err(
+                "view tilt must be finite and within its degree bound".into()
+            ));
+        }
+        self.camera_policy.pending_view_tilt = tilt;
         Ok(Ok(()))
     }
 
@@ -79,5 +80,18 @@ impl cinnabar::extension::camera::Host for State {
         self.camera_policy.pending_view_scale =
             ([fov_scale, look_scale] != [1.0, 1.0]).then_some([fov_scale, look_scale]);
         Ok(Ok(()))
+    }
+
+    /// The delivered damage shake, with the camera grant; it shares the gameplay read budget
+    /// and, like a tilt, stays readable while a menu owns input.
+    fn read_damage_shake(&mut self) -> Result<Result<Option<DamageShake>, String>> {
+        self.gameplay_reads += 1;
+        if self.gameplay_reads > MAX_IMPORT_WRITES {
+            bail!("gameplay read budget exhausted");
+        }
+        if !self.grants.camera {
+            return Ok(Err("camera capability denied".into()));
+        }
+        Ok(Ok(self.gameplay_facts.damage_shake))
     }
 }

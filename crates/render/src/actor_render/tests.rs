@@ -522,7 +522,6 @@ fn skin_array_allocation_failure_keeps_old_view_and_does_not_publish_residency()
 }
 
 /// Skin arrays allow the pack's raw view only while a pack draws, re-homed by GPU copies.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn skin_arrays_allow_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};

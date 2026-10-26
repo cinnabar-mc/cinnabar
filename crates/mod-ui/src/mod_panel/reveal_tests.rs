@@ -29,9 +29,7 @@ fn render(ui: &mut ModUi) -> &FormRender {
     let panel = ui.mod_panel.as_mut().unwrap();
     if panel.catalog.is_none() {
         panel.catalog = Some(Arc::new(
-            template::catalog(&panel.panel, [452., 289.], 0, 0, 1, None)
-                .unwrap()
-                .0,
+            template::catalog(&panel.panel, [452., 289.], None).unwrap(),
         ));
     }
     let catalog = panel.catalog.as_ref().unwrap();
@@ -62,7 +60,7 @@ fn render(ui: &mut ModUi) -> &FormRender {
         )
         .unwrap();
     let mut hits = rendered.hits.to_vec();
-    surface::resolve_collection_hits(panel.panel.surface.as_ref().unwrap(), &mut hits);
+    surface::resolve_collection_hits(&panel.panel.surface, &mut hits);
     panel.frame = Some(EngineFrame {
         hits: hits.into(),
         report: rendered.report.clone(),
@@ -257,13 +255,7 @@ fn collection_reveal_uses_effective_grid_geometry() {
         (Some([100, 60]), 180.),
     ] {
         let mut panel = catalogue();
-        let collection = panel
-            .surface
-            .as_mut()
-            .unwrap()
-            .collections
-            .get_mut("modules")
-            .unwrap();
+        let collection = panel.surface.collections.get_mut("modules").unwrap();
         let definition = Arc::make_mut(&mut collection.definition);
         definition.columns = 1;
         if let Some(size) = size {
@@ -335,7 +327,7 @@ fn collection_reveal_matches_indexed_sibling_keys() {
                 group["collection_index"] = json!(index);
             }
         }
-        panel.surface.as_mut().unwrap().document = json!({"namespace":"list",
+        panel.surface.document = json!({"namespace":"list",
             "root":{"type":"panel","size":[452,289],"controls":[
                 {"group":groups[0]},{"group":groups[1]}]}})
         .to_string();

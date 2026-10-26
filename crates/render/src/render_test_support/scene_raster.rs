@@ -275,9 +275,18 @@ pub(crate) fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
         .resource::<RenderAssets<GpuImage>>()
         .get(image)
         .expect("offscreen image prepared");
+    let size = image.texture.size();
+    assert_eq!(image.texture.format().block_dimensions(), (1, 1));
+    let row_bytes = size.width
+        * image
+            .texture
+            .format()
+            .block_copy_size(None)
+            .expect("offscreen colour format has a copy size");
+    let padded_row_bytes = row_bytes.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("SMAA raster readback"),
-        size: (SIDE * SIDE * 4) as u64,
+        label: Some("offscreen scene readback"),
+        size: u64::from(padded_row_bytes) * u64::from(size.height),
         usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -288,13 +297,13 @@ pub(crate) fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
             buffer: &buffer,
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(SIDE * 4),
-                rows_per_image: Some(SIDE),
+                bytes_per_row: Some(padded_row_bytes),
+                rows_per_image: Some(size.height),
             },
         },
         Extent3d {
-            width: SIDE,
-            height: SIDE,
+            width: size.width,
+            height: size.height,
             depth_or_array_layers: 1,
         },
     );
@@ -307,7 +316,9 @@ pub(crate) fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
         .slice(..)
         .get_mapped_range()
         .expect("readback buffer is mapped")
-        .to_vec()
+        .chunks_exact(padded_row_bytes as usize)
+        .flat_map(|row| row[..row_bytes as usize].iter().copied())
+        .collect()
 }
 
 /// Saves optional native fixture evidence outside the checkout when capture is requested.

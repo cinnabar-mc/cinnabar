@@ -733,6 +733,18 @@ fn drive_particles(
             )
         },
     );
+    cosmetics.retire_hidden(
+        &mut system,
+        cosmetic_placements
+            .as_deref()
+            .map_or(&[], |placements| &placements.0),
+        &view,
+    );
+    ground.retire_hidden(
+        &mut system,
+        ground_wearers.as_deref().map_or(&[], |wearers| &wearers.0),
+        &view,
+    );
     if changed {
         frame.set_changed();
     }

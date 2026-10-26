@@ -75,7 +75,10 @@ fn badge_shares_text_visibility_and_opacity() {
         tag.sneaking = sneaking;
         tag.text_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
         let mut scene = scene(&[tag]);
-        let style = serde_json::from_value(serde_json::json!({"opacity": 0.4})).unwrap();
+        let style = ui::mod_presentation::NametagStyle {
+            opacity: 0.4,
+            ..Default::default()
+        };
         style_scene(&mut scene, &style, None);
         let glyphs: Vec<_> = scene
             .records

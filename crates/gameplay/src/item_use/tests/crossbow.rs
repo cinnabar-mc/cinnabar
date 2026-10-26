@@ -266,7 +266,7 @@ fn rejected_early_release_does_not_become_a_completed_charge() {
         6,
         |packets| full.send_inventory_packets(packets),
     );
-    assert!(runtime.release_pending);
+    assert!(runtime.has_pending_release());
     let delayed = crossbow(40, false);
     let (ready, _open) = AdmissionQueue::with_command_capacity(1);
     step_and_send(&mut runtime, &mut swings, &delayed, 7, 6, |packets| {
@@ -277,7 +277,7 @@ fn rejected_early_release_does_not_become_a_completed_charge() {
     assert_eq!(ready.pending_command_count(), 1);
     assert_eq!(charged(&runtime, &delayed), None);
     assert!(!runtime.is_using());
-    assert!(!runtime.release_pending);
+    assert!(!runtime.has_pending_release());
 }
 
 #[test]

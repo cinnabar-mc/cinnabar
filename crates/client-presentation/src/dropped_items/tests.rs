@@ -69,6 +69,17 @@ fn potted_models_sample_the_exposed_server_texture_grid() {
         cache.begin_frame();
         cache.finish_demand();
         let handle = DroppedItemPublisher::potted_model(&mut cache, &runtime, 1).unwrap();
+        let cost = source_cost::template_cost(
+            &runtime,
+            runtime
+                .potted_model_template(NetworkIdMode::Sequential, 1)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            Some(cost),
+            render_model::dropped_item::ItemModelCost::from_model(&cache.models[handle as usize])
+        );
         let DroppedItemModel::Block(model) = &cache.models[handle as usize] else {
             panic!("pot contents must retain their model");
         };
@@ -315,70 +326,6 @@ fn dropped_crossed_plants_use_sprites_while_falling_blocks_keep_their_model() {
     );
 }
 
-#[test]
-fn dropped_lantern_and_chain_variants_use_sprites_without_changing_other_block_routes() {
-    let stream = stream(false, 1);
-    let visuals = [
-        ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
-        ItemVisualRoute::RetainedBlock {
-            block_runtime_id: 1,
-        },
-    ];
-    let registry = protocol::vanilla_item_registry();
-    let sprites: Vec<_> = registry
-        .iter()
-        .filter(|entry| {
-            matches!(
-                assets::facts::block_render_fact(&entry.identifier).kind,
-                assets::facts::BlockRenderKind::Lantern | assets::facts::BlockRenderKind::Chain
-            )
-        })
-        .collect();
-    for family in [
-        assets::facts::BlockRenderKind::Lantern,
-        assets::facts::BlockRenderKind::Chain,
-    ] {
-        assert!(
-            sprites
-                .iter()
-                .any(|entry| assets::facts::block_render_fact(&entry.identifier).kind == family)
-        );
-    }
-    for entry in sprites {
-        for visual in visuals {
-            assert_eq!(
-                item_block_id(&stream, visual, Some(&entry.identifier), None),
-                None,
-                "{} must use its carried sprite",
-                entry.identifier,
-            );
-        }
-    }
-    for identifier in [
-        "minecraft:sea_lantern",
-        "minecraft:stone",
-        "cinnabar:lantern",
-        "cinnabar:chain",
-    ] {
-        for visual in visuals {
-            assert_eq!(
-                item_block_id(&stream, visual, Some(identifier), None),
-                Some((NetworkIdMode::Sequential, 1)),
-                "{identifier} must keep its block route",
-            );
-        }
-    }
-    assert_eq!(
-        entity_block_id(
-            &stream,
-            &BlockEntityKind::Falling {
-                block_runtime_id: 1,
-            },
-        ),
-        Some((NetworkIdMode::Sequential, 1, 1.0)),
-    );
-}
-
 use assets::{CompiledAssets, RegistryRecord};
 use std::fs;
 /// Compiles real barrel selectors with original opaque sprite artwork for held-consumer checks.
@@ -500,6 +447,135 @@ fn dropped_barrel_models_use_authored_carried_faces_for_both_id_modes() {
 }
 
 #[test]
+fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
+    let (compiled, records) = barrels();
+    let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let visual = assets::BlockVisualId(
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == "minecraft:barrel")
+            .unwrap()
+            .sequential_id,
+    );
+    let tiles = std::array::from_fn(|face| assets::IconSprite {
+        width: assets::BLOCK_ITEM_FACE_SIDE,
+        height: assets::BLOCK_ITEM_FACE_SIDE,
+        rgba8: [31 + face as u8, 70, 90, 255]
+            .repeat(usize::from(assets::BLOCK_ITEM_FACE_SIDE).pow(2))
+            .into(),
+    });
+    let catalog = assets::RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog_with_block_sheets(
+            runtime.provenance().source_manifest_sha256,
+            &[assets::compose_block_item_sheet(&tiles).unwrap()],
+            &[assets::IconEntry {
+                identifier: "minecraft:barrel".into(),
+                metadata: 0,
+                sprite: 0,
+            }],
+            &[assets::IconBlockSheet { visual, sprite: 0 }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut icons = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        client_ui::test_support::fixture_hud(),
+        Arc::new(catalog),
+    )
+    .unwrap();
+    let mut placement = render_model::StaticItemPlacement {
+        allow_block_models: true,
+        identifier: "minecraft:barrel".into(),
+        metadata: 0,
+        potted_block: None,
+        carried_block: Some(visual),
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        light: None,
+    };
+    let icon = icons.startup_item_icon(&placement.identifier, placement.metadata);
+    assert!(icon.is_some());
+    let mut cache = ModelCache::default();
+    cache.begin_frame();
+    cache.finish_demand();
+    let model =
+        DroppedItemPublisher::placement_model(&mut cache, &icons, Some(&runtime), &placement, icon)
+            .unwrap();
+    let DroppedItemModel::Cube(cube) = &cache.models[model as usize] else {
+        panic!("framed cubes retain six carried faces");
+    };
+    for (face, pixels) in cube.faces.iter().enumerate() {
+        assert_eq!(pixels.as_ref(), tiles[face].rgba8.as_ref());
+    }
+    for assets in [None, Some(&runtime)] {
+        placement.carried_block = None;
+        let sprite =
+            DroppedItemPublisher::placement_model(&mut cache, &icons, assets, &placement, icon)
+                .unwrap();
+        assert!(matches!(
+            &cache.models[sprite as usize],
+            DroppedItemModel::Sprite(_)
+        ));
+    }
+    placement.carried_block = Some(visual);
+    let sprite =
+        DroppedItemPublisher::placement_model(&mut cache, &icons, None, &placement, icon).unwrap();
+    assert!(matches!(
+        &cache.models[sprite as usize],
+        DroppedItemModel::Sprite(_)
+    ));
+    for (metadata, override_metadata, overridden) in
+        [(0, 0, true), (7, 7, true), (7, 0, true), (3, 7, false)]
+    {
+        use client_ui::ui_runtime::{
+            UiRuntime,
+            presentation::{SessionIcon, SessionIcons},
+        };
+        let mut ui = UiRuntime::new(1);
+        ui.set_session_icons(Some(Arc::new(SessionIcons {
+            icons: vec![SessionIcon {
+                identifier: Arc::clone(&placement.identifier),
+                metadata: override_metadata,
+                width: 1,
+                height: 1,
+                rgba8: Box::new([190, 20, 80, 255]),
+            }],
+            ..Default::default()
+        })));
+        icons
+            .build(
+                &player_state::PlayerState::new(1),
+                &ui,
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        placement.metadata = metadata;
+        let icon = icons.startup_item_icon(&placement.identifier, metadata);
+        let model = DroppedItemPublisher::placement_model(
+            &mut cache,
+            &icons,
+            Some(&runtime),
+            &placement,
+            icon,
+        )
+        .unwrap();
+        if overridden {
+            let DroppedItemModel::Sprite(sprite) = &cache.models[model as usize] else {
+                panic!("a session icon without a sheet must replace the startup carried cube");
+            };
+            assert_eq!(sprite.rgba8.as_ref(), [190, 20, 80, 255]);
+        } else {
+            assert!(matches!(
+                &cache.models[model as usize],
+                DroppedItemModel::Cube(_)
+            ));
+        }
+    }
+}
+
+#[test]
 fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
     let (mut compiled, records) = barrels();
     let record = records
@@ -570,3 +646,6 @@ fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
         assert_eq!(material.variation_weight, weight.to_bits());
     }
 }
+
+#[path = "tests/sprite_routes.rs"]
+mod sprite_routes;

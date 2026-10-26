@@ -146,7 +146,6 @@ fn superseded_pending_pixels_are_released_without_being_published() {
     );
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn pending_pages_restart_with_the_new_raw_view_formats() {
     use crate::actor::gpu::permits_raw_view;
@@ -190,7 +189,6 @@ fn changing_view_formats_restarts_pending_uploads_and_keeps_complete_pages() {
         let ready = gpu.page(0).unwrap();
         assert!(ready.source.shares_pixels_with(&pages.pages[0]));
         assert_eq!(ready.raw_views, ArtworkRawViews(raw));
-        #[cfg(feature = "shaderpacks")]
         assert_eq!(
             crate::actor::gpu::permits_raw_view(device.wgpu_device(), &ready._texture),
             raw
@@ -198,7 +196,6 @@ fn changing_view_formats_restarts_pending_uploads_and_keeps_complete_pages() {
     }
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn shaderpack_activation_keeps_pending_fallback_pages_native() {
     use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
@@ -245,6 +242,63 @@ fn shaderpack_activation_keeps_pending_fallback_pages_native() {
             .unwrap()
             .for_each_instance(&mut |instance| replaced.push(instance.index));
         assert_eq!(replaced, if ready { vec![0, 1] } else { vec![0] });
+    }
+}
+
+#[test]
+fn channel_write_and_equal_depth_spans_are_retained_by_native_drawing() {
+    use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
+    use crate::shaderpack::actors::RigSource;
+    use assets::{EntityRenderMaterial, EntityRenderMaterialState};
+    let mut app = fixture();
+    app.sub_app_mut(RenderApp)
+        .insert_resource(ArtworkRawViews(true));
+    for (generation, state) in [
+        EntityRenderMaterialState {
+            depth_equal: true,
+            ..Default::default()
+        },
+        EntityRenderMaterialState {
+            disable_alpha_write: true,
+            ..Default::default()
+        },
+        EntityRenderMaterialState {
+            disable_color_write: true,
+            ..Default::default()
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut frame = publication(generation as u64 + 1, &[55], 1);
+        let material = EntityRenderMaterial::Default.word(Some(state));
+        Arc::make_mut(&mut frame.rig.instances)[0].material = material;
+        draw_frame(&mut app, &frame);
+        // The fixture compiles the default pipeline; this assertion draws another contract.
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        let pipeline = world
+            .resource::<ActorPipeline>()
+            .draw_variant(Msaa::Off, false, false, material)
+            .expect("admitted material was prewarmed");
+        world
+            .resource_mut::<PipelineCache>()
+            .block_on_render_pipeline(pipeline);
+        assert!(
+            world
+                .resource::<PipelineCache>()
+                .get_render_pipeline(pipeline)
+                .is_some()
+        );
+        assert_eq!(draw_frame(&mut app, &frame).len(), 1);
+        let world = app.sub_app(RenderApp).world();
+        let gpu = world.resource::<ActorGpu>();
+        assert!(gpu.artwork.page(0).unwrap().raw_texture().is_some());
+        assert!(!gpu.pack_supports_span(&gpu.spans[0]));
+        let mut replaced = Vec::new();
+        crate::actor_render::shaderpack_source::shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| replaced.push(instance.index));
+        assert!(replaced.is_empty());
     }
 }
 
@@ -301,7 +355,6 @@ fn pending_retries_preserve_backoff_until_demanded_uploads_complete() {
     }
 }
 
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn reduced_pending_pages_keep_the_requested_view_format() {
     let (device, queue) = device();

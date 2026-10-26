@@ -99,10 +99,18 @@ fn executable() -> Vec<u8> {
     .unwrap()
 }
 
+/// A minimal panel surface whose screen namespace is `name`, so tests can tell panels apart.
+fn panel_surface(name: &str) -> serde_json::Value {
+    serde_json::json!({"screen":format!("{name}.root"),
+        "document":serde_json::json!({"namespace":name,"root":{"type":"panel"}}).to_string()})
+}
+
 /// A guest keeps its panel in the host; the bundle and font never enter linear memory.
 fn component(title: &str, font: Option<&[u8]>) -> Vec<u8> {
     let mut bytes = executable();
-    let bundle = serde_json::json!({"panel":{"title":title,"toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}).to_string();
+    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+        "surface":panel_surface(title)},"surfaces":{}})
+    .to_string();
     section(&mut bytes, mod_api::PANEL_BUNDLE_SECTION, bundle.as_bytes());
     section(&mut bytes, mod_api::MENU_TITLE_SECTION, title.as_bytes());
     if let Some(font) = font {
@@ -168,20 +176,24 @@ fn changed_source_atomically_replaces_host_and_prepared_resources_without_duplic
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Second", None)).unwrap();
-    let mut attempted = BTreeMap::new();
-    let update = prepare(request(&path, digest), &mut attempted).unwrap();
+    let mut attempted = WorkerState::default();
+    let update = prepare(request(&path, digest), &mut attempted, Instant::now()).unwrap();
     assert!(update.result.as_ref().unwrap().panel_ui.is_some());
     let retired = apply(&mut world, update).unwrap();
     let runtime = world.resource::<ModRuntime>();
     assert_eq!(runtime.hosts.host_count(), 1);
-    assert_eq!(runtime.hosts.host(0).panel().unwrap().title, "Second");
+    assert_eq!(
+        runtime.hosts.host(0).panel().unwrap().surface.screen,
+        "Second.root"
+    );
     assert_eq!(runtime.hosts.host(0).menu_title(), Some("Second"));
     assert!(runtime.metadata[0].branding.is_some());
-    assert_eq!(retired.panel().unwrap().title, "First");
+    assert_eq!(retired.panel().unwrap().surface.screen, "First.root");
     assert!(
         prepare(
             request(&path, runtime.hosts.host(0).source_digest()),
-            &mut attempted
+            &mut attempted,
+            Instant::now()
         )
         .is_none()
     );
@@ -206,8 +218,8 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Invalid", Some(b"invalid outline font"))).unwrap();
-    let mut attempted = BTreeMap::new();
-    let update = prepare(request(&path, digest), &mut attempted).unwrap();
+    let mut attempted = WorkerState::default();
+    let update = prepare(request(&path, digest), &mut attempted, Instant::now()).unwrap();
     assert!(update.result.is_err());
     assert!(apply(&mut world, update).is_none());
     assert_eq!(
@@ -217,10 +229,11 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "First"
+            .surface
+            .screen,
+        "First.root"
     );
-    assert!(prepare(request(&path, digest), &mut attempted).is_none());
+    assert!(prepare(request(&path, digest), &mut attempted, Instant::now()).is_none());
 }
 
 #[test]
@@ -251,8 +264,8 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
             next.source.ui = Some(ui.clone());
             next
         };
-        let mut attempted = BTreeMap::new();
-        let rejected = prepare(candidate(digest), &mut attempted).unwrap();
+        let mut attempted = WorkerState::default();
+        let rejected = prepare(candidate(digest), &mut attempted, Instant::now()).unwrap();
         assert!(rejected.result.is_err());
         assert!(apply(&mut world, rejected).is_none());
         assert_eq!(
@@ -262,25 +275,27 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
                 .host(0)
                 .panel()
                 .unwrap()
-                .title,
-            "First"
+                .surface
+                .screen,
+            "First.root"
         );
-        assert!(prepare(candidate(digest), &mut attempted).is_none());
+        assert!(prepare(candidate(digest), &mut attempted, Instant::now()).is_none());
 
         let repaired = serde_json::json!({
-            "panel":{"title":"Repaired","toggle_key":"ShiftRight","dark":true,"controls":[]},
+            "panel":{"toggle_key":"ShiftRight","controls":[],"surface":panel_surface("Repaired")},
             "surfaces":{}
         });
         std::fs::write(&ui, repaired.to_string()).unwrap();
-        let update = prepare(candidate(digest), &mut attempted).expect("repaired override retries");
+        let update = prepare(candidate(digest), &mut attempted, Instant::now())
+            .expect("repaired override retries");
         assert!(update.result.as_ref().unwrap().panel_ui.is_some());
         drop(apply(&mut world, update).unwrap());
         let current = world.resource::<ModRuntime>().hosts.host(0);
-        assert_eq!(current.panel().unwrap().title, "Repaired");
+        assert_eq!(current.panel().unwrap().surface.screen, "Repaired.root");
         let accepted = current.source_digest();
         std::fs::remove_file(&ui).unwrap();
         assert!(
-            prepare(candidate(accepted), &mut attempted).is_none(),
+            prepare(candidate(accepted), &mut attempted, Instant::now()).is_none(),
             "accepted components retain their no-change fast path"
         );
     }
@@ -317,12 +332,13 @@ fn changed_committed_settings_retry_a_rejected_component() {
         next
     };
     let invalid = "x".repeat(mod_api::MAX_SETTINGS_BYTES + 1);
-    let mut attempted = BTreeMap::new();
-    let rejected = prepare(candidate(invalid.clone()), &mut attempted).unwrap();
+    let mut attempted = WorkerState::default();
+    let rejected = prepare(candidate(invalid.clone()), &mut attempted, Instant::now()).unwrap();
     assert!(rejected.result.is_err());
     assert!(apply(&mut world, rejected).is_none());
-    assert!(prepare(candidate(invalid), &mut attempted).is_none());
-    let update = prepare(candidate(committed), &mut attempted).expect("new settings seed retries");
+    assert!(prepare(candidate(invalid), &mut attempted, Instant::now()).is_none());
+    let update = prepare(candidate(committed), &mut attempted, Instant::now())
+        .expect("new settings seed retries");
     drop(apply(&mut world, update).unwrap());
     assert_eq!(
         world
@@ -331,8 +347,9 @@ fn changed_committed_settings_retry_a_rejected_component() {
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "Second"
+            .surface
+            .screen,
+        "Second.root"
     );
 }
 
@@ -362,13 +379,14 @@ fn repairing_settings_without_a_committed_seed_retries_the_changed_component() {
         next.source.grants = granted.clone();
         next
     };
-    let mut attempted = BTreeMap::new();
-    let rejected = prepare(candidate(), &mut attempted).unwrap();
+    let mut attempted = WorkerState::default();
+    let rejected = prepare(candidate(), &mut attempted, Instant::now()).unwrap();
     assert!(rejected.result.is_err());
     assert!(apply(&mut world, rejected).is_none());
-    assert!(prepare(candidate(), &mut attempted).is_none());
+    assert!(prepare(candidate(), &mut attempted, Instant::now()).is_none());
     std::fs::write(&companion, b"").unwrap();
-    let update = prepare(candidate(), &mut attempted).expect("repaired settings source retries");
+    let update = prepare(candidate(), &mut attempted, Instant::now())
+        .expect("repaired settings source retries");
     drop(apply(&mut world, update).unwrap());
     assert_eq!(
         world
@@ -377,8 +395,9 @@ fn repairing_settings_without_a_committed_seed_retries_the_changed_component() {
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "Second"
+            .surface
+            .screen,
+        "Second.root"
     );
 }
 
@@ -387,18 +406,26 @@ fn two_owners_of_one_source_prepare_independently_including_failure_suppression(
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("shared.wasm");
     std::fs::write(&path, component("Changed", None)).unwrap();
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     let first = request(&path, [0; 32]);
     let mut second = request(&path, [0; 32]);
     second.source.owner = mod_ui::PanelUiOwner::Environment(1);
     second.source.grants.controls = false;
-    assert!(prepare(first, &mut attempted).unwrap().result.is_ok());
-    let second = prepare(second, &mut attempted).unwrap().result.unwrap();
+    assert!(
+        prepare(first, &mut attempted, Instant::now())
+            .unwrap()
+            .result
+            .is_ok()
+    );
+    let second = prepare(second, &mut attempted, Instant::now())
+        .unwrap()
+        .result
+        .unwrap();
     assert!(second.panel_ui.is_none());
     assert_eq!(second.host.menu_title(), Some("Changed"));
     std::fs::write(&path, component("Invalid", Some(b"invalid font"))).unwrap();
     assert!(
-        prepare(request(&path, [0; 32]), &mut attempted)
+        prepare(request(&path, [0; 32]), &mut attempted, Instant::now())
             .unwrap()
             .result
             .is_err()
@@ -406,8 +433,13 @@ fn two_owners_of_one_source_prepare_independently_including_failure_suppression(
     let mut denied = request(&path, [0; 32]);
     denied.source.owner = mod_ui::PanelUiOwner::Environment(1);
     denied.source.grants.controls = false;
-    assert!(prepare(denied, &mut attempted).unwrap().result.is_ok());
-    assert!(prepare(request(&path, [0; 32]), &mut attempted).is_none());
+    assert!(
+        prepare(denied, &mut attempted, Instant::now())
+            .unwrap()
+            .result
+            .is_ok()
+    );
+    assert!(prepare(request(&path, [0; 32]), &mut attempted, Instant::now()).is_none());
 }
 
 #[test]
@@ -442,18 +474,18 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
         .unwrap()
         .to_owned();
     std::fs::write(&path, component("Second", None)).unwrap();
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     current.previous = digest;
     // The worker received these preferences before a newer value was committed.
     current.settings = Some(SettingsSnapshot {
         path: settings_path.clone(),
         json: "{\"value\":0}".into(),
     });
-    let update = prepare(current, &mut attempted).unwrap();
+    let update = prepare(current, &mut attempted, Instant::now()).unwrap();
     let rejected = apply(&mut world, update).unwrap();
-    assert_eq!(rejected.panel().unwrap().title, "Second");
+    assert_eq!(rejected.panel().unwrap().surface.screen, "Second.root");
     let old = world.resource::<ModRuntime>().hosts.host(0);
-    assert_eq!(old.panel().unwrap().title, "First");
+    assert_eq!(old.panel().unwrap().surface.screen, "First.root");
     assert_eq!(old.settings_snapshot(), Some("{\"value\":1}"));
     let mut retry = request(&path, digest);
     retry.source.grants.settings = true;
@@ -461,11 +493,12 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
         path: settings_path,
         json: old.settings_snapshot().unwrap().into(),
     });
-    let update = prepare(retry, &mut attempted).expect("valid source retries after stale settings");
+    let update = prepare(retry, &mut attempted, Instant::now())
+        .expect("valid source retries after stale settings");
     drop(apply(&mut world, update).unwrap());
     drop(rejected);
     let current = world.resource::<ModRuntime>().hosts.host(0);
-    assert_eq!(current.panel().unwrap().title, "Second");
+    assert_eq!(current.panel().unwrap().surface.screen, "Second.root");
     assert_eq!(current.settings_snapshot(), Some("{\"value\":1}"));
     drop(world);
     assert_eq!(std::fs::read_to_string(companion).unwrap(), "{\"value\":1}");
@@ -499,7 +532,12 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Second", Some(&bytes))).unwrap();
-    let update = prepare(request(&path, digest), &mut BTreeMap::new()).unwrap();
+    let update = prepare(
+        request(&path, digest),
+        &mut WorkerState::default(),
+        Instant::now(),
+    )
+    .unwrap();
     let accepted = update.result.as_ref().unwrap();
     assert!(accepted.font.as_ref().unwrap().glyph('A').is_some());
     assert!(accepted.panel_ui.is_some());
@@ -511,8 +549,9 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
             .host(0)
             .panel()
             .unwrap()
-            .title,
-        "Second"
+            .surface
+            .screen,
+        "Second.root"
     );
     assert!(world.resource::<ModRuntime>().metadata[0].font.is_some());
 }
@@ -549,14 +588,17 @@ fn drawing_restart_prepares_changed_guest_and_presentation_as_one_snapshot() {
     let mut restart = request(&path, old.source_digest());
     restart.drawing = admission::DrawingContext::capture(old);
     std::fs::write(&path, component("Second", None)).unwrap();
-    let update = prepare(restart, &mut BTreeMap::new()).unwrap();
+    let update = prepare(restart, &mut WorkerState::default(), Instant::now()).unwrap();
     let prepared = update.result.as_ref().unwrap();
     assert!(prepared.panel_ui.is_some() && prepared.branding.is_some());
     assert!(prepared.host.is_active());
     assert_eq!(prepared.host.drawing_session(), Some(session));
     apply(&mut world, update).unwrap();
     let runtime = world.resource::<ModRuntime>();
-    assert_eq!(runtime.hosts.host(0).panel().unwrap().title, "Second");
+    assert_eq!(
+        runtime.hosts.host(0).panel().unwrap().surface.screen,
+        "Second.root"
+    );
     assert_eq!(runtime.hosts.host(0).menu_title(), Some("Second"));
     assert!(runtime.metadata[0].branding.is_some());
     assert!(!runtime.hosts.host(0).needs_drawing_restart());
@@ -579,7 +621,7 @@ fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
     )
     .unwrap();
     let mut world = world(previous);
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     for connection in [1, 2] {
         let mut runtime = world.resource_mut::<ModRuntime>();
         let host = runtime.hosts.host_mut(0);
@@ -590,16 +632,21 @@ fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
         let mut restart = request(&path, host.source_digest());
         restart.drawing = admission::DrawingContext::capture(host);
         restart.source.font = Some(directory.path().join("missing-font"));
-        assert!(prepare(restart, &mut attempted).unwrap().result.is_err());
+        assert!(
+            prepare(restart, &mut attempted, Instant::now())
+                .unwrap()
+                .result
+                .is_err()
+        );
         let mut retry = request(&path, host.source_digest());
         retry.drawing = admission::DrawingContext::capture(host);
         retry.source.font = Some(directory.path().join("missing-font"));
-        assert!(prepare(retry, &mut attempted).is_none());
+        assert!(prepare(retry, &mut attempted, Instant::now()).is_none());
     }
     let old = world.resource::<ModRuntime>().hosts.host(0);
     let mut restart = request(&path, old.source_digest());
     restart.drawing = admission::DrawingContext::capture(old);
-    let update = prepare(restart, &mut attempted).unwrap();
+    let update = prepare(restart, &mut attempted, Instant::now()).unwrap();
     assert!(update.result.is_ok());
     {
         let mut runtime = world.resource_mut::<ModRuntime>();
@@ -650,7 +697,8 @@ fn worker_sources_retain_loader_consent_before_a_component_requests_drawing() {
             settings: None,
             drawing: None,
         },
-        &mut BTreeMap::new(),
+        &mut WorkerState::default(),
+        Instant::now(),
     )
     .unwrap();
     assert!(update.result.unwrap().host.grants().world_draw);
@@ -769,7 +817,8 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         }
         let mut ui = client_ui::ui_runtime::UiRuntime::new(1);
         if scope != "absent" {
-            ui.experiences.session.state = server_experience::session::State::Granted(grant);
+            ui.session.experiences.session.state =
+                server_experience::session::State::Granted(grant);
         }
         let mut source = request(&path, old_digest).source;
         source.grants.render_post = scope != "user_denied";
@@ -791,7 +840,12 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
                 ..Default::default()
             });
         std::fs::write(&path, next).unwrap();
-        let update = prepare(queued_request(&mut world, source), &mut BTreeMap::new()).unwrap();
+        let update = prepare(
+            queued_request(&mut world, source),
+            &mut WorkerState::default(),
+            Instant::now(),
+        )
+        .unwrap();
         if scope == "user_denied" {
             assert!(
                 update.result.is_err(),
@@ -808,12 +862,14 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         if scope == "revoked_before_publish" {
             world
                 .resource_mut::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state = server_experience::session::State::Disabled;
         } else if scope == "expired_before_publish"
             && let server_experience::session::State::Granted(grant) = &mut world
                 .resource_mut::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state
@@ -826,4 +882,155 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         assert_eq!(current.source_digest(), new_digest);
         assert!(current.is_active());
     }
+}
+
+#[test]
+fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("local.wasm");
+    let bytes = component("First", None);
+    std::fs::write(&path, &bytes).unwrap();
+    let previous = Sha256::digest(&bytes).into();
+    let mut state = WorkerState::default();
+    let now = Instant::now();
+    assert!(prepare(request(&path, previous), &mut state, now).is_none());
+    let first = state
+        .files
+        .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES, now)
+        .unwrap();
+    for _ in 0..8 {
+        assert!(prepare(request(&path, previous), &mut state, now).is_none());
+        let again = state
+            .files
+            .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES, now)
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first.bytes, &again.bytes));
+        state.files.retain_observed();
+    }
+    let changed = component("Other", None);
+    assert_eq!(bytes.len(), changed.len());
+    std::fs::write(&path, changed).unwrap();
+    let changed = prepare(
+        request(&path, previous),
+        &mut state,
+        now + mod_host::local_files::CONTENT_REVALIDATION_INTERVAL,
+    );
+    assert_eq!(
+        changed
+            .unwrap()
+            .result
+            .unwrap()
+            .host
+            .panel()
+            .unwrap()
+            .surface
+            .screen,
+        "Other.root"
+    );
+    assert_eq!(first.bytes.as_ref(), bytes);
+}
+
+#[test]
+fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_reload() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path();
+    package(path);
+    let texture = "textures/icon.png";
+    std::fs::create_dir(path.join("textures")).unwrap();
+    std::fs::write(path.join(texture), b"old").unwrap();
+    let manifest_path = path.join(mod_host::package::MANIFEST);
+    let old_hash = format!("{:x}", Sha256::digest(b"old"));
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("[files]", &format!("textures = [\"{texture}\"]\n[files]"));
+    std::fs::write(
+        &manifest_path,
+        format!("{manifest}\n\"{texture}\" = \"{old_hash}\"\n"),
+    )
+    .unwrap();
+    let mut state = WorkerState::default();
+    let now = Instant::now();
+    let previous = mod_host::package::Package::read(path).unwrap().digest;
+    let candidate = || {
+        let mut candidate = request(path, previous);
+        candidate.source.location = mod_host::Source::Package(path.to_owned());
+        candidate
+    };
+    assert!(prepare(candidate(), &mut state, now).is_none());
+    let first = state
+        .packages
+        .get_mut(path)
+        .unwrap()
+        .read(path, now)
+        .unwrap();
+    for _ in 0..8 {
+        assert!(prepare(candidate(), &mut state, now).is_none());
+        let again = state
+            .packages
+            .get_mut(path)
+            .unwrap()
+            .read(path, now)
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &again));
+    }
+    std::fs::write(path.join(texture), b"new").unwrap();
+    let new_hash = format!("{:x}", Sha256::digest(b"new"));
+    std::fs::write(
+        &manifest_path,
+        std::fs::read_to_string(&manifest_path)
+            .unwrap()
+            .replace(&old_hash, &new_hash),
+    )
+    .unwrap();
+    let changed = prepare(
+        candidate(),
+        &mut state,
+        now + mod_host::local_files::CONTENT_REVALIDATION_INTERVAL,
+    );
+    let prepared = changed.unwrap().result.unwrap();
+    assert_ne!(prepared.host.source_digest(), previous);
+    assert!(prepared.host.package().is_some());
+    assert_eq!(first.files.textures[0].1, b"old");
+}
+
+#[test]
+fn removed_environment_sources_release_cached_components_and_packages() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path();
+    package(path);
+    let component_path = path.join(experience_sdk::mod_manifest::COMPONENT);
+    let component = std::fs::read(&component_path).unwrap();
+    let component_digest = Sha256::digest(&component).into();
+    let package_digest = mod_host::package::Package::read(path).unwrap().digest;
+    let mut state = WorkerState::default();
+    let mut package_request = request(path, package_digest);
+    package_request.source.location = mod_host::Source::Package(path.to_owned());
+    let requests = vec![request(&component_path, component_digest), package_request];
+    state.retain_sources(&requests);
+    for request in requests {
+        assert!(prepare(request, &mut state, Instant::now()).is_none());
+    }
+    let component = state
+        .files
+        .read(
+            &component_path,
+            mod_host::MAX_COMPONENT_SOURCE_BYTES,
+            Instant::now(),
+        )
+        .unwrap();
+    let component_bytes = std::sync::Arc::downgrade(&component.bytes);
+    drop(component);
+    let package = state
+        .packages
+        .get_mut(path)
+        .unwrap()
+        .read(path, Instant::now())
+        .unwrap();
+    let package_bytes = std::sync::Arc::downgrade(&package);
+    drop(package);
+    state.files.retain_observed();
+    state.retain_sources(&[]);
+    state.files.retain_observed();
+    assert!(component_bytes.upgrade().is_none());
+    assert!(package_bytes.upgrade().is_none());
 }

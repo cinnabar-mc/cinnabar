@@ -57,6 +57,15 @@ fn no_offering() -> EntityUseAdmission {
     }
 }
 
+/// Holds `main_hand` with an empty offhand and no enchantments.
+fn equipment(main_hand: &VerifiedNetworkItemStack) -> crate::UseEquipment {
+    crate::UseEquipment {
+        main_hand: crate::HandStack::verified(main_hand),
+        offhand: Some(crate::HandStack::default()),
+        enchantments: Some(0),
+    }
+}
+
 /// Verifies one retained stack against the same empty payload digest used for packet admission.
 fn stack(identifier: &str) -> VerifiedNetworkItemStack {
     let network_id = protocol::vanilla_item_registry()
@@ -79,17 +88,42 @@ fn stack(identifier: &str) -> VerifiedNetworkItemStack {
 }
 
 #[test]
-fn verified_resolver_and_behavior_absence_admit_a_retail_throwable_only() {
+fn verified_resolver_and_behavior_absence_admit_any_retail_item() {
     let store = fixture("minecraft:zombie", no_offering());
     let actor = store.get(8).unwrap();
-    assert_eq!(
-        store.offered_throwable_use(actor, &stack("minecraft:snowball")),
-        OfferedUse::Absent
-    );
-    assert_eq!(
-        store.offered_throwable_use(actor, &stack("minecraft:name_tag")),
-        OfferedUse::Unresolved
-    );
+    for item in ["minecraft:snowball", "minecraft:bow", "minecraft:crossbow"] {
+        assert_eq!(
+            store.offered_use(actor, &equipment(&stack(item))),
+            OfferedUse::Absent,
+            "{item}"
+        );
+    }
+}
+
+#[test]
+fn an_unobserved_offhand_keeps_a_lighter_offering_open() {
+    let lighter = || UseCondition::EitherHandItem {
+        identifier: "minecraft:flint_and_steel".into(),
+        metadata: None,
+    };
+    let definition = EntityUseAdmission::Components {
+        source: 0,
+        offerings: Box::from([ComponentUse {
+            selector: UseSelector::UnresolvedComponentGroup { group: 0 },
+            component: "minecraft:interact".into(),
+            condition: lighter(),
+        }]),
+    };
+    let store = fixture("minecraft:tnt_minecart", definition);
+    let actor = store.get(8).unwrap();
+    let mut held = equipment(&stack("minecraft:bow"));
+    assert_eq!(store.offered_use(actor, &held), OfferedUse::Absent);
+    held.offhand = None;
+    assert_eq!(store.offered_use(actor, &held), OfferedUse::Unresolved);
+    held.offhand = Some(crate::HandStack::verified(&stack(
+        "minecraft:flint_and_steel",
+    )));
+    assert_eq!(store.offered_use(actor, &held), OfferedUse::Unresolved);
 }
 
 #[test]
@@ -101,7 +135,10 @@ fn missing_behavior_unknown_native_and_prevent_default_do_not_prove_absence() {
     ] {
         let store = fixture(identifier, definition);
         assert_eq!(
-            store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+            store.offered_use(
+                store.get(8).unwrap(),
+                &equipment(&stack("minecraft:snowball"))
+            ),
             OfferedUse::Unresolved
         );
     }
@@ -122,7 +159,10 @@ fn matching_feed_or_unknown_group_state_cannot_become_an_absence_proof() {
     };
     let store = fixture("minecraft:happy_ghast", definition);
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Unresolved
     );
 }
@@ -142,7 +182,7 @@ fn a_nonempty_server_component_override_cannot_inherit_the_retail_absence_proof(
         entries: Arc::from([entry])
     }));
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack),
+        store.offered_use(store.get(8).unwrap(), &equipment(&stack)),
         OfferedUse::Unresolved
     );
 }
@@ -163,7 +203,7 @@ fn a_custom_actor_cannot_inherit_a_verified_base_resolver() {
         ActorUseResolver::Unresolved
     );
     assert_eq!(
-        store.offered_throwable_use(actor, &stack("minecraft:snowball")),
+        store.offered_use(actor, &equipment(&stack("minecraft:snowball"))),
         OfferedUse::Unresolved
     );
 }
@@ -199,7 +239,10 @@ fn a_canonical_empty_component_native_throwable_keeps_its_compiled_admission() {
         Some(assets::item_use::ItemUseKind::Throw)
     );
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Absent
     );
     let mut data_driven = entry.clone();
@@ -208,7 +251,10 @@ fn a_canonical_empty_component_native_throwable_keeps_its_compiled_admission() {
         entries: Arc::from([data_driven])
     }));
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Absent
     );
     for mutation in 0..4 {
@@ -226,7 +272,10 @@ fn a_canonical_empty_component_native_throwable_keeps_its_compiled_admission() {
             entries: Arc::from([entry])
         }));
         assert_eq!(
-            store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+            store.offered_use(
+                store.get(8).unwrap(),
+                &equipment(&stack("minecraft:snowball"))
+            ),
             OfferedUse::Unresolved
         );
     }
@@ -246,11 +295,79 @@ fn an_empty_live_registry_uses_only_the_effective_builtin_throwable_record() {
         }),
     );
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Absent
     );
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:name_tag")),
+        store.offered_use(store.get(8).unwrap(), &equipment(&stack("minecraft:bow"))),
+        OfferedUse::Absent
+    );
+}
+
+/// User data whose `ench` list holds `count` level-1 entries ending with `last`.
+fn enchanted_extra(count: i16, last: i16) -> Vec<u8> {
+    leveled_extra(count, last, 1)
+}
+
+/// User data whose `ench` list holds `count` entries ending with `last` at `level`.
+fn leveled_extra(count: i16, last: i16, level: i16) -> Vec<u8> {
+    let mut nbt = vec![10, 0, 0, 9, 4, 0];
+    nbt.extend(b"ench");
+    nbt.push(10);
+    nbt.extend(i32::from(count).to_le_bytes());
+    for index in 0..count {
+        let id = if index + 1 == count { last } else { 0 };
+        let lvl = if index + 1 == count { level } else { 1 };
+        for (key, value) in [("id", id), ("lvl", lvl)] {
+            nbt.push(2);
+            nbt.extend((key.len() as u16).to_le_bytes());
+            nbt.extend(key.as_bytes());
+            nbt.extend(value.to_le_bytes());
+        }
+        nbt.push(0);
+    }
+    nbt.push(0);
+    let mut extra = (-1_i16).to_le_bytes().to_vec();
+    extra.push(1);
+    extra.extend(nbt);
+    extra
+}
+
+#[test]
+fn equipment_enchantments_include_entries_past_the_tooltip_prefix() {
+    let fire_aspect = protocol_ids::Enchantment::Fireaspect.wire_value();
+    let late = enchanted_extra(40, i16::from(fire_aspect));
+    let mask = crate::equipment_enchantments([Some(&late[..]), Some(&[][..])]).unwrap();
+    assert_ne!(mask & 1 << fire_aspect, 0);
+    let mut cut = late.clone();
+    cut.truncate(late.len() - 12);
+    assert_eq!(crate::equipment_enchantments([Some(&cut[..])]), None);
+    assert_eq!(crate::equipment_enchantments([Some(&[][..]), None]), None);
+}
+
+#[test]
+fn a_level_zero_enchantment_entry_cannot_satisfy_a_negated_enchantment_filter_falsely() {
+    let fire_aspect = protocol_ids::Enchantment::Fireaspect.wire_value();
+    let definition = EntityUseAdmission::Components {
+        source: 0,
+        offerings: Box::from([ComponentUse {
+            selector: UseSelector::Base,
+            component: "minecraft:interact".into(),
+            condition: UseCondition::Not(Box::new(UseCondition::EquipmentEnchantment {
+                enchantment: fire_aspect,
+            })),
+        }]),
+    };
+    let store = fixture("minecraft:zombie", definition);
+    let unleveled = leveled_extra(1, i16::from(fire_aspect), 0);
+    let mut held = equipment(&stack("minecraft:bow"));
+    held.enchantments = crate::equipment_enchantments([Some(&unleveled[..])]);
+    assert_eq!(held.enchantments, Some(0));
+    assert_eq!(
+        store.offered_use(store.get(8).unwrap(), &held),
         OfferedUse::Unresolved
     );
 }

@@ -5,6 +5,11 @@ use std::fs;
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
 
+/// Captures a fresh snapshot for fixtures that do not retain an observation worker.
+fn source_snapshot(entry: Entry) -> Result<SourceSnapshot, String> {
+    source::Observer::default().source_snapshot(entry, std::time::Instant::now())
+}
+
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
     fixture_with_capture(enabled, frame, text, false)
 }
@@ -18,9 +23,14 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         .trim_start_matches("package ")
         .trim_end_matches(';');
     let (name, version) = package.split_once('@').unwrap();
-    let panel = format!(
-        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"capture_key":{capture_key},"controls":[{{"kind":"toggle","id":"enabled","label":"Enabled","value":{enabled}}}]}}"#
-    );
+    let controls = vec![ui::mod_panel::Control::Toggle {
+        id: "enabled".into(),
+        label: "Enabled".into(),
+        value: enabled,
+    }];
+    let panel = serde_json::json!({"toggle_key":"ShiftRight","capture_key":capture_key,
+        "surface":mod_ui::test_support::sample_surface(&controls),"controls":controls})
+    .to_string();
     let template = include_str!("../../../../crates/mod-host/src/tests/guest.wat");
     template
         .replace("(component", &format!("(component (import \"{name}/panel@{version}\" (instance $panel (export \"set-content\" (func (param \"json\" string) (result (result (error string))))))) (alias export $panel \"set-content\" (func $set-panel))"))
@@ -33,7 +43,7 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         .replace("(core func $lower-label", "(core func $lower-panel (canon lower (func $set-panel) (memory $memory) (realloc $realloc))) (core func $lower-label")
         .replace("(import \"host\" \"time\"", "(import \"host\" \"panel\" (func $panel (param i32 i32 i32))) (import \"host\" \"time\"")
         .replace("(export \"time\" (func $lower-time))", "(export \"panel\" (func $lower-panel)) (export \"time\" (func $lower-time))")
-        .replace("(data (i32.const 0)", &format!("(data (i32.const 1024) \"{}\") (data (i32.const 0)", panel.replace('"', "\\22")))
+        .replace("(data (i32.const 0)", &format!("(data (i32.const 1024) \"{}\") (data (i32.const 0)", panel.replace('\\', "\\5c").replace('"', "\\22")))
         .replacen("(func (export \"init\")", &format!("(func (export \"init\") i32.const 1024 i32.const {} i32.const 512 call $panel", panel.len()), 1)
 }
 
@@ -57,7 +67,7 @@ fn candidate(root: &std::path::Path, name: &str, text: &str) -> Box<Candidate> {
         ),
     )
     .unwrap();
-    Box::new(build_candidate(source::source_snapshot(entry).unwrap()).unwrap())
+    Box::new(build_candidate(source_snapshot(entry).unwrap()).unwrap())
 }
 
 /// Provides frame publication with real bounded channels and no coordinator thread.
@@ -192,7 +202,7 @@ fn failed_reload_keeps_old_instance_and_successful_reload_resets_only_its_guest(
     messages.try_iter().for_each(drop);
     a.reload += 1;
     fs::write(&a.component, "invalid component").unwrap();
-    let failed = source::source_snapshot(a.clone())
+    let failed = source_snapshot(a.clone())
         .and_then(build_candidate)
         .map(Box::new);
     assert!(failed.is_err());
@@ -213,7 +223,7 @@ fn failed_reload_keeps_old_instance_and_successful_reload_resets_only_its_guest(
     };
     assert_eq!(statuses[0].state, "reload-error");
     fs::write(&a.component, fixture(true, "", "Fresh")).unwrap();
-    let next = Box::new(build_candidate(source::source_snapshot(a.clone()).unwrap()).unwrap());
+    let next = Box::new(build_candidate(source_snapshot(a.clone()).unwrap()).unwrap());
     apply(&mut world, vec![a, b], vec![change(next)]);
     assert_eq!(
         world.resource::<ModRuntime>().hosts.host(0).label(),
@@ -301,15 +311,20 @@ fn status_messages_are_bounded_and_unloading_preserves_saved_camera_settings() {
     let mut world = World::new();
     let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
     let fov = camera.horizontal_fov_degrees();
-    let hurt_style = camera.hurt_camera_style();
+    let hurt_shake = camera.hurt_shake_intensity();
     camera.set_view_scale(0.25, 0.25);
-    camera.set_hurt_camera_style(Some(render_api::HurtCameraStyle::new(2.0, true).unwrap()));
+    camera.set_view_tilt(Some(client_presentation::camera::ViewTilt {
+        roll_degrees: 14.0,
+        pitch_degrees: 0.0,
+        suppress_hurt_shake: true,
+    }));
     world.insert_resource(camera);
     presentation::clear_presentation(&mut world);
     let camera = world.resource::<client_presentation::camera::CameraSettingsAuthority>();
     assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
     assert_eq!(camera.horizontal_fov_degrees(), fov);
-    assert_eq!(camera.hurt_camera_style(), hurt_style);
+    assert_eq!(camera.view_tilt(), None);
+    assert_eq!(camera.hurt_shake_intensity(), hurt_shake);
 }
 
 #[test]
@@ -381,7 +396,8 @@ fn normalized_registration_still_rejects_a_component_leaf_symlink() {
     fs::write(&source, fixture(false, "", "Hello")).unwrap();
     std::os::unix::fs::symlink(&source, &link).unwrap();
     selection::select(root, &link, true, "linked".into()).unwrap();
-    let registration = source::observe(&root.join(REGISTRATION_FILE))
+    let registration = source::Observer::default()
+        .observe(&root.join(REGISTRATION_FILE), std::time::Instant::now())
         .result
         .unwrap()
         .unwrap();
@@ -390,7 +406,7 @@ fn normalized_registration_still_rejects_a_component_leaf_symlink() {
         registration.mods[0].component,
         root.canonicalize().unwrap().join("linked.wasm")
     );
-    assert!(source::source_snapshot(registration.mods[0].clone()).is_err());
+    assert!(source_snapshot(registration.mods[0].clone()).is_err());
 }
 
 #[test]
@@ -459,8 +475,7 @@ fn restoring_grants_rebuilds_an_instance_revoked_during_pending_admission() {
     };
     assert_eq!(inactive, std::slice::from_ref(&original.component));
     assert!(messages.try_recv().is_err());
-    let fresh =
-        Box::new(build_candidate(source::source_snapshot(original.clone()).unwrap()).unwrap());
+    let fresh = Box::new(build_candidate(source_snapshot(original.clone()).unwrap()).unwrap());
     apply(&mut world, vec![original], vec![change(fresh)]);
     world
         .resource_mut::<ModRuntime>()
@@ -522,8 +537,7 @@ fn settings_owner_publication_includes_environment_loaded_hosts() {
     let prepared = candidate(directory.path(), "environment.wasm", "Hello");
     let mut entry = prepared.registration.clone();
     entry.grants.settings = true;
-    let prepared =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let prepared = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
     world.resource_mut::<ModRuntime>().metadata[0].registration = None;
     let watcher = world.resource::<Watcher>();
@@ -543,7 +557,7 @@ fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_rel
     let prepared = candidate(directory.path(), "trapped.wasm", "Hello");
     let a = prepared.registration.clone();
     fs::write(&a.component, fixture(true, "unreachable", "Hello")).unwrap();
-    let trapped = Box::new(build_candidate(source::source_snapshot(a.clone()).unwrap()).unwrap());
+    let trapped = Box::new(build_candidate(source_snapshot(a.clone()).unwrap()).unwrap());
     let identity = trapped.identity;
     apply(&mut world, vec![a.clone()], vec![change(trapped)]);
     messages.try_iter().for_each(drop);
@@ -597,8 +611,7 @@ fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_rel
     let mut reload = a;
     reload.reload += 1;
     fs::write(&reload.component, fixture(true, "", "Fresh")).unwrap();
-    let fresh =
-        Box::new(build_candidate(source::source_snapshot(reload.clone()).unwrap()).unwrap());
+    let fresh = Box::new(build_candidate(source_snapshot(reload.clone()).unwrap()).unwrap());
     apply(&mut world, vec![reload, b], vec![change(fresh)]);
     assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
     assert_eq!(
@@ -642,7 +655,7 @@ fn reenable_before_disable_acknowledgment_retries_missing_hosts() {
         };
         assert_eq!(inactive, std::slice::from_ref(&a.component));
         assert!(messages.try_recv().is_err());
-        let fresh = Box::new(build_candidate(source::source_snapshot(a).unwrap()).unwrap());
+        let fresh = Box::new(build_candidate(source_snapshot(a).unwrap()).unwrap());
         apply(&mut world, entries, vec![change(fresh)]);
         let runtime = world.resource::<ModRuntime>();
         assert!(runtime.hosts.host(0).is_active());
@@ -662,7 +675,7 @@ fn failed_admission_acknowledges_an_absent_host_without_retrying() {
         enabled: true,
         ..Default::default()
     };
-    let result = source::source_snapshot(entry.clone())
+    let result = source_snapshot(entry.clone())
         .and_then(build_candidate)
         .map(Box::new);
     assert!(result.is_err());
@@ -707,8 +720,7 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
         },
         ..Default::default()
     };
-    let candidate =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let candidate = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     fs::remove_file(&path).unwrap();
     apply(&mut world, vec![entry.clone()], vec![change(candidate)]);
     assert!(
@@ -717,7 +729,7 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
     );
     let relay = world
         .resource::<crate::modding::packets::PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     let identity = protocol::session_wire::SessionIdentity {
         display_name: "Steve".into(),
@@ -736,9 +748,42 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
     assert!(
         world
             .resource::<crate::modding::packets::PacketMods>()
-            .session_relay()
+            .session_relay(false)
             .is_none()
     );
+}
+
+#[test]
+fn bulk_grants_keep_frame_and_packet_sources_on_their_own_hosts() {
+    let frame = wat::parse_str(fixture(false, "", "Hello")).unwrap();
+    let core = packet_bytes();
+    let adapted = mod_host::packet_mod::packet_mod_component(&core).unwrap();
+    for (bytes, packet) in [(frame, false), (core, true), (adapted, true)] {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("config");
+        let component = root.path().join("mod.wasm");
+        fs::write(&component, bytes).unwrap();
+        selection::select(&config, &component, true, "enable".into()).unwrap();
+        selection::grant_all(&config, &component, "grant".into()).unwrap();
+        let entry = selection::registered(&config).pop().unwrap().entry;
+        assert_eq!(entry.grants.packets, packet);
+        let candidate = build_candidate(source_snapshot(entry).unwrap()).unwrap();
+        assert_eq!(
+            matches!(candidate.runtime, CandidateRuntime::Packet(_)),
+            packet
+        );
+
+        if !packet {
+            let other = root.path().join("packet.wasm");
+            fs::write(&other, packet_bytes()).unwrap();
+            selection::select(&config, &other, true, "enable-packet".into()).unwrap();
+            selection::grant_all(&config, &other, "grant-packet".into()).unwrap();
+            let before = selection::registered(&config).pop().unwrap().entry;
+            selection::grant_all(&config, &component, "grant-frame".into()).unwrap();
+            let after = selection::registered(&config).pop().unwrap().entry;
+            assert_eq!(after, before);
+        }
+    }
 }
 
 #[test]
@@ -759,8 +804,7 @@ fn joins_wait_for_initial_observation_and_finish_after_admission() {
         ..Default::default()
     };
     fs::write(&entry.component, packet_bytes()).unwrap();
-    let candidate =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let candidate = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     let watcher = world.resource::<Watcher>();
     watcher.desired.lock().unwrap().generation += 1;
     assert!(
@@ -772,7 +816,7 @@ fn joins_wait_for_initial_observation_and_finish_after_admission() {
     assert!(
         world
             .resource::<crate::modding::packets::PacketMods>()
-            .session_relay()
+            .session_relay(false)
             .is_some()
     );
 
@@ -842,7 +886,7 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
     let context = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
     );
-    let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
+    let mut snapshot = source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = context;
     let prepared = Box::new(build_candidate(snapshot).unwrap());
     assert_eq!(
@@ -858,7 +902,7 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
             .host(0)
             .needs_drawing_restart()
     );
-    let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
+    let mut snapshot = source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
     );
@@ -913,4 +957,49 @@ fn the_real_watcher_restarts_unchanged_bytes_under_each_drawing_fence() {
         assert_eq!(runtime.hosts.host(0).label(), Some("Hello"));
         assert!(!runtime.hosts.host(0).needs_drawing_restart());
     }
+}
+
+#[test]
+fn active_dimension_rebinds_do_not_queue_redundant_admission() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let directory = tempfile::tempdir().unwrap();
+    let mut candidate = candidate(directory.path(), "guest.wasm", "Hello");
+    let mut snapshot = source_snapshot(candidate.registration.clone()).unwrap();
+    let host = candidate.frame_host_mut().unwrap();
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().unwrap());
+    let admitted = Admitted {
+        source: snapshot.identity,
+        drawing: Some(session),
+    };
+    for dimension in [1, 0] {
+        host.bind_drawing_world(host.drawing_session().unwrap(), false);
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+        host.bind_drawing_session(DrawingSession {
+            dimension,
+            ..session
+        });
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+    }
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
+    assert!(host.reload_if_changed().unwrap());
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        permissions: DrawingPermissions::default(),
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
 }

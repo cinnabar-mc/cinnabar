@@ -68,6 +68,23 @@ pub(crate) struct EffectBuffers {
 }
 
 impl EffectBuffers {
+    /// Borrows an indexed effect range and its retained CPU indices for bounded storage bindings.
+    pub(crate) fn emulation_input(
+        &self,
+        range: Range<u32>,
+    ) -> Option<crate::shaderpack::geometry_shader::Input<'_>> {
+        Some(crate::shaderpack::geometry_shader::Input {
+            vertices: self.vertices.as_ref()?,
+            indices: Some(self.indices.as_ref()?),
+            index_values: Some(&self.mesh.indices),
+            origins: None,
+            first: range.start,
+            count: range.end - range.start,
+            base_vertex: 0,
+            instance: 0,
+        })
+    }
+
     /// The indices `effect` draws this frame, when it has any.
     pub(crate) fn range(&self, effect: Effect) -> Option<Range<u32>> {
         self.ranges
@@ -256,13 +273,13 @@ pub(crate) fn prepare_effects(
     fit(
         &mut buffers.vertices,
         vertex_bytes,
-        wgpu::BufferUsages::VERTEX,
+        wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
         "shader pack effect vertices",
     );
     fit(
         &mut buffers.indices,
         index_bytes,
-        wgpu::BufferUsages::INDEX,
+        wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
         "shader pack effect indices",
     );
 }

@@ -98,7 +98,6 @@ fn respawn_discards_rejected_clicks_and_unconsumed_launches() {
 fn respawn_preserves_session_inventory_cooldowns_and_rearm_policy() {
     let mut runtime = ItemUseRuntime::default();
     runtime.synchronize(7);
-    runtime.set_delay_fix(true);
     runtime.observe_press(true);
     runtime.step(&item_frame(
         100,
@@ -111,11 +110,11 @@ fn respawn_preserves_session_inventory_cooldowns_and_rearm_policy() {
     let cooldowns = runtime.cooldowns.clone();
     assert!(change.is_some() && predicted.is_some() && !cooldowns.is_empty());
     let rearm = runtime.rearm_millis;
-    runtime.observe_selected_slot(Some(1));
+    runtime.observe_pulse(true);
     runtime.cancel_for_respawn();
     assert_eq!(runtime.session, Some(7));
-    assert!(runtime.delay_fix && runtime.slot_change_pending);
-    assert_eq!(runtime.selected_slot, Some(1));
+    assert!(!runtime.pulse_pending(), "respawn drops a latched pulse");
+    assert_eq!(runtime.last_air_use, Some((100, 0)));
     assert_eq!(runtime.rearm_millis, rearm);
     assert_eq!(runtime.cooldowns, cooldowns);
     assert_eq!(runtime.predicted, predicted);

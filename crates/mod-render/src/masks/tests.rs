@@ -21,6 +21,29 @@ fn store(owner: u64) -> (MaskStore, MaskEntity) {
 }
 
 #[test]
+fn guest_restart_retains_native_targets_but_rejects_old_handles() {
+    let (mut store, entity) = store(1);
+    let target = store.entity(entity.runtime_id).unwrap();
+    let mask = store.create(MaskDepth::Test).unwrap();
+    store.select(mask, &[target]).unwrap();
+    store.commit();
+    store.restart_guest();
+    assert!(store.commit().is_empty());
+    let next_target = store.entity(entity.runtime_id).unwrap();
+    let next_mask = store.create(MaskDepth::Test).unwrap();
+    assert_ne!(next_target, target);
+    assert_eq!(
+        store.select(mask, &[next_target]),
+        Err(MaskError::StaleHandle)
+    );
+    assert_eq!(
+        store.select(next_mask, &[target]),
+        Err(MaskError::StaleHandle)
+    );
+    store.select(next_mask, &[next_target]).unwrap();
+}
+
+#[test]
 fn masks_cannot_cross_owners_or_resource_kinds() {
     let (mut a, _) = store(1);
     let (mut b, _) = store(2);

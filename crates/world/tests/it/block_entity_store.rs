@@ -437,3 +437,38 @@ fn scoped_tails_bound_retained_nbt_and_continue_after_budget_rejections() {
     store.commit_decoded_sub_chunk(key, decoded).unwrap();
     assert!(store.block_entity(last).is_some());
 }
+
+#[test]
+fn sub_chunk_block_entities_are_exactly_those_inside_the_sub_chunk() {
+    let mut store = ChunkStore::new();
+    let positions = [
+        [16, 0, -1],
+        [31, 15, -16],
+        [20, 16, -5],
+        [20, -1, -5],
+        [24, 7, -9],
+    ];
+    for position in positions {
+        let key = BlockEntityKey::new(0, position[0], position[1], position[2]);
+        let nbt = DecodedBlockEntities::decode_live(key, &block_entity("Chest", position)).unwrap();
+        store.commit_block_entity_update(key, nbt).unwrap();
+    }
+    let chunk = store.chunk(ChunkKey::new(0, 1, -1)).unwrap();
+    let inside = |y| {
+        chunk
+            .sub_chunk_block_entities(SubChunkKey::new(0, 1, y, -1))
+            .map(|(key, _)| key.position())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(inside(0), [[16, 0, -1], [24, 7, -9], [31, 15, -16]]);
+    assert_eq!(inside(1), [[20, 16, -5]]);
+    assert_eq!(inside(-1), [[20, -1, -5]]);
+    assert!(inside(2).is_empty());
+    assert_eq!(
+        chunk
+            .sub_chunk_block_entities(SubChunkKey::new(0, 1, i32::MAX, -1))
+            .count(),
+        0,
+        "a sub-chunk past the coordinate range holds nothing"
+    );
+}

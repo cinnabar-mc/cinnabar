@@ -42,7 +42,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     enable_empty_hud(&mut presentation);
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.player_roster.set_entries(names(2));
+    runtime.session.player_roster.set_entries(names(2));
     let frame = |presentation: &mut UiPresentationRuntime,
                  player: &player_state::PlayerState,
                  runtime: &UiRuntime| {
@@ -59,7 +59,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
         presentation.screens.player_list.as_ref().unwrap().passes(),
         1
     );
-    runtime.player_roster.set_entries(names(3));
+    runtime.session.player_roster.set_entries(names(3));
     let changed = frame(&mut presentation, &player, &runtime);
     assert_ne!(shown.vertices, changed.vertices);
     runtime.set_player_list_held(false);
@@ -109,7 +109,7 @@ fn touch_roster_heading_stays_below_utility_buttons_on_first_paint() {
         presentation.set_safe_area(safe);
         presentation.enable_touch_controls(true);
         let mut runtime = UiRuntime::new(1);
-        runtime.player_roster.set_entries(names(8));
+        runtime.session.player_roster.set_entries(names(8));
         runtime.toggle_touch_player_list();
         let dpi = DpiScale::new(1.).unwrap();
         presentation
@@ -157,7 +157,7 @@ fn saved_utility_positions_leave_a_visible_clear_roster_region() {
         presentation.set_safe_area(safe);
         presentation.enable_touch_controls(true);
         let mut runtime = UiRuntime::new(1);
-        runtime.player_roster.set_entries(names(80));
+        runtime.session.player_roster.set_entries(names(80));
         runtime.toggle_touch_player_list();
         let dpi = DpiScale::new(1.).unwrap();
         for at in [0.12, 0.95, 0.2] {

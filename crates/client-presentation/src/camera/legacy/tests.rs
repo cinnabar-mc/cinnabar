@@ -1,6 +1,7 @@
 //! Scheduled camera contracts with original actors and resolved movement observations.
 use super::*;
 use crate::actor_publication::ActorFramePartialTick;
+use crate::camera::actor_effects::PresentedDamageShake;
 use crate::camera::{CameraSettingsAuthority, FirstPersonHandMotion, FlyCamera, ServerCameraView};
 use crate::camera::{bob::WalkBobState, hurt::CameraHurtState, java::JavaCameraState};
 use crate::local_player::LocalViewPose;
@@ -11,6 +12,7 @@ use protocol::ActorStatusKind;
 
 const WALK_BLOCKS_PER_TICK: f32 = 0.2;
 
+mod damage_shake_tests;
 mod sleep_tests;
 
 #[derive(Resource)]
@@ -127,6 +129,7 @@ fn present(
 fn apply(
     settings: Res<CameraSettingsAuthority>,
     hand: ResMut<FirstPersonHandMotion>,
+    shake: ResMut<PresentedDamageShake>,
     legacy: Res<LegacyCameraMotion>,
     server: Res<ServerCameraView>,
     world: Res<TestWorld>,
@@ -137,6 +140,7 @@ fn apply(
     crate::camera::actor_effects::apply_actor_damage_camera_rotation(
         settings,
         hand,
+        shake,
         Some(legacy),
         server,
         Some(WorldObservation {
@@ -159,6 +163,7 @@ fn camera_app() -> App {
         .init_resource::<JavaCameraState>()
         .init_resource::<LegacyCameraMotion>()
         .init_resource::<FirstPersonHandMotion>()
+        .init_resource::<PresentedDamageShake>()
         .init_resource::<ServerCameraView>()
         .insert_resource(ActorFramePartialTick(0.5))
         .insert_resource(TestWorld(player_stream()))

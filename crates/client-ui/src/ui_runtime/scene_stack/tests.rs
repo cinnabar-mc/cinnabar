@@ -387,6 +387,123 @@ fn forms_open_over_containers_that_are_not_menus() {
     }
 }
 
+/// Admits a generic storage window before any world observation refreshes its block identity.
+fn open_storage_window(
+    runtime: &mut UiRuntime,
+    player: &mut player_state::PlayerState,
+    position: [i32; 3],
+) {
+    let session = runtime.session_id();
+    runtime.publish_inventory_authority(player, protocol::InventoryAuthority::Server);
+    for (sequence, event) in [
+        protocol::InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: protocol::ContainerIdentity::window(7),
+            window_type: protocol::WINDOW_TYPE_CONTAINER,
+            position,
+            runtime_entity_id: -1,
+        }),
+        protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity {
+                slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                ..protocol::ContainerIdentity::window(7)
+            },
+            slots: vec![protocol::NetworkItemStack::empty(); 27].into(),
+            storage_item: protocol::NetworkItemStack::empty(),
+        }),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        runtime
+            .enqueue_inventory_event(player, session, sequence as u64 + 1, event)
+            .unwrap();
+    }
+    runtime.drain_pending_inventory(player);
+    assert!(runtime.inventory_open());
+}
+
+#[test]
+fn session_storage_observation_cannot_select_the_next_servers_screen_before_capture() {
+    use json_ui::vanilla::Reference;
+    let mut player = player_state::PlayerState::new(1);
+    let table = Arc::new(ScreenSettingsTable(HashMap::from([
+        (
+            Reference::ChestSmallChestScreen.as_str(),
+            settings(json!({"is_showing_menu": true})),
+        ),
+        (
+            Reference::ChestBarrelScreen.as_str(),
+            settings(json!({"is_showing_menu": false})),
+        ),
+    ])));
+    let mut runtime = in_world(&mut player, table);
+    let position = [3, 64, -2];
+    open_storage_window(&mut runtime, &mut player, position);
+    runtime.session.storage_block = Some((position, Arc::from("Barrel")));
+    runtime.begin_session(1);
+    assert_eq!(
+        super::super::presentation::forms::container_screen_reference(&player, &runtime),
+        Some(Reference::ChestBarrelScreen.as_str())
+    );
+    assert!(!runtime.container_shows_menu(&player));
+
+    player.begin_session(2);
+    runtime.begin_session(2);
+    open_storage_window(&mut runtime, &mut player, position);
+
+    assert_eq!(
+        super::super::presentation::forms::container_screen_reference(&player, &runtime),
+        Some(Reference::ChestSmallChestScreen.as_str())
+    );
+    assert!(runtime.container_shows_menu(&player));
+    assert!(!form_admitted(&mut runtime, &mut player));
+}
+
+#[test]
+fn session_storage_observation_cannot_rename_the_next_servers_request_address() {
+    for (block, name) in [
+        ("Barrel", protocol_ids::ContainerName::Barrel),
+        ("ShulkerBox", protocol_ids::ContainerName::ShulkerBox),
+    ] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = in_world(&mut player, vanilla_like_table());
+        let position = [3, 64, -2];
+        open_storage_window(&mut runtime, &mut player, position);
+        runtime.session.storage_block = Some((position, Arc::from(block)));
+        assert_eq!(
+            runtime
+                .inventory_ledger_mut(&mut player)
+                .storage_identity()
+                .unwrap()
+                .slot_type,
+            Some(name.wire_value())
+        );
+        runtime.begin_session(1);
+        assert_eq!(
+            runtime
+                .inventory_ledger_mut(&mut player)
+                .storage_identity()
+                .unwrap()
+                .slot_type,
+            Some(name.wire_value())
+        );
+
+        player.begin_session(2);
+        runtime.begin_session(2);
+        open_storage_window(&mut runtime, &mut player, position);
+
+        assert_eq!(
+            runtime
+                .inventory_ledger_mut(&mut player)
+                .storage_identity()
+                .unwrap()
+                .slot_type,
+            Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+            "retired block {block}"
+        );
+    }
+}
+
 /// Storage windows answer with the variant their block entity draws, not the small chest's.
 #[test]
 fn form_admission_follows_the_drawn_storage_variant() {
@@ -404,37 +521,9 @@ fn form_admission_follows_the_drawn_storage_variant() {
         ]);
         let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
         let position = [3, 64, -2];
-        runtime
-            .enqueue_inventory_event(
-                &mut player_runtime,
-                1,
-                1,
-                protocol::InventoryEvent::Open(protocol::ContainerOpenEvent {
-                    container: protocol::ContainerIdentity::window(7),
-                    window_type: protocol::WINDOW_TYPE_CONTAINER,
-                    position,
-                    runtime_entity_id: -1,
-                }),
-            )
-            .unwrap();
-        runtime
-            .enqueue_inventory_event(
-                &mut player_runtime,
-                1,
-                2,
-                protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
-                    container: protocol::ContainerIdentity {
-                        slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
-                        ..protocol::ContainerIdentity::window(7)
-                    },
-                    slots: vec![protocol::NetworkItemStack::empty(); 27].into(),
-                    storage_item: protocol::NetworkItemStack::empty(),
-                }),
-            )
-            .unwrap();
-        runtime.drain_pending_inventory(&mut player_runtime);
+        open_storage_window(&mut runtime, &mut player_runtime, position);
         assert!(runtime.inventory_open());
-        runtime.storage_block = block_entity.map(|id| (position, Arc::from(id)));
+        runtime.session.storage_block = block_entity.map(|id| (position, Arc::from(id)));
         assert_eq!(
             form_admitted(&mut runtime, &mut player_runtime),
             admitted,
@@ -485,4 +574,86 @@ fn a_form_over_a_container_ends_the_drag_in_flight() {
             .is_empty(),
         "no distribution resumes without a held button"
     );
+}
+
+// The pack's mob effect screen absorbs gameplay input and closes when the player is hurt.
+#[test]
+fn carrier_mob_effect_screen_absorbs_input_and_closes_on_hurt() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let Some(carrier) = ui_engine::test_support::carrier() else {
+        eprintln!(
+            "skipping carrier_mob_effect_screen_absorbs_input_and_closes_on_hurt: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    let catalog = Catalog::from_files(
+        carrier
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .unwrap();
+    let table = ScreenSettingsTable::for_catalog(&catalog, &Context::retail(true));
+    let mut runtime = in_world(&mut player_runtime, Arc::new(table));
+    runtime
+        .apply_local_effect(
+            runtime.session_id(),
+            1,
+            protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 42,
+                action: protocol::ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 100,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(runtime.toggle_mob_effect_screen(0));
+    assert!(!runtime.gameplay_input(&player_runtime, None));
+    assert_eq!(
+        runtime.scenes(&player_runtime, host(None)).closes_on_hurt(),
+        Some(Scene::MobEffects)
+    );
+    runtime.note_player_hurt();
+    runtime.close_scenes_on_player_hurt(&mut player_runtime, None);
+    assert!(!runtime.mob_effect_screen().is_open());
+    assert!(runtime.gameplay_input(&player_runtime, None));
+}
+
+// Shortcut adapters see every runtime screen except their own, whatever its input policy.
+#[test]
+fn screen_open_besides_names_every_screen_but_the_caller() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
+    assert!(!runtime.screen_open_besides(&player_runtime, None));
+    runtime
+        .apply_local_effect(
+            runtime.session_id(),
+            1,
+            protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 42,
+                action: protocol::ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 100,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(runtime.toggle_mob_effect_screen(0));
+    assert!(runtime.screen_open_besides(&player_runtime, None));
+    assert!(runtime.screen_open_besides(&player_runtime, Some(Scene::Emote)));
+    assert!(!runtime.screen_open_besides(&player_runtime, Some(Scene::MobEffects)));
+    runtime.close_mob_effect_screen();
+    runtime.credits_mut().open(42, 1, 0);
+    assert!(runtime.screen_open_besides(&player_runtime, Some(Scene::MobEffects)));
 }

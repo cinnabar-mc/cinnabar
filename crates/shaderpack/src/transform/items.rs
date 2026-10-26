@@ -1,7 +1,34 @@
 //! Top-level item splitting, the light declaration parser, and GLSL type helpers.
 
+use super::TransformError;
 use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::{HashMap, HashSet};
+
+/// Rejects unbalanced token groups before a compatibility parser inspects their contents.
+pub(super) fn validate_delimiters(tokens: &[Tok]) -> Result<(), TransformError> {
+    let mut delimiters = Vec::new();
+    for token in tokens {
+        if token.is("(") || token.is("[") || token.is("{") {
+            delimiters.push(token);
+        } else if token.is(")") || token.is("]") || token.is("}") {
+            let expected = match token.text() {
+                ")" => "(",
+                "]" => "[",
+                _ => "{",
+            };
+            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
+                return Err(TransformError::new(
+                    "unmatched closing delimiter",
+                    token.line,
+                ));
+            }
+        }
+    }
+    if let Some(open) = delimiters.last() {
+        return Err(TransformError::new("unclosed delimiter", open.line));
+    }
+    Ok(())
+}
 
 /// Storage, interpolation and precision qualifiers recognised before a declaration's type.
 pub(super) const QUALIFIERS: &[&str] = &[
@@ -35,7 +62,7 @@ pub(super) const QUALIFIERS: &[&str] = &[
 /// A top-level declaration: `layout(...) quals type[arr] a[arr] = init, b;`, a block
 /// `quals Name { members } inst;`, or a struct definition.
 #[derive(Debug, Clone)]
-pub(super) struct Decl {
+pub(crate) struct Decl {
     pub layout: Vec<Tok>,
     pub quals: Vec<String>,
     /// The type name; `"struct"` / `"block"` for those forms; empty for `layout(...) in;`.
@@ -62,7 +89,7 @@ pub(super) enum Item {
 }
 
 /// Splits the token stream into top-level statements and function definitions.
-pub(super) fn split_items(toks: &[Tok]) -> Vec<Vec<Tok>> {
+pub(crate) fn split_items(toks: &[Tok]) -> Vec<Vec<Tok>> {
     let mut items = vec![];
     let mut cur: Vec<Tok> = vec![];
     let mut brace = 0i32;
@@ -188,7 +215,7 @@ pub(super) fn size_unsized_arrays(src: &[Tok]) -> Vec<Tok> {
 }
 
 /// Parses one top-level statement as a declaration; `None` for prototypes and anything else.
-pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
+pub(crate) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
     let mut i = 0;
     let mut layout = vec![];
     let mut quals = vec![];
@@ -367,7 +394,7 @@ pub(super) fn mat_cols(ty: &str) -> Option<(u32, &'static str)> {
 }
 
 /// The integer value of `key = N` inside a layout qualifier.
-pub(super) fn layout_key(layout: &[Tok], key: &str) -> Option<u32> {
+pub(crate) fn layout_key(layout: &[Tok], key: &str) -> Option<u32> {
     let i = layout.iter().position(|t| t.ident() == Some(key))?;
     if let (
         Some(e),
