@@ -525,8 +525,9 @@ and rendered qualification remain incomplete.
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
   Movement retains signed byte rotations and exact network heights through tick and
-  frame interpolation and predicted picking. Specialized projectile and vehicle movement,
-  remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  frame interpolation and predicted picking. Rotation-only player packets preserve active
+  movement and body yaw while applying pitch immediately. Specialized projectile and vehicle movement,
+  other remote-player packet modes, stance and riding update timing, partially loaded terrain,
   and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.

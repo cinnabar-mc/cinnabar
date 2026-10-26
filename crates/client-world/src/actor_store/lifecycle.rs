@@ -528,6 +528,10 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
+                if movement.player_mode == Some(MovePlayerMode::Rotation) {
+                    actor.apply_player_rotation(&movement, sequence);
+                    return ActorApplyResult::Updated;
+                }
                 let Some(duration) =
                     super::movement_interpolation::duration(movement.interpolation)
                 else {
