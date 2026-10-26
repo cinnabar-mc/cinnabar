@@ -421,6 +421,6 @@ fn failed_automatic_replacement(
     menu.show_join_failure("Could not start transfer.example.net".into());
     menu.activate(MenuAction::AddBack);
     assert_eq!(menu.view().screen, MenuScreen::Play);
-    menu.activate(MenuAction::PlayBack);
+    menu.activate(MenuAction::AddBack);
     assert_eq!(menu.view().screen, MenuScreen::Home);
 }
