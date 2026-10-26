@@ -29,9 +29,7 @@ impl ActorSnapshot {
         set(ActorFlag::Sprinting, feed.sprinting);
         set(ActorFlag::Gliding, feed.gliding);
         set(ActorFlag::DamageNearbyMobs, feed.spinning);
-        // Keep the rig's sprint/water pose independent of gameplay swimming.
-        let in_water = self.status.fluid.is_some_and(|(water, _)| water);
-        set(ActorFlag::Swimming, feed.sprinting && in_water);
+        set(ActorFlag::Swimming, feed.swimming);
         match feed.item_use {
             LocalItemUse::Unpredicted => {}
             LocalItemUse::Idle => set(ActorFlag::UsingItem, false),

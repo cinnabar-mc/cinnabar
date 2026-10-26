@@ -221,6 +221,12 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   the current PR, review and acceptance workflow. Follow the current branch policy.
 - [ ] Verify invisible-block presentation, including conditional camera-facing marker
   sprites and their display/input conditions; invisible terrain alone does not close acceptance.
+- [ ] Match detail quads that native tessellation draws after a cube pass without a new
+  vertex colour or light, so they keep the last (east) face's shade and final vertex light.
+  Bamboo leaves do this. Lantern handles, candle wicks, sea pickle crowns, brewing-stand
+  details and the stonecutter blade follow the same native pattern and remain unverified.
+  Bamboo stem faces still pick the nearest AO corner instead of interpolating across the
+  inset face with the stalk's random offset.
 
 ### Lighting, atmosphere and publication
 
@@ -511,6 +517,8 @@ geometry, artwork and owner-root placement. Startup harness definitions are comp
 from tagged items and present pack resources. Resource-only session overrides reuse
 those definitions while preserving authored item conditions. Expression roots retain
 the worn slot through owner placement; worn equipment counts exclude hands.
+Missing copper armour definitions reuse standard pack definitions when the matching
+textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
