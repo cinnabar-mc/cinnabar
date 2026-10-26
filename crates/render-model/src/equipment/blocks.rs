@@ -88,10 +88,12 @@ pub fn collect_held(
                 == Some(assets::ModelFamily::Fence)
                 && assets::registry::pinned_block_identity(visual)
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
-                && assets::facts::block_render_fact(&key.identifier).kind
-                    != assets::facts::BlockRenderKind::BambooFence
             {
-                HeldDisplay::Fence(visual)
+                HeldDisplay::Fence(
+                    visual,
+                    assets::facts::block_render_fact(&key.identifier).kind
+                        == assets::facts::BlockRenderKind::BambooFence,
+                )
             } else if flat {
                 HeldDisplay::Sprite
             } else {
@@ -109,7 +111,7 @@ enum HeldDisplay {
     GlassPlate(u32),
     Trapdoor(u32),
     Button(u32),
-    Fence(u32),
+    Fence(u32, bool),
     Sprite,
 }
 
@@ -149,7 +151,7 @@ fn collect_shapes(
             Some(HeldDisplay::GlassPlate(shown)) => panes::model(world, shown),
             Some(HeldDisplay::Trapdoor(shown)) => trapdoors::model(world, shown),
             Some(HeldDisplay::Button(shown)) => buttons::model(world, shown),
-            Some(HeldDisplay::Fence(shown)) => fences::model(world, shown),
+            Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
             _ => None,
         }
         .or_else(|| {
@@ -173,7 +175,7 @@ fn collect_shapes(
                     HeldDisplay::GlassPlate(_)
                     | HeldDisplay::Trapdoor(_)
                     | HeldDisplay::Button(_)
-                    | HeldDisplay::Fence(_),
+                    | HeldDisplay::Fence(..),
                 ) => return None,
                 None if display.is_some()
                     && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>

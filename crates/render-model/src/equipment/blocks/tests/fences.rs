@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn carried_bamboo_fences_keep_their_thicker_slats() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let held = collect_held(&world, &entities, &icons);
+    let mut checked = 0;
+    for definition in entities.item_visuals() {
+        let name = definition.key.identifier.as_ref();
+        if assets::facts::block_render_fact(name).kind
+            != assets::facts::BlockRenderKind::BambooFence
+        {
+            continue;
+        }
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            panic!("{name} has no block route");
+        };
+        let vertices = held.models.get(&block_visual.0).unwrap();
+        let mut heights: Vec<_> = vertices.iter().map(|vertex| vertex.position[1]).collect();
+        heights.sort_by(f32::total_cmp);
+        heights.dedup();
+        assert_eq!(heights, [-0.5, -0.25, -0.0625, 0.25, 0.4375, 0.5]);
+        checked += 1;
+    }
+    assert!(checked > 0);
+}
+
+#[test]
 fn carried_fences_join_their_rail_halves_without_internal_caps() {
     let Some((world, entities, icons)) = pinned_carriers() else {
         return;
