@@ -152,8 +152,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   (`MAX_ENTITY_SLOTS`), `SERVER_PIPELINE_BYTES` (one bundle's largest GPU grant, 128 MiB, for
   the pipelines one pinned server's programs leave in the process, past which a program new to
   the process is refused for that server), `PROCESS_PIPELINE_BYTES` (four servers' shares,
-  the ceiling for all of them) and the 64 compile failures one session
-  reports (`MAX_WORLD_MATERIAL_FAILURES`). Composed modules and their pipelines stay
+  the ceiling for all of them), the 64 compile failures one session
+  reports (`MAX_WORLD_MATERIAL_FAILURES`) and the 600 mesh rounds a block binding change waits
+  for the previous one to remesh before applying anyway (`WORLD_MATERIAL_HOLD_ROUNDS`). Composed modules and their pipelines stay
   registered for the process because Bevy cannot drop a pipeline; a session charges the ones
   its bundles compiled, and the per-server shares and process ceiling bound them across
   sessions.
