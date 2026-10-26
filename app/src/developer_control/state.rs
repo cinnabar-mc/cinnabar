@@ -322,10 +322,14 @@ pub(super) fn snapshot(world: &World) -> Value {
             .map(|settings| settings.feel().java_animations),
         "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| format!("{:?}", settings.perspective())),
-        "hurt_camera_style": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
+        "view_tilt": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| {
-                let style = settings.hurt_camera_style();
-                json!({"intensity": style.intensity(), "old_tilt": style.old_tilt()})
+                let tilt = settings.view_tilt();
+                json!({
+                    "roll_degrees": tilt.map(|tilt| tilt.roll_degrees),
+                    "pitch_degrees": tilt.map(|tilt| tilt.pitch_degrees),
+                    "hurt_shake_intensity": settings.hurt_shake_intensity(),
+                })
             }),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({

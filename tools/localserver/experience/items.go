@@ -28,6 +28,8 @@ type itemType struct {
 	exp, id, name string
 	maxCount      int
 	icon          image.Image
+	// listed is set when the Experience's creative group lists the item.
+	listed bool
 }
 
 // Item is an item of an Experience. Its data, if any, is a value of the stack that holds it.
@@ -77,7 +79,9 @@ func newItemType(exp string, def ItemDef, blocks []BlockDef, cache *assetCache) 
 	if err != nil {
 		return fail(fmt.Errorf("icon: %w", err))
 	}
-	return &itemType{exp: exp, id: def.ID, name: def.DisplayName, maxCount: int(def.MaxStack), icon: icon}, nil
+	return &itemType{
+		exp: exp, id: def.ID, name: def.DisplayName, maxCount: int(def.MaxStack), icon: icon, listed: def.Listed,
+	}, nil
 }
 
 // LookupItem returns the registered item with the id.
@@ -140,8 +144,8 @@ func stackOf(exp string, s item.Stack) ItemStack {
 }
 
 // makeStack makes the stack the Experience exp's guest staged, as the runtime checked it: one of
-// exp's items, with its data, or of its blocks or the server's vanilla items, without data, each
-// within the most one stack holds.
+// exp's items, with its data, or of its blocks that have an item or the server's vanilla items,
+// without data, each within the most one stack holds.
 func (r *Registry) makeStack(exp string, s NewStack) (item.Stack, error) {
 	var data []byte
 	if s.Data != nil {
@@ -159,7 +163,7 @@ func (r *Registry) makeStack(exp string, s NewStack) (item.Stack, error) {
 			return item.Stack{}, fmt.Errorf("%s has %d bytes of data; the limit is %d", s.ID, len(data), maxItemDataBytes)
 		}
 		it = Item{own}
-	case block != nil && block.exp == exp && s.Metadata == 0 && data == nil:
+	case block != nil && block.exp == exp && block.item != ItemNone && s.Metadata == 0 && data == nil:
 		it = Block{t: block}
 	case strings.HasPrefix(s.ID, vanillaNamespace+":") && data == nil:
 		var ok bool
@@ -186,7 +190,7 @@ func (r *Registry) makeStack(exp string, s NewStack) (item.Stack, error) {
 }
 
 // inventoryOf is p's inventory as the Experience exp's guest sees it, and its stacks: the main
-// inventory, hotbar first, then the offhand, and the selected hotbar slot.
+// inventory, hotbar first, then the offhand, the selected hotbar slot and p's game mode.
 func inventoryOf(exp string, p *player.Player) (*Inventory, []item.Stack) {
 	data := p.Data()
 	slots := make([]item.Stack, inventorySlots)
@@ -194,7 +198,7 @@ func inventoryOf(exp string, p *player.Player) (*Inventory, []item.Stack) {
 		slots[i], _ = data.Inventory.Item(i)
 	}
 	slots[inventorySlots-1], _ = data.OffHand.Item(0)
-	inv := &Inventory{Selected: uint8(data.HeldSlot), Slots: make([]*ItemStack, inventorySlots)}
+	inv := &Inventory{Selected: uint8(data.HeldSlot), Slots: make([]*ItemStack, inventorySlots), GameMode: gameModeOf(p.GameMode())}
 	for i, s := range slots {
 		if !s.Empty() {
 			stack := stackOf(exp, s)
@@ -202,6 +206,22 @@ func inventoryOf(exp string, p *player.Player) (*Inventory, []item.Stack) {
 		}
 	}
 	return inv, slots
+}
+
+// gameModeOf reads a game mode from what it allows rather than its type, so a server's wrapper
+// around one, such as the local server's /fly, plays as the mode it wraps: spectator without
+// collision, creative with the creative inventory, adventure without editing, survival otherwise.
+func gameModeOf(mode world.GameMode) GameMode {
+	switch {
+	case !mode.HasCollision():
+		return GameModeSpectator
+	case mode.CreativeInventory():
+		return GameModeCreative
+	case !mode.AllowsEditing():
+		return GameModeAdventure
+	default:
+		return GameModeSurvival
+	}
 }
 
 // slotHolder is the inventory that holds the actor's slot, and the slot in it.

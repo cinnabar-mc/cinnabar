@@ -1,6 +1,6 @@
 //! Experimental "Shader pack" render mode: runs a Java OptiFine/Iris shader pack, translated
-//! by the `shaderpack` crate, on Cinnabar's world. Compiled with the `shaderpacks` feature;
-//! without it [`ShaderPackRenderPlugin`] does nothing.
+//! by the `shaderpack` crate, on Cinnabar's world. Loading and GPU pipeline creation wait
+//! until the player selects a pack.
 //!
 //! Flow: the app writes `ShaderPackRequest`; a worker thread translates the pack and builds
 //! raw wgpu pipelines from the naga modules (see `pipelines`, `draws`), publishing
@@ -26,67 +26,41 @@
 //! (the translator flips clip-space Y and remaps clip depth), uniforms use OpenGL matrices,
 //! and each texture is read with the sampler class Iris gives its name.
 
-#[cfg(feature = "shaderpacks")]
 pub(crate) mod actors;
-#[cfg(feature = "shaderpacks")]
 mod alpha_test;
-#[cfg(feature = "shaderpacks")]
 pub(crate) mod atlas;
-#[cfg(feature = "shaderpacks")]
 mod center_depth;
-#[cfg(feature = "shaderpacks")]
 mod dispatch;
-#[cfg(feature = "shaderpacks")]
 mod draw_pipelines;
-#[cfg(feature = "shaderpacks")]
 mod draws;
-#[cfg(feature = "shaderpacks")]
 pub(crate) mod effects;
-#[cfg(feature = "shaderpacks")]
 mod frame_geometry;
-#[cfg(feature = "shaderpacks")]
 pub(crate) mod geometry;
-#[cfg(feature = "shaderpacks")]
+mod geometry_shader;
+#[cfg(test)]
+mod geometry_shader_tests;
 mod host_pipelines;
-#[cfg(feature = "shaderpacks")]
 mod ids;
-#[cfg(feature = "shaderpacks")]
 mod kernels;
-#[cfg(feature = "shaderpacks")]
 mod lightmap;
-#[cfg(feature = "shaderpacks")]
 mod load_failures;
-#[cfg(feature = "shaderpacks")]
 mod loader;
-#[cfg(feature = "shaderpacks")]
 mod native_passes;
-#[cfg(feature = "shaderpacks")]
 mod overlay_depth;
-#[cfg(feature = "shaderpacks")]
 mod passes;
-#[cfg(feature = "shaderpacks")]
 mod pipeline_cache;
-#[cfg(feature = "shaderpacks")]
 mod pipelines;
-#[cfg(feature = "shaderpacks")]
 mod plan;
-#[cfg(feature = "shaderpacks")]
 pub(crate) mod plugin;
-#[cfg(feature = "shaderpacks")]
 mod resources;
-#[cfg(feature = "shaderpacks")]
 mod scene_bindings;
-#[cfg(feature = "shaderpacks")]
+mod scheduling;
 mod shadow_maps;
-#[cfg(feature = "shaderpacks")]
 mod sky;
-#[cfg(feature = "shaderpacks")]
 mod targets;
-#[cfg(all(test, feature = "shaderpacks"))]
+#[cfg(test)]
 mod tests;
-#[cfg(feature = "shaderpacks")]
 mod uniform_audit;
-#[cfg(feature = "shaderpacks")]
 mod uniforms;
 
 pub(crate) mod native_actors;
@@ -99,13 +73,7 @@ pub(crate) fn native_pass_enabled(
     view: bevy::prelude::Entity,
     after_pack: bool,
 ) -> bool {
-    #[cfg(feature = "shaderpacks")]
     let replacement = plugin::draws_world(world, view);
-    #[cfg(not(feature = "shaderpacks"))]
-    let replacement = {
-        let _ = (world, view);
-        false
-    };
     replacement == after_pack
 }
 
@@ -114,16 +82,11 @@ pub(crate) fn native_pass_enabled(
 pub struct ShaderPackRenderPlugin;
 
 impl Plugin for ShaderPackRenderPlugin {
-    #[cfg(feature = "shaderpacks")]
     fn build(&self, app: &mut App) {
-        plugin::build(app);
+        render_scene::startup_timing::measure("shader_pack_build", || plugin::build(app));
     }
 
-    #[cfg(not(feature = "shaderpacks"))]
-    fn build(&self, _app: &mut App) {}
-
-    #[cfg(feature = "shaderpacks")]
     fn finish(&self, app: &mut App) {
-        plugin::finish(app);
+        render_scene::startup_timing::measure("shader_pack_finish", || plugin::finish(app));
     }
 }

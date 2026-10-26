@@ -134,11 +134,16 @@ fn customize(
             available.then_some(command(Action::AllowRequested(item.id))),
         ));
     }
-    buttons.push((
-        "Revoke all",
-        Variant::Destructive,
-        available.then_some(command(Action::RevokeAll(item.id))),
-    ));
+    let (label, variant, action) = if item.permissions.iter().any(|permission| permission.enabled) {
+        (
+            "Revoke all",
+            Variant::Destructive,
+            Action::RevokeAll(item.id),
+        )
+    } else {
+        ("Grant all", Variant::Primary, Action::GrantAll(item.id))
+    };
+    buttons.push((label, variant, available.then_some(command(action))));
     buttons.push((
         "Done",
         Variant::Secondary,

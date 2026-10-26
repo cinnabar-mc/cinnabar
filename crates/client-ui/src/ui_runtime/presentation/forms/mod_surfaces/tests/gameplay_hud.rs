@@ -1,17 +1,17 @@
 //! Resource-pack HUD visibility while native placement panels own input.
 
 use super::super::super::ServerUiPack;
-use super::mod_widgets::{content, presentation};
+use super::mod_hud::presentation;
 use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 use ui::DpiScale;
 
-/// Personal settings suppress the base HUD, while the layout editor keeps it for alignment.
+/// Personal settings suppress the base HUD and closing them restores it.
 #[test]
-fn personal_settings_hide_base_hud_and_restore_it_for_layout_and_close() {
+fn personal_settings_hide_base_hud_and_restore_it_on_close() {
     use ui_engine::text_metrics::TextMetrics;
-    let mut p = presentation(false);
+    let mut p = presentation();
     let runtime = UiRuntime::new(1);
     let player = player_state::PlayerState::new(1);
     let paint = |p: &mut UiPresentationRuntime| {
@@ -31,7 +31,7 @@ fn personal_settings_hide_base_hud_and_restore_it_for_layout_and_close() {
     };
     let base = paint(&mut p);
     assert!(base > 0, "the base HUD fixture must actually render");
-    let panel = super::mod_hud_editor::panel();
+    let panel = mod_ui::test_support::sample_panel();
     p.mod_ui_mut()
         .set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))
         .unwrap();
@@ -40,12 +40,6 @@ fn personal_settings_hide_base_hud_and_restore_it_for_layout_and_close() {
         paint(&mut p),
         0,
         "settings must not have sharp HUD controls underneath"
-    );
-    p.mod_ui_mut().open_mod_hud_editor(&content()).unwrap();
-    assert_eq!(
-        paint(&mut p),
-        base,
-        "the layout editor needs the base HUD as a placement reference"
     );
     p.mod_ui_mut().set_mod_panel_open(false);
     assert_eq!(
@@ -118,7 +112,7 @@ fn authored_panels_opt_into_gameplay_hud_but_never_crosshair() {
         paint(&mut p, true) > 0,
         "the crosshair screen fixture must render before focus"
     );
-    let mut panel = super::mod_hud_editor::panel();
+    let mut panel = mod_ui::test_support::sample_panel();
     for visible in [false, true, false, true] {
         panel.show_gameplay_hud = visible;
         p.mod_ui_mut()

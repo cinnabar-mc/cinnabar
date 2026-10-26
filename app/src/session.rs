@@ -29,6 +29,8 @@ use {
 
 use std::{path::PathBuf, time::Instant};
 
+#[cfg(all(test, unix))]
+mod cache_tests;
 mod client_id;
 mod startup;
 
@@ -43,10 +45,14 @@ use client_state::{JoinIntent, SessionStatus};
 #[derive(Debug, Resource)]
 pub(crate) struct SessionController {
     core: CoreProcessGuard, // declared first: the core stops before the directories below go
+    /// Cache mode captured before this connection's core was spawned.
+    blob_cache: BlobCache,
     /// Identity-checked owner of the live session's runtime directory.
     directory: Option<SessionDirectoryGuard>,
     /// The join provisioning behind the connecting screen.
     join: Option<JoinAttempt>,
+    /// A join waiting for mod consent before its cache mode is captured.
+    pending: Option<JoinIntent>,
     generation: u64,
     client_random_id: Option<protocol::ClientRandomId>,
     client_id_load: Option<
@@ -76,8 +82,10 @@ impl SessionController {
     pub(crate) fn new(core: CoreProcessGuard) -> Self {
         Self {
             core,
+            blob_cache: BlobCache::default(),
             directory: None,
             join: None,
+            pending: None,
             generation: 1,
             client_random_id: None,
             client_id_load: None,
@@ -89,6 +97,12 @@ impl SessionController {
             trust: None,
             kept_packs: crate::runtime::network::compiled_stacks(),
         }
+    }
+
+    /// Retains the startup core's cache advertisement through downstream login.
+    pub(crate) fn with_blob_cache(mut self, cache: BlobCache) -> Self {
+        self.blob_cache = cache;
+        self
     }
 
     /// A controller that releases `kept` instead of the stacks joins share.
@@ -173,7 +187,6 @@ impl SessionController {
     fn start_core(
         &mut self,
         menu: &MenuRuntime,
-        cache: &BlobCache,
         address: &str,
         auth_cache: Option<&std::path::Path>,
         generation: u64,
@@ -194,11 +207,8 @@ impl SessionController {
             &socket_dir,
             address,
             auth_cache,
-            // Advertise upstream cache capability exactly because this same
-            // connect hands the verified blob cache to the new network
-            // session; that ownership is what makes the client answer
-            // LoginSuccess with cache-enabled status downstream.
-            cache.enables_upstream_client_cache(),
+            // Upstream advertisement and downstream login share this captured cache mode.
+            self.blob_cache.enables_upstream_client_cache(),
             true,
         )
         .map_err(|error| format!("Could not start {address}: {error}"))?;
@@ -225,7 +235,7 @@ impl SessionController {
 
     #[cfg(all(test, unix))]
     pub(crate) fn join_pending(&self) -> bool {
-        self.join.is_some()
+        self.join.is_some() || self.pending.is_some()
     }
 
     /// Installs a connecting join at the current generation.
@@ -312,13 +322,22 @@ impl SessionResources<'_> {
     /// Ends the live session and fences a fresh generation. The core stops off
     /// the frame, and its directories go only once it has exited.
     fn retire(&mut self) -> u64 {
-        *self.network = NetworkHandle::<PackApplication>::disconnected();
+        let leave = bridge::leave_profile::LeaveProfile::current();
+        let _section = leave.section("session_retire");
+        let _span = bevy::log::info_span!("session.retire").entered();
+        {
+            let _section = leave.section("network_detach");
+            self.network.retire();
+        }
         let controller = &mut *self.controller;
         let directory = controller.directory.take();
         let join = controller.join.take();
-        controller
-            .core
-            .stop_detached(move || drop((join, directory)));
+        controller.pending = None;
+        let core = leave.section("core_shutdown");
+        controller.core.stop_detached(move || {
+            let _core = core;
+            drop((join, directory));
+        });
         controller.connecting = false;
         controller.presence = None;
         controller.destination_identity = None;
@@ -328,9 +347,14 @@ impl SessionResources<'_> {
             self.far_terrain.as_mut(),
             self.state.client_world.stream.as_mut(),
         ) {
+            let _section = leave.section("far_terrain");
+            let _span = bevy::log::info_span!("session.retire_far_terrain").entered();
             far.retire_stream(stream);
         }
-        self.restore_startup_artwork();
+        {
+            let _section = leave.section("artwork_reset");
+            self.restore_startup_artwork();
+        }
         self.state.retire(generation);
         generation
     }
@@ -364,11 +388,12 @@ fn attempt_connect(
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.show_home();
-    let generation = session.retire();
+    session.retire();
     session.controller.trust = None;
     session
         .state
         .runtime
+        .session
         .experiences
         .select_destination(&address);
     menu.begin_join_progress(&address, local_world);
@@ -389,6 +414,27 @@ fn attempt_connect(
             format!("remote:{}", address.trim().to_lowercase())
         },
     );
+    session.controller.pending = Some(JoinIntent {
+        address,
+        auth_cache,
+        local_world,
+    });
+    session.controller.connecting = true;
+    menu.show_connecting();
+    prepare_join(menu, session, cache);
+}
+
+/// Starts dialing only after enabled grants and the launcher's cache mode agree.
+fn provision_join(menu: &mut MenuRuntime, session: &mut SessionResources<'_>) {
+    let Some(intent) = session.controller.pending.take() else {
+        return;
+    };
+    let JoinIntent {
+        address,
+        auth_cache,
+        local_world,
+    } = intent;
+    let generation = session.controller.generation;
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,
@@ -409,15 +455,13 @@ fn attempt_connect(
             controller.fail_join(menu, format!("Could not open {address}: no launcher core"));
             return;
         }
-        None => {
-            match controller.start_core(menu, cache, &address, auth_cache.as_deref(), generation) {
-                Ok(stage) => stage,
-                Err(message) => {
-                    controller.fail_join(menu, message);
-                    return;
-                }
+        None => match controller.start_core(menu, &address, auth_cache.as_deref(), generation) {
+            Ok(stage) => stage,
+            Err(message) => {
+                controller.fail_join(menu, message);
+                return;
             }
-        }
+        },
     };
     controller.join = Some(JoinAttempt {
         generation,
@@ -426,8 +470,29 @@ fn attempt_connect(
         local_world,
         stage,
     });
-    controller.connecting = true;
-    menu.show_connecting();
+}
+
+/// Captures the connection cache mode once enabled mods have finished admission.
+fn prepare_join(menu: &mut MenuRuntime, session: &mut SessionResources<'_>, cache: &BlobCache) {
+    if session.controller.pending.is_none()
+        || session
+            .mod_registration
+            .as_ref()
+            .is_some_and(|watcher| watcher.preparing())
+    {
+        return;
+    }
+    let connection_cache = crate::modding::packets::PacketMods::connection_cache(
+        cache,
+        session.packet_mods.as_deref(),
+        session
+            .mod_registration
+            .as_ref()
+            .map(|watcher| watcher.active_grants())
+            .unwrap_or_default(),
+    );
+    session.controller.blob_cache = connection_cache;
+    provision_join(menu, session);
 }
 
 /// Advances the pending join without blocking: starts its network session
@@ -438,16 +503,17 @@ fn poll_join(
     session: &mut SessionResources<'_>,
     cache: &BlobCache,
 ) {
-    let controller = &mut *session.controller;
-    if controller.join.is_none() {
-        return;
-    }
     // The join must capture admitted mods, including on a cold cache or a transfer.
     if session
         .mod_registration
         .as_ref()
         .is_some_and(|watcher| watcher.preparing())
     {
+        return;
+    }
+    prepare_join(menu, session, cache);
+    let controller = &mut *session.controller;
+    if controller.join.is_none() {
         return;
     }
     let client_random_id = match controller.poll_client_random_id() {
@@ -474,7 +540,6 @@ fn poll_join(
         JoinPoll::StartCore(mut attempt) => {
             match controller.start_core(
                 menu,
-                cache,
                 &attempt.address,
                 attempt.auth_cache.as_deref(),
                 attempt.generation,
@@ -500,16 +565,15 @@ fn poll_join(
                 commands,
                 menu,
                 controller.generation,
-                cache,
+                &controller.blob_cache,
                 socket_dir,
                 login_settings,
                 client_random_id,
                 session.actor_artwork.as_deref().map(|artwork| &artwork.0),
                 session.ui_catalog.as_deref(),
-                session
-                    .packet_mods
-                    .as_ref()
-                    .and_then(|mods| mods.session_relay()),
+                session.packet_mods.as_ref().and_then(|mods| {
+                    mods.session_relay(controller.blob_cache.enables_upstream_client_cache())
+                }),
                 crate::runtime::network::session_registries::RegistryBase::new(
                     &session.state.client_world.runtime_assets,
                     session
@@ -661,6 +725,11 @@ fn drive_intents(
         return;
     }
     if menu.take_disconnect_request() {
+        let leave = bridge::leave_profile::LeaveProfile::pending_presentation();
+        let _binding = leave.enter();
+        let _span = bevy::log::info_span!("session.leave").entered();
+        let _section = leave.section("transition");
+        leave.mark("session_stop_request");
         bridge::join_profile::JoinProfile::current().finish("cancelled");
         // Loading and pause screens retain the Play page that opened the session.
         let cancelled_join = menu.is_connecting();
@@ -672,6 +741,7 @@ fn drive_intents(
         } else {
             menu.show_after_disconnect();
         }
+        leave.menu_ready();
         return;
     }
     if menu.is_connecting() && session.state.client_world.stream.is_some() {

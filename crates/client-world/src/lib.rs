@@ -1,5 +1,6 @@
 mod action;
 mod actor_store;
+mod block_cracks;
 mod block_entity_visuals;
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod browser_jobs;
@@ -8,6 +9,9 @@ pub mod ingestion;
 mod item;
 mod local_player_facts;
 pub mod server_position;
+pub mod ui_read;
+
+pub use block_cracks::{ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus};
 
 pub use local_player_facts::{LocalPlayerFacts, LocalPlayerStat};
 
@@ -21,10 +25,10 @@ pub use actor_store::{
     BlockEntityKind, BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS, DEFAULT_PLAYER_HEALTH,
     DimensionWrite, DragonDeathView, DroppedItemView, ExplicitDimensions, FIRE_FADE_TICKS,
     HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed,
-    LocalVehicleFeed, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MovementFlagUpdate,
-    PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin, PropertyDefault, ROCKET_LAUNCH_EVENT,
-    RideSeat, RopeKind, RopeView, SLEEPING_PLAYER_NETWORK_OFFSET, SeatViewLock, VehicleRevision,
-    dropped_item_copy_count, seat_world_offset, tnt_presentation,
+    LocalVehicleFeed, LoyaltyRopeView, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES,
+    MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin, PropertyDefault,
+    ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView, SLEEPING_PLAYER_NETWORK_OFFSET,
+    SeatViewLock, VehicleRevision, dropped_item_copy_count, seat_world_offset, tnt_presentation,
 };
 pub use actor_store::{HandStack, UseEquipment, equipment_enchantments};
 pub use block_entity_visuals::{
@@ -41,7 +45,8 @@ pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 
 mod authority;
 pub use authority::{
-    ActorCombatEvidence, ActorCombatKind, BiomeCommitReport, PreparedBlockIdentities,
+    ActorCombatEvidence, ActorCombatKind, ActorLife, BiomeCommitReport, MAX_ACTOR_LIVES,
+    PreparedBlockIdentities,
 };
 pub use authority::{
     BlockEventCue, COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,

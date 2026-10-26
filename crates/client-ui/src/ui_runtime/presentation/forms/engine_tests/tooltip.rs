@@ -35,7 +35,7 @@ fn engine() -> FormEngine {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(16, 16, image::Rgba([22, 33, 44, 255]))

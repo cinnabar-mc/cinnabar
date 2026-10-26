@@ -1,7 +1,7 @@
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 use render_model::{
-    DroppedItemInstance, DroppedItemModel, EquipmentRaster, ItemMeshVertex,
+    DroppedItemInstance, DroppedItemModel, DynamicLightRun, EquipmentRaster, ItemMeshVertex,
     MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, TerrainItemInstance,
 };
 use std::sync::Arc;
@@ -18,6 +18,8 @@ pub struct DroppedItemScene {
     pub terrain_instances: Arc<[TerrainItemInstance]>,
     /// World-space geometry drawn as-is this frame (fishing line, leads).
     pub dynamic: Arc<[ItemMeshVertex]>,
+    /// Ascending light runs over `dynamic`; vertices past the last run draw at full brightness.
+    pub dynamic_light: Arc<[DynamicLightRun]>,
     pub daylight: f32,
     /// The item glint raster that glinting instances sample.
     pub glint: Option<EquipmentRaster>,
@@ -33,6 +35,7 @@ impl DroppedItemScene {
         models: Arc<[DroppedItemModel]>,
         instances: &[DroppedItemInstance],
         dynamic: &[ItemMeshVertex],
+        dynamic_light: &[DynamicLightRun],
         daylight: f32,
     ) {
         if self.models_revision != models_revision {
@@ -44,6 +47,11 @@ impl DroppedItemScene {
         // Whole triangles only.
         let dynamic_count = dynamic.len().min(MAX_DYNAMIC_ITEM_VERTICES) / 3 * 3;
         replace_unless_both_empty(&mut self.dynamic, &dynamic[..dynamic_count]);
+        let runs = dynamic_light
+            .iter()
+            .position(|run| run.end as usize >= dynamic_count)
+            .map_or(dynamic_light.len(), |last| last + 1);
+        replace_unless_both_empty(&mut self.dynamic_light, &dynamic_light[..runs]);
         self.daylight = if daylight.is_finite() {
             daylight.clamp(0.0, 1.0)
         } else {
@@ -64,6 +72,7 @@ impl DroppedItemScene {
     pub fn clear(&mut self) {
         replace_unless_both_empty(&mut self.instances, &[]);
         replace_unless_both_empty(&mut self.dynamic, &[]);
+        replace_unless_both_empty(&mut self.dynamic_light, &[]);
         replace_unless_both_empty(&mut self.terrain_instances, &[]);
         self.terrain_session_id = None;
     }

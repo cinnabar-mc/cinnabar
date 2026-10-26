@@ -61,12 +61,12 @@ impl UiPresentationRuntime {
     /// skins clear the old identity; launcher sample/default skins are never substituted.
     pub(super) fn capture_local_player_identity(
         &mut self,
-        stream: Option<&chunk_pipeline::WorldStream>,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
         session: u64,
     ) {
-        let source = stream.and_then(|stream| {
-            let actor = stream.local_player_runtime_id();
-            let profile = stream.authority().actor_player_profile(actor)?;
+        let source = local.and_then(|local| {
+            let actor = local.runtime_id();
+            let profile = local.profile()?;
             let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
                 return None;
             };

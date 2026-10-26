@@ -146,7 +146,9 @@ use bevy::{
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        render_resource::BlendFactor,
+        render_resource::{
+            BindingType, BlendFactor, BufferBindingType, ShaderStages, VertexFormat,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -227,8 +229,20 @@ fn composite_shader_blends_in_gamma_space() {
 #[test]
 fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
-    // Viewport, pages, UI samplers, page format, and the independent item glint pair.
-    assert_eq!(layout.entries.len(), 7);
+    let palette = layout
+        .entries
+        .iter()
+        .find(|entry| entry.binding == 7)
+        .unwrap();
+    assert_eq!(palette.visibility, ShaderStages::VERTEX);
+    assert!(matches!(
+        palette.ty,
+        BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            ..
+        }
+    ));
     let descriptor = ui_pipeline_descriptor(layout);
     assert!(
         descriptor.depth_stencil.is_none(),
@@ -357,14 +371,23 @@ fn ui_model_uv_keeps_native_side_pixel_centers_without_rounding_or_half_texel_sh
     input.vertices = vertices.clone().into();
     input.validate().unwrap();
     assert_eq!(input.vertices[0].uv, [8.5, 4.5]);
+    assert_eq!(
+        render_model::project_ui_model_vertex(input.vertices[0], None)
+            .unwrap()
+            .uv,
+        [8.5, 4.5]
+    );
     vertices[0].uv[1] = f32::NAN;
     input.vertices = vertices.into();
     assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
-    let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
-    assert!(source.contains("@location(1) uv: vec2<f32>"));
-    assert!(source.contains("output.uv = uv;"));
-    assert!(source.contains("var sample_uv = input.uv + input.atlas_offset;"));
-    assert!(source.contains("let normalized_uv = sample_uv / dimensions;"));
+    let pipeline = ui_pipeline_descriptor(ui_bind_group_layout());
+    let uv = pipeline.vertex.buffers[0]
+        .attributes
+        .iter()
+        .find(|attribute| attribute.shader_location == 1)
+        .unwrap();
+    assert_eq!(uv.format, VertexFormat::Float32x2);
+    assert_eq!(uv.offset, std::mem::offset_of!(UiRenderVertex, uv) as u64);
 }
 
 #[test]
@@ -854,6 +877,7 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
     ]
     .into();
     UiRenderInput {
+        models: Default::default(),
         revision,
         viewport_size: [64, 64],
         safe_area: [0, 0, 0, 0],

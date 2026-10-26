@@ -111,7 +111,7 @@ impl Running {
             switch_now: false,
         };
         let selected = stage::verify(directory.path(), keys, check, now)?;
-        let mut ready = Ready::new(directory.keep(), reader, selected, false, true);
+        let mut ready = Ready::new(directory.keep(), reader, selected, None, true);
         ready.target = Some(target);
         Ok(Some(ready))
     }

@@ -1,5 +1,4 @@
-//! Interaction picks remote actors at this frame's tick positions without disturbing their
-//! per-tick animation or the actor clock.
+//! Interaction picks use completed remote actor steps without disturbing animation or clocks.
 use gameplay::movement::MovementEffectSource;
 use protocol_ids::ActorDataKey;
 use {super::*, client_presentation::actor_publication::ActorFramePartialTick};
@@ -11,10 +10,10 @@ mod paused_motion;
 struct Picked(Option<u64>);
 
 #[derive(Resource, Default)]
-struct PredictedBox(Option<([f32; 3], [f32; 3])>);
+struct PickedBox(Option<([f32; 3], [f32; 3])>);
 
-/// Captures the custom interaction box before live actor ticks advance.
-fn capture_predicted_box(world: Res<ClientWorld>, mut predicted: ResMut<PredictedBox>) {
+/// Captures the completed interaction box before live actor ticks advance.
+fn capture_pick_box(world: Res<ClientWorld>, mut predicted: ResMut<PickedBox>) {
     let authority = world.stream.as_ref().unwrap().authority();
     predicted.0 = authority.pick_hit_boxes(authority.actor(2).unwrap()).next();
 }
@@ -76,9 +75,9 @@ fn production(app: &mut App) -> (bevy::ecs::schedule::Schedule, World) {
     (schedule, world)
 }
 
-/// A melee press must hit an actor where its due interpolation tick puts it this frame.
+/// Pending interpolation cannot make a target pickable before its actor step completes.
 #[test]
-fn production_melee_picks_remote_actors_at_current_frame_positions() {
+fn production_melee_waits_for_completed_remote_actor_steps() {
     let mut app = App::new();
     app.add_systems(
         Update,
@@ -104,24 +103,29 @@ fn production_melee_picks_remote_actors_at_current_frame_positions() {
         .advance_by(Duration::from_millis(50));
     schedule.run(&mut world);
 
+    assert_eq!(world.resource::<Picked>().0, None);
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::ZERO);
+    schedule.run(&mut world);
     assert_eq!(world.resource::<Picked>().0, Some(2));
 }
 
-/// A stalled frame predicts custom hitboxes at the same capped tick that live actors reach.
+/// Stalled frames keep picks on the completed box while live ticks retain their cap.
 #[test]
-fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
+fn stalled_frame_keeps_completed_pick_boxes_and_caps_live_ticks() {
     let mut app = App::new();
     app.add_systems(
         Update,
-        capture_predicted_box.in_set(client_state::ClientFrameSet::NetworkSend),
+        capture_pick_box.in_set(client_state::ClientFrameSet::NetworkSend),
     );
     let (mut schedule, mut world) = production(&mut app);
-    world.init_resource::<PredictedBox>();
+    world.init_resource::<PickedBox>();
     let cap = u32::try_from(
         simulation_clock::MAX_FRAME_ELAPSED.as_nanos() / simulation_clock::TICK_DURATION.as_nanos(),
     )
     .unwrap();
-    let initial_tick = {
+    let (initial_tick, initial_box) = {
         let mut client = world.resource_mut::<ClientWorld>();
         let stream = client.stream.as_mut().unwrap();
         let mut hitbox = world::NbtCompound::default();
@@ -161,7 +165,10 @@ fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
             .submit(4, WorldEvent::Actor(ActorEvent::Move(movement)))
             .unwrap();
         stream.poll([0.0, 64.0, 0.0], 0);
-        stream.authority().actor_rig(2).unwrap().completed_tick
+        (
+            stream.authority().actor_rig(2).unwrap().completed_tick,
+            stream.authority().actor(2).unwrap().hit_boxes().next(),
+        )
     };
     let tick = simulation_clock::TICK_DURATION;
     world
@@ -177,7 +184,8 @@ fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
         u64::from(cap)
     );
     assert!((actor.position[2] - cap as f32).abs() < 1e-4);
-    assert_eq!(world.resource::<PredictedBox>().0, actor.hit_boxes().next());
+    assert_eq!(world.resource::<PickedBox>().0, initial_box);
+    assert_ne!(initial_box, actor.hit_boxes().next());
     assert_eq!(world.resource::<ActorFramePartialTick>().0, 0.0);
 }
 
@@ -325,16 +333,16 @@ fn pick_prediction_reuses_its_buffer_across_frames() {
     assert_eq!(test_alloc::thread_allocations() - before, 0);
 }
 
-/// Remote picks and publication share elapsed frame time even when local ticks have another phase.
+/// Picks retain completed boxes while remote publication keeps its own clock phase.
 #[test]
 fn remote_actor_motion_keeps_its_clock_when_local_ticks_differ() {
     let mut app = App::new();
     app.add_systems(
         Update,
-        capture_predicted_box.in_set(client_state::ClientFrameSet::NetworkSend),
+        capture_pick_box.in_set(client_state::ClientFrameSet::NetworkSend),
     );
     let (mut schedule, mut world) = production(&mut app);
-    world.init_resource::<PredictedBox>();
+    world.init_resource::<PickedBox>();
     let anchor = world
         .resource::<ClientWorld>()
         .stream
@@ -368,6 +376,16 @@ fn remote_actor_motion_keeps_its_clock_when_local_ticks_differ() {
                 effects.commit_successful_tick();
             }
         }
+        let before = world
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .authority()
+            .actor(2)
+            .unwrap()
+            .hit_boxes()
+            .next();
         world
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_millis(millis));
@@ -385,7 +403,7 @@ fn remote_actor_motion_keeps_its_clock_when_local_ticks_differ() {
             "remote position {:?} after {millis} ms and {local_ticks} local ticks",
             actor.position
         );
-        assert_eq!(world.resource::<PredictedBox>().0, actor.hit_boxes().next());
+        assert_eq!(world.resource::<PickedBox>().0, before);
         assert_eq!(world.resource::<ActorFramePartialTick>().0, expected_alpha);
     }
 }

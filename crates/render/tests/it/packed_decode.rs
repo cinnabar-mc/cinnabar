@@ -26,6 +26,7 @@ fn packed_decoder_witnesses_validate() {
     for (shader, witness) in [
         (CUBE_SHADER, CUBE_WITNESS),
         (MODEL_SHADER, MODEL_WITNESS),
+        (MODEL_SHADER, MODEL_SHADE_WITNESS),
         (LIQUID_SHADER, LIQUID_WITNESS),
     ] {
         let module = naga::front::wgsl::parse_str(&source(shader, witness)).unwrap();
@@ -130,7 +131,13 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     let mut geometry = vec![1, 0, 0, 0];
     geometry.extend(PackedModelRef::new(packed_position, 0, 4, 1).words());
     geometry.extend([0x0234_0123, 0x0846_0345]);
-    let mut cases = vec![("visible", geometry.clone(), template.clone(), 0, true)];
+    // Visibility word: 1 = visible, 4 = every UV inside one tile (the fixture's UVs are zero).
+    let mut repeating = template.clone();
+    repeating[10] = 4097; // First UV word: u past one tile.
+    let mut cases = vec![
+        ("visible", geometry.clone(), template.clone(), 0, 1 | 4),
+        ("repeating", geometry.clone(), repeating, 0, 1),
+    ];
     for (name, word, value) in [
         ("masked", 7, 0),
         ("padded", 1, 1),
@@ -142,7 +149,7 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     ] {
         let mut changed = geometry.clone();
         changed[word] = value;
-        cases.push((name, changed, template.clone(), 0, false));
+        cases.push((name, changed, template.clone(), 0, 0));
     }
     for (name, word, value) in [
         ("empty template", 2, 0),
@@ -151,18 +158,19 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     ] {
         let mut changed = template.clone();
         changed[word] = value;
-        cases.push((name, geometry.clone(), changed, 0, false));
+        cases.push((name, geometry.clone(), changed, 0, 0));
     }
-    cases.push(("short template", geometry.clone(), vec![0], 0, false));
+    cases.push(("short template", geometry.clone(), vec![0], 0, 0));
     cases.push((
         "instance overflow",
         geometry.clone(),
         template.clone(),
         0x8000_0000,
-        false,
+        0,
     ));
-    cases.push(("missing draw", geometry, template, 5, false));
-    for (name, geometry, template, instance, valid) in cases {
+    cases.push(("missing draw", geometry, template, 5, 0));
+    for (name, geometry, template, instance, visibility) in cases {
+        let valid = visibility != 0;
         let geometry = gpu.words(&geometry, storage);
         let template = gpu.words(&template, storage);
         let query = gpu.words(&[instance, 0, 0, 0], uniform);
@@ -186,7 +194,7 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
             assert_eq!(values[1], [3, 4, 5, 37]);
             assert_eq!(values[2], [0x0123, 0x0234, 0x0345, 0x0846]);
             for vertex in &values[3..] {
-                assert_eq!(*vertex, [1, 1, 37, 0]);
+                assert_eq!(*vertex, [visibility, 1, 37, 0], "{name}");
             }
         } else {
             let clips = values[3..]
@@ -205,6 +213,98 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
                 "{name}: rejected quad must lie outside a common clip plane: {clips:?}"
             );
         }
+    }
+}
+
+/// Native bamboo draws its leaves straight after the stem's east face without a new vertex
+/// colour, so they keep that face's coefficient instead of an unshaded faceless quad's.
+#[test]
+fn bamboo_leaves_keep_the_east_stem_face_shade() {
+    // Native face coefficient of an ordinary, non-emitting east (or west) face.
+    const EAST_FACE_SHADE: f32 = 0.6;
+    let Some(gpu) = Gpu::for_fixture("bamboo leaf shade") else {
+        return;
+    };
+    let storage = wgpu::BufferUsages::STORAGE;
+    let uniform = wgpu::BufferUsages::UNIFORM;
+    let leaf = assets::bamboo::FIRST_LEAF_QUAD;
+    let east = assets::bamboo::LEAF_SHADE_FACE as u32;
+    // Two templates over the same quads: bamboo, and an ordinary model.
+    let mut template = vec![
+        2,
+        0,
+        leaf + 1,
+        assets::MODEL_TEMPLATE_FLAG_BAMBOO,
+        0,
+        leaf + 1,
+        0,
+    ];
+    for quad in 0..=leaf {
+        let flags = assets::BlockFace::ALL
+            .get(quad as usize)
+            .map_or(assets::MODEL_QUAD_FLAG_TWO_SIDED, |face| {
+                face.model_quad_face_id()
+            });
+        template.extend([0; 10]);
+        template.extend([0, flags]);
+    }
+    let draws = [(2, east), (2, leaf), (3, leaf)];
+    let mut geometry: Vec<u32> = draws
+        .iter()
+        .flat_map(|&(reference, quad)| meshing::PackedModelDrawRef::new(reference, quad).words())
+        .collect();
+    geometry.resize(8, 0);
+    let lighting_base = 8;
+    for template in 0..2 {
+        let visible = (1 << east) | (1 << leaf);
+        geometry
+            .extend(PackedModelRef::new(3 | (4 << 4), template, lighting_base, visible).words());
+    }
+    // Sky light 15 without ambient occlusion on every corner of every quad.
+    geometry.extend(vec![0x00f0_00f0; 2 * (leaf as usize + 1)]);
+    let origins = gpu.words(&[0; 8], storage);
+    let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage);
+    let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
+    let empty = gpu.words(&[0; 8], storage);
+    let clock = gpu.words(&[0; 4], uniform);
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(
+        &render_model::LightmapInputs::default().build(),
+    ));
+    let template = gpu.words(&template, storage);
+    let geometry = gpu.words(&geometry, storage);
+    let bindings = [
+        (0, view.as_entire_binding()),
+        (2, origins.as_entire_binding()),
+        (3, materials.as_entire_binding()),
+        (9, empty.as_entire_binding()),
+        (10, empty.as_entire_binding()),
+        (11, clock.as_entire_binding()),
+        (12, template.as_entire_binding()),
+        (13, geometry.as_entire_binding()),
+        (LIGHTMAP_BINDING, lightmap.as_entire_binding()),
+    ]
+    .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+    let values = gpu.compute_readback(
+        &source(MODEL_SHADER, MODEL_SHADE_WITNESS),
+        &bindings,
+        OUTPUT_BINDING,
+        draws.len(),
+        draws.len() as u32,
+    );
+    for ((name, expected), value) in [
+        ("bamboo stem east face", EAST_FACE_SHADE),
+        ("bamboo leaf", EAST_FACE_SHADE),
+        ("ordinary faceless quad", 1.0),
+    ]
+    .into_iter()
+    .zip(values)
+    {
+        assert_eq!(value[1], 1, "{name} must be visible");
+        let shade = f32::from_bits(value[0]);
+        assert!(
+            (shade - expected).abs() < 1.0e-6,
+            "{name}: {shade} != {expected}"
+        );
     }
 }
 
@@ -427,6 +527,13 @@ const MODEL_WITNESS: &str = r#"
         if (quad.valid) { results[3u + corner] = vec4(vertex.visibility, vertex.biome_record, 0u); }
         else { results[3u + corner] = bitcast<vec4<u32>>(vertex.clip_position); }
     }
+}
+"#;
+
+const MODEL_SHADE_WITNESS: &str = r#"
+@compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
+    let vertex = model_vertex(0u, id.x);
+    results[id.x] = vec4(bitcast<u32>(vertex.native_ao_face), vertex.visibility.x & MODEL_VISIBLE, 0u, 0u);
 }
 "#;
 

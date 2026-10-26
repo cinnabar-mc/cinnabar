@@ -2,6 +2,8 @@ mod action_filter;
 mod input_host;
 mod output_lifecycle;
 mod presentation;
+mod recovery;
+mod world_lifecycle;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
     GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
@@ -26,11 +28,14 @@ wasmtime::component::bindgen!({
     world: "cinnabar:extension/filtered-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
+    with: { "cinnabar:extension/budget@0.1.0": crate::runtime::budget_host },
 });
 
 pub(crate) const MAX_IMPORT_WRITES: u32 = 8;
-#[path = "block_highlights.rs"]
-mod block_highlights;
+/// Consecutive frame fuel overruns before a local guest loses its session authority.
+pub(crate) const MAX_CONSECUTIVE_FRAME_OVERRUNS: u32 = 3;
+#[path = "budget_host.rs"]
+pub mod budget_host;
 #[path = "camera.rs"]
 mod camera;
 #[path = "controls.rs"]
@@ -40,10 +45,13 @@ mod drawing;
 #[cfg(test)]
 mod drawing_tests;
 mod exports;
+#[path = "facts_host.rs"]
+mod facts_host;
 #[path = "gameplay.rs"]
 mod gameplay;
 #[path = "hud.rs"]
 mod hud;
+pub use hud::HudTextMeasure;
 mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
@@ -53,10 +61,14 @@ mod masks;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
+#[path = "presentation_host.rs"]
+mod presentation_host;
 #[path = "render.rs"]
 mod render;
 #[path = "terrain_host.rs"]
 mod terrain_host;
+#[path = "touch.rs"]
+mod touch;
 
 /// What a package declares that the host checks guest output and events against.
 #[derive(Clone, Debug, Default)]
@@ -73,6 +85,8 @@ pub(crate) struct State {
     pressed: bool,
     label: Option<String>,
     hud: hud::HudState,
+    presentation: presentation_host::PresentationState,
+    facts: facts_host::FactsState,
     pending: Option<String>,
     writes: u32,
     pub(crate) grants: ModGrants,
@@ -86,8 +100,8 @@ pub(crate) struct State {
     packet_delay_ms: u32,
     pending_packet_delay: Option<u32>,
     packet_delay_writes: u32,
-    show_real_position: bool,
-    pending_show_real_position: Option<bool>,
+    /// Client facts delivered before this frame's callback and dropped after it.
+    gameplay_facts: crate::GameplayFacts,
     controls: controls::ControlState,
     world: gameplay::WorldState,
     camera_policy: camera::CameraPolicy,
@@ -106,9 +120,9 @@ pub(crate) struct State {
     /// Host calls and screen output bytes of the running callback.
     calls: usize,
     output: usize,
-    block_highlights: block_highlights::HighlightState,
     inventory: inventory::InventoryRequests,
     events: player_mod::EventContext,
+    touch: touch::TouchState,
 }
 
 impl State {
@@ -118,7 +132,7 @@ impl State {
             || self.camera_delta.is_some()
             || self.camera_policy.committed
             || self.camera_policy.committed_view_scale.is_some()
-            || self.camera_policy.committed_hurt_style.is_some()
+            || self.camera_policy.committed_view_tilt.is_some()
     }
 
     pub(crate) fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
@@ -136,6 +150,8 @@ impl State {
             label: None,
             exclusive: Default::default(),
             hud: hud::HudState::default(),
+            presentation: Default::default(),
+            facts: Default::default(),
             pending: None,
             writes: 0,
             grants,
@@ -149,8 +165,7 @@ impl State {
             packet_delay_ms: 0,
             pending_packet_delay: None,
             packet_delay_writes: 0,
-            show_real_position: false,
-            pending_show_real_position: None,
+            gameplay_facts: Default::default(),
             controls: controls::ControlState::new(settings),
             world: gameplay::WorldState::default(),
             camera_policy: camera::CameraPolicy::default(),
@@ -167,9 +182,9 @@ impl State {
             pending_screens: None,
             calls: 0,
             output: 0,
-            block_highlights: block_highlights::HighlightState::default(),
             inventory: Default::default(),
             events: Default::default(),
+            touch: Default::default(),
         }
     }
 }
@@ -178,43 +193,39 @@ impl cinnabar::extension::hud::Host for State {
     fn local_message(&mut self, text: String) -> Result<Result<(), String>> {
         hud::local_message(self, text)
     }
-    fn open_editor(&mut self, json: String) -> Result<Result<(), String>> {
-        hud::open_editor(self, json)
+    /// Stages the mod's retained surface; it publishes when the callback succeeds.
+    fn set_surface(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::surface::set(self, json)
     }
 
-    fn read_editor_result(
-        &mut self,
-    ) -> Result<Result<Option<cinnabar::extension::hud::EditorResult>, String>> {
-        hud::read_editor_result(self)
-    }
-    fn read_editor_layout(
-        &mut self,
-    ) -> Result<Result<Option<cinnabar::extension::hud::LayoutResult>, String>> {
-        hud::read_editor_layout(self)
-    }
-    /// Reads anchored placements under the same authority and callback lifetime as legacy reads.
-    fn read_editor_anchored_layout(
-        &mut self,
-    ) -> Result<Result<Option<cinnabar::extension::hud::AnchoredLayoutResult>, String>> {
-        hud::read_editor_anchored_layout(self)
-    }
-    /// Reads draft visibility under the same authority and transaction as placement output.
-    fn read_editor_visibility(
-        &mut self,
-    ) -> Result<Result<Option<cinnabar::extension::hud::VisibilityResult>, String>> {
-        hud::read_editor_visibility(self)
-    }
-    fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
-        hud::set_content(self, json)
+    /// Patches the staged or committed surface's bindings and collection order.
+    fn update_surface(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::surface::update(self, json)
     }
 
-    /// Applies a bounded retained HUD update inside the current callback transaction.
-    fn update_content(&mut self, json: String) -> Result<Result<(), String>> {
-        hud::update_content(self, json)
+    fn read_viewport(&mut self) -> Result<Option<cinnabar::extension::hud::Viewport>> {
+        Ok(hud::surface::viewport(self))
     }
 
-    fn set_crosshair(&mut self, json: String) -> Result<Result<(), String>> {
-        hud::set_crosshair(self, json)
+    fn measure_text(
+        &mut self,
+        text: String,
+        font: cinnabar::extension::hud::Font,
+    ) -> Result<Result<f32, String>> {
+        Ok(hud::surface::measure(self, &text, font))
+    }
+
+    fn set_hidden_elements(
+        &mut self,
+        elements: Vec<cinnabar::extension::hud::VanillaElement>,
+    ) -> Result<Result<(), String>> {
+        hud::surface::set_hidden(self, elements)
+    }
+
+    fn read_elements(
+        &mut self,
+    ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {
+        Ok(hud::surface::elements(self))
     }
 
     /// Stages bounded plain text; nothing is published until the guest returns.
@@ -274,22 +285,39 @@ impl cinnabar::extension::environment::Host for State {
     }
 }
 
-/// An authority revocation may be rebuilt; a trapped guest requires an intentional replacement.
+impl cinnabar::extension::clock::Host for State {
+    /// Reads the operating system's local clock at the host boundary.
+    fn read_local_time(&mut self) -> Result<Result<cinnabar::extension::clock::LocalTime, String>> {
+        if !self.grants.clock {
+            return Ok(Err("clock capability denied".into()));
+        }
+        let now = chrono::Local::now();
+        Ok(Ok(cinnabar::extension::clock::LocalTime {
+            unix_ms: u64::try_from(now.timestamp_millis()).unwrap_or(0),
+            utc_offset_seconds: now.offset().local_minus_utc(),
+        }))
+    }
+}
+
+/// Recoverable fuel traps retain output but cannot enter the trapped component again.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum InstanceStatus {
     Running,
+    Recovering,
     Revoked,
     Quarantined,
 }
 
 pub(super) struct Instance {
     store: Store<State>,
+    pre: wasmtime::component::InstancePre<State>,
     exports: exports::Exports,
     status: InstanceStatus,
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
     filter_identity: u64,
+    consecutive_frame_overruns: u32,
 }
 
 impl Instance {
@@ -361,11 +389,9 @@ impl Instance {
         state.camera_delta = None;
         state.pending_packet_delay = None;
         state.packet_delay_writes = 0;
-        state.pending_show_real_position = None;
         state.environment.begin_frame();
         state.controls.begin_frame();
         state.render.begin_frame();
-        state.block_highlights.begin_frame();
         state.world.begin_frame();
         state.player_state.begin_frame();
         state.camera_policy = camera::CameraPolicy::default();
@@ -375,10 +401,18 @@ impl Instance {
         state.controls.frame = crate::empty_controls();
     }
 
+    /// Validates client facts for the next frame callback only.
+    pub(super) fn observe_gameplay(&mut self, facts: crate::GameplayFacts) -> Result<()> {
+        gameplay::validate_facts(&facts)?;
+        self.store.data_mut().gameplay_facts = facts;
+        Ok(())
+    }
+
     /// Releases callback-only observations on every executed, deferred or failed frame path.
     pub(super) fn finish_frame(&mut self) {
         let state = self.store.data_mut();
         state.snapshot = None;
+        state.gameplay_facts = Default::default();
         state.player_state.begin_frame();
         state.player_state.clear_presentation();
         state.motion.finish_frame();
@@ -414,6 +448,12 @@ impl Instance {
             return Err(error);
         }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
+        let mut controls = controls;
+        if !controls.panel_open {
+            // Pointer and wheel belong to the mod whose open panel owns input.
+            controls.pointer = None;
+            controls.wheel = 0.0;
+        }
         let state = self.store.data_mut();
         state.pressed = pressed;
         state.snapshot = snapshot;
@@ -431,22 +471,17 @@ impl Instance {
             return Ok(());
         }
         self.store.data_mut().controls.begin_text_frame();
+        self.store.data_mut().touch.begin_frame();
         let result = match delivery {
             CallbackOutcome::Executed => {
                 self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
             }
             CallbackOutcome::Deferred => Ok(CallbackOutcome::Deferred),
         };
-        if matches!(&result, Ok(CallbackOutcome::Deferred)) {
-            hud::sources::refresh(self.store.data_mut());
-        }
-        self.store
-            .data_mut()
-            .controls
-            .finish_text_frame(matches!(&result, Ok(CallbackOutcome::Deferred)));
-        if result.is_ok() {
-            hud::bounds::update(self.store.data_mut());
-        }
+        let deferred = matches!(&result, Ok(CallbackOutcome::Deferred));
+        let state = self.store.data_mut();
+        state.controls.finish_text_frame(deferred);
+        state.touch.finish_frame(deferred);
         result.map(|_| ())
     }
 
@@ -474,14 +509,17 @@ impl Instance {
         })
     }
 
-    /// Runs one callback with `fuel` and commits its output with `publish`; a trap discards
-    /// it and quarantines the guest, removing everything it presented.
+    /// Publishes only successful callbacks; frame fuel traps may retain output for recovery.
     fn run(
         &mut self,
         fuel: u64,
         publish: fn(&mut Store<State>),
         call: impl FnOnce(&exports::Exports, &mut Store<State>) -> Result<()>,
     ) -> Result<CallbackOutcome> {
+        if self.status == InstanceStatus::Recovering {
+            self.last_fuel = 0;
+            return Ok(CallbackOutcome::Deferred);
+        }
         let allowance = self
             .callback_budget
             .as_ref()
@@ -502,7 +540,11 @@ impl Instance {
         state.output = 0;
         state.pending_screens = None;
         state.inventory.begin();
+        state.hud.begin_callback();
         state.render.begin_callback();
+        state.touch.begin_callback();
+        state.presentation.begin();
+        state.facts.begin();
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
@@ -512,10 +554,12 @@ impl Instance {
             budget.refund(allowance - self.last_fuel);
         }
         if let Err(error) = called {
-            self.quarantine();
-            bail!("mod quarantined after a guest trap: {error:#}");
+            return Err(self.callback_failure(fuel, error));
         }
         publish(&mut self.store);
+        if fuel == FRAME_FUEL {
+            self.consecutive_frame_overruns = 0;
+        }
         Ok(CallbackOutcome::Executed)
     }
 
@@ -526,7 +570,6 @@ impl Instance {
         camera: bool,
         environment: bool,
         owner: usize,
-        hud: crate::HudClaims,
     ) {
         self.callback_budget = Some(budget);
         let state = self.store.data_mut();
@@ -544,18 +587,6 @@ impl Instance {
         state.exclusive.camera = camera;
         state.exclusive.environment = environment;
         state.exclusive.owner = owner;
-        state.exclusive.hud = Some(hud.clone());
-        let mut blocked = std::collections::BTreeSet::new();
-        if let Some(content) = &state.hud.content {
-            for card in &content.cards {
-                if !hud.claim(owner, std::iter::once(card.id.clone())) {
-                    blocked.insert(card.id.clone());
-                }
-            }
-        }
-        let newly_blocked = blocked.difference(&state.exclusive.suppressed_hud).count() as u64;
-        state.exclusive.refused = state.exclusive.refused.saturating_add(newly_blocked);
-        state.exclusive.suppressed_hud = blocked;
     }
 
     /// Remembers camera output even after its one-shot delta has been consumed by the app.
@@ -569,14 +600,22 @@ impl Instance {
         self.store.data().exclusive.refused
     }
 
-    /// Whether the guest may execute any callback.
+    /// Whether the mod retains authority, including while awaiting a fresh component.
     pub(super) fn is_active(&self) -> bool {
-        self.status == InstanceStatus::Running
+        matches!(
+            self.status,
+            InstanceStatus::Running | InstanceStatus::Recovering
+        )
     }
 
     /// Whether an authority transition stopped a previously running guest.
     pub(super) fn is_revoked(&self) -> bool {
         self.status == InstanceStatus::Revoked
+    }
+
+    /// Whether callbacks must wait for a fresh guest after a frame fuel trap.
+    pub(super) fn is_recovering(&self) -> bool {
+        self.status == InstanceStatus::Recovering
     }
 
     /// Revokes a running guest without reclassifying an existing trap as recoverable.
@@ -592,12 +631,10 @@ impl Instance {
         self.status = InstanceStatus::Quarantined;
         let state = self.store.data_mut();
         state.exclusive.camera_claimed = false;
-        if let Some(claims) = &state.exclusive.hud {
-            claims.release(state.exclusive.owner);
-        }
         state.pending = None;
         state.label = None;
-        state.hud = hud::HudState::default();
+        state.hud.revoke();
+        state.presentation = Default::default();
         state.player_state.revoke();
         state.terrain = Default::default();
         state.environment.revoke();
@@ -607,21 +644,21 @@ impl Instance {
         state.camera_delta = None;
         state.controls.revoke();
         state.render.revoke();
-        state.block_highlights.revoke();
         state.world = gameplay::WorldState::default();
         state.camera_policy = camera::CameraPolicy::default();
         state.item_use_policy = item_use::ItemUsePolicy::default();
         state.packet_delay_ms = 0;
         state.pending_packet_delay = None;
-        state.show_real_position = false;
-        state.pending_show_real_position = None;
+        state.gameplay_facts = Default::default();
         state.pending_screens = None;
         state.screens = ModScreens::default();
         state.inventory.revoke();
+        state.touch.revoke();
     }
 
-    pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
-        self.store.data().item_use_policy.committed
+    /// Reads the committed use pulse before output collection, without consuming it.
+    pub(super) fn use_pulse_requested(&self) -> bool {
+        self.is_active() && self.store.data().item_use_policy.pulse
     }
 
     pub(super) fn preserves_teleport_rotation(&self) -> bool {
@@ -636,9 +673,9 @@ impl Instance {
     }
 
     /// Successful frame-local presentation remains independent of gameplay input ownership.
-    pub(super) fn camera_hurt_style(&self) -> Option<render_api::HurtCameraStyle> {
+    pub(super) fn camera_view_tilt(&self) -> Option<mod_api::native_camera::ViewTilt> {
         (!self.store.data().exclusive.camera)
-            .then_some(self.store.data().camera_policy.committed_hurt_style)
+            .then_some(self.store.data().camera_policy.committed_view_tilt)
             .flatten()
     }
 
@@ -650,6 +687,13 @@ impl Instance {
     /// Consumes the committed jump request once.
     pub(super) fn take_jump_pulse(&mut self) -> bool {
         std::mem::take(&mut self.store.data_mut().motion.jump_pulse)
+    }
+
+    /// Answers each subscribed block search through the client's terrain.
+    pub(super) fn refresh_block_searches(&mut self, source: &mut impl crate::BlockSearchSource) {
+        for (search, sample) in &mut self.store.data_mut().terrain.searches {
+            *sample = Some(source.find(search));
+        }
     }
 
     pub(super) fn terrain_subscriptions(&self) -> usize {
@@ -700,12 +744,6 @@ impl Instance {
     pub(super) fn fullbright(&self) -> bool {
         self.store.data().environment.fullbright
     }
-    pub(super) fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
-        self.store.data().block_highlights.committed.as_ref()
-    }
-    pub(super) fn show_real_position(&self) -> bool {
-        self.store.data().show_real_position
-    }
 
     /// Reads the committed presentation clock without entering the component.
     pub(super) fn time_override(&self) -> Option<u32> {
@@ -720,43 +758,52 @@ impl Instance {
             .then_some(self.store.data().environment.weather_override)
             .flatten()
     }
-    /// Reads committed subtractive input policy without entering the guest.
-    pub(super) fn click_limits(&self) -> [Option<u32>; 2] {
-        self.store.data().environment.click_limits
-    }
 
     /// Reads retained UI without entering the component.
     pub(super) fn label(&self) -> Option<&str> {
         self.store.data().label.as_deref()
     }
 
-    /// Identifies the committed authored or natively resolved HUD without copying it.
-    pub(super) fn hud_revision(&self) -> u64 {
-        self.store.data().hud.revision
+    /// The committed HUD surface and its process-unique revision.
+    pub(super) fn hud_surface(&self) -> Option<(&Arc<ui::mod_panel::Surface>, u64)> {
+        let hud = &self.store.data().hud;
+        Some((hud.surface.as_ref()?, hud.surface_revision))
     }
 
-    pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
-        let hud = &self.store.data().hud;
-        hud.resolved.as_ref().or(hud.content.as_ref())
+    /// Vanilla elements the committed output hides.
+    pub(super) fn hidden_hud_elements(&self) -> ui::mod_hud::HiddenElements {
+        self.store.data().hud.hidden
+    }
+
+    /// Records the last laid-out HUD root and vanilla element states for later reads.
+    pub(super) fn observe_hud(
+        &mut self,
+        viewport: Option<ui::mod_hud::HudViewport>,
+        elements: ui::mod_hud::ElementStates,
+    ) {
+        let hud = &mut self.store.data_mut().hud;
+        hud.viewport = viewport.filter(|viewport| viewport.valid());
+        hud.elements = elements.map(ui::mod_hud::ElementState::sanitized);
+    }
+
+    /// Records where the host last laid out this mod's open panel, for `panel.read-layout`.
+    pub(super) fn observe_panel_layout(&mut self, layout: Option<ui::mod_hud::PanelLayout>) {
+        self.store.data_mut().controls.layout = layout.filter(|layout| layout.valid());
+    }
+
+    /// Installs the label metrics `measure-text` reads.
+    pub(super) fn set_text_measure(&mut self, text: Option<Arc<dyn hud::HudTextMeasure>>) {
+        self.store.data_mut().hud.text = text;
+    }
+
+    /// The committed presentation parameters and their process-unique revision.
+    pub(super) fn presentation(&self) -> (&ui::mod_presentation::ModPresentation, u64) {
+        self.store.data().presentation.output()
     }
 
     /// Consumes committed local-only system feedback once.
     pub(super) fn take_local_messages(&mut self) -> Vec<String> {
         std::mem::take(&mut self.store.data_mut().hud.local_messages)
-    }
-
-    /// Moves a committed preview into the native editor without a guest call.
-    pub(super) fn take_hud_editor_request(&mut self) -> Option<ui::mod_hud::Hud> {
-        self.store.data_mut().hud.editor_request.take()
-    }
-
-    /// Makes one host result available to this instance's next callback.
-    pub(super) fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) {
-        self.store.data_mut().hud.deliver_editor_result(result);
-    }
-
-    pub(super) fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
-        self.store.data().hud.crosshair.as_ref()
     }
 
     pub(super) fn panel(&self) -> Option<&ui::mod_panel::Panel> {
@@ -849,13 +896,29 @@ impl Instance {
         self.last_fuel
     }
 
-    /// Returns only the movement policy committed by the current successful frame.
-    pub(super) fn movement_toggles(&self) -> Option<&crate::MovementToggles> {
-        self.store.data().world.movement_toggles.as_ref()
+    /// Returns only the movement intents committed by the current successful frame.
+    pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
+        self.store.data().world.movement_intents
+    }
+
+    /// Returns only the control modes committed by the current successful frame.
+    pub(super) fn control_modes(&self) -> Option<crate::GameplayControlModes> {
+        self.store.data().world.control_modes
     }
 
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {
         self.store.data_mut().session = session;
+    }
+
+    /// Installs the installation's food table that `facts.read-item` and `facts.read-foods`
+    /// report.
+    pub(super) fn set_food_catalog(&mut self, food: Option<Arc<assets::RuntimeEquipmentCatalog>>) {
+        self.store.data_mut().facts.set_food(food);
+    }
+
+    /// The installation's food table, which a replacement instance inherits.
+    pub(super) fn food_catalog(&self) -> Option<Arc<assets::RuntimeEquipmentCatalog>> {
+        self.store.data().facts.food()
     }
 }
 
@@ -864,8 +927,8 @@ fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.motion.commit_frame();
     state.terrain.commit();
-    state.render.commit();
-    state.block_highlights.commit();
+    // Retained drawing is committed once, by `commit_event`, so frame groups survive.
+    state.render.commit_primitives();
     state.world.commit();
     state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
     state.camera_policy.committed_view_scale = (state.snapshot.is_some()
@@ -873,15 +936,12 @@ fn commit(store: &mut Store<State>) {
         && !state.controls.frame.panel_open)
         .then_some(state.camera_policy.pending_view_scale)
         .flatten();
-    state.camera_policy.committed_hurt_style = state.camera_policy.pending_hurt_style;
-    state.item_use_policy.commit(state.snapshot.as_ref());
+    state.camera_policy.committed_view_tilt = state.camera_policy.pending_view_tilt;
+    state.item_use_policy.commit(state.snapshot.is_some());
     state.camera_delta = state.pending_camera.take();
     state.exclusive.camera_claimed = state.camera_output();
     if let Some(delay) = state.pending_packet_delay.take() {
         state.packet_delay_ms = delay;
-    }
-    if let Some(show) = state.pending_show_real_position.take() {
-        state.show_real_position = show;
     }
     commit_event(store);
 }
@@ -891,17 +951,14 @@ fn commit(store: &mut Store<State>) {
 /// an event's staged changes to those outputs are dropped by the next frame.
 fn commit_event(store: &mut Store<State>) {
     let state = store.data_mut();
+    if !state.world_output_available() {
+        state.clear_world_output();
+    }
     state.render.commit_retained();
     state.hud.commit();
-    if let Some(claims) = &state.exclusive.hud {
-        claims.release(state.exclusive.owner);
-        if let Some(content) = &state.hud.content {
-            for card in &content.cards {
-                claims.retain(state.exclusive.owner, std::iter::once(card.id.clone()));
-            }
-        }
-    }
+    state.presentation.commit();
     state.controls.commit();
+    state.touch.commit();
     state.inventory.commit();
     state.environment.commit();
     if let Some(text) = state.pending.take() {
@@ -914,7 +971,6 @@ fn commit_event(store: &mut Store<State>) {
     {
         state.screens = screens;
     }
-    hud::sources::refresh(state);
 }
 
 #[cfg(test)]

@@ -180,28 +180,39 @@ pub fn adjudicate_block_entity_visual(
     source: &BlockEntityNbt,
     backing: BackingBlockIdentity,
 ) -> BlockEntityVisualRoute {
-    let outcome = backing
-        .fact
-        .filter(|fact| {
-            backing.known
-                && fact
-                    .entity
-                    .geometry
-                    .accepts(backing.visual_kind, backing.full_cube_model)
-                && match source.id() {
-                    Some(id) => !fact.entity.idless && id == fact.entity.nbt_id,
-                    None => {
-                        fact.entity.idless
-                            && matches!(source.note_candidate(), RootByteCandidate::Value(0..=24))
-                            && matches!(source.powered_candidate(), RootByteCandidate::Value(0..=1))
+    // An overlay host's overlays are drawn with its terrain mesh, whatever block hosts them.
+    let outcome = if source.cell_overlays().is_some() {
+        RouteOutcome::Static
+    } else {
+        backing
+            .fact
+            .filter(|fact| {
+                backing.known
+                    && fact
+                        .entity
+                        .geometry
+                        .accepts(backing.visual_kind, backing.full_cube_model)
+                    && match source.id() {
+                        Some(id) => !fact.entity.idless && id == fact.entity.nbt_id,
+                        None => {
+                            fact.entity.idless
+                                && matches!(
+                                    source.note_candidate(),
+                                    RootByteCandidate::Value(0..=24)
+                                )
+                                && matches!(
+                                    source.powered_candidate(),
+                                    RootByteCandidate::Value(0..=1)
+                                )
+                        }
                     }
-                }
-        })
-        .map_or(RouteOutcome::Unknown, |fact| match fact.entity.diagnostic {
-            BlockEntityDiagnostic::ExistingBlockState => RouteOutcome::Static,
-            BlockEntityDiagnostic::Logical => RouteOutcome::Logical,
-            BlockEntityDiagnostic::Deferred => RouteOutcome::Deferred,
-        });
+            })
+            .map_or(RouteOutcome::Unknown, |fact| match fact.entity.diagnostic {
+                BlockEntityDiagnostic::ExistingBlockState => RouteOutcome::Static,
+                BlockEntityDiagnostic::Logical => RouteOutcome::Logical,
+                BlockEntityDiagnostic::Deferred => RouteOutcome::Deferred,
+            })
+    };
     let route_digest = route_digest(outcome, source, backing);
     match outcome {
         RouteOutcome::Static => BlockEntityVisualRoute::ExistingBlockState {

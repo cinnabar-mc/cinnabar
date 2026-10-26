@@ -1,14 +1,52 @@
 mod action_filter;
+mod budget;
+
+/// A minimal panel surface whose screen namespace is `name`, so tests can tell panels apart.
+pub(crate) fn panel_surface(name: &str) -> serde_json::Value {
+    serde_json::json!({"screen":format!("{name}.root"),
+        "document":serde_json::json!({"namespace":name,"root":{"type":"panel"}}).to_string()})
+}
+
+/// Builds a value-editing guest that sets its panel or sparsely patches an admitted bundle.
+pub(crate) fn recovery_edit_guest(panel: &str, patch: bool) -> String {
+    let package = include_str!("../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let escaped: String = panel
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("\\{byte:02x}"))
+        .collect();
+    include_str!("tests/recovery_edits.wat")
+        .replace(
+            "set-content",
+            if patch {
+                "update-content"
+            } else {
+                "set-content"
+            },
+        )
+        .replace("$INPUT", &format!("{name}/input@{version}"))
+        .replace("$SETTINGS", &format!("{name}/settings@{version}"))
+        .replace("$HUD", &format!("{name}/hud@{version}"))
+        .replace("$PANEL_INTERFACE", &format!("{name}/panel@{version}"))
+        .replace("$PANEL_JSON", &escaped)
+        .replace("$PANEL_LENGTH", &panel.len().to_string())
+}
 #[path = "tests/camera.rs"]
 mod camera;
 mod collection_reveal;
 use super::*;
-mod block_highlights;
 mod drawing_policy;
 mod embedded_assets;
+mod fuel_recovery;
 mod fullbright;
 mod gameplay;
-mod hud;
+mod hud_surface;
 mod item_use;
 mod player_state;
 mod prepared_settings;
@@ -16,6 +54,7 @@ mod render;
 mod screens;
 mod security;
 mod terrain;
+mod touch;
 mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
@@ -73,7 +112,10 @@ fn trap_discards_staged_output_and_quarantines_only_this_instance() {
 #[test]
 fn fuel_stops_an_infinite_loop() {
     let (_directory, mut host) = load_fixture("(loop $forever br $forever)");
-    assert!(host.frame(false).is_err());
+    for _ in 0..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
+        assert!(host.frame(false).is_err());
+        host.frame(false).unwrap();
+    }
     assert!(!host.is_active());
 }
 
@@ -123,12 +165,14 @@ fn prepared_panel_bundle_survives_reload_and_rejects_denied_hosts() {
         },
     )
     .unwrap();
-    let bundle = serde_json::json!({"panel":{"title":"Local","toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}).to_string();
+    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+        "surface":panel_surface("Local")},"surfaces":{}})
+    .to_string();
     host.set_panel_bundle(&bundle).unwrap();
-    assert_eq!(host.panel().unwrap().title, "Local");
+    assert_eq!(host.panel().unwrap().surface.screen, "Local.root");
     std::fs::write(&path, fixture("", "Reloaded")).unwrap();
     assert!(host.reload_if_changed().unwrap());
-    assert_eq!(host.panel().unwrap().title, "Local");
+    assert_eq!(host.panel().unwrap().surface.screen, "Local.root");
     let mut denied = ModHost::load(&path).unwrap();
     assert!(denied.set_panel_bundle(&bundle).is_err());
     assert!(denied.panel().is_none());
@@ -513,7 +557,7 @@ fn load_with_view_closed(
 /// Queues a real lifecycle notification after another guest has reserved the event lane.
 fn defer_view_closed(host: &mut ModHost) -> CallbackBudget {
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    host.set_frame_authority(budget.clone(), false, false, 0);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)

@@ -1,4 +1,4 @@
-//! Renderer and pack controls stay in their own feature-gated settings sections.
+//! Renderer and pack controls stay in their own settings sections.
 
 use crate::test_support::{centre, settings_view};
 use launcher::menu::{
@@ -85,10 +85,7 @@ fn video_keeps_only_the_renderer_choice_and_shader_shortcut() {
     }
     assert_eq!(renderer_choices(&view), expected);
     let (actions, labels) = controls(&view);
-    assert_eq!(
-        labels.iter().any(|text| text == "Shaders: Dusk"),
-        render_model::SHADER_PACKS_ENABLED
-    );
+    assert!(labels.iter().any(|text| text == "Shaders: Dusk"));
     if render_model::ENHANCED_RENDERING_ENABLED {
         assert!(
             labels
@@ -119,14 +116,8 @@ fn video_keeps_only_the_renderer_choice_and_shader_shortcut() {
 fn video_shader_shortcut_is_a_labelled_navigation_button() {
     let view = settings_view(SettingSection::Video.definition().name);
     let (actions, labels) = controls(&view);
-    assert_eq!(
-        actions.contains(&MenuAction::SettingsShaders),
-        render_model::SHADER_PACKS_ENABLED
-    );
-    assert_eq!(
-        labels.iter().any(|text| text == "Open"),
-        render_model::SHADER_PACKS_ENABLED
-    );
+    assert!(actions.contains(&MenuAction::SettingsShaders));
+    assert!(labels.iter().any(|text| text == "Open"));
     assert!(!labels.iter().any(|text| text == "›"));
 }
 
@@ -155,27 +146,20 @@ fn the_video_shortcut_names_a_selected_pack_missing_from_discovery() {
     view.render_mode = ui::RenderMode::ShaderPack;
     view.renderer = None;
     view.shader_pack = Some("Missing.zip".to_owned());
-    assert_eq!(
+    assert!(
         controls(&view)
             .1
             .iter()
-            .any(|text| text == "Shaders: Missing"),
-        render_model::SHADER_PACKS_ENABLED
+            .any(|text| text == "Shaders: Missing")
     );
 }
 
 #[test]
-fn shader_tab_and_video_shortcut_follow_the_shader_pack_feature() {
+fn shader_tab_and_video_shortcut_are_available() {
     let mut view = settings_view(SettingSection::Video.definition().name);
     let (actions, labels) = controls(&view);
-    assert_eq!(
-        labels.iter().any(|text| text == "Shaders: Off"),
-        render_model::SHADER_PACKS_ENABLED
-    );
-    assert_eq!(
-        actions.contains(&MenuAction::SettingsShaders),
-        render_model::SHADER_PACKS_ENABLED
-    );
+    assert!(labels.iter().any(|text| text == "Shaders: Off"));
+    assert!(actions.contains(&MenuAction::SettingsShaders));
     let action = MenuAction::SettingsSection(SettingSection::Shaders.definition().index);
     view.settings.section = SettingSection::Shaders.definition().index;
     let (_, hits, _) = crate::review_tests::paint(Default::default(), |canvas| {
@@ -189,10 +173,7 @@ fn shader_tab_and_video_shortcut_follow_the_shader_pack_feature() {
         )
         .unwrap();
     });
-    assert_eq!(
-        hits.iter().any(|(hit, _)| *hit == action),
-        render_model::SHADER_PACKS_ENABLED
-    );
+    assert!(hits.iter().any(|(hit, _)| *hit == action));
 }
 
 #[test]
@@ -200,15 +181,11 @@ fn shaders_offer_off_and_packs_with_the_current_list_revision() {
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs_revision = 7;
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
-    let expected = if render_model::SHADER_PACKS_ENABLED {
-        vec![
-            RendererChoice::Vanilla,
-            RendererChoice::ShaderPack(0, view.shader_packs_revision),
-            RendererChoice::ShaderPack(1, view.shader_packs_revision),
-        ]
-    } else {
-        Vec::new()
-    };
+    let expected = vec![
+        RendererChoice::Vanilla,
+        RendererChoice::ShaderPack(0, view.shader_packs_revision),
+        RendererChoice::ShaderPack(1, view.shader_packs_revision),
+    ];
     assert_eq!(renderer_choices(&view), expected);
 }
 
@@ -219,10 +196,7 @@ fn shaders_offer_reload_and_folder_import_when_the_host_opens_folders() {
     for opens_folders in [false, true] {
         Arc::make_mut(&mut view.storage).opens_folders = opens_folders;
         let actions = controls(&view).0;
-        assert_eq!(
-            actions.contains(&open),
-            opens_folders && render_model::SHADER_PACKS_ENABLED
-        );
+        assert_eq!(actions.contains(&open), opens_folders);
         assert!(!actions.contains(&MenuAction::ReloadShaders));
     }
 }
@@ -236,7 +210,7 @@ fn the_import_target_opens_the_picker_with_or_without_file_drops() {
             view.shader_pack_importing = importing;
             assert_eq!(
                 controls(&view).0.contains(&MenuAction::ImportShaderPacks),
-                !importing && render_model::SHADER_PACKS_ENABLED,
+                !importing,
                 "drops {accepts_file_drops}, importing {importing}"
             );
         }
@@ -252,18 +226,9 @@ fn touch_hosts_offer_a_named_shader_import_button_without_a_folder_shortcut() {
     for packs in [Vec::new(), vec!["Dusk.zip".to_owned()]] {
         view.shader_packs = packs.into();
         let (actions, labels) = controls(&view);
-        assert_eq!(
-            labels.iter().any(|label| label == "Import shader pack"),
-            render_model::SHADER_PACKS_ENABLED
-        );
-        assert_eq!(
-            labels.iter().any(|label| label == "Tap to choose a .zip"),
-            render_model::SHADER_PACKS_ENABLED
-        );
-        assert_eq!(
-            actions.contains(&MenuAction::ImportShaderPacks),
-            render_model::SHADER_PACKS_ENABLED
-        );
+        assert!(labels.iter().any(|label| label == "Import shader pack"));
+        assert!(labels.iter().any(|label| label == "Tap to choose a .zip"));
+        assert!(actions.contains(&MenuAction::ImportShaderPacks));
         assert!(!labels.iter().any(|label| label == "Open folder"));
         assert!(
             !actions.contains(&MenuAction::SettingsStorage(StorageAction::OpenFolder(
@@ -279,12 +244,9 @@ fn a_requested_pack_without_a_picker_entry_offers_its_options() {
     view.render_mode = ui::RenderMode::ShaderPack;
     view.renderer = None;
     view.shader_options_available = true;
-    assert_eq!(
-        controls(&view).0.contains(&MenuAction::ShaderOptions(
-            launcher::shader_options::Action::Open
-        )),
-        render_model::SHADER_PACKS_ENABLED
-    );
+    assert!(controls(&view).0.contains(&MenuAction::ShaderOptions(
+        launcher::shader_options::Action::Open
+    )));
 }
 
 #[test]
@@ -294,7 +256,9 @@ fn pack_failure_details_appear_only_in_shaders() {
     view.render_mode = ui::RenderMode::ShaderPack;
     view.shader_pack = Some("Dusk.zip".into());
     view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
-    view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+    view.renderer_issue = Some(launcher::menu::shader_pack_status::PackIssue::Failure(
+        "Pack failed: unknown bloomTint".into(),
+    ));
     assert!(
         !controls(&view)
             .1
@@ -302,12 +266,11 @@ fn pack_failure_details_appear_only_in_shaders() {
             .any(|text| text.contains("unknown bloomTint"))
     );
     view.settings.section = SettingSection::Shaders.definition().index;
-    assert_eq!(
+    assert!(
         controls(&view)
             .1
             .iter()
-            .any(|text| text.contains("unknown bloomTint")),
-        render_model::SHADER_PACKS_ENABLED
+            .any(|text| text.contains("unknown bloomTint"))
     );
 }
 
@@ -317,10 +280,7 @@ fn video_shortcut_shows_off_for_a_remembered_but_disabled_pack() {
     view.shader_pack = Some("Dusk.zip".to_owned());
     let labels = controls(&view).1;
     assert!(!labels.iter().any(|text| text == "Shaders: Dusk"));
-    assert_eq!(
-        labels.iter().any(|text| text == "Shaders: Off"),
-        render_model::SHADER_PACKS_ENABLED
-    );
+    assert!(labels.iter().any(|text| text == "Shaders: Off"));
 }
 
 /// Paints the Shaders tab at `width` and returns every hit target.
@@ -376,9 +336,6 @@ fn hit(hits: &[(MenuAction, ui::UiRect)], action: MenuAction) -> ui::UiRect {
 
 #[test]
 fn unselected_shader_pack_rows_stack_without_deletion() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen.zip".to_owned()]);
     for width in [800.0, 1280.0, 1920.0] {
@@ -406,9 +363,6 @@ fn unselected_shader_pack_rows_stack_without_deletion() {
 
 #[test]
 fn the_selected_pack_card_holds_its_controls_apart_from_selection() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen.zip".to_owned()]);
     view.render_mode = ui::RenderMode::ShaderPack;
@@ -460,9 +414,6 @@ fn the_selected_pack_card_holds_its_controls_apart_from_selection() {
 
 #[test]
 fn the_selected_pack_shows_its_load_state_instead_of_its_file_name() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
     view.render_mode = ui::RenderMode::ShaderPack;
@@ -475,7 +426,9 @@ fn the_selected_pack_shows_its_load_state_instead_of_its_file_name() {
     assert_eq!(shown.iter().filter(|text| *text == "Lumen").count(), 1);
     view.shader_pack_loading = true;
     assert!(labels(&view).iter().any(|text| text == "Loading…"));
-    view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+    view.renderer_issue = Some(launcher::menu::shader_pack_status::PackIssue::Failure(
+        "Pack failed: unknown bloomTint".into(),
+    ));
     let shown = labels(&view);
     assert!(shown.iter().any(|text| text == "Failed"));
     assert!(shown.iter().any(|text| text.contains("unknown bloomTint")));
@@ -485,9 +438,6 @@ fn the_selected_pack_shows_its_load_state_instead_of_its_file_name() {
 
 #[test]
 fn only_packs_sharing_a_name_show_their_kind() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
     let kinds = |view: &MenuView| {
@@ -503,9 +453,6 @@ fn only_packs_sharing_a_name_show_their_kind() {
 
 #[test]
 fn long_shader_libraries_remain_scrollable_and_selectable() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = (0..24)
         .map(|i| format!("Shader pack {i} with a long descriptive release name.zip"))
@@ -515,9 +462,6 @@ fn long_shader_libraries_remain_scrollable_and_selectable() {
 
 #[test]
 fn removal_is_available_only_for_managed_entries_and_locks_while_pending() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
     view.render_mode = ui::RenderMode::ShaderPack;
@@ -543,4 +487,20 @@ fn removal_is_available_only_for_managed_entries_and_locks_while_pending() {
             .iter()
             .any(|action| matches!(action, MenuAction::RemoveShaderPackDialog(..)))
     );
+}
+
+#[test]
+fn partial_packs_show_their_active_state_and_program_diagnostics() {
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some("Dusk.zip".into());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    view.renderer_issue = Some(launcher::menu::shader_pack_status::PackIssue::Warning(
+        "Some programs are unavailable: shadow".into(),
+    ));
+    let shown = texts(&view);
+    assert!(shown.iter().any(|text| text == "Active with warnings"));
+    assert!(!shown.iter().any(|text| text == "Failed"));
+    assert!(shown.iter().any(|text| text.contains("shadow")));
 }

@@ -7,7 +7,7 @@ use serde_json::json;
 use launcher::menu::settings_options::{BEDROCK_HOTBAR_OPTION, SettingsOptions};
 
 /// Where the built-in HUD and chat screen place their chat and hotbar.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HudPlacement {
     /// The chat at the top of the screen rather than above the hotbar.
     pub chat_top: bool,
@@ -44,6 +44,13 @@ impl HudPlacement {
     pub fn placed(self, context: Context) -> Context {
         crate::chat_position::placed(context, self.chat_top)
             .with_flag(BEDROCK_HOTBAR_OPTION.name, self.bedrock_hotbar)
+    }
+}
+
+/// The placement default settings select.
+impl Default for HudPlacement {
+    fn default() -> Self {
+        Self::from_settings(&SettingsOptions::default())
     }
 }
 
@@ -168,8 +175,8 @@ mod tests {
         }
         assert_eq!(
             HudPlacement::from_settings(&SettingsOptions::default()),
-            HudPlacement::default(),
-            "Java's flush hotbar and bottom chat stay the defaults"
+            HudPlacement::new(false, true),
+            "vanilla Bedrock's hotbar height and bottom chat are the defaults"
         );
     }
 

@@ -5,9 +5,11 @@
     reason = "names missing GPU fixtures when tests skip"
 )]
 
+mod dot;
 #[cfg(target_os = "windows")]
 mod fxc;
 mod geometry_frames;
+mod partial;
 
 use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
@@ -100,25 +102,6 @@ fn enabled_full_screen_programs_run_in_frame_order() {
         "composite2's flip is suppressed"
     );
     assert_eq!(plans[3].group, ProgramGroup::Final);
-}
-
-#[test]
-fn a_failed_required_program_fails_the_load() {
-    let pack = pack(&[
-        ("composite.vsh", PASS_VERTEX),
-        (
-            "composite.fsh",
-            "#version 120\nvoid main() { gl_FragData[0] = undefined_name; }\n",
-        ),
-    ]);
-    let translation = pack.translate(&translate_config(&pack, JAVA_DIMENSIONS[0]));
-    let error = runnable_programs(&translation).expect_err("composite fails");
-    let lines: Vec<&str> = error.lines().collect();
-    assert_eq!(lines.len(), 1, "one line per failed program: {error}");
-    assert!(
-        lines[0].starts_with("composite: composite.fsh:") && lines[0].contains("undefined_name"),
-        "names the program and its first diagnostic: {error}"
-    );
 }
 
 /// Switching packs shows Vanilla, which removes the block ids, between them; the geometry
@@ -860,8 +843,14 @@ fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
-    let (device, queue) =
-        bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+    .unwrap();
     let gpu = GpuContext {
         device,
         queue,

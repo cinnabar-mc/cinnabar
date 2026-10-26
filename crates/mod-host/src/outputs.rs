@@ -1,12 +1,17 @@
 //! Committed visual outputs of a loaded component.
 
 use super::{CameraDelta, ModHost};
-use anyhow::Result;
+use std::sync::Arc;
 
 impl ModHost {
     /// Reads a committed pulse so filtering can run before the frame outputs are collected.
     pub fn attack_pulse_requested(&self) -> bool {
         self.instance.attack_pulse_requested()
+    }
+
+    /// Reads a committed use pulse so filtering can run before the frame outputs are collected.
+    pub fn use_pulse_requested(&self) -> bool {
+        self.instance.use_pulse_requested()
     }
 
     /// Successfully committed local weather target, in rain/thunder channel order.
@@ -18,28 +23,34 @@ impl ModHost {
             Weather::Thunder => [1., 1.],
         })
     }
-    /// Retained attack/use caps; an absent channel leaves ordinary input unchanged.
-    pub fn click_limits(&self) -> [Option<u32>; 2] {
-        self.instance.click_limits()
+    /// Committed touch buttons; empty for an inactive instance or without controls authority.
+    pub fn touch_buttons(&self) -> &[ui::mod_touch::TouchButton] {
+        self.instance.touch_buttons()
     }
-
-    /// Current-frame ordinary input modes; absence restores the player's saved preferences.
-    pub fn movement_toggles(&self) -> Option<&crate::MovementToggles> {
-        self.instance.movement_toggles()
+    /// Identifies this component instance to presented buttons; a reload gets a new token.
+    pub fn touch_owner(&self) -> u64 {
+        self.instance.touch_owner()
+    }
+    /// Whether the last executed frame callback received taps, including deferred ones.
+    pub fn touch_presses_delivered(&self) -> bool {
+        self.instance.touch_presses_delivered()
+    }
+    /// Queues a completed tap on one of this mod's buttons for its next frame callback.
+    /// Returns false when the button is gone or the bounded queue is full.
+    pub fn queue_touch_press(&mut self, id: &str) -> bool {
+        self.instance.queue_touch_press(id)
+    }
+    /// Sprint and sneak held as if bound, from the current successful frame only.
+    pub fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
+        self.instance.movement_intents()
+    }
+    /// Control modes replacing the player's own, from the current successful frame only.
+    pub fn control_modes(&self) -> Option<crate::GameplayControlModes> {
+        self.instance.control_modes()
     }
     /// Successfully committed local lighting override.
     pub fn fullbright(&self) -> bool {
         self.instance.fullbright()
-    }
-
-    /// Committed selection; no raw block reads are exposed to the component.
-    pub fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
-        self.instance.block_highlights()
-    }
-
-    /// Explicit opt-in to the private core's last-relayed local position witness.
-    pub fn show_real_position(&self) -> bool {
-        self.instance.show_real_position()
     }
 
     /// Consumes the last successful frame's rotation once, without entering the guest.
@@ -57,33 +68,67 @@ impl ModHost {
         self.instance.label()
     }
 
-    /// Retained host-rendered cards from the last successful callback.
-    pub fn hud(&self) -> Option<&ui::mod_hud::Hud> {
-        self.instance.hud()
+    /// The committed HUD surface with its current, patched bindings, and a process-unique
+    /// revision that changes with every committed `set-surface` or `update-surface`. Item and
+    /// projected values are resolved by the presenter, not here. Hosts and mod probes read it.
+    pub fn hud_surface(&self) -> Option<(&Arc<ui::mod_panel::Surface>, u64)> {
+        self.instance.hud_surface()
     }
 
-    /// Process-unique committed HUD identity, including changes from native bindings.
-    pub fn hud_revision(&self) -> Option<u64> {
-        self.hud().map(|_| self.instance.hud_revision())
-    }
-
-    /// Consumes a committed native-editor request without entering the guest.
-    pub fn take_hud_editor_request(&mut self) -> Option<ui::mod_hud::Hud> {
-        self.instance.take_hud_editor_request()
-    }
-
-    /// Delivers host-owned layout output to this instance only.
-    pub fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) -> Result<()> {
-        result.validate().map_err(anyhow::Error::msg)?;
+    /// Vanilla HUD elements the committed output hides.
+    pub fn hidden_hud_elements(&self) -> ui::mod_hud::HiddenElements {
         if self.is_active() {
-            self.instance.deliver_hud_editor_result(result);
+            self.instance.hidden_hud_elements()
+        } else {
+            ui::mod_hud::HiddenElements::default()
         }
-        Ok(())
     }
 
-    /// Retained cosmetic crosshair, applied only when the ordinary crosshair is visible.
-    pub fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
-        self.instance.crosshair()
+    /// Records the last laid-out HUD root and vanilla element states that `read-viewport` and
+    /// `read-elements` report to later callbacks.
+    pub fn observe_hud(
+        &mut self,
+        viewport: Option<ui::mod_hud::HudViewport>,
+        elements: ui::mod_hud::ElementStates,
+    ) {
+        self.instance.observe_hud(viewport, elements);
+    }
+
+    /// Records where the host last laid out this mod's panel, which `panel.read-layout`
+    /// reports to later callbacks; none while the panel is not up.
+    pub fn observe_panel_layout(&mut self, layout: Option<ui::mod_hud::PanelLayout>) {
+        self.instance.observe_panel_layout(layout);
+    }
+
+    /// Installs the host label metrics `measure-text` uses; none reports them unavailable.
+    pub fn set_text_measure(&mut self, text: Option<Arc<dyn crate::HudTextMeasure>>) {
+        self.instance.set_text_measure(text);
+    }
+
+    /// Native presentation parameters from the last successful callbacks.
+    pub fn presentation(&self) -> &ui::mod_presentation::ModPresentation {
+        self.instance.presentation().0
+    }
+
+    /// Process-unique identity of the committed presentation, changing with it.
+    pub fn presentation_revision(&self) -> u64 {
+        self.instance.presentation().1
+    }
+
+    /// Supplies the installation's food table to `facts.read-item` and `facts.read-foods`;
+    /// reloads keep it.
+    pub fn set_food_catalog(
+        &mut self,
+        catalog: Option<&std::sync::Arc<assets::RuntimeEquipmentCatalog>>,
+    ) {
+        let current = self.instance.food_catalog();
+        let unchanged = match (current.as_ref(), catalog) {
+            (Some(current), Some(catalog)) => std::sync::Arc::ptr_eq(current, catalog),
+            (current, catalog) => current.is_none() && catalog.is_none(),
+        };
+        if !unchanged {
+            self.instance.set_food_catalog(catalog.cloned());
+        }
     }
 
     /// Returns the committed visual override without entering the guest.

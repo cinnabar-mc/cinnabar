@@ -497,6 +497,26 @@ fn studio_republish_keeps_capture_and_the_completed_history_baseline() {
 }
 
 #[test]
+fn studio_republish_moves_captured_hover_with_its_reordered_card() {
+    let mut editor = editor(true);
+    let point = frame(&mut editor, "hud.card:0");
+    editor.pointer(point, true, true, &mut []);
+    assert_eq!(editor.hovered, Some(0));
+    let mut published = editor.draft.cards.clone();
+    published.insert(
+        0,
+        Card {
+            id: "new".into(),
+            ..Default::default()
+        },
+    );
+    editor.republish_cards(&published, true);
+    let point = frame(&mut editor, "hud.card:1");
+    editor.pointer([point[0] + 40., point[1] + 40.], false, true, &mut []);
+    assert_eq!(editor.hovered, Some(1));
+}
+
+#[test]
 fn studio_republish_added_cards_remain_undoable_after_restoring_an_older_layout() {
     let mut editor = editor(false);
     editor.selected = Some(0);

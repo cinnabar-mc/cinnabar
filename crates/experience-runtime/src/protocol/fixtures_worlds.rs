@@ -41,6 +41,9 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         })
         .collect::<Vec<_>>();
     let context = WorldContext {
+        opening_closed: false,
+        actor_riding_elsewhere: false,
+        entities: Vec::new(),
         current: handle.clone(),
         player: Some(before.clone()),
         instances: vec![handle.clone()],
@@ -92,6 +95,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             snapshot: Vec::new(),
             network: None,
             inventory: None,
+            containers: None,
             call: Call::Player {
                 player: "11111111-1111-1111-1111-111111111111".into(),
                 event,
@@ -100,6 +104,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         out.push((name, serde_json::to_string_pretty(&request).unwrap() + "\n"));
     }
     let response = Response::Loaded {
+        entities: Vec::new(),
         simulation: false,
         protocol: PROTOCOL_VERSION,
         id: "probe".into(),
@@ -108,6 +113,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         items: vec![],
         focus: true,
         worlds: Some(registration.clone()),
+        overlays: None,
     };
     out.push((
         "response_loaded_worlds",

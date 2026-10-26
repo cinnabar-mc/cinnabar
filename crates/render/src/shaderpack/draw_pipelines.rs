@@ -19,6 +19,7 @@ pub(crate) struct DrawPipelineInputs<'a> {
     pub reflection: &'a ProgramReflection,
     /// The program's vertex stage module.
     pub vertex: &'a wgpu::ShaderModule,
+    pub emulated: bool,
     /// The program's translated fragment stage, which the alpha test is injected into.
     pub fragment: &'a naga::Module,
     pub properties: &'a ShaderProperties,
@@ -158,7 +159,7 @@ pub(crate) fn draw_pipeline(
                 module: inputs.vertex,
                 entry_point: entry(StageKind::Vertex),
                 compilation_options: Default::default(),
-                buffers: &buffers,
+                buffers: if inputs.emulated { &[] } else { &buffers },
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,

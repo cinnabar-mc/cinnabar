@@ -141,8 +141,17 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
-    /// Predicts remote actors `ticks` ahead for [`Self::pick_hit_boxes`], leaving the live
-    /// actors to [`Self::advance_actor_interpolation_frame`].
+    /// Returns completed previous/current feet and interpolation steps for interaction diagnostics.
+    pub fn pick_motion(&self, actor: &ActorSnapshot) -> ([f32; 3], [f32; 3], u32) {
+        (
+            actor.previous_pose.position,
+            actor.position,
+            actor.interpolation_ticks_remaining,
+        )
+    }
+
+    /// Predicts remote motion for vehicle and collision queries, leaving interaction boxes
+    /// at the completed simulation pose until [`Self::advance_actor_interpolation_frame`].
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.actors.predict_remote_motion(ticks);
     }
@@ -265,7 +274,7 @@ impl WorldAuthority {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
-    /// Binds the local Java torso to the current simulation; `None` restores actor-clock motion.
+    /// Binds local torso and legs to the current simulation; `None` restores actor-clock motion.
     pub fn set_local_motion_authority(
         &mut self,
         authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
@@ -273,7 +282,7 @@ impl WorldAuthority {
         self.actors
             .set_local_motion_authority(self.local_player_runtime_id, authority);
     }
-    /// Applies completed local torso samples without advancing other actor motion or clocks.
+    /// Applies completed local torso and leg samples without advancing other actor clocks.
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (SessionGeneration, PositionAuthorityGeneration),
@@ -304,6 +313,12 @@ impl WorldAuthority {
     /// Returns the session, dimension and spawn identity that owns the current actor.
     pub fn actor_lifetime(&self, runtime_id: u64) -> Option<actor_animation::ActorLifetimeId> {
         self.actors.lifetime(runtime_id)
+    }
+
+    /// Publishes StartGame's binding of the local player's mode to the world
+    /// default, which later default changes then reach.
+    pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
+        self.local_mode_follows_default = follows;
     }
 
     /// Publishes the session's level mode before remote players are admitted.
@@ -421,6 +436,10 @@ impl WorldAuthority {
     /// Dying dragon body centers and ray parameters at the supplied frame fraction.
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
+    }
+    /// Loyalty ropes from thrown tridents to their present owners at the frame fraction.
+    pub fn loyalty_ropes(&self, partial_tick: f32) -> Vec<crate::LoyaltyRopeView> {
+        self.actors.loyalty_ropes(partial_tick)
     }
     /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
@@ -608,12 +627,9 @@ impl WorldAuthority {
             .actors()
             .filter(move |actor| actor.runtime_id != local)
     }
-    /// The actor's interaction boxes where this frame's due ticks put it, for picks.
+    /// Interaction boxes at the completed simulation pose, before any pending actor ticks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {
-        match self.actors.pick_pose(actor.runtime_id) {
-            Some(pose) => actor.hit_boxes_at_pose(pose),
-            None => actor.hit_boxes(),
-        }
+        actor.hit_boxes()
     }
     /// Counts retained actors in this session.
     pub fn actor_count(&self) -> usize {

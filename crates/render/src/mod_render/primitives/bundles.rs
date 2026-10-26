@@ -35,17 +35,8 @@ impl BundleGpu {
                 *gpu = PrimitiveGpu::new(device, Some(ledger));
             }
             if let Some(gpu) = gpu {
-                let empty = Arc::clone(&gpu.uploaded_marker);
-                upload(
-                    gpu,
-                    vertices,
-                    &empty,
-                    &empty,
-                    time,
-                    device,
-                    queue,
-                    Some(ledger),
-                );
+                let empty = Arc::clone(&gpu.uploaded_blocks);
+                upload(gpu, vertices, &empty, time, device, queue, Some(ledger));
             }
         }
         if !retired.is_empty() {
@@ -86,7 +77,6 @@ mod tests {
                 &mut gpu,
                 &vertices,
                 &empty,
-                &empty,
                 [0.; 2],
                 device,
                 queue,
@@ -116,7 +106,6 @@ mod tests {
             &mut gpu,
             &vertices,
             &empty,
-            &empty,
             [0.; 2],
             device,
             queue,
@@ -131,7 +120,6 @@ mod tests {
         );
         upload(
             &mut gpu,
-            &empty,
             &empty,
             &empty,
             [0.; 2],
@@ -149,7 +137,6 @@ mod tests {
         upload(
             &mut gpu,
             &too_large,
-            &empty,
             &empty,
             [0.; 2],
             device,

@@ -474,6 +474,12 @@ impl ActorSnapshot {
         self.flag(ActorFlag::UsingItem.wire_value())
     }
 
+    /// Whether the server marks this actor enchanted, as it does for a thrown enchanted trident.
+    #[must_use]
+    pub fn is_enchanted(&self) -> bool {
+        self.flag(ActorFlag::Enchanted.wire_value())
+    }
+
     /// Reads a rendering flag, including the local rig's visual primary word.
     pub(crate) fn flag(&self, bit: u32) -> bool {
         if bit < u64::BITS
@@ -670,6 +676,8 @@ pub struct LocalPlayerFeed {
     pub flying: bool,
     /// Predicted elytra glide; overrides the streamed gliding flag on the local rig.
     pub gliding: bool,
+    /// Predicted swimming pose; overrides the streamed swimming flag on the local rig.
+    pub swimming: bool,
     /// Predicted Riptide spin pose, independent of swimming and gliding.
     pub spinning: bool,
     /// Consecutive completed gliding ticks, which ease the body into its glide tilt.
@@ -760,6 +768,8 @@ pub(crate) struct ActorStore {
     remote_state_excluded_runtime_id: Option<u64>,
     /// The local player's persistent id, known from the session start before its actor exists.
     local_unique_id: Option<i64>,
+    /// The session's wire runtime id for air, as synced block metadata encodes it.
+    air_block_network_id: Option<u32>,
     /// The vehicle the local player steers, whose pose the client predicts.
     local_vehicle: local_vehicle::LocalVehicle,
     /// Health admitted before the client-fed local actor is created.
@@ -791,8 +801,7 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
-    /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
-    /// the frame advances the live actors; reused across frames.
+    /// Staged vehicle and collision motion, sorted by runtime id and reused across frames.
     pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
     local_view_bobbing: bool,
@@ -842,7 +851,9 @@ pub use crystal_beam::CrystalBeamView;
 pub(crate) mod dragon_animation;
 mod dragon_beam;
 mod dragon_death;
+mod loyalty_rope;
 pub use dragon_death::DragonDeathView;
+pub use loyalty_rope::LoyaltyRopeView;
 mod dragon_fireball_particles;
 mod dragon_particles;
 mod dropped;

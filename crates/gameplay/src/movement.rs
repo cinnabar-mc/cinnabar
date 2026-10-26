@@ -22,6 +22,7 @@ mod effects;
 mod emote;
 mod encoding;
 mod input_state;
+mod interaction_rotation;
 
 pub use input_state::TickInput;
 mod evidence;
@@ -54,7 +55,9 @@ pub use diagnostics::{
     CorrectionContext, CorrectionContextLine, CorrectionContextLog, CorrectionKind,
     CorrectionPacket, note_correction, note_motion,
 };
-pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
+pub use effects::{
+    BoostSpan, LocalMovementEffectTimeline, MeleeEffects, MiningEffects, MovementBoost,
+};
 use encoding::{HeldInput, input_flags};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -473,6 +476,7 @@ impl MovementTicker {
             yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
+            interact_rotation: interaction_rotation::from_facing(sample.pitch, sample.yaw),
             flags: input_flags(sample, self.previous_input)
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),
@@ -772,8 +776,8 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::FullRestored;
     }
 
+    /// The next movement tick to be simulated and queued.
     #[must_use]
-    #[cfg(any(test, feature = "test-support"))]
     pub const fn next_tick(&self) -> u64 {
         self.next_tick
     }

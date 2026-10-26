@@ -6,7 +6,7 @@
 //! the standalone `PlayerAction` packet; its embedded break-block item-use
 //! transaction (`PerformItemInteraction`) remains the client-authoritative
 //! carrier. Block placement is a standalone transaction. This module owns
-//! those bounded payloads; the movement snapshot itself stays a pure movement
+//! those payloads; the movement snapshot itself stays a pure movement
 //! record.
 
 use bedrock_protocol_1_26_51::enums::{ItemUseInventoryTransactionActionType, PlayerActionType};
@@ -18,13 +18,6 @@ use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
 
 use crate::interaction::{BlockUsePacketError, BlockUseRequest, item_use_transaction};
-
-/// Maximum block actions one movement tick may carry.
-///
-/// A vanilla tick produces at most a handful (an abort plus a start when the
-/// target changes, or a start followed by an instant prediction); eight keeps
-/// pathological input from growing the packet without bound.
-pub const MAX_BLOCK_ACTIONS_PER_INPUT: usize = 8;
 
 /// The block-action kinds a client may place inside `PlayerAuthInput`.
 ///
@@ -77,66 +70,51 @@ pub struct BlockAction {
     pub face: u8,
 }
 
-/// The block-action list is full.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("PlayerAuthInput block-action list holds at most {MAX_BLOCK_ACTIONS_PER_INPUT} actions")]
-pub struct BlockActionsFull;
-
-/// Bounded, order-preserving block-action list for one movement tick.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Order-preserving block actions accumulated for one movement tick.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BlockActions {
-    actions: [Option<BlockAction>; MAX_BLOCK_ACTIONS_PER_INPUT],
-    len: u8,
+    actions: Vec<BlockAction>,
 }
 
 impl BlockActions {
+    /// Starts an empty action list without allocating storage.
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            actions: [None; MAX_BLOCK_ACTIONS_PER_INPUT],
-            len: 0,
+            actions: Vec::new(),
         }
     }
 
-    /// Appends one action, refusing (without mutation) when the list is full.
-    pub fn push(&mut self, action: BlockAction) -> Result<(), BlockActionsFull> {
-        let index = usize::from(self.len);
-        let slot = self.actions.get_mut(index).ok_or(BlockActionsFull)?;
-        *slot = Some(action);
-        self.len += 1;
-        Ok(())
+    /// Retains one action after all earlier actions from the same tick.
+    pub fn push(&mut self, action: BlockAction) {
+        self.actions.push(action);
     }
 
-    /// Appends every action of `other` atomically: either all fit or the
-    /// list is left untouched.
-    pub fn append(&mut self, other: &Self) -> Result<(), BlockActionsFull> {
-        if self.len() + other.len() > MAX_BLOCK_ACTIONS_PER_INPUT {
-            return Err(BlockActionsFull);
-        }
-        for action in other.iter() {
-            self.push(*action)?;
-        }
-        Ok(())
+    /// Retains every action of `other` after this list's existing actions.
+    pub fn append(&mut self, other: &Self) {
+        self.actions.extend_from_slice(&other.actions);
     }
 
+    /// Visits actions in the order they were accumulated.
     pub fn iter(&self) -> impl Iterator<Item = &BlockAction> {
-        self.actions[..usize::from(self.len)]
-            .iter()
-            .filter_map(Option::as_ref)
+        self.actions.iter()
     }
 
+    /// Returns the number of retained actions.
     #[must_use]
     pub const fn len(&self) -> usize {
-        self.len as usize
+        self.actions.len()
     }
 
+    /// Returns whether this tick has any block actions.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.len == 0
+        self.actions.is_empty()
     }
 
+    /// Discards retained actions while keeping their storage for reuse.
     pub fn clear(&mut self) {
-        *self = Self::new();
+        self.actions.clear();
     }
 
     /// Removes and returns every retained action.
@@ -144,6 +122,7 @@ impl BlockActions {
         std::mem::take(self)
     }
 
+    /// Validates each action and converts the complete list to wire values.
     pub(super) fn vendor(&self) -> Result<Vec<PlayerBlockActionData>, InteractionEncodeError> {
         self.iter()
             .map(|action| {
@@ -256,58 +235,47 @@ mod tests {
     }
 
     #[test]
-    fn list_is_bounded_and_order_preserving() {
+    fn list_preserves_order_when_taken() {
         let mut actions = BlockActions::new();
-        for index in 0..MAX_BLOCK_ACTIONS_PER_INPUT {
-            actions
-                .push(action(BlockActionKind::CrackBlock, index as u8 % 6))
-                .unwrap();
+        for face in 0..6 {
+            actions.push(action(BlockActionKind::CrackBlock, face));
         }
-        assert_eq!(actions.len(), MAX_BLOCK_ACTIONS_PER_INPUT);
-        assert_eq!(
-            actions.push(action(BlockActionKind::AbortDestroy, 0)),
-            Err(BlockActionsFull)
-        );
-        assert_eq!(actions.len(), MAX_BLOCK_ACTIONS_PER_INPUT);
-        let faces = actions.iter().map(|action| action.face).collect::<Vec<_>>();
-        assert_eq!(faces, vec![0, 1, 2, 3, 4, 5, 0, 1]);
         let taken = actions.take();
         assert!(actions.is_empty());
-        assert_eq!(taken.len(), MAX_BLOCK_ACTIONS_PER_INPUT);
+        assert_eq!(taken.len(), 6);
+        assert_eq!(
+            taken.iter().map(|action| action.face).collect::<Vec<_>>(),
+            [0, 1, 2, 3, 4, 5]
+        );
     }
 
     #[test]
-    fn append_is_atomic() {
+    fn append_keeps_both_lists_in_order() {
         let mut left = BlockActions::new();
-        for _ in 0..6 {
-            left.push(action(BlockActionKind::CrackBlock, 1)).unwrap();
-        }
         let mut right = BlockActions::new();
-        for _ in 0..3 {
-            right
-                .push(action(BlockActionKind::StartDestroy, 2))
-                .unwrap();
+        for _ in 0..6 {
+            left.push(action(BlockActionKind::CrackBlock, 1));
+            right.push(action(BlockActionKind::StartDestroy, 2));
         }
-        assert_eq!(left.append(&right), Err(BlockActionsFull));
-        assert_eq!(left.len(), 6);
-        let mut small = BlockActions::new();
-        small
-            .push(action(BlockActionKind::StartDestroy, 2))
-            .unwrap();
-        left.append(&small).unwrap();
-        assert_eq!(left.len(), 7);
+        let original = right.clone();
+        left.append(&right);
+        assert_eq!(left.len(), 12);
+        assert_eq!(right, original);
+        assert!(
+            left.iter()
+                .take(6)
+                .all(|entry| entry.kind == BlockActionKind::CrackBlock)
+        );
         assert_eq!(
-            left.iter().last().unwrap().kind,
-            BlockActionKind::StartDestroy
+            left.iter().skip(6).copied().collect::<Vec<_>>(),
+            right.iter().copied().collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn faces_outside_the_cube_fail_closed() {
         let mut actions = BlockActions::new();
-        actions
-            .push(action(BlockActionKind::StartDestroy, 6))
-            .unwrap();
+        actions.push(action(BlockActionKind::StartDestroy, 6));
         assert_eq!(
             actions.vendor().unwrap_err(),
             InteractionEncodeError::InvalidBlockActionFace(6)
@@ -317,14 +285,10 @@ mod tests {
     #[test]
     fn abort_carries_progress_percent_in_the_face_slot() {
         let mut actions = BlockActions::new();
-        actions
-            .push(action(BlockActionKind::AbortDestroy, 100))
-            .unwrap();
+        actions.push(action(BlockActionKind::AbortDestroy, 100));
         assert_eq!(actions.vendor().unwrap()[0].facing.0, 100);
         actions.clear();
-        actions
-            .push(action(BlockActionKind::AbortDestroy, 101))
-            .unwrap();
+        actions.push(action(BlockActionKind::AbortDestroy, 101));
         assert_eq!(
             actions.vendor().unwrap_err(),
             InteractionEncodeError::InvalidBlockActionFace(101)

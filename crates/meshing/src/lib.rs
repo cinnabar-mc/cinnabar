@@ -15,6 +15,11 @@ mod contributors;
 mod cube_layout;
 pub mod lighting;
 pub mod liquid;
+mod overlays;
+pub use overlays::{
+    CellOverlay, MODEL_TURN_X_MASK, MODEL_TURN_X_SHIFT, MODEL_TURN_Y_MASK, overlay_model_turn,
+    turn_model_position,
+};
 mod palette_bits;
 mod publication;
 mod render_settings;

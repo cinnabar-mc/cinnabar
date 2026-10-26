@@ -10,7 +10,9 @@ use client_audio::audio_ingress::SequencedAudioEvent;
 use render_scene::{ParticleSimulation, RuntimeStage, RuntimeStageProfiler};
 use std::collections::HashSet;
 use {
-    super::predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
+    super::predicted::{
+        drive_actor_audio, drive_attack_cues, drive_block_cues, drive_consume_audio,
+    },
     client_audio::audio::AudioEngine,
 };
 use {
@@ -34,6 +36,10 @@ pub(crate) fn configure(app: &mut App) {
         drive_block_cues
             .after(crate::melee::produce_attacks)
             .after(crate::block_use::produce_block_use),
+        // Attacks dispatched before or after movement sound in the frame they are sent.
+        drive_attack_cues
+            .after(crate::melee::produce_attacks)
+            .after(crate::item_use::produce_item_use),
         drive_consume_audio,
         drive_actor_audio,
         pump_audio.after(client_state::ClientFrameSet::Camera),

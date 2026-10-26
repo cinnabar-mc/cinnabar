@@ -38,10 +38,12 @@ fn draft(
     let expanded = expand(&source, file, &[], &OptionValues::new()).expect("expands");
     let pp = preprocess(expanded, &[]).expect("preprocesses");
     let names = ResourceNames {
+        software_fused_dot: false,
         image_formats: &HashMap::new(),
         sampler_classes: &SamplerClasses::default(),
         normalize_legacy: true,
         geometry: file.starts_with("gbuffers_"),
+        vertex_clip: true,
     };
     let draft = transform(&pp, stage, iface, &names).expect("transforms");
     (draft, pp.map)

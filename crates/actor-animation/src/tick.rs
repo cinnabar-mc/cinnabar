@@ -3,6 +3,7 @@ use assets::EntityControllerAnimationTarget;
 use protocol_ids::ActorFlag;
 
 pub(super) mod controller;
+mod equip;
 pub(super) mod scale;
 pub(super) mod selection;
 use controller::ControllerWalk;
@@ -75,6 +76,8 @@ pub struct ActorTickContext {
     pub main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
     /// The selected item declares the native spear animation tag.
     pub main_hand_is_spear: bool,
+    /// The main-hand item's use animation: its declared component, else its native one.
+    pub main_hand_use_animation: Option<assets::facts::ItemUseAnimationFact>,
     /// Selected melee component swing duration, in seconds.
     pub main_hand_swing_seconds: Option<f32>,
     /// Namespaced identifier of the actor being ridden.
@@ -111,6 +114,9 @@ pub struct ActorTickContext {
     pub properties: Option<Arc<[PropertyDefinition]>>,
     /// Item-render query units and contexts differ from ordinary actor queries.
     pub attachable: Option<super::attachable::AttachableQueryContext>,
+    /// The session's wire runtime id for air, which an empty-handed enderman syncs as its
+    /// carried block.
+    pub air_block_network_id: Option<u32>,
 }
 
 /// One worn armor stack as the armor queries read it.
@@ -124,13 +130,8 @@ pub struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
-// Vanilla held-item tick: ±0.4 clamp and cached
-// stack replacement at height <= 0.1.
-const ARM_HEIGHT_STEP: f32 = 0.4;
-const ARM_SWAP_HEIGHT: f32 = 0.1;
-
 // Vanilla applies this modified-speed query multiplier to babies.
-const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
+pub(super) const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
 
 // Gliding divides limb swing by the cubed squared speed over this; needs independent
 // measurement.
@@ -154,6 +155,11 @@ pub(super) fn advance_motion(
         .map_or(actor.position(), |input| input.position);
     let position_delta =
         std::array::from_fn(|axis| actor.position()[axis] - previous_position[axis]);
+    state
+        .java
+        .local_body
+        .observe_walk(context.is_riding, actor.is_on_fire());
+    let actor_walk = !state.java.local_body.active();
     let motion = &mut state.motion;
     if context.bedrock_swing_ticks > 0 {
         motion.set_swing_duration(context.bedrock_swing_ticks);
@@ -165,6 +171,7 @@ pub(super) fn advance_motion(
         yaw: actor.yaw(),
         head_yaw: actor.head_yaw(),
         on_fire: actor.is_on_fire(),
+        actor_walk,
     });
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
@@ -217,7 +224,7 @@ pub(super) fn advance_motion(
     // The arm lowers while the held item differs from the equipped one, swaps it low, then rises.
     let [main_variant, off_variant] = context.held_variants;
     let arm_height = match state.history.back() {
-        Some(previous) => advance_equip_height(
+        Some(previous) => equip::advance_height(
             &mut state.equipped_main,
             (&context.main_hand, main_variant),
             previous.arm_height,
@@ -228,7 +235,7 @@ pub(super) fn advance_motion(
         }
     };
     state.off_hand_animation[0] = state.off_hand_animation[1];
-    let off_hand_arm_height = advance_equip_height(
+    let off_hand_arm_height = equip::advance_height(
         &mut state.equipped_off,
         (&context.off_hand, off_variant),
         state.off_hand_animation[0].arm_height,
@@ -366,23 +373,6 @@ pub(super) fn local_use_counter(
             0
         }
     })
-}
-
-/// Identifier changes request the native lowering transition. Item-specific stack
-/// equivalence/instant-update predicates need stack data beyond the current actor feed.
-fn advance_equip_height(
-    equipped: &mut (Option<Arc<str>>, StackVariant),
-    (requested, variant): (&Option<Arc<str>>, StackVariant),
-    previous_height: f32,
-) -> f32 {
-    let swapping = equipped.0 != *requested || (requested.is_some() && equipped.1 != variant);
-    let target = if swapping { 0.0 } else { 1.0 };
-    let height =
-        previous_height + (target - previous_height).clamp(-ARM_HEIGHT_STEP, ARM_HEIGHT_STEP);
-    if swapping && height <= ARM_SWAP_HEIGHT {
-        *equipped = (requested.clone(), variant);
-    }
-    height
 }
 
 impl ActorRigState {
@@ -836,6 +826,9 @@ pub(super) fn apply_engine_variables(
         truth(!query::wearing_elytra(context)),
     );
     variables.set(engine.is_blocking, flag(ActorFlag::Blocking.wire_value()));
+    let (brandishing, charge) = super::brandish::brandish_spear(actor, context, input);
+    variables.set(engine.is_brandishing_spear, truth(brandishing));
+    variables.set(engine.charge_amount, charge);
     variables.set(
         engine.damage_nearby_mobs,
         flag(ActorFlag::DamageNearbyMobs.wire_value()),

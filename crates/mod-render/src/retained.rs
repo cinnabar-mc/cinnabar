@@ -330,6 +330,28 @@ impl Store {
         self.entity_candidates.clear();
     }
 
+    /// Invalidates guest resources while keeping the current native session and candidates.
+    pub fn restart_guest(&mut self) {
+        let Self {
+            owner: _,
+            generation: _,
+            next_slot: _,
+            committed,
+            staged: _,
+            mutation_bytes: _,
+            retired: _,
+            retired_materials: _,
+            material_compiles: _,
+            entity_candidates,
+            instance_limit: _,
+        } = self;
+        let candidates = std::mem::take(entity_candidates);
+        let connection = committed.connection;
+        let dimension = committed.dimension;
+        self.bind_session(connection, dimension);
+        self.entity_candidates = candidates;
+    }
+
     /// Charges copied asset bytes against this callback's shared mutation allowance.
     pub fn charge_bytes(&mut self, bytes: usize) -> Result<(), DrawError> {
         let total = self

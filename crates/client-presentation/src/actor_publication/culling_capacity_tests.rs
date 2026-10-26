@@ -638,6 +638,24 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
 }
 
 #[test]
+fn a_remote_player_containing_the_camera_reaches_the_draw_frame() {
+    let (assets, artwork) = catalog(None, true, "Geometry.default");
+    let stream = player_world(&assets, 0, |id| skin(id, true), [0.0; 3]);
+    let (sampled, mut geometries) = Caches::default().sample(&stream, &artwork, 1.0);
+    assert_eq!(sampled.remotes.len(), 1);
+    let batch = select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
+    geometries.extend(render_model::pack_geometries(&assets));
+    let mut builder = ActorRigFrameBuilder::new(geometries).unwrap();
+    let built = builder.build(1.0, Some(view()), batch.submissions);
+    assert!(
+        built
+            .manifest
+            .iter()
+            .any(|draw| draw.identity.runtime_id == 1)
+    );
+}
+
+#[test]
 fn remote_body_batches_keep_serial_order_layers_and_budget() {
     let (assets, artwork) = catalog(Some("query.frame_alpha < 0.75"), true, "Geometry.default");
     let serial = player_world(&assets, 127, |id| skin(id, false), [0.0, 0.0, -5.0]);

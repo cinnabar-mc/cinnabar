@@ -4,16 +4,14 @@ use ui::mod_panel::Panel;
 
 /// An admitted native collection with immutable items and no control authority of its own.
 fn panel() -> Panel {
-    serde_json::from_value(
-        json!({"title":"Collection", "toggle_key":"F10", "dark":true,
+    serde_json::from_value(json!({"toggle_key":"F10",
         "controls":[], "surface":{"screen":"list.root", "document":json!({
             "namespace":"list", "root":{"type":"panel", "controls":[
                 {"tiles":{"type":"panel", "cinnabar_collection":"modules"}}]}}).to_string(),
         "collections":{"modules":{"definition":{"columns":1,"viewport":[108,80],
             "template":{"screen":"tile.root", "document":json!({"namespace":"tile",
                 "root":{"type":"panel", "size":[100,40]}}).to_string()},
-            "items":vec![json!({});33]}, "order":(0..33).collect::<Vec<_>>()}}}}),
-    )
+            "items":vec![json!({});33]}, "order":(0..33).collect::<Vec<_>>()}}}}))
     .unwrap()
 }
 
@@ -54,7 +52,7 @@ fn collection_reveal_round_trips_through_wit_update_content() {
         .unwrap();
     host.frame(false).unwrap();
     let first = host.panel().unwrap().clone();
-    let reveal = first.surface.as_ref().unwrap().collections["modules"]
+    let reveal = first.surface.collections["modules"]
         .reveal
         .as_ref()
         .unwrap();

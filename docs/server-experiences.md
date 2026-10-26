@@ -61,6 +61,7 @@ Client-part grants still come from the signed offer and consent.
 | --- | --- |
 | Callback/session fuel and cadence | `CALLBACK_FUEL`, `SESSION_FUEL`, `CALLBACK_INTERVAL_MS` in [runtime.rs](../crates/server-experience/src/runtime.rs) |
 | Guest/session memory, output, bundles | `MAX_GUEST_MEMORY`, `MAX_SESSION_MEMORY`, `MAX_HOST_OUTPUT`, `MAX_BUNDLES` in [policy.rs](../crates/server-experience/src/policy.rs) |
+| Declarations and signed manifest | `MAX_ACTIONS`, `MAX_CHANNELS`, `MAX_FILES`, `MAX_MANIFEST_BYTES` in policy |
 | Typed messages, rates, queues, nesting | `MAX_MESSAGE_BYTES`, `MAX_MESSAGES_PER_SECOND`, `MAX_BYTES_PER_SECOND`, `MAX_BURST_BYTES`, `MAX_QUEUE_*`, `MAX_FIELD_DEPTH` in policy |
 | Screens and text | `MAX_TEMPLATE*`, `MAX_TEXTURE*`, `MAX_COLLECTION*`, `MAX_ROW_FIELDS`, `MAX_UI_*`, `MAX_EDIT_TEXT_BYTES` in policy |
 | Media | [media.rs](../crates/server-experience/src/media.rs) |
@@ -123,7 +124,8 @@ planet with signed textures and a bounded procedural material.
 Low-level bundles declare `templates`, `actions` and `textures` in the signed
 manifest. `ui.open_screen` accepts only an indexed `ui/<name>.json`; `None`,
 `close_screen` or Escape closes it. The template namespace must match the bundle
-ID after replacing characters outside `[a-z0-9_]` with `_`.
+ID after replacing characters outside `[a-z0-9_]` with `_`. A bundle declares at
+most `MAX_ACTIONS` (1024) actions; a press costs one lookup in that set.
 Templates resolve against the shipped UI carrier, excluding server packs and
 trusted consent catalogs. Images resolve from indexed `textures/`, then the
 supported local art sources. URLs and paths outside `textures/` draw nothing.
@@ -157,6 +159,11 @@ publisher-signed manifest. Paths are portable lowercase relative paths; traversa
 links, duplicates, encryption and unsupported ZIP metadata are rejected. Only
 stored/deflate entries are accepted. Native Wasmtime artifacts are refused.
 Signatures establish the chosen publisher and integrity, not code safety.
+The signed manifest is at most `MAX_MANIFEST_BYTES` (4 MiB) and its payload,
+which the document hex-encodes, at most half of that: enough for `MAX_ACTIONS`
+actions at the 96-byte identifier limit and `MAX_FILES` index entries at the
+256-byte path limit, so those limits bind first. The client parses it once when
+it admits the bundle.
 
 `cinnabar-cxb build --experience <experience.toml> --component <guest.wasm>
 --publisher-seed <seed> --out <id>.cxb` reads identity/version and the `[client]`

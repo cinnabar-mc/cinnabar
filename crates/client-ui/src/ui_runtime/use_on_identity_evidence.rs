@@ -100,8 +100,9 @@ impl UseOnIdentityEvidence {
         }
     }
 
-    pub(super) fn reset(&mut self, session: u64) {
-        *self = Self::new(self.enabled, session);
+    /// Starts a fresh observation quota using the existing local diagnostic policy.
+    pub(super) fn next_session(&self, session: u64) -> Self {
+        Self::new(self.enabled, session)
     }
 
     fn admit_sequence(&mut self, session: u64, sequence: u64) -> bool {
@@ -158,8 +159,9 @@ impl UiRuntime {
         sequence: u64,
         event: &InventoryAuthorityEvent,
     ) {
-        if session != self.session_id
+        if session != self.session.session_id
             || !self
+                .session
                 .use_on_identity_evidence
                 .admit_sequence(session, sequence)
         {
@@ -167,7 +169,7 @@ impl UiRuntime {
         }
         match event {
             InventoryAuthorityEvent::Registry(event) => {
-                self.use_on_identity_evidence.registry = event
+                self.session.use_on_identity_evidence.registry = event
                     .entries
                     .iter()
                     .find(|entry| entry.identifier.as_ref() == TARGET)
@@ -181,6 +183,7 @@ impl UiRuntime {
                     .map(|entry| (sequence, entry.clone()));
             }
             InventoryAuthorityEvent::Inventory(event) => self
+                .session
                 .use_on_identity_evidence
                 .note_inventory(sequence, event),
         }
@@ -207,7 +210,8 @@ impl UiRuntime {
         else {
             return;
         };
-        let Some((registry_sequence, entry)) = &self.use_on_identity_evidence.registry else {
+        let Some((registry_sequence, entry)) = &self.session.use_on_identity_evidence.registry
+        else {
             return;
         };
         if entry.network_id != stack.network_id
@@ -220,6 +224,7 @@ impl UiRuntime {
             return;
         }
         let Some((stack_sequence, stack_identity)) = self
+            .session
             .use_on_identity_evidence
             .stack_sources
             .get(usize::from(slot))
@@ -248,6 +253,7 @@ impl UiRuntime {
             stack: current_stack,
         };
         if self
+            .session
             .use_on_identity_evidence
             .rows
             .iter()
@@ -268,7 +274,7 @@ impl UiRuntime {
             tracing::info!(target: "cinnabar::use_on_inbound_identity", row = %encoded,
                 "normalized inbound identity observation; not outgoing or use confirmation");
         }
-        self.use_on_identity_evidence.rows.push(row);
+        self.session.use_on_identity_evidence.rows.push(row);
     }
 }
 

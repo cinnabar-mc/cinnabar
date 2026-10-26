@@ -4,10 +4,8 @@ mod chat;
 mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
-mod hud_card_fit;
-mod hud_cards;
-mod hud_editor;
 mod hud_hotbar;
+pub(crate) mod hud_surface;
 mod local_identity;
 mod minecraft_import;
 mod mods;
@@ -94,17 +92,15 @@ pub enum Fixture {
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
-    /// An externally supplied bounded native mod panel.
+    /// An externally supplied bounded mod panel, the same mod's HUD surface it may embed
+    /// controls of, and the local player's portrait.
     ModPanel(
         Box<ui::mod_panel::Panel>,
-        Option<Box<ui::mod_hud::Hud>>,
+        Option<Box<ui::mod_panel::Surface>>,
         Option<(&'static str, render_model::UiTexturePage)>,
     ),
-    /// A selected HUD card before or after retained placement and visibility edits.
-    HudEditor {
-        hud: Box<ui::mod_hud::Hud>,
-        edited: bool,
-    },
+    /// A mod's HUD surface over gameplay, projected through a forward-looking camera.
+    HudSurface(Box<ui::mod_panel::Surface>),
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
@@ -182,16 +178,16 @@ const STATES: &[State] = &[
         }
     }),
     State {
-        name: "mod-hud-card-fit-before",
+        name: "mod-hud-surface",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || hud_card_fit::fixture(false),
+        fixture: hud_surface::gameplay,
     },
     State {
-        name: "mod-hud-card-fit-after",
+        name: "mod-hud-control-previews",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || hud_card_fit::fixture(true),
+        fixture: hud_surface::panel,
     },
     State {
         name: "collection-reveal-before",
@@ -206,18 +202,6 @@ const STATES: &[State] = &[
         fixture: || collection_reveal::fixture(true),
     },
     State {
-        name: "hud-editor-before",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_editor::fixture(false),
-    },
-    State {
-        name: "hud-editor-after",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_editor::fixture(true),
-    },
-    State {
         name: "mod-local-player-neutral",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -228,18 +212,6 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || local_identity::fixture(true),
-    },
-    State {
-        name: "mod-hud-card-previews",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_cards::fixture(true),
-    },
-    State {
-        name: "mod-hud-card-previews-empty",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_cards::fixture(false),
     },
     State {
         name: "sign-in-cache-error",

@@ -16,8 +16,11 @@ pub(super) fn next_identity() -> u64 {
 impl Instance {
     /// Only explicitly exporting, active, granted instances can claim filter ownership.
     pub(crate) fn action_filter_identity(&self) -> Option<u64> {
-        (self.is_active() && self.store.data().grants.controls && self.exports.has_filter())
-            .then_some(self.filter_identity)
+        (self.status == InstanceStatus::Running
+            && self.store.data().world_output_available()
+            && self.store.data().grants.controls
+            && self.exports.has_filter())
+        .then_some(self.filter_identity)
     }
 
     /// Reads the already committed pulse before output collection, without consuming it.

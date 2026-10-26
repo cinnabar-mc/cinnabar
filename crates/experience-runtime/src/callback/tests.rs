@@ -1,7 +1,10 @@
 //! The world-access rules of [`CallbackRes`], called directly on a prepared callback.
 
 mod client;
+mod content_rules;
 mod item_metadata;
+mod overlays;
+mod redstone;
 
 use item_metadata::server_item;
 
@@ -11,16 +14,16 @@ use wasmtime::Trap;
 
 use super::{CallbackRes, failed, prepare};
 use crate::host::LimitExceeded;
-use crate::host::cinnabar::experience_server::types::WorldError;
+use crate::host::cinnabar::experience_server::types::{self as wit, WorldError};
 use crate::limits::{
     MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_ITEM_DATA_BYTES, MAX_NETWORK_BLOCKS,
     MAX_NETWORK_DATA_BYTES, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS,
 };
 use crate::load::{Catalog, axes};
 use crate::protocol::{
-    BlockPos, BlockState, Call, Cell, Face, FailKind, INVENTORY_SLOTS, Info, Inventory, ItemStack,
-    Network, NewStack, Op, Outcome, PlacementState, Request, Scalar, StateDef, StateValue,
-    StateValues,
+    BlockPos, BlockState, Call, Cell, Containers, Face, FailKind, GameMode, INVENTORY_SLOTS, Info,
+    Inventory, ItemStack, Network, NewStack, Op, Outcome, PlacementState, Request, Scalar,
+    StateDef, StateValue, StateValues,
 };
 
 const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
@@ -33,6 +36,10 @@ const CELL: &str = "probe:cell";
 const STONE: &str = "minecraft:stone";
 const PEARL: &str = "minecraft:ender_pearl";
 const AIR: &str = "minecraft:air";
+/// A block without an item, as a content rule declares one.
+const HIDDEN: &str = "probe:hidden";
+/// A block that takes part in redstone, as a content rule declares one.
+const EMITTER: &str = "probe:emitter";
 
 const ANCHOR: BlockPos = BlockPos { x: 0, y: 64, z: 0 };
 const UP: BlockPos = BlockPos { x: 0, y: 65, z: 0 };
@@ -52,6 +59,7 @@ struct Fixture {
     cells: Vec<Cell>,
     network: Option<Network>,
     inventory: Option<Inventory>,
+    containers: Option<Containers>,
 }
 
 impl Fixture {
@@ -70,7 +78,9 @@ impl Fixture {
             inventory: Some(Inventory {
                 selected: 0,
                 slots: vec![None; INVENTORY_SLOTS],
+                game_mode: GameMode::Survival,
             }),
+            containers: None,
         }
     }
 
@@ -109,10 +119,12 @@ impl Fixture {
             network: self.network,
             // The adapter snapshots an inventory only for an actor.
             inventory: self.actor.and(self.inventory),
+            containers: self.containers,
             call: Call::Interact {
                 player: ACTOR.to_owned(),
                 pos: ANCHOR,
                 face: Face::Up,
+                hit: None,
             },
         };
         let lamp = [
@@ -126,14 +138,19 @@ impl Fixture {
             },
         ];
         let own = Catalog {
+            entities: Vec::new(),
             blocks: [
                 (COUNTER.to_owned(), Vec::new()),
                 (
                     LAMP.to_owned(),
                     axes(&lamp, &[PlacementState::FacingDirection]),
                 ),
+                (HIDDEN.to_owned(), Vec::new()),
+                (EMITTER.to_owned(), Vec::new()),
             ]
             .into(),
+            itemless_blocks: [HIDDEN.to_owned()].into(),
+            redstone_blocks: [EMITTER.to_owned()].into(),
             items: [(CELL.to_owned(), 1)].into(),
             server: [
                 server_item(STONE, 0, 64, false),
@@ -142,6 +159,8 @@ impl Fixture {
             .into(),
             recipes: Vec::new(),
             worlds: Default::default(),
+            overlay_hosts: Default::default(),
+            overlays: Default::default(),
         };
         let (res, _) = prepare(&Arc::new(own), &request).unwrap();
         res
@@ -167,18 +186,25 @@ impl Fixture {
             snapshot: self.cells,
             network: self.network,
             inventory: self.inventory,
+            containers: self.containers,
             call: Call::Interact {
                 player: ACTOR.to_owned(),
                 pos: ANCHOR,
                 face: Face::Up,
+                hit: None,
             },
         };
         let own = Catalog {
+            entities: Vec::new(),
             blocks: [(COUNTER.to_owned(), Vec::new())].into(),
+            itemless_blocks: Default::default(),
+            redstone_blocks: Default::default(),
             items: [(CELL.to_owned(), 1)].into(),
             server: [server_item(STONE, 0, 64, false)].into(),
             recipes: Vec::new(),
             worlds: Default::default(),
+            overlay_hosts: Default::default(),
+            overlays: Default::default(),
         };
         prepare(&Arc::new(own), &request).map(|(res, _)| res)
     }
@@ -210,6 +236,8 @@ fn loaded(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
         owned,
         data: data.map(str::to_owned),
         states: Vec::new(),
+        overlays: Vec::new(),
+        power: 0,
     }
 }
 
@@ -948,7 +976,22 @@ fn set_slot_refuses_what_the_guest_cannot_make() {
     }
 }
 
-/// Without an actor there is no inventory to read or write.
+/// The actor's game mode is the one its inventory was snapshotted with.
+#[test]
+fn game_mode_reads_the_snapshot() {
+    for (mode, want) in [
+        (GameMode::Survival, wit::GameMode::Survival),
+        (GameMode::Creative, wit::GameMode::Creative),
+        (GameMode::Adventure, wit::GameMode::Adventure),
+        (GameMode::Spectator, wit::GameMode::Spectator),
+    ] {
+        let mut fixture = Fixture::new();
+        fixture.inventory.as_mut().expect("an inventory").game_mode = mode;
+        assert_eq!(fixture.res().game_mode().unwrap(), Ok(want));
+    }
+}
+
+/// Without an actor there is no inventory to read or write, and no game mode.
 #[test]
 fn inventory_needs_an_actor() {
     let mut res = Fixture {
@@ -958,6 +1001,7 @@ fn inventory_needs_an_actor() {
     }
     .res();
     assert_eq!(res.inventory().unwrap(), Err(WorldError::PlayerUnavailable));
+    assert_eq!(res.game_mode().unwrap(), Err(WorldError::PlayerUnavailable));
     assert_eq!(
         res.set_slot(0, None).unwrap(),
         Err(WorldError::PlayerUnavailable)
@@ -1057,4 +1101,7 @@ fn malformed_inventories_are_refused() {
 
 mod worlds;
 
+mod containers;
+
+mod entities;
 mod simulation;

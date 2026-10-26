@@ -24,6 +24,7 @@ fn level_regions_cover_the_group_with_a_texel_of_reach() {
 #[test]
 fn scaled_filter_bounds_keep_geometry_and_target_pixel_blur_reach() {
     let input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [800, 600],
         safe_area: [0; 4],

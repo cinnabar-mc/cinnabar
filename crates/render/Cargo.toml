@@ -9,6 +9,7 @@ publish = false
 platform-specific = ["macos", "windows"]
 reads = [
     "app/src",
+    "crates/shaderpack/tests/fixtures/geometry",
     "assets/bedrock-target.json",
     "crates/assets/data/block-registry-v1001.bin",
     "crates/assets/data/block-registry-v2193.bin",
@@ -24,9 +25,6 @@ publication-test-support = []
 enhanced = []
 # Enables bounded development captures while the production switch stays disabled.
 enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render-scene/enhanced-diagnostics"]
-# Compiles the experimental Java shader-pack render mode. Pack programs reach wgpu as
-# translated naga modules (`naga-ir`), bypassing Bevy's WGSL/WESL-only pipeline cache.
-shaderpacks = ["render-model/shaderpacks", "dep:shaderpack", "dep:naga", "dep:png", "wgpu/naga-ir"]
 
 [dependencies]
 web-time.workspace = true
@@ -49,10 +47,10 @@ rayon.workspace = true
 serde_json = "1"
 sha2.workspace = true
 world = { path = "../world" }
-wgpu.workspace = true
-shaderpack = { path = "../shaderpack", optional = true }
-naga = { workspace = true, optional = true }
-png = { version = "0.18", optional = true }
+wgpu = { workspace = true, features = ["naga-ir"] }
+shaderpack = { path = "../shaderpack" }
+naga.workspace = true
+png = "0.18"
 
 # ARM hardware dispatch keeps identical digests and falls back on CPUs without SHA2.
 [target.'cfg(target_arch = "aarch64")'.dependencies]
@@ -83,9 +81,10 @@ test-time = { path = "../test-time" }
 wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
-naga = { workspace = true, features = ["wgsl-out"] }
+naga = { workspace = true, features = ["wgsl-out", "spv-out"] }
 wesl = "0.6.0"
 tempfile = "3"
+spirv = "0.4"
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@
 use json_ui::{Catalog, Context, LayoutEnv, TextMeasure, TextureMeta, TextureSource, ViewState};
 use ui_engine::frame::EngineFrame;
 
-use super::{HeldStackPress, engine_held_stack_press};
+use super::presses::{HeldStackPress, engine_held_stack_press};
 
 struct NoArt;
 impl TextMeasure for NoArt {

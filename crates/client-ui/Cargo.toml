@@ -9,6 +9,7 @@ publish = false
 platform-specific = ["macos"]
 reads = [
     "assets/cinnangles-sans-source.json",
+    "crates/mod-api/wit/extension.wit",
     "crates/protocol/fixtures/*",
 ]
 
@@ -28,7 +29,6 @@ simulation-clock = { path = "../simulation-clock" }
 bridge = { path = "../bridge" }
 anyhow.workspace = true
 assets = { path = "../assets" }
-chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
 glam.workspace = true
 actor-animation = { path = "../actor-animation" }
@@ -62,8 +62,8 @@ resource-pack = { path = "../resource-pack" }
 launcher-host = { path = "../launcher-host" }
 server-experience = { path = "../server-experience", features = ["host"] }
 
-# Android has no clipboard adapter yet; its chat copy and paste report unavailable.
-[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
+# Android and iOS have no clipboard adapter yet; their chat copy and paste report unavailable.
+[target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -72,6 +72,9 @@ wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4.77"
 
 [dev-dependencies]
+mod-api = { path = "../mod-api" }
+chunk-pipeline = { path = "../chunk-pipeline" }
+update-manifest = { path = "../update-manifest" }
 cosmetics = { path = "../cosmetics", features = ["test-support"] }
 render-model = { path = "../render-model", features = ["test-support"] }
 test-alloc = { path = "../test-alloc" }

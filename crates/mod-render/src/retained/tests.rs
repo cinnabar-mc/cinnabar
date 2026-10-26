@@ -381,6 +381,26 @@ fn actor(spawn_revision: u64) -> EntityKey {
 }
 
 #[test]
+fn guest_restart_keeps_native_candidates_and_invalidates_old_resources() {
+    let mut store = Store::default();
+    store.bind_session(1, 0);
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let old_entity = store.observe_entities().unwrap()[0].0;
+    let geometry = store.create_geometry(mesh()).unwrap();
+    store.commit();
+    store.restart_guest();
+    assert_eq!(store.snapshot().connection, 1);
+    assert!(store.snapshot().geometry.is_empty());
+    assert_eq!(
+        store.remove(geometry).unwrap_err().code,
+        ErrorCode::StaleHandle
+    );
+    let observed = store.observe_entities().unwrap();
+    assert_eq!(observed[0].1, actor(1));
+    assert_ne!(observed[0].0, old_entity);
+}
+
+#[test]
 fn absent_candidates_preserve_instances_but_confirmed_despawn_removes_them() {
     let mut store = Store::default();
     store.bind_session(1, 0);

@@ -189,6 +189,7 @@ pub(super) fn render_plugin(
     }
     Ok(RenderPlugin {
         render_creation: creation,
+        synchronous_pipeline_compilation: false,
         ..Default::default()
     })
 }
@@ -232,6 +233,17 @@ fn install_guard(app: &mut App, guard: StartupGuard) {
     app.insert_resource(RendererGuard(guard))
         .add_systems(Update, mark_presented)
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
+}
+
+/// Cancels this app's pending presentation marker after an orderly pre-loop failure.
+pub(super) fn cancel_startup(app: &mut App) {
+    if let Some(mut guard) = app.world_mut().get_resource_mut::<RendererGuard>()
+        && let Err(error) = guard.0.cancel()
+    {
+        log(format_args!(
+            "Renderer could not cancel startup sentinel: {error:#}"
+        ));
+    }
 }
 
 /// Leaves crash recovery untouched when the application requests an orderly shutdown.

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 /// Publishes a saved shortcut and its physical reservation before guest key capture begins.
 fn capturing_shortcut_fixture() -> String {
-    let panel = r#"{"title":"Shortcut capture","toggle_key":"ShiftRight","dark":true,"capture_key":true,"controls":[{"kind":"keybind","id":"shortcut","label":"Shortcut","key":"KeyR","capturing":true}]}"#;
+    let panel = r#"{"toggle_key":"ShiftRight","capture_key":true,"controls":[{"kind":"keybind","id":"shortcut","label":"Shortcut","key":"KeyR","capturing":true}]}"#;
     fixture_with_panel(panel)
         .replace(
             "(export \"demo-pressed\" (func (result bool)))",
@@ -26,13 +26,15 @@ fn capturing_shortcut_fixture() -> String {
             "(export \"pressed\" (func $lower-input))",
             "(export \"pressed\" (func $lower-input)) (export \"reserve\" (func $lower-reserve))",
         )
+        // The key list sits at the top of the page, clear of the panel JSON stored from 1024;
+        // init reads it before anything is allocated.
         .replace(
             "(data (i32.const 0)",
-            "(data (i32.const 2048) \"KeyR\") (data (i32.const 2080) \"\\00\\08\\00\\00\\04\\00\\00\\00\") (data (i32.const 0)",
+            "(data (i32.const 61440) \"KeyR\") (data (i32.const 61472) \"\\00\\f0\\00\\00\\04\\00\\00\\00\") (data (i32.const 0)",
         )
         .replacen(
             "(func (export \"init\")",
-            "(func (export \"init\") i32.const 2080 i32.const 1 i32.const 512 call $reserve",
+            "(func (export \"init\") i32.const 61472 i32.const 1 i32.const 512 call $reserve",
             1,
         )
 }
@@ -46,7 +48,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
         (KeyCode::Escape, Key::Escape),
     ] {
         let component = capturing_shortcut_fixture();
-        let (mut app, window) = personal_panel_app_with_fixture(false, &component);
+        let (mut app, window) = personal_panel_app_with_fixture(&component);
         app.init_resource::<ReservedControls>();
         app.update();
         let runtime = app.world().resource::<ModRuntime>();
@@ -200,7 +202,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
 /// Idle input updates keep the capturing panel's catalog and laid-out screen cached.
 #[test]
 fn personal_panel_idle_capture_reuses_catalog_and_layout() {
-    let (mut app, _) = personal_panel_app_with_fixture(false, &capturing_shortcut_fixture());
+    let (mut app, _) = personal_panel_app_with_fixture(&capturing_shortcut_fixture());
     let mut retained = None;
     for _ in 0..3 {
         app.update();

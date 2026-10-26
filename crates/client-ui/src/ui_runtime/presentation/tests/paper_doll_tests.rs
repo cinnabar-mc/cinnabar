@@ -76,3 +76,19 @@ fn paper_doll_uses_the_pack_control_and_visibility_binding() {
         .unwrap();
     assert!(!presentation.hud_draw_nodes().iter().any(|node| matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == "hud_player_renderer")));
 }
+
+/// Capture and JSON-UI share mode visibility even when the motion hold timer is still active.
+#[test]
+fn hidden_game_modes_never_request_a_paper_doll_capture() {
+    let mut frame = crate::ui_runtime::presentation::HudFrame {
+        paper_doll_visible: true,
+        ..Default::default()
+    };
+    let settings = SettingsOptions::default();
+    assert!(frame.paper_doll_requested(Some(PlayerGameMode::Survival), &settings));
+    assert!(frame.paper_doll_requested(Some(PlayerGameMode::Creative), &settings));
+    assert!(!frame.paper_doll_requested(Some(PlayerGameMode::Spectator), &settings));
+    assert!(!frame.paper_doll_requested(Some(PlayerGameMode::Unknown), &settings));
+    frame.paper_doll_visible = false;
+    assert!(!frame.paper_doll_requested(Some(PlayerGameMode::Survival), &settings));
+}

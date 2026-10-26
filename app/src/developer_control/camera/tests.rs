@@ -190,11 +190,12 @@ fn scripted_pose_survives_late_actor_camera_effects() {
     fn actor_effect(
         settings: Res<CameraSettingsAuthority>,
         hand: ResMut<FirstPersonHandMotion>,
+        shake: ResMut<actor_effects::PresentedDamageShake>,
         server: Res<ServerCameraView>,
         cameras: Query<&mut Transform, With<FlyCamera>>,
     ) {
         actor_effects::apply_actor_damage_camera_rotation(
-            settings, hand, None, server, None, 0.0, 0.0, cameras,
+            settings, hand, shake, None, server, None, 0.0, 0.0, cameras,
         );
     }
 
@@ -205,6 +206,7 @@ fn scripted_pose_survives_late_actor_camera_effects() {
         hide_hand: false,
     };
     let (mut app, camera) = app(path);
+    app.init_resource::<actor_effects::PresentedDamageShake>();
     app.insert_resource(FirstPersonHandMotion {
         bob: ViewEffect {
             translation: Vec3::new(0.1, -0.05, 0.0),

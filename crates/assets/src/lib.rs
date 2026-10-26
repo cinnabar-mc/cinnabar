@@ -68,6 +68,7 @@ pub mod texture;
 pub mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
+pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
@@ -108,9 +109,9 @@ pub use biome::{
 pub use biome_noise::{ClientRandom, GRASS_PERMUTATION_SIZE, grass_noise_permutation};
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
-    BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE, MAX_BLOCK_ENTITY_ATLAS_SIDE,
-    MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS, RuntimeBlockEntityAssets,
-    block_entity_route, encode_block_entity_catalog,
+    BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE, LOYALTY_ROPE_TEXTURE,
+    MAX_BLOCK_ENTITY_ATLAS_SIDE, MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
+    RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
 };
 pub use block_names::{legacy_resource_pack_block_alias, vanilla_skull_type};
 pub use compiled::{
@@ -128,10 +129,8 @@ pub use compiled::{
     MAX_CARRIER_TEXTURE_PAGES, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, TEXTURE_LAYER_MASK,
     material_leaf_ao_exponent,
 };
-pub use effects::{
-    EFFECT_DESCRIPTORS, EffectDescriptor, effect_descriptor, effect_descriptor_by_identifier,
-    effect_registry_version,
-};
+pub use effects::{EFFECT_DESCRIPTORS, EffectDescriptor};
+pub use effects::{effect_descriptor, effect_descriptor_by_identifier, effect_registry_version};
 pub use entity::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
     CompiledEntityAssets, CompiledMolangExpression, ELYTRA_GEOMETRY_IDENTIFIER,

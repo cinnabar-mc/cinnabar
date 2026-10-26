@@ -24,6 +24,8 @@ fn network_config_call_sites_share_the_process_blob_cache() {
     };
     let hash = first
         .client_blob_cache
+        .as_ref()
+        .unwrap()
         .insert(b"verified-across-session")
         .expect("seed verified blob before replacement");
     let replacement = NetworkConfig {
@@ -41,7 +43,7 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         record_session: false,
     };
 
-    assert!(replacement.client_blob_cache.contains(hash));
+    assert!(replacement.client_blob_cache.unwrap().contains(hash));
 }
 
 #[test]

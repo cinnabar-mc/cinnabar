@@ -167,7 +167,7 @@ impl SemanticHud {
         changed |= replace(&mut model.bubbles_visible, bubbles);
         changed |= replace(
             &mut model.paper_doll,
-            frame.paper_doll_visible && hotbar && settings.value(SettingId::HidePaperdoll) == 0,
+            frame.paper_doll_requested(player.facts.player_game_mode(), settings),
         );
         changed |= replace(
             &mut model.effects_visible,
@@ -352,7 +352,7 @@ impl SemanticHud {
         changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
         changed |= replace(
             &mut self.model.chat_local_player,
-            Arc::clone(&runtime.local_player_display_name),
+            Arc::clone(&runtime.session.local_player_display_name),
         );
         if reset
             || self.chat_options != Some(options)

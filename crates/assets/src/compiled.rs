@@ -28,6 +28,30 @@ impl BlockFace {
         Self::South,
     ];
 
+    /// Faces in the native facing order (down, up, north, south, west, east) that
+    /// `facing_direction` state values index.
+    pub const FACING_ORDER: [Self; 6] = [
+        Self::Down,
+        Self::Up,
+        Self::North,
+        Self::South,
+        Self::West,
+        Self::East,
+    ];
+
+    /// This face's index in [`Self::FACING_ORDER`].
+    #[must_use]
+    pub const fn facing_index(self) -> usize {
+        match self {
+            Self::Down => 0,
+            Self::Up => 1,
+            Self::North => 2,
+            Self::South => 3,
+            Self::West => 4,
+            Self::East => 5,
+        }
+    }
+
     /// Encodes this face for the model carrier's face flag field.
     #[must_use]
     pub const fn model_quad_face_id(self) -> u32 {

@@ -50,6 +50,9 @@ type entry struct {
 	token Token
 	// data is nil when absent. A stored slice is never mutated, so Flush may encode it unlocked.
 	data []byte
+	// power is the redstone power, 0 to 15, that a redstone block emits. It is no part of the
+	// token: setting it changes no revision.
+	power uint8
 }
 
 type experienceData struct {
@@ -84,6 +87,7 @@ type fileEntry struct {
 	Generation uint64              `json:"generation"`
 	Revision   uint64              `json:"revision"`
 	Data       *string             `json:"data"`
+	Power      uint8               `json:"power,omitempty"`
 }
 
 type experienceFile struct {
@@ -168,7 +172,10 @@ func (s *Store) loadExperience(id, path string) error {
 				return fmt.Errorf("entry at %+v: %w", k, err)
 			}
 		}
-		e.entries[k] = entry{token: Token{Generation: fe.Generation, Revision: fe.Revision}, data: data}
+		if fe.Power > maxRedstonePower {
+			return fmt.Errorf("entry at %+v emits redstone power %d, at most %d", k, fe.Power, maxRedstonePower)
+		}
+		e.entries[k] = entry{token: Token{Generation: fe.Generation, Revision: fe.Revision}, data: data, power: fe.Power}
 		e.used += uint64(len(data))
 		s.nextGeneration = max(s.nextGeneration, fe.Generation+1)
 	}
@@ -307,9 +314,41 @@ func (s *Store) SetData(exp string, k Key, data []byte, present bool) error {
 		return ErrQuota
 	}
 	e.used = used
-	e.entries[k] = entry{token: Token{Generation: en.token.Generation, Revision: en.token.Revision + 1}, data: stored}
+	e.entries[k] = entry{token: Token{Generation: en.token.Generation, Revision: en.token.Revision + 1}, data: stored, power: en.power}
 	e.dirty = true
 	return nil
+}
+
+// Power returns the redstone power that the entry at k emits, 0 when there is no entry.
+func (s *Store) Power(exp string, k Key) uint8 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e := s.experience(exp, false); e != nil {
+		return e.entries[k].power
+	}
+	return 0
+}
+
+// SetPower sets the redstone power that the entry at k emits, keeping its token, and reports
+// whether it changed. It returns ErrNotPlaced when there is no entry.
+func (s *Store) SetPower(exp string, k Key, power uint8) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := s.experience(exp, false)
+	if e == nil {
+		return false, ErrNotPlaced
+	}
+	en, ok := e.entries[k]
+	if !ok {
+		return false, ErrNotPlaced
+	}
+	if en.power == power {
+		return false, nil
+	}
+	en.power = power
+	e.entries[k] = en
+	e.dirty = true
+	return true, nil
 }
 
 // Budget returns how many more data bytes the Experience may store.
@@ -362,7 +401,10 @@ func (s *Store) Flush() error {
 		f := experienceFile{Schema: storeSchema, NextGeneration: p.next, Entries: make([]fileEntry, len(p.keys)), States: p.states}
 		for i, k := range p.keys {
 			en := p.entries[i]
-			fe := fileEntry{Instance: k.Instance, X: k.X, Y: k.Y, Z: k.Z, Generation: en.token.Generation, Revision: en.token.Revision}
+			fe := fileEntry{
+				Instance: k.Instance, X: k.X, Y: k.Y, Z: k.Z, Generation: en.token.Generation, Revision: en.token.Revision,
+				Power: en.power,
+			}
 			if en.data != nil {
 				h := hex.EncodeToString(en.data)
 				fe.Data = &h

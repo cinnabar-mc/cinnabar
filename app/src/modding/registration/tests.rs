@@ -23,9 +23,14 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         .trim_start_matches("package ")
         .trim_end_matches(';');
     let (name, version) = package.split_once('@').unwrap();
-    let panel = format!(
-        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"capture_key":{capture_key},"controls":[{{"kind":"toggle","id":"enabled","label":"Enabled","value":{enabled}}}]}}"#
-    );
+    let controls = vec![ui::mod_panel::Control::Toggle {
+        id: "enabled".into(),
+        label: "Enabled".into(),
+        value: enabled,
+    }];
+    let panel = serde_json::json!({"toggle_key":"ShiftRight","capture_key":capture_key,
+        "surface":mod_ui::test_support::sample_surface(&controls),"controls":controls})
+    .to_string();
     let template = include_str!("../../../../crates/mod-host/src/tests/guest.wat");
     template
         .replace("(component", &format!("(component (import \"{name}/panel@{version}\" (instance $panel (export \"set-content\" (func (param \"json\" string) (result (result (error string))))))) (alias export $panel \"set-content\" (func $set-panel))"))
@@ -38,7 +43,7 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         .replace("(core func $lower-label", "(core func $lower-panel (canon lower (func $set-panel) (memory $memory) (realloc $realloc))) (core func $lower-label")
         .replace("(import \"host\" \"time\"", "(import \"host\" \"panel\" (func $panel (param i32 i32 i32))) (import \"host\" \"time\"")
         .replace("(export \"time\" (func $lower-time))", "(export \"panel\" (func $lower-panel)) (export \"time\" (func $lower-time))")
-        .replace("(data (i32.const 0)", &format!("(data (i32.const 1024) \"{}\") (data (i32.const 0)", panel.replace('"', "\\22")))
+        .replace("(data (i32.const 0)", &format!("(data (i32.const 1024) \"{}\") (data (i32.const 0)", panel.replace('\\', "\\5c").replace('"', "\\22")))
         .replacen("(func (export \"init\")", &format!("(func (export \"init\") i32.const 1024 i32.const {} i32.const 512 call $panel", panel.len()), 1)
 }
 
@@ -306,15 +311,20 @@ fn status_messages_are_bounded_and_unloading_preserves_saved_camera_settings() {
     let mut world = World::new();
     let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
     let fov = camera.horizontal_fov_degrees();
-    let hurt_style = camera.hurt_camera_style();
+    let hurt_shake = camera.hurt_shake_intensity();
     camera.set_view_scale(0.25, 0.25);
-    camera.set_hurt_camera_style(Some(render_api::HurtCameraStyle::new(2.0, true).unwrap()));
+    camera.set_view_tilt(Some(client_presentation::camera::ViewTilt {
+        roll_degrees: 14.0,
+        pitch_degrees: 0.0,
+        suppress_hurt_shake: true,
+    }));
     world.insert_resource(camera);
     presentation::clear_presentation(&mut world);
     let camera = world.resource::<client_presentation::camera::CameraSettingsAuthority>();
     assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
     assert_eq!(camera.horizontal_fov_degrees(), fov);
-    assert_eq!(camera.hurt_camera_style(), hurt_style);
+    assert_eq!(camera.view_tilt(), None);
+    assert_eq!(camera.hurt_shake_intensity(), hurt_shake);
 }
 
 #[test]
@@ -719,7 +729,7 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
     );
     let relay = world
         .resource::<crate::modding::packets::PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     let identity = protocol::session_wire::SessionIdentity {
         display_name: "Steve".into(),
@@ -738,9 +748,42 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
     assert!(
         world
             .resource::<crate::modding::packets::PacketMods>()
-            .session_relay()
+            .session_relay(false)
             .is_none()
     );
+}
+
+#[test]
+fn bulk_grants_keep_frame_and_packet_sources_on_their_own_hosts() {
+    let frame = wat::parse_str(fixture(false, "", "Hello")).unwrap();
+    let core = packet_bytes();
+    let adapted = mod_host::packet_mod::packet_mod_component(&core).unwrap();
+    for (bytes, packet) in [(frame, false), (core, true), (adapted, true)] {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("config");
+        let component = root.path().join("mod.wasm");
+        fs::write(&component, bytes).unwrap();
+        selection::select(&config, &component, true, "enable".into()).unwrap();
+        selection::grant_all(&config, &component, "grant".into()).unwrap();
+        let entry = selection::registered(&config).pop().unwrap().entry;
+        assert_eq!(entry.grants.packets, packet);
+        let candidate = build_candidate(source_snapshot(entry).unwrap()).unwrap();
+        assert_eq!(
+            matches!(candidate.runtime, CandidateRuntime::Packet(_)),
+            packet
+        );
+
+        if !packet {
+            let other = root.path().join("packet.wasm");
+            fs::write(&other, packet_bytes()).unwrap();
+            selection::select(&config, &other, true, "enable-packet".into()).unwrap();
+            selection::grant_all(&config, &other, "grant-packet".into()).unwrap();
+            let before = selection::registered(&config).pop().unwrap().entry;
+            selection::grant_all(&config, &component, "grant-frame".into()).unwrap();
+            let after = selection::registered(&config).pop().unwrap().entry;
+            assert_eq!(after, before);
+        }
+    }
 }
 
 #[test]
@@ -773,7 +816,7 @@ fn joins_wait_for_initial_observation_and_finish_after_admission() {
     assert!(
         world
             .resource::<crate::modding::packets::PacketMods>()
-            .session_relay()
+            .session_relay(false)
             .is_some()
     );
 
@@ -914,4 +957,49 @@ fn the_real_watcher_restarts_unchanged_bytes_under_each_drawing_fence() {
         assert_eq!(runtime.hosts.host(0).label(), Some("Hello"));
         assert!(!runtime.hosts.host(0).needs_drawing_restart());
     }
+}
+
+#[test]
+fn active_dimension_rebinds_do_not_queue_redundant_admission() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let directory = tempfile::tempdir().unwrap();
+    let mut candidate = candidate(directory.path(), "guest.wasm", "Hello");
+    let mut snapshot = source_snapshot(candidate.registration.clone()).unwrap();
+    let host = candidate.frame_host_mut().unwrap();
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().unwrap());
+    let admitted = Admitted {
+        source: snapshot.identity,
+        drawing: Some(session),
+    };
+    for dimension in [1, 0] {
+        host.bind_drawing_world(host.drawing_session().unwrap(), false);
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+        host.bind_drawing_session(DrawingSession {
+            dimension,
+            ..session
+        });
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+    }
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
+    assert!(host.reload_if_changed().unwrap());
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        permissions: DrawingPermissions::default(),
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
 }

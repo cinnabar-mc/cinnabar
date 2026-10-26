@@ -31,8 +31,8 @@ use {
 
 use launcher::menu::settings_options::BindingId;
 
-/// Whether the vanilla inventory owns Back, independently of an overlaid mod view.
-pub(super) fn accepts_mouse_back(
+/// Whether the vanilla inventory owns Menu Cancel, independently of an overlaid mod view.
+pub(super) fn accepts_menu_cancel(
     runtime: &UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
 ) -> bool {
@@ -41,13 +41,13 @@ pub(super) fn accepts_mouse_back(
             .is_some_and(|view| view.mod_ui().mod_view_shown() || view.mod_ui().mod_text_focused())
 }
 
-/// Consumes Back on a vanilla inventory, saving book edits before closing it.
-pub(super) fn cancel_from_mouse_back(
+/// Consumes Menu Cancel on a vanilla inventory, saving book edits before closing it.
+pub(super) fn handle_menu_cancel(
     player: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
 ) -> bool {
-    if !accepts_mouse_back(runtime, presentation) {
+    if !accepts_menu_cancel(runtime, presentation) {
         return false;
     }
     if runtime.commit_book(false) {
@@ -71,7 +71,7 @@ pub(crate) fn drive_world_inventory_keys(
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
     presentation: Option<Res<UiPresentationResource>>,
     mut runtime: ResMut<UiRuntimeResource>,
-    emote_input: Option<Res<client_state::EmoteInputConsumed>>,
+    emote_input: Option<Res<client_state::ScreenInputConsumed>>,
     swing: DropSwing,
     touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
     book_transport: (
@@ -327,9 +327,19 @@ pub(super) fn apply_inventory_pointer(
             now_millis,
         };
         let actions = runtime.screen_state_mut().pointer.step(frame);
+        // A Shift-click on a creative-layout hotbar slot deletes its stack.
+        let auto_destroy =
+            shift && gui.is_some_and(|gui| presentation.inventory_auto_place_destroys(gui));
         for action in actions {
             let was_open = runtime.inventory_open();
-            runtime.perform_pointer_action(player_runtime, action);
+            match action {
+                crate::ui_runtime::inventory_drag::PointerAction::QuickMove(hit)
+                    if auto_destroy =>
+                {
+                    let _ = runtime.destroy_on_auto_place(player_runtime, hit);
+                }
+                action => runtime.perform_pointer_action(player_runtime, action),
+            }
             if was_open
                 && !runtime.inventory_open()
                 && let Some(focus) = focus.as_deref_mut()
@@ -339,7 +349,7 @@ pub(super) fn apply_inventory_pointer(
         }
     }
     if !scrollbar_owned && hit.is_none() && !mod_owned {
-        use ui_screens::containers::HeldStackPress;
+        use ui_screens::containers::presses::HeldStackPress;
         // A held stack clicked off the screen's panels is dropped: all of it
         // on a primary click, one item on a secondary click. A primary click on
         // the item grid's empty background deletes it in creative.

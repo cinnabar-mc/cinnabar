@@ -59,6 +59,9 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             seq: 2,
             info: Info {
                 context: Some(super::WorldContext {
+                    opening_closed: false,
+                    actor_riding_elsewhere: false,
+                    entities: Vec::new(),
                     current: world.clone(),
                     player: None,
                     instances: vec![world.clone()],
@@ -81,6 +84,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             snapshot: Vec::new(),
             network: None,
             inventory: None,
+            containers: None,
             call,
         };
         out.push((name, serde_json::to_string_pretty(&request).unwrap() + "\n"));

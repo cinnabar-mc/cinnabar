@@ -21,6 +21,9 @@ use launcher::install_layout::{InstallLayout, vanilla_pack_relative};
 
 pub(super) const UNPACK_LABEL: &str = "Unpacking the Minecraft sample resource pack";
 
+#[cfg(all(test, unix))]
+mod cache_tests;
+
 fn compiler<'a>(
     layout: &InstallLayout,
     log: Option<SharedLog>,
@@ -115,9 +118,9 @@ fn run(
     let (kit, workspace) = (&compiler.kit, &compiler.workspace);
     // Server-pack entities may name vanilla textures, so an install keeps them beside its carriers.
     let needs_pack = selection.needs_pack || !vanilla_textures_kept(layout);
-    let unpack = usize::from(needs_pack);
+    let unpack = usize::from(needs_pack && !download::pack_cached(kit, workspace)?);
     let total = unpack + selection.stale.len();
-    if needs_pack {
+    if unpack != 0 {
         download::fetch_archive(kit, workspace, cancel, |received, total| {
             report(Status::downloading(received, total));
         })?;
@@ -161,8 +164,7 @@ fn run(
             &layout.vanilla_pack_dir(),
         )?;
     }
-    // Only the current pack's archive is kept, so a carrier-only update needs no download.
-    let _ = fs::remove_dir_all(workspace.join(".local/assets/bedrock-samples"));
+    // Retain extracted resource versions across compiler updates and version switches.
     download::prune(kit, workspace);
     Ok(())
 }

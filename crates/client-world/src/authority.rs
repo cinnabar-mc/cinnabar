@@ -33,6 +33,7 @@ use std::{
 };
 use world::{ChunkKey, ChunkStore};
 mod access;
+mod actor_lives;
 mod actor_movement;
 mod actors;
 mod biomes;
@@ -66,9 +67,9 @@ mod synchronized_audio_tests;
 mod terrain;
 #[cfg(test)]
 mod tests;
-mod totems;
 #[cfg(test)]
 mod world_spawn_tests;
+pub use actor_lives::{ActorLife, MAX_ACTOR_LIVES};
 pub use biomes::BiomeCommitReport;
 pub use block_events::BlockEventCue;
 pub use combat::{ActorCombatEvidence, ActorCombatKind};
@@ -101,11 +102,12 @@ pub const COMMITTED_PARTICLE_CAPACITY: usize = 512;
 /// The one session owner of packed terrain, actors, identities and committed consumer queues.
 /// Terrain scheduling borrows this owner synchronously; it keeps no shadow world or frontier.
 pub struct WorldAuthority {
+    /// The local player's game mode follows the world default.
+    local_mode_follows_default: bool,
     terrain: ChunkStore,
     actors: ActorStore,
     combat_evidence: VecDeque<ActorCombatEvidence>,
     combat_revision: u64,
-    totems: Option<totems::Tracking>,
     block_events: block_events::BlockEvents,
     map_images: map_data::MapImages,
     pending_sign_edit: Option<SignEditRequest>,
@@ -187,12 +189,14 @@ impl WorldAuthority {
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         actors.set_local_unique_id(bootstrap.local_player_unique_id);
+        // No custom palette is admitted yet, so the internal air id is also its wire id.
+        actors.set_air_block_network_id(Some(air_block_id));
         Self {
             terrain: ChunkStore::new(),
             actors,
             combat_evidence: VecDeque::new(),
+            local_mode_follows_default: false,
             combat_revision: 0,
-            totems: None,
             block_events: block_events::BlockEvents::default(),
             map_images: map_data::MapImages::default(),
             pending_sign_edit: None,

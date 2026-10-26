@@ -737,3 +737,37 @@ fn player_appearance_readiness_does_not_gate_enchanting_book_readers() {
         "the nearby player opens the book before their skin appears"
     );
 }
+
+#[test]
+fn overlay_items_lie_flat_on_their_faces_at_full_brightness() {
+    let mut fixture = Fixture::new();
+    let diamond = world::OverlayItem {
+        name: Arc::from("minecraft:diamond"),
+        damage: 0,
+        size: 6.4,
+        x: 0.0,
+        y: 0.8,
+    };
+    let template = Template::OverlayItems(Box::new([(2, diamond.clone()), (5, diamond)]));
+    assert_eq!(
+        fixture.resolve(&template, [4, 64, -3], (0.0, 0.0), true),
+        None
+    );
+    assert!(fixture.held.is_empty(), "hidden items submit no placements");
+    assert_eq!(
+        fixture.resolve(&template, [4, 64, -3], (0.0, 0.0), false),
+        None
+    );
+    let placed: Vec<_> = fixture
+        .held
+        .iter()
+        .map(|placement| (placement.light, placement.world_from_item))
+        .collect();
+    let pose = |face| {
+        render_model::overlay_item_transform([4, 64, -3], face, 6.4, 0.0, 0.8, false).unwrap()
+    };
+    assert_eq!(
+        placed,
+        [(Some((15, 15)), pose(2)), (Some((15, 15)), pose(5))]
+    );
+}

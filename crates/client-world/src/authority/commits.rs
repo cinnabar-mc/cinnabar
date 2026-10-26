@@ -211,26 +211,39 @@ impl WorldAuthority {
                     {
                         Some((status.runtime_id, super::ActorCombatKind::Death))
                     }
-                    _ => None,
-                };
-                let totem = match &event {
                     ActorEvent::Status(status)
                         if status.kind == protocol::ActorStatusKind::TotemActivate =>
                     {
-                        Some((status.runtime_id, true))
+                        Some((status.runtime_id, super::ActorCombatKind::Totem))
                     }
+                    _ => None,
+                };
+                // A death notice, or attributes that leave the actor dead, end its current life.
+                let death = match &event {
                     ActorEvent::Status(status)
                         if status.kind == protocol::ActorStatusKind::Death =>
                     {
-                        Some((status.runtime_id, false))
+                        Some(status.runtime_id)
                     }
-                    _ => None,
-                };
-                let attributes_runtime = match &event {
                     ActorEvent::Attributes(update) => Some(update.runtime_id),
                     _ => None,
                 };
-                let result = self.actors.apply(self.actor_session_id, sequence, event);
+                let target_resident = self.player_move_target_resident(&event);
+                let result = self.actors.apply_with_player_move_terrain(
+                    self.actor_session_id,
+                    sequence,
+                    event,
+                    target_resident,
+                );
+                if result == crate::actor_store::ActorApplyResult::Updated
+                    && let Some(runtime_id) = death
+                    && self
+                        .actors
+                        .get(runtime_id)
+                        .is_some_and(|actor| actor.status.dead)
+                {
+                    self.actors.note_death(runtime_id, sequence);
+                }
                 if local_removal
                     && matches!(
                         result,
@@ -274,20 +287,6 @@ impl WorldAuthority {
                             dimensions,
                         });
                     }
-                }
-                if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some(runtime_id) = attributes_runtime
-                    && self
-                        .actors
-                        .get(runtime_id)
-                        .is_some_and(|actor| actor.status.dead)
-                {
-                    self.observe_totem_status(runtime_id, false);
-                }
-                if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some((runtime_id, activated)) = totem
-                {
-                    self.observe_totem_status(runtime_id, activated);
                 }
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some((runtime_id, kind)) = combat
@@ -463,7 +462,8 @@ impl WorldAuthority {
                             self.publish_local_life(sequence, [health == 0]);
                         }
                         if health <= 0 {
-                            self.observe_totem_status(self.local_player_runtime_id, false);
+                            self.actors
+                                .note_death(self.local_player_runtime_id, sequence);
                         }
                         UiEvent::Hud(protocol::HudEvent::Health { health })
                     }
@@ -482,10 +482,24 @@ impl WorldAuthority {
                         if actor_unique_id != self.local_player_unique_id {
                             return Ok(());
                         }
+                        self.push_local_game_mode(sequence, event.update);
+                        UiEvent::GameMode(event)
+                    }
+                    UiEvent::GameMode(event) => {
+                        self.push_local_game_mode(sequence, event.update);
                         UiEvent::GameMode(event)
                     }
                     UiEvent::DefaultGameMode(event) => {
                         self.actors.apply_world_game_mode(event.update);
+                        // A player following the default takes its new mode.
+                        if self.local_mode_follows_default
+                            && let protocol::GameModeUpdate::Explicit(mode) = event.update
+                        {
+                            self.push_committed_control(CommittedControlEvent::LocalGameMode {
+                                sequence,
+                                spectator: mode == protocol::PlayerGameMode::Spectator,
+                            });
+                        }
                         UiEvent::DefaultGameMode(event)
                     }
                     event => event,
@@ -541,6 +555,30 @@ impl WorldAuthority {
         }
         Ok(())
     }
+    /// Orders a local game-mode update with the controls it may supersede.
+    /// Only the native spectator mode, explicit or through the world default,
+    /// counts; legacy viewer modes are not spectators.
+    fn push_local_game_mode(&mut self, sequence: u64, update: protocol::GameModeUpdate) {
+        match update {
+            protocol::GameModeUpdate::WorldDefault => self.local_mode_follows_default = true,
+            protocol::GameModeUpdate::Explicit(_) | protocol::GameModeUpdate::LegacyViewer => {
+                self.local_mode_follows_default = false;
+            }
+            protocol::GameModeUpdate::Unknown(_) => {}
+        }
+        let spectator = match update {
+            protocol::GameModeUpdate::Explicit(mode) => mode == protocol::PlayerGameMode::Spectator,
+            protocol::GameModeUpdate::WorldDefault => {
+                self.actors.world_default_game_mode() == Some(protocol::PlayerGameMode::Spectator)
+            }
+            protocol::GameModeUpdate::LegacyViewer | protocol::GameModeUpdate::Unknown(_) => false,
+        };
+        self.push_committed_control(CommittedControlEvent::LocalGameMode {
+            sequence,
+            spectator,
+        });
+    }
+
     /// Retains a committed control within its admission-backed queue bound.
     pub fn push_committed_control(&mut self, event: CommittedControlEvent) {
         assert!(

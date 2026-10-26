@@ -24,6 +24,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         center_y: key.y,
         light_halo,
         java_meshing: None,
+        overlays: Default::default(),
     };
 
     let mesh = snapshot.mesh(

@@ -67,13 +67,15 @@ impl ResolvedPaletteEntry {
 
 /// Palette-native contributors resolved for one sub-chunk coordinate.
 ///
-/// A diagnostic is mutually exclusive with real contributors. Liquid geometry
-/// is meshed separately, but its exact network value is retained here so
-/// layered plants/solids do not erase it.
+/// A diagnostic is mutually exclusive with real contributors. A second,
+/// model-routed block (a plant under top snow or under a placed block) is kept
+/// beside the primary so both are tessellated. Liquid geometry is meshed
+/// separately, but its exact network value is retained here so layered
+/// plants/solids do not erase it.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ResolvedContributors {
     primary: Option<ResolvedPaletteEntry>,
-    covered_plant: Option<ResolvedPaletteEntry>,
+    extra_model: Option<ResolvedPaletteEntry>,
     liquid: Option<ResolvedPaletteEntry>,
     diagnostic: Option<ResolvedPaletteEntry>,
 }
@@ -151,20 +153,28 @@ impl ResolvedContributors {
             ContributorRole::Primary => {
                 match self.primary {
                     None => self.primary = Some(entry),
-                    Some(primary) if self.covered_plant.is_none() => {
+                    Some(primary) if self.extra_model.is_none() => {
                         // TopSnow tessellates the underlying crossed plant on
                         // that plant's own render layer, independently of its
-                        // opaque snow surface. Arbitrary second solids remain
-                        // unsupported; this is not a generic multi-model route.
+                        // opaque snow surface.
                         if primary.variant & BLOCK_VISUAL_VARIANT_TOP_SNOW != 0
                             && entry.kind == VisualKind::Cross
                         {
-                            self.covered_plant = Some(entry);
+                            self.extra_model = Some(entry);
                         } else if entry.variant & BLOCK_VISUAL_VARIANT_TOP_SNOW != 0
                             && primary.kind == VisualKind::Cross
                         {
                             self.primary = Some(entry);
-                            self.covered_plant = Some(primary);
+                            self.extra_model = Some(primary);
+                        // The chunk builder also tessellates any other extra
+                        // block in its own layer, such as a plant left under a
+                        // block placed over covering snow. Model geometry has
+                        // its own route; two cube contributors stay unsupported.
+                        } else if is_model_kind(entry) {
+                            self.extra_model = Some(entry);
+                        } else if is_model_kind(primary) {
+                            self.primary = Some(entry);
+                            self.extra_model = Some(primary);
                         } else {
                             self.fail_closed(entry.network_value, entry.sequential_id);
                         }
@@ -190,7 +200,7 @@ impl ResolvedContributors {
 
     fn fail_closed(&mut self, network_value: u32, sequential_id: Option<u32>) {
         self.primary = None;
-        self.covered_plant = None;
+        self.extra_model = None;
         self.liquid = None;
         self.diagnostic = Some(ResolvedPaletteEntry::diagnostic(
             network_value,
@@ -419,7 +429,7 @@ impl<'a> PaletteFacts<'a> {
             PaletteSource::Air => false,
             PaletteSource::Uniform(contributors) => {
                 is_model_entry(contributors.geometry_entry())
-                    || contributors.covered_plant.is_some_and(is_model_entry)
+                    || contributors.extra_model.is_some_and(is_model_entry)
             }
             PaletteSource::Mixed(storages) => storages
                 .iter()
@@ -449,8 +459,9 @@ impl<'a> PaletteFacts<'a> {
         }
     }
 
-    /// The ordinary surface plus at most one native TopSnow-covered crossed
-    /// plant. The surface remains the sole neighbour-occlusion participant.
+    /// The primary contributor plus at most one extra model-routed block, such
+    /// as a plant under top snow or under a placed block. The primary remains
+    /// the sole neighbour-occlusion participant.
     pub(crate) fn model_entries_at(
         &self,
         x: usize,
@@ -458,7 +469,7 @@ impl<'a> PaletteFacts<'a> {
         z: usize,
     ) -> [Option<ResolvedPaletteEntry>; 2] {
         let contributors = self.contributors_at(x, y, z);
-        [contributors.primary, contributors.covered_plant]
+        [contributors.primary, contributors.extra_model]
     }
 
     /// Visits every voxel with `classify` applied to its [`Self::at`] answer. A decoded section
@@ -512,8 +523,13 @@ impl<'a> PaletteFacts<'a> {
 
 /// A contributor the model pass tessellates: a crossed or model visual with a template.
 pub(crate) const fn is_model_entry(entry: ResolvedPaletteEntry) -> bool {
+    is_model_kind(entry) && entry.model_template != NO_MODEL_TEMPLATE
+}
+
+/// Whether `entry` draws through the model route rather than as a cube, even
+/// before a template is admitted.
+const fn is_model_kind(entry: ResolvedPaletteEntry) -> bool {
     matches!(entry.kind, VisualKind::Cross | VisualKind::Model)
-        && entry.model_template != NO_MODEL_TEMPLATE
 }
 
 const fn seasonal_block(entry: ResolvedPaletteEntry) -> SeasonalFoliageBlock {

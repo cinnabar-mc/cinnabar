@@ -1,6 +1,8 @@
 use super::{State, cinnabar};
 use crate::terrain::Sample;
-use crate::{TerrainQuery, TerrainReadError, TerrainReadResult, TerrainRegion, TerrainStamp};
+use crate::{
+    TerrainPosition, TerrainQuery, TerrainReadError, TerrainReadResult, TerrainRegion, TerrainStamp,
+};
 use anyhow::{Result, bail};
 
 impl cinnabar::extension::terrain::Host for State {
@@ -26,7 +28,7 @@ impl cinnabar::extension::terrain::Host for State {
             return Ok(Err(error));
         }
         if !self.terrain.pending_queries.contains(&query) {
-            if self.terrain.pending_queries.len() == mod_api::MAX_TERRAIN_QUERIES {
+            if self.terrain.subscriptions_full() {
                 return Ok(Err(TerrainReadError::BudgetExhausted));
             }
             self.terrain.pending_queries.push(query);
@@ -49,6 +51,53 @@ impl cinnabar::extension::terrain::Host for State {
                 })
             }
             _ => Ok(TerrainReadResult::Pending),
+        })
+    }
+
+    /// Subscribes a search and returns its latest answer in the current world: matching loaded
+    /// blocks found so far, nearest the feet first. A new search returns none.
+    fn find_blocks(
+        &mut self,
+        identifiers: Vec<String>,
+        range: f32,
+        limit: u32,
+    ) -> Result<Result<Vec<TerrainPosition>, TerrainReadError>> {
+        self.terrain.calls += 1;
+        if self.terrain.calls > super::MAX_IMPORT_WRITES as usize {
+            bail!("terrain read budget exhausted");
+        }
+        if !self.grants.terrain {
+            return Ok(Err(TerrainReadError::Denied));
+        }
+        let (Some(_), Some(world)) = (&self.snapshot, &self.player_state.world) else {
+            return Ok(Err(TerrainReadError::Unavailable));
+        };
+        let scope = (world.session, world.dimension);
+        let search = match crate::BlockSearch::admit(identifiers, range, limit) {
+            Ok(search) => search,
+            Err(error) => return Ok(Err(error)),
+        };
+        if !self.terrain.pending_searches.contains(&search) {
+            if self.terrain.subscriptions_full() {
+                return Ok(Err(TerrainReadError::BudgetExhausted));
+            }
+            self.terrain.pending_searches.push(search.clone());
+        }
+        let sample = self
+            .terrain
+            .searches
+            .iter()
+            .find(|(candidate, _)| *candidate == search)
+            .and_then(|(_, sample)| sample.as_ref());
+        Ok(match sample {
+            Some(Err(error)) => Err(*error),
+            Some(Ok(found)) if (found.session, found.dimension) == scope => Ok(found
+                .positions
+                .iter()
+                .take(search.limit as usize)
+                .copied()
+                .collect()),
+            _ => Ok(Vec::new()),
         })
     }
 }
@@ -83,6 +132,7 @@ mod tests {
             world: "fixture".into(),
             position: (0., 0., 0.),
             alive: true,
+            runtime_id: 1,
         });
         value
     }
@@ -226,6 +276,7 @@ mod tests {
             world: "fixture".into(),
             position: (0., 0., 0.),
             alive: true,
+            runtime_id: 1,
         });
         value.read_region(query(0), None).unwrap().unwrap();
         for (session, dimension, delivered) in [(7, 2, true), (1, 2, false), (7, 0, false)] {
@@ -240,5 +291,132 @@ mod tests {
                 "{session} {dimension}"
             );
         }
+    }
+
+    fn ores() -> Vec<String> {
+        vec![
+            "minecraft:diamond_ore".into(),
+            "minecraft:ancient_debris".into(),
+        ]
+    }
+    fn position(x: i32) -> TerrainPosition {
+        TerrainPosition { x, y: 0, z: 0 }
+    }
+    /// Answers the committed search as the client would before the next frame.
+    fn answer(value: &mut State, answer: Result<crate::FoundBlocks, TerrainReadError>) {
+        value.terrain.commit();
+        for (_, sample) in &mut value.terrain.searches {
+            *sample = Some(answer.clone());
+        }
+        value.terrain.begin_frame();
+    }
+    #[test]
+    fn find_blocks_needs_terrain_authority_and_a_gameplay_frame() {
+        let mut denied = state(ModGrants::default());
+        assert_eq!(
+            denied.find_blocks(ores(), 32.0, 8).unwrap(),
+            Err(TerrainReadError::Denied)
+        );
+        let mut value = state(ModGrants {
+            terrain: true,
+            ..Default::default()
+        });
+        value.snapshot = None;
+        assert_eq!(
+            value.find_blocks(ores(), 32.0, 8).unwrap(),
+            Err(TerrainReadError::Unavailable)
+        );
+        assert!(value.terrain.pending_searches.is_empty());
+    }
+    #[test]
+    fn find_blocks_subscribes_then_returns_the_nearest_matches_in_the_current_world() {
+        let mut value = state(ModGrants {
+            terrain: true,
+            ..Default::default()
+        });
+        assert_eq!(value.find_blocks(ores(), 32.0, 2).unwrap(), Ok(Vec::new()));
+        let reordered = vec![ores()[1].clone(), ores()[0].clone()];
+        assert_eq!(
+            value.find_blocks(reordered, 32.0, 2).unwrap(),
+            Ok(Vec::new())
+        );
+        assert_eq!(
+            value.terrain.pending_searches.len(),
+            1,
+            "equal searches share one"
+        );
+        let nearest = vec![position(1), position(-2), position(3)];
+        answer(
+            &mut value,
+            Ok(crate::FoundBlocks {
+                session: 1,
+                dimension: 0,
+                positions: nearest.clone(),
+            }),
+        );
+        assert_eq!(
+            value.find_blocks(ores(), 32.0, 2).unwrap(),
+            Ok(nearest[..2].to_vec())
+        );
+        answer(
+            &mut value,
+            Ok(crate::FoundBlocks {
+                session: 1,
+                dimension: -1,
+                positions: nearest,
+            }),
+        );
+        assert_eq!(
+            value.find_blocks(ores(), 32.0, 2).unwrap(),
+            Ok(Vec::new()),
+            "an answer from another world is never delivered"
+        );
+        answer(&mut value, Err(TerrainReadError::LimitExceeded));
+        assert_eq!(
+            value.find_blocks(ores(), 32.0, 2).unwrap(),
+            Err(TerrainReadError::LimitExceeded)
+        );
+        value.terrain.commit();
+        value.terrain.begin_frame();
+        value.terrain.commit();
+        assert!(
+            value.terrain.searches.is_empty(),
+            "a search not renewed is unsubscribed"
+        );
+    }
+    #[test]
+    fn find_blocks_shares_the_terrain_query_and_call_budgets() {
+        let mut value = state(ModGrants {
+            terrain: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            value
+                .find_blocks(ores(), mod_api::MAX_TERRAIN_DISTANCE as f32 + 1.0, 1)
+                .unwrap(),
+            Err(TerrainReadError::OutOfRange)
+        );
+        assert_eq!(
+            value
+                .find_blocks(ores(), 8.0, mod_api::MAX_FOUND_BLOCKS as u32 + 1)
+                .unwrap(),
+            Err(TerrainReadError::LimitExceeded)
+        );
+        for x in 0..mod_api::MAX_TERRAIN_QUERIES as i32 - 1 {
+            assert!(value.read_region(query(x), None).unwrap().is_ok());
+        }
+        assert!(value.find_blocks(ores(), 16.0, 1).unwrap().is_ok());
+        assert_eq!(
+            value.find_blocks(ores(), 24.0, 1).unwrap(),
+            Err(TerrainReadError::BudgetExhausted)
+        );
+        assert_eq!(
+            value.read_region(query(-1), None).unwrap(),
+            Err(TerrainReadError::BudgetExhausted)
+        );
+        assert!(
+            value.find_blocks(ores(), 16.0, 1).is_err(),
+            "eight terrain calls per callback"
+        );
     }
 }

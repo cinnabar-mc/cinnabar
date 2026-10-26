@@ -85,7 +85,7 @@ fn boss_replies_retire_with_the_session_without_retaining_dead_bars() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     apply(&mut runtime, &mut player, 1, event(BossAction::Show, 17));
-    assert_eq!(runtime.boss_responses.pending.len(), 1);
+    assert_eq!(runtime.session.boss_responses.pending.len(), 1);
     player.begin_session(2);
     runtime.begin_session(2);
     assert!(runtime.boss_bars().stacked().is_empty());
@@ -117,12 +117,12 @@ fn repeated_boss_lifetimes_under_backpressure_keep_a_bounded_outbox() {
             sequence,
             event(BossAction::Hide, id),
         );
-        assert!(runtime.boss_responses.pending.len() <= MAX_PENDING_RESPONSES);
+        assert!(runtime.session.boss_responses.pending.len() <= MAX_PENDING_RESPONSES);
     }
-    assert!(runtime.boss_responses.coalesced_pairs > 0);
-    assert_eq!(runtime.boss_responses.dropped, 0);
+    assert!(runtime.session.boss_responses.coalesced_pairs > 0);
+    assert_eq!(runtime.session.boss_responses.dropped, 0);
     let mut membership = std::collections::BTreeSet::new();
-    for event in &runtime.boss_responses.pending {
+    for event in &runtime.session.boss_responses.pending {
         match event.action {
             BossAction::Show => {
                 assert!(membership.insert(event.target_entity_id));

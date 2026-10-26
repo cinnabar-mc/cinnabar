@@ -4,7 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
-use world::SubChunkKey;
+use world::{ChunkKey, SubChunkKey};
 
 /// A stream epoch's latest GPU publications, bounded by its retained sections.
 #[derive(Clone, Default)]
@@ -12,7 +12,7 @@ pub struct TerrainPublications(Arc<Mutex<Publications>>);
 
 #[derive(Default)]
 struct Publications {
-    retained: HashSet<SubChunkKey>,
+    retained: HashMap<ChunkKey, Vec<SubChunkKey>>,
     latest: HashMap<SubChunkKey, u64>,
     empty: HashSet<SubChunkKey>,
     revision: u64,
@@ -24,38 +24,43 @@ impl TerrainPublications {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
-    /// Reconciles source residency only when its owning indexes change.
-    pub fn retain(&self, keys: impl Iterator<Item = SubChunkKey>) {
-        let retained: HashSet<_> = keys.collect();
+    /// Replaces changed columns, or reconciles a full snapshot when the consumer resets.
+    /// Missing columns are unchanged in a delta; an empty column explicitly retires its receipts.
+    pub fn retain(
+        &self,
+        reset: bool,
+        columns: impl IntoIterator<Item = (ChunkKey, Vec<SubChunkKey>)>,
+    ) {
         let mut state = self.0.lock().expect("terrain publications");
-        if state.retained == retained {
-            return;
-        }
-        state.latest.retain(|key, _| retained.contains(key));
-        let before = state.empty.len();
-        state.empty.retain(|key| retained.contains(key));
-        if state.empty.len() != before {
-            state.revision = state.revision.wrapping_add(1);
-        }
-        state.retained = retained;
-    }
-
-    /// Applies each section's current membership, given for every section that may have
-    /// changed since the last reconciliation; the result equals [`Self::retain`] over the
-    /// current sections, without visiting unchanged ones.
-    pub fn apply_membership(&self, changes: impl Iterator<Item = (SubChunkKey, bool)>) {
-        let mut state = self.0.lock().expect("terrain publications");
-        let mut withdrew_empty = false;
-        for (key, retained) in changes {
-            if retained {
-                state.retained.insert(key);
-            } else if state.retained.remove(&key) {
-                // Receipts exist only for retained sections.
-                state.latest.remove(&key);
-                withdrew_empty |= state.empty.remove(&key);
+        let mut removed_empty = false;
+        if reset {
+            let retained: HashMap<_, _> = columns
+                .into_iter()
+                .map(|(column, keys)| (column, normalized_column(column, keys)))
+                .filter(|(_, keys)| !keys.is_empty())
+                .collect();
+            state.latest.retain(|key, _| contains(&retained, key));
+            let before = state.empty.len();
+            state.empty.retain(|key| contains(&retained, key));
+            removed_empty = state.empty.len() != before;
+            state.retained = retained;
+        } else {
+            for (column, keys) in columns {
+                let keys = normalized_column(column, keys);
+                if let Some(previous) = state.retained.remove(&column) {
+                    for key in previous {
+                        if keys.binary_search(&key).is_err() {
+                            state.latest.remove(&key);
+                            removed_empty |= state.empty.remove(&key);
+                        }
+                    }
+                }
+                if !keys.is_empty() {
+                    state.retained.insert(column, keys);
+                }
             }
         }
-        if withdrew_empty {
+        if removed_empty {
             state.revision = state.revision.wrapping_add(1);
         }
     }
@@ -64,7 +69,7 @@ impl TerrainPublications {
     /// Equal-generation withdrawals win over empty receipts, regardless of delivery order.
     pub fn record(&self, key: SubChunkKey, generation: u64, empty: bool) {
         let mut state = self.0.lock().expect("terrain publications");
-        if generation == 0 || !state.retained.contains(&key) {
+        if generation == 0 || !contains(&state.retained, &key) {
             return;
         }
         if state.latest.get(&key).is_some_and(|current| {
@@ -99,6 +104,21 @@ impl TerrainPublications {
             )
         })
     }
+}
+
+/// Sorts a column's union once so membership and deleted-height checks need no section hash set.
+fn normalized_column(column: ChunkKey, mut keys: Vec<SubChunkKey>) -> Vec<SubChunkKey> {
+    assert!(keys.iter().all(|key| key.chunk() == column));
+    keys.sort_unstable();
+    keys.dedup();
+    keys
+}
+
+/// Checks the retained column scope shared by every extracted receipt handle.
+fn contains(columns: &HashMap<ChunkKey, Vec<SubChunkKey>>, key: &SubChunkKey) -> bool {
+    columns
+        .get(&key.chunk())
+        .is_some_and(|keys| keys.binary_search(key).is_ok())
 }
 
 #[cfg(test)]

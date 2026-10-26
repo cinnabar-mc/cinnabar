@@ -7,7 +7,7 @@ use ui::DpiScale;
 const SAMPLE_COMPONENT_ENV: &str = "CINNABAR_MOD_SNAPSHOT_COMPONENT";
 
 /// A real engine over a small HUD fixture, independent of local carrier files.
-fn presentation() -> UiPresentationRuntime {
+pub(super) fn presentation() -> UiPresentationRuntime {
     let mut presentation = mini_engine_presentation();
     presentation.set_server_ui_pack(&hud_pack(
         br#"{
@@ -36,7 +36,7 @@ fn hud_pack(hud: &[u8]) -> ServerUiPack {
 }
 
 /// Builds the same offline frame so only the extension state can change its pixels.
-fn frame(
+pub(super) fn frame(
     player_runtime: &player_state::PlayerState,
     presentation: &mut UiPresentationRuntime,
 ) -> UiRenderInput {
@@ -99,8 +99,8 @@ fn extension_is_hidden_while_chat_or_inventory_owns_input() {
     for inventory in [false, true] {
         let mut presentation = presentation();
         let mut runtime = UiRuntime::new(1);
-        runtime.inventory_open = inventory;
-        runtime.chat_focused = !inventory;
+        runtime.session.inventory_open = inventory;
+        runtime.session.chat_focused = !inventory;
         let build = |presentation: &mut UiPresentationRuntime| {
             presentation
                 .build(

@@ -6,7 +6,7 @@ fn styling_uses_the_last_record_when_whole_labels_fit() {
     let mut scene = scene(&[tag]);
     style_scene(
         &mut scene,
-        &serde_json::from_value(serde_json::json!({})).unwrap(),
+        &ui::mod_presentation::NametagStyle::default(),
         None,
     );
     assert_eq!(scene.records.len(), MAX_NAMETAG_RECORDS);
@@ -16,22 +16,19 @@ fn styling_uses_the_last_record_when_whole_labels_fit() {
 fn oversized_styled_labels_keep_the_nearest_renderable_prefix() {
     for shadow in [false, true] {
         for border in [false, true] {
-            let style = serde_json::from_value(serde_json::json!({
-                "shadow": shadow,
-                "border_color": border.then_some([1.; 4])
-            }))
-            .unwrap();
+            let style = ui::mod_presentation::NametagStyle {
+                shadow,
+                border_color: border.then_some([1.; 4]),
+                ..Default::default()
+            };
             let mut near = anchor(&"A\n".repeat(MAX_NAMETAG_LINES));
             near.view_depth = 1.0;
             near.cinnabar_badge = true;
-            near.set_counter_annotation(Some(Arc::new(ui::mod_hud::CounterAnnotation {
-                prefix: Arc::from("Count: "),
-                value: Arc::from("2"),
-                prefix_color: [255; 4],
-                value_color: [255; 4],
-                separate: true,
-                before: false,
-            })));
+            near.set_annotation(Some(spans(
+                &["Count: ", "2"],
+                [1.; 4],
+                ui::mod_presentation::SpanPosition::Above,
+            )));
             let mut far = anchor("B");
             far.runtime_id = 2;
             far.view_depth = 2.0;
@@ -77,11 +74,11 @@ fn counters_outside_the_record_budget_do_not_reserve_atlas_cells() {
     near.view_depth = 2.0;
     let mut far = anchor("B");
     far.runtime_id = 2;
-    far.set_counter_annotation(
-        ui::mod_hud::TotemCounterStyle::default()
-            .annotation(2)
-            .map(Arc::new),
-    );
+    far.set_annotation(Some(spans(
+        &["-2"],
+        [0.3, 1., 0.3, 1.],
+        ui::mod_presentation::SpanPosition::After,
+    )));
     let scene = scene(&[far, near]);
     assert_eq!(scene.records.len(), MAX_NAMETAG_RECORDS);
     assert_eq!(scene.atlas.len(), 1);
@@ -99,10 +96,11 @@ fn styling_admits_complete_near_labels_and_keeps_back_to_front_order() {
         })
         .collect();
     let mut scene = scene(&anchors);
-    let style = serde_json::from_value(serde_json::json!({
-        "shadow": true, "border_color": [1., 1., 1., 1.]
-    }))
-    .unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        shadow: true,
+        border_color: Some([1.; 4]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, None);
     let records_per_label = 4 * 7;
     let labels = MAX_NAMETAG_RECORDS / records_per_label;
@@ -131,13 +129,13 @@ fn full_cell_font() -> RuntimeFontCatalog {
 #[test]
 fn failed_name_rasters_keep_the_second_slot_badge_and_counter_positions() {
     let font = full_cell_font();
-    let policy = ui::mod_hud::TotemCounterStyle {
-        show_prefix: false,
-        ..Default::default()
-    };
     let mut tag = anchor("A\nB");
     tag.cinnabar_badge = true;
-    tag.set_counter_annotation(policy.annotation(2).map(Arc::new));
+    tag.set_annotation(Some(spans(
+        &["-2"],
+        [0.3, 1., 0.3, 1.],
+        ui::mod_presentation::SpanPosition::After,
+    )));
     let scene = scene_with_font(&[tag], &font);
     let name = scene
         .records

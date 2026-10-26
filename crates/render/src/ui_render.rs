@@ -74,10 +74,14 @@ pub(crate) mod harness;
 mod layer;
 #[path = "ui_render/model_depth.rs"]
 mod model_depth;
+#[path = "ui_render/models.rs"]
+mod models;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/pipeline.rs"]
 pub(crate) mod pipeline;
+#[path = "ui_render/presentation.rs"]
+pub(crate) mod presentation;
 #[path = "ui_render/profile.rs"]
 pub(crate) mod profile;
 #[path = "ui_render/resources.rs"]
@@ -166,6 +170,13 @@ fn install_ui_render(app: &mut App) {
     );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
+        .init_resource::<presentation::UiFrameContent>()
+        .add_systems(
+            Render,
+            presentation::observe_ui_frame
+                .after(bevy::render::renderer::render_system)
+                .before(crate::device_poll::FrameSubmissions),
+        )
         .init_resource::<pipeline::UiPipeline>()
         .init_resource::<composite::UiCompositePipeline>()
         .init_resource::<backdrop::UiBackdropPipeline>()
@@ -216,6 +227,7 @@ pub(crate) struct UiGpu {
     vertex_arena_id: u64,
     index_arena_id: u64,
     viewport_buffer: Buffer,
+    models: models::UiModels,
     viewport_uploads: viewport::ViewportUploads,
     #[cfg(test)]
     geometry_writes: [usize; 2],

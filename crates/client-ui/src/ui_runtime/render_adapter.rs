@@ -40,6 +40,16 @@ pub fn adapt_ui_draw_list(
     textures: Arc<UiRenderTextureArray>,
     viewport: UiRenderViewport,
 ) -> Result<UiRenderInput, UiRenderAdapterError> {
+    adapt_ui_draw_list_with_models(draw_list, textures, viewport, Default::default())
+}
+
+/// Adapts a retained draw list with its independently sampled model palettes.
+pub fn adapt_ui_draw_list_with_models(
+    draw_list: &UiDrawList,
+    textures: Arc<UiRenderTextureArray>,
+    viewport: UiRenderViewport,
+    models: Arc<[render_model::UiModelPose]>,
+) -> Result<UiRenderInput, UiRenderAdapterError> {
     if draw_list.vertices.len() > UiLimits::MAX_UI_VERTICES {
         return Err(UiRenderAdapterError::VertexLimitExceeded);
     }
@@ -99,6 +109,7 @@ pub fn adapt_ui_draw_list(
         );
     }
     let input = UiRenderInput {
+        models,
         revision: draw_list.revision,
         viewport_size: viewport.physical_size,
         safe_area: physical_safe_area(viewport.safe_area, scale)?,
@@ -115,7 +126,11 @@ pub fn adapt_ui_draw_list(
 
 /// One logical vertex in physical pixels for the renderer.
 fn adapt_vertex(vertex: &ui::UiVertex, scale: f32) -> Result<UiRenderVertex, UiRenderAdapterError> {
-    let position = [vertex.position[0] * scale, vertex.position[1] * scale];
+    let position = if vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX == 0 {
+        [vertex.position[0] * scale, vertex.position[1] * scale]
+    } else {
+        vertex.position
+    };
     if !position.iter().all(|value| value.is_finite()) {
         return Err(UiRenderAdapterError::CoordinateOverflow);
     }

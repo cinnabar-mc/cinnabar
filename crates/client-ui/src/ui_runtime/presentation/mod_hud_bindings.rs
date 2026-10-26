@@ -91,6 +91,8 @@ impl Bindings {
                     SurfaceValue::Number(value) => Scalar::Num(*value),
                     SurfaceValue::Text(value) => Scalar::Text(value.clone()),
                     SurfaceValue::Vector(value) => Scalar::Json(serde_json::json!(value)),
+                    // Admission rejects host-resolved values in resource-pack HUD globals.
+                    SurfaceValue::Item(_) | SurfaceValue::Project(_) => continue,
                 };
                 data.set_global(name, scalar);
             }

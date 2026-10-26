@@ -47,7 +47,7 @@ use std::sync::Arc;
 use wgpu::{TextureFormat, TextureUsages};
 
 /// Bumped when translated output or the cache layout changes, invalidating cached data.
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 
 /// The GPU pipeline of one program.
 pub(crate) enum ProgramPipeline {
@@ -125,6 +125,8 @@ impl GpuProgram {
 /// A loaded pack, immutable and shared by every view.
 pub(crate) struct PackGpu {
     pub name: String,
+    /// Program failures shown in the pack picker while the remaining programs run.
+    pub warnings: String,
     pub programs: Vec<GpuProgram>,
     pub frame: FramePlan,
     pub buffers: Vec<BufferPlan>,
@@ -252,6 +254,12 @@ fn host_environment() -> Environment {
     }
 }
 
+/// Uses exact dot steps on DX12 and CPU adapters without requiring optional float64 support.
+fn software_fused_dot(gpu: &GpuContext) -> bool {
+    let info = gpu.adapter.get_info();
+    info.backend == wgpu::Backend::Dx12 || info.device_type == wgpu::DeviceType::Cpu
+}
+
 /// Stops retired workers before opening files or submitting another GPU construction batch.
 fn check_cancelled(progress: &LoadProgress) -> Result<(), String> {
     if progress.is_cancelled() {
@@ -288,10 +296,10 @@ pub(crate) fn load(
         options: options.map(Path::to_owned),
         dimension: dimension.to_owned(),
         environment: host_environment(),
+        software_fused_dot: software_fused_dot(gpu),
         purpose: shaderpack::worker::Purpose::Render,
     };
-    let executable = compiler.ok_or("the isolated shader compiler is unavailable")?;
-    let mut worker = shaderpack::worker::Running::start(executable, &request)?;
+    let mut worker = shaderpack::worker::Running::start(compiler, &request)?;
     let compiled = loop {
         if let Some(result) = worker.poll(started.elapsed(), progress.is_cancelled()) {
             break result?.into_translation()?;
@@ -306,30 +314,22 @@ pub(crate) fn load(
 }
 
 /// The enabled programs this host runs, in frame order, with validated destinations.
-/// Translation failures name each program and its first diagnostic.
+/// Failed translations are skipped; the loaded pack keeps their diagnostics as warnings.
 pub(crate) fn runnable_programs(
     translation: &shaderpack::PackTranslation,
 ) -> Result<(Vec<&ProgramTranslation>, Vec<PlannedProgram>), String> {
-    let mut failed = vec![];
     let mut runnable = vec![];
     let mut plans = vec![];
     for program in &translation.programs {
         if !program.enabled || !runs(program.program.group) {
             continue;
         }
-        match &program.reflection {
-            Some(reflection) => {
-                plans.push(planned(program, reflection, &translation.properties)?);
-                runnable.push(program);
-            }
-            None => failed.push(failure_line(program)),
+        if let Some(reflection) = &program.reflection {
+            plans.push(planned(program, reflection, &translation.properties)?);
+            runnable.push(program);
         }
     }
-    if failed.is_empty() {
-        Ok((runnable, plans))
-    } else {
-        Err(failed.join("\n"))
-    }
+    Ok((runnable, plans))
 }
 
 /// Translates and builds an opened pack with option `values`; translation reports into
@@ -351,6 +351,7 @@ pub(crate) fn build(
 ) -> Result<PackGpu, String> {
     let config = TranslateConfig {
         options: values.clone(),
+        software_fused_dot: software_fused_dot(gpu),
         ..translate_config(pack, dimension)
     };
     let started = std::time::Instant::now();
@@ -625,6 +626,25 @@ fn build_translation(
                     layout: pipeline_layout,
                     vertex,
                     fragment,
+                    emulation: program.geometry.as_ref().map(|contract| {
+                        let stage = |kind| {
+                            program
+                                .stages
+                                .iter()
+                                .find(|s| s.stage == kind)
+                                .unwrap()
+                                .result
+                                .as_ref()
+                                .unwrap()
+                                .clone()
+                        };
+                        (
+                            stage(StageKind::Vertex),
+                            stage(StageKind::Geometry),
+                            contract.clone(),
+                        )
+                    }),
+                    layouts: layouts.clone(),
                 });
                 programs.push(GpuProgram {
                     name: program.program.name.clone(),
@@ -745,6 +765,7 @@ fn build_translation(
         }
         let shadow_slots = constants.shadow_slots();
         check_cancelled(progress)?;
+        let mut geometry_failures = vec![];
         let draws = geometry_draws(
             gpu,
             pipeline_cache.as_ref().map(|c| &c.cache),
@@ -755,6 +776,7 @@ fn build_translation(
             &effects,
             &buffer_formats,
             &shadow_slots,
+            &mut geometry_failures,
         );
         // `shadowtex0` can be the attachment itself unless a shadow program samples it while
         // the pass draws.
@@ -853,6 +875,14 @@ fn build_translation(
         let constants = constants.finish();
         let loaded = PackGpu {
             name: name.to_string(),
+            warnings: translation
+                .programs
+                .iter()
+                .filter(|p| p.enabled && p.reflection.is_none())
+                .map(failure_line)
+                .chain(geometry_failures)
+                .collect::<Vec<_>>()
+                .join("\n"),
             programs,
             frame,
             buffers,

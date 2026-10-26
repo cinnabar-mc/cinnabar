@@ -108,6 +108,10 @@ pub struct MovementInput {
     pub fly_speed: Option<f64>,
     #[serde(default, skip_serializing_if = "VerticalPhysics::is_default")]
     pub vertical_physics: VerticalPhysics,
+    /// An Instabuild glider is holding jump after the glide's first ten ticks,
+    /// so the glide input pushes it upward before this tick's travel.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub glide_ascent: bool,
 }
 
 impl MovementInput {

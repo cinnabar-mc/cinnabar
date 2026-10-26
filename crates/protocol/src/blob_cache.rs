@@ -60,9 +60,8 @@ const MAX_CLIENT_BLOB_PINNED_BYTES: usize = MAX_CLIENT_BLOB_PENDING_BYTES;
 /// pressure. `pop_ready` drains recovery ahead of cached output, and duplicate column recoveries
 /// coalesce, keeping the concrete queue bounded independently from the reservation count.
 pub const MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS: usize = 2_048;
-/// Ordinary decoded work is retained independently from cache transactions. The session receive
-/// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
-/// keeps direct resolver users bounded too.
+/// Ordinary decoded work is retained independently from cache transactions. At its quota,
+/// bounded raw read-ahead receives missing bodies while retaining later ordinary packets.
 pub const MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS: usize = 64;
 /// The transport retains at most 16 MiB of deferred raw packet data. Two frames of headroom cover
 /// decoded container allocation overhead without coupling ordinary traffic to cache limits.
@@ -362,6 +361,13 @@ struct PendingTransaction {
     accounted_bytes: usize,
 }
 
+/// Live dependents of one missing body and whether an earlier status still owns its fetch.
+#[derive(Debug, Default)]
+struct PendingBlob {
+    transactions: HashSet<u64>,
+    status_outstanding: bool,
+}
+
 #[derive(Debug)]
 struct ReadyTransaction {
     value: ResolverReady,
@@ -481,7 +487,9 @@ pub struct BlobCacheResolver {
     requested_hashes: RequestedBlobHashes,
     pending: HashMap<u64, PendingTransaction>,
     pending_order: BTreeSet<u64>,
-    pending_by_hash: HashMap<u64, HashSet<u64>>,
+    /// Only SubChunk replies can be fetched again through exact scheduler recovery.
+    retryable_pending: BTreeSet<u64>,
+    pending_by_hash: HashMap<u64, PendingBlob>,
     resolved_pending: BTreeSet<u64>,
     ready: BTreeMap<u64, ReadyTransaction>,
     immediate_ready: BTreeMap<u64, ImmediateReady>,
@@ -500,15 +508,15 @@ pub struct BlobCacheResolver {
     ready_accounted_bytes: usize,
     /// Sum of `columns.len()` across `pending` and `ready`, the recovery slots they reserve.
     retained_column_slots: usize,
-    trace_origins: Option<TraceOrigins>, // kept only while the latency trace runs
+    trace_origins: Option<TraceOrigins>, // optional latency and capture provenance
 }
 
-/// The core frame and slot that produced each retained item, for the latency trace.
+/// Numeric packet provenance for retained resolver items, released as each item leaves.
 #[derive(Debug, Default)]
 struct TraceOrigins {
-    current: (u64, u32),
-    by_sequence: HashMap<u64, (u64, u32)>,
-    popped: (u64, u32),
+    current: crate::packet_tap::PacketOrigin,
+    by_sequence: HashMap<u64, crate::packet_tap::PacketOrigin>,
+    popped: crate::packet_tap::PacketOrigin,
 }
 
 fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {

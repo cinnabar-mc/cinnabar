@@ -11,9 +11,12 @@ When the download is ready, a compact card in the home screen's top-right corner
 release version and **Restart and update** button. The card stays outside the Play panel, and
 installation only starts when you choose the button. An update required to connect uses stronger
 wording. Periodic checks continue, and a newer release replaces the waiting one. In **Settings**,
-select **Updates** under **Application** at the bottom of the sidebar. You can select a channel,
-turn off automatic checks, or enable **Install updates when I quit**. The section shows the installed version and build, the current check
-or download status, and a **Check now** button. Check now always fetches fresh release metadata, even
+select **Updates** in the sidebar. You can select a channel,
+turn off automatic checks, or enable **Install updates when I quit**. The section separates the
+running build and its publication channel from the channel you follow. It shows the target
+release's channel, version and build, download bytes and percentage, verification status,
+and the ready installation action. You can finish an update without leaving Settings.
+**Check now** always fetches fresh release metadata, even
 when automatic checks are off. It is available from the home menu while no check is running.
 Installation on quit is off by default. The in-game pause menu only shows a small ready badge;
 update actions remain in the launcher.
@@ -25,8 +28,19 @@ update uses the same corner card and links to its GitHub release for manual inst
 Beta follows the latest tagged `vX.Y.Z` release. Nightly follows the rolling `nightly`
 prerelease. Stable is reserved for a future release track and stays hidden until that track
 publishes a signed release. Clients from before these channels require one manual install.
+Changing channels explicitly checks fresh metadata and downloads a newer release immediately,
+even with automatic checks off. This keeps automatic checks off for future launches and polls.
+Restoring the saved channel at startup respects that preference. Nightly follows whichever is
+newer out of Nightly and Beta, without changing the saved Nightly preference.
 Changing channels never silently downgrades: a slower channel waits for a newer app version
-and build. **Switch now** downloads the selected channel's older release for manual installation. Numeric
+and build. Choose **Install Beta now** to download an older Beta
+release, then **Restart and switch** to install it. **Wait for next Beta** keeps the current
+build and follows future Beta releases; installing the older release remains available.
+Managed installation of an older release requires the restart action, even with install-on-quit enabled.
+The helper applies older-build consent only if the installed version and build still match
+the installation the download was prepared for. If a different installation is already at the
+chosen build or newer, the helper keeps it.
+Unsupported or unwritable installations offer **Open installer** for manual installation. Numeric
 prereleases use SemVer ordering, and successive builds use a signed monotonic build number.
 
 The client checks the manifest's Ed25519 signature, channel, expiry, app version and build,
@@ -48,7 +62,7 @@ work has completed. Main-world updates alone cannot confirm startup or discard t
 - **Windows:** the helper runs the verified MSI passively with existing rights and relaunches
   the client. The previous downloaded MSI remains in the update directory for manual repair.
 
-If the install location is not writable, the launcher offers **Download update**. It opens the
+If the install location is not writable, the launcher offers **Open installer**. It opens the
 verified DMG or installer for you to finish; on Linux it opens the folder containing the AppImage.
 The updater does not request elevated privileges or reboot the machine.
 Manual installers are copied out of the waiting stage before opening. A newer download or channel
@@ -66,7 +80,8 @@ offers installation once that client exits.
 
 The updater retains its verified offer while a later download replaces the cache. The helper
 revalidates that offer and queries the installed executable's version and build under the apply
-lease. If the installation is already at that build or newer, it skips the swap and relaunches.
+lease. Without matching older-build consent, an installation already at that build or newer
+skips the swap and relaunches.
 Rollback stays inside the lease that performed the swap. Helper copies and stages remain retained
 while either side of a handoff holds them.
 

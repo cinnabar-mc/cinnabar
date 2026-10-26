@@ -137,6 +137,9 @@ pub(super) struct CrateRule {
     /// Reject these packages through local dependency paths, including this crate's tests.
     #[serde(default)]
     pub(super) forbidden_transitive_dependencies: Vec<String>,
+    /// Reject these packages through production and build edges, while allowing test fixtures.
+    #[serde(default)]
+    pub(super) forbidden_production_transitive_dependencies: Vec<String>,
     /// Fixture features must stay off defaults and production dependency declarations.
     #[serde(default)]
     pub(super) test_support_features: Vec<String>,

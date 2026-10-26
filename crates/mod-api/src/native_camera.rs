@@ -6,38 +6,60 @@ use serde::{Deserialize, Serialize};
 pub const CAPABILITY: u32 = 4;
 /// Optional retained look and walking intents on the camera-frame transport.
 pub const INPUT_INTENTS: u32 = 64;
-/// Maximum detached-view movement, in blocks per real second.
-pub const MAX_FLY_SPEED: f32 = 100.0;
-/// Maximum orbit boom length accepted by the detached camera API.
-pub const MAX_ORBIT_DISTANCE: f32 = 32.0;
+/// Maximum presented view velocity accepted by `Effects::view`, in blocks per real second.
+pub const MAX_VIEW_SPEED: f32 = 100.0;
 
-/// A detached view keeps native look separate from the body's network-facing pose.
+/// An absolute presented camera pose computed by the guest for the frame its callback
+/// observed, in world blocks and actor YXZ radians. Between callbacks the host only advances
+/// `position` by `velocity`, for the real time since that frame was sent.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DetachedView {
-    Orbit {
-        distance: f32,
-    },
-    Fly {
-        horizontal_speed: f32,
-        vertical_speed: f32,
-    },
+#[serde(deny_unknown_fields)]
+pub struct ViewPose {
+    pub position: [f32; 3],
+    pub yaw: f32,
+    pub pitch: f32,
+    /// Blocks per real second.
+    pub velocity: [f32; 3],
 }
 
-impl DetachedView {
-    /// Bounds local presentation speed and orbit distance before applying an effect.
+impl ViewPose {
+    /// Accepts finite world coordinates, a bounded pitch and a bounded speed.
     pub fn is_valid(self) -> bool {
-        match self {
-            Self::Orbit { distance } => {
-                distance.is_finite() && (0.0..=MAX_ORBIT_DISTANCE).contains(&distance)
-            }
-            Self::Fly {
-                horizontal_speed,
-                vertical_speed,
-            } => [horizontal_speed, vertical_speed]
-                .iter()
-                .all(|speed| speed.is_finite() && (0.0..=MAX_FLY_SPEED).contains(speed)),
-        }
+        self.position
+            .iter()
+            .all(|value| value.is_finite() && value.abs() <= crate::MAX_PRIMITIVE_COORDINATE)
+            && self.yaw.is_finite()
+            && self.pitch.is_finite()
+            && self.pitch.abs() <= std::f32::consts::FRAC_PI_2
+            && self.velocity.iter().all(|value| value.is_finite())
+            && self.velocity[0]
+                .hypot(self.velocity[1])
+                .hypot(self.velocity[2])
+                <= MAX_VIEW_SPEED
+    }
+}
+
+/// Current-frame degrees added to the first-person view where the native damage shake applies,
+/// as the WIT `camera.view-tilt`; `suppress_hurt_shake` removes that shake.
+///
+/// Positive `pitch` turns the view up. Positive `roll` turns it the way a native shake without
+/// direction does: the view's right edge rises, so the world appears to turn clockwise. A native
+/// shake of angle `a` from hurt direction `d` is approximately roll `a cos d` and pitch
+/// `-a sin d`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewTilt {
+    pub roll: f32,
+    pub pitch: f32,
+    pub suppress_hurt_shake: bool,
+}
+
+impl ViewTilt {
+    /// Accepts finite angles within `MAX_VIEW_TILT_DEGREES`.
+    pub fn is_valid(self) -> bool {
+        [self.roll, self.pitch]
+            .iter()
+            .all(|value| value.is_finite() && value.abs() <= crate::MAX_VIEW_TILT_DEGREES)
     }
 }
 
@@ -96,28 +118,34 @@ pub struct Effects {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<super::native_frame::Delta>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detached: Option<DetachedView>,
+    pub view: Option<ViewPose>,
+    /// Only meaningful with `view`: native look input turns the presented view instead of the
+    /// body, with pitch clamped to ±89.9°, and the next delivered frame's `look_delta` reports
+    /// exactly the look applied since the previous delivered frame.
+    #[serde(default)]
+    pub capture_look: bool,
+    /// Only valid with `view`: the ordinary movement, jump and sneak bindings stop moving the
+    /// body and are still reported in the next frame's `move_axes`, `ascend` and `descend`.
+    #[serde(default)]
+    pub capture_movement: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hurt_intensity: Option<f32>,
+    pub view_tilt: Option<ViewTilt>,
     #[serde(default)]
     pub preserve_teleport_rotation: bool,
 }
 
 impl Effects {
-    /// Uses the owning camera and damage-style bounds for every supported effect.
+    /// Uses the owning camera bounds for every supported effect.
     pub fn is_valid(&self) -> bool {
         self.look.is_none_or(LookIntent::is_valid)
             && self.movement.is_none_or(MovementIntent::is_valid)
-            && !(self.look.is_some() && (self.rotation.is_some() || self.detached.is_some()))
-            && !(self.movement.is_some() && self.detached.is_some())
+            && !(self.look.is_some() && self.rotation.is_some())
             && self
                 .rotation
                 .is_none_or(super::native_frame::Delta::is_valid)
-            && self.detached.is_none_or(DetachedView::is_valid)
-            && self
-                .hurt_intensity
-                .is_none_or(|value| render_api::HurtCameraStyle::new(value, false).is_some())
-            && !(self.rotation.is_some() && self.detached.is_some())
+            && self.view.is_none_or(ViewPose::is_valid)
+            && (self.view.is_some() || !self.capture_movement)
+            && self.view_tilt.is_none_or(ViewTilt::is_valid)
     }
 }
 
@@ -136,44 +164,75 @@ mod tests {
     }
 
     #[test]
-    fn effects_reject_conflicting_or_unbounded_camera_requests() {
+    fn effects_reject_unbounded_camera_requests() {
         assert!(Effects::default().is_valid());
+        let view = ViewPose {
+            position: [1.0, 65.0, -2.0],
+            yaw: 0.5,
+            pitch: -0.25,
+            velocity: [0.0, 0.0, 10.0],
+        };
         assert!(
-            !Effects {
-                detached: Some(DetachedView::Orbit { distance: f32::NAN }),
+            Effects {
+                view: Some(view),
+                capture_look: true,
+                capture_movement: true,
                 ..Default::default()
             }
             .is_valid()
         );
         assert!(
             !Effects {
-                detached: Some(DetachedView::Fly {
-                    horizontal_speed: 101.0,
-                    vertical_speed: 1.0
-                }),
+                capture_movement: true,
                 ..Default::default()
             }
             .is_valid()
         );
+        for invalid in [
+            ViewPose {
+                position: [f32::NAN, 0.0, 0.0],
+                ..view
+            },
+            ViewPose { pitch: 2.0, ..view },
+            ViewPose {
+                velocity: [0.0, MAX_VIEW_SPEED + 1.0, 0.0],
+                ..view
+            },
+        ] {
+            assert!(
+                !Effects {
+                    view: Some(invalid),
+                    ..Default::default()
+                }
+                .is_valid()
+            );
+        }
+        let tilt = ViewTilt {
+            roll: 14.0,
+            pitch: 0.0,
+            suppress_hurt_shake: true,
+        };
         assert!(
-            !Effects {
-                hurt_intensity: Some(f32::INFINITY),
+            Effects {
+                view_tilt: Some(tilt),
                 ..Default::default()
             }
             .is_valid()
         );
-        assert!(
-            !Effects {
-                rotation: Some(super::super::native_frame::Delta {
-                    yaw: 0.0,
-                    pitch: 0.0
-                }),
-                detached: Some(DetachedView::Orbit { distance: 4.0 }),
-                ..Default::default()
-            }
-            .is_valid()
-        );
+        for roll in [f32::INFINITY, crate::MAX_VIEW_TILT_DEGREES + 1.0] {
+            assert!(
+                !Effects {
+                    view_tilt: Some(ViewTilt { roll, ..tilt }),
+                    ..Default::default()
+                }
+                .is_valid()
+            );
+        }
         assert!(serde_json::from_str::<Effects>(r#"{"unknown":true}"#).is_err());
+        assert!(
+            serde_json::from_str::<Effects>(r#"{"detached":{"kind":"orbit","distance":4.0}}"#)
+                .is_err()
+        );
     }
     #[test]
     fn input_intents_reject_invalid_axes_and_conflicting_look_owners() {
@@ -215,14 +274,6 @@ mod tests {
             !LookIntent {
                 speed: f32::INFINITY,
                 ..look
-            }
-            .is_valid()
-        );
-        assert!(
-            !Effects {
-                look: Some(look),
-                detached: Some(DetachedView::Orbit { distance: 4.0 }),
-                ..Default::default()
             }
             .is_valid()
         );

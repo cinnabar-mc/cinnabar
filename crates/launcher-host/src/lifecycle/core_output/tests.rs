@@ -215,3 +215,68 @@ fn uninstalled_spawns_pass_the_default_level_and_no_crash_output() {
     let args: Vec<_> = command.get_args().collect();
     assert_eq!(args, ["-log-level", "info"]);
 }
+
+#[cfg(not(target_os = "ios"))]
+#[test]
+fn core_roles_keep_their_process_pipes_and_stdin_shutdown_with_and_without_logging() {
+    let Some(core) = fixture::crash_core() else {
+        return;
+    };
+    for logging in [false, true] {
+        let log = Buffer::default();
+        let output = CoreOutput::new(
+            || LevelFilter::INFO,
+            logging.then(|| Box::new(log.clone()) as Box<dyn Write + Send>),
+            None,
+            None,
+        )
+        .unwrap();
+        for role in [
+            CoreRole::Game,
+            CoreRole::Account,
+            CoreRole::Catalog,
+            CoreRole::SignIn,
+        ] {
+            let child = output
+                .spawn(&mut fixture::command(core, "streams"), role)
+                .unwrap();
+            let observer = child.observer();
+            assert!(
+                child.take_stderr().is_none(),
+                "stderr belongs to the log reader"
+            );
+            if role == CoreRole::SignIn {
+                assert!(child.take_stdin().is_none());
+                let mut events = String::new();
+                child
+                    .take_stdout()
+                    .unwrap()
+                    .read_to_string(&mut events)
+                    .unwrap();
+                assert_eq!(events, "stdout:\n", "sign-in stdin must be null");
+            } else {
+                assert!(child.take_stdout().is_none());
+                let mut stdin = child.take_stdin().unwrap();
+                stdin.write_all(b"host input").unwrap();
+                drop(stdin);
+            }
+            assert!(child.wait().unwrap().success());
+            assert!(!observer.stop_requested());
+            if logging {
+                let label = format!("process={} pid={}", role.label(), child.id());
+                test_time::eventually("the core's streams and exit to reach core.log", || {
+                    let text = log.text();
+                    text.contains(&format!("{label} stderr:"))
+                        && text.contains(&format!("{label} msg=\"core exited\""))
+                });
+                assert!(output.log.as_ref().unwrap().flush());
+                let expected = if role == CoreRole::SignIn {
+                    ""
+                } else {
+                    "host input"
+                };
+                assert!(log.text().contains(&format!("{label} stderr:{expected}\n")));
+            }
+        }
+    }
+}

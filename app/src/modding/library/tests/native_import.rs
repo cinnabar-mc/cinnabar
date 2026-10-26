@@ -10,10 +10,11 @@ fn native_packet_source() -> Vec<u8> {
         serde_json::json!({
             "open": open,
             "panel": {
-                "title": "Imported controls",
                 "toggle_key": "ShiftRight",
-                "dark": true,
-                "controls": []
+                "controls": [],
+                "surface": {"screen": "imported_controls.root",
+                    "document": serde_json::json!({"namespace": "imported_controls",
+                        "root": {"type": "panel"}}).to_string()}
             }
         })
         .to_string()
@@ -119,7 +120,7 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
     fs::write(&source, native_packet_source()).unwrap();
     let mut requests = 0;
     let mut act = |action| {
-        perform(
+        perform::<AppBackend>(
             action,
             &mods,
             &registration,
@@ -170,7 +171,7 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
     let old = app
         .world()
         .resource::<PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     assert_eq!(old.start(&identity, "{}", &[1]).len(), 2);
     assert!(
@@ -199,7 +200,7 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
     let relay = app
         .world()
         .resource::<PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     assert_eq!(relay.start(&identity, "{}", &[1]).len(), 2);
     assert!(
@@ -216,8 +217,8 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
         "the packet command opens the native menu"
     );
     assert_eq!(
-        output.output.panel.as_ref().unwrap().title,
-        "Imported controls"
+        output.output.panel.as_ref().unwrap().surface.screen,
+        "imported_controls.root"
     );
     assert!(output.prepared.is_some());
     relay.stop();
@@ -263,7 +264,7 @@ fn imported_external_reactor_keeps_native_menu_alive_after_explicit_consent() {
     let registration = root.path().join("config");
     let mut requests = 0;
     let mut act = |action| {
-        perform(
+        perform::<AppBackend>(
             action,
             &mods,
             &registration,
@@ -311,7 +312,7 @@ fn imported_external_reactor_keeps_native_menu_alive_after_explicit_consent() {
     let relay = app
         .world()
         .resource::<PacketMods>()
-        .session_relay()
+        .session_relay(false)
         .unwrap();
     let _ = relay.start(
         &protocol::session_wire::SessionIdentity {

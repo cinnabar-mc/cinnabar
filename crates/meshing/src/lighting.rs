@@ -500,7 +500,8 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
     PackedQuadLighting::new(samples)
 }
 
-/// Bakes exactly one sidecar for every quad in a template's immutable order.
+/// Bakes exactly one sidecar for every quad in a template's immutable order; `rotation` is the
+/// model turn the shader applies (see [`crate::MODEL_TURN_X_SHIFT`]).
 #[must_use]
 pub fn bake_template_lighting(
     classifier: &BlockClassifier,
@@ -577,27 +578,53 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     {
         return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
     }
-    Some(
-        quads
-            .iter()
-            .map(|quad| {
-                model_quad_face(*quad, rotation).map_or_else(
-                    || lighting_at(inputs.sample(block)),
-                    |face| {
-                        bake_quad_with(
-                            inputs,
-                            block,
-                            face,
-                            quad.positions
-                                .map(|position| rotate_model_position(position, rotation)),
-                            true,
-                            emitting_block,
-                        )
-                    },
-                )
-            })
-            .collect(),
-    )
+    let mut lighting: Vec<_> = quads
+        .iter()
+        .map(|quad| {
+            model_quad_face(*quad, rotation).map_or_else(
+                || lighting_at(inputs.sample(block)),
+                |face| {
+                    bake_quad_with(
+                        inputs,
+                        block,
+                        face,
+                        quad.positions.map(|position| {
+                            crate::overlays::turn_model_position(position, rotation)
+                        }),
+                        true,
+                        emitting_block,
+                    )
+                },
+            )
+        })
+        .collect();
+    if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+        inherit_bamboo_leaf_lighting(quads, &mut lighting);
+    }
+    Some(lighting)
+}
+
+/// Native tessellation draws bamboo leaves straight after the stem without setting a new
+/// vertex light, so every leaf vertex repeats the stem's final vertex: the top, +Z corner of
+/// [`assets::bamboo::LEAF_SHADE_FACE`]. Templates without that stem face keep their bake.
+fn inherit_bamboo_leaf_lighting(quads: &[ModelQuad], lighting: &mut [PackedQuadLighting]) {
+    let stem = assets::bamboo::LEAF_SHADE_FACE as usize;
+    let (Some(face), Some(&baked)) = (quads.get(stem), lighting.get(stem)) else {
+        return;
+    };
+    let Some(corner) = (0..4).max_by_key(|&corner| {
+        let [_, y, z] = face.positions[corner];
+        (y, z)
+    }) else {
+        return;
+    };
+    let inherited = PackedQuadLighting::new([baked.samples()[corner]; 4]);
+    for leaf in lighting
+        .iter_mut()
+        .skip(assets::bamboo::FIRST_LEAF_QUAD as usize)
+    {
+        *leaf = inherited;
+    }
 }
 
 /// Nether portals take vanilla's flat lighting path: boundary-adjacent light, own light
@@ -774,6 +801,7 @@ pub(crate) const fn cube_face_positions(face: Face) -> [[i16; 3]; 4] {
     }
 }
 
+/// The face `quad` lies on after the model turn `rotation`, if it lies on one.
 const fn model_quad_face(quad: ModelQuad, rotation: u32) -> Option<Face> {
     let face = match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
         1 => Some(Face::NegativeY),
@@ -787,8 +815,22 @@ const fn model_quad_face(quad: ModelQuad, rotation: u32) -> Option<Face> {
     rotate_face(face, rotation)
 }
 
-const fn rotate_face(face: Option<Face>, rotation: u32) -> Option<Face> {
-    match (face, rotation & 3) {
+/// `face` after the model turn `rotation`: its quarter turns about x, each taking +y to +z, then
+/// its quarter turns about y, as [`crate::overlays::turn_model_position`] turns positions.
+const fn rotate_face(mut face: Option<Face>, rotation: u32) -> Option<Face> {
+    let mut x_turns =
+        (rotation & crate::overlays::MODEL_TURN_X_MASK) >> crate::overlays::MODEL_TURN_X_SHIFT;
+    while x_turns > 0 {
+        face = match face {
+            Some(Face::PositiveY) => Some(Face::PositiveZ),
+            Some(Face::PositiveZ) => Some(Face::NegativeY),
+            Some(Face::NegativeY) => Some(Face::NegativeZ),
+            Some(Face::NegativeZ) => Some(Face::PositiveY),
+            other => other,
+        };
+        x_turns -= 1;
+    }
+    match (face, rotation & crate::overlays::MODEL_TURN_Y_MASK) {
         (Some(Face::NegativeX), 1) => Some(Face::NegativeZ),
         (Some(Face::PositiveX), 1) => Some(Face::PositiveZ),
         (Some(Face::NegativeZ), 1) => Some(Face::PositiveX),
@@ -802,15 +844,6 @@ const fn rotate_face(face: Option<Face>, rotation: u32) -> Option<Face> {
         (Some(Face::NegativeZ), 3) => Some(Face::NegativeX),
         (Some(Face::PositiveZ), 3) => Some(Face::PositiveX),
         (other, _) => other,
-    }
-}
-
-const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
-    match rotation & 3 {
-        1 => [256 - z, y, x],
-        2 => [256 - x, y, 256 - z],
-        3 => [z, y, 256 - x],
-        _ => [x, y, z],
     }
 }
 

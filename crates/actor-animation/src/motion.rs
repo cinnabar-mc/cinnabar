@@ -89,6 +89,16 @@ pub(super) struct MotionInput {
     pub(super) yaw: f32,
     pub(super) head_yaw: f32,
     pub(super) on_fire: bool,
+    /// Local players advance their walk cycle from completed physics ticks instead.
+    pub(super) actor_walk: bool,
+}
+
+/// Reversible walk values, independent of body turns and action clocks.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct WalkState {
+    pub(super) distance: f32,
+    pub(super) speed: f32,
+    stride: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -183,6 +193,29 @@ impl MotionState {
         } else {
             self.turn_mob_body(input);
         }
+        if input.actor_walk {
+            self.advance_walk(input);
+        }
+    }
+
+    /// Saves only the gait so local movement retries preserve actions and body rotation.
+    pub(super) fn walk_state(&self) -> WalkState {
+        WalkState {
+            distance: self.distance,
+            speed: self.speed,
+            stride: self.stride,
+        }
+    }
+
+    /// Restores a gait checkpoint before replaying a changed movement sample.
+    pub(super) fn restore_walk(&mut self, walk: WalkState) {
+        self.distance = walk.distance;
+        self.speed = walk.speed;
+        self.stride = walk.stride;
+    }
+
+    /// Advances the walk cycle from one resolved movement tick without changing actions.
+    pub(super) fn advance_walk(&mut self, input: &MotionInput) {
         let step = input.delta[0].hypot(input.delta[2]);
         if step > STRIDE_STEP_MIN {
             self.stride += STRIDE_GAIN * step;
@@ -264,6 +297,7 @@ mod tests {
             yaw,
             head_yaw: yaw,
             on_fire: false,
+            actor_walk: true,
         }
     }
 
