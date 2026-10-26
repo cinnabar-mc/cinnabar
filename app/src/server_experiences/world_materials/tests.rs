@@ -25,21 +25,22 @@ fn world(
     materials: &[(u32, WorldMaterialSpec)],
     bindings: &[(u32, WorldTarget, u32)],
 ) -> WorldMaterials {
-    WorldMaterials {
-        materials: materials.iter().cloned().collect(),
-        bindings: bindings
-            .iter()
-            .map(|(id, target, material)| {
-                (
-                    *id,
-                    WorldBinding {
-                        target: target.clone(),
-                        material: *material,
-                    },
-                )
-            })
-            .collect(),
+    let mut world = WorldMaterials::default();
+    for (id, spec) in materials {
+        world.set_material(*id, Some(spec)).unwrap();
     }
+    for (id, target, material) in bindings {
+        world
+            .set_binding(
+                *id,
+                Some(&WorldBinding {
+                    target: target.clone(),
+                    material: *material,
+                }),
+            )
+            .unwrap();
+    }
+    world
 }
 
 fn bundle<'a>(
