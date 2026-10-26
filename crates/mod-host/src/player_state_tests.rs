@@ -628,3 +628,105 @@ fn legacy_and_bounded_actor_reads_share_one_callback_allowance() {
     state.player_state.begin_frame();
     assert!(state.read_actors().unwrap().is_ok());
 }
+
+/// Publishes lives for runtime IDs `1..=count`: odd IDs are players, and each life is its ID.
+fn published_lives(
+    count: u64,
+) -> std::sync::Arc<Vec<crate::module_observations::ActorLifeObservation>> {
+    std::sync::Arc::new(
+        (1..=count)
+            .map(
+                |runtime_id| crate::module_observations::ActorLifeObservation {
+                    runtime_id,
+                    player: runtime_id % 2 == 1,
+                    life: crate::ActorLife {
+                        life: runtime_id * 10,
+                        dead: runtime_id == 4,
+                    },
+                },
+            )
+            .collect(),
+    )
+}
+
+/// The life the fixture publishes for `runtime_id`.
+fn published_life(runtime_id: u64) -> Option<crate::ActorLife> {
+    Some(crate::ActorLife {
+        life: runtime_id * 10,
+        dead: runtime_id == 4,
+    })
+}
+
+/// Each requested ID gets one answer in order; player rows need players, others entities, and
+/// unknown IDs or a missing grant read as none.
+#[test]
+fn actor_lives_answer_each_id_under_its_kind_grant() {
+    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
+    state.player_state.observations.actor_lives = published_lives(8);
+    assert!(state.read_actor_lives(vec![1]).unwrap().is_err());
+    let request = vec![3, 4, 99, 3, 0];
+    state.grants.players = true;
+    assert_eq!(
+        state.read_actor_lives(request.clone()).unwrap().unwrap(),
+        [published_life(3), None, None, published_life(3), None]
+    );
+    state.grants.players = false;
+    state.grants.entities = true;
+    assert_eq!(
+        state.read_actor_lives(request.clone()).unwrap().unwrap(),
+        [None, published_life(4), None, None, None]
+    );
+    state.grants.players = true;
+    assert_eq!(
+        state.read_actor_lives(request).unwrap().unwrap(),
+        [
+            published_life(3),
+            published_life(4),
+            None,
+            published_life(3),
+            None
+        ]
+    );
+    assert_eq!(state.read_actor_lives(Vec::new()).unwrap().unwrap(), []);
+}
+
+/// Requests are bounded without trapping, reach every published actor beyond the actor reads'
+/// limit, share their callback allowance and expire with the callback.
+#[test]
+fn actor_lives_are_bounded_unlimited_by_actor_reads_and_callback_scoped() {
+    let mut state = State::new(
+        ModGrants {
+            players: true,
+            entities: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    let published = 4 * mod_api::MAX_ACTOR_LIFE_READS as u64;
+    assert!(published as usize > mod_api::MAX_OBSERVED_ACTORS);
+    state.player_state.observations.actor_lives = published_lives(published);
+    state.player_state.observations.actors = vec![observed_actor(1, true)];
+    assert!(
+        state
+            .read_actor_lives(vec![1; mod_api::MAX_ACTOR_LIFE_READS + 1])
+            .unwrap()
+            .is_err()
+    );
+    let farthest: Vec<u64> =
+        (published - mod_api::MAX_ACTOR_LIFE_READS as u64 + 1..=published).collect();
+    assert_eq!(
+        state.read_actor_lives(farthest.clone()).unwrap().unwrap(),
+        farthest
+            .iter()
+            .map(|runtime_id| published_life(*runtime_id))
+            .collect::<Vec<_>>()
+    );
+    for _ in 2..MAX_IMPORT_WRITES {
+        assert!(state.read_actors().unwrap().is_ok());
+    }
+    assert!(state.read_actor_lives(vec![1]).is_err(), "budget is shared");
+    state.player_state.begin_frame();
+    state.player_state.clear_presentation();
+    assert_eq!(state.read_actor_lives(vec![1]).unwrap().unwrap(), [None]);
+}

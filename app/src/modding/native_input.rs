@@ -1,4 +1,5 @@
 //! Applies negotiated packet intents to the client's ordinary movement pipeline.
+use super::ModControlModes;
 use bevy::prelude::*;
 use mod_api::native_camera::{Effects, LookIntent};
 
@@ -52,6 +53,18 @@ impl NativeInput {
                 intents.is_some_and(|intents| intents.sprint),
             ],
         );
+    }
+}
+
+impl ModControlModes {
+    /// The player's gameplay settings with this frame's mod modes in place of their own.
+    pub(crate) fn apply(&self, mut gameplay: ui::GameplaySettings) -> ui::GameplaySettings {
+        if let Some(modes) = self.0 {
+            gameplay.toggle_sprint = modes.toggle_sprint;
+            gameplay.toggle_sneak = modes.toggle_sneak;
+            gameplay.always_sprint = modes.always_sprint;
+        }
+        gameplay
     }
 }
 
@@ -150,6 +163,13 @@ impl super::gameplay::GameplayContext<'_> {
         state.hold_intents(input, scope, intents);
     }
 
+    /// Publishes the control modes mods renewed this frame; omission restores the player's own.
+    pub(super) fn apply_control_modes(&mut self, modes: Option<mod_host::GameplayControlModes>) {
+        if let Some(published) = self.control_modes.as_mut() {
+            published.0 = modes;
+        }
+    }
+
     /// Applies absolute look at render cadence, rather than consuming asynchronous relative steps.
     pub(super) fn apply_native_look(&mut self, effects: Option<&Effects>) {
         if let Some(look) = effects.and_then(|effects| effects.look) {
@@ -200,6 +220,59 @@ mod tests {
         );
         assert!(delta.yaw > 0.0 && delta.yaw < 0.03);
     }
+    /// Control modes replace the player's three control settings only while present.
+    #[test]
+    fn control_modes_replace_the_player_settings_only_while_present() {
+        let player = ui::GameplaySettings {
+            toggle_sprint: false,
+            always_sprint: true,
+            toggle_sneak: true,
+            ..Default::default()
+        };
+        assert_eq!(ModControlModes(None).apply(player), player);
+        let modes = mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        };
+        assert_eq!(
+            ModControlModes(Some(modes)).apply(player),
+            ui::GameplaySettings {
+                toggle_sprint: true,
+                toggle_sneak: false,
+                always_sprint: false,
+                ..player
+            }
+        );
+    }
+
+    /// Each frame publishes the merged modes it was given, so omission restores the player's own.
+    #[test]
+    fn published_control_modes_are_replaced_every_frame() {
+        use bevy::ecs::system::RunSystemOnce;
+        let modes = mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: true,
+            always_sprint: false,
+        };
+        let mut world = World::new();
+        world.init_resource::<ModControlModes>();
+        world
+            .run_system_once(
+                move |mut gameplay: super::super::gameplay::GameplayContext| {
+                    gameplay.apply_control_modes(Some(modes));
+                },
+            )
+            .unwrap();
+        assert_eq!(world.resource::<ModControlModes>().0, Some(modes));
+        world
+            .run_system_once(|mut gameplay: super::super::gameplay::GameplayContext| {
+                gameplay.apply_control_modes(None);
+            })
+            .unwrap();
+        assert_eq!(world.resource::<ModControlModes>().0, None);
+    }
+
     #[test]
     fn personal_intents_hold_sprint_and_sneak_and_release_outside_their_scope() {
         let fresh = || {

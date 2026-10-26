@@ -21,6 +21,7 @@ fn fixture(fragment: &str) -> (tempfile::TempDir, Request) {
         options: None,
         dimension: "minecraft:overworld".into(),
         environment: Environment::default(),
+        software_fused_dot: false,
         purpose: shaderpack::worker::Purpose::Render,
     };
     (root, request)
@@ -90,6 +91,31 @@ fn compiled_modules_and_reflection_survive_the_process_boundary() {
         first.evaluate(&at(0.0), 0.0),
         [("level".into(), shaderpack::UniformValue::Float(0.5))]
     );
+}
+
+#[test]
+fn software_fused_dot_survives_the_process_boundary() {
+    let (_root, mut request) = fixture(
+        "#version 330\nout vec4 color; void main() { color = vec4(dot(gl_FragCoord.xy, vec2(12.9898, 4.1414))); }",
+    );
+    request.software_fused_dot = true;
+    let compiled = finish(&mut start(&request)).unwrap();
+    assert!(compiled.config.software_fused_dot);
+    assert!(compiled.translation.programs[0].is_ok());
+    for stage in &compiled.translation.programs[0].stages {
+        let module = &stage.result.as_ref().unwrap().module;
+        assert!(module.functions.iter().all(|(_, function)| {
+            function.expressions.iter().all(|(_, expression)| {
+                !matches!(
+                    expression,
+                    naga::Expression::Math {
+                        fun: naga::MathFunction::Fma,
+                        ..
+                    }
+                )
+            })
+        }));
+    }
 }
 
 #[test]

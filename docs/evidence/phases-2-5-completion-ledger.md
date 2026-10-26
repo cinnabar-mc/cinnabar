@@ -332,6 +332,11 @@ and exact native and platform comparison remain open.
 
 ## P4.3-RIGS
 
+Local leg cycles consume completed physics movement in both animation modes.
+Deterministic coverage checks independent actor cadence, movement retries and frame
+interpolation. Linux running-jump captures cover both modes; matched native
+qualification remains open.
+
 Body-slot equipment retention, authored model selection and removal have original
 fixture coverage, alongside startup binding completion and raw worn-slot counting.
 Resource-only session overrides reuse completed bindings without replacing authored

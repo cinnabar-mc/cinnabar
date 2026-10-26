@@ -184,3 +184,116 @@ fn hidden_crosshair_lays_out_but_draws_nothing_and_stays_reported() {
         .set_hidden_hud_elements(HiddenElements::default());
     assert!(paint(&mut p) > 0);
 }
+
+/// A panel that retains gameplay HUD must still clear the skipped crosshair observation.
+#[test]
+fn skipped_crosshair_scene_clears_visibility_and_recovers_after_panel_close() {
+    let mut p = UiPresentationRuntime::with_hud(
+        ui_engine::test_support::fixture_font(),
+        crate::test_support::fixture_hud(),
+    )
+    .unwrap();
+    p.enable_json_ui_inline(crate::test_support::mini_carrier())
+        .unwrap();
+    p.hud_frame.first_person = true;
+    let references = [
+        json_ui::vanilla::Reference::HudHudScreen,
+        json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen,
+    ];
+    let mut layer = vec![(
+        "ui/_ui_defs.json".into(),
+        br#"{"ui_defs":["ui/hud_fixture_0.json","ui/hud_fixture_1.json"]}"#.to_vec(),
+    )];
+    for (index, reference) in references.iter().enumerate() {
+        let (namespace, name) = reference.as_str().split_once('.').unwrap();
+        layer.push((format!("ui/hud_fixture_{index}.json"), serde_json::to_vec(&serde_json::json!({
+            "namespace":namespace,(name):{"type":"screen","absorbs_input":false,
+                "is_modal":false,"render_game_behind":true,"render_only_when_topmost":false,"controls":[{"draw":if index == 0 {
+                    serde_json::json!({"type":"label","text":"HUD","size":[40,12]})
+                } else { serde_json::json!({"type":"custom","renderer":"cursor_renderer","size":[16,16]}) }}]}
+        })).unwrap()));
+    }
+    p.set_server_ui_pack(&ServerUiPack {
+        ui_layers: vec![layer],
+        ..Default::default()
+    });
+    let player = player_state::PlayerState::new(1);
+    frame(&player, &mut p);
+    let shown = p.hud_elements().1[VanillaElement::Crosshair.index()];
+    assert!(shown.visible && shown.bounds.is_some());
+    let mut panel = mod_ui::test_support::sample_panel();
+    panel.show_gameplay_hud = true;
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    p.mod_ui_mut().set_mod_panel_open(true);
+    frame(&player, &mut p);
+    let hidden = p.hud_elements().1[VanillaElement::Crosshair.index()];
+    assert!(!hidden.visible);
+    assert_eq!(
+        hidden.bounds, shown.bounds,
+        "skipped scenes retain the last measured bounds"
+    );
+    p.mod_ui_mut().set_mod_panel_open(false);
+    frame(&player, &mut p);
+    assert_eq!(p.hud_elements().1[VanillaElement::Crosshair.index()], shown);
+}
+
+/// The presented HUD preserves cross-subtree paint order and per-tile vector artwork.
+#[test]
+fn layered_hud_surface_keeps_foreground_text_and_collection_art() {
+    use serde_json::json;
+    let surface: Surface = serde_json::from_value(json!({"screen":"demo.root",
+        "document":json!({"namespace":"demo","root":{"type":"panel","size":["100%","100%"],"controls":[
+            {"foreground":{"type":"panel","controls":[{"caption":{"type":"label",
+                "text":"HUD foreground","size":[180,30],"offset":[25,30],"layer":10,
+                "anchor_from":"top_left","anchor_to":"top_left"}}]}},
+            {"background":{"type":"custom","renderer":"cinnabar_rounded_rectangle",
+                "size":[180,50],"offset":[20,20],"color":[0.15,0.2,0.3,1],"layer":5,
+                "anchor_from":"top_left","anchor_to":"top_left"}},
+            {"tiles":{"type":"panel","cinnabar_collection":"tiles","offset":[20,90],
+                "anchor_from":"top_left","anchor_to":"top_left"}}
+        ]}}).to_string(),
+        "collections":{"tiles":{"definition":{"columns":1,"viewport":[200,60],
+            "template":{"screen":"tile.root","document":json!({"namespace":"tile","root":{
+                "type":"custom","renderer":"cinnabar_vector_path","size":[48,20],
+                "color":[1,0.7,0.2,1],"bindings":[
+                    {"binding_name":"#item_art_paths","binding_name_override":"#paths"},
+                    {"binding_name":"#item_art_view_box","binding_name_override":"#view_box"},
+                    {"binding_name":"#item_art_stroke_width","binding_name_override":"#stroke_width"},
+                    {"binding_name":"#item_art_closed","binding_name_override":"#closed"}]
+            }}).to_string()},"items":[{"art":{"paths":[[[10,10],[90,50],[170,10]]],
+                "view_box":[0,0,180,60],"stroke_width":4,"closed":false}}]},"order":[0]}}
+    })).unwrap();
+    surface.validate_hud().unwrap();
+    let player = player_state::PlayerState::new(1);
+    let mut p = presentation();
+    let without = snapshot::rasterize(&frame(&player, &mut p));
+    publish(&mut p, Some(&Arc::new(surface.clone())));
+    let drawn = frame(&player, &mut p);
+    assert!(
+        snapshot::rasterize(&drawn) != without,
+        "the mod HUD must draw"
+    );
+    snapshot::write(&drawn, "mod-hud-surface");
+    let mut without_art = surface.clone();
+    Arc::make_mut(&mut without_art.collections.get_mut("tiles").unwrap().definition).items[0].art =
+        None;
+    let mut p = presentation();
+    publish(&mut p, Some(&Arc::new(without_art)));
+    assert!(
+        snapshot::rasterize(&drawn) != snapshot::rasterize(&frame(&player, &mut p)),
+        "the collection artwork must paint"
+    );
+    let mut whole = surface;
+    let mut document: serde_json::Value = serde_json::from_str(&whole.document).unwrap();
+    document["root"] = json!({"type":"panel","size":["100%","100%"],
+        "controls":[{"whole":document["root"].clone()}]});
+    whole.document = document.to_string();
+    let mut p = presentation();
+    publish(&mut p, Some(&Arc::new(whole)));
+    assert!(
+        snapshot::rasterize(&drawn) == snapshot::rasterize(&frame(&player, &mut p)),
+        "the split and whole surface must paint the same pixels"
+    );
+}

@@ -1,7 +1,8 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{
-    CameraDelta, GameplayCameraPose, GameplayCameraRig, GameplayFacts, GameplayMob,
-    GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, GameplayVector3, ModCue,
+    CameraDelta, GameplayCameraPose, GameplayCameraRig, GameplayControlModes, GameplayFacts,
+    GameplayMob, GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot,
+    GameplayVector3, ModCue,
 };
 use anyhow::{Result, bail, ensure};
 use mod_api::{
@@ -18,6 +19,9 @@ pub(super) struct WorldState {
     /// Sprint and sneak held for the current frame only.
     pub movement_intents: Option<GameplayMovementIntents>,
     pending_movement_intents: Option<GameplayMovementIntents>,
+    /// Control modes replacing the player's own for the current frame only.
+    pub control_modes: Option<GameplayControlModes>,
+    pending_control_modes: Option<GameplayControlModes>,
     pub mobs: Vec<GameplayMob>,
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
@@ -37,6 +41,8 @@ impl WorldState {
     pub fn begin_frame(&mut self) {
         self.movement_intents = None;
         self.pending_movement_intents = None;
+        self.control_modes = None;
+        self.pending_control_modes = None;
         self.polls = 0;
         self.mobs.clear();
         self.commands.clear();
@@ -57,6 +63,7 @@ impl WorldState {
 
     pub fn commit(&mut self) {
         self.movement_intents = self.pending_movement_intents.take();
+        self.control_modes = self.pending_control_modes.take();
         if let Some(rig) = self.pending_rig.take() {
             self.rig = rig;
         }
@@ -237,6 +244,21 @@ impl cinnabar::extension::gameplay::Host for State {
             return Ok(Err("movement intents require focused gameplay".into()));
         }
         self.world.pending_movement_intents = intents;
+        Ok(Ok(()))
+    }
+    /// Stages control modes for this focused gameplay frame; none restores the player's own.
+    fn set_control_modes(
+        &mut self,
+        modes: Option<GameplayControlModes>,
+    ) -> Result<Result<(), String>> {
+        self.motion.write()?;
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if modes.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
+            return Ok(Err("control modes require focused gameplay".into()));
+        }
+        self.world.pending_control_modes = modes;
         Ok(Ok(()))
     }
     fn read_movement(&mut self) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {

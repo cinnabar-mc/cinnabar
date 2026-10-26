@@ -130,6 +130,13 @@ impl Layer {
         }
         let mut names = changed_bindings(&previous, &self.surface);
         names.extend(
+            previous
+                .transitions
+                .keys()
+                .filter(|name| !self.surface.transitions.contains_key(*name))
+                .cloned(),
+        );
+        names.extend(
             unprojected
                 .iter()
                 .map(|name| projected_visible_name(name))
@@ -303,11 +310,8 @@ impl Layer {
         {
             self.projected.remove(name);
         }
-        if self.surface.transitions.contains_key(name)
-            && value.as_ref().and_then(SurfaceValue::numbers).is_some()
-        {
-            return;
-        }
+        let transitioning = self.surface.transitions.contains_key(name)
+            && value.as_ref().and_then(SurfaceValue::numbers).is_some();
         let (surface, root) = (&self.surface, self.root);
         let embedded = self
             .embedded
@@ -323,17 +327,20 @@ impl Layer {
             {
                 continue;
             }
+            if !matches!(value, Some(SurfaceValue::Item(_))) {
+                part.set_item(name, None);
+            }
+            if transitioning {
+                continue;
+            }
             match &value {
                 Some(SurfaceValue::Item(item)) => part.set_item(name, Some(item.item.clone())),
                 Some(SurfaceValue::Project(_)) => {}
                 Some(value) => part.set_global(name, values::scalar(value)),
-                None => {
-                    part.set_item(name, None);
-                    match initial(&part.spec, surface, root, name) {
-                        Some(value) => part.set_global(name, value),
-                        None => part.unset_global(name),
-                    }
-                }
+                None => match initial(&part.spec, surface, root, name) {
+                    Some(value) => part.set_global(name, value),
+                    None => part.unset_global(name),
+                },
             }
         }
     }
@@ -357,9 +364,7 @@ impl Layer {
             }
             self.projected.clear();
         }
-        if !self.surface.transitions.is_empty()
-            && self.transitions.advance(&self.surface, now, animate)
-        {
+        if self.transitions.advance(&self.surface, now, animate) {
             let displayed: Vec<(String, Scalar)> = self.transitions.displayed().collect();
             for part in self.parts_mut() {
                 for (name, value) in &displayed {
@@ -664,14 +669,7 @@ fn write_collection(part: &mut Part, surface: &Surface, name: &str) {
         .order
         .iter()
         .map(|index| {
-            let mut entry = json_ui::CollectionItem::default();
-            entry
-                .values
-                .insert("#item_exists".into(), Scalar::Bool(true));
-            for (key, value) in &collection.definition.items[*index].values {
-                entry.values.insert(key.clone(), values::scalar(value));
-            }
-            entry
+            crate::mod_panel::surface::collection_item(&collection.definition.items[*index])
         })
         .collect();
     let rows = collection

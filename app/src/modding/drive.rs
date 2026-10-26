@@ -161,6 +161,7 @@ pub(super) fn drive_mod(
         gameplay.apply_native_controls(effects.as_ref(), delta, &ui);
         clear_touch_buttons(&mut presentation);
         gameplay.apply_movement_intents(None, false);
+        gameplay.apply_control_modes(None);
         return;
     };
     if extension.suspended {
@@ -173,6 +174,7 @@ pub(super) fn drive_mod(
         *action_scope = None;
         gameplay.apply_native_input(None, &ui);
         gameplay.apply_movement_intents(None, false);
+        gameplay.apply_control_modes(None);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
             if let Some(scene) = render_scene.as_deref_mut() {
@@ -238,12 +240,17 @@ pub(super) fn drive_mod(
     );
     extension.hosts.set_food_catalog(ui.food_catalog());
     let world_observation = gameplay.world_observation(&ui);
+    let actor_reads = (0..extension.hosts.host_count()).any(|index| {
+        let host = extension.hosts.host(index);
+        host.is_active() && (host.grants().players || host.grants().entities)
+    });
     let modules = module_observer.capture(
         &gameplay,
         &ui,
         world_observation.as_ref(),
         &player_runtime,
         Some(&interaction),
+        actor_reads,
     );
     let chat = if world_observation.is_some() {
         presentation_facts::chat_snapshot(&ui)
@@ -453,6 +460,7 @@ pub(super) fn drive_mod(
         &ui,
     );
     gameplay.apply_movement_intents(merged.movement_intents, captured && !absorbed);
+    gameplay.apply_control_modes(merged.control_modes);
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
     if let Some(mut cues) = cues {
         cues.0 = merged.cues;

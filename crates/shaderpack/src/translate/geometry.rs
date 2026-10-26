@@ -52,6 +52,7 @@ pub(super) fn translate(
         }
         iface.set_geometry_output_interface(stage != StageKind::Vertex);
         let names = ResourceNames {
+            software_fused_dot: cx.software_fused_dot,
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
             normalize_legacy: normalize_legacy(stage, source),
@@ -75,6 +76,7 @@ pub(super) fn translate(
         }
     }
     let names = ResourceNames {
+        software_fused_dot: cx.software_fused_dot,
         image_formats: cx.image_formats,
         sampler_classes: cx.sampler_classes,
         normalize_legacy: false,

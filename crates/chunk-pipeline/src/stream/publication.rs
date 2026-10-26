@@ -272,7 +272,7 @@ impl WorldStream {
     ) {
         self.authority.set_local_motion_authority(authority);
     }
-    /// Advances local torso motion with each admitted physical tick's matching swing samples.
+    /// Advances local torso and legs with each admitted physical tick's matching swing samples.
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (SessionGeneration, PositionAuthorityGeneration),

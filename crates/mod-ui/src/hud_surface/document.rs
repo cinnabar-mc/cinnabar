@@ -221,6 +221,9 @@ impl Document {
         if measured_from(child_body.get("size"), &["%sm"]) {
             return Err("HUD surface root child is measured from its siblings".into());
         }
+        if !flat_descendant_layers(child_body) {
+            return Err("HUD surface descendant layers must paint with their root".into());
+        }
         let mut spec = PartSpec {
             reference: format!("{namespace}.{local}"),
             bindings: BTreeSet::new(),
@@ -256,7 +259,8 @@ fn catalog(document: &str) -> Result<Catalog, String> {
 }
 
 /// Whether each child of `root` lays out the same alone as beside its siblings, and the root
-/// itself draws nothing that every part would repeat.
+/// itself draws nothing that every part would repeat. Descendants must stay on their
+/// subtree's layer so cached fragments preserve global paint order.
 fn splittable(root: &Value, children: &[Value]) -> bool {
     let kind = root.get("type").and_then(Value::as_str);
     children.len() > 1
@@ -266,7 +270,19 @@ fn splittable(root: &Value, children: &[Value]) -> bool {
             child
                 .as_object()
                 .and_then(|named| named.values().next())
-                .is_some_and(|body| !measured_from(body.get("size"), &["%sm"]))
+                .is_some_and(|body| {
+                    !measured_from(body.get("size"), &["%sm"]) && flat_descendant_layers(body)
+                })
+        })
+}
+
+/// Whether descendants stay on their parent's layer without instancing grid templates.
+/// Grids and layered subtrees stay whole because replay cannot interleave cached draws.
+fn flat_descendant_layers(body: &Value) -> bool {
+    body.get("type").and_then(Value::as_str) != Some("grid")
+        && children(body).all(|child| {
+            child.get("layer").and_then(Value::as_i64).unwrap_or(0) == 0
+                && flat_descendant_layers(child)
         })
 }
 

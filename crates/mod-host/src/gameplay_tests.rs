@@ -33,6 +33,47 @@ fn movement_intents_are_granted_focused_and_frame_scoped() {
     );
 }
 
+/// Control modes need movement authority and focused gameplay, commit atomically and expire
+/// each frame unless renewed; omission is always allowed.
+#[test]
+fn control_modes_are_granted_focused_and_frame_scoped() {
+    let modes = crate::GameplayControlModes {
+        toggle_sprint: true,
+        toggle_sneak: true,
+        always_sprint: false,
+    };
+    let mut denied = state(ModGrants::default());
+    denied.controls.frame.focused = true;
+    denied.controls.frame.gameplay = true;
+    assert!(denied.set_control_modes(Some(modes)).unwrap().is_err());
+    assert!(denied.set_control_modes(None).unwrap().is_err());
+    let mut state = state(ModGrants {
+        movement: true,
+        ..Default::default()
+    });
+    assert!(state.set_control_modes(Some(modes)).unwrap().is_err());
+    assert!(state.set_control_modes(None).unwrap().is_ok());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_control_modes(Some(modes)).unwrap().unwrap();
+    assert!(state.world.control_modes.is_none(), "staged until commit");
+    state.world.commit();
+    assert_eq!(state.world.control_modes, Some(modes));
+    state.world.begin_frame();
+    state.world.commit();
+    assert!(
+        state.world.control_modes.is_none(),
+        "modes last one frame unless renewed"
+    );
+    state.set_control_modes(Some(modes)).unwrap().unwrap();
+    state.set_control_modes(None).unwrap().unwrap();
+    state.world.commit();
+    assert!(
+        state.world.control_modes.is_none(),
+        "omission clears the modes"
+    );
+}
+
 /// The presented camera follows read-frame's grants and frame; the relayed position needs only
 /// packet-delay authority and a delivered sample.
 #[test]

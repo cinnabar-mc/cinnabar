@@ -503,6 +503,10 @@ and rendered qualification remain incomplete.
   Geometry with matching resolved inheritance chains and identical animation or controller
   definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
   controllers) still reject the rig: native file load order is unverified.
+  Local player leg cycles in both animation modes consume completed physics movement
+  and interpolate with its frame fraction, independently of remote actor ticks.
+  Linux captures cover third-person running jumps in both modes; other platforms
+  and matched native qualification remain open.
   Shulkers publish their peek and attach-face variables and keep a zero body yaw;
   attach-position snapping, peek-dependent collision bounds and a rendered comparison
   against the vanilla client remain incomplete.
@@ -1314,7 +1318,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   player-list annotation spans, damage overlay colours, per-actor overlay tints, item tooltip
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
   item, potion and effect tables and the installation's food; `player-state` reports the server
-  world clock and totem activations as combat events. Offline regressions cover grants, bounds,
+  world clock, totem activations as combat events and each admitted actor's life, which changes
+  on every spawn and death regardless of distance. Offline regressions cover grants, bounds,
   merging, roster mapping and span placement. Tipped-arrow facts report the carried potion's
   durations until the native arrow duration is referenced, and displayed-client acceptance of
   the presentation parameters remains pending.
@@ -1337,7 +1342,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unverified.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
-- Personal-mod mechanics capabilities (sprint and sneak intents, use pulses, view
+- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that replace the
+  player's toggle and always-sprint settings, use pulses, view
   tilt, the relayed and presented camera positions, loaded-block search and panel
   pointer and wheel) have host and adapter regression coverage. The tilt's sign
   follows the native damage shake. Populated-world and displayed-frame acceptance
@@ -1357,8 +1363,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Focused rendering and cache regressions cover visible previews;
   populated-world and displayed-frame acceptance remain pending.
   Personal panels and HUD editor surfaces can bind the host local player's name
-- Mods draw their HUDs as JSON-UI surfaces over gameplay: each top-level control is
-  painted and cached on its own, item and projected values resolve on the host,
+- Mods draw their HUDs as JSON-UI surfaces over gameplay: independent top-level controls
+  are painted and cached on their own; roots with layered descendants or collection grids stay together
+  to preserve paint order. Item and projected values resolve on the host,
   named controls embed in the same mod's panels, updates replace single control
   definitions and rebuild only the controls reading them, and mods read text metrics,
   the HUD root, their panel's layout and their callback's remaining fuel and hide
@@ -1437,6 +1444,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Render-view admission failures reach the pack picker and restore the native renderer.
   Pipelines the device rejects, including backend compiler failures such as FXC limits on
   DX12, fail the pack load (or drop that geometry draw) instead of stopping the client.
+  DX12 and software adapters use integer-backed fused dot accumulation to preserve the
+  reference hash rounding; other hardware backends retain native fused instructions.
+  Hardware DX12 pack acceptance remains incomplete.
   Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
   builds cancel between source, pixel and upload stages, and one cancelled build retires before its
   replacement starts. Trusted helper shaders and their pipeline cache are created only when requested,

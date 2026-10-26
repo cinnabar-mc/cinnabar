@@ -33,6 +33,7 @@ use std::{
 };
 use world::{ChunkKey, ChunkStore};
 mod access;
+mod actor_lives;
 mod actor_movement;
 mod actors;
 mod biomes;
@@ -68,6 +69,7 @@ mod terrain;
 mod tests;
 #[cfg(test)]
 mod world_spawn_tests;
+pub use actor_lives::{ActorLife, MAX_ACTOR_LIVES};
 pub use biomes::BiomeCommitReport;
 pub use block_events::BlockEventCue;
 pub use combat::{ActorCombatEvidence, ActorCombatKind};

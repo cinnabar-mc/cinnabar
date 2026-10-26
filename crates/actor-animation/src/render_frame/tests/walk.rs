@@ -131,3 +131,77 @@ fn walk_driven_layer_values_never_jump_at_the_tick_edge() {
         );
     }
 }
+
+/// Local legs follow physics interpolation even while the independent actor fraction wraps.
+#[test]
+fn local_jump_walk_samples_physics_between_actor_ticks() {
+    use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
+
+    let (mut store, mut actor, _) = walker(ActorTickContext {
+        is_local: true,
+        is_local_player: true,
+        ..Default::default()
+    });
+    let authority = (
+        SessionGeneration::new(1),
+        PositionAuthorityGeneration::new(1),
+    );
+    store.set_local_motion_authority(1, Some(authority));
+    actor.on_ground = Some(false);
+    let before = store.rigs.values().next().unwrap().motion;
+    let mut expected_walk = before;
+    expected_walk.advance_walk(&MotionInput {
+        delta: [0.3, 0.2, 0.0],
+        riding: false,
+        player: true,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        on_fire: false,
+        actor_walk: false,
+    });
+    let completed = store.completed_tick;
+    let authored = authored_state(&store);
+    for (physics_alpha, actor_alpha) in [(0.0, 0.9), (0.25, 0.99), (0.5, 0.0), (0.75, 0.1)] {
+        let sample = LocalSwingMotionSample {
+            tick: 100,
+            delta: [0.3, 0.2, 0.0],
+            yaw: 0.0,
+            progress: LocalSwingProgress {
+                frame_alpha: Some(physics_alpha),
+                ..Default::default()
+            },
+        };
+        store.sync_local_swing_motion(1, authority, [sample]);
+        let java = store.get(1).unwrap().java;
+        assert_eq!(java.limb_motion(0.0), java.limb_motion(1.0));
+        let distance = before.distance + (expected_walk.distance - before.distance) * physics_alpha;
+        let speed = before.speed.min(1.0)
+            + (expected_walk.speed.min(1.0) - before.speed.min(1.0)) * physics_alpha;
+        let angle = (distance * 38.17).to_radians().cos() * speed * 57.3;
+        let expected = pose::quat_from_euler([-angle, 0.0, 0.0]);
+        for cached in [true, false] {
+            let sample_frame = || {
+                let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+                store
+                    .render_layers(&actor, actor_alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+                    .unwrap()
+            };
+            let layers = if cached {
+                sample_frame()
+            } else {
+                cache::uncached(sample_frame)
+            };
+            assert_eq!(layers.render[0].color[0], distance);
+            for endpoint in [&layers.render[0].previous_pose, &layers.render[0].pose] {
+                for (actual, expected) in endpoint[0].rotation.into_iter().zip(expected) {
+                    assert!(
+                        (actual - expected).abs() < 1.0e-4,
+                        "physics {physics_alpha}, actor {actor_alpha}: {actual} vs {expected}"
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(store.completed_tick, completed);
+    assert_eq!(authored_state(&store), authored);
+}

@@ -34,7 +34,8 @@ impl ActorAnimationStore {
                 || state.samples_swing_poses
                 || frame.needs_swell_sampling(actor)
                 || frame.needs_rotation_sampling()
-                || frame.needs_walk_sampling())
+                || frame.needs_walk_sampling()
+                || frame.samples_local_walk(state))
                 && (!state.culled
                     || state.samples_camera_poses
                     || state.held_item_scale.is_some()
@@ -66,7 +67,8 @@ impl ActorAnimationStore {
             });
         let swell_changed = frame.needs_swell_sampling(actor);
         let rotation_changed = frame.needs_rotation_sampling();
-        let walk_changed = frame.needs_walk_sampling();
+        let local_walk = frame.samples_local_walk(state);
+        let walk_changed = frame.needs_walk_sampling() || local_walk;
         let motion_changed = swell_changed || rotation_changed || walk_changed;
         if !state.samples_render_frames && !swing_changed && !motion_changed {
             return Some(completed());
@@ -90,7 +92,21 @@ impl ActorAnimationStore {
             } else {
                 input
             };
-            if walk_changed {
+            if local_walk {
+                let mut input = state
+                    .java
+                    .local_body
+                    .sample_walk(
+                        input,
+                        &state.motion,
+                        state.java.motion.body_frame_alpha.unwrap_or(partial_tick),
+                    )
+                    .unwrap_or(input);
+                if query::actor_flag(actor, protocol_ids::ActorFlag::Baby.wire_value()) {
+                    input.move_speed *= tick::BABY_MOVE_SPEED_SCALE;
+                }
+                input
+            } else if walk_changed {
                 input.sample_walk(frame.previous_walk, current, partial_tick)
             } else {
                 input

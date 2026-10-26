@@ -44,6 +44,10 @@ impl ModHost {
     pub fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
         self.instance.movement_intents()
     }
+    /// Control modes replacing the player's own, from the current successful frame only.
+    pub fn control_modes(&self) -> Option<crate::GameplayControlModes> {
+        self.instance.control_modes()
+    }
     /// Successfully committed local lighting override.
     pub fn fullbright(&self) -> bool {
         self.instance.fullbright()
