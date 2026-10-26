@@ -116,14 +116,18 @@ impl Eq for SubChunk {}
 impl SubChunk {
     /// Creates one block layer in x,z,y order for callers that own resolved runtime IDs.
     pub fn from_runtime_ids(values: &[u32; crate::SUB_CHUNK_SIDE.pow(3)]) -> Self {
-        let words = (0..values.len())
-            .step_by(2)
-            .map(|index| index as u32 | (((index + 1) as u32) << 16))
+        let mut storage = PalettedStorage::uniform(values[0]);
+        let updates: Vec<_> = values
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| **value != values[0])
+            .map(|(index, value)| (index, *value))
             .collect();
+        storage.apply_runtime_updates(&updates);
         Self {
             version: 8,
             y_index: None,
-            storages: vec![PalettedStorage::new(16, words, values.to_vec())].into_boxed_slice(),
+            storages: vec![storage].into_boxed_slice(),
             inline_payload: payload::InlinePayloadCache::default(),
         }
     }

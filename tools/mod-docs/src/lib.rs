@@ -36,6 +36,7 @@ const APPENDICES: &[(&str, &str)] = &[
     ("Paired project reference", "paired-projects"),
     ("Terrain reads", "terrain"),
     ("World drawing helpers", "drawing-helpers"),
+    ("Block geometry and mesh clipping", "block-geometry"),
     ("Drawing materials", "drawing-materials"),
     ("Entity masks", "entity-masks"),
     ("Native packet frames", "native-frame"),

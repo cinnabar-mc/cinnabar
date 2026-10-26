@@ -187,6 +187,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | `examples/mods/hello` | `hello-mod` | Minimal retained HUD label and keybind example; use it as a personal-mod template. | `mod-api` supplies imports; `mod-host` runs it. |
 | `examples/mods/time-changer` | `time-changer-mod` | Local visual-time override example; build it to exercise host environment controls. | `mod-api` defines the imports; `client-extensions` applies the visual output. |
 | `examples/mods/render-sample` | `render-sample-mod` | Post-pass and world-decal example; build it to exercise guest rendering. | `mod-render` validates outputs; `render` draws them. |
+| `examples/mods/portal-view` | `portal-view-mod` | Retained block-grid and geometry-clip example; build it to display a three-by-three chunk portal view. | `mod-api` supplies imports; `mod-render` validates grids and clips; `render` submits them. |
 | `examples/mods/screen-probe` | `screen-probe-mod` | Player-mod screen fixture for events, data reads and traps; build it for host contract tests. | `mod-api` defines screens; `mod-host` executes callbacks; `mod-ui` draws them. |
 
 ### Diagnostics, tests and tools

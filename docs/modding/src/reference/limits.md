@@ -13,7 +13,7 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 | `server_experience::runtime::CALLBACK_FUEL` | 10000000 | Ordinary event and client-part callback fuel. |
 | `server_experience::runtime::LOAD_FUEL` | 100000000 | Personal-mod init and data-changed fuel. |
 | `mod_host::MEMORY_BYTES` | 16777216 | Linear memory per personal mod. |
-| `mod_api::MAX_LOADED_MODS` | 4 | Concurrent local mods. |
+| `mod_api::MAX_LOADED_MODS` | 256 | Concurrent local mods. |
 | `mod_host::MAX_COMPONENT_BYTES` | 4194304 | Executable component bytes. |
 | `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21233966 | Component envelope including embedded resources. |
 | `mod_host::package::MAX_PACKAGE_BYTES` | 16777216 | Indexed directory package bytes. |
@@ -62,6 +62,23 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 | `mod_api::native_menu::MAX_INPUT_BYTES` | 65536 | Native menu input bytes. |
 | `mod_api::native_menu::MAX_OUTPUT_BYTES` | 524288 | Native menu output bytes. |
 | `mod_api::native_render::MAX_BYTES` | 262144 | Native drawing output bytes. |
+
+## Block geometry and clipping
+
+| Constant | Value | Scope |
+| --- | ---: | --- |
+| `mod_api::drawing::MAX_BLOCK_CELLS` | 2097152 | Retained grid cells, including retired generations. |
+| `mod_api::drawing::MAX_BLOCK_EXTENT` | 384 | Grid extent per axis. |
+| `mod_api::drawing::MAX_BLOCK_PALETTE` | 4096 | States in one grid palette. |
+| `mod_api::drawing::MAX_BLOCK_STATE_BYTES` | 262144 | Named palette state bytes. |
+| `mod_api::drawing::MAX_BLOCK_MUTATION_BYTES` | 16777216 | Grid input bytes per callback. |
+| `mod_api::drawing::MAX_BLOCK_TRIANGLES` | 2097152 | Triangles across an owner's completed grids. |
+| `mod_api::drawing::MAX_BLOCK_DRAW_TRIANGLES` | 4194304 | Submitted block triangles across placements. |
+| `mod_api::drawing::MAX_BLOCK_MESH_BYTES` | 134217728 | Packed mesh bytes across an owner's grids. |
+| `mod_api::drawing::MAX_BLOCK_GPU_BYTES` | 268435456 | GPU arena, sort and placement bytes for personal block drawing. |
+| `mod_api::drawing::MAX_DRAW_CLIPS` | 8 | Retained clip resources. |
+| `mod_api::drawing::MAX_DRAW_CLIP_DEPTH` | 2 | Mask levels in one intersected clip chain. |
+| `mod_api::drawing::MAX_CLIP_ATTACHMENT_BYTES` | 134217728 | Private clip attachment bytes across personal views. |
 
 ## World and player observations
 

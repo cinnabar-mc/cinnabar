@@ -1,5 +1,5 @@
 //! Physical attachment bounds for render-pass scissors and viewports.
-use bevy::camera::Viewport;
+use bevy::camera::{MainPassResolutionOverride, Viewport};
 use render_model::UiScissor;
 
 /// Reads a full-size attachment in physical pixels, independent of the UI layout.
@@ -31,6 +31,19 @@ pub(crate) fn viewport(viewport: &Viewport, extent: [u32; 2]) -> Option<Viewport
         physical_size: bevy::math::UVec2::new(rect.width, rect.height),
         depth: viewport.depth.clone(),
     })
+}
+
+/// Uses the main pass's physical viewport, defaulting to the whole attachment.
+pub(crate) fn camera_viewport(
+    camera: Option<&Viewport>,
+    resolution: Option<&MainPassResolutionOverride>,
+    extent: [u32; 2],
+) -> Option<Viewport> {
+    let requested = Viewport::from_viewport_and_override(camera, resolution).unwrap_or(Viewport {
+        physical_size: bevy::math::UVec2::from_array(extent),
+        ..Default::default()
+    });
+    viewport(&requested, extent)
 }
 
 #[cfg(test)]

@@ -490,6 +490,12 @@ allowed_dependencies = ["mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "portal-view-mod"
+path = "examples/mods/portal-view"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "render-sample-mod"
 path = "examples/mods/render-sample"
 allowed_dependencies = ["mod-api"]
@@ -1388,6 +1394,26 @@ path = "crates/experience-sdk/src/lib.rs"
 exports = ["experience_macros::client", "experience_macros::server"]
 
 # Production identity decisions move to the facts owners; unlisted files have a zero budget.
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:air"
+reason = "The standalone guest example supplies a concrete named-state palette without host registry dependencies."
+
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:netherrack"
+reason = "The standalone guest example supplies a concrete named-state palette without host registry dependencies."
+
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:lava"
+reason = "The standalone guest example demonstrates an animated liquid in a named-state palette."
+
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:obsidian"
+reason = "The standalone guest example supplies a concrete named block for its retained frame."
+
 [identifier_literals]
 owners = [
     "crates/asset-compiler/src/registry_policy/",

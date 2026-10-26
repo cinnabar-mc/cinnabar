@@ -23,14 +23,21 @@ interface drawing {
     record polyline { vertices: list<vertex>, closed: bool }
     /// Named states use the canonical JSON state object returned by terrain observations.
     record named-block { name: string, states: string }
+    /// Selects a session runtime ID or an exact named state.
     variant block-state { runtime-id(u32), named(named-block) }
     /// Light channels are 0..15. Missing light uses sky 15 and block 0.
     record block-cell { palette: u32, sky-light: option<u8>, block-light: option<u8> }
-    /// Dense cells in x,z,y order (y changes fastest). Outside cells are air.
-    record block-grid { size: tuple<u32, u32, u32>, palette: list<block-state>, cells: list<block-cell> }
+    /// Low 16 bits select the palette; the next byte is sky light, the high byte block light.
+    /// Each light byte is 0..15, or 255 for absent. SDK pack-block-cell builds these words.
+    type block-cell-word = u32;
+    /// Dense packed cells in x,z,y order (y changes fastest). Outside cells are air.
+    /// Plain words upload without a guest-side record conversion loop.
+    record block-grid { size: tuple<u32, u32, u32>, palette: list<block-state>, cells: list<block-cell-word> }
     /// Updates one existing cell, retaining the grid's size and palette.
     record block-edit { position: tuple<u32, u32, u32>, cell: block-cell }
+    /// Chooses indexed triangles, a polyline or host-meshed blocks.
     variant geometry-spec { triangles(mesh), line(polyline), blocks(block-grid) }
+    /// Pending worker admission or completed geometry; failures return a draw error.
     enum geometry-state { pending, ready }
     /// A double-precision origin in one dimension for local geometry coordinates.
     record world-anchor { dimension: s32, origin: tuple<f64, f64, f64> }
@@ -54,7 +61,7 @@ interface drawing {
     enum join { bevel, miter, round }
     /// The host-expanded shape at each open polyline endpoint.
     enum cap { butt, round }
-    /// One retained geometry placement; geometry and material handles belong to the same owner.
+    /// One retained placement. Block grids use host materials and require white tint; handles belong to the same owner.
     record instance {
         geometry: handle, material: option<handle>, clip: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
         tint: tuple<f32, f32, f32, f32>, depth: depth, blend: blend,
@@ -77,6 +84,8 @@ interface drawing {
     update-blocks: func(id: handle, edits: list<block-edit>) -> result<_, draw-error>;
     /// Creates a world-depth-tested mask with an independent content depth buffer.
     create-clip: func(spec: clip-spec) -> result<handle, draw-error>;
+    /// Reports mask attachment admission or an explicit GPU budget failure.
+    clip-status: func(id: handle) -> result<geometry-state, draw-error>;
     /// Allocates one retained instance referencing this owner's geometry and optional material.
     create: func(spec: instance) -> result<handle, draw-error>;
     /// Atomically replaces an existing instance's specification after a successful callback.

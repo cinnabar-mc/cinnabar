@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub mod blocks;
 mod clips;
 mod entities;
-pub use clips::Clip;
+pub use clips::{Clip, ClipStatus};
 mod materials;
 pub mod mesh;
 pub use entities::EntityKey;
@@ -186,7 +186,7 @@ pub struct Instance {
     pub cap: Cap,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ErrorCode {
     Denied,
     Invalid,

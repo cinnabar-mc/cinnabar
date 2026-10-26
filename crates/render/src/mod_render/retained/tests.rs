@@ -177,6 +177,7 @@ fn every_depth_and_blend_variant_keeps_depth_writes_disabled() {
                         hdr: false,
                         always,
                         additive,
+                        clipped: false,
                     },
                 )
                 .unwrap();

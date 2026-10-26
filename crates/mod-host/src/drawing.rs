@@ -105,6 +105,7 @@ impl wit::Host for State {
         let spec = match spec {
             wit::GeometrySpec::Blocks(grid) => {
                 domain::GeometrySpec::Blocks(domain::blocks::BlockGrid {
+                    revision: 0,
                     size: grid.size.into(),
                     palette: grid
                         .palette
@@ -119,15 +120,27 @@ impl wit::Host for State {
                             },
                         })
                         .collect(),
-                    cells: grid
-                        .cells
-                        .into_iter()
-                        .map(|cell| domain::blocks::BlockCell {
-                            palette: cell.palette,
-                            sky_light: cell.sky_light,
-                            block_light: cell.block_light,
-                        })
-                        .collect(),
+                    cells: {
+                        let cells: Option<Vec<_>> = grid
+                            .cells
+                            .into_iter()
+                            .map(|word| {
+                                let cell = mod_api::drawing::unpack_block_cell(word)?;
+                                Some(domain::blocks::BlockCell {
+                                    palette: cell.palette,
+                                    sky_light: cell.sky_light,
+                                    block_light: cell.block_light,
+                                })
+                            })
+                            .collect();
+                        let Some(cells) = cells else {
+                            return Ok(Err(convert_error(domain::DrawError {
+                                code: domain::ErrorCode::Invalid,
+                                detail: "packed block cell",
+                            })));
+                        };
+                        cells
+                    },
                 })
             }
             wit::GeometrySpec::Triangles(mesh) => domain::GeometrySpec::Triangles {
@@ -195,6 +208,27 @@ impl wit::Host for State {
             .map_err(convert_error))
     }
 
+    fn clip_status(
+        &mut self,
+        id: wit::Handle,
+    ) -> anyhow::Result<Result<wit::GeometryState, wit::DrawError>> {
+        if let Err(error) = self.drawing_allowed()? {
+            return Ok(Err(error));
+        }
+        Ok(self
+            .render
+            .retained
+            .clip_status(handle(id))
+            .map(|ready| {
+                if ready {
+                    wit::GeometryState::Ready
+                } else {
+                    wit::GeometryState::Pending
+                }
+            })
+            .map_err(convert_error))
+    }
+
     fn create_clip(
         &mut self,
         spec: wit::ClipSpec,
@@ -223,6 +257,7 @@ impl wit::Host for State {
             .retained
             .create_clip(
                 domain::Clip {
+                    status: Default::default(),
                     geometry: placement.geometry,
                     anchor: placement.anchor,
                     transform: placement.transform,

@@ -6,14 +6,14 @@ use bevy::ecs::system::RunSystemOnce;
 use render_scene::{ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements};
 
 pub(in crate::chunk) struct PreparedResourceGeometry {
-    arena: ChunkGpuArena,
+    pub(in crate::chunk) arena: ChunkGpuArena,
     liquids: TransparentSortRuntime,
     models: TransparentModelSortRuntime,
 }
 
 impl PreparedResourceGeometry {
     /// Uses the ordinary validated uploader against an invisible, independently owned arena.
-    pub(super) fn build(
+    pub(in crate::chunk) fn build(
         instances: &[ChunkRenderInstance],
         assets: ChunkTextureAssets,
         device: RenderDevice,

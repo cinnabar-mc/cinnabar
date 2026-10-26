@@ -112,6 +112,23 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
     if block_cells > drawing::MAX_BLOCK_CELLS {
         return Err(error(ErrorCode::BudgetExceeded, "block cells"));
     }
+    let block_draw_work = resources
+        .instances
+        .values()
+        .try_fold(0usize, |sum, instance| {
+            let triangles = resources
+                .geometry
+                .get(&instance.geometry)
+                .and_then(|geometry| geometry.blocks())
+                .and_then(|block| block.result())
+                .and_then(|result| result.as_ref().ok())
+                .map_or(0, |mesh| mesh.triangles);
+            sum.checked_add(triangles)
+        })
+        .ok_or(error(ErrorCode::BudgetExceeded, "block draw triangles"))?;
+    if block_draw_work > drawing::MAX_BLOCK_DRAW_TRIANGLES {
+        return Err(error(ErrorCode::BudgetExceeded, "block draw triangles"));
+    }
     let mut vertex_work = resources
         .instances
         .values()
@@ -121,15 +138,22 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
         })
         .ok_or(error(ErrorCode::BudgetExceeded, "vertex work"))?;
     for clip in resources.clips.values() {
-        vertex_work = vertex_work
-            .checked_add(
-                resources
-                    .geometry
-                    .get(&clip.geometry)
-                    .ok_or(error(ErrorCode::StaleHandle, "clip geometry"))?
-                    .expanded_vertices,
-            )
-            .ok_or(error(ErrorCode::BudgetExceeded, "clip vertex work"))?;
+        let mut current = Some(clip);
+        for _ in 0..drawing::MAX_DRAW_CLIP_DEPTH {
+            let Some(clip) = current else {
+                break;
+            };
+            vertex_work = vertex_work
+                .checked_add(
+                    resources
+                        .geometry
+                        .get(&clip.geometry)
+                        .ok_or(error(ErrorCode::StaleHandle, "clip geometry"))?
+                        .expanded_vertices,
+                )
+                .ok_or(error(ErrorCode::BudgetExceeded, "clip vertex work"))?;
+            current = clip.parent.and_then(|id| resources.clips.get(&id));
+        }
     }
     for (amount, limit, label) in [
         (vertex_work, MAX_DRAW_VERTEX_WORK, "vertex work"),
@@ -204,8 +228,11 @@ pub(super) fn instance(
         if !permissions.render_material {
             return Err(error(ErrorCode::Denied, "block geometry"));
         }
-        if instance.material.is_some() {
-            return Err(error(ErrorCode::Invalid, "block material is host-owned"));
+        if instance.material.is_some() || instance.tint != [1.; 4] {
+            return Err(error(
+                ErrorCode::Invalid,
+                "block material and tint are host-owned",
+            ));
         }
     }
     let transform = instance.transform;

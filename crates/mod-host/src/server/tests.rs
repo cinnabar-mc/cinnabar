@@ -1135,6 +1135,7 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
             candidates: vec![actor],
             live: vec![actor],
             targets: vec![(target, 3)],
+            blocks: Vec::new(),
         };
         host.dispatch(&Event::Epoch, 2, &context)
             .unwrap()

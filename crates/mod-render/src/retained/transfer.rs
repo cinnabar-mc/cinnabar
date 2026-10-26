@@ -126,6 +126,9 @@ impl Snapshot {
             resources.entities.insert(id, *key);
         }
         for (id, spec) in &self.geometry {
+            if matches!(spec, GeometrySpec::Blocks(_)) && !permissions.render_material {
+                return Err(error(ErrorCode::Denied, "block geometry"));
+            }
             let id = token(*id);
             if !ids.insert(id) {
                 return Err(error(ErrorCode::Invalid, "duplicate resource"));
@@ -174,6 +177,12 @@ impl Snapshot {
             clip.parent = clip.parent.map(&mut token);
             if let Anchor::Entity(anchor) = &mut clip.anchor {
                 anchor.entity = token(anchor.entity);
+            }
+            if let Some(old) = previous
+                .and_then(|resources| resources.clips.get(&id))
+                .filter(|old| **old == clip)
+            {
+                clip.status = Arc::clone(&old.status);
             }
             resources.clips.insert(id, clip);
         }

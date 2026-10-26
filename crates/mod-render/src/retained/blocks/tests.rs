@@ -42,6 +42,7 @@ fn assets() -> RuntimeAssets {
 /// Builds a solid rectangular grid with distinct solved light channels.
 fn grid(size: [u32; 3]) -> BlockGrid {
     BlockGrid {
+        revision: 0,
         size,
         palette: vec![BlockState::RuntimeId(2)],
         cells: vec![
@@ -196,6 +197,7 @@ fn small_edits_share_unchanged_sections_and_noop_edits_preserve_identity() {
         |_, _| None,
         Default::default(),
     ));
+    request.complete_render();
     let original = Arc::clone(request.result().unwrap().as_ref().unwrap());
     let original_cell = request.grid.cell([1, 1, 1]).unwrap();
     store.begin();
@@ -248,4 +250,118 @@ fn small_edits_share_unchanged_sections_and_noop_edits_preserve_identity() {
                 .unwrap()
         ));
     }
+}
+
+#[test]
+fn process_feedback_is_fenced_to_the_grid_generation() {
+    let mut store = super::super::Store::default();
+    let id = store
+        .create_geometry(super::super::GeometrySpec::Blocks(grid([1; 3])))
+        .unwrap();
+    store.commit();
+    let request = store.snapshot().geometry[&id].blocks().unwrap();
+    request.accept_status(1, Ok(()));
+    assert_eq!(store.geometry_status(id), Ok(false));
+    request.accept_status(0, Ok(()));
+    assert_eq!(store.geometry_status(id), Ok(true));
+    store
+        .update_blocks(
+            id,
+            vec![BlockEdit {
+                position: [0; 3],
+                cell: BlockCell {
+                    palette: 0,
+                    sky_light: Some(2),
+                    block_light: None,
+                },
+            }],
+            DrawingPermissions::ALL,
+        )
+        .unwrap();
+    store.commit();
+    let request = store.snapshot().geometry[&id].blocks().unwrap();
+    assert_eq!(request.grid.revision, 1);
+    request.accept_status(0, Ok(()));
+    assert_eq!(store.geometry_status(id), Ok(false));
+    request.accept_status(1, Err(ErrorCode::BudgetExceeded));
+    assert_eq!(
+        store.geometry_status(id).unwrap_err().code,
+        ErrorCode::BudgetExceeded
+    );
+}
+
+#[test]
+fn transferred_grids_require_material_authority_even_without_instances() {
+    let mut store = super::super::Store::default();
+    store
+        .create_geometry(super::super::GeometrySpec::Blocks(grid([1; 3])))
+        .unwrap();
+    store.commit();
+    let snapshot = super::super::transfer::Snapshot::from_resources(store.snapshot());
+    assert_eq!(
+        snapshot
+            .admit(
+                None,
+                DrawingPermissions {
+                    render_material: false,
+                    ..DrawingPermissions::ALL
+                },
+                1,
+                0,
+                |_| true,
+                |id| id
+            )
+            .unwrap_err()
+            .code,
+        ErrorCode::Denied
+    );
+}
+
+#[test]
+fn repeated_placements_share_mesh_storage_but_each_consumes_draw_work() {
+    let mut store = super::super::Store::default();
+    let id = store
+        .create_geometry(super::super::GeometrySpec::Blocks(grid([1; 3])))
+        .unwrap();
+    store.commit();
+    store.snapshot().geometry[&id]
+        .blocks()
+        .unwrap()
+        .complete(Ok(BlockMesh {
+            sections: vec![],
+            triangles: MAX_BLOCK_TRIANGLES,
+            bytes: 0,
+        }));
+    let instance = super::super::tests::drawing(id);
+    store
+        .create(instance.clone(), DrawingPermissions::ALL)
+        .unwrap();
+    store
+        .create(instance.clone(), DrawingPermissions::ALL)
+        .unwrap();
+    assert_eq!(
+        store
+            .create(instance, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
+    store.commit();
+    assert_eq!(store.snapshot().instances.len(), 2);
+}
+
+#[test]
+fn readiness_waits_for_gpu_admission_and_late_errors_stay_visible() {
+    let geometry = grid([1; 3]).admit().unwrap();
+    let request = geometry.blocks().unwrap();
+    request.complete(Ok(BlockMesh {
+        sections: vec![],
+        triangles: 0,
+        bytes: 0,
+    }));
+    assert!(request.status().is_none());
+    request.complete_render();
+    assert_eq!(request.status(), Some(Ok(())));
+    request.fail_render(error(ErrorCode::BudgetExceeded, "test arena"));
+    assert_eq!(request.status(), Some(Err(ErrorCode::BudgetExceeded)));
 }

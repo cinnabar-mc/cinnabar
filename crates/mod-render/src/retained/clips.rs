@@ -6,12 +6,49 @@ use super::*;
 mod tests;
 
 /// Mask placement and optional intersection with a parent mask.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Clip {
     pub geometry: Handle,
     pub anchor: Anchor,
     pub transform: Transform,
     pub parent: Option<Handle>,
+    #[serde(skip)]
+    pub status: Arc<ClipStatus>,
+}
+
+/// Shared renderer completion; serialization carries only the original clip specification.
+#[derive(Debug, Default)]
+pub struct ClipStatus {
+    ready: std::sync::atomic::AtomicBool,
+    error: std::sync::OnceLock<ErrorCode>,
+}
+impl ClipStatus {
+    /// Publishes one immutable clip's GPU admission result.
+    pub fn complete(&self, result: Result<(), ErrorCode>) {
+        match result {
+            Ok(()) => self.ready.store(true, std::sync::atomic::Ordering::Release),
+            Err(code) => {
+                let _ = self.error.set(code);
+            }
+        }
+    }
+    /// Returns pending, ready, or the typed resource refusal.
+    pub fn result(&self) -> Option<Result<(), ErrorCode>> {
+        self.error.get().copied().map(Err).or_else(|| {
+            self.ready
+                .load(std::sync::atomic::Ordering::Acquire)
+                .then_some(Ok(()))
+        })
+    }
+}
+impl PartialEq for Clip {
+    /// Renderer completion does not change a clip's immutable input specification.
+    fn eq(&self, other: &Self) -> bool {
+        self.geometry == other.geometry
+            && self.anchor == other.anchor
+            && self.transform == other.transform
+            && self.parent == other.parent
+    }
 }
 
 impl Clip {
@@ -36,6 +73,21 @@ impl Clip {
 }
 
 impl Store {
+    /// Reports private attachment admission without copying or drawing mask geometry.
+    pub fn clip_status(&self, id: Handle) -> Result<bool, DrawError> {
+        self.check(id)?;
+        let resources = self.staged.as_ref().unwrap_or(&self.committed);
+        let clip = resources
+            .clips
+            .get(&id)
+            .ok_or(error(ErrorCode::StaleHandle, "clip"))?;
+        match clip.status.result() {
+            Some(Ok(())) => Ok(true),
+            Some(Err(code)) => Err(error(code, "clip GPU admission")),
+            None => Ok(false),
+        }
+    }
+
     /// Retains a mask only when geometry, nesting, ownership and drawing grants are valid.
     pub fn create_clip(
         &mut self,
@@ -63,9 +115,9 @@ impl Store {
             .geometry
             .get(&id)
             .ok_or(error(ErrorCode::StaleHandle, "geometry"))?;
-        match geometry.blocks().and_then(|grid| grid.result()) {
-            Some(Err(error)) => Err(error.clone()),
-            Some(Ok(_)) => Ok(true),
+        match geometry.blocks().and_then(|grid| grid.status()) {
+            Some(Err(code)) => Err(error(code, "block renderer")),
+            Some(Ok(())) => Ok(true),
             None => Ok(geometry.blocks().is_none()),
         }
     }

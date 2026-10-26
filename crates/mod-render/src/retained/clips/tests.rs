@@ -3,6 +3,7 @@ use super::*;
 /// Supplies a mask placement whose geometry belongs to the test store.
 fn clip(geometry: Handle, parent: Option<Handle>) -> Clip {
     Clip {
+        status: Default::default(),
         geometry,
         anchor: Anchor::Camera,
         transform: Transform::default(),

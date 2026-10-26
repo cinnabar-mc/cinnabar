@@ -45,6 +45,11 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return terrain_vertex(vertex_index, instance_index);
+}
+
+// Shared reconstruction also serves host-meshed retained geometry.
+fn terrain_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     var out: VertexOutput;
     if ((instance_index & TRANSPARENT_WATER_DRAW_FLAG) != 0u) {
         let record = liquid_record(instance_index & ~TRANSPARENT_WATER_DRAW_FLAG);
@@ -105,6 +110,17 @@ fn vertex(
     @if(ENHANCED)
     out.world_origin = model.world_origin;
     return out;
+}
+
+@if(MOD_BLOCKS)
+@group(2) @binding(0) var<storage, read> block_draws: array<vec4<u32>>;
+
+// Each sorted face keeps the ordinary liquid/model decoder and fragment shader.
+@if(MOD_BLOCKS)
+@vertex
+fn vertex_blocks(@builtin(vertex_index) corner: u32, @builtin(instance_index) face: u32) -> VertexOutput {
+    let reference = block_draws[face];
+    return terrain_vertex(reference.x + corner, reference.y);
 }
 
 fn liquid_output(in: VertexOutput) -> LiquidOutput {

@@ -7077,6 +7077,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "portal-view-mod"
+version = "0.1.28"
+dependencies = [
+ "mod-api",
+]
+
+[[package]]
 name = "polling"
 version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

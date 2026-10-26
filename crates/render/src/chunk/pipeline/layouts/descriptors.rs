@@ -2,7 +2,7 @@
 use super::*;
 
 /// Builds all terrain variants before specialization adds per-view shader definitions.
-pub(super) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
+pub(in crate::chunk) fn build(compact: bool) -> [RenderPipelineDescriptor; 5] {
     let transparent_bind_group_layout = if compact {
         compact_chunk_bind_group_layout()
     } else {

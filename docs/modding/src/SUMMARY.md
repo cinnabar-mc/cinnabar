@@ -50,9 +50,9 @@
 - [cinnabar:extension/settings@0.1.0](reference/settings.md)
 - [cinnabar:extension/terrain@0.1.0](reference/terrain.md)
 - [cinnabar:extension/touch@0.1.0](reference/touch.md)
-- [cinnabar:world-draw/assets@0.1.0](reference/world-draw-assets.md)
-- [cinnabar:world-draw/drawing@0.1.0](reference/world-draw-drawing.md)
-- [cinnabar:world-draw/masks@0.1.0](reference/world-draw-masks.md)
+- [cinnabar:world-draw/assets@0.2.0](reference/world-draw-assets.md)
+- [cinnabar:world-draw/drawing@0.2.0](reference/world-draw-drawing.md)
+- [cinnabar:world-draw/masks@0.2.0](reference/world-draw-masks.md)
 
 # Appendices
 
@@ -61,6 +61,7 @@
 - [Paired project reference](appendix/paired-projects.md)
 - [Terrain reads](appendix/terrain.md)
 - [World drawing helpers](appendix/drawing-helpers.md)
+- [Block geometry and mesh clipping](appendix/block-geometry.md)
 - [Drawing materials](appendix/drawing-materials.md)
 - [Entity masks](appendix/entity-masks.md)
 - [Native packet frames](appendix/native-frame.md)

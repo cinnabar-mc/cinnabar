@@ -32,6 +32,8 @@ pub struct BlockCell {
 /// Dense x,z,y cells with an explicit palette. Everything outside the grid is air.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockGrid {
+    /// Host generation used to fence process-local completion feedback.
+    pub revision: u64,
     pub size: [u32; 3],
     pub palette: Vec<BlockState>,
     pub cells: Vec<BlockCell>,
@@ -59,12 +61,29 @@ pub struct BlockMesh {
     pub bytes: usize,
 }
 
+/// Retains the registry and meshing settings to which packed material addresses belong.
+struct MeshContext {
+    assets: Arc<RuntimeAssets>,
+    mode: NetworkIdMode,
+    settings: meshing::MeshRenderSettings,
+}
+impl std::fmt::Debug for MeshContext {
+    /// Asset contents stay outside resource diagnostics.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MeshContext")
+    }
+}
+
 /// A single worker claim and completion shared across snapshots and instances.
 #[derive(Debug)]
 pub struct BlockGeometry {
     pub grid: BlockGrid,
     claimed: AtomicBool,
     result: OnceLock<Result<Arc<BlockMesh>, DrawError>>,
+    render_error: OnceLock<DrawError>,
+    render_ready: AtomicBool,
+    remote: OnceLock<Result<(), ErrorCode>>,
+    context: OnceLock<MeshContext>,
     previous: Option<Arc<BlockMesh>>,
     dirty: Option<BTreeSet<[i32; 3]>>,
 }
@@ -77,6 +96,58 @@ impl PartialEq for BlockGeometry {
 }
 
 impl BlockGeometry {
+    /// Pins the first session asset context; changed contexts require a new generation.
+    pub fn bind_context(
+        &self,
+        assets: &Arc<RuntimeAssets>,
+        mode: NetworkIdMode,
+        settings: meshing::MeshRenderSettings,
+    ) -> bool {
+        let context = self.context.get_or_init(|| MeshContext {
+            assets: Arc::clone(assets),
+            mode,
+            settings,
+        });
+        Arc::ptr_eq(&context.assets, assets) && context.mode == mode && context.settings == settings
+    }
+
+    /// Publishes complete native GPU arena admission for this generation.
+    pub fn complete_render(&self) {
+        self.render_ready.store(true, Ordering::Release);
+    }
+
+    /// Records a GPU admission failure for this immutable generation.
+    pub fn fail_render(&self, error: DrawError) {
+        let _ = self.render_error.set(error);
+    }
+    /// Reports a later GPU admission failure through the host status operation.
+    pub fn render_error(&self) -> Option<&DrawError> {
+        self.render_error.get()
+    }
+
+    /// Returns the local or process-reported completion without copying mesh data.
+    pub fn status(&self) -> Option<Result<(), ErrorCode>> {
+        self.render_error()
+            .map(|error| Err(error.code))
+            .or_else(|| match self.result() {
+                Some(Err(error)) => Some(Err(error.code)),
+                Some(Ok(_)) => self.render_ready.load(Ordering::Acquire).then_some(Ok(())),
+                None => None,
+            })
+            .or_else(|| self.remote.get().copied())
+    }
+
+    /// Applies only feedback for the exact submitted grid generation.
+    pub fn accept_status(&self, revision: u64, status: Result<(), ErrorCode>) {
+        if self.grid.revision == revision {
+            if let Err(code) = status {
+                self.fail_render(error(code, "block renderer"));
+            } else {
+                let _ = self.remote.set(status);
+            }
+        }
+    }
+
     /// Builds changed sections on a worker, sharing unchanged native terrain streams.
     pub fn mesh(
         &self,
@@ -187,6 +258,10 @@ impl BlockGrid {
                 grid: self,
                 claimed: AtomicBool::new(false),
                 result: OnceLock::new(),
+                render_error: OnceLock::new(),
+                render_ready: AtomicBool::new(false),
+                remote: OnceLock::new(),
+                context: OnceLock::new(),
                 previous: None,
                 dirty: None,
             })),
@@ -374,9 +449,13 @@ impl super::Store {
             .blocks()
             .ok_or(error(ErrorCode::Invalid, "block geometry"))?;
         let previous = match block.result() {
-            Some(Ok(mesh)) => Arc::clone(mesh),
+            Some(Ok(mesh)) => Some(Arc::clone(mesh)),
             Some(Err(error)) => return Err(error.clone()),
-            None => return Err(error(ErrorCode::InUse, "block mesh pending")),
+            None => match block.remote.get() {
+                Some(Ok(())) => None,
+                Some(Err(code)) => return Err(error(*code, "block renderer")),
+                None => return Err(error(ErrorCode::InUse, "block mesh pending")),
+            },
         };
         let mut changes = BTreeMap::new();
         for edit in edits {
@@ -387,6 +466,10 @@ impl super::Store {
             return Ok(());
         }
         let mut grid = block.grid.clone();
+        grid.revision = grid
+            .revision
+            .checked_add(1)
+            .ok_or(error(ErrorCode::BudgetExceeded, "block generations"))?;
         let mut dirty = BTreeSet::new();
         for (index, edit) in changes {
             grid.cells[index] = edit.cell;
@@ -411,8 +494,10 @@ impl super::Store {
         let mut geometry = grid.admit()?;
         let request =
             Arc::get_mut(geometry.blocks.as_mut().expect("block geometry")).expect("new request");
-        request.previous = Some(previous);
-        request.dirty = Some(dirty);
+        if block.render_error().is_none() {
+            request.dirty = previous.as_ref().map(|_| dirty);
+            request.previous = previous;
+        }
         let bytes = geometry.bytes;
         self.retired.push(old);
         let result = self.edit_blocks(bytes, |resources| {

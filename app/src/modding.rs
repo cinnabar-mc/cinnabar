@@ -33,6 +33,7 @@ mod action_filter;
 mod actor_lives;
 mod admission;
 pub(crate) mod anchors;
+pub(crate) mod block_geometry;
 mod block_search;
 pub(crate) mod drawing_policy;
 mod drive;
