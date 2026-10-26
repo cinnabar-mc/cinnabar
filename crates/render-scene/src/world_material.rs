@@ -5,10 +5,7 @@ use bevy::prelude::Resource;
 use mod_render::world_material::publication::{
     Blend, Depth, WorldMaterialParams, WorldMaterialSet,
 };
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// The current world material set; replaced only when it changes, so an unchanged session
 /// extracts the same allocation.
@@ -27,26 +24,28 @@ pub struct WorldMaterialParamScene {
 }
 
 /// The block slots whose tag some resident terrain mesh carries, one bit per slot, which the
-/// render world observes and the main world reads before it hands a slot to another bundle.
+/// render world observes each frame and the main world reads before it hands a slot to
+/// another bundle, with the number of observations so far.
 #[derive(Resource, Clone)]
-pub struct WorldMaterialCarried(Arc<AtomicU64>);
+pub struct WorldMaterialCarried(Arc<Mutex<(u64, u64)>>);
 
 impl Default for WorldMaterialCarried {
     /// Every slot counts as carried until the render world has looked.
     fn default() -> Self {
-        Self(Arc::new(AtomicU64::new(u64::MAX)))
+        Self(Arc::new(Mutex::new((0, u64::MAX))))
     }
 }
 
 impl WorldMaterialCarried {
-    /// The slots carried when the render world last looked.
-    pub fn get(&self) -> u64 {
-        self.0.load(Ordering::Acquire)
+    /// How many observations the render world has made, and the slots carried at the last.
+    pub fn get(&self) -> (u64, u64) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Records the slots resident meshes carry.
+    /// Records one observation: the slots resident meshes carry.
     pub fn set(&self, slots: u64) {
-        self.0.store(slots, Ordering::Release);
+        let mut carried = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        *carried = (carried.0 + 1, slots);
     }
 }
 

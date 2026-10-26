@@ -2,7 +2,7 @@
 
 use crate::runtime::world::ClientWorld;
 use bevy::prelude::{Local, Res, ResMut};
-use render_scene::world_material::WorldMaterialScene;
+use render_scene::{ChunkRenderQueue, world_material::WorldMaterialScene};
 use std::sync::Arc;
 
 /// The tags last resolved, keyed by session, block-name revision and set revision.
@@ -10,12 +10,14 @@ type Resolved = ((u64, u64, u64), Arc<[(u32, u8)]>);
 
 /// Resolves every bound block identifier to its network values and tags them with one more
 /// than their material slot. The stream remeshes only the sections holding a block whose tag
-/// changed, so binding, unbinding and revocation show without a reconnect. An unchanged frame
-/// costs a key comparison and a pointer comparison.
+/// changed, and their uploads still queued go too, so no mesh tagged before the change reaches
+/// the renderer after it and binding, unbinding and revocation show without a reconnect. An
+/// unchanged frame costs a key comparison and a pointer comparison.
 pub(super) fn tag_world_material_blocks(
     scene: Option<Res<WorldMaterialScene>>,
     mut client_world: ResMut<ClientWorld>,
     mut resolved: Local<Option<Resolved>>,
+    queue: Option<ResMut<ChunkRenderQueue>>,
 ) {
     let Some(stream) = client_world.stream.as_ref() else {
         return;
@@ -37,10 +39,15 @@ pub(super) fn tag_world_material_blocks(
             tags
         }
     };
-    if !Arc::ptr_eq(stream.requested_world_materials(), &tags)
-        && let Some(stream) = client_world.stream.as_mut()
-    {
-        stream.set_world_materials(tags, web_time::Instant::now());
+    if Arc::ptr_eq(stream.world_material_tags(), &tags) {
+        return;
+    }
+    let Some(stream) = client_world.stream.as_mut() else {
+        return;
+    };
+    let withdrawn = stream.set_world_materials(tags, web_time::Instant::now());
+    if let Some(mut queue) = queue {
+        queue.withdraw_uploads(withdrawn);
     }
 }
 
