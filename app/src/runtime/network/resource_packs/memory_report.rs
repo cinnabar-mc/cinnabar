@@ -1,10 +1,11 @@
-//! Env-gated pack compile memory report: compiles `CINNABAR_JOIN_PACKS` through the join's
-//! subscriber path, one subscriber at a time and then all together, and prints each stage's
-//! resident high-water mark and retained growth.
+//! Env-gated pack compile memory report: admits `CINNABAR_JOIN_PACKS` with the client's
+//! device subpack selection, compiles it through the join's subscriber path, one subscriber at
+//! a time and then all together, and prints each stage's resident high-water mark and retained
+//! growth. `CINNABAR_MEMORY_ROUNDS` repeats the stages, as rejoins do, to expose retention.
 //! Run: `CINNABAR_JOIN_PACKS=<a.mcpack:b.mcpack> CINNABAR_JOIN_CARRIERS=<compiled> cargo test -p
 //! cinnabar --features reports --lib pack_compile_memory_report -- --nocapture`.
 
-use super::fingerprint_bench::{install_join_carriers, join_fixture, join_stack};
+use super::fingerprint_bench::{install_join_carriers, join_fixture, join_handoff};
 use super::*;
 use pack_runtime::reload_diff::Changes;
 
@@ -67,19 +68,24 @@ fn entity_bytes(pack: Option<&assets::SessionEntityPack>) -> String {
     })
 }
 
-/// Installs the device limits a desktop GPU reports, with the terrain budget of a host with
-/// `CINNABAR_MEMORY_HOST_GIB` (default 16) of memory, as renderer startup does before a join.
+/// Physical memory of the reported host: `CINNABAR_MEMORY_HOST_GIB` (default 16) GiB.
+fn host_bytes() -> u64 {
+    std::env::var("CINNABAR_MEMORY_HOST_GIB")
+        .ok()
+        .and_then(|gib| gib.parse::<u64>().ok())
+        .unwrap_or(16)
+        << 30
+}
+
+/// Installs the device limits a desktop GPU reports, with the terrain budget of the reported
+/// host, as renderer startup does before a join.
 fn install_device() {
     const MAX_DIMENSION_2D: u32 = 16_384;
     const MAX_ARRAY_LAYERS: u32 = 2_048;
-    let host_gib = std::env::var("CINNABAR_MEMORY_HOST_GIB")
-        .ok()
-        .and_then(|gib| gib.parse::<u64>().ok())
-        .unwrap_or(16);
     assets::texture::policy::set_device_policy(MAX_DIMENSION_2D);
     assets::texture::policy::set_terrain_device_policy(
         MAX_DIMENSION_2D,
-        resource_pack::subpacks::device_memory_tier(host_gib << 30),
+        resource_pack::subpacks::device_memory_tier(host_bytes()),
     );
     let _ = OVERLAY_TEXTURE_LAYER_LIMIT
         .get_or_init(std::sync::OnceLock::new)
@@ -137,7 +143,8 @@ fn pack_compile_memory_report() {
         window.retained()
     );
     let window = Window::open();
-    let stack = join_stack(&paths);
+    let stack = resource_pack::validate_handoff_for_device(join_handoff(&paths), host_bytes());
+    assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
     eprintln!(
         "PACK_COMPILE_MEMORY admission peak_mib={:.0} retained_mib={:.0} packs={}",
         window.peak(),
@@ -151,9 +158,34 @@ fn pack_compile_memory_report() {
     eprintln!("PACK_COMPILE_MEMORY icon_keys={}", inputs.icons.len());
     let stages = std::env::var("CINNABAR_MEMORY_STAGES").unwrap_or_default();
     let selected = |label: &str| stages.is_empty() || stages.split(',').any(|stage| stage == label);
+    let rounds = std::env::var("CINNABAR_MEMORY_ROUNDS")
+        .ok()
+        .and_then(|rounds| rounds.parse::<usize>().ok())
+        .unwrap_or(1);
+    let session = Window::open();
+    for round in 1..=rounds {
+        eprintln!("PACK_COMPILE_MEMORY round={round}");
+        report_stages(&stack, &inputs, &selected);
+        eprintln!(
+            "PACK_COMPILE_MEMORY round={round} retained_since_first_mib={:.0}",
+            session.retained()
+        );
+    }
+}
+
+/// Compiles the selected stages once, printing each one's peak and retained growth.
+#[expect(
+    clippy::print_stderr,
+    reason = "the memory report prints PACK_COMPILE_MEMORY lines on stderr"
+)]
+fn report_stages(
+    stack: &Arc<resource_pack::ValidatedPackStack>,
+    inputs: &Arc<pack_runtime::PackInputs>,
+    selected: &dyn Fn(&str) -> bool,
+) {
     if selected("entities_only") {
         let window = Window::open();
-        let view = LayeredPackView::tracked(Arc::clone(&stack));
+        let view = LayeredPackView::tracked(Arc::clone(stack));
         let pack = pack_runtime::entity_pack::compile_session_entities(
             stack.fingerprint(),
             &view,
@@ -177,7 +209,7 @@ fn pack_compile_memory_report() {
     if selected("artwork_only") {
         let window = Window::open();
         let artwork =
-            super::super::entity_texture_reload::prepare(&LayeredPackView::new(Arc::clone(&stack)));
+            super::super::entity_texture_reload::prepare(&LayeredPackView::new(Arc::clone(stack)));
         eprintln!(
             "PACK_COMPILE_MEMORY artwork_only peak_mib={:.0} retained_mib={:.0} pages={}",
             window.peak(),
@@ -203,8 +235,8 @@ fn pack_compile_memory_report() {
         let window = Window::open();
         let compile = || {
             compile_application(
-                Arc::clone(&stack),
-                Arc::clone(&inputs),
+                Arc::clone(stack),
+                Arc::clone(inputs),
                 None,
                 changes,
                 &|| false,
