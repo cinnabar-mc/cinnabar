@@ -349,3 +349,56 @@ fn item_and_crouch_slowdown_end_a_sprint() {
         assert_eq!(replayed.velocity, next.velocity);
     }
 }
+
+/// Pose actions compare against server writes independently for each pose flag.
+#[test]
+fn pose_actions_use_the_state_left_by_metadata_before_the_tick() {
+    for (mode, start, stop) in [
+        (
+            sim::MovementMode::Swimming,
+            PlayerInputFlags::START_SWIMMING,
+            PlayerInputFlags::STOP_SWIMMING,
+        ),
+        (
+            sim::MovementMode::Gliding,
+            PlayerInputFlags::START_GLIDING,
+            PlayerInputFlags::STOP_GLIDING,
+        ),
+        (
+            sim::MovementMode::Crawling,
+            PlayerInputFlags::START_CRAWLING,
+            PlayerInputFlags::STOP_CRAWLING,
+        ),
+    ] {
+        for previous in [false, true] {
+            for server in [None, Some(false), Some(true)] {
+                for current in [false, true] {
+                    let mut prior = settle_tests::settled_sample(40, [0.0; 3]);
+                    let mut prior_poses = PoseFlags::default();
+                    prior_poses.set(mode, previous);
+                    prior.processed.pose_flags = Some(prior_poses);
+                    let mut sample = settle_tests::settled_sample(41, [0.0; 3]);
+                    let mut poses = PoseFlags::default();
+                    poses.set(mode, current);
+                    sample.processed.pose_flags = Some(poses);
+                    sample.input.server_pose_flags = server.map(|value| {
+                        let mut poses = PoseFlags::default();
+                        poses.set(mode, value);
+                        poses
+                    });
+                    let actual = encoding::input_flags(&sample, encoding::HeldInput::from(&prior));
+                    let expected = match (server.unwrap_or(previous), current) {
+                        (false, true) => start,
+                        (true, false) => stop,
+                        _ => PlayerInputFlags::NONE,
+                    };
+                    assert_eq!(
+                        actual.bits() & (start | stop).bits(),
+                        expected.bits(),
+                        "{mode:?}: previous={previous}, server={server:?}, current={current}"
+                    );
+                }
+            }
+        }
+    }
+}

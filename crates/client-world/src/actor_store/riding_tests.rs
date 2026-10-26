@@ -642,3 +642,32 @@ fn resolved_passenger_order_survives_controller_removal() {
     store.apply_link(1, 27, link(1, 20, ActorLinkType::Remove));
     assert!(store.rider_controls_vehicle(10));
 }
+
+/// Pick prediction and committed ticks use the same mount tick before placing its passenger.
+#[test]
+fn streamed_seats_follow_the_predicted_mount_tick_once() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.advance_interpolation_ticks(1);
+    let before = store.get(10).unwrap().native_position();
+    let mut movement = super::tests::network_move(20, 12.0, false);
+    let ActorEvent::Move(ref mut event) = movement else {
+        unreachable!()
+    };
+    event.position[0] = Some(16.0);
+    store.apply(1, 4, movement);
+    store.predict_remote_motion(1);
+    let predicted = store.pick_pose(10).expect("predicted rider");
+    assert_eq!(store.get(10).unwrap().native_position(), before);
+    store.advance_interpolation_frame(1);
+    let rider = store.get(10).unwrap();
+    assert_eq!(rider.position, predicted.position);
+    let mount = store.get(20).unwrap().native_position();
+    let actual = rider.native_position();
+    for (observed, expected) in
+        actual
+            .into_iter()
+            .zip([mount[0] - 0.5, mount[1] + 2.0, mount[2] + 1.0])
+    {
+        assert!((observed - expected).abs() < 0.00001);
+    }
+}
