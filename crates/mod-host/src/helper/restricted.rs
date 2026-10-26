@@ -6,7 +6,9 @@
 //! seccomp filter. Compilation of the component happens after this, so the compiler runs
 //! contained too. Other platforms have no restricted launch and refuse it.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
+#[cfg(target_os = "linux")]
+use anyhow::{Context, ensure};
 use std::process::Command;
 
 #[cfg(target_os = "linux")]

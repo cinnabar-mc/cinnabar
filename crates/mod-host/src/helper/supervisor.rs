@@ -158,14 +158,14 @@ impl Process {
         let _ = std::thread::Builder::new()
             .name("experience-reap".into())
             .spawn(move || {
-                let (child, containment) = {
+                // The containment drops at the end of this closure, after the child is reaped.
+                let (child, _containment) = {
                     let mut state = process.0.lock().unwrap();
                     (state.child.take(), state.containment.take())
                 };
                 if let Some(mut child) = child {
                     let _ = child.wait();
                 }
-                drop(containment);
             });
     }
 }
