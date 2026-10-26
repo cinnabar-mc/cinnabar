@@ -566,7 +566,15 @@ async fn sent_attacks_and_mouseovers_keep_their_matching_frozen_picks_once() {
     hover.capture_pick(state);
     let mut writer = std::pin::pin!(writer);
     {
-        let mut send = std::pin::pin!(outbound.send_batch(vec![attack, ordinary(), hover], None));
+        let mut send = std::pin::pin!(outbound.send_batch(
+            vec![
+                crate::session_transport::tests::unencodable_packet(),
+                attack,
+                ordinary(),
+                hover
+            ],
+            None
+        ));
         assert!(poll_once(send.as_mut()).is_pending());
         assert!(poll_once(writer.as_mut()).is_pending());
         assert!(matches!(poll_once(send.as_mut()), Poll::Ready(Ok(()))));

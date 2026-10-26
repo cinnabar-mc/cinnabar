@@ -503,10 +503,36 @@ fn ends_session(next: &Option<Result<Bytes, BridgeError>>) -> bool {
 /// packet the codec refuses is logged and left out so the rest still go in order; `None` when
 /// none encodes.
 pub(crate) fn batch_frame(packets: &[Packet]) -> Option<Bytes> {
+    batch_frame_observed(packets, |_, _| {})
+}
+
+/// Encodes capture correspondence only for entries the batch encoder successfully appends.
+pub(crate) fn batch_frame_with_picks(
+    packets: &[Packet],
+) -> Option<(Bytes, Vec<crate::packet_tap::PickEntry>)> {
+    let mut picks = Vec::new();
+    let frame = batch_frame_observed(packets, |packet, entry| {
+        picks.push(crate::packet_tap::PickEntry {
+            frame: Bytes::copy_from_slice(entry),
+            state: packet.pick.as_deref().copied(),
+        });
+    })?;
+    Some((frame, picks))
+}
+
+/// Keeps successful encoding and optional capture observation at the same packet boundary.
+fn batch_frame_observed(
+    packets: &[Packet],
+    mut encoded: impl FnMut(&Packet, &[u8]),
+) -> Option<Bytes> {
     let mut frame = vec![bridge::contract::KIND_BATCH];
     for packet in packets {
-        if let Err(error) = crate::codec::encode_entry(packet, &mut frame) {
-            tracing::warn!(packet = ?packet.kind(), %error, "skipping an outbound packet that failed to encode");
+        let start = frame.len();
+        match crate::codec::encode_entry(packet, &mut frame) {
+            Ok(()) => encoded(packet, &frame[start..]),
+            Err(error) => {
+                tracing::warn!(packet = ?packet.kind(), %error, "skipping an outbound packet that failed to encode")
+            }
         }
     }
     (frame.len() > 1).then(|| Bytes::from(frame))

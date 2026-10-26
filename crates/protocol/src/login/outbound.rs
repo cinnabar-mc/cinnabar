@@ -82,20 +82,22 @@ impl PendingBatch {
                         self.status_epoch = Some(status.epoch);
                         packets.push(Packet::new(packet));
                     }
-                    let Some(frame) = crate::session_transport::batch_frame(packets) else {
+                    let frame = if writer.captures_picks()
+                        && packets.iter().any(|packet| packet.pick.is_some())
+                    {
+                        crate::session_transport::batch_frame_with_picks(packets).map(
+                            |(frame, picks)| {
+                                self.picks = picks;
+                                frame
+                            },
+                        )
+                    } else {
+                        crate::session_transport::batch_frame(packets)
+                    };
+                    let Some(frame) = frame else {
                         self.state = BatchState::Done;
                         continue;
                     };
-                    if writer.captures_picks() && packets.iter().any(|packet| packet.pick.is_some())
-                    {
-                        self.picks = wire::Frames::new(frame.slice(1..), usize::MAX)
-                            .zip(packets.iter())
-                            .map(|(entry, packet)| crate::packet_tap::PickEntry {
-                                frame: entry.expect("encoded packet entry").frame().clone(),
-                                state: packet.pick.as_deref().copied(),
-                            })
-                            .collect();
-                    }
                     let writer = writer.clone();
                     self.state = BatchState::Preparing(Mutex::new(Box::pin(async move {
                         writer.prepare(frame).await
