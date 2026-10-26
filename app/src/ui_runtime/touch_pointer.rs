@@ -27,6 +27,11 @@ use client_ui::ui_runtime::{UiRuntime, presentation::forms::scene_policy::MenuSc
 #[derive(Resource, Default)]
 pub(crate) struct UiPointerSource(pub(crate) bool);
 
+/// Touch starts claimed by a pointer screen this frame, before its actions can close it.
+/// Gameplay skips these starts, so their later moves and release cannot capture a control.
+#[derive(Resource, Default)]
+pub(crate) struct UiTouchStarts(pub(crate) Vec<u64>);
+
 /// What one delivered step does to the emulated pointer's button.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PointerEdge {
@@ -124,6 +129,7 @@ pub(crate) fn emulate_ui_pointer(
     mut buttons: ResMut<Messages<MouseButtonInput>>,
     mut mouse_cursor: Local<MessageCursor<MouseButtonInput>>,
     mut source: Option<ResMut<UiPointerSource>>,
+    mut claimed: ResMut<UiTouchStarts>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     ui: Option<Res<UiRuntimeResource>>,
     player: Option<Res<client_state::PlayerRuntime>>,
@@ -131,6 +137,7 @@ pub(crate) fn emulate_ui_pointer(
     presentation: Option<Res<client_shell::ui_resources::UiPresentationResource>>,
     mut pointer: Local<TouchPointer>,
 ) {
+    claimed.0.clear();
     if mouse_cursor.read(&buttons).next().is_some()
         && let Some(source) = source.as_deref_mut()
     {
@@ -145,6 +152,10 @@ pub(crate) fn emulate_ui_pointer(
         .is_some_and(|(ui, player)| takes_touch_pointer(&ui, &player, menu.as_deref()))
         || presentation.is_some_and(|presentation| presentation.mod_ui().mod_panel_open());
     for input in touch_input.read() {
+        // Every finger landing on the screen belongs to it, including secondary fingers.
+        if pointer_screen && input.phase == TouchPhase::Started {
+            claimed.0.push(input.id);
+        }
         pointer.queue(pointer_screen, input.id, input.phase, input.position);
     }
     let (cursor, edge) = if pointer_screen {
@@ -232,6 +243,7 @@ mod tests {
             let mut app = App::new();
             app.add_message::<TouchInput>()
                 .add_message::<MouseButtonInput>()
+                .init_resource::<UiTouchStarts>()
                 .insert_resource(UiRuntimeResource(form_runtime(settings)))
                 .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
                     1,

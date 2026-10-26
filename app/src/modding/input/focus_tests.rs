@@ -5,6 +5,7 @@ use mod_ui::PanelUiOwner;
 
 mod capture_tests;
 mod native_fields;
+mod touch_tests;
 
 fn fixture() -> String {
     fixture_with_capture(false)

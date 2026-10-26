@@ -12,6 +12,7 @@ struct OrdinaryInputSet;
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
+    app.init_resource::<crate::ui_runtime::touch_pointer::UiTouchStarts>();
     app.add_systems(
         bevy::prelude::Startup,
         (
