@@ -14,6 +14,11 @@ impl ModHost {
         self.instance.is_revoked()
     }
 
+    /// Whether a frame fuel trap is waiting for fresh guest initialization.
+    pub fn is_recovering(&self) -> bool {
+        self.instance.is_recovering()
+    }
+
     /// Runs a bounded callback; isolated frame fuel traps retain output and recover next frame.
     pub fn frame(&mut self, pressed: bool) -> Result<()> {
         self.frame_with_gameplay(pressed, None)
@@ -94,23 +99,30 @@ impl ModHost {
         controls: ControlFrame,
     ) -> Result<()> {
         self.begin_frame();
-        let result = self
-            .recover_frame_fuel()
-            .and_then(|()| match self.dispatch(Vec::new()) {
-                Ok(delivery) => self
-                    .instance
-                    .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
-                    .and_then(|()| self.instance.frame(delivery)),
-                Err(error) => Err(error),
-            });
+        let result = self.recover_frame_fuel().and_then(|recovered| {
+            if recovered {
+                // Input was sampled from the old UI; resume after the initialized UI is shown.
+                Ok(())
+            } else {
+                match self.dispatch(Vec::new()) {
+                    Ok(delivery) => self
+                        .instance
+                        .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
+                        .and_then(|()| self.instance.frame(delivery)),
+                    Err(error) => Err(error),
+                }
+            }
+        });
         self.instance.finish_frame();
         self.queue_settings();
         result
     }
 
-    /// Restarts a fuel-trapped guest before current input and restores its lifecycle context.
-    fn recover_frame_fuel(&mut self) -> Result<()> {
-        if self.instance.recover_frame_fuel()? && self.instance.has_events() {
+    /// Restarts a fuel-trapped guest and restores its lifecycle context.
+    /// Returns true when input sampled before replacement must be discarded.
+    fn recover_frame_fuel(&mut self) -> Result<bool> {
+        let recovered = self.instance.recover_frame_fuel()?;
+        if recovered && self.instance.has_events() {
             self.pending_events
                 .insert(0, ModEvent::ScreenChanged(self.layout.clone()));
             self.pending_events.insert(
@@ -118,7 +130,7 @@ impl ModHost {
                 ModEvent::DataChanged(vec![DataSource::Items, DataSource::Recipes]),
             );
         }
-        Ok(())
+        Ok(recovered)
     }
 
     /// Supplies bounded, read-only presentation facts for the next frame callback only.

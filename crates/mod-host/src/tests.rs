@@ -114,6 +114,7 @@ fn fuel_stops_an_infinite_loop() {
     let (_directory, mut host) = load_fixture("(loop $forever br $forever)");
     for _ in 0..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
         assert!(host.frame(false).is_err());
+        host.frame(false).unwrap();
     }
     assert!(!host.is_active());
 }

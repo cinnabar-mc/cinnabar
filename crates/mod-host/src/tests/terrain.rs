@@ -207,6 +207,7 @@ fn terrain_compute_remains_bounded() {
     assert!(run(&mut host).is_err());
     assert!(host.is_active());
     for _ in 1..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
+        run(&mut host).unwrap();
         assert!(run(&mut host).is_err());
     }
     assert!(!host.is_active());

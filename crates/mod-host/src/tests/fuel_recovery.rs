@@ -36,12 +36,14 @@ fn frame_fuel_overrun_retains_output_and_recovers_a_fresh_guest() {
     let panel = host.panel().unwrap().clone();
     host.frame(true).unwrap_err();
     assert!(host.is_active());
+    assert!(host.is_recovering());
     assert_eq!(host.label(), Some("Hello"));
     assert_eq!(host.panel(), Some(&panel));
     assert!(host.panel_open());
     assert_eq!(host.last_fuel_used(), FRAME_FUEL);
     host.frame(false).unwrap();
     assert!(host.is_active());
+    assert!(!host.is_recovering());
     assert_eq!(host.label(), Some("Hello"));
     assert_eq!(host.panel(), Some(&panel));
     assert!(host.panel_open());
@@ -54,6 +56,7 @@ fn repeated_frame_fuel_overruns_quarantine_the_guest() {
     host.frame(true).unwrap_err();
     assert!(host.is_active());
     for _ in 1..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
+        host.frame(true).unwrap();
         host.frame(true).unwrap_err();
     }
     assert!(!host.is_active());
@@ -71,6 +74,7 @@ fn successful_frames_reset_overruns_but_deferred_frames_do_not() {
     for _ in 0..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
         host.frame(true).unwrap_err();
         budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        host.frame(false).unwrap();
         host.frame(false).unwrap();
         assert!(host.is_active());
         budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
@@ -287,6 +291,50 @@ fn fuel_recovery_rejects_values_below_the_initialized_control_minimum() {
     );
     assert_eq!(host.label(), Some(r#"{"v":0}"#));
     assert_eq!(host.settings_snapshot(), Some(r#"{"v":0}"#));
+}
+
+#[test]
+fn fuel_recovery_drops_input_sampled_before_guest_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("input-fence.wat");
+    std::fs::write(
+        &path,
+        fixture(
+            "call $pressed if (loop $forever br $forever) end
+         i32.const 1 i32.const 4 i32.const 128 call $label",
+            "Hello",
+        ),
+    )
+    .unwrap();
+    let mut host = ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            controls: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    host.frame(true).unwrap_err();
+    host.frame_with_controls(
+        false,
+        None,
+        ControlFrame {
+            events: vec![crate::ControlEvent {
+                id: "old-route".into(),
+                value: 1.,
+            }],
+            focused: true,
+            panel_open: true,
+            pointer: Some((4., 8.)),
+            wheel: 1.,
+            ..empty_controls()
+        },
+    )
+    .unwrap();
+    assert!(host.is_active());
+    assert_eq!(host.label(), Some("Hello"));
+    host.frame(false).unwrap();
+    assert_eq!(host.label(), Some("ello"));
 }
 
 #[test]

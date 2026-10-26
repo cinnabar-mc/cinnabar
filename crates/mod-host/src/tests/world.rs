@@ -145,6 +145,8 @@ fn fuel_recovery_cannot_reset_the_host_command_rate_limit() {
         host.frame_with_gameplay(false, Some(snapshot.clone()))
             .unwrap_err();
         assert!(host.is_active());
+        host.frame_with_gameplay(false, Some(snapshot.clone()))
+            .unwrap();
     }
     assert_eq!(sent, mod_api::MAX_COMMANDS_PER_SECOND);
 }

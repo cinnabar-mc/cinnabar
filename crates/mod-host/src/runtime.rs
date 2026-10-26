@@ -612,6 +612,11 @@ impl Instance {
         self.status == InstanceStatus::Revoked
     }
 
+    /// Whether callbacks must wait for a fresh guest after a frame fuel trap.
+    pub(super) fn is_recovering(&self) -> bool {
+        self.status == InstanceStatus::Recovering
+    }
+
     /// Revokes a running guest without reclassifying an existing trap as recoverable.
     pub(super) fn revoke(&mut self) {
         if self.is_active() {

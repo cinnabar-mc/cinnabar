@@ -273,6 +273,12 @@ pub(super) fn drive_mod(
                 .map(|(_, layout)| layout),
         );
     }
+    let panel_owner = extension.hosts.panel_owner();
+    let panel_was_recovering = panel_owner < extension.hosts.host_count()
+        && !packets
+            .as_ref()
+            .is_some_and(|packets| packets.menu_owns_panel())
+        && extension.hosts.host(panel_owner).is_recovering();
     let mut callback_failures = Vec::new();
     multi::run_frame_callbacks(
         &mut extension.hosts,
@@ -306,6 +312,10 @@ pub(super) fn drive_mod(
             callback_failures.push((index, error));
         },
     );
+    if panel_was_recovering && !extension.hosts.host(panel_owner).is_recovering() {
+        presentation.mod_ui_mut().cancel_mod_panel_edit();
+        presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
+    }
     let mut callback_failed = !callback_failures.is_empty();
     for (index, error) in callback_failures {
         if !extension.hosts.host(index).is_active()

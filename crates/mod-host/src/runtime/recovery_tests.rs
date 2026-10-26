@@ -129,7 +129,7 @@ fn fuel_recovery_keeps_screen_revision_epochs_and_discards_failed_screen_writes(
 }
 
 #[test]
-fn fuel_recovery_keeps_touch_taps_and_trusted_drawing_observations() {
+fn fuel_recovery_cancels_old_taps_and_keeps_trusted_drawing_observations() {
     use cinnabar::extension::touch::Host as _;
     use mod_api::drawing::{DrawingPermissions, DrawingSession, MaskDepth, MaskEntity};
     let (engine, _ticker) = crate::execution::engine().unwrap();
@@ -188,7 +188,14 @@ fn fuel_recovery_keeps_touch_taps_and_trusted_drawing_observations() {
     instance.frame(CallbackOutcome::Executed).unwrap_err();
     assert!(instance.queue_touch_press("menu"));
     instance.recover_frame_fuel().unwrap();
-    assert_eq!(instance.touch_owner(), owner);
+    assert_ne!(instance.touch_owner(), owner);
+    {
+        let state = instance.store.data_mut();
+        state.touch.begin_frame();
+        assert!(state.read_presses().unwrap().unwrap().is_empty());
+        state.touch.finish_frame(false);
+    }
+    assert!(instance.queue_touch_press("menu"));
     let state = instance.store.data_mut();
     assert!(state.controls.frame.keys_pressed.is_empty());
     assert!(state.controls.frame.keys_held.is_empty());

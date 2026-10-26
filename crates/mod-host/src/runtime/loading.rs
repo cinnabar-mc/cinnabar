@@ -146,6 +146,7 @@ impl Instance {
             .map(|bundle| bundle.panel.clone());
         state.controls.finish_text_frame(false);
         state.controls.layout = None;
+        state.touch.restart_guest();
         store.limiter(|state| &mut state.limits);
         let initial = FRAME_FUEL;
         crate::execution::arm(store, initial, true)?;
