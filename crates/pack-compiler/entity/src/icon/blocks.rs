@@ -111,6 +111,19 @@ impl IconBlocks {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
+        if record.model_family == ModelFamily::Torch
+            && let Some(lit_name) = record.name.strip_prefix("minecraft:unlit_")
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.model_family == ModelFamily::Torch
+                        && candidate.name.strip_prefix("minecraft:") == Some(lit_name)
+                        && candidate.canonical_state == record.canonical_state
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         if pack_compile_input::lightning_rod::is_record(record) {
             return self
                 .records
@@ -350,7 +363,7 @@ impl IconBlocks {
 
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let material = self.carried_material(visual, None)?;
+        let material = self.carried_material(self.icon_state(visual), None)?;
         material.overlay.is_none().then(|| material.path.into())
     }
 

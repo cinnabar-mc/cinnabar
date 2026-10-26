@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn redstone_torch_icons_use_lit_artwork_independently_of_placement_power() {
+    let root = tempfile::tempdir().unwrap();
+    write_pack(
+        root.path(),
+        r#"{
+            "redstone_torch":{"textures":"on"},
+            "unlit_redstone_torch":{"textures":"off"},
+            "torch":{"textures":"ordinary"}
+        }"#,
+        r#"{"texture_data":{
+            "on":{"textures":"textures/blocks/lit"},
+            "off":{"textures":"textures/blocks/unlit"},
+            "ordinary":{"textures":"textures/blocks/ordinary"}
+        }}"#,
+        "[]",
+    );
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let mut states = 0;
+    for record in blocks.records.iter() {
+        let expected = match record.name.as_ref() {
+            "minecraft:unlit_redstone_torch" => {
+                states += 1;
+                assert_eq!(
+                    resolve_texture_key(
+                        &blocks.pack.as_ref().unwrap().blocks,
+                        record,
+                        BlockFace::Down,
+                    )
+                    .key
+                    .as_deref(),
+                    Some("off"),
+                    "placement state retains unlit artwork"
+                );
+                "textures/blocks/lit"
+            }
+            "minecraft:redstone_torch" => "textures/blocks/lit",
+            "minecraft:torch" => "textures/blocks/ordinary",
+            _ => continue,
+        };
+        assert_eq!(
+            blocks
+                .texture_path(BlockVisualId(record.sequential_id))
+                .as_deref(),
+            Some(expected),
+            "{} {}",
+            record.name,
+            record.canonical_state
+        );
+    }
+    assert!(states > 0);
+}
+
+#[test]
 fn glass_panes_are_models_while_metal_bars_remain_flat() {
     let blocks = IconBlocks::read(tempfile::tempdir().unwrap().path()).unwrap();
     let world = RuntimeAssets::diagnostic();
