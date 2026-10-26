@@ -26,7 +26,7 @@ pub struct ModHosts {
     presentation_sources: Vec<u64>,
     presentation: std::sync::Arc<ui::mod_presentation::Presentation>,
     /// Label metrics every host's `measure-text` reads.
-    label_metrics: Option<std::sync::Arc<mod_ui::LabelMetrics>>,
+    label_metrics: Option<std::sync::Arc<LabelWidths>>,
 }
 
 /// Measures `measure-text` widths with the presenter's label metrics.
@@ -38,11 +38,11 @@ impl mod_host::HudTextMeasure for LabelWidths {
     }
 }
 
-/// Wraps label metrics for a host.
+/// Shares the cached label measurer with a host without allocating another adapter.
 fn label_widths(
-    metrics: std::sync::Arc<mod_ui::LabelMetrics>,
-) -> std::sync::Arc<dyn mod_host::HudTextMeasure> {
-    std::sync::Arc::new(LabelWidths(metrics))
+    metrics: &Option<std::sync::Arc<LabelWidths>>,
+) -> Option<std::sync::Arc<dyn mod_host::HudTextMeasure>> {
+    metrics.clone().map(|metrics| metrics as _)
 }
 
 /// Selects an ordered set of components and packages, each with its own grants.
@@ -236,7 +236,7 @@ impl ModHosts {
 
     /// Appends a host at the lowest load precedence without changing panel selection.
     pub fn push(&mut self, mut host: ModHost) {
-        host.set_text_measure(self.label_metrics.clone().map(label_widths));
+        host.set_text_measure(label_widths(&self.label_metrics));
         self.hosts.push(host);
     }
 
@@ -248,8 +248,16 @@ impl ModHosts {
         elements: ui::mod_hud::ElementStates,
         label_metrics: Option<std::sync::Arc<mod_ui::LabelMetrics>>,
     ) {
-        self.label_metrics = label_metrics;
-        let measure = self.label_metrics.clone().map(label_widths);
+        let changed = match (&self.label_metrics, &label_metrics) {
+            (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(&old.0, new),
+            (None, None) => false,
+            _ => true,
+        };
+        if changed {
+            self.label_metrics =
+                label_metrics.map(|metrics| std::sync::Arc::new(LabelWidths(metrics)));
+        }
+        let measure = label_widths(&self.label_metrics);
         for host in &mut self.hosts {
             host.observe_hud(viewport, elements);
             host.set_text_measure(measure.clone());
