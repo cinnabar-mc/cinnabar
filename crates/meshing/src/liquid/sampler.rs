@@ -23,17 +23,23 @@ struct MemoSlot {
 pub(super) struct Sampler<'chunk, 'assets> {
     resolvers: [Option<ContributorResolver<'chunk>>; 27],
     assets: &'assets RuntimeAssets,
+    /// The blocks a world material shades, sorted by network value.
+    world: &'assets [crate::WorldMaterialBlock],
     slots: Box<[MemoSlot]>,
     cells: Vec<LiquidCell>,
 }
 
 impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
-    /// Prepares palette resolvers and empty halo slots for one mesh job.
+    /// Prepares palette resolvers and empty halo slots for one mesh job, where `world` (sorted
+    /// by network value) names the blocks a world material shades.
     pub(super) fn new(
         classifier: BlockClassifier,
         assets: &'assets RuntimeAssets,
         mode: NetworkIdMode,
-        neighbourhood: &MeshNeighbourhood<'chunk>,
+        (neighbourhood, world): (
+            &MeshNeighbourhood<'chunk>,
+            &'assets [crate::WorldMaterialBlock],
+        ),
     ) -> Self {
         let mut resolvers = std::array::from_fn(|_| None);
         for (offset, chunk) in neighbourhood.liquid_sub_chunks() {
@@ -45,6 +51,7 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
         Self {
             resolvers,
             assets,
+            world,
             slots: vec![MemoSlot::default(); HALO_VOLUME].into_boxed_slice(),
             cells: Vec::new(),
         }
@@ -102,7 +109,7 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
                 updated |= LIQUID_PRESENT;
             }
         } else {
-            let part = OcclusionPart::resolve(self.assets, contributors);
+            let part = OcclusionPart::resolve(self.assets, contributors, self.world);
             updated |= u16::from(part.opaque_faces);
             if part.occludes {
                 updated |= OCCLUDES;
@@ -161,7 +168,7 @@ impl LiquidSampler for Sampler<'_, '_> {
         let Some(index) = halo_index(coordinate) else {
             return self
                 .contributors(neighbourhood, coordinate)
-                .map(|contributors| OcclusionPart::resolve(self.assets, contributors));
+                .map(|contributors| OcclusionPart::resolve(self.assets, contributors, self.world));
         };
         let flags = self
             .slot(neighbourhood, index, coordinate, OCCLUSION_KNOWN)?
