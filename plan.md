@@ -595,6 +595,8 @@ and rendered qualification remain incomplete.
   Firework-star previews preserve their mask artwork and per-stack colors.
   Elytra cells select intact or exhausted artwork from stack wear at the last durability
   point, independently of atlas metadata. Broader animated item acceptance remains open.
+  Legacy filled-bucket aux values select their matching named bucket artwork rather than
+  treating the aux value as an atlas-array index.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Terrain-backed GUI meshes retain independently averaged texture levels and choose a

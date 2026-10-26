@@ -25,6 +25,9 @@ mod redstone;
 #[path = "item_visuals/coverage.rs"]
 mod coverage;
 
+#[path = "item_visuals/buckets.rs"]
+mod buckets;
+
 #[test]
 fn independent_retail_inventory_has_explicit_compiled_glint_facts() {
     let pack = item_pack(false);
