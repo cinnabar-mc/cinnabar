@@ -1412,7 +1412,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   executed GPU checks and measured frame-budget acceptance remain pending.
   Personal-mod dimension transfers retain guest memory and HUD surfaces while fencing
   world output and observations. Every callback suppresses world output during loading;
-  native presentation parameters and world projection bindings reset, and deferred catalog
+  native presentation parameters reset, and world projection bindings stay hidden until
+  the guest republishes their anchors. Production-presenter regressions cover missing
+  cameras, actor despawns, loading gaps and destination rebinding. Deferred catalog
   notifications survive while departed screen geometry and input are discarded.
   Connection and permission changes still require fresh
   guests; identical source replacements reuse in-memory compilation. Host regression

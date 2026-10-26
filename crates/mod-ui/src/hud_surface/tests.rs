@@ -282,6 +282,115 @@ fn projected_values_follow_the_camera_and_hide_off_screen_or_behind() {
     assert_eq!(ui.hud_projected_actors().collect::<Vec<_>>(), [9]);
 }
 
+/// Publication hides stale artwork even before the next camera/actor projection pass.
+#[test]
+fn changed_projections_wait_for_projection_before_painting() {
+    for split in [false, true] {
+        let mut authored = (*surface(bindings())).clone();
+        let mut document: Value = serde_json::from_str(&authored.document).unwrap();
+        let tag = document["root"]["controls"][3].clone();
+        document["root"]["controls"] = json!([tag]);
+        if split {
+            document["root"]["controls"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"empty":{"type":"panel","size":[0,0]}}));
+        }
+        authored.document = document.to_string();
+        let mut ui = ModUi::default();
+        let mut harness = Harness::new();
+        publish(&mut ui, &[(OWNER, 1, &Arc::new(authored.clone()))]);
+        harness.paint(&mut ui, false);
+        assert!(
+            harness.painted().is_empty(),
+            "initial publication has no camera"
+        );
+        ui.set_hud_projection(Some(camera()), &|_| None);
+        harness.paint(&mut ui, false);
+        let shown = harness.painted();
+        assert!(!shown.is_empty());
+        authored
+            .bindings
+            .get_mut("#tag")
+            .unwrap()
+            .invalidate_projection();
+        publish(&mut ui, &[(OWNER, 2, &Arc::new(authored.clone()))]);
+        harness.paint(&mut ui, false);
+        assert!(
+            harness.painted().is_empty(),
+            "invalidation hides cached artwork immediately"
+        );
+        ui.set_hud_projection(Some(camera()), &|_| None);
+        harness.paint(&mut ui, false);
+        assert!(
+            harness.painted().is_empty(),
+            "the destination camera cannot restore an old anchor"
+        );
+        authored.bindings.insert(
+            "#tag".into(),
+            serde_json::from_value(json!({"project":{"world":[0,0,-10]}})).unwrap(),
+        );
+        publish(&mut ui, &[(OWNER, 3, &Arc::new(authored))]);
+        harness.paint(&mut ui, false);
+        assert!(
+            harness.painted().is_empty(),
+            "a fresh anchor still waits for projection"
+        );
+        ui.set_hud_projection(Some(camera()), &|_| None);
+        harness.paint(&mut ui, false);
+        assert_eq!(harness.painted(), shown);
+    }
+}
+
+/// Panel surfaces also hide projected controls before their first camera pass.
+#[test]
+fn panel_projections_hide_without_an_available_anchor() {
+    let mut authored = (*surface(bindings())).clone();
+    let mut document: Value = serde_json::from_str(&authored.document).unwrap();
+    document["root"]["controls"] = json!([document["root"]["controls"][3].clone()]);
+    authored.document = document.to_string();
+    let mut panel = crate::test_support::sample_panel();
+    panel.controls.clear();
+    panel.surface = authored;
+    let mut ui = ModUi::default();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, false);
+    ui.set_mod_panel(OWNER, Some(&panel)).unwrap();
+    ui.set_mod_panel_open(true);
+    harness.paint(&mut ui, true);
+    assert!(
+        harness.painted().is_empty(),
+        "initial publication has no camera"
+    );
+    ui.set_hud_projection(Some(camera()), &|_| None);
+    harness.paint(&mut ui, true);
+    let shown = harness.painted();
+    assert!(!shown.is_empty());
+    panel
+        .surface
+        .bindings
+        .get_mut("#tag")
+        .unwrap()
+        .invalidate_projection();
+    ui.set_mod_panel(OWNER, Some(&panel)).unwrap();
+    harness.paint(&mut ui, true);
+    assert!(
+        harness.painted().is_empty(),
+        "invalidation hides before projection"
+    );
+    ui.set_hud_projection(Some(camera()), &|_| None);
+    harness.paint(&mut ui, true);
+    assert!(harness.painted().is_empty());
+    panel.surface.bindings.insert(
+        "#tag".into(),
+        serde_json::from_value(json!({"project":{"world":[0,0,-10]}})).unwrap(),
+    );
+    ui.set_mod_panel(OWNER, Some(&panel)).unwrap();
+    ui.set_hud_projection(Some(camera()), &|_| None);
+    harness.paint(&mut ui, true);
+    assert_eq!(harness.painted(), shown);
+}
+
 #[test]
 fn several_mods_draw_in_load_order_and_keep_their_own_caches() {
     let mut ui = ModUi::default();

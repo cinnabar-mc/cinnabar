@@ -2,11 +2,11 @@
 
 use super::State;
 
-/// Removes world and actor references while preserving the local surface and plain values.
+/// Makes world and actor anchors unavailable while preserving projected control semantics.
 pub(super) fn clear_surface_world(surface: &mut ui::mod_panel::Surface) {
-    surface
-        .bindings
-        .retain(|_, value| value.projection().is_none());
+    for value in surface.bindings.values_mut() {
+        value.invalidate_projection();
+    }
 }
 
 impl State {

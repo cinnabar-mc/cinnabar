@@ -52,7 +52,7 @@ impl HudState {
             if surface
                 .bindings
                 .values()
-                .any(|value| value.projection().is_some())
+                .any(|value| value.active_projection().is_some())
             {
                 super::world_lifecycle::clear_surface_world(Arc::make_mut(surface));
                 changed = true;

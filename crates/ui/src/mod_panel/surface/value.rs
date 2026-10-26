@@ -49,6 +49,9 @@ pub struct SurfaceItem {
 #[serde(deny_unknown_fields)]
 pub struct ProjectValue {
     pub project: Projection,
+    /// Host-owned lifetime state; guests restore availability by publishing a fresh value.
+    #[serde(skip)]
+    invalidated: bool,
 }
 
 /// What a projected value follows.
@@ -86,7 +89,7 @@ impl SurfaceValue {
                 (2..=4).contains(&numbers.len()) && numbers.iter().all(bounded)
             }
             Self::Item(ItemValue { item }) => item.valid(),
-            Self::Project(ProjectValue { project }) => project.valid(),
+            Self::Project(ProjectValue { project, .. }) => project.valid(),
         };
         if valid {
             Ok(())
@@ -105,11 +108,26 @@ impl SurfaceValue {
         }
     }
 
-    /// The projected point, when this value follows one.
+    /// The declared projected point, including an invalidated anchor that must stay hidden.
     pub fn projection(&self) -> Option<&Projection> {
         match self {
-            Self::Project(ProjectValue { project }) => Some(project),
+            Self::Project(ProjectValue { project, .. }) => Some(project),
             _ => None,
+        }
+    }
+
+    /// The projected point only while its host-owned anchor remains available.
+    pub fn active_projection(&self) -> Option<&Projection> {
+        match self {
+            Self::Project(value) if !value.invalidated => Some(&value.project),
+            _ => None,
+        }
+    }
+
+    /// Hides a projected binding until its next publication, preserving its control semantics.
+    pub fn invalidate_projection(&mut self) {
+        if let Self::Project(value) = self {
+            value.invalidated = true;
         }
     }
 
@@ -230,6 +248,7 @@ mod tests {
             json!({"project":{"world":[0,0]}}),
             json!({"project":{"world":[0,0,0],"actor":1}}),
             json!({"project":{"actor":-1}}),
+            json!({"project":{"world":[0,0,-10]},"invalidated":false}),
             json!({"other":{}}),
         ] {
             assert!(value(invalid.clone()).is_err(), "{invalid}");
@@ -252,5 +271,18 @@ mod tests {
                 .validate()
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn invalidated_anchors_keep_projection_semantics_until_replaced() {
+        let authored = json!({"project":{"world":[0.,0.,-10.]}});
+        let mut point = value(authored.clone()).unwrap();
+        assert!(point.active_projection().is_some());
+        point.invalidate_projection();
+        assert!(point.projection().is_some());
+        assert!(point.clone().active_projection().is_none());
+        point.validate().unwrap();
+        assert_eq!(serde_json::to_value(&point).unwrap(), authored);
+        assert!(value(authored).unwrap().active_projection().is_some());
     }
 }

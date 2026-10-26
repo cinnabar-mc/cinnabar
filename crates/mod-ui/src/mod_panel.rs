@@ -800,10 +800,12 @@ impl ModPanel {
             window: hud.window.map(|axis| axis * scale),
         };
         for (name, value) in &self.panel.surface.bindings {
-            let Some(projection) = value.projection() else {
+            if value.projection().is_none() {
                 continue;
-            };
-            let offset = crate::hud_surface::project(projection, camera, root, actor, authority);
+            }
+            let offset = value.active_projection().and_then(|projection| {
+                crate::hud_surface::project(projection, camera, root, actor, authority)
+            });
             if self.projected.get(name) == Some(&offset) {
                 continue;
             }

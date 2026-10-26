@@ -326,7 +326,7 @@ fn loading_gap_fences_all_world_producers_for_frames_and_events() {
 }
 
 #[test]
-fn loading_gap_removes_world_projections_but_keeps_local_hud_and_panel_content() {
+fn loading_gap_invalidates_world_projections_but_keeps_local_hud_and_panel_content() {
     use cinnabar::extension::panel::Host as _;
     let mut host = host(
         QUIET_COMPONENT,
@@ -378,7 +378,11 @@ fn loading_gap_removes_world_projections_but_keeps_local_hud_and_panel_content()
         assert_eq!(current.document, previous.document);
         assert_ne!(next, revision);
         for surface in [current.as_ref(), &host.panel().unwrap().surface] {
-            assert_eq!(surface.bindings.len(), 1);
+            assert_eq!(surface.bindings.len(), 3);
+            for name in ["#actor", "#point"] {
+                assert!(surface.bindings[name].projection().is_some());
+                assert!(surface.bindings[name].active_projection().is_none());
+            }
             assert_eq!(
                 surface.bindings["#label"],
                 ui::mod_panel::SurfaceValue::Text("local HUD".into())
@@ -389,12 +393,21 @@ fn loading_gap_removes_world_projections_but_keeps_local_hud_and_panel_content()
         dimension: 1,
         ..session()
     });
-    assert_eq!(host.hud_surface().unwrap().0.bindings.len(), 1);
+    assert!(
+        host.hud_surface().unwrap().0.bindings["#point"]
+            .active_projection()
+            .is_none()
+    );
     host.instance
         .run(CALLBACK_FUEL, commit_event, |_, store| {
             publish(store.data_mut())
         })
         .unwrap();
     assert_eq!(host.hud_surface().unwrap().0.bindings.len(), 3);
+    assert!(
+        host.hud_surface().unwrap().0.bindings["#point"]
+            .active_projection()
+            .is_some()
+    );
     assert!(host.is_active());
 }
