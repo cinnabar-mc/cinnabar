@@ -722,7 +722,7 @@ mod tests {
         for current in [0.5, 8.0, 40.0] {
             let mut store = player_with_health(current);
             store.apply(1, 2, status(ActorStatusKind::Hurt));
-            let before = store.get(7).unwrap().status.clone();
+            let before = store.get(7).unwrap().status;
             assert!(before.hurt_time > 0);
             store.apply(1, 3, status(ActorStatusKind::SpawnAlive));
             let actor = store.get(7).unwrap();
