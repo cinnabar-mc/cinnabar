@@ -129,32 +129,7 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
     if block_draw_work > drawing::MAX_BLOCK_DRAW_TRIANGLES {
         return Err(error(ErrorCode::BudgetExceeded, "block draw triangles"));
     }
-    let mut vertex_work = resources
-        .instances
-        .values()
-        .try_fold(0usize, |sum, instance| {
-            let geometry = resources.geometry.get(&instance.geometry)?;
-            sum.checked_add(geometry.expanded_vertices)
-        })
-        .ok_or(error(ErrorCode::BudgetExceeded, "vertex work"))?;
-    for clip in resources.clips.values() {
-        let mut current = Some(clip);
-        for _ in 0..drawing::MAX_DRAW_CLIP_DEPTH {
-            let Some(clip) = current else {
-                break;
-            };
-            vertex_work = vertex_work
-                .checked_add(
-                    resources
-                        .geometry
-                        .get(&clip.geometry)
-                        .ok_or(error(ErrorCode::StaleHandle, "clip geometry"))?
-                        .expanded_vertices,
-                )
-                .ok_or(error(ErrorCode::BudgetExceeded, "clip vertex work"))?;
-            current = clip.parent.and_then(|id| resources.clips.get(&id));
-        }
-    }
+    let vertex_work = resources.static_triangle_work().saturating_mul(3);
     for (amount, limit, label) in [
         (vertex_work, MAX_DRAW_VERTEX_WORK, "vertex work"),
         (

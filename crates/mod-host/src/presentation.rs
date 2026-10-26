@@ -412,7 +412,7 @@ impl Receiver {
                 .unwrap_or_else(|| Arc::new(resources));
             output.retained.push(retained);
         }
-        check_scene_budget(&output, &scene)?;
+        let retained_triangle_limit = check_scene_budget(&output, &scene)?;
         owners.retain(|_, local| {
             output.retained.iter().any(|resources| {
                 resources
@@ -429,6 +429,7 @@ impl Receiver {
             ledger: self.ledger(gpu_bytes).clone(),
             primitives: mod_render::PrimitiveRanges::all(&output.primitives),
             passes: output.passes.iter().map(|pass| pass.revision).collect(),
+            retained_triangle_limit: Some(retained_triangle_limit),
         });
         self.owners = owners;
         self.output = output;
@@ -447,27 +448,19 @@ impl Receiver {
 fn check_scene_budget(
     output: &RenderOutput,
     contributions: &server_experience::runtime::Contributions,
-) -> Result<()> {
+) -> Result<usize> {
     let draws = output.primitives.draw_count()
         + output
             .retained
             .iter()
             .map(|resources| resources.instances.len())
             .sum::<usize>();
-    let triangles = mod_render::geometry::vertex_count(&output.primitives) / 3
-        + output
-            .retained
-            .iter()
-            .map(|resources| {
-                resources
-                    .instances
-                    .values()
-                    .filter_map(|instance| resources.geometry.get(&instance.geometry))
-                    .map(|geometry| geometry.triangles())
-                    .sum::<usize>()
-            })
-            .sum::<usize>();
-    contributions.check_scene_budget(draws, triangles as u64)
+    let retained = output.retained.iter().fold(0usize, |sum, resources| {
+        sum.saturating_add(resources.static_triangle_work())
+    });
+    let triangles =
+        (mod_render::geometry::vertex_count(&output.primitives) / 3).saturating_add(retained);
+    Ok(contributions.remaining_scene_triangles(draws, triangles as u64)? as usize + retained)
 }
 
 #[cfg(test)]

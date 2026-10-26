@@ -64,8 +64,14 @@ impl Geometry {
         self.bounds
     }
 
-    /// Bounds expanded triangles, including immutable line joins and caps.
+    /// Counts completed triangles, including line joins; pending block meshes contribute zero.
     pub fn triangles(&self) -> usize {
+        if let Some(blocks) = self.blocks() {
+            return blocks
+                .result()
+                .and_then(|result| result.as_ref().ok())
+                .map_or(0, |mesh| mesh.triangles);
+        }
         self.expanded_vertices / 3
     }
 
@@ -217,6 +223,48 @@ pub struct Resources {
     pub material_revision: u64,
     /// Changes when placements or their entity references change.
     pub instance_revision: u64,
+}
+
+impl Resources {
+    /// Counts synchronous placements and mask chains before any block meshing completes.
+    pub fn static_triangle_work(&self) -> usize {
+        self.triangle_work(None, false).unwrap_or(usize::MAX)
+    }
+
+    /// Counts completed placements and mask chains belonging to the selected allocation owners.
+    pub fn triangle_work_for(&self, owners: &[u64]) -> usize {
+        self.triangle_work(Some(owners), true).unwrap_or(usize::MAX)
+    }
+
+    /// Shares exact placement multiplicity and bounded parent-mask work across admission paths.
+    fn triangle_work(&self, owners: Option<&[u64]>, include_blocks: bool) -> Option<usize> {
+        let selected = |id: &Handle| owners.is_none_or(|owners| owners.contains(&id.owner));
+        let mut triangles = self
+            .instances
+            .iter()
+            .filter(|(id, _)| selected(id))
+            .try_fold(0usize, |sum, (_, instance)| {
+                let geometry = self.geometry.get(&instance.geometry)?;
+                sum.checked_add(if !include_blocks && geometry.blocks().is_some() {
+                    0
+                } else {
+                    geometry.triangles()
+                })
+            })?;
+        for (_, clip) in self.clips.iter().filter(|(id, _)| selected(id)) {
+            let mut current = Some(clip);
+            for _ in 0..mod_api::drawing::MAX_DRAW_CLIP_DEPTH {
+                let Some(clip) = current else { break };
+                triangles =
+                    triangles.checked_add(self.geometry.get(&clip.geometry)?.triangles())?;
+                current = match clip.parent {
+                    Some(id) => Some(self.clips.get(&id)?),
+                    None => None,
+                };
+            }
+        }
+        Some(triangles)
+    }
 }
 
 /// A store owns a single guest incarnation. Tokens are never reused after rollback.

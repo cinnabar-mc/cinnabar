@@ -40,6 +40,10 @@ outside their dependency columns. Another batch while meshing is pending returns
 Grid, palette, state-string, triangle and memory limits are declared in
 [`mod_api::drawing`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/drawing.rs). Existing retained geometry
 and callback byte limits also apply. Rejection returns `budget-exceeded`.
+Client parts also share their scene triangle allowance with legacy objects,
+immediate primitives, retained placements and mask chains. Completed grid meshes
+are checked with every placement before rendering; asynchronous overflow is
+reported through `geometry-status`.
 
 ## Clip resources
 

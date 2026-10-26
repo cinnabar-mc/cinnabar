@@ -147,7 +147,7 @@ pub(crate) struct BlockPass;
 #[derive(Resource)]
 struct Installed;
 
-/// Installs background arena preparation and native drawing alongside retained meshes.
+/// Installs block drawing once its retained and native terrain owners are available.
 pub(crate) fn install(app: &mut App) {
     if !app.is_plugin_added::<crate::ChunkRenderPlugin>()
         || app

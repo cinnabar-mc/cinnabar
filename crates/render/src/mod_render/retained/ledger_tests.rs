@@ -33,6 +33,7 @@ fn fixture(limit: u64) -> (App, mod_render::retained::Store, GpuLedger) {
         ledger: ledger.clone(),
         primitives: Default::default(),
         passes: Vec::new(),
+        retained_triangle_limit: None,
     }];
     (app, store, ledger)
 }

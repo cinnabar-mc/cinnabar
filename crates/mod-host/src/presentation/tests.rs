@@ -73,6 +73,38 @@ fn capabilities() -> server_experience::runtime::Capabilities {
 }
 
 #[test]
+fn asynchronous_triangle_allowance_is_shared_with_legacy_and_static_drawing() {
+    let mut input = planet();
+    input.scene.insert(
+        1,
+        server_experience::runtime::SceneObject::Mesh {
+            asset: "legacy".into(),
+            transform: [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.],
+            triangles: server_experience::policy::MAX_TRIANGLES - 3,
+        },
+    );
+    let mut capabilities = capabilities();
+    capabilities.assets.insert("legacy".into());
+    let mut receiver = Receiver::default();
+    let mut pending = Pending::new(&input, server_experience::policy::MAX_GUEST_MEMORY).unwrap();
+    while let Some(chunk) = pending.take(4096) {
+        receiver
+            .receive(
+                chunk,
+                &capabilities,
+                &context(),
+                server_experience::policy::MAX_GUEST_MEMORY,
+                0,
+                |_| true,
+            )
+            .unwrap();
+    }
+    let output = receiver.output().0;
+    assert_eq!(output.gpu_reservations[0].retained_triangle_limit, Some(3));
+    assert_eq!(output.retained[0].static_triangle_work(), 1);
+}
+
+#[test]
 fn legacy_snapshot_objects_require_scene_authority_and_owned_assets() {
     let input = Output {
         scene: BTreeMap::from([(

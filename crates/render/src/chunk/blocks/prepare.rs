@@ -4,7 +4,7 @@ use bevy::render::render_resource::UniformBuffer;
 use gpu::bind_groups::{ChunkGpuAnimationClock, ChunkGpuBiomeTints, ChunkGpuTextureAssets};
 
 /// Serializes one camera in grid space so unchanged native shaders can draw arbitrary transforms.
-fn uniform(view: &ExtractedView, matrix: Mat4, exposure: f32) -> ViewUniform {
+pub(super) fn uniform(view: &ExtractedView, matrix: Mat4, exposure: f32) -> ViewUniform {
     let world_from_view = matrix.inverse();
     let projection = view.clip_from_view;
     ViewUniform {
@@ -84,30 +84,7 @@ pub(super) fn prepare(
     else {
         return;
     };
-    for resources in &scene.retained {
-        let triangles = resources
-            .instances
-            .values()
-            .filter_map(|instance| {
-                resources
-                    .geometry
-                    .get(&instance.geometry)?
-                    .blocks()?
-                    .result()?
-                    .as_ref()
-                    .ok()
-            })
-            .fold(0usize, |sum, mesh| sum.saturating_add(mesh.triangles));
-        if triangles > mod_api::drawing::MAX_BLOCK_DRAW_TRIANGLES {
-            for geometry in resources
-                .geometry
-                .values()
-                .filter(|geometry| geometry.blocks().is_some())
-            {
-                fail(geometry, "block draw triangles");
-            }
-        }
-    }
+    admit_triangles(&scene);
     let live: BTreeMap<_, _> = scene
         .retained
         .iter()
@@ -248,6 +225,7 @@ pub(super) fn prepare(
             retired_placements.push(old);
         }
     }
+    poll_orders(&mut placements, &mut retired_orders);
     let mut sort_requests = Vec::new();
     for resources in &scene.retained {
         if resources.connection != frame.connection || resources.dimension != frame.dimension {
@@ -369,19 +347,6 @@ pub(super) fn prepare(
                     placement.viewport = view.viewport;
                     placement.exposure = camera.exposure;
                 }
-                if let Some(job) = placement.order_job.as_mut()
-                    && let Some(order) = block_on(poll_once(job))
-                {
-                    placement.order_job = None;
-                    if let Some(order) = order {
-                        if let Some(old) = placement.order.replace(order) {
-                            retired_orders.push(old);
-                        }
-                        placement.identity = None;
-                    } else {
-                        fail(&placement.native.geometry, "block transparent order memory");
-                    }
-                }
                 let identity = (textures.identity, tints.buffer.id(), atmosphere.buffer.id());
                 if placement.identity != Some(identity) {
                     let mut entries = gpu::bind_groups::entries(
@@ -484,4 +449,65 @@ pub(super) fn placement_is_current(
             live.get(&instance.geometry)
                 .is_some_and(|current| Arc::ptr_eq(current, geometry))
         })
+}
+
+/// Validates completed triangle work before native resources become drawable.
+pub(super) fn admit_triangles(scene: &ModRenderScene) {
+    for resources in &scene.retained {
+        let triangles = resources
+            .instances
+            .values()
+            .filter_map(|instance| {
+                resources
+                    .geometry
+                    .get(&instance.geometry)?
+                    .blocks()?
+                    .result()?
+                    .as_ref()
+                    .ok()
+            })
+            .fold(0usize, |sum, mesh| sum.saturating_add(mesh.triangles));
+        if triangles > mod_api::drawing::MAX_BLOCK_DRAW_TRIANGLES {
+            for geometry in resources
+                .geometry
+                .values()
+                .filter(|geometry| geometry.blocks().is_some())
+            {
+                fail(geometry, "block draw triangles");
+            }
+        }
+    }
+    for reservation in &scene.gpu_reservations {
+        if reservation.retained_triangles_exceeded(&scene.retained) {
+            for resources in &scene.retained {
+                for (id, geometry) in &resources.geometry {
+                    if reservation.owners.contains(&id.owner) && geometry.blocks().is_some() {
+                        fail(geometry, "bundle triangle work");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Releases completed sorting jobs independently of future drawing demand.
+pub(super) fn poll_orders(
+    placements: &mut BTreeMap<(Entity, DrawingHandle), Placement>,
+    retired: &mut Vec<Order>,
+) {
+    for placement in placements.values_mut() {
+        if let Some(job) = placement.order_job.as_mut()
+            && let Some(order) = block_on(poll_once(job))
+        {
+            placement.order_job = None;
+            if let Some(order) = order {
+                if let Some(old) = placement.order.replace(order) {
+                    retired.push(old);
+                }
+                placement.identity = None;
+            } else {
+                fail(&placement.native.geometry, "block transparent order memory");
+            }
+        }
+    }
 }
