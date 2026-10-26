@@ -279,6 +279,10 @@ pub(super) fn drive_mod(
             .as_ref()
             .is_some_and(|packets| packets.menu_owns_panel())
         && extension.hosts.host(panel_owner).is_recovering();
+    let recovering_screen = extension
+        .hosts
+        .screen_owner()
+        .filter(|&owner| extension.hosts.host(owner).is_recovering());
     let mut callback_failures = Vec::new();
     multi::run_frame_callbacks(
         &mut extension.hosts,
@@ -315,6 +319,9 @@ pub(super) fn drive_mod(
     if panel_was_recovering && !extension.hosts.host(panel_owner).is_recovering() {
         presentation.mod_ui_mut().cancel_mod_panel_edit();
         presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
+    }
+    if recovering_screen.is_some_and(|owner| !extension.hosts.host(owner).is_recovering()) {
+        presentation.mod_ui_mut().reset_mod_screens();
     }
     let mut callback_failed = !callback_failures.is_empty();
     for (index, error) in callback_failures {

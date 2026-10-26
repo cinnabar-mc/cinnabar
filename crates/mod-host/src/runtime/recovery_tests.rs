@@ -21,6 +21,54 @@ fn fuel_guest(engine: &wasmtime::Engine, grants: ModGrants) -> Instance {
 }
 
 #[test]
+fn fuel_recovery_discards_package_text_queued_for_the_old_guest() {
+    let source = br#"(component
+        (core module $m
+            (memory (export "memory") 1)
+            (func (export "realloc") (param i32 i32 i32 i32) (result i32) i32.const 0)
+            (func (export "init"))
+            (func (export "frame") (loop $forever br $forever))
+            (func (export "text-changed") (param i32 i32 i32 i32) unreachable))
+        (core instance $i (instantiate $m))
+        (alias core export $i "memory" (core memory $memory))
+        (alias core export $i "realloc" (core func $realloc))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame")))
+        (func (export "text-changed") (param "control" string) (param "text" string)
+            (canon lift (core func $i "text-changed")
+                (memory $memory) (realloc $realloc))))"#;
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = crate::ModHost::load_snapshot_with_grants(
+        &directory.path().join("package-edits.wat"),
+        source,
+        ModGrants::default(),
+    )
+    .unwrap();
+    host.instance
+        .store
+        .data_mut()
+        .declared
+        .actions
+        .insert("edit".into());
+    host.frame(false).unwrap_err();
+    let edit = crate::ModEvent::TextChanged {
+        control: "edit".into(),
+        text: "old".into(),
+    };
+    assert_eq!(
+        host.dispatch(vec![edit.clone()]).unwrap(),
+        CallbackOutcome::Deferred
+    );
+    host.frame(false).unwrap();
+    assert!(host.is_active());
+    host.dispatch(Vec::new()).unwrap();
+    assert!(host.is_active());
+    // A fresh edit still reaches the callback, whose trap proves it was not suppressed.
+    host.dispatch(vec![edit]).unwrap_err();
+    assert!(!host.is_active());
+}
+
+#[test]
 fn fuel_recovery_reverts_native_edits_when_reinitializing_controls() {
     let (engine, _ticker) = crate::execution::engine().unwrap();
     let mut instance = fuel_guest(

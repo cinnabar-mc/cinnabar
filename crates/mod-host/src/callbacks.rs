@@ -122,6 +122,10 @@ impl ModHost {
     /// Returns true when input sampled before replacement must be discarded.
     fn recover_frame_fuel(&mut self) -> Result<bool> {
         let recovered = self.instance.recover_frame_fuel()?;
+        if recovered {
+            self.pending_events
+                .retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        }
         if recovered && self.instance.has_events() {
             self.pending_events
                 .insert(0, ModEvent::ScreenChanged(self.layout.clone()));
