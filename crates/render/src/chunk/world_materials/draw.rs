@@ -38,13 +38,19 @@ impl WorldTerrainSections {
         self.bedrock.remove(&view).unwrap_or_default()
     }
 
-    /// Records the slot masks of `changed` sections, each with the mask its new mesh carries,
-    /// and forgets the `removed` ones.
+    /// Forgets the `removed` sections, then records the slot masks of `changed` ones, each
+    /// with the mask its new mesh carries; a section removed and given a new mesh in the same
+    /// frame keeps the new one.
     fn track(
         &mut self,
         changed: impl IntoIterator<Item = (Entity, u64)>,
         removed: impl IntoIterator<Item = Entity>,
     ) {
+        for entity in removed {
+            if let Some(previous) = self.masks.remove(&entity) {
+                self.count(previous, 0);
+            }
+        }
         for (entity, mask) in changed {
             let previous = if mask == 0 {
                 self.masks.remove(&entity)
@@ -52,11 +58,6 @@ impl WorldTerrainSections {
                 self.masks.insert(entity, mask)
             };
             self.count(previous.unwrap_or(0), mask);
-        }
-        for entity in removed {
-            if let Some(previous) = self.masks.remove(&entity) {
-                self.count(previous, 0);
-            }
         }
     }
 
@@ -549,6 +550,9 @@ mod tests {
         assert_eq!(sections.carried(), 0);
         assert!(!sections.queueing(false));
         assert!(sections.masks.is_empty());
+        // A section removed and meshed again in one frame keeps its new mask.
+        sections.track([(section(3), 0b10)], [section(3)]);
+        assert_eq!(sections.carried(), 0b10);
     }
 
     #[test]
