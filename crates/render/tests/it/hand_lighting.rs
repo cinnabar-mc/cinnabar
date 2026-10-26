@@ -1,7 +1,7 @@
 //! First-person lighting through the production vertex and fragment entry points.
 use crate::{
     gpu_snapshot::{Draw, Gpu},
-    hand_rig_bindings::HandFragmentBindings,
+    hand_rig_bindings::{HandFragmentBindings, hand_artwork_format},
     shader_safety, shader_source,
 };
 use bevy::math::{Mat4, Vec3};
@@ -25,8 +25,77 @@ fn source() -> String {
 }
 
 #[test]
-fn java_hand_lights_normals_and_composes_texture_in_gamma() {
-    let Some(gpu) = Gpu::for_fixture("Java first-person lighting") else {
+fn native_hand_samples_preserve_unorm_source_bytes() {
+    let Some(gpu) = Gpu::for_fixture("native hand source texels") else {
+        return;
+    };
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("original hand texel byte ramp"),
+        size: wgpu::Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: hand_artwork_format(&HandRigLight::default()),
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+    });
+    let pixels: Vec<u8> = (0..=255_u16)
+        .flat_map(|value| {
+            [
+                value as u8,
+                (255 - value) as u8,
+                (value * 37 % 256) as u8,
+                value as u8,
+            ]
+        })
+        .collect();
+    gpu.queue.write_texture(
+        texture.as_image_copy(),
+        &pixels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(64),
+            rows_per_image: Some(16),
+        },
+        texture.size(),
+    );
+    let sampled = texture.create_view(&Default::default());
+    let reference = texture.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(wgpu::TextureFormat::Rgba8Unorm),
+        ..Default::default()
+    });
+    let shader = format!(
+        "{}\n@group(0) @binding(22) var decoded_texels: texture_2d<f32>; @group(0) @binding(23) var native_texels: texture_2d<f32>; @group(0) @binding(24) var<storage, read_write> result: array<vec4<u32>>; @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {{ let point = vec2<i32>(i32(id.x % 16u), i32(id.x / 16u)); result[id.x*2u] = bitcast<vec4<u32>>(hand_gamma_sample(textureLoad(decoded_texels, point, 0), true)); result[id.x*2u+1u] = bitcast<vec4<u32>>(textureLoad(native_texels, point, 0)); }}",
+        source()
+    );
+    let actual = gpu.compute_readback(
+        &shader,
+        &[
+            wgpu::BindGroupEntry {
+                binding: 22,
+                resource: wgpu::BindingResource::TextureView(&sampled),
+            },
+            wgpu::BindGroupEntry {
+                binding: 23,
+                resource: wgpu::BindingResource::TextureView(&reference),
+            },
+        ],
+        24,
+        512,
+        256,
+    );
+    for (value, pair) in actual.as_chunks::<2>().0.iter().enumerate() {
+        assert_eq!(pair[0], pair[1], "source byte {value}");
+    }
+}
+
+#[test]
+fn bedrock_and_java_hand_light_normals_and_compose_texture_in_gamma() {
+    let Some(gpu) = Gpu::for_fixture("Bedrock and Java first-person lighting") else {
         return;
     };
     let identity: [[f32; 4]; 3] = [
@@ -76,11 +145,11 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
+        view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
     });
     gpu.queue.write_texture(
         texture.as_image_copy(),
-        &[128, 128, 128, 255],
+        &[128, 227, 255, 255],
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4),
@@ -88,10 +157,6 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
         },
         texture.size(),
     );
-    let atlas = texture.create_view(&wgpu::TextureViewDescriptor {
-        dimension: Some(wgpu::TextureViewDimension::D2Array),
-        ..Default::default()
-    });
     let sampler = gpu.device.create_sampler(&Default::default());
     let glint = gpu.blank_texture_view();
     for (layer, basis, stretch) in [
@@ -113,18 +178,44 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
             }]),
             wgpu::BufferUsages::STORAGE,
         );
-        for (java, normal, world_light, expected) in [
-            (false, [0.0, -1.0, 0.0], 1.0_f32, 128.0),
-            (true, [0.0, -1.0, 0.0], 1.0, 51.2),
-            (true, [0.0, 1.0, 0.0], 1.0, 128.0),
+        for (java, varying_normals, normal, world_light, camera_angle, emission, expected) in [
+            (false, false, [0.0, -1.0, 0.0], 1.0_f32, 0.0, 0, 57.6),
+            (false, false, [0.0, 1.0, 0.0], 1.0, 0.0, 0, 128.0),
+            (false, false, [1.0, 0.0, 0.0], 1.0, 0.0, 0, 80.0),
+            (false, false, [0.0, 0.0, 1.0], 1.0, 0.0, 0, 105.6),
+            (
+                false,
+                false,
+                [0.0, 0.0, 1.0],
+                1.0,
+                std::f32::consts::FRAC_PI_2,
+                0,
+                57.6,
+            ),
+            (false, false, [0.0, -1.0, 0.0], 0.5, 0.0, 15, 57.6),
+            (true, false, [0.0, -1.0, 0.0], 1.0, 0.0, 0, 51.2),
+            (true, false, [0.0, 1.0, 0.0], 1.0, 0.0, 0, 128.0),
             (
                 true,
+                false,
                 [1.0, 0.0, 0.0],
                 1.0,
+                0.0,
+                0,
                 128.0 * (0.4 + stretch * 0.6 * 0.2 / 1.53_f32.sqrt()),
             ),
-            (true, [0.0, 0.0, 1.0], 1.0, 94.6614),
-            (true, [0.0, 1.0, 0.0], 0.5, 64.0),
+            (true, false, [0.0, 0.0, 1.0], 1.0, 0.0, 0, 94.6614),
+            (true, false, [0.0, 1.0, 0.0], 0.5, 0.0, 0, 64.0),
+            (false, true, [0.0, 1.0, 0.0], 1.0, 0.0, 0, 92.9375),
+            (
+                false,
+                false,
+                [0.0, 1.0, 0.0],
+                252.0 / 255.0,
+                std::f32::consts::FRAC_PI_4,
+                0,
+                122.6303,
+            ),
         ] {
             let vertices = [
                 (-1.0, -1.0),
@@ -141,7 +232,11 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
                     .to_array(),
                 normal: basis
                     .inverse()
-                    .transform_vector3(Vec3::from_array(normal))
+                    .transform_vector3(if varying_normals {
+                        if x < 0.0 { Vec3::NEG_Y } else { Vec3::Y }
+                    } else {
+                        Vec3::from_array(normal)
+                    })
                     .to_array(),
                 uv: [0.5; 2],
                 back_uv: [0.5; 2],
@@ -157,10 +252,26 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
                     .extend(0.0)
                     .to_array(); 3];
             }
+            if camera_angle != 0.0 {
+                light = light.with_bedrock_lighting(Mat4::from_rotation_x(camera_angle));
+            }
+            light.emitted_light = [0, emission, emission, 0];
+            let atlas = texture.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(hand_artwork_format(&light)),
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
             let light = gpu.buffer(bytemuck::cast_slice(&[light]), wgpu::BufferUsages::UNIFORM);
-            let lightmap = gpu.lightmap(bytemuck::cast_slice(
-                &[[world_light, world_light, world_light, 1.0]; 256],
-            ));
+            let mut lightmap = [[world_light, world_light, world_light, 1.0]; 256];
+            if emission != 0 {
+                lightmap[emission as usize] = [1.0; 4];
+            }
+            let lightmap = gpu.lightmap(bytemuck::cast_slice(&lightmap));
+            let expected = if emission != 0 && layer == 0 {
+                expected * world_light
+            } else {
+                expected
+            };
             let buffers = [
                 (0, &projection),
                 (2, &vertices),
@@ -202,10 +313,18 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
                     write_depth: true,
                 }],
             );
-            let observed = pixels[(128 * 256 + 128) * 4];
+            let center = (128 * 256 + 128) * 4;
+            let observed = pixels[center];
+            if camera_angle == std::f32::consts::FRAC_PI_4 {
+                assert_eq!(
+                    pixels[center + 1],
+                    217,
+                    "opaque gamma output rounds before sRGB storage"
+                );
+            }
             assert!(
                 (f32::from(observed) - expected).abs() <= 1.0,
-                "Java={java}, layer={layer}, stretch={stretch}, normal={normal:?}, world={world_light}: expected {expected}, got {observed}"
+                "Java={java}, varying={varying_normals}, layer={layer}, stretch={stretch}, normal={normal:?}, world={world_light}: expected {expected}, got {observed}"
             );
         }
     }

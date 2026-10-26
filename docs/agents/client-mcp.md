@@ -38,6 +38,8 @@ schemas document every argument. Agents drive the client only through this endpo
   item's resolved use profile. `state.local_mods` also reports bounded
   host status and validated panel controls, so tests can verify module toggles and settings
   directly before sending a stimulus. These diagnostics do not grant movement authority.
+- `state.hand_draw` reports the last published main-hand and offhand item instance counts.
+  Check these alongside the selected item when verifying held-item captures; skin arms do not count.
 - `state.client_part_screens` lists each running client part's open modal screen: its `bundle`,
   its `template` (such as `ui/terminal.json`), whether it is `focused` (owns input) and whether
   the last frame `drawn` it. `state.screens` lists only the client's own scenes.

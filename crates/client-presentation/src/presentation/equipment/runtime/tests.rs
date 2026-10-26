@@ -1,5 +1,8 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "item_mesh_tests.rs"]
+mod item_mesh_tests;
+
 #[path = "map_mesh_tests.rs"]
 mod map_mesh_tests;
 
@@ -712,31 +715,6 @@ fn third_person_block_retains_the_existing_grip_on_the_avatar_bone() {
     assert_eq!(&*third.submission.input.previous_bones, &[expected]);
     assert_eq!(&*third.submission.input.current_bones, &[expected]);
     assert_eq!(third.submission.world_from_actor, body.world_from_actor);
-}
-
-#[test]
-fn review_render_pack_replacement_reclaims_mesh_slots_without_reusing_vanilla_ids() {
-    let (mut runtime, _, _) = block_fixture();
-    runtime.next_mesh = MAX_ITEM_MESHES as u32;
-    for index in 0..MAX_ITEM_MESHES as u32 - 1 {
-        runtime
-            .meshes
-            .insert(MeshKey::Block(index), Some(item_mesh_rig_id(index)));
-    }
-    let retired = item_mesh_rig_id(MAX_ITEM_MESHES as u32 - 1);
-    let placement = runtime.blocks.source.placements[0].unwrap();
-    for _ in 0..8 {
-        runtime.attachable_meshes.insert((true, 0, (1, 0)), retired);
-        runtime.set_pack_layer(None);
-        assert_eq!(
-            runtime.build_mesh(MeshKey::Block(7), 0, placement),
-            Some(retired)
-        );
-        assert_eq!(
-            runtime.meshes[&MeshKey::Block(0)],
-            Some(item_mesh_rig_id(0))
-        );
-    }
 }
 
 #[test]

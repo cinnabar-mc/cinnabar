@@ -401,11 +401,12 @@ pub(super) fn upload_skin(
     queue: &RenderQueue,
     frame: &HandRigFrame,
 ) {
-    if gpu
-        .skin
-        .as_ref()
-        .is_some_and(|skin| skin.pixels == frame.skin && skin.raw_views == gpu.raw_views)
-    {
+    let format = bindings::hand_artwork_format(&frame.light);
+    if gpu.skin.as_ref().is_some_and(|skin| {
+        skin.pixels == frame.skin
+            && skin.raw_views == gpu.raw_views
+            && skin._texture.format() == format
+    }) {
         return;
     }
     let side = render_model::actor_skin_side(&frame.skin).expect("admitted hand skin") as u32;
@@ -421,9 +422,13 @@ pub(super) fn upload_skin(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: gpu.raw_views.view_formats(),
+            view_formats: if format.is_srgb() {
+                gpu.raw_views.view_formats()
+            } else {
+                &[]
+            },
         },
         TextureDataOrder::LayerMajor,
         &frame.skin,
@@ -450,6 +455,7 @@ pub(super) fn upload_atlas(
     frame: &HandRigFrame,
 ) {
     let raw_views = gpu.raw_views;
+    let format = bindings::hand_artwork_format(&frame.light);
     for (slot, atlas) in gpu.atlases.iter_mut().zip(&frame.item_atlases) {
         let Some(atlas) = atlas else {
             if slot.take().is_some() {
@@ -471,6 +477,7 @@ pub(super) fn upload_atlas(
         if slot.as_ref().is_some_and(|current| {
             Arc::ptr_eq(&current.pixels, &atlas.rgba8)
                 && current.raw_views == raw_views
+                && current._texture.format() == format
                 && current.size
                     == [
                         u32::from(atlas.width),
@@ -492,9 +499,13 @@ pub(super) fn upload_atlas(
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
+                format,
                 usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: raw_views.view_formats(),
+                view_formats: if format.is_srgb() {
+                    raw_views.view_formats()
+                } else {
+                    &[]
+                },
             },
             TextureDataOrder::LayerMajor,
             &atlas.rgba8,

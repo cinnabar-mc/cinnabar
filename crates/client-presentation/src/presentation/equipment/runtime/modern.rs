@@ -307,6 +307,7 @@ impl EquipmentRuntime {
             presentation: super::push::attachable_glint(presentation, item),
             camera_space: java_camera.is_some(),
             alpha_mode: render_model::HandItemAlphaMode::Cutout,
+            emitted_light: 0,
             java_camera,
             java_normal_axis,
         })

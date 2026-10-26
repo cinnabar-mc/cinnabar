@@ -151,6 +151,6 @@ pub(super) fn lighting(
     if java_mode {
         hand_light.with_java_lighting(hand::java_light_matrix(hand_motion, rotation))
     } else {
-        hand_light
+        hand_light.with_bedrock_lighting(Mat4::from_quat(rotation))
     }
 }

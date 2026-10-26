@@ -5,6 +5,16 @@ use crate::prepared_actor_artwork::{PreparedActorArtwork, session_resources};
 
 /// Encodes an original cuboid carrier with independently variable height, color and alpha mode.
 pub(crate) fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAssets> {
+    terrain_with_template_flags(height, color, flags, 0)
+}
+
+/// Encodes the same fixture with an admitted model class for held-pose selection.
+fn terrain_with_template_flags(
+    height: i16,
+    color: [u8; 4],
+    flags: u32,
+    template_flags: u32,
+) -> Arc<RuntimeAssets> {
     let quads = assets::BlockFace::ALL.map(|face| {
         let (corners, uvs) = assets::gui_item::cube_face(face);
         let mut quad = assets::ModelQuad {
@@ -47,6 +57,11 @@ pub(crate) fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAss
         variant: 0,
         destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     };
+    let template_count = if template_flags == assets::MODEL_TEMPLATE_FLAG_STAIR {
+        5
+    } else {
+        1
+    };
     let compiled = assets::CompiledAssets {
         visuals: vec![visual; 8].into(),
         light_properties: vec![assets::LightProperties::OPAQUE_DARK; 8].into(),
@@ -60,13 +75,14 @@ pub(crate) fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAss
             },
         ]
         .into(),
-        model_templates: vec![assets::ModelTemplate {
-            quad_start: 0,
-            quad_count: quads.len() as u32,
-            flags: 0,
-        }]
-        .into(),
-        model_quads: quads.into(),
+        model_templates: (0..template_count)
+            .map(|index| assets::ModelTemplate {
+                quad_start: index * quads.len() as u32,
+                quad_count: quads.len() as u32,
+                flags: template_flags,
+            })
+            .collect(),
+        model_quads: (0..template_count).flat_map(|_| quads).collect(),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![assets::TexturePage::new(assets::TextureArray {
@@ -456,7 +472,7 @@ fn held_terrain_reload_replaces_warmed_mesh_pixels_alpha_and_restores_startup() 
     assert_eq!(geometry.vertices, original.vertices);
     assert_eq!(drawn_pixel(&pages, &restored.presentation, &geometry), blue);
     assert_eq!(restored.alpha_mode, render_model::HandItemAlphaMode::Opaque);
-    for _ in 0..MAX_ITEM_MESHES + 1 {
+    for _ in 0..8 {
         for source in [resources.block_items.as_ref(), None] {
             runtime.set_block_items(source);
             runtime
@@ -465,4 +481,94 @@ fn held_terrain_reload_replaces_warmed_mesh_pixels_alpha_and_restores_startup() 
             runtime.take_pending_geometries();
         }
     }
+}
+
+#[test]
+fn first_person_stair_pose_follows_the_active_terrain_template() {
+    for profile in [
+        render_api::CombatVisuals::Legacy112,
+        render_api::CombatVisuals::Modern,
+    ] {
+        let startup = terrain(128, [30, 40, 50, 255], 0);
+        let (mut runtime, pages, body, item) = fixture(startup);
+        let replacement = terrain_with_template_flags(
+            128,
+            [30, 40, 50, 255],
+            0,
+            assets::MODEL_TEMPLATE_FLAG_STAIR,
+        );
+        let blocks = runtime
+            .block_item_preparer()
+            .unwrap()
+            .prepare(&replacement)
+            .unwrap();
+        let prepared = PreparedActorArtwork::new_with_block_items(&pages, None, None, Some(blocks));
+        let resources = session_resources(&pages, None, Some(&prepared));
+        for (selected, expected_z) in [
+            (None, -std::f32::consts::FRAC_1_SQRT_2),
+            (
+                resources.block_items.as_ref(),
+                std::f32::consts::FRAC_1_SQRT_2,
+            ),
+            (None, -std::f32::consts::FRAC_1_SQRT_2),
+        ] {
+            runtime.set_block_items(selected);
+            let first = runtime
+                .first_person_item_for_profile(
+                    &body,
+                    &item,
+                    ItemAnimationState::default().into(),
+                    profile,
+                )
+                .unwrap();
+            let pose = first.presentation.submission.input.current_bones[0];
+            let axis = bevy::math::Quat::from_array(pose.rotation) * bevy::math::Vec3::X;
+            assert!(
+                axis.abs_diff_eq(
+                    bevy::math::Vec3::new(std::f32::consts::FRAC_1_SQRT_2, 0.0, expected_z),
+                    1.0e-6,
+                ),
+                "profile={profile:?}, expected Z={expected_z}, got {axis:?}"
+            );
+            assert!(
+                bevy::math::Vec3::from_array(pose.translation_scale[..3].try_into().unwrap())
+                    .abs_diff_eq(bevy::math::Vec3::new(0.56, -0.52, -0.72), 1.0e-6)
+            );
+            assert!((pose.translation_scale[3] - 0.4).abs() < 1.0e-6);
+        }
+    }
+}
+
+#[test]
+fn every_pinned_stair_family_selects_its_first_person_turn() {
+    let records = assets::registry::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let (runtime, _, mut item) = block_fixture();
+    let mut names = std::collections::BTreeSet::new();
+    let mut stairs = 0;
+    for record in records {
+        if !names.insert(record.name.clone()) {
+            continue;
+        }
+        item.identifier = record.name.clone().into();
+        item.kind = HeldKind::Block(record.sequential_id);
+        let expected = record.model_family == assets::ModelFamily::Stair
+            || assets::facts::pack::face_slots(&item.identifier)
+                == Some(assets::facts::pack::FaceSlots::Pumpkin);
+        assert_eq!(
+            runtime.first_person_block_quarter_turn(&item),
+            expected,
+            "{}",
+            record.name
+        );
+        if record.model_family == assets::ModelFamily::Stair {
+            stairs += 1;
+            item.identifier = Arc::from("custom:ordinary");
+            assert!(!runtime.first_person_block_quarter_turn(&item));
+        }
+    }
+    assert!(stairs > 0);
 }

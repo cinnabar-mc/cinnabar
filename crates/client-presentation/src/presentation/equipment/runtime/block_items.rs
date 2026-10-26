@@ -204,6 +204,47 @@ impl PreparedBlockItems {
 }
 
 impl EquipmentRuntime {
+    /// Selects the carried block's first-person turn from its family and active model.
+    pub(super) fn first_person_block_quarter_turn(&self, item: &WornItem) -> bool {
+        if assets::facts::pack::face_slots(&item.identifier)
+            == Some(assets::facts::pack::FaceSlots::Pumpkin)
+        {
+            return true;
+        }
+        let HeldKind::Block(visual) = item.kind else {
+            return false;
+        };
+        if assets::registry::pinned_block_model_family(visual) == Some(assets::ModelFamily::Stair)
+            && assets::registry::pinned_block_identity(visual)
+                .is_some_and(|(name, _)| name == item.identifier.as_ref())
+        {
+            return true;
+        }
+        self.blocks.source.world.as_deref().is_some_and(|world| {
+            world
+                .resolve(assets::NetworkIdMode::Sequential, visual)
+                .model_template()
+                .and_then(|index| world.model_templates().get(index as usize))
+                .is_some_and(|model| model.flags & assets::MODEL_TEMPLATE_FLAG_STAIR != 0)
+        })
+    }
+
+    /// Retains a three-dimensional block item's emission from its active terrain generation.
+    pub(super) fn first_person_emitted_light(&self, item: &WornItem, block: bool) -> u8 {
+        if !block {
+            return 0;
+        }
+        let HeldKind::Block(visual) = item.kind else {
+            return 0;
+        };
+        self.blocks.source.world.as_deref().map_or(0, |world| {
+            world
+                .resolve(assets::NetworkIdMode::Sequential, visual)
+                .light_properties()
+                .emission()
+        })
+    }
+
     /// Borrows the active carried model source; consumers must match it to their terrain.
     pub(crate) fn prepared_block_items(&self) -> &Arc<PreparedBlockItems> {
         &self.blocks.source

@@ -3,7 +3,10 @@ use super::*;
 
 #[test]
 fn map_planes_remain_distinct_when_the_item_mesh_range_is_full() {
-    for next in [MAX_ITEM_MESHES as u32 - 1, MAX_ITEM_MESHES as u32] {
+    for next in [
+        STARTUP_MESH_ID_CAPACITY as u32 - 1,
+        STARTUP_MESH_ID_CAPACITY as u32,
+    ] {
         let (mut runtime, _, _) = block_fixture();
         runtime.next_mesh = next;
         runtime.take_pending_geometries();
@@ -38,7 +41,7 @@ fn map_planes_remain_distinct_when_the_item_mesh_range_is_full() {
         });
         assert_eq!(
             ordinary,
-            (next < MAX_ITEM_MESHES as u32).then(|| item_mesh_rig_id(next))
+            (next < STARTUP_MESH_ID_CAPACITY as u32).then(|| item_mesh_rig_id(next))
         );
         assert!(ordinary.is_none_or(|id| !planes.contains(&id)));
         runtime.take_pending_geometries();

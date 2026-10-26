@@ -335,6 +335,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actor_count": actor_count,
         "actors": actors,
         "actor_draw": super::actors::snapshot(world),
+        "hand_draw": super::actors::hand_snapshot(world),
         "player_motion": player_motion(world),
         "local_mods": local_mods,
         "primitive_shapes": crate::primitive_shapes::snapshot(world),

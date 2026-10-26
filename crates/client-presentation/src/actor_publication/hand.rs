@@ -88,6 +88,7 @@ pub(super) fn publish_hand_rig(
     for (index, entry) in source.items.into_iter().enumerate() {
         if let Some((layer, atlas)) = entry {
             light.java_normal_axes[index + 1] = layer.java_normal_axis.extend(0.0).to_array();
+            light.emitted_light[index + 1] = u32::from(layer.emitted_light);
             atlases[index] = Some(atlas);
         }
     }

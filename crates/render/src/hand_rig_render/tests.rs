@@ -535,6 +535,23 @@ fn pose_updates_reuse_their_buffers() {
         &off_pixels
     ));
 
+    // Switching animation settings preserves the artwork but changes its sampling format.
+    let frame = scene.frame.as_mut().unwrap();
+    for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
+        let previous = gpu.atlases[0].as_ref().unwrap()._texture.id();
+        frame.light = light;
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        let atlas = gpu.atlases[0].as_ref().unwrap();
+        assert_ne!(atlas._texture.id(), previous);
+        assert_eq!(
+            atlas._texture.format(),
+            bindings::hand_artwork_format(&light)
+        );
+        let uploaded = atlas._texture.id();
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        assert_eq!(gpu.atlases[0].as_ref().unwrap()._texture.id(), uploaded);
+    }
+
     // The same pixel allocation with new dimensions is not the same texture.
     scene.set_item_atlases([
         Some(HandItemAtlas {
@@ -625,6 +642,24 @@ fn native_skin_hand_uploads_match_source_dimensions_and_reuse_textures() {
             1.2
         ));
     }
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let frame = scene.frame.as_mut().unwrap();
+    upload_skin(&mut gpu, &device, &queue, frame);
+    for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
+        let previous = gpu.skin.as_ref().unwrap()._texture.id();
+        frame.light = light;
+        upload_skin(&mut gpu, &device, &queue, frame);
+        let skin = gpu.skin.as_ref().unwrap();
+        assert_ne!(skin._texture.id(), previous);
+        assert_eq!(
+            skin._texture.format(),
+            bindings::hand_artwork_format(&light)
+        );
+        let uploaded = skin._texture.id();
+        upload_skin(&mut gpu, &device, &queue, frame);
+        assert_eq!(gpu.skin.as_ref().unwrap()._texture.id(), uploaded);
+    }
 }
 
 #[test]
@@ -652,7 +687,7 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
     }
 }
 
-/// Hand artwork allows the pack's raw view only while a pack draws; switching recreates it.
+/// Bedrock artwork is already raw; Java artwork and glint gain raw views for packs.
 #[cfg(feature = "shaderpacks")]
 #[test]
 fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
@@ -688,7 +723,10 @@ fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
             &gpu.glint.as_ref().unwrap()._texture,
         ];
         for texture in textures {
-            assert_eq!(permits_raw_view(device.wgpu_device(), texture), pack);
+            assert_eq!(
+                permits_raw_view(device.wgpu_device(), texture),
+                pack || texture.format() == TextureFormat::Rgba8Unorm
+            );
         }
     }
 }

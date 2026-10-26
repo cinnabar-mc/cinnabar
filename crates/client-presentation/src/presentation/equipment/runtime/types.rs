@@ -109,6 +109,8 @@ pub struct FirstPersonItem {
     pub presentation: EquipmentPresentation,
     pub camera_space: bool,
     pub alpha_mode: render_model::HandItemAlphaMode,
+    /// Block emission retained independently of the player's sampled world light.
+    pub emitted_light: u8,
     /// Camera from item space under Java's hand stack; the item's bones then sit at rest.
     pub java_camera: Option<bevy::math::Mat4>,
     /// Java's sprite-depth normal in this rig frame, used for legacy normal rescaling.

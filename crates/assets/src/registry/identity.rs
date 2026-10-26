@@ -1,4 +1,4 @@
-//! Borrowed diagnostic identities from the embedded, startup-validated block registry.
+//! Borrowed identities and model families from the startup-validated block registry.
 
 use std::{str, sync::OnceLock};
 
@@ -9,18 +9,30 @@ use super::{
         REGISTRY_MAGIC, read_collision_box, read_record_header, read_registry_metadata,
     },
 };
-use crate::AssetError;
+use crate::{AssetError, ModelFamily};
 
-/// The text fields needed by observations, without decoded collision or state facts.
+/// Borrowed identity text and model class, without decoded collision or state facts.
 pub(super) struct RegistryIdentity<'a> {
     pub(super) sequential_id: u32,
     pub(super) name: &'a str,
     pub(super) canonical_state: &'a str,
+    pub(super) model_family: ModelFamily,
 }
 
 /// Returns exact pinned name/state text without decoding the registry's semantic facts.
 /// The immutable index borrows the embedded bytes; startup remains responsible for full validation.
 pub fn pinned_block_identity(sequential_id: u32) -> Option<(&'static str, &'static str)> {
+    let identity = pinned_identity(sequential_id)?;
+    Some((identity.name, identity.canonical_state))
+}
+
+/// Returns the pinned model family without decoding collision or state payloads.
+pub fn pinned_block_model_family(sequential_id: u32) -> Option<ModelFamily> {
+    Some(pinned_identity(sequential_id)?.model_family)
+}
+
+/// Shares the borrowed identity index across name, state and family lookups.
+fn pinned_identity(sequential_id: u32) -> Option<&'static RegistryIdentity<'static>> {
     static IDENTITIES: OnceLock<Box<[RegistryIdentity<'static>]>> = OnceLock::new();
     let identities = IDENTITIES.get_or_init(|| {
         read_identities(
@@ -30,10 +42,10 @@ pub fn pinned_block_identity(sequential_id: u32) -> Option<(&'static str, &'stat
         .unwrap_or_default()
     });
     let identity = identities.get(sequential_id as usize)?;
-    (identity.sequential_id == sequential_id).then_some((identity.name, identity.canonical_state))
+    (identity.sequential_id == sequential_id).then_some(identity)
 }
 
-/// Projects bounded current-format framing into borrowed text, leaving semantic validation to startup.
+/// Reads borrowed text and the model class from bounded current-format framing.
 pub(super) fn read_identities(
     bytes: &[u8],
     expected_protocol: u32,
@@ -91,6 +103,7 @@ pub(super) fn read_identities(
             sequential_id: header.sequential_id,
             name,
             canonical_state,
+            model_family: ModelFamily::read(header.model_family)?,
         });
     }
     if reader.remaining() != 0 {
