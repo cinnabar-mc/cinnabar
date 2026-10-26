@@ -92,8 +92,7 @@ impl ActorStore {
         self.pick(runtime_id).map(|pick| &pick.state)
     }
 
-    /// This frame's predicted motion of a remote actor, while picks are ahead of the live
-    /// actors.
+    /// Staged remote motion before this frame advances the live actors.
     pub(in crate::actor_store) fn pick_ahead(
         &self,
         runtime_id: u64,

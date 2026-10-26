@@ -799,8 +799,7 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
-    /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
-    /// the frame advances the live actors; reused across frames.
+    /// Staged vehicle and collision motion, sorted by runtime id and reused across frames.
     pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
     local_view_bobbing: bool,

@@ -141,6 +141,15 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
+    /// Returns completed previous/current feet and interpolation steps for interaction diagnostics.
+    pub fn pick_motion(&self, actor: &ActorSnapshot) -> ([f32; 3], [f32; 3], u32) {
+        (
+            actor.previous_pose.position,
+            actor.position,
+            actor.interpolation_ticks_remaining,
+        )
+    }
+
     /// Predicts remote motion for vehicle and collision queries, leaving interaction boxes
     /// at the completed simulation pose until [`Self::advance_actor_interpolation_frame`].
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {

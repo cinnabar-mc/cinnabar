@@ -62,6 +62,8 @@ closes no gate and provides no new runtime or performance evidence.
   conformance findings, classify every decode error, and qualify frame and mutation
   latency against the current [live-testing requirements](docs/agents/live-testing.md).
   Use the current headless client workflow for scripted tests; keep captures local.
+  Opt-in packet captures retain attack and mouseover pick geometry, input-frame identities,
+  applied packet correspondence and remote actor time. Live comparison evidence remains open.
   Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
   live custom-dimension transfer acceptance remains open.
 
@@ -1148,8 +1150,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   while constraining the storage budget. Proprietary Adreno Vulkan drivers use direct terrain
   draws after indirect draws produced empty frames on Adreno 619 and 750. Both devices pass the
   coverage, occlusion and reupload fixtures with this fallback; PowerVR GE8320 also passes.
-  Mali-G57, Mali-G78 and Mali-G715 fixture pipeline compilation still crashes without completed
-  frames.
+  Mali-G57, Mali-G78, Mali-G715 and PowerVR DXT fixture pipeline compilation failed before
+  completed frames. Shader translation now separates logical Function/Private allocations from
+  host buffer layouts and preserves either advertised image-robustness feature. Composed terrain
+  programs validate for Vulkan 1.1 and 1.3 with bounds checks enabled, and host terrain pixels
+  remain unchanged; physical-device validation of these compiler fixes remains open.
   Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
   with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
   CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
@@ -1642,6 +1647,10 @@ including hands, labels and the base UI raster. Enhanced water, shadows and shaf
 disable sampling while their required targets are unavailable. Injected failures cover
 recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
 remain incomplete.
+
+Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
+frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
+screens with a free cursor still receive every raw report.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

@@ -169,7 +169,13 @@ fn pending_remote_ticks_do_not_advance_sent_hit_positions() {
         let min = min.map(|value| value - radius);
         let max = max.map(|value| value + radius);
         // Stage the upcoming frame step, then send interactions before its next input.
+        let completed_motion = world.pick_motion(actor);
         world.predict_remote_actor_motion(1);
+        assert_eq!(
+            world.pick_motion(world.actor(1).unwrap()),
+            completed_motion,
+            "pick diagnostics must describe the same completed step as the interaction boxes"
+        );
         let hit = pick_actor_by(
             world.remote_actors(),
             |actor| world.pick_hit_boxes(actor),

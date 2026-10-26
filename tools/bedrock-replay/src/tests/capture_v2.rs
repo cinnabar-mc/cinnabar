@@ -28,7 +28,7 @@ fn fixture_packets() -> Vec<(u32, Bytes)> {
     packets
 }
 
-/// The fixture as a client records it in v2: each packet at its [`ARRIVALS`] time, with a
+/// The fixture as a client records it in the current format: each packet at its [`ARRIVALS`] time, with a
 /// serverbound reply and a gap of three dropped packets after the first, within `limit` bytes.
 fn v2_fixture(protocol_version: i32, limit: u64) -> Vec<u8> {
     let header = CaptureHeader {
@@ -41,6 +41,7 @@ fn v2_fixture(protocol_version: i32, limit: u64) -> Vec<u8> {
     {
         writer
             .write(&CaptureRecord::Packet {
+                sequence: index as u64 + 1,
                 direction: PacketDirection::Clientbound,
                 packet_id,
                 elapsed_us,
@@ -50,6 +51,7 @@ fn v2_fixture(protocol_version: i32, limit: u64) -> Vec<u8> {
         if index == 0 {
             writer
                 .write(&CaptureRecord::Packet {
+                    sequence: 1,
                     direction: PacketDirection::Serverbound,
                     packet_id: 0x45,
                     elapsed_us: elapsed_us + 1,
@@ -72,7 +74,7 @@ fn read(data: Vec<u8>) -> anyhow::Result<crate::capture::Capture> {
 }
 
 #[test]
-fn v2_captures_replay_the_clientbound_packets_a_v1_capture_holds() {
+fn versioned_captures_replay_the_clientbound_packets_a_v1_capture_holds() {
     let v1 = read(fixtures::capture()).unwrap();
     let v2 = read(v2_fixture(protocol::PROTOCOL_VERSION, MAX_CAPTURE_BYTES)).unwrap();
     assert_eq!(v2.summary.replay_sha256, v1.summary.replay_sha256);
@@ -88,7 +90,16 @@ fn v2_captures_replay_the_clientbound_packets_a_v1_capture_holds() {
             v2.summary.truncated,
             v2.summary.capture_started_unix_ms,
         ),
-        (1, 2, 8, 6, 1, 3, false, Some(STARTED_UNIX_MS))
+        (
+            1,
+            protocol::capture::CAPTURE_VERSION,
+            8,
+            6,
+            1,
+            3,
+            false,
+            Some(STARTED_UNIX_MS)
+        )
     );
     assert_eq!(
         v2.packets
@@ -186,6 +197,7 @@ fn cached_terrain_captures_are_rejected_explicitly() {
                     {
                         writer
                             .write(&CaptureRecord::Packet {
+                                sequence: 1,
                                 direction: PacketDirection::Clientbound,
                                 packet_id,
                                 elapsed_us: 0,
@@ -292,4 +304,55 @@ fn original_timing_is_a_boolean_flag() {
             .original_timing
     );
     assert!(parse(&["-original-timing=maybe"]).is_err());
+}
+
+#[test]
+fn pick_diagnostics_do_not_change_replayed_packets_or_timing() {
+    let original = v2_fixture(protocol::PROTOCOL_VERSION, MAX_CAPTURE_BYTES);
+    let expected = read(original.clone()).unwrap();
+    let mut writer = CaptureWriter::new(
+        Vec::new(),
+        protocol::capture::CaptureHeader {
+            protocol_version: protocol::PROTOCOL_VERSION,
+            started_unix_ms: STARTED_UNIX_MS,
+        },
+    )
+    .unwrap();
+    writer
+        .write(&CaptureRecord::Pick {
+            elapsed_us: 30_000,
+            packet_sequence: 1,
+            state: protocol::capture::PickState {
+                target: 77,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    let mut with_pick = original;
+    with_pick.extend_from_slice(
+        &writer.into_inner()[protocol::capture::CAPTURE_HEADER_BYTES as usize..],
+    );
+    let actual = read(with_pick).unwrap();
+    assert_eq!(actual.summary.records, expected.summary.records + 1);
+    assert_eq!(actual.summary.replay_sha256, expected.summary.replay_sha256);
+    assert_eq!(
+        actual.summary.replay_packets,
+        expected.summary.replay_packets
+    );
+    assert_eq!(
+        actual.summary.serverbound_records_ignored,
+        expected.summary.serverbound_records_ignored
+    );
+    assert_eq!(
+        actual
+            .packets
+            .iter()
+            .map(|packet| packet.elapsed)
+            .collect::<Vec<_>>(),
+        expected
+            .packets
+            .iter()
+            .map(|packet| packet.elapsed)
+            .collect::<Vec<_>>()
+    );
 }

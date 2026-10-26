@@ -56,6 +56,7 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
             Update,
             (
                 advance_actor_frame,
+                crate::runtime::network::complete_actor_motion_trace,
                 crate::runtime::network::publish_local_actor_damage,
             )
                 .chain()

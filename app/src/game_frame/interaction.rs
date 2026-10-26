@@ -12,7 +12,7 @@ pub(crate) fn configure(app: &mut App) {
     app.add_systems(
         Update,
         crate::melee::complete_melee_actor_frame
-            .after(crate::runtime::network::advance_actor_frame)
+            .after(crate::runtime::network::complete_actor_motion_trace)
             .after(ClientFrameSet::NetworkSend)
             .in_set(ClientFrameSet::ActorPreparation),
     );
