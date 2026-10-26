@@ -955,3 +955,6 @@ mod tests;
 
 #[cfg(test)]
 mod fingerprint_bench;
+
+#[cfg(all(test, target_os = "linux", feature = "reports"))]
+mod memory_report;

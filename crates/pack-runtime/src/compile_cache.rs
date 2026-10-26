@@ -25,12 +25,14 @@ pub fn current() -> Option<&'static CompileCache> {
     COMPILE_CACHE.get()
 }
 
-const MAGIC: [u8; 8] = *b"CNBRCMP2";
+const MAGIC: [u8; 8] = *b"CNBRCMP3";
 const HASH: usize = 32;
 const KEY_OFFSET: usize = MAGIC.len();
-const LENGTH_OFFSET: usize = KEY_OFFSET + HASH;
-const DECODED_LENGTH_OFFSET: usize = LENGTH_OFFSET + std::mem::size_of::<u64>();
+const DECODED_LENGTH_OFFSET: usize = KEY_OFFSET + HASH;
 const HEADER: usize = DECODED_LENGTH_OFFSET + std::mem::size_of::<u64>();
+/// The compressed length and the digest of everything before it follow the payload, so an
+/// entry is written and verified in one streaming pass.
+const TRAILER: usize = std::mem::size_of::<u64>() + HASH;
 const EXTENSION: &str = "bin";
 /// A writer that died mid-entry leaves its temporary file; later writers sweep it after this.
 const STALE_TEMPORARY: Duration = Duration::from_secs(3600);
@@ -100,45 +102,75 @@ impl CompileCache {
         }
         let output = compile();
         if let Ok(payload) = postcard::to_allocvec(&output) {
-            let mut entry = Vec::new();
-            resource_pack::PackDependency::encode_set(&files.snapshot(), &mut entry);
-            entry.extend_from_slice(&payload);
-            self.store(key, &entry);
+            let mut reads = Vec::new();
+            resource_pack::PackDependency::encode_set(&files.snapshot(), &mut reads);
+            self.store_with(key, (reads.len() + payload.len()) as u64, |entry| {
+                entry.write_all(&reads)?;
+                entry.write_all(&payload)
+            });
         }
         output
     }
 
     /// Returns the stored payload, or `None` for a miss; a damaged entry is deleted.
     pub fn load(&self, key: &[u8; 32]) -> Option<Vec<u8>> {
+        self.load_with(key, |payload, length| {
+            let mut bytes = Vec::new();
+            bytes
+                .try_reserve_exact(usize::try_from(length).ok()?)
+                .ok()?;
+            payload.read_to_end(&mut bytes).ok()?;
+            Some(bytes)
+        })
+    }
+
+    /// Decompresses the stored payload straight into `read`, which receives a reader of the
+    /// payload and its stored length, so no compressed or decompressed copy is staged.
+    /// The entry is verified once `read` returns: a damaged entry is deleted and whatever
+    /// `read` built from it is dropped. `None` for a miss or when `read` declines.
+    pub fn load_with<T>(
+        &self,
+        key: &[u8; 32],
+        read: impl FnOnce(&mut dyn Read, u64) -> Option<T>,
+    ) -> Option<T> {
         let path = self.entry(key);
-        let mut file = fs::File::open(&path).ok()?;
+        let file = fs::File::open(&path).ok()?;
         let physical = file.metadata().ok()?.len();
-        let mut bytes = vec![0; HEADER];
-        let admitted = physical <= self.max_bytes
-            && file.read_exact(&mut bytes).is_ok()
-            && bytes[..KEY_OFFSET] == MAGIC
-            && bytes[KEY_OFFSET..LENGTH_OFFSET] == key[..]
-            && u64::from_le_bytes(
-                bytes[LENGTH_OFFSET..DECODED_LENGTH_OFFSET]
-                    .try_into()
-                    .ok()?,
-            )
-            .checked_add((HEADER + HASH) as u64)
-                == Some(physical)
-            && u64::from_le_bytes(bytes[DECODED_LENGTH_OFFSET..HEADER].try_into().ok()?)
-                <= self.max_bytes;
-        if !admitted {
+        let mut file = std::io::BufReader::new(file);
+        let mut header = [0; HEADER];
+        let length = (physical <= self.max_bytes
+            && physical >= (HEADER + TRAILER) as u64
+            && file.read_exact(&mut header).is_ok()
+            && header[..KEY_OFFSET] == MAGIC
+            && header[KEY_OFFSET..DECODED_LENGTH_OFFSET] == key[..])
+            .then(|| u64::from_le_bytes(header[DECODED_LENGTH_OFFSET..].try_into().unwrap()))
+            .filter(|length| *length <= self.max_bytes);
+        let Some(length) = length else {
             let _ = fs::remove_file(&path);
             return None;
-        }
-        file.take(
-            self.max_bytes
-                .saturating_sub(HEADER as u64)
-                .saturating_add(1),
-        )
-        .read_to_end(&mut bytes)
-        .ok()?;
-        if !valid(&bytes, key) {
+        };
+        let compressed = physical - (HEADER + TRAILER) as u64;
+        let mut body = DigestingReader {
+            inner: (&mut file).take(compressed),
+            digest: Sha256::new_with_prefix(header),
+        };
+        let mut decoder = flate2::read::DeflateDecoder::new(&mut body);
+        let mut payload = (&mut decoder).take(length);
+        let output = read(&mut payload, length);
+        // The payload must end exactly at its stored length, and the stream with it.
+        let complete = std::io::copy(&mut payload, &mut std::io::sink()).is_ok()
+            && payload.limit() == 0
+            && matches!(decoder.read(&mut [0]), Ok(0))
+            && decoder.total_in() == compressed;
+        drop(decoder);
+        let DigestingReader { digest, .. } = body;
+        let mut trailer = [0; TRAILER];
+        let intact = complete
+            && file.read_exact(&mut trailer).is_ok()
+            && trailer[..TRAILER - HASH] == compressed.to_le_bytes()
+            && digest.chain_update(&trailer[..TRAILER - HASH]).finalize()[..]
+                == trailer[TRAILER - HASH..];
+        if !intact {
             tracing::warn!(path = %path.display(), "discarding a damaged compile cache entry");
             let _ = fs::remove_file(&path);
             return None;
@@ -148,51 +180,34 @@ impl CompileCache {
             .append(true)
             .open(&path)
             .and_then(|file| file.set_modified(SystemTime::now()));
-        let compressed = &bytes[HEADER..bytes.len() - HASH];
-        let length = u64::from_le_bytes(bytes[DECODED_LENGTH_OFFSET..HEADER].try_into().ok()?);
-        if length > self.max_bytes {
-            return None;
-        }
-        let mut decoder = flate2::read::DeflateDecoder::new(compressed);
-        let mut payload = Vec::new();
-        payload
-            .try_reserve_exact(usize::try_from(length).ok()?)
-            .ok()?;
-        let decoded = decoder
-            .by_ref()
-            .take(length.checked_add(1)?)
-            .read_to_end(&mut payload);
-        if decoded.is_err()
-            || payload.len() as u64 != length
-            || decoder.total_in() != compressed.len() as u64
-        {
-            let _ = fs::remove_file(&path);
-            return None;
-        }
-        Some(payload)
+        output
     }
 
-    /// Writes the entry atomically, then evicts the least recently used past the size bound.
+    /// Stores `payload` as [`Self::store_with`] does.
     pub fn store(&self, key: &[u8; 32], payload: &[u8]) {
-        if payload.len() as u64 > self.max_bytes {
+        self.store_with(key, payload.len() as u64, |entry| entry.write_all(payload));
+    }
+
+    /// Streams exactly `length` payload bytes from `write` through compression into the entry
+    /// for `key`, then evicts the least recently used entries past the size bound. Nothing is
+    /// stored when the payload or its entry exceeds the bound, or when `write` fails or
+    /// writes another length.
+    pub fn store_with(
+        &self,
+        key: &[u8; 32],
+        length: u64,
+        write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+    ) {
+        if length > self.max_bytes {
             return;
         }
-        let mut encoder =
-            flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
-        if encoder.write_all(payload).is_err() {
-            return;
+        match self.write(key, length, write) {
+            Ok(()) => self.evict(&self.entry(key)),
+            Err(error) if error.kind() == std::io::ErrorKind::FileTooLarge => {}
+            Err(error) => {
+                tracing::warn!(%error, dir = %self.dir.display(), "compile cache entry was not stored");
+            }
         }
-        let Ok(compressed) = encoder.finish() else {
-            return;
-        };
-        if (HEADER + compressed.len() + HASH) as u64 > self.max_bytes {
-            return;
-        }
-        if let Err(error) = self.write(key, &compressed, payload.len() as u64) {
-            tracing::warn!(%error, dir = %self.dir.display(), "compile cache entry was not stored");
-            return;
-        }
-        self.evict(&self.entry(key));
     }
 
     fn entry(&self, key: &[u8; 32]) -> PathBuf {
@@ -201,30 +216,57 @@ impl CompileCache {
     }
 
     /// No fsync: a torn entry fails validation on load and is treated as a miss.
-    fn write(&self, key: &[u8; 32], payload: &[u8], decoded_length: u64) -> std::io::Result<()> {
+    fn write(
+        &self,
+        key: &[u8; 32],
+        length: u64,
+        write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
         static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         fs::create_dir_all(&self.dir)?;
         let path = self.entry(key);
         let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let temporary = path.with_extension(format!("{}.{sequence}.tmp", std::process::id()));
-        let mut hash = Sha256::new();
-        let mut file = fs::File::create(&temporary)?;
-        let length = (payload.len() as u64).to_le_bytes();
-        for chunk in [
-            &MAGIC[..],
-            key,
-            &length,
-            &decoded_length.to_le_bytes(),
-            payload,
-        ] {
-            hash.update(chunk);
-            file.write_all(chunk)?;
-        }
-        file.write_all(&hash.finalize())?;
-        drop(file);
-        fs::rename(&temporary, &path).inspect_err(|_| {
+        let written = (|| {
+            let mut entry = DigestingWriter {
+                inner: std::io::BufWriter::new(fs::File::create(&temporary)?),
+                digest: Sha256::new(),
+                written: 0,
+                limit: self.max_bytes.saturating_sub(HASH as u64),
+            };
+            for part in [&MAGIC[..], key, &length.to_le_bytes()] {
+                entry.write_all(part)?;
+            }
+            let mut encoder =
+                flate2::write::DeflateEncoder::new(entry, flate2::Compression::fast());
+            let mut payload = DeclaredPayload {
+                inner: &mut encoder,
+                remaining: length,
+            };
+            write(&mut payload)?;
+            if payload.remaining != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "compile cache payload is shorter than declared",
+                ));
+            }
+            let mut entry = encoder.finish()?;
+            let compressed = entry.written - HEADER as u64;
+            entry.write_all(&compressed.to_le_bytes())?;
+            let DigestingWriter {
+                mut inner, digest, ..
+            } = entry;
+            inner.write_all(&digest.finalize())?;
+            inner
+                .into_inner()
+                .map_err(std::io::IntoInnerError::into_error)?;
+            Ok(())
+        })();
+        let renamed = written.and_then(|()| fs::rename(&temporary, &path));
+        if renamed.is_err() {
             let _ = fs::remove_file(&temporary);
-        })
+        }
+        renamed
     }
 
     fn evict(&self, keep: &Path) {
@@ -261,19 +303,69 @@ impl CompileCache {
     }
 }
 
-fn valid(bytes: &[u8], key: &[u8; 32]) -> bool {
-    let Some(body) = bytes.len().checked_sub(HASH) else {
-        return false;
-    };
-    body >= HEADER
-        && bytes[..KEY_OFFSET] == MAGIC
-        && bytes[KEY_OFFSET..LENGTH_OFFSET] == key[..]
-        && u64::from_le_bytes(
-            bytes[LENGTH_OFFSET..DECODED_LENGTH_OFFSET]
-                .try_into()
-                .unwrap(),
-        ) == (body - HEADER) as u64
-        && Sha256::digest(&bytes[..body])[..] == bytes[body..]
+/// Digests and counts the bytes that pass through, refusing to grow an entry past `limit`.
+struct DigestingWriter<W> {
+    inner: W,
+    digest: Sha256,
+    written: u64,
+    limit: u64,
+}
+
+impl<W: Write> Write for DigestingWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.written + bytes.len() as u64 > self.limit {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::FileTooLarge,
+                "compile cache entry exceeds its bound",
+            ));
+        }
+        let written = self.inner.write(bytes)?;
+        self.digest.update(&bytes[..written]);
+        self.written += written as u64;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Accepts at most the payload length declared in the entry header.
+struct DeclaredPayload<W> {
+    inner: W,
+    remaining: u64,
+}
+
+impl<W: Write> Write for DeclaredPayload<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() as u64 > self.remaining {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "compile cache payload is longer than declared",
+            ));
+        }
+        let written = self.inner.write(bytes)?;
+        self.remaining -= written as u64;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Digests every byte read through it.
+struct DigestingReader<R> {
+    inner: R,
+    digest: Sha256,
+}
+
+impl<R: Read> Read for DigestingReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buffer)?;
+        self.digest.update(&buffer[..read]);
+        Ok(read)
+    }
 }
 
 #[cfg(test)]
