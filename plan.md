@@ -495,6 +495,8 @@ geometry, artwork and owner-root placement. Startup harness definitions are comp
 from tagged items and present pack resources. Resource-only session overrides reuse
 those definitions while preserving authored item conditions. Expression roots retain
 the worn slot through owner placement; worn equipment counts exclude hands.
+Missing copper armour definitions reuse standard pack definitions when the matching
+textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon

@@ -1,0 +1,145 @@
+//! Completes copper armour from the pack's standard armour definitions and artwork.
+
+use super::*;
+use assets::{facts::ItemTier, item::armour::ItemArmourSlot};
+
+/// Reuses a standard definition for each missing copper piece, preserving authored overrides.
+pub(super) fn missing_bindings(
+    has_source: impl Fn(&str) -> bool,
+    authored: &[Value],
+) -> Result<Vec<(Box<str>, Value)>, AssetError> {
+    let facts =
+        assets::facts::ItemFacts::builtin().map_err(|_| invalid("item facts are unavailable"))?;
+    let claimed: BTreeSet<&str> = authored
+        .iter()
+        .flat_map(|document| {
+            let description = &document["minecraft:attachable"]["description"];
+            match description["item"].as_object() {
+                Some(items) => items.keys().map(String::as_str).collect::<Vec<_>>(),
+                None => description["identifier"].as_str().into_iter().collect(),
+            }
+        })
+        .collect();
+    let mut missing = Vec::new();
+    for record in &facts.payload().records {
+        if record.fact.tier != Some(ItemTier::Copper)
+            || claimed.contains(record.identifier.as_ref())
+        {
+            continue;
+        }
+        let Some(slot) = record.fact.armour_slot else {
+            continue;
+        };
+        let (piece, layer) = match slot {
+            ItemArmourSlot::Head => ("helmet", 1),
+            ItemArmourSlot::Chest => ("chestplate", 1),
+            ItemArmourSlot::Legs => ("leggings", 2),
+            ItemArmourSlot::Feet => ("boots", 1),
+        };
+        let texture = format!("textures/models/armor/copper_{layer}");
+        if !["png", "tga"]
+            .iter()
+            .any(|extension| has_source(&format!("{texture}.{extension}")))
+        {
+            continue;
+        }
+        let Some(template) = authored.iter().find(|document| {
+            let description = &document["minecraft:attachable"]["description"];
+            description.get("item").is_none()
+                && description["materials"]["default"] == "armor"
+                && description["textures"]["default"].is_string()
+                && ["geometry.player.armor", "geometry.humanoid.armor"]
+                    .iter()
+                    .any(|family| description["geometry"]["default"] == format!("{family}.{piece}"))
+        }) else {
+            continue;
+        };
+        let mut document = template.clone();
+        let description = &mut document["minecraft:attachable"]["description"];
+        description["identifier"] = Value::String(record.identifier.to_string());
+        description["textures"]["default"] = Value::String(texture);
+        missing.push((
+            format!(
+                "attachables/_cinnabar/{}.json",
+                record.identifier.replace(':', "/")
+            )
+            .into(),
+            document,
+        ));
+    }
+    Ok(missing)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_copper_armour_reuses_each_present_standard_definition() {
+        let facts = assets::facts::ItemFacts::builtin().unwrap();
+        let pieces: Vec<_> = facts
+            .payload()
+            .records
+            .iter()
+            .filter(|record| {
+                record.fact.tier == Some(ItemTier::Copper) && record.fact.armour_slot.is_some()
+            })
+            .collect();
+        assert!(!pieces.is_empty());
+        let templates: Vec<_> = pieces
+            .iter()
+            .map(|record| {
+                let piece = record.identifier.strip_prefix("minecraft:copper_").unwrap();
+                serde_json::json!({"format_version":"1.8.0","minecraft:attachable":{"description":{
+                    "identifier":format!("fixture:{piece}"),
+                    "materials":{"default":"armor","enchanted":"armor_enchanted"},
+                    "geometry":{"default":format!("geometry.player.armor.{piece}")},
+                    "textures":{"default":"textures/fixture","enchanted":"textures/fixture_glint"},
+                    "scripts":{"parent_setup":"variable.fixture = 1;"},
+                    "render_controllers":["controller.render.fixture"]
+                }}})
+            })
+            .collect();
+        let generated = missing_bindings(|_| true, &templates).unwrap();
+        assert_eq!(generated.len(), pieces.len());
+        for (_, document) in &generated {
+            let description = &document["minecraft:attachable"]["description"];
+            let item = description["identifier"].as_str().unwrap();
+            let slot = facts.by_identifier(item).unwrap().armour_slot.unwrap();
+            let expected = if slot == ItemArmourSlot::Legs { 2 } else { 1 };
+            assert_eq!(
+                description["textures"]["default"],
+                format!("textures/models/armor/copper_{expected}")
+            );
+            assert_eq!(
+                description["textures"]["enchanted"],
+                "textures/fixture_glint"
+            );
+            assert_eq!(
+                description["scripts"]["parent_setup"],
+                "variable.fixture = 1;"
+            );
+        }
+        assert!(missing_bindings(|_| false, &templates).unwrap().is_empty());
+        assert!(missing_bindings(|_| true, &[]).unwrap().is_empty());
+        let mut malformed = templates.clone();
+        for document in &mut malformed {
+            document["minecraft:attachable"]["description"]["textures"] =
+                Value::String("invalid".into());
+        }
+        assert!(missing_bindings(|_| true, &malformed).unwrap().is_empty());
+        let mut conditional = templates.clone();
+        conditional.push(serde_json::json!({"minecraft:attachable":{"description":{
+            "identifier":"fixture:disabled","item":{(pieces[0].identifier.as_ref()):"0"}
+        }}}));
+        let remaining = missing_bindings(|_| true, &conditional).unwrap();
+        assert_eq!(remaining.len(), pieces.len() - 1);
+        assert!(remaining.iter().all(|(_, document)| {
+            document["minecraft:attachable"]["description"]["identifier"]
+                != pieces[0].identifier.as_ref()
+        }));
+        let mut authored = templates;
+        authored.extend(generated.into_iter().map(|(_, document)| document));
+        assert!(missing_bindings(|_| true, &authored).unwrap().is_empty());
+    }
+}

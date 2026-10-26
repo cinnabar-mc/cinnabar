@@ -1,7 +1,9 @@
 //! Completes definitions the pinned samples omit from resources the pack does ship: harness
-//! bindings and the render controllers named by the pack policy.
+//! bindings, copper armour and the render controllers named by the pack policy.
 
 use super::*;
+
+mod armor;
 
 const GEOMETRY: &str = "geometry.harness";
 const MODEL: &str = "models/entity/harness.geo.json";
@@ -23,11 +25,15 @@ pub(super) fn complete_bindings(
         .collect::<Result<Vec<_>, _>>()?;
     let mut missing =
         missing_harness_bindings(|path| payloads.contains_key(path), authored.iter())?;
+    missing.extend(armor::missing_bindings(
+        |path| payloads.contains_key(path),
+        &authored,
+    )?);
     missing.extend(missing_render_controllers(root, payloads, symbols)?);
     let mut size = 0;
     for (source, value) in missing {
         let bytes = serde_json::to_vec(&value)
-            .map_err(|_| invalid("harness binding could not be encoded"))?;
+            .map_err(|_| invalid("omitted binding could not be encoded"))?;
         parse_source(
             &source,
             &root.join(source.as_ref()),
