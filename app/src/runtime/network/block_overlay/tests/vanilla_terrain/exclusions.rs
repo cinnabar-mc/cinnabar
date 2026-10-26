@@ -14,12 +14,24 @@ pub(super) fn model_at(
     quad_material: u32,
     template: u32,
 ) -> RuntimeAssets {
+    model_with(kind, parts, &[quad_material], template, 0)
+}
+
+/// [`model_at`] whose quads cycle through `quad_materials` and whose non-diagnostic materials
+/// carry `material_flags`.
+pub(super) fn model_with(
+    kind: VisualKind,
+    parts: &[(u32, u32)],
+    quad_materials: &[u32],
+    template: u32,
+    material_flags: u32,
+) -> RuntimeAssets {
     let diagnostic = RuntimeAssets::diagnostic();
     let (corners, uvs) = assets::gui_item::cube_face(BlockFace::Up);
     let quad = ModelQuad {
         positions: corners.map(|point| point.map(|value| (value * 256.0) as i16)),
         uvs: uvs.map(|uv| uv.map(|value| (value * 4096.0) as u16)),
-        material: quad_material,
+        material: quad_materials[0],
         flags: BlockFace::Up.model_quad_face_id(),
     };
     let mut visual = BlockVisual::diagnostic(BlockFlags::empty(), assets::ContributorRole::Primary);
@@ -36,7 +48,11 @@ pub(super) fn model_at(
                 quad_count: count,
                 flags,
             };
-            quads.extend(std::iter::repeat_n(quad, count as usize));
+            let start = quads.len();
+            quads.extend((start..start + count as usize).map(|index| ModelQuad {
+                material: quad_materials[index % quad_materials.len()],
+                ..quad
+            }));
             template
         })
         .collect::<Vec<_>>();
@@ -44,7 +60,12 @@ pub(super) fn model_at(
         visuals: vec![visual; 2].into(),
         light_properties: vec![assets::LightProperties::OPAQUE_DARK; 2].into(),
         hashed: Box::new([]),
-        materials: vec![Material::unvaried(); 3].into(),
+        materials: [0, material_flags, material_flags]
+            .map(|flags| Material {
+                flags,
+                ..Material::unvaried()
+            })
+            .into(),
         model_templates: templates.into(),
         model_quads: quads.into(),
         animations: Box::new([]),

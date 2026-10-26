@@ -316,8 +316,8 @@ impl Builder<'_> {
     }
 
     /// An overlay copy of base material `id`'s terrain art drawn with `bound`'s render method
-    /// and masks, keeping its other flags; `None` when it has no terrain source or is not
-    /// admitted.
+    /// and masks, keeping its other flags; `None` when it has no terrain source, is not
+    /// admitted or cannot draw with the method.
     fn bound_material(
         &mut self,
         keys: &MaterialKeys,
@@ -325,25 +325,53 @@ impl Builder<'_> {
         id: u32,
         bound: VanillaBinding,
     ) -> Option<u32> {
+        let flags = self.bound_flags(base.material(id).flags, bound.method)?;
+        self.material_copy(keys, base, id, flags, bound.masks, bound.strength)
+    }
+
+    /// Base material `flags` drawn with `method`, or `None`, counted as approximated, when the
+    /// other flags cannot draw with it, as cauldron water cannot be a cutout. A blended method
+    /// drops the cutout-only two-sided flag, since blended quads are two-sided themselves.
+    fn bound_flags(&mut self, flags: u32, method: BlockRenderMethod) -> Option<u32> {
+        let mut cleared = assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT;
+        if method.blends() {
+            cleared |= assets::MATERIAL_FLAG_TWO_SIDED;
+        }
+        let flags = (flags & !cleared) | assets::block_render_method_flags(method);
+        if !assets::compiled::material_flags_are_valid(flags) {
+            self.gaps.approximated_materials += 1;
+            return None;
+        }
+        Some(flags)
+    }
+
+    /// An overlay copy of base material `id`'s terrain art drawn with `flags` and `masks`;
+    /// `None` when it has no terrain source or is not admitted.
+    fn material_copy(
+        &mut self,
+        keys: &MaterialKeys,
+        base: &assets::RuntimeAssets,
+        id: u32,
+        flags: u32,
+        masks: [u32; 2],
+        strength: u32,
+    ) -> Option<u32> {
         let texture = keys.material_source(id)?;
-        let base = base.material(id);
-        let flags = (base.flags
-            & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT))
-            | assets::block_render_method_flags(bound.method);
         self.terrain_material(
             Some(keys),
             &texture.key,
             texture.variant,
-            (flags, base.ao_exponent),
+            (flags, base.material(id).ao_exponent),
         )
-        .map(|id| self.masked_material(id, bound.masks, bound.strength))
+        .map(|id| self.masked_material(id, masks, strength))
     }
 
     /// Copies the complete template span a vanilla model visual draws from `template`, with the
     /// pot contents before it, into the overlay with bound materials, and returns the copied
-    /// head. Quads take the binding's sidedness, as custom-block material instances do. `None`,
-    /// copying nothing, when the span is not fixed, or a quad material has no terrain source,
-    /// carries carrier-baked tint or is not admitted.
+    /// head. Quads take the binding's sidedness, as custom-block material instances do; a quad
+    /// whose material cannot draw with the binding's method keeps its base material and
+    /// sidedness. `None`, copying and admitting nothing, when the span is not fixed, or a quad
+    /// material has no terrain source, carries carrier-baked tint or is not admitted.
     fn copy_vanilla_model(
         &mut self,
         keys: &MaterialKeys,
@@ -371,18 +399,44 @@ impl Builder<'_> {
         }) {
             return None;
         }
-        let mut materials = HashMap::from([(DIAGNOSTIC_MATERIAL, DIAGNOSTIC_MATERIAL)]);
-        for quad in copied.iter().flat_map(quads) {
-            if let std::collections::hash_map::Entry::Vacant(entry) = materials.entry(quad.material)
-            {
-                entry.insert(self.bound_material(keys, base, quad.material, bound)?);
-            }
-        }
         let sided = if bound.method.two_sided() {
             assets::MODEL_QUAD_FLAG_TWO_SIDED
         } else {
             0
         };
+        let checkpoint = self.texture_checkpoint();
+        let approximated = self.gaps.approximated_materials;
+        // Each base material's copy, and the sidedness its quads take when it is bound.
+        let mut materials =
+            HashMap::from([(DIAGNOSTIC_MATERIAL, (DIAGNOSTIC_MATERIAL, Some(sided)))]);
+        for quad in copied.iter().flat_map(quads) {
+            if let std::collections::hash_map::Entry::Vacant(entry) = materials.entry(quad.material)
+            {
+                let flags = base.material(quad.material).flags;
+                let copy = match self.bound_flags(flags, bound.method) {
+                    Some(flags) => self
+                        .material_copy(
+                            keys,
+                            base,
+                            quad.material,
+                            flags,
+                            bound.masks,
+                            bound.strength,
+                        )
+                        .map(|id| (id, Some(sided))),
+                    None => self
+                        .material_copy(keys, base, quad.material, flags, [assets::NO_MASK; 2], 0)
+                        .map(|id| (id, None)),
+                };
+                let Some(copy) = copy else {
+                    // Admit the model's materials only together.
+                    self.rollback_textures(checkpoint);
+                    self.gaps.approximated_materials = approximated;
+                    return None;
+                };
+                entry.insert(copy);
+            }
+        }
         let head = self.overlay.model_templates.len() as u32 + (template - first);
         for (offset, part) in copied.iter().enumerate() {
             let copy = self.overlay.model_templates.len() as u32;
@@ -395,10 +449,15 @@ impl Builder<'_> {
             });
             self.overlay
                 .model_quads
-                .extend(quads(part).iter().map(|quad| assets::ModelQuad {
-                    material: materials[&quad.material],
-                    flags: (quad.flags & !assets::MODEL_QUAD_FLAG_TWO_SIDED) | sided,
-                    ..*quad
+                .extend(quads(part).iter().map(|quad| {
+                    let (material, sided) = materials[&quad.material];
+                    assets::ModelQuad {
+                        material,
+                        flags: sided.map_or(quad.flags, |sided| {
+                            (quad.flags & !assets::MODEL_QUAD_FLAG_TWO_SIDED) | sided
+                        }),
+                        ..*quad
+                    }
                 }));
         }
         Some(head)
