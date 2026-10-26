@@ -8,9 +8,9 @@ use serde::Deserialize;
 use {
     mod_api::MAX_LOADED_MODS,
     mod_host::{
-        CameraDelta, ControlEvent, ControlFrame, GameplayCameraRig, GameplayMob,
-        GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, ModCue, ModGrants,
-        ModHost, PlayerStateSnapshot,
+        CameraDelta, ControlEvent, ControlFrame, GameplayCameraRig, GameplayControlModes,
+        GameplayMob, GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, ModCue,
+        ModGrants, ModHost, PlayerStateSnapshot,
     },
 };
 
@@ -717,6 +717,8 @@ pub struct Merged {
     pub jump_cancel: bool,
     /// Every mod's sprint and sneak intents combined; any mod holding one holds it.
     pub movement_intents: Option<GameplayMovementIntents>,
+    /// Every mod's control modes combined as intents are; any mod turning one on turns it on.
+    pub control_modes: Option<GameplayControlModes>,
     pub commands: Vec<String>,
     pub cues: Vec<ModCue>,
 }
@@ -735,6 +737,16 @@ impl Merged {
                 });
             merged.sprint |= intents.sprint;
             merged.sneak |= intents.sneak;
+        }
+        if let Some(modes) = host.control_modes() {
+            let merged = self.control_modes.get_or_insert(GameplayControlModes {
+                toggle_sprint: false,
+                toggle_sneak: false,
+                always_sprint: false,
+            });
+            merged.toggle_sprint |= modes.toggle_sprint;
+            merged.toggle_sneak |= modes.toggle_sneak;
+            merged.always_sprint |= modes.always_sprint;
         }
         let interaction = host.take_interaction();
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);

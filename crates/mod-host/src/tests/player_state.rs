@@ -120,3 +120,73 @@ fn legacy_actor_component_keeps_its_original_import_type() {
     host.frame(false).unwrap();
     assert!(host.is_active());
 }
+
+/// Requests runtime IDs 9 and 10 and traps unless 9 is a dead life 77 and 10 is unknown.
+const READ_ACTOR_LIVES: &str = "i32.const 512 i64.const 9 i64.store \
+    i32.const 520 i64.const 10 i64.store \
+    i32.const 512 i32.const 2 i32.const 256 call $read \
+    i32.const 256 i32.load8_u if unreachable end \
+    i32.const 264 i32.load i32.const 2 i32.ne if unreachable end \
+    i32.const 260 i32.load i32.load8_u i32.const 1 i32.ne if unreachable end \
+    i32.const 260 i32.load i64.load offset=8 i64.const 77 i64.ne if unreachable end \
+    i32.const 260 i32.load i32.load8_u offset=16 i32.const 1 i32.ne if unreachable end \
+    i32.const 260 i32.load i32.load8_u offset=24 if unreachable end";
+
+/// Lives cross the component boundary in request order and last only for the callback they
+/// were observed for.
+#[test]
+fn actor_lives_cross_the_component_boundary_for_one_callback() {
+    let source = source_from(include_str!("actor_lives.wat"), "", READ_ACTOR_LIVES);
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = ModHost::load_snapshot_with_grants(
+        &directory.path().join("actor-lives.wat"),
+        source.as_bytes(),
+        ModGrants {
+            players: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let observations = || crate::module_observations::ModuleObservations {
+        actor_lives: std::sync::Arc::new(vec![crate::module_observations::ActorLifeObservation {
+            runtime_id: 9,
+            player: true,
+            life: crate::ActorLife {
+                life: 77,
+                dead: true,
+            },
+        }]),
+        ..Default::default()
+    };
+    host.observe_modules(observations()).unwrap();
+    host.frame(false).unwrap();
+    assert!(host.is_active());
+    assert!(
+        host.frame(false).is_err(),
+        "the next callback without observations reads no life"
+    );
+}
+
+/// Refusals cross the component boundary as errors, keeping the guest active.
+#[test]
+fn actor_life_grant_and_length_refusals_do_not_trap() {
+    for (granted, length) in [(false, 1), (true, mod_api::MAX_ACTOR_LIFE_READS + 1)] {
+        let frame = format!(
+            "i32.const 512 i32.const {length} i32.const 256 call $read \
+             i32.const 256 i32.load8_u i32.const 1 i32.ne if unreachable end"
+        );
+        let source = source_from(include_str!("actor_lives.wat"), "", &frame);
+        let directory = tempfile::tempdir().unwrap();
+        let mut host = ModHost::load_snapshot_with_grants(
+            &directory.path().join("actor-life-refusal.wat"),
+            source.as_bytes(),
+            ModGrants {
+                players: granted,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        host.frame(false).unwrap();
+        assert!(host.is_active());
+    }
+}

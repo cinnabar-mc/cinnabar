@@ -218,7 +218,26 @@ impl WorldAuthority {
                     }
                     _ => None,
                 };
+                // A death notice, or attributes that leave the actor dead, end its current life.
+                let death = match &event {
+                    ActorEvent::Status(status)
+                        if status.kind == protocol::ActorStatusKind::Death =>
+                    {
+                        Some(status.runtime_id)
+                    }
+                    ActorEvent::Attributes(update) => Some(update.runtime_id),
+                    _ => None,
+                };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if result == crate::actor_store::ActorApplyResult::Updated
+                    && let Some(runtime_id) = death
+                    && self
+                        .actors
+                        .get(runtime_id)
+                        .is_some_and(|actor| actor.status.dead)
+                {
+                    self.actors.note_death(runtime_id, sequence);
+                }
                 if local_removal
                     && matches!(
                         result,
@@ -435,6 +454,10 @@ impl WorldAuthority {
                             .set_local_health(self.local_player_runtime_id, health);
                         if let Ok(health) = u16::try_from(health) {
                             self.publish_local_life(sequence, [health == 0]);
+                        }
+                        if health <= 0 {
+                            self.actors
+                                .note_death(self.local_player_runtime_id, sequence);
                         }
                         UiEvent::Hud(protocol::HudEvent::Health { health })
                     }

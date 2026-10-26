@@ -881,6 +881,11 @@ impl Instance {
         self.store.data().world.movement_intents
     }
 
+    /// Returns only the control modes committed by the current successful frame.
+    pub(super) fn control_modes(&self) -> Option<crate::GameplayControlModes> {
+        self.store.data().world.control_modes
+    }
+
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {
         self.store.data_mut().session = session;
     }

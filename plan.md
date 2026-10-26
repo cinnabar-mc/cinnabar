@@ -1310,7 +1310,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   player-list annotation spans, damage overlay colours, per-actor overlay tints, item tooltip
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
   item, potion and effect tables and the installation's food; `player-state` reports the server
-  world clock and totem activations as combat events. Offline regressions cover grants, bounds,
+  world clock, totem activations as combat events and each admitted actor's life, which changes
+  on every spawn and death regardless of distance. Offline regressions cover grants, bounds,
   merging, roster mapping and span placement. Tipped-arrow facts report the carried potion's
   durations until the native arrow duration is referenced, and displayed-client acceptance of
   the presentation parameters remains pending.
@@ -1333,7 +1334,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unverified.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
-- Personal-mod mechanics capabilities (sprint and sneak intents, use pulses, view
+- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that replace the
+  player's toggle and always-sprint settings, use pulses, view
   tilt, the relayed and presented camera positions, loaded-block search and panel
   pointer and wheel) have host and adapter regression coverage. The tilt's sign
   follows the native damage shake. Populated-world and displayed-frame acceptance

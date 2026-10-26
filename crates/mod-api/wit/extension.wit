@@ -235,8 +235,7 @@ interface player-state {
     }
     /// `totem` is a totem-of-undying activation on `runtime-id`, local or remote, and `death` a
     /// server death notice. The stream reports no actor lifetimes: a mod keeping a count per actor
-    /// resets it on `death`, and infers despawns and respawns itself from `read-actors`, which
-    /// covers only nearby actors, and the local player's life from `read-world`.
+    /// follows them with `read-actor-lives`.
     enum combat-kind { attack-admitted, hurt, death, totem }
     record combat-event {
         sequence: u64, session: u64, dimension: s32, kind: combat-kind,
@@ -254,6 +253,14 @@ interface player-state {
     /// Reads a smaller prefix of the same authorized observations to bound guest copying work.
     /// limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
     read-actors-limited: func(limit: u32) -> result<list<observed-actor>, string>;
+    /// An admitted actor's current life: `life` changes whenever the actor spawns again or dies,
+    /// and `dead` is its current death state. Compare lives within one session.
+    record actor-life { life: u64, dead: bool }
+    /// One entry per requested runtime ID, in order, regardless of distance or the actor reads'
+    /// limit: none when the session has no such admitted actor in the current dimension, or the
+    /// caller lacks the grant for its kind. Player rows require players, other rows entities.
+    /// At most MAX_ACTOR_LIFE_READS IDs; shares the actor reads' callback allowance.
+    read-actor-lives: func(runtime-ids: list<u64>) -> result<list<option<actor-life>>, string>;
     /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
     /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
     read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;
@@ -449,6 +456,12 @@ interface gameplay {
     /// Renew every focused gameplay frame; omission releases both intents. Requires movement
     /// authority; server movement, hunger and item-use restrictions still apply.
     set-movement-intents: func(intents: option<movement-intents>) -> result<_, string>;
+    /// The game's own control modes, replacing the player's toggle sprint, toggle sneak and
+    /// always sprint settings while renewed. Always sprint applies only to keyboard and mouse.
+    record control-modes { toggle-sprint: bool, toggle-sneak: bool, always-sprint: bool }
+    /// Renew every focused gameplay frame; omission restores the player's own settings.
+    /// Requires movement authority. With several mods, a mode is on when any of them sets it.
+    set-control-modes: func(modes: option<control-modes>) -> result<_, string>;
     /// Requires the camera grant and a current frame; commits only after frame returns.
     rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
     /// Bounded local actor attack range; none restores ordinary game-mode rules.

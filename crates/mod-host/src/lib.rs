@@ -42,12 +42,13 @@ pub use runtime::HudTextMeasure;
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
-    CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig, Mob as GameplayMob,
+    CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig,
+    ControlModes as GameplayControlModes, Mob as GameplayMob,
     MovementIntents as GameplayMovementIntents, MovementSnapshot as GameplayMovementSnapshot,
     Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{
-    Actor as ActorObservation, Bounds as ActorObservationBounds,
+    Actor as ActorObservation, ActorLife, Bounds as ActorObservationBounds,
     ChatMessage as ObservedChatMessage, CombatEvent as CombatObservation, CombatKind,
     Effect as PlayerStateEffect, Food as FoodObservation, Item as PlayerStateItem,
     Motion as MotionObservation, ObservedActor, Sidebar as SidebarSnapshot, SidebarRow,

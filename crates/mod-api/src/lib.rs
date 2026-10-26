@@ -235,15 +235,12 @@ pub mod packet_mod {
     });
 }
 
-/// Maximum bytes in a stable selected world or server identity.
-pub const MAX_WORLD_IDENTITY_BYTES: usize = 256;
-
-/// Bounded cosmetic actor and combat observations per sandbox callback.
-pub const MAX_OBSERVED_ACTORS: usize = 16;
-pub const MAX_OBSERVED_ACTOR_BOXES: usize = 8;
-pub const MAX_OBSERVED_ACTOR_NAME_BYTES: usize = 128;
-pub const MAX_OBSERVED_COMBAT_EVENTS: usize = 64;
-pub const MAX_COMBAT_READ_EVENTS: usize = 4;
+mod observations;
+pub use observations::{
+    MAX_ACTOR_LIFE_READS, MAX_COMBAT_READ_EVENTS, MAX_OBSERVED_ACTOR_BOXES,
+    MAX_OBSERVED_ACTOR_NAME_BYTES, MAX_OBSERVED_ACTORS, MAX_OBSERVED_COMBAT_EVENTS,
+    MAX_WORLD_IDENTITY_BYTES,
+};
 
 /// Limits of the `presentation` interface.
 pub mod presentation;

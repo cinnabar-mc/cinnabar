@@ -900,3 +900,101 @@ fn unchanged_hud_metrics_are_installed_on_replacement_hosts() {
     hosts.host_mut(0).frame(false).unwrap();
     assert!(hosts.host(0).is_active());
 }
+
+/// Control modes combine as movement intents do: a mode is on when any mod sets it, and a
+/// trapped mod's modes are dropped with the rest of its output.
+#[test]
+fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let set = [
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (toggle_sprint, toggle_sneak, trap))| {
+        let frame = format!(
+            "i32.const 1 i32.const {} i32.const {} i32.const {} i32.const 256 call $modes {}",
+            u8::from(toggle_sprint),
+            u8::from(toggle_sneak),
+            u8::from(trap),
+            if trap { "unreachable" } else { "" }
+        );
+        let source = include_str!("../../../mod-host/src/tests/gameplay.wat")
+            .replace("$GAMEPLAY", &format!("{name}/gameplay@{version}"))
+            .replace("$INIT", "")
+            .replace("$FRAME", &frame);
+        let path = directory.path().join(format!("modes-{index}.wat"));
+        std::fs::write(&path, source).unwrap();
+        (
+            path,
+            ModGrants {
+                movement: true,
+                ..Default::default()
+            },
+        )
+    })
+    .collect();
+    let mut runtime = load_set(set);
+    let controls = ControlFrame {
+        focused: true,
+        ..mod_host::empty_controls()
+    };
+    let mut failures = Vec::new();
+    let frame = |runtime: &mut ModHosts, failures: &mut Vec<usize>| {
+        runtime.begin_frame();
+        run_frame(
+            runtime,
+            FrameInput {
+                modules: None,
+                pressed: false,
+                controls: &controls,
+                previous_cues: &[],
+                player_state: None,
+                world_observation: None,
+                fps: None,
+                sidebar: None,
+                chat: &[],
+                chat_events: &[],
+                gameplay_facts: Default::default(),
+            },
+            |_| (Some(snapshot()), Vec::new(), None),
+            |index, _| failures.push(index),
+        )
+    };
+    let merged = frame(&mut runtime, &mut failures);
+    assert_eq!(failures, [2]);
+    assert_eq!(
+        merged.control_modes,
+        Some(GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: true,
+            always_sprint: false,
+        })
+    );
+    runtime.remove(1);
+    let merged = frame(&mut runtime, &mut failures);
+    assert_eq!(
+        merged.control_modes,
+        Some(GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        }),
+        "an unloaded mod's modes are gone"
+    );
+    runtime.remove(0);
+    assert_eq!(
+        frame(&mut runtime, &mut failures).control_modes,
+        None,
+        "unloading the last mode owner restores the player's settings"
+    );
+}

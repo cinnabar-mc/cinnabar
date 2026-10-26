@@ -99,6 +99,8 @@ pub struct ActorStatus {
     pub(crate) cloud_start_tick: Option<u32>,
     pub(crate) cloud_particles_expired: bool,
     pub dead: bool,
+    /// Commit sequence of the latest death observed in this lifetime; zero before any.
+    pub(crate) death_revision: u64,
     /// `age_ticks` when the fuse metadata was last received.
     pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
@@ -248,6 +250,14 @@ impl ActorSnapshot {
 }
 
 impl ActorStore {
+    /// Records a death committed at `sequence` for the current lifetime of an admitted actor;
+    /// other runtime IDs are ignored.
+    pub(crate) fn note_death(&mut self, runtime_id: u64, sequence: u64) {
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.status.death_revision = sequence;
+        }
+    }
+
     pub(super) fn apply_status(&mut self, event: ActorStatusEvent) -> ActorApplyResult {
         let Some(actor) = self.actors.get_mut(&event.runtime_id) else {
             return ActorApplyResult::MissingActor;

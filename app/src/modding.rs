@@ -30,6 +30,7 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 mod action_filter;
+mod actor_lives;
 mod admission;
 pub(crate) mod anchors;
 mod block_search;
@@ -51,6 +52,11 @@ mod terrain;
 /// Every loaded mod's presentation cues committed this frame, in load order.
 #[derive(Resource, Default)]
 pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
+
+/// Mods' control modes for this frame, replacing the player's toggle sprint, toggle sneak and
+/// always sprint settings while present.
+#[derive(Default, Resource)]
+pub(crate) struct ModControlModes(pub(crate) Option<mod_host::GameplayControlModes>);
 
 #[derive(Resource)]
 pub(crate) struct ModRuntime {
@@ -408,6 +414,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 
 fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<native_input::NativeInput>();
+    app.init_resource::<ModControlModes>();
     app.init_resource::<packet_render::Drawing>();
     app.init_resource::<render_scene::mod_scene::ActorCoverageRequests>();
     app.add_systems(

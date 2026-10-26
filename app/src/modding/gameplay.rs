@@ -15,6 +15,7 @@ use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
     pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
+    pub(super) control_modes: Option<ResMut<'w, super::ModControlModes>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
     pub(super) input: Option<ResMut<'w, SemanticInputSnapshot>>,

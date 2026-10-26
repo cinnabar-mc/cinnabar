@@ -22,6 +22,8 @@ pub(super) struct ModuleObserver {
     sequence: u64,
     history: VecDeque<CombatObservation>,
     ping: PingPoll,
+    /// Every admitted actor's life, reused between frames once mods release it.
+    lives: std::sync::Arc<Vec<mod_host::module_observations::ActorLifeObservation>>,
 }
 
 /// Converts a HUD stat's retained counters back to attribute points, as mods read them.
@@ -320,7 +322,8 @@ impl ModuleObserver {
         }
         self.history.push_back(event);
     }
-    /// Observes native owners without depending on gameplay input capture.
+    /// Observes native owners without depending on gameplay input capture. Actor lives are
+    /// published only when a mod may read them.
     pub(super) fn capture(
         &mut self,
         gameplay: &GameplayContext<'_>,
@@ -328,6 +331,7 @@ impl ModuleObserver {
         world: Option<&WorldObservation>,
         player: &player_state::PlayerState,
         interaction: Option<&super::interaction::ModInteraction>,
+        actor_reads: bool,
     ) -> ModuleObservations {
         let Some(world) = world else {
             self.scope = None;
@@ -535,6 +539,11 @@ impl ModuleObserver {
             ping_ms,
             actors,
             combat: self.history.iter().cloned().collect(),
+            actor_lives: if actor_reads {
+                super::actor_lives::publish(&mut self.lives, Some(authority))
+            } else {
+                Default::default()
+            },
         }
     }
 }

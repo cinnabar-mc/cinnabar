@@ -205,6 +205,34 @@ impl cinnabar::extension::player_state::Host for State {
             .read_actor_observations(limit)?
             .map(|actors| actors.cloned().collect()))
     }
+    fn read_actor_lives(
+        &mut self,
+        runtime_ids: Vec<u64>,
+    ) -> Result<Result<Vec<Option<crate::ActorLife>>, String>> {
+        self.player_state.read_budget()?;
+        if runtime_ids.len() > mod_api::MAX_ACTOR_LIFE_READS {
+            return Ok(Err("actor life read exceeds bounds".into()));
+        }
+        if !self.grants.players && !self.grants.entities {
+            return Ok(Err("actor observation capability denied".into()));
+        }
+        let lives = &self.player_state.observations.actor_lives;
+        Ok(Ok(runtime_ids
+            .into_iter()
+            .map(|runtime_id| {
+                let index = lives
+                    .binary_search_by_key(&runtime_id, |observed| observed.runtime_id)
+                    .ok()?;
+                let observed = lives[index];
+                let granted = if observed.player {
+                    self.grants.players
+                } else {
+                    self.grants.entities
+                };
+                granted.then_some(observed.life)
+            })
+            .collect()))
+    }
     fn read_combat(
         &mut self,
         after: u64,
