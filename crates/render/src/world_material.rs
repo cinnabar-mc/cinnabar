@@ -184,19 +184,36 @@ pub(crate) fn register_shaders(
     });
 }
 
-/// Records each world material pipeline that failed to compile, once; its draws keep the base or
-/// fallback pipeline, and the main world reports the failure to the session.
+/// The error a pipeline failed with for good, if it did. A module the cache has not received
+/// yet (`ShaderNotLoaded`, `ShaderImportNotYetAvailable`) is retried each frame, so it is not
+/// a failure.
+pub(crate) fn lasting_error(
+    state: &bevy::render::render_resource::CachedPipelineState,
+) -> Option<&bevy::shader::ShaderCacheError> {
+    use bevy::shader::ShaderCacheError;
+    match state {
+        bevy::render::render_resource::CachedPipelineState::Err(
+            ShaderCacheError::ShaderNotLoaded(_) | ShaderCacheError::ShaderImportNotYetAvailable,
+        ) => None,
+        bevy::render::render_resource::CachedPipelineState::Err(error) => Some(error),
+        _ => None,
+    }
+}
+
+/// Records each world material pipeline that failed to compile for good, once, and logs it the
+/// first time with the error text, so the session's "failed to compile" report can be traced
+/// to its cause; its draws keep the base or fallback pipeline, and the main world reports the
+/// failure to the session.
 pub(crate) fn record_failures(
     cache: &PipelineCache,
     pipelines: impl IntoIterator<Item = (u64, bevy::render::render_resource::CachedRenderPipelineId)>,
     failures: &render_scene::world_material::WorldMaterialFailures,
 ) {
     for (key, id) in pipelines {
-        if matches!(
-            cache.get_render_pipeline_state(id),
-            bevy::render::render_resource::CachedPipelineState::Err(_)
-        ) {
-            failures.record(key);
+        if let Some(error) = lasting_error(cache.get_render_pipeline_state(id))
+            && failures.record(key)
+        {
+            bevy::log::warn!(key, %error, "world material pipeline failed to compile");
         }
     }
 }
@@ -451,6 +468,22 @@ mod tests {
                 rgba: std::sync::Arc::from([255_u8; 16]),
             }]);
         scene
+    }
+
+    #[test]
+    fn a_module_still_loading_is_not_a_lasting_failure() {
+        use bevy::render::render_resource::CachedPipelineState;
+        use bevy::shader::ShaderCacheError;
+        let loading = CachedPipelineState::Err(ShaderCacheError::ShaderNotLoaded(
+            shader(TERRAIN_SHADERS, 1).id(),
+        ));
+        assert!(lasting_error(&loading).is_none());
+        let import = CachedPipelineState::Err(ShaderCacheError::ShaderImportNotYetAvailable);
+        assert!(lasting_error(&import).is_none());
+        let broken =
+            CachedPipelineState::Err(ShaderCacheError::CreateShaderModule("invalid".into()));
+        assert!(lasting_error(&broken).is_some());
+        assert!(lasting_error(&CachedPipelineState::Queued).is_none());
     }
 
     #[test]
