@@ -274,3 +274,89 @@ fn a_compute_that_fails_to_compile_is_reported_once_however_many_frames_note_it(
         .collect();
     assert_eq!(reports.len(), 1, "{reports:?}");
 }
+
+/// `world` declared by bundle `name` with every permission and room for every effect.
+fn every_effect_bundle<'a>(
+    name: &'a str,
+    world: &'a WorldMaterials,
+    permissions: &'a BTreeSet<Permission>,
+) -> BundleWorld<'a> {
+    static NONE: BTreeSet<Permission> = BTreeSet::new();
+    BundleWorld {
+        bundle: name,
+        world,
+        gpu_bytes: 128 << 20,
+        memory_bytes: u64::MAX,
+        files: &NO_FILES,
+        permissions,
+        withdrawn: &NONE,
+    }
+}
+
+/// The key of the compute whose cells the published glass material reads.
+fn glass_cells(presenter: &WorldMaterialPresenter) -> Option<u64> {
+    let index = glass(presenter).cells?;
+    Some(presenter.set().computes.get(usize::from(index))?.key)
+}
+
+/// A compute declaration that only keeps its cells.
+fn keeping(cells: u32) -> WorldComputeSpec {
+    WorldComputeSpec {
+        source: STEP.into(),
+        cells,
+        params: Vec::new(),
+    }
+}
+
+#[test]
+fn a_kept_material_follows_its_compute_when_an_earlier_one_is_removed() {
+    let permissions = every_permission();
+    let mut world = glass_world();
+    world.set_compute(3, Some(&keeping(64))).unwrap();
+    let mut presenter = WorldMaterialPresenter::inline();
+    presenter.rebuild([every_effect_bundle("example.bundle", &world, &permissions)]);
+    let read = glass_cells(&presenter).expect("the glass reads its cells");
+    let key = presenter.set().block("example:glass").unwrap().1.key;
+    world.set_compute(3, None).unwrap();
+    presenter.rebuild([every_effect_bundle("example.bundle", &world, &permissions)]);
+    assert_eq!(
+        presenter.set().block("example:glass").unwrap().1.key,
+        key,
+        "the material itself is kept"
+    );
+    assert_eq!(
+        glass_cells(&presenter),
+        Some(read),
+        "it still reads compute 7's cells"
+    );
+}
+
+#[test]
+fn a_material_never_reads_another_bundles_cells_when_an_earlier_bundle_stops() {
+    let permissions = every_permission();
+    let only_cells = |id| {
+        let mut world = WorldMaterials::default();
+        world.set_compute(id, Some(&keeping(32))).unwrap();
+        world
+    };
+    let (first, drawn, last) = (only_cells(1), glass_world(), only_cells(2));
+    let mut presenter = WorldMaterialPresenter::inline();
+    presenter.rebuild([
+        every_effect_bundle("a.bundle", &first, &permissions),
+        every_effect_bundle("b.bundle", &drawn, &permissions),
+        every_effect_bundle("c.bundle", &last, &permissions),
+    ]);
+    let own = glass_cells(&presenter).expect("the glass reads its own bundle's cells");
+    // The first bundle stops, so every later compute moves down one place.
+    presenter.rebuild([
+        every_effect_bundle("b.bundle", &drawn, &permissions),
+        every_effect_bundle("c.bundle", &last, &permissions),
+    ]);
+    let last_key = presenter.set().computes.last().unwrap().key;
+    assert_ne!(
+        glass_cells(&presenter),
+        Some(last_key),
+        "never the next bundle's cells"
+    );
+    assert_eq!(glass_cells(&presenter), Some(own));
+}
