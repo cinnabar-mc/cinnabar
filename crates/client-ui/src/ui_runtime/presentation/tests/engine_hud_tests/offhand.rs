@@ -69,6 +69,8 @@ fn snapshot_offhand_hud() {
     let mut presentation =
         UiPresentationRuntime::with_hud_and_icons(pack_harness::font(), hud, icons).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
+    // The frame's expected bounds sit beside Java's flush hotbar.
+    presentation.set_chat_settings_snapshot((Arc::new(java_hotbar_settings()), None));
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     player

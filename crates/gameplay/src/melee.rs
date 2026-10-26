@@ -15,7 +15,7 @@ mod target;
 pub use target::{
     ActorHit, Crosshair, actor_is_pickable, actor_pick_unique_id, block_pick_distance, classify,
     classify_block_hit, obstructs_placement, pick_actor, pick_actor_by, pick_distance,
-    ray_box_entry,
+    ray_box_entry, trim_actor_pick,
 };
 
 /// Bedrock swing length in ticks, with the stronger Haste or Conduit Power taking priority.
@@ -96,7 +96,7 @@ impl RefusedDestroy {
         // An abort carries the progress percent, which no refused start has made.
         let abort = action(protocol::BlockActionKind::AbortDestroy, 0);
         if self.reason == RefusedDestroyReason::CreativeNoBreak {
-            let _ = payload
+            payload
                 .actions
                 .push(action(protocol::BlockActionKind::StartDestroy, self.face));
             payload.creative_destroy = Some(crate::survival_mining::CreativeDestroyBlock {
@@ -105,8 +105,7 @@ impl RefusedDestroy {
                 face: self.face,
             });
         }
-        // At most two actions, within the bounded list.
-        let _ = payload.actions.push(abort);
+        payload.actions.push(abort);
         payload
     }
 }

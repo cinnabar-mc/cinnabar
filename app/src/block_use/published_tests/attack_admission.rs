@@ -277,6 +277,9 @@ fn attack_admission_assisted_reach_uses_the_box_without_replacing_its_selected_p
     ] {
         let distance = gameplay::mining::creative_reach(wire) as f32 + 0.2;
         let (mut world, mut captured) = assisted_fixture(distance, true);
+        let mut physics = client_interaction::movement::LocalPhysicsController::default();
+        physics.reanchor_network_position([4.5, 2.620_01, 8.5], 101, false);
+        world.insert_resource(physics);
         assisted_attack(&mut world, input);
         let attacks = actor_attacks(&mut captured);
         assert_eq!(attacks.len(), 1, "the near box edge remains in pick reach");

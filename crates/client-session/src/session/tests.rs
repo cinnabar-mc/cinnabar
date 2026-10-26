@@ -14,6 +14,8 @@ use std::{
 type NetworkControlEvent = super::NetworkControlEvent<()>;
 type NetworkHandle = super::NetworkHandle<()>;
 
+#[path = "blob_cache_tests.rs"]
+mod blob_cache_tests;
 mod forms;
 mod outbound;
 mod queues;

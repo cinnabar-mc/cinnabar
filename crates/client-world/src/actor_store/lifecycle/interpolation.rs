@@ -206,6 +206,7 @@ impl ActorStore {
             let local_view_bobbing = self.local_view_bobbing;
             let local_flying = self.local_flying;
             let world_game_mode = self.world_default_game_mode;
+            let air_block_network_id = self.air_block_network_id;
             let local_hands = self.local_hands.clone();
             let local_equipment_count = self.local_equipment_count;
             let local_held_network_ids = self.local_held_network_ids;
@@ -394,6 +395,7 @@ impl ActorStore {
                     has_rider,
                     has_player_rider,
                     attachable: None,
+                    air_block_network_id,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     is_local_player: is_local,
                     view_bobbing: is_local.then_some(local_view_bobbing),

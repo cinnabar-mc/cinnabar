@@ -129,6 +129,18 @@ fn pick_distance_squared(origin: [f32; 3], point: [f32; 3]) -> f32 {
     z * z + y * y + x * x
 }
 
+/// Trims an ordinary actor intercept against the camera actor's position captured with its frame.
+/// The broader pick range is separate from melee admission along the presented ray.
+pub fn trim_actor_pick(crosshair: Crosshair, position: [f32; 3], pick_range: f64) -> Crosshair {
+    if let Crosshair::Actor(hit) = crosshair
+        && (pick_range as f32) * (pick_range as f32) < pick_distance_squared(position, hit.point)
+    {
+        Crosshair::Miss
+    } else {
+        crosshair
+    }
+}
+
 /// Reads the admitted obstruction disposition independently from picking.
 pub fn obstructs_placement(actor: &ActorSnapshot) -> bool {
     matches!(actor.kind, protocol::ActorKind::Player { .. })

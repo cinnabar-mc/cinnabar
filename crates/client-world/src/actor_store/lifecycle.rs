@@ -121,6 +121,7 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             local_unique_id: None,
+            air_block_network_id: None,
             local_vehicle: Default::default(),
             pending_local_health: None,
             pending_local_actor: None,
@@ -175,6 +176,11 @@ impl ActorStore {
     /// already present, as vanilla's local player always is.
     pub(crate) fn set_local_unique_id(&mut self, unique_id: i64) {
         self.local_unique_id = Some(unique_id);
+    }
+
+    /// Records how this session's block metadata encodes air.
+    pub(crate) fn set_air_block_network_id(&mut self, network_id: Option<u32>) {
+        self.air_block_network_id = network_id;
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
@@ -516,7 +522,8 @@ impl ActorStore {
                 result
             }
             ActorEvent::Remove(remove) => self.remove_unique(sequence, remove.unique_id),
-            ActorEvent::Move(movement) => {
+            ActorEvent::Move(mut movement) => {
+                movement.teleported |= movement.player_mode == Some(MovePlayerMode::Reset);
                 // The local player's pose is client-fed each tick; server movement
                 // (authoritative reconciliation) must not fight that feed.
                 if self.remote_state_excluded_runtime_id == Some(movement.runtime_id) {
@@ -528,6 +535,10 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
+                if movement.player_mode == Some(MovePlayerMode::Rotation) {
+                    actor.apply_player_rotation(&movement, sequence);
+                    return ActorApplyResult::Updated;
+                }
                 let Some(duration) =
                     super::movement_interpolation::duration(movement.interpolation)
                 else {
@@ -798,7 +809,7 @@ impl ActorStore {
                 yaw: Some(movement.yaw),
                 head_yaw: Some(movement.head_yaw),
                 on_ground: Some(movement.on_ground),
-                teleported: movement.teleported || movement.mode == protocol::MovePlayerMode::Reset,
+                teleported: movement.teleported,
                 force_local_move: false,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),

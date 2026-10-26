@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn actor_pick_trim_keeps_the_pick_range_boundary_and_uses_its_frame_position() {
+    let range = crate::mining::survival_reach(protocol::PlayerInputMode::Mouse);
+    let point = [0.0, 0.0, -(range as f32)];
+    let crosshair = Crosshair::Actor(ActorHit {
+        runtime_id: 7,
+        distance: 2.8,
+        point,
+    });
+    assert_eq!(trim_actor_pick(crosshair, [0.0; 3], range), crosshair);
+    assert_eq!(
+        trim_actor_pick(crosshair, [0.0, 0.0, 0.01], range),
+        Crosshair::Miss
+    );
+    assert_eq!(
+        trim_actor_pick(crosshair, [0.0, 0.0, -0.01], range),
+        crosshair
+    );
+    for other in [Crosshair::Miss, Crosshair::Block] {
+        assert_eq!(trim_actor_pick(other, [0.0; 3], range), other);
+    }
+}
+
+#[test]
 fn shulker_pick_does_not_expand_its_interaction_box() {
     let actor =
         super::super::tests::actor(1, "minecraft:shulker", [0.0, 0.0, -2.0], Some((1.0, 1.0)));
