@@ -324,7 +324,7 @@ func (c *materialFxConn) hit(use *protocol.UseItemOnEntityTransactionData) {
 		if entity.id != materialFxMetal || use.TargetEntityRuntimeID != uint64(materialFxFirstID+index) {
 			continue
 		}
-		feet := gallery.at(float32(index*2-(len(materialFxEntities)-1)), 4)
+		feet := materialFxMobFeet(*gallery, index)
 		struck := feet.Add(use.ClickedPosition)
 		now := materialFxNowMs(time.Now())
 		c.send(
