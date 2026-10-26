@@ -199,7 +199,10 @@ mod tests {
             object["camera_orientation"],
             serde_json::json!([0.25, -0.5, 0.75])
         );
-        assert_eq!(object["interact_rotation"], json!([-4.25, 88.5]));
+        assert_eq!(
+            object["interact_rotation"],
+            serde_json::json!([-4.25, 88.5])
+        );
         assert_eq!(object.len(), 15, "schema tag plus fourteen movement fields");
     }
 
