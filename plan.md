@@ -1411,7 +1411,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.
   Personal-mod dimension transfers retain guest memory and HUD surfaces while fencing
-  world output and observations. Connection and permission changes still require fresh
+  world output and observations. Every callback suppresses world output during loading;
+  native presentation parameters and world projection bindings reset, and deferred catalog
+  notifications survive while departed screen geometry and input are discarded.
+  Connection and permission changes still require fresh
   guests; identical source replacements reuse in-memory compilation. Host regression
   and admission timing checks cover this lifecycle; fresh live transfer acceptance
   remains pending.

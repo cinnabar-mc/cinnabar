@@ -3,6 +3,11 @@
 use client_extensions::modding::{drawing_policy::session_permissions, multi::ModHosts};
 use mod_api::drawing::DrawingSession;
 
+/// A connection may remain live while a dimension transfer has no usable world.
+pub(super) fn world_active(world: Option<&crate::runtime::world::ClientWorld>) -> bool {
+    world.is_some_and(|world| world.stream.is_some() && !world.dimension_transfer.active())
+}
+
 /// Replaces availability from all current scene contributors under one native session fence.
 pub(crate) fn rebuild_frame<'a>(
     resources: impl IntoIterator<Item = &'a std::sync::Arc<mod_render::retained::Resources>>,
@@ -36,10 +41,7 @@ pub(super) fn bind(hosts: &mut ModHosts, gameplay: &super::gameplay::GameplayCon
             (authority.actor_session_id(), authority.current_dimension())
         });
     // A loading gap suspends world output, but the actor authority still owns the connection.
-    let world_active = gameplay
-        .world
-        .as_ref()
-        .is_some_and(|world| world.stream.is_some() && !world.dimension_transfer.active());
+    let world_active = world_active(gameplay.world.as_deref());
     for index in 0..hosts.host_count() {
         let host = hosts.host_mut(index);
         let (connection, dimension) = fence.unwrap_or_default();

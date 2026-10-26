@@ -41,6 +41,28 @@ pub(super) struct HudState {
 }
 
 impl HudState {
+    /// Invalidates world projections without rebuilding unaffected retained HUD surfaces.
+    pub(super) fn clear_world_projections(&mut self) {
+        let mut changed = false;
+        for surface in self
+            .surface
+            .iter_mut()
+            .chain(self.pending_surface.iter_mut().flatten())
+        {
+            if surface
+                .bindings
+                .values()
+                .any(|value| value.projection().is_some())
+            {
+                super::world_lifecycle::clear_surface_world(Arc::make_mut(surface));
+                changed = true;
+            }
+        }
+        if changed {
+            self.surface_revision = Self::next_revision();
+        }
+    }
+
     /// Discards failed surface writes while retaining published output and native observations.
     pub(super) fn rollback(&mut self) {
         let Self {

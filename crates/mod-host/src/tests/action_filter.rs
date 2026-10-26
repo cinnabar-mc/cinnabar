@@ -50,6 +50,30 @@ fn filter_returns_a_verdict_even_when_ordinary_frame_fuel_is_empty() {
     assert_eq!(verdict.accepted, [true]);
     assert!(host.is_active());
 }
+
+#[test]
+fn loading_gap_suspends_filter_output_without_replacing_the_guest() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let (_dir, mut host) = host("", "local.get $count", true);
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    host.reload_if_changed().unwrap();
+    let identity = host.action_filter_identity().unwrap();
+    host.bind_drawing_world(session, false);
+    assert!(host.action_filter_identity().is_none());
+    assert!(host.filter_actions(frame()).is_err());
+    assert!(host.is_active());
+    host.bind_drawing_session(DrawingSession {
+        dimension: 1,
+        ..session
+    });
+    assert_eq!(host.action_filter_identity(), Some(identity));
+    assert_eq!(host.filter_actions(frame()).unwrap().accepted, [true]);
+}
 #[test]
 fn only_explicit_granted_exports_claim_filter_ownership() {
     let (_dir, mut denied) = host("", "local.get $count", false);

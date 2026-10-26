@@ -5,25 +5,22 @@ use wasmtime::{
     component::{Component, HasSelf, Linker},
 };
 
+#[cfg(test)]
+mod tests;
+
 impl Instance {
     /// Clears world-scoped observations and output while preserving guest memory and HUD.
     pub(crate) fn clear_drawing_world(&mut self) {
         let state = self.store.data_mut();
+        state.clear_world_output();
         state.terrain.clear_world();
         state.player_state.revoke();
-        state.environment.revoke();
         state.snapshot = None;
         state.gameplay_facts = Default::default();
-        state.motion.revoke();
-        state.world = Default::default();
-        state.pending_camera = None;
-        state.camera_delta = None;
-        state.camera_policy = Default::default();
-        state.item_use_policy = Default::default();
-        state.inventory.revoke();
-        state.packet_delay_ms = 0;
-        state.pending_packet_delay = None;
-        state.exclusive.camera_claimed = false;
+        state.controls.begin_frame();
+        state.touch.restart_guest();
+        state.pressed = false;
+        state.events.modifiers = Default::default();
     }
 
     /// Revokes previously published drawing and installs the current admission ceiling.

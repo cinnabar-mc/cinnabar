@@ -172,7 +172,10 @@ impl Worker {
     }
 }
 /// The first active, granted nonzero delay; while it lasts the relayed position is witnessed.
-fn requested(extension: Option<&ModRuntime>) -> u32 {
+fn requested(extension: Option<&ModRuntime>, world_active: bool) -> u32 {
+    if !world_active {
+        return 0;
+    }
     let Some(runtime) = extension.filter(|runtime| !runtime.suspended) else {
         return 0;
     };
@@ -185,6 +188,7 @@ fn requested(extension: Option<&ModRuntime>) -> u32 {
 }
 pub(super) fn publish_packet_delay(
     extension: Option<Res<ModRuntime>>,
+    world: Option<Res<crate::runtime::world::ClientWorld>>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
     ui: Option<Res<UiRuntimeResource>>,
     mut snapshot: ResMut<RealPositionSnapshot>,
@@ -199,7 +203,10 @@ pub(super) fn publish_packet_delay(
     }) {
         *worker = None;
     }
-    let delay = requested(extension.as_deref());
+    let delay = requested(
+        extension.as_deref(),
+        super::drawing_policy::world_active(world.as_deref()),
+    );
     if worker.is_none()
         && delay != 0
         && let Some(endpoint) = endpoint
@@ -279,9 +286,10 @@ mod tests {
         super::super::configure_set(&mut app, mods);
         let mut runtime = app.world_mut().resource_mut::<ModRuntime>();
         assert_eq!(runtime.hosts.host_count(), 4);
-        assert_eq!(requested(Some(&runtime)), 200);
+        assert_eq!(requested(Some(&runtime), true), 200);
+        assert_eq!(requested(Some(&runtime), false), 0);
         runtime.suspended = true;
-        assert_eq!(requested(Some(&runtime)), 0);
+        assert_eq!(requested(Some(&runtime), true), 0);
     }
 
     #[test]
@@ -319,11 +327,11 @@ mod tests {
         super::super::configure_set(&mut app, entries);
         let mut runtime = app.world_mut().resource_mut::<ModRuntime>();
         assert_eq!(runtime.hosts.host_count(), 3);
-        assert_eq!(requested(Some(&runtime)), 200);
+        assert_eq!(requested(Some(&runtime), true), 200);
         assert!(runtime.hosts.host_mut(1).frame(false).is_err());
-        assert_eq!(requested(Some(&runtime)), 400);
+        assert_eq!(requested(Some(&runtime), true), 400);
         runtime.suspended = true;
-        assert_eq!(requested(Some(&runtime)), 0);
+        assert_eq!(requested(Some(&runtime), true), 0);
     }
     #[test]
     fn absent_offline_ui_and_network_clear_the_published_witness() {

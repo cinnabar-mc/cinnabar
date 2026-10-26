@@ -79,8 +79,10 @@ impl ModHost {
                 self.drawing_restart = DrawingRestart::Pending;
             }
             self.instance.revoke();
+            self.pending_events.clear();
+        } else {
+            self.clear_world_events();
         }
-        self.pending_events.clear();
         self.instance.clear_drawing_world();
         self.drawing_session = Some(session);
         self.drawing_world_active = world_active;
