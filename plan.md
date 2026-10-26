@@ -1617,6 +1617,10 @@ disable sampling while their required targets are unavailable. Injected failures
 recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
 remain incomplete.
 
+Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
+frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
+screens with a free cursor still receive every raw report.
+
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,
 chat/forms, resource packs, and an offline local world followed by reload. Required
