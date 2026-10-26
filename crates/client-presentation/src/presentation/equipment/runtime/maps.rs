@@ -1,6 +1,9 @@
 //! Immutable paper and image planes shared by both held map slots.
 use super::*;
 
+/// The paper background and map-image planes share one reserved geometry pair.
+pub(super) const MAP_MESH_COUNT: usize = 2;
+
 impl EquipmentRuntime {
     /// Shares pack paper at its authored resolution, falling back to the startup pack.
     pub(crate) fn map_background(&self) -> Option<render_model::HandItemAtlas> {
@@ -26,13 +29,13 @@ impl EquipmentRuntime {
     }
 
     /// Registers two static planes once; pixel updates change only their image binding.
-    pub(crate) fn map_meshes(&mut self) -> [EntityRigId; 2] {
+    pub(crate) fn map_meshes(&mut self) -> [EntityRigId; MAP_MESH_COUNT] {
         if let Some(meshes) = self.map_meshes {
             return meshes;
         }
         let meshes = std::array::from_fn(|index| {
             let id = item_mesh_rig_id(
-                (MAX_ITEM_MESHES + session::MAX_SESSION_MESHES + index)
+                (STARTUP_MESH_ID_CAPACITY + session::MAX_SESSION_MESHES + index)
                     .try_into()
                     .expect("reserved map mesh IDs fit u32"),
             );

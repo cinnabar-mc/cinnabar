@@ -615,6 +615,8 @@ and rendered qualification remain incomplete.
   light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
   retains sRGB artwork sampling. Opaque Bedrock hands round gamma output to bytes before
   scene conversion. Broader held lighting and shape acceptance remain incomplete.
+  Held mesh allocation uses the available item ID namespace while reserving distinct session
+  and map slots. Rendered large-catalog acceptance remains open.
   Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
   placed book counts and the held world model.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.

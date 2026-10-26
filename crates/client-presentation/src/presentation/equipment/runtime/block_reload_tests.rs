@@ -456,7 +456,7 @@ fn held_terrain_reload_replaces_warmed_mesh_pixels_alpha_and_restores_startup() 
     assert_eq!(geometry.vertices, original.vertices);
     assert_eq!(drawn_pixel(&pages, &restored.presentation, &geometry), blue);
     assert_eq!(restored.alpha_mode, render_model::HandItemAlphaMode::Opaque);
-    for _ in 0..MAX_ITEM_MESHES + 1 {
+    for _ in 0..8 {
         for source in [resources.block_items.as_ref(), None] {
             runtime.set_block_items(source);
             runtime
