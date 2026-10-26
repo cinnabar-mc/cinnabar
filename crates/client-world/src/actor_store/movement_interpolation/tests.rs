@@ -3,7 +3,7 @@ use crate::actor_store::{ActorApplyResult, ActorStore};
 use protocol::{ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin};
 
 mod corners;
-mod player_rotation;
+mod player_modes;
 mod precision;
 mod swing;
 
