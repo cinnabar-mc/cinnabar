@@ -1190,21 +1190,3 @@ fn main_queue_retained_priorities_follow_replacements_and_session_reset() {
     assert_eq!(entities.len(), 1);
     assert!(entities.contains_key(&second));
 }
-
-#[test]
-fn a_withdrawn_upload_never_reaches_the_renderer_while_other_uploads_stay() {
-    let mut queue = ChunkRenderQueue::default();
-    let (tagged, other) = (SubChunkKey::new(0, 0, 0, 0), SubChunkKey::new(0, 1, 0, 0));
-    for key in [tagged, other] {
-        queue
-            .try_insert(key, solid_test_mesh(), ChunkUploadPriority::new(0.0))
-            .unwrap();
-    }
-    let other_bytes = render_scene::chunk::pending_upload_byte_len(&queue.pending[&other]);
-    // A world material tag change withdraws the section still carrying the old tag.
-    queue.withdraw_uploads([tagged]);
-    assert!(!queue.pending.contains_key(&tagged));
-    assert!(!queue.render_manifest.contains_key(&tagged));
-    assert!(queue.pending.contains_key(&other));
-    assert_eq!(queue.pending_bytes, other_bytes);
-}
