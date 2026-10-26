@@ -52,7 +52,7 @@ fn state() -> State {
         initializing: false,
         negotiation: None,
         world: WorldMaterials::default(),
-        world_staged: WorldMaterials::default(),
+        world_undo: Vec::new(),
         world_compiles: 0,
     };
     state.begin_output().unwrap();

@@ -234,7 +234,7 @@ impl WorldMaterialPresenter {
         for bundle in &bundles {
             let mut used = 0_u64;
             let mut memory = bundle.memory_bytes;
-            for (&id, spec) in &bundle.world.materials {
+            for (&id, spec) in &bundle.world.materials() {
                 let key = (bundle.bundle.to_owned(), id);
                 live.insert(key.clone());
                 let mut cached = match self.cache.remove(&key) {
@@ -287,7 +287,7 @@ impl WorldMaterialPresenter {
         let mut entities = BTreeMap::new();
         let mut blocks = BTreeMap::new();
         for bundle in &bundles {
-            for binding in bundle.world.bindings.values() {
+            for binding in bundle.world.bindings().values() {
                 let key = (bundle.bundle.to_owned(), binding.material);
                 let Some(&slot) = slots.get(&key) else {
                     continue;
