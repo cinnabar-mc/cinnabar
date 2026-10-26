@@ -126,7 +126,7 @@ fn sea_pickle_clusters_keep_individual_bodies_and_only_live_tips() {
         let body_len = if dry { 7 } else { 9 };
         assert!(parts.iter().all(|p| {
             p.quad_count as usize <= assets::MAX_MODEL_TEMPLATE_QUADS
-                && p.quad_count as usize % body_len == 0
+                && (p.quad_count as usize).is_multiple_of(body_len)
         }));
         let template = parts[0];
         let quad_count: usize = parts.iter().map(|p| p.quad_count as usize).sum();
