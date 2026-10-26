@@ -177,17 +177,18 @@ wit-component = "=0.247.0"
 # missing returns, scalar swizzles, atomics and barriers, SPIR-V `fma` NoContraction.
 # A lost device is a `PollError` instead of a poll panic, and queue-write staging OOM is recoverable.
 # FXC (DX12) gets `[loop]` on loops with implicit-derivative operations instead of failing to unroll them.
+# Vulkan keeps logical allocation layouts separate and accepts either native image-robustness feature.
 # Every wgpu crate comes from the same rev so wgpu and the shaderpack crate share one naga.
 [patch.crates-io]
 # Keep Linux crash dumps when a thread's stack cannot be read.
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "060bd0bdbc5975dc9e48840b391e276d5ccb4355" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "060bd0bdbc5975dc9e48840b391e276d5ccb4355" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "060bd0bdbc5975dc9e48840b391e276d5ccb4355" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "060bd0bdbc5975dc9e48840b391e276d5ccb4355" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "060bd0bdbc5975dc9e48840b391e276d5ccb4355" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "de534fdc798c6a3850848faa702d9466ad7b89f7" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "060bd0bdbc5975dc9e48840b391e276d5ccb4355" }
 
 # Keep every Bevy crate on the same renderer fork revision. CI checks the locked graph.
 bevy = { git = "https://github.com/cinnabar-mc/bevy", rev = "a55f971f1deb7a069fac3cab1e3e62518bfa0efb" }

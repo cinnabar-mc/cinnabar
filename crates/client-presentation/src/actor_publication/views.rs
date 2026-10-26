@@ -84,3 +84,7 @@ pub(super) fn refresh_interpolation(
         stream.advance_actor_interpolation_frame(0);
     }
 }
+
+#[cfg(test)]
+#[path = "views_tests.rs"]
+mod tests;

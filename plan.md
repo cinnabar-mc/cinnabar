@@ -465,6 +465,9 @@ recovery policy: vanilla runs no separate push-out after a teleport, and its clo
 push instead nudges horizontal velocity toward free space by at most 0.1 block per tick
 for actors with the push-towards-closest-space flag, which is not modelled.
 
+Camera aim-policy reports distinguish both third-person views and retry changes that
+have not entered the outbound queue. Complete camera activation acceptance remains open.
+
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
 [camera behavior](docs/reference/camera.md).
@@ -481,6 +484,9 @@ reservations. Equipment placement reuses unchanged owner and attachment inputs. 
 retain clip masks and name indices sized to each skeleton. Rig plans and prepared skins
 share cape and cosmetic attachment bindings. Hardware crowd captures and full temporal/visual
 qualification remain open.
+Remote players remain eligible while their collision box contains the camera. Render and
+animation bounds containing the eye survive frustum rejection after distance admission;
+matched overlapping-player visual qualification remains open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
@@ -525,8 +531,12 @@ and rendered qualification remain incomplete.
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
   Movement retains signed byte rotations and exact network heights through tick and
-  frame interpolation and predicted picking. Specialized projectile and vehicle movement,
-  remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  frame interpolation and predicted picking. Remote reset packets snap through the same
+  owner as other player moves. Rotation-only player packets preserve active movement
+  and body yaw while applying pitch immediately. Normal player moves place directly before
+  the first actor tick or when their target terrain is missing, preserving any active lerp.
+  Specialized projectile and vehicle movement, other remote-player packet modes,
+  stance and riding update timing, partially loaded terrain,
   and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.
@@ -799,7 +809,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex Molang conditions, item-tag scripts and live custom-block mining acceptance
   remain incomplete.
   Server items' `minecraft:digger` speeds replace tool speed and harvest for blocks
-  matched by name or tag query. Native block tags other than the pickaxe, axe, shovel
+  matched by name or tag query; as in Bedrock, a descriptor without states that carries
+  a tag query matches by tags, even beside a name. Native block tags other than the pickaxe, axe, shovel
   and hoe destructible tags are not carried yet. Serialized state restrictions compare
   the target's prepared values in both palette modes. Unknown native tags and unsupported
   queries stay unresolved, including under negation, and fall back to hand mining.
@@ -807,11 +818,16 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and 256-byte tag limits are implementation bounds; removing them remains incomplete
   parity work.
   Complex legacy aliases, full native tags and general Molang remain incomplete.
+  Item registries keep every entry: a network ID repeated for a different item goes to the
+  later entry, as Bedrock maps IDs in packet order. Which components win when one
+  identifier repeats with different non-empty components is unverified (the later entry
+  is kept), and an identifier repeated under a second ID still keeps both IDs.
   Digger tag programs are prepared off the frame thread at bootstrap and registry
   replacement; replacements retain only active queries and session retirement drops
   pending preparations before a new login.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Block-action carriers retain every accumulated action in tick order.
   Server-requested local swings retain their source and echo after inventory authority
   when the arm guard admits them; unknown-source parsing, matched live ordering,
   transport-batch acceptance and effect modifiers on authored item swing durations remain incomplete.
@@ -1131,8 +1147,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   while constraining the storage budget. Proprietary Adreno Vulkan drivers use direct terrain
   draws after indirect draws produced empty frames on Adreno 619 and 750. Both devices pass the
   coverage, occlusion and reupload fixtures with this fallback; PowerVR GE8320 also passes.
-  Mali-G57, Mali-G78 and Mali-G715 fixture pipeline compilation still crashes without completed
-  frames.
+  Mali-G57, Mali-G78, Mali-G715 and PowerVR DXT fixture pipeline compilation failed before
+  completed frames. Shader translation now separates logical Function/Private allocations from
+  host buffer layouts and preserves either advertised image-robustness feature. Composed terrain
+  programs validate for Vulkan 1.1 and 1.3 with bounds checks enabled, and host terrain pixels
+  remain unchanged; physical-device validation of these compiler fixes remains open.
   Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
   with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
   CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
@@ -1597,7 +1616,11 @@ reference hardware, frame/hitch, streaming, join and capture budgets. Capture th
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
 
-Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
+Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
+compression to and from disk, so storing or loading one stages no encoded copy of its
+artwork pixels. Prepared actor artwork pages still copy multi-layer pack entity textures
+that the session entity pack also keeps, so those pixels stay resident twice during a
+session; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
 Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
 their admission metadata and file hashes. Decoded and compiled session outputs are freed
