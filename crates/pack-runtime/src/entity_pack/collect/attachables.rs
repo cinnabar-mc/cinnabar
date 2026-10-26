@@ -68,11 +68,12 @@ pub(super) fn collect(
             installed.push((relative, value));
         }
     }
+    installed.sort_by(|a, b| a.0.cmp(&b.0));
     let authored = files
         .iter()
         .filter_map(|(_, bytes)| parse_pack_json(bytes))
         .collect::<Vec<_>>();
-    if let Ok(missing) = pack_entity_compiler::missing_harness_bindings(
+    if let Ok(missing) = pack_entity_compiler::missing_equipment_bindings(
         |path| root.join(path).is_file(),
         installed
             .iter()

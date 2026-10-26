@@ -24,11 +24,7 @@ pub(super) fn complete_bindings(
         .map(|(path, bytes)| parse_unique_json(&root.join(path.as_ref()), bytes))
         .collect::<Result<Vec<_>, _>>()?;
     let mut missing =
-        missing_harness_bindings(|path| payloads.contains_key(path), authored.iter())?;
-    missing.extend(armor::missing_bindings(
-        |path| payloads.contains_key(path),
-        &authored,
-    )?);
+        missing_equipment_bindings(|path| payloads.contains_key(path), authored.iter())?;
     missing.extend(missing_render_controllers(root, payloads, symbols)?);
     let mut size = 0;
     for (source, value) in missing {
@@ -106,8 +102,19 @@ fn missing_render_controllers(
     Ok(missing)
 }
 
+/// Completes equipment from present pack resources without replacing authored item conditions.
+/// Callers supply definitions in source path order so template selection stays deterministic.
+pub fn missing_equipment_bindings<'a>(
+    has_source: impl Fn(&str) -> bool,
+    authored: impl Iterator<Item = &'a Value> + Clone,
+) -> Result<Vec<(Box<str>, Value)>, AssetError> {
+    let mut missing = missing_harness_bindings(&has_source, authored.clone())?;
+    missing.extend(armor::missing_bindings(has_source, authored)?);
+    Ok(missing)
+}
+
 /// Supplies omitted harness definitions from present resources without replacing authored items.
-pub fn missing_harness_bindings<'a>(
+fn missing_harness_bindings<'a>(
     has_source: impl Fn(&str) -> bool,
     authored: impl IntoIterator<Item = &'a Value>,
 ) -> Result<Vec<(Box<str>, Value)>, AssetError> {

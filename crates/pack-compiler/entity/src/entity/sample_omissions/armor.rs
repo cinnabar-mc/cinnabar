@@ -4,14 +4,14 @@ use super::*;
 use assets::{facts::ItemTier, item::armour::ItemArmourSlot};
 
 /// Reuses a standard definition for each missing copper piece, preserving authored overrides.
-pub(super) fn missing_bindings(
+pub(super) fn missing_bindings<'a>(
     has_source: impl Fn(&str) -> bool,
-    authored: &[Value],
+    authored: impl Iterator<Item = &'a Value> + Clone,
 ) -> Result<Vec<(Box<str>, Value)>, AssetError> {
     let facts =
         assets::facts::ItemFacts::builtin().map_err(|_| invalid("item facts are unavailable"))?;
     let claimed: BTreeSet<&str> = authored
-        .iter()
+        .clone()
         .flat_map(|document| {
             let description = &document["minecraft:attachable"]["description"];
             match description["item"].as_object() {
@@ -43,7 +43,7 @@ pub(super) fn missing_bindings(
         {
             continue;
         }
-        let Some(template) = authored.iter().find(|document| {
+        let Some(template) = authored.clone().find(|document| {
             let description = &document["minecraft:attachable"]["description"];
             description.get("item").is_none()
                 && description["materials"]["default"] == "armor"
@@ -59,7 +59,7 @@ pub(super) fn missing_bindings(
         else {
             continue;
         };
-        let owners = authored.iter().filter(|document| {
+        let owners = authored.clone().filter(|document| {
             let description = &document["minecraft:attachable"]["description"];
             description["textures"]["default"].is_string()
                 && description["item"]
@@ -125,7 +125,7 @@ mod tests {
                 }}})
             })
             .collect();
-        let generated = missing_bindings(|_| true, &templates).unwrap();
+        let generated = missing_bindings(|_| true, templates.iter()).unwrap();
         assert_eq!(generated.len(), pieces.len());
         for (_, document) in &generated {
             let description = &document["minecraft:attachable"]["description"];
@@ -145,8 +145,12 @@ mod tests {
                 "variable.fixture = 1;"
             );
         }
-        assert!(missing_bindings(|_| false, &templates).unwrap().is_empty());
-        assert!(missing_bindings(|_| true, &[]).unwrap().is_empty());
+        assert!(
+            missing_bindings(|_| false, templates.iter())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(missing_bindings(|_| true, [].iter()).unwrap().is_empty());
         let source_item = templates[0]["minecraft:attachable"]["description"]["identifier"]
             .as_str()
             .unwrap();
@@ -159,7 +163,7 @@ mod tests {
         description["animations"] = serde_json::json!({"offset":"animation.fixture.offset"});
         let mut variants = templates.clone();
         variants.push(owner);
-        let generated_variants = missing_bindings(|_| true, &variants).unwrap();
+        let generated_variants = missing_bindings(|_| true, variants.iter()).unwrap();
         assert_eq!(generated_variants.len(), pieces.len() + 1);
         let owner = generated_variants
             .iter()
@@ -177,12 +181,16 @@ mod tests {
             document["minecraft:attachable"]["description"]["textures"] =
                 Value::String("invalid".into());
         }
-        assert!(missing_bindings(|_| true, &malformed).unwrap().is_empty());
+        assert!(
+            missing_bindings(|_| true, malformed.iter())
+                .unwrap()
+                .is_empty()
+        );
         let mut conditional = templates.clone();
         conditional.push(serde_json::json!({"minecraft:attachable":{"description":{
             "identifier":"fixture:disabled","item":{(pieces[0].identifier.as_ref()):"0"}
         }}}));
-        let remaining = missing_bindings(|_| true, &conditional).unwrap();
+        let remaining = missing_bindings(|_| true, conditional.iter()).unwrap();
         assert_eq!(remaining.len(), pieces.len() - 1);
         assert!(remaining.iter().all(|(_, document)| {
             document["minecraft:attachable"]["description"]["identifier"]
@@ -190,6 +198,10 @@ mod tests {
         }));
         let mut authored = templates;
         authored.extend(generated.into_iter().map(|(_, document)| document));
-        assert!(missing_bindings(|_| true, &authored).unwrap().is_empty());
+        assert!(
+            missing_bindings(|_| true, authored.iter())
+                .unwrap()
+                .is_empty()
+        );
     }
 }
