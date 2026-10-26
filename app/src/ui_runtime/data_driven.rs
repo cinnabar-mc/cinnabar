@@ -428,6 +428,9 @@ mod tests {
         }
         // Layout entry 6 is the fixture's text field.
         runtime.data_driven_action(DataDrivenAction::Activate(6));
+        // A key bound to Menu Cancel types while the text field owns typed keys.
+        type_key(&mut runtime, KeyCode::KeyX, Some("x"), false, true);
+        assert!(runtime.data_driven_focus_items().editing.is_some());
         type_key(&mut runtime, KeyCode::Escape, None, false, false);
         assert_eq!(runtime.data_driven_focus_items().editing, None);
         type_key(&mut runtime, KeyCode::Escape, None, true, false);

@@ -221,18 +221,20 @@ fn route_press(
 }
 
 /// Reserves vanilla container keys from mod declarations. While a mod view hides the
-/// container, only the inventory key and Escape stay reserved.
+/// container, only the inventory key, Escape and Menu Cancel stay reserved.
 pub(crate) fn inventory_consumes_key(
     menu: Option<&client_shell::menu::MenuRuntime>,
     key: KeyCode,
     view: bool,
 ) -> bool {
-    if binding_key(menu, BindingId::Inventory, key) || key == KeyCode::Escape {
+    if binding_key(menu, BindingId::Inventory, key)
+        || key == KeyCode::Escape
+        || menu_cancel_key(menu, key)
+    {
         return true;
     }
     !view
         && (binding_key(menu, BindingId::Drop, key)
-            || menu_cancel_key(menu, key)
             || keyboard_usage(key).is_some_and(|code| {
                 hotbar_control_slots(menu, semantic_input::PhysicalControl::KeyboardUsage(code))
                     .next()
@@ -595,7 +597,11 @@ pub(crate) fn drive_chat_keyboard_input(
             && presentation.chat_link_confirmation_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape && !input.repeat {
+            // The popup has no text field, so a key-bound Menu Cancel dismisses it like Escape.
+            if !input.repeat
+                && (input.key_code == KeyCode::Escape
+                    || menu_cancel_key(menu.as_deref(), input.key_code))
+            {
                 presentation.cancel_chat_link();
             }
             continue;
@@ -604,7 +610,10 @@ pub(crate) fn drive_chat_keyboard_input(
             && presentation.chat_settings_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape && !input.repeat {
+            if !input.repeat
+                && (input.key_code == KeyCode::Escape
+                    || menu_cancel_key(menu.as_deref(), input.key_code))
+            {
                 presentation.set_chat_settings_open(false);
             }
             continue;

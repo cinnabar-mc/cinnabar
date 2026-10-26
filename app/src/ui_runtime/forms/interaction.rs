@@ -194,6 +194,10 @@ pub(crate) fn drive_server_form_input(
         .cloned();
     if input_available && let Some(frame) = engine_frame {
         let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
+        let key_presses: Vec<_> = keyboard
+            .read()
+            .filter(|input| input.state == ButtonState::Pressed)
+            .collect();
         let input = engine_input::EngineInput {
             touch: pointer_source.as_ref().is_some_and(|source| source.0),
             pointer_edges,
@@ -206,18 +210,15 @@ pub(crate) fn drive_server_form_input(
                 .read()
                 .map(|event| (event.y, scroll_unit(event.unit)))
                 .collect(),
-            // A Menu Cancel key raises the form's cancel button as Escape does; a selected edit
-            // box still takes its text first.
-            typed: keyboard
-                .read()
-                .filter(|input| input.state == ButtonState::Pressed)
+            menu_cancel: key_presses
+                .iter()
+                .find(|input| menu_cancel_key(menu.as_deref(), input.key_code))
+                .map(|input| keyboard_key(input.key_code)),
+            typed: key_presses
+                .iter()
                 .map(|input| {
                     (
-                        if menu_cancel_key(menu.as_deref(), input.key_code) {
-                            KeyboardKey::Escape
-                        } else {
-                            keyboard_key(input.key_code)
-                        },
+                        keyboard_key(input.key_code),
                         input.text.as_ref().map(|text| text.to_string()),
                         input.repeat,
                     )

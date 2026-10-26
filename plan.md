@@ -762,11 +762,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
   Menu Cancel (`key.menuCancel`) is a remappable keyboard and mouse control that defaults to
   the mouse Back button, as in vanilla. It cancels menus, containers, the bed screen, chat
-  popups, forms, signs, credits, mob effects and emotes beside the fixed Escape and platform
-  Back keys, outranks a hotbar slot on the same button, and its keyboard binding yields to
-  focused text boxes; binding capture still accepts the button. Vanilla's handling of a
-  keyboard Menu Cancel inside text boxes is unverified, and cross-platform device acceptance
-  remains incomplete.
+  popups, forms, player mod views, signs, credits, mob effects and emotes beside the fixed
+  Escape and platform Back keys, outranks a hotbar slot on the same button, and its keyboard
+  binding yields to focused text boxes; binding capture still accepts the button. Vanilla's
+  handling of a keyboard Menu Cancel inside text boxes is unverified, and cross-platform device
+  acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.

@@ -213,6 +213,7 @@ fn submit(presentation: &UiPresentationRuntime, runtime: &mut UiRuntime) {
                 pointer_edges: vec![down],
                 wheel: Vec::new(),
                 typed: Vec::new(),
+                menu_cancel: None,
                 now: if down { 0.5 } else { 0.51 },
                 animator: None,
             },

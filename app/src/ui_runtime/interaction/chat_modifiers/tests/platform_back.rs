@@ -95,3 +95,41 @@ fn platform_back_closes_the_chat_popup_then_chat() {
     h.frame(vec![back]);
     assert!(!h.app.world().resource::<UiRuntimeResource>().chat_focused());
 }
+
+/// A key bound to Menu Cancel dismisses the chat settings popup, which has no text field, and
+/// then types into the chat draft like any other key.
+#[test]
+fn key_bound_menu_cancel_closes_the_chat_popup_then_types() {
+    use launcher::menu::settings_options::BindingId;
+    use semantic_input::PhysicalControl;
+
+    let mut h = harness();
+    let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
+    assert!(client_shell::menu::test_support::remap_control(
+        &mut menu,
+        BindingId::MenuCancel.row(false).unwrap(),
+        PhysicalControl::KeyboardUsage(
+            client_shell::physical_input::keyboard_usage(KeyCode::KeyX).unwrap(),
+        ),
+    ));
+    h.app.insert_resource(menu);
+    h.press(KeyCode::KeyT, None);
+    h.app
+        .world_mut()
+        .resource_mut::<UiPresentationResource>()
+        .set_chat_settings_open(true);
+    let x = h.pressed(KeyCode::KeyX, Key::Character("x".into()), Some("x"));
+    h.frame(vec![x]);
+    assert!(
+        !h.app
+            .world()
+            .resource::<UiPresentationResource>()
+            .chat_settings_open()
+    );
+    assert!(h.app.world().resource::<UiRuntimeResource>().chat_focused());
+    assert_eq!(h.text(), "");
+    let x = h.pressed(KeyCode::KeyX, Key::Character("x".into()), Some("x"));
+    h.frame(vec![x]);
+    assert!(h.app.world().resource::<UiRuntimeResource>().chat_focused());
+    assert_eq!(h.text(), "x");
+}
