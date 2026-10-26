@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -379,45 +380,112 @@ func TestDeviceFlowExpiryDoesNotRetainProviderError(t *testing.T) {
 	}
 }
 
-func TestDeviceFlowKeepsPollingThroughTransientFailures(t *testing.T) {
-	future := time.Now().Add(time.Hour)
-	interrupted := &url.Error{Op: "Post", URL: "https://login.example.test/token", Err: syscall.ECONNRESET}
-	unavailable := &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusServiceUnavailable}}
-	denied := &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusBadRequest}, ErrorCode: "access_denied"}
-	cases := []struct {
-		name     string
-		expiry   time.Time
-		failures []error
-		wantPoll int
-		wantOK   bool
-	}{
-		{name: "interrupted connection", expiry: future, failures: []error{interrupted, interrupted}, wantPoll: 3, wantOK: true},
-		{name: "provider unavailable", expiry: future, failures: []error{unavailable}, wantPoll: 2, wantOK: true},
-		{name: "provider denied", expiry: future, failures: []error{denied}, wantPoll: 1},
-		{name: "interrupted without expiry", failures: []error{interrupted}, wantPoll: 1},
+// scriptedTokenEndpoint answers successive token polls with steps and records when each arrived.
+type scriptedTokenEndpoint struct {
+	steps []func(*http.Request) (*http.Response, error)
+	polls []time.Time
+}
+
+func (e *scriptedTokenEndpoint) RoundTrip(request *http.Request) (*http.Response, error) {
+	e.polls = append(e.polls, time.Now())
+	step := e.steps[min(len(e.polls), len(e.steps))-1]
+	return step(request)
+}
+
+// brokenBody fails every read, as a connection dropped mid-response does.
+type brokenBody struct{}
+
+func (brokenBody) Read([]byte) (int, error) { return 0, syscall.ECONNRESET }
+func (brokenBody) Close() error             { return nil }
+
+func tokenReply(status int, body string) func(*http.Request) (*http.Response, error) {
+	return func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
 	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			polls := 0
-			flow := DeviceFlow{
-				Authorize: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
-					return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234", Expiry: test.expiry}, nil
-				},
-				Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
-					polls++
-					if polls <= len(test.failures) {
-						return nil, test.failures[polls-1]
-					}
-					return &oauth2.Token{AccessToken: "token"}, nil
-				},
-			}
-			token, err := flow.Request(context.Background(), func(*oauth2.DeviceAuthResponse) error { return nil })
-			if (err == nil) != test.wantOK || (test.wantOK && token == nil) {
-				t.Fatalf("Request() = %v, %v; want success %v", token, err, test.wantOK)
-			}
-			if polls != test.wantPoll {
-				t.Fatalf("polls = %d, want %d", polls, test.wantPoll)
-			}
-		})
+}
+
+func tokenFailure(err error) func(*http.Request) (*http.Response, error) {
+	return func(*http.Request) (*http.Response, error) { return nil, err }
+}
+
+// pollDevice runs a device flow whose polls reach endpoint through the real oauth2 poll loop.
+func pollDevice(ctx context.Context, endpoint *scriptedTokenEndpoint, expiry time.Time) (*oauth2.Token, error) {
+	config := &oauth2.Config{ClientID: "client", Endpoint: oauth2.Endpoint{
+		TokenURL: "https://login.example.test/token", AuthStyle: oauth2.AuthStyleInParams,
+	}}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Transport: endpoint})
+	flow := DeviceFlow{
+		Authorize: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+			return &oauth2.DeviceAuthResponse{
+				DeviceCode: "device", VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234",
+				Expiry: expiry, Interval: 5,
+			}, nil
+		},
+		Token: func(ctx context.Context, response *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+			return config.DeviceAccessToken(ctx, response)
+		},
 	}
+	return flow.Request(ctx, func(*oauth2.DeviceAuthResponse) error { return nil })
+}
+
+func TestDeviceFlowKeepsPollingWhileTheAppIsSuspended(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			tokenReply(http.StatusBadRequest, `{"error":"slow_down"}`),
+			tokenFailure(&url.Error{Op: "Post", URL: "https://login.example.test/token", Err: syscall.ECONNRESET}),
+			tokenFailure(&url.Error{Op: "Post", URL: "https://login.example.test/token", Err: context.DeadlineExceeded}),
+			tokenReply(http.StatusServiceUnavailable, `{"error":"temporarily_unavailable"}`),
+			func(request *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: brokenBody{}, Request: request}, nil
+			},
+			tokenReply(http.StatusOK, `{"access_token":"token","token_type":"bearer"}`),
+		}}
+		start := time.Now()
+		token, err := pollDevice(context.Background(), endpoint, start.Add(15*time.Minute))
+		if err != nil || token == nil || token.AccessToken != "token" {
+			t.Fatalf("Request() = %v, %v; want the token after transient failures", token, err)
+		}
+		previous := start
+		for index, poll := range endpoint.polls {
+			want := 10 * time.Second
+			if index == 0 {
+				want = 5 * time.Second
+			}
+			if gap := poll.Sub(previous); gap != want {
+				t.Fatalf("poll %d came %v after the previous one, want %v (slow_down backoff kept)", index+1, gap, want)
+			}
+			previous = poll
+		}
+	})
+}
+
+func TestDeviceFlowStillEndsOnDenialAndExpiry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		denied := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			tokenFailure(syscall.ECONNRESET),
+			tokenReply(http.StatusBadRequest, `{"error":"access_denied"}`),
+		}}
+		_, err := pollDevice(context.Background(), denied, time.Now().Add(15*time.Minute))
+		if !errors.Is(err, errDeviceAuthorization) || errors.Is(err, errDeviceCodeExpired) || len(denied.polls) != 2 {
+			t.Fatalf("denied flow = %v after %d polls, want a failed sign-in after 2", err, len(denied.polls))
+		}
+
+		offline := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){tokenFailure(syscall.ENETUNREACH)}}
+		_, err = pollDevice(context.Background(), offline, time.Now().Add(time.Minute))
+		if !errors.Is(err, errDeviceCodeExpired) {
+			t.Fatalf("offline flow = %v, want device-code expiry", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelled := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			func(*http.Request) (*http.Response, error) { cancel(); return nil, context.Canceled },
+		}}
+		_, err = pollDevice(ctx, cancelled, time.Now().Add(15*time.Minute))
+		if err == nil || len(cancelled.polls) != 1 {
+			t.Fatalf("cancelled flow = %v after %d polls, want failure after 1", err, len(cancelled.polls))
+		}
+	})
 }
