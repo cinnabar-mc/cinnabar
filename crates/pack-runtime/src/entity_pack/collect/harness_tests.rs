@@ -266,29 +266,52 @@ fn controller_only_override_collects_completed_copper_owner_bindings() {
     }
     let vanilla = pack_entity_compiler::compile_vanilla_entity_refs(root.path()).unwrap();
     let replacement = controller(false);
-    let view = LayeredPackView::new(crate::test_support::stack(&[(
-        "render_controllers/replacement.json",
-        &replacement,
-    )]));
-    let compiled = pack_entity_compiler::compile_actor_pack(collect_files(
-        &view,
-        Some(&vanilla),
-        Some(root.path()),
-    ))
-    .unwrap()
-    .unwrap();
-    let copper = compiled
-        .equipment_bindings
-        .iter()
-        .filter(|binding| binding.identifier == *item)
-        .collect::<Vec<_>>();
-    assert_eq!(
-        copper.len(),
-        2,
-        "resource-only changes must retain both copper owner paths"
-    );
-    assert!(copper.iter().any(|binding| binding.attachable.is_some()
-        && binding.geometry.resolution == assets::EntityDependencyResolution::Catalog));
+    let unrelated = json!({"format_version":"1.10.0","minecraft:attachable":{"description":{
+        "identifier":"fixture:server_helmet","item":{"fixture:helmet":"1"},
+        "materials":{"default":"armor"},"geometry":{"default":"geometry.fixture.helmet"},
+        "textures":{"default":"textures/fixture"},"render_controllers":["controller.render.harness"]
+    }}})
+    .to_string()
+    .into_bytes();
+    geometry["minecraft:geometry"][0]["description"]["identifier"] =
+        json!("geometry.fixture.helmet");
+    let custom_geometry = serde_json::to_vec(&geometry).unwrap();
+    for override_other_item in [false, true] {
+        let mut entries = vec![(
+            "render_controllers/replacement.json",
+            replacement.as_slice(),
+        )];
+        if override_other_item {
+            entries.push(("attachables/server.json", unrelated.as_slice()));
+            entries.push(("models/entity/server.json", custom_geometry.as_slice()));
+        }
+        let view = LayeredPackView::new(crate::test_support::stack(&entries));
+        let compiled = pack_entity_compiler::compile_actor_pack(collect_files(
+            &view,
+            Some(&vanilla),
+            Some(root.path()),
+        ))
+        .unwrap()
+        .unwrap();
+        let copper = compiled
+            .equipment_bindings
+            .iter()
+            .filter(|binding| binding.identifier == *item)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            copper.len(),
+            2,
+            "resource-only changes must retain both copper owner paths"
+        );
+        assert!(copper.iter().any(|binding| binding.attachable.is_some()
+            && binding.geometry.resolution == assets::EntityDependencyResolution::Catalog));
+        assert!(
+            copper
+                .iter()
+                .all(|binding| binding.geometry.identifier.as_ref() != "geometry.fixture.helmet"),
+            "an override for another item must not become a copper template"
+        );
+    }
     let empty = LayeredPackView::new(crate::test_support::stack(&[]));
     assert!(
         !collect_files(&empty, Some(&vanilla), Some(root.path()))
