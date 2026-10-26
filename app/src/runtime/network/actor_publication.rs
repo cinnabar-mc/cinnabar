@@ -80,6 +80,22 @@ pub(crate) fn advance_actor_motion(
     );
 }
 
+/// Records the actor clock only after the corresponding live motion has completed.
+pub(crate) fn complete_actor_motion_trace(
+    world: Res<ClientWorld>,
+    state: Res<client_presentation::actor_publication::ActorFrameState>,
+    network: Option<
+        Res<client_runtime::network::NetworkHandle<super::resource_packs::PackApplication>>,
+    >,
+) {
+    if world.stream.is_some()
+        && let Some(trace) = network.as_ref().and_then(|network| network.pick_trace())
+        && let Some(step) = state.frame_step()
+    {
+        trace.advance(step.ticks, step.partial_tick);
+    }
+}
+
 /// Captures live owners and evaluates actor visuals after this frame's sends.
 pub(crate) fn advance_actor_frame(
     observations: ActorObservations,

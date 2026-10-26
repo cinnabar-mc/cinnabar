@@ -108,6 +108,7 @@ fn snapshot(rows: [[f32; 4]; 3]) {
         }
     });
     let input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [128; 2],
         safe_area: [0; 4],

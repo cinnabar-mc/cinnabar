@@ -78,6 +78,14 @@ assuming an import succeeded. Shared values and ceilings live in
 [drawing limits](../../crates/mod-api/src/drawing.rs) and
 [host limits](../../crates/mod-host/src/lib.rs).
 
+`gameplay.set-attack-reach` requires `interaction`; a non-`none` request also
+requires a current gameplay frame. It sets the local actor pick and attack distance
+up to `MAX_ENTITY_REACH_BLOCKS`. `none` restores the current mode and input profile.
+The override preserves attack eligibility and block obstruction checks, leaves
+mining and block-use reach alone, and does not change the server's attack validation.
+The existing generic `interaction` grant covers this request; individual mod
+features do not get separate grants.
+
 ## HUD surfaces
 
 `hud.set-surface` publishes the mod's JSON-UI layer over gameplay, below vanilla

@@ -69,6 +69,7 @@ fn font_atlas_latency_fixture() {
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
         }
         let input = UiRenderInput {
+            models: Default::default(),
             revision: frame as u64 + 1,
             viewport_size: [1280, 720],
             safe_area: [0; 4],

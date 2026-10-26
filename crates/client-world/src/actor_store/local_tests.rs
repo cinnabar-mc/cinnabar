@@ -50,6 +50,7 @@ pub(super) fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         yaw,

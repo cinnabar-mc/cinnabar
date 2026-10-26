@@ -16,11 +16,37 @@ use crate::{
 use client_interaction::mining::hand_interaction_selection;
 use gameplay::mining::{creative_reach, protocol_input_mode, survival_reach};
 
+/// Attaches a frozen pick only to actor attacks built from that pick.
+pub(crate) fn capture_packets(
+    mut packets: Vec<protocol::Packet>,
+    state: Option<protocol::capture::PickState>,
+) -> Vec<protocol::Packet> {
+    if let Some(state) = state {
+        for packet in &mut packets {
+            if protocol::is_actor_attack(packet) {
+                packet.capture_pick(state);
+            }
+        }
+    }
+    packets
+}
+
+/// Numeric input identity at the transaction or publication boundary.
+pub(super) fn capture_identity(context: &MeleeContext) -> [u64; 2] {
+    context.input.snapshot().map_or([0; 2], |input| {
+        [
+            input.authority_generation.get().get(),
+            input.frame_sequence.get(),
+        ]
+    })
+}
+
 /// One actor's identity and its ordered boxes in the frame's geometry buffer.
 #[derive(Clone)]
 struct FrameActor {
     identity: ActorLifetimeId,
     boxes: Range<usize>,
+    capture: Option<protocol::capture::PickState>,
 }
 
 /// Published picking inputs contain no hit, classification or admission result.
@@ -34,6 +60,7 @@ struct Frame {
     index: HashMap<u64, usize>,
     boxes: Vec<([f32; 3], [f32; 3])>,
     assisted: Option<AimAssistTarget>,
+    capture: Option<protocol::capture::PickState>,
 }
 
 impl Frame {
@@ -48,19 +75,57 @@ impl Frame {
             client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
         self.position_authority = position_authority;
         self.assisted = context.aim.target;
+        let trace = context.network.pick_trace().map(AsRef::as_ref);
+        self.capture = trace.map(|_| protocol::capture::PickState {
+            pick_frame: capture_identity(context),
+            ..Default::default()
+        });
+        if let Some(stream) = context.client_world.stream.as_ref() {
+            self.publish_actors(stream, trace);
+        } else {
+            self.actors.clear();
+            self.index.clear();
+            self.boxes.clear();
+        }
+    }
+
+    /// Retains completed actor geometry and its diagnostics without changing the camera ray.
+    fn publish_actors(
+        &mut self,
+        stream: &chunk_pipeline::WorldStream,
+        trace: Option<&protocol::capture::PickTrace>,
+    ) {
+        self.capture = self.capture.and_then(|mut state| {
+            let trace = trace?;
+            (state.remote_tick, state.frame_alpha) = trace.clock();
+            state.applied_sequence = trace.packet_sequence(stream.committed_sequence());
+            Some(state)
+        });
         self.actors.clear();
         self.index.clear();
         self.boxes.clear();
-        if let Some(stream) = context.client_world.stream.as_ref() {
-            let world = stream.authority();
-            for actor in world.remote_actors() {
-                let start = self.boxes.len();
-                self.boxes.extend(world.pick_hit_boxes(actor));
-                self.actors.push(FrameActor {
-                    identity: world.actor_lifetime(actor.runtime_id).unwrap(),
-                    boxes: start..self.boxes.len(),
-                });
-            }
+        let world = stream.authority();
+        for actor in world.remote_actors() {
+            let start = self.boxes.len();
+            self.boxes.extend(world.pick_hit_boxes(actor));
+            self.actors.push(FrameActor {
+                identity: world.actor_lifetime(actor.runtime_id).unwrap(),
+                boxes: start..self.boxes.len(),
+                capture: self.capture.map(|mut state| {
+                    let trace = trace.expect("capture publication");
+                    state.target = actor.runtime_id;
+                    state.last_movement_sequence = trace.packet_sequence(actor.movement_revision);
+                    (
+                        state.previous_position,
+                        state.current_position,
+                        state.interpolation_steps,
+                    ) = world.pick_motion(actor);
+                    state
+                }),
+            });
+        }
+        if let Some(trace) = trace {
+            trace.retire(stream.committed_sequence());
         }
         self.index.extend(
             self.actors
@@ -86,6 +151,15 @@ pub(crate) struct FrameInputs {
 }
 
 impl FrameInputs {
+    /// Updates next frame's retained geometry after the remote actor step completes.
+    pub(super) fn complete_actor_frame(
+        &mut self,
+        stream: &chunk_pipeline::WorldStream,
+        trace: Option<&protocol::capture::PickTrace>,
+    ) {
+        Arc::make_mut(&mut self.current).publish_actors(stream, trace);
+    }
+
     /// Identifies a complete published frame without advancing the two frame buffers.
     pub(super) fn has_current(&self, position: PositionAuthorityGeneration) -> bool {
         self.current.position_authority == position && self.current.origin.outbound_ray().is_some()
@@ -136,6 +210,7 @@ pub(crate) struct ResolvedTarget {
     pub(crate) direction: [f32; 3],
     pub(crate) action_rotation: Option<Quat>,
     pub(super) reach: AttackReach,
+    pub(crate) capture: Option<protocol::capture::PickState>,
 }
 
 /// Effective picking and attack distances that authorize one frozen actor action.
@@ -284,6 +359,13 @@ fn resolve_frame(
                     world.camera_aim_assist_eligible(actor) == Some(true)
                         && frame.actors.iter().any(|actor| actor.identity == identity)
                         && target.within_pick_range(ray.origin(), actor_reach as f32)
+                        && frame.hit_boxes(actor.runtime_id).any(|(minimum, maximum)| {
+                            (0..3).all(|axis| {
+                                target.point[axis] >= minimum[axis] - actor.entity_fact.pick_radius
+                                    && target.point[axis]
+                                        <= maximum[axis] + actor.entity_fact.pick_radius
+                            })
+                        })
                 })
                 .map(|_| {
                     assisted_actor = true;
@@ -328,8 +410,15 @@ fn resolve_frame(
         .and_then(|observed| observed.value.as_ref())
         .map(|block| block.hit_distance());
     // Hover, attack and interaction share one target: the pick ray finds actors along the
-    // whole pick range, but only a hit within the game-mode cap becomes the targeted actor.
+    // whole pick range, but only a hit within the effective attack range becomes the target.
     let mut crosshair = classify(actor, block_distance, attack_reach);
+    // The longer ray checks actor obstructions without extending block targeting.
+    if actor_reach > reach.block
+        && crosshair == Crosshair::Block
+        && block_distance.is_some_and(|distance| distance > reach.block)
+    {
+        crosshair = Crosshair::Miss;
+    }
     if !assisted_actor && let Some(position) = frame.pick_position {
         crosshair = gameplay::melee::trim_actor_pick(crosshair, position, actor_reach);
     }
@@ -341,7 +430,41 @@ fn resolve_frame(
         }),
         _ => None,
     };
+    let capture = frame
+        .capture
+        .filter(|_| context.network.pick_trace().is_some())
+        .map(|mut state| {
+            state.press_frame = [identity.0.get().get(), identity.1.get()];
+            state.transaction_frame = capture_identity(context);
+            state.eye = origin;
+            state.direction = ray.direction().to_array();
+            state.assisted = assisted_actor;
+            if let Crosshair::Actor(hit) = crosshair {
+                let retained = &frame.actors[frame.index[&hit.runtime_id]];
+                let actor_state = retained.capture.expect("capture actor publication");
+                state.target = actor_state.target;
+                state.previous_position = actor_state.previous_position;
+                state.current_position = actor_state.current_position;
+                state.interpolation_steps = actor_state.interpolation_steps;
+                state.last_movement_sequence = actor_state.last_movement_sequence;
+                state.applied_sequence = actor_state.applied_sequence;
+                state.hit = hit.point;
+                if !assisted_actor {
+                    let actor = world.actor(hit.runtime_id).expect("eligible actor");
+                    state.pick_box = gameplay::melee::pick_box(
+                        frame.hit_boxes(hit.runtime_id),
+                        actor.entity_fact.pick_radius,
+                        origin,
+                        ray.direction().to_array(),
+                        actor_reach,
+                    )
+                    .map(|(_, bounds)| bounds);
+                }
+            }
+            state
+        });
     let value = ResolvedTarget {
+        capture,
         hover,
         crosshair,
         action_rotation: frame.action_rotation,

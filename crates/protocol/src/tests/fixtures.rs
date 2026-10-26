@@ -271,6 +271,7 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [10.5, 20.25],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
@@ -444,6 +445,7 @@ fn fixture_movement_snapshot() -> PlayerAuthInputSnapshot {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [10.5, 20.25],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
@@ -455,20 +457,16 @@ fn fixture_movement_snapshot() -> PlayerAuthInputSnapshot {
 
 fn fixture_block_actions() -> protocol::BlockActions {
     let mut actions = protocol::BlockActions::new();
-    actions
-        .push(protocol::BlockAction {
-            kind: protocol::BlockActionKind::StartDestroy,
-            position: [13, 71, -29],
-            face: 5,
-        })
-        .unwrap();
-    actions
-        .push(protocol::BlockAction {
-            kind: protocol::BlockActionKind::PredictDestroy,
-            position: [-8, 63, 21],
-            face: 1,
-        })
-        .unwrap();
+    actions.push(protocol::BlockAction {
+        kind: protocol::BlockActionKind::StartDestroy,
+        position: [13, 71, -29],
+        face: 5,
+    });
+    actions.push(protocol::BlockAction {
+        kind: protocol::BlockActionKind::PredictDestroy,
+        position: [-8, 63, 21],
+        face: 1,
+    });
     actions
 }
 
@@ -830,13 +828,11 @@ fn invalid_embedded_break_block_requests_are_rejected() {
     );
 
     let mut bad_action_face = protocol::BlockActions::new();
-    bad_action_face
-        .push(protocol::BlockAction {
-            kind: protocol::BlockActionKind::StartDestroy,
-            position: [0, 0, 0],
-            face: 7,
-        })
-        .unwrap();
+    bad_action_face.push(protocol::BlockAction {
+        kind: protocol::BlockActionKind::StartDestroy,
+        position: [0, 0, 0],
+        face: 7,
+    });
     assert_eq!(
         protocol::player_auth_input_with_interactions(
             fixture_movement_snapshot(),

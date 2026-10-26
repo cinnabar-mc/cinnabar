@@ -51,6 +51,7 @@ fn feed(name: &str, skin: PlayerSkin) -> client_world::LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,

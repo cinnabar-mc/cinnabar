@@ -470,7 +470,10 @@ interface gameplay {
     set-control-modes: func(modes: option<control-modes>) -> result<_, string>;
     /// Requires the camera grant and a current frame; commits only after frame returns.
     rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
-    /// Bounded local actor attack range; none restores ordinary game-mode rules.
+    /// Requires interaction authority; a non-none range also requires a current gameplay frame.
+    /// Overrides local actor pick and attack range up to MAX_ENTITY_REACH_BLOCKS; none restores
+    /// ordinary mode and input limits. Attack eligibility, obstruction and server validation
+    /// still apply. Does not change mining or block-use reach.
     set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
     /// One attack-press edge, only while the physical attack control is held.
     /// An active action filter receives it as a repeat.

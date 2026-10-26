@@ -62,6 +62,20 @@ fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
 @group(0) @binding(5) var item_glint: texture_2d<f32>;
 @group(0) @binding(6) var item_glint_sampler: sampler;
 
+struct UiModelBone {
+    screen: mat4x4<f32>,
+    normal_x: vec4<f32>,
+    normal_y: vec4<f32>,
+    normal_z: vec4<f32>,
+    overlay: vec4<f32>,
+    uv_rect: vec4<f32>,
+    uv_cross: vec4<f32>,
+    tint: vec4<f32>,
+    styles: vec4<u32>,
+};
+@group(0) @binding(7) var<storage, read> ui_model_bones: array<UiModelBone>;
+// ACTOR_SHADE_CONSTANTS
+
 struct UiVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -86,22 +100,42 @@ fn ui_vertex(
     @location(7) atlas_offset: vec2<f32>,
     @builtin(instance_index) texture_page: u32,
 ) -> UiVertexOutput {
+    var point = position;
+    var light = model_light;
+    var overlay = overlay_color;
+    var model_uv = uv;
+    var model_color = color;
+    var model_styles = style_flags;
+    if (style_flags & UI_STYLE_MODEL_VERTEX) != 0u {
+        let base = (texture_page >> UI_MODEL_LAYER_BITS) - 1u;
+        let bone = ui_model_bones[base + u32(position.w) - 1u];
+        point = bone.screen * vec4<f32>(position.xyz, 1.0);
+        let normal = vec3<f32>(dot(bone.normal_x.xyz, overlay_color.xyz), dot(bone.normal_y.xyz, overlay_color.xyz), dot(bone.normal_z.xyz, overlay_color.xyz));
+        if dot(normal, normal) > 0.0 {
+            let n = normalize(normal);
+            light = ((1.0 + n.y) * ACTOR_SHADE[0] + n.x * n.x * ACTOR_SHADE[1]) + n.z * n.z * ACTOR_SHADE[2] + ACTOR_SHADE[3];
+        }
+        overlay = bone.overlay;
+        model_uv = bone.uv_rect.xy + uv * (bone.uv_rect.zw - bone.uv_rect.xy) + uv.yx * bone.uv_cross.xy;
+        model_color = color * bone.tint;
+        model_styles |= bone.styles.x;
+    }
     let ndc = vec2<f32>(
-        position.x / viewport.viewport_size.x * 2.0 - position.w,
-        position.w - position.y / viewport.viewport_size.y * 2.0,
+        point.x / viewport.viewport_size.x * 2.0 - point.w,
+        point.w - point.y / viewport.viewport_size.y * 2.0,
     );
     var output: UiVertexOutput;
-    output.clip_position = vec4<f32>(ndc, position.z, position.w);
-    output.uv = uv;
+    output.clip_position = vec4<f32>(ndc, point.z, point.w);
+    output.uv = model_uv;
     output.atlas_offset = atlas_offset;
     // Pages, vertex colours and the UI layer all stay sRGB-encoded: vanilla UI
     // blends in gamma space, and the layer composites over the scene after.
-    output.color = color;
-    output.texture_page = texture_page;
-    output.style_flags = style_flags;
+    output.color = model_color;
+    output.texture_page = texture_page & (MAX_UI_TEXTURE_LAYERS - 1u);
+    output.style_flags = model_styles;
     output.alpha_cutoff = alpha_cutoff;
-    output.model_light = model_light;
-    output.overlay_color = overlay_color;
+    output.model_light = light;
+    output.overlay_color = overlay;
     return output;
 }
 

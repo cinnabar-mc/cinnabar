@@ -17,6 +17,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [-32.0, 87.0],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
@@ -72,8 +73,7 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
         ),
         (0.25, -0.5, -0.75)
     );
-    assert_eq!(input.interact_rotation.x, input.player_rotation.x);
-    assert_eq!(input.interact_rotation.y, input.player_rotation.y);
+    assert_eq!(input.interact_rotation.to_array(), [-32.0, 87.0]);
     assert_eq!(input.input_mode, InputMode::Mouse);
     assert_eq!(input.play_mode, ClientPlayMode::Normal);
     // The protocol-1001 Unknown(-1) workaround is gone: gophertunnel writes
@@ -255,6 +255,10 @@ fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     invalid_rotation.yaw = f32::INFINITY;
     assert!(player_auth_input(invalid_rotation).is_err());
 
+    let mut invalid_interaction = snapshot();
+    invalid_interaction.interact_rotation[0] = f32::NAN;
+    assert!(player_auth_input(invalid_interaction).is_err());
+
     let mut invalid_raw_carrier = snapshot();
     invalid_raw_carrier.raw_move_vector[0] = f32::NAN;
     assert!(player_auth_input(invalid_raw_carrier).is_err());
@@ -312,4 +316,47 @@ fn the_predicted_vehicle_flag_cannot_be_asserted_without_a_vehicle() {
         player_auth_input(input).unwrap_err(),
         protocol::PlayerAuthInputError::UndeclaredVehicle
     );
+}
+
+/// Every accumulated action must survive the movement packet's encode/decode boundary.
+#[test]
+fn accumulated_block_actions_survive_one_input_packet() {
+    let mut interactions = protocol::PlayerAuthInputInteractions::default();
+    let expected: Vec<_> = (0..24)
+        .map(|index| protocol::BlockAction {
+            kind: if index % 2 == 0 {
+                protocol::BlockActionKind::StartDestroy
+            } else {
+                protocol::BlockActionKind::AbortDestroy
+            },
+            position: [index, 64, -index],
+            face: 1,
+        })
+        .collect();
+    for action in &expected {
+        interactions.block_actions.push(*action);
+    }
+    let packet = protocol::player_auth_input_with_interactions(snapshot(), &interactions).unwrap();
+    let decoded = decode_batch(encode(&packet).unwrap()).unwrap();
+    let packets::Packet::PlayerAuthInput(input) = &*decoded[0].data else {
+        panic!("expected player input");
+    };
+    assert!(input.input_data.contains(&InputData::Performblockactions));
+    let actions = input.player_block_actions.as_ref().unwrap();
+    assert_eq!(actions.len(), expected.len());
+    for (actual, expected) in actions.iter().zip(expected) {
+        assert_eq!(
+            actual.player_action_type.to_raw(),
+            expected.kind.wire_value()
+        );
+        assert_eq!(
+            [
+                actual.position.x.0,
+                actual.position.y.0,
+                actual.position.z.0
+            ],
+            expected.position
+        );
+        assert_eq!(actual.facing.0, i32::from(expected.face));
+    }
 }

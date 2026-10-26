@@ -7127,7 +7127,8 @@
       "SculkShrieker": "minecraft:sculk_shrieker",
       "BigDripleaf": "minecraft:big_dripleaf",
       "SmallDripleaf": "minecraft:small_dripleaf_block",
-      "StrawBed": "minecraft:straw_bed"
+      "StrawBed": "minecraft:straw_bed",
+      "Observer": "minecraft:observer"
     },
     "selectors": {
       "door_lower": "Door",
