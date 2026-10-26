@@ -617,6 +617,8 @@ and rendered qualification remain incomplete.
   to half precision after control scaling and placement; their texture vertices use normalized
   unsigned shorts after atlas placement. Tinted and glinting copies retain both formats.
   Opaque terrain-face tinting rounds to encoded output bytes.
+  Copper-grate GUI texels retain opaque covered samples after alpha testing,
+  independently of control opacity. Broader GUI coverage acceptance remains open.
   Source tiles stay aligned through the retained
   levels; the source allocation retains shaped models alongside the flame page for the
   pinned catalog.

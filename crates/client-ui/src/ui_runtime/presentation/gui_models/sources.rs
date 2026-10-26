@@ -111,6 +111,28 @@ pub(in crate::ui_runtime::presentation) fn sheet_faces(icon: IconRef) -> [IconRe
     })
 }
 
+/// Keeps sampled RGB and alpha testing while forcing covered samples opaque before node fades.
+pub(super) fn covered_alpha(mesh: &Arc<UiMesh>) -> Option<Arc<UiMesh>> {
+    let mut vertices = mesh.vertices().to_vec();
+    for vertex in &mut vertices {
+        vertex.style_flags |= u16::try_from(render_model::UI_STYLE_COLOR_MASK).ok()?;
+    }
+    UiMesh::new(
+        vertices.into(),
+        mesh.indices().into(),
+        mesh.batches().into(),
+    )
+    .ok()
+    .map(|covered| {
+        if mesh.uses_compact_block_vertices() {
+            covered.with_compact_block_vertices()
+        } else {
+            covered
+        }
+    })
+    .map(Arc::new)
+}
+
 pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Option<Arc<UiMesh>> {
     if color == [255; 4] && !glint {
         return Some(Arc::clone(mesh));

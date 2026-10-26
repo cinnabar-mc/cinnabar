@@ -114,6 +114,7 @@ pub(super) fn run(
                         tiles.clone().map(|tile| tile.rgba8.to_vec().into()),
                         cube_blending(world, BlockVisualId(visual)),
                     )
+                    .with_render_kind(gui_kind(blocks, BlockVisualId(visual)))
                     .raster(),
                     // GUI-only cube artwork keeps the world model binding for held rendering.
                     (!carried_tiles.contains_key(&visual)).then(|| {
@@ -365,15 +366,7 @@ fn model_raster(
         return Ok(super::shapes::raster(root, blocks, visual)?.map(|raster| (raster, None)));
     }
     let state = blocks.map_or(visual, |blocks| blocks.icon_state(visual));
-    if let Ok(model) = model::Model::read(
-        world,
-        state,
-        blocks
-            .and_then(|blocks| blocks.name(state))
-            .map(assets::facts::block_render_fact)
-            .map(|fact| fact.kind)
-            .unwrap_or_default(),
-    ) {
+    if let Ok(model) = model::Model::read(world, state, gui_kind(blocks, state)) {
         return Ok(Some((model.raster(), Some(state))));
     }
     Ok(
@@ -400,6 +393,7 @@ fn fallback_raster(
                 tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice()),
                 [false; 6],
             )
+            .with_render_kind(gui_kind(Some(blocks), visual))
             .raster(),
         ));
     }
@@ -413,8 +407,18 @@ fn fallback_raster(
             tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice()),
             cube_blending(world, visual),
         )
+        .with_render_kind(gui_kind(Some(blocks), visual))
         .raster()
     }))
+}
+
+/// Resolves the inventory sampling family from the retained block identity.
+fn gui_kind(blocks: Option<&IconBlocks>, visual: BlockVisualId) -> assets::facts::BlockRenderKind {
+    blocks
+        .and_then(|blocks| blocks.name(visual))
+        .map(assets::facts::block_render_fact)
+        .map(|fact| fact.kind)
+        .unwrap_or_default()
 }
 
 fn cube_blending(world: &RuntimeAssets, visual: BlockVisualId) -> [bool; 6] {

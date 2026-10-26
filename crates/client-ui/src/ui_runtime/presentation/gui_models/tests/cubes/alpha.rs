@@ -50,6 +50,58 @@ pub(super) fn world(flags: [u32; 6]) -> RuntimeAssets {
 }
 
 #[test]
+fn copper_grate_coverage_survives_control_fades() {
+    let mut names: BTreeSet<_> = assets::registry::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .into_iter()
+    .filter(|record| {
+        assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::CopperGrate
+    })
+    .map(|record| record.name)
+    .collect();
+    assert!(!names.is_empty());
+    names.insert("minecraft:glass".into());
+    for name in names {
+        let covered = assets::facts::block_render_fact(&name).kind
+            == assets::facts::BlockRenderKind::CopperGrate;
+        let (mut presentation, entities) = catalog_for(&name, 255, 255);
+        presentation
+            .set_gui_models(&world([assets::MATERIAL_FLAG_ALPHA_CUTOUT; 6]), &entities)
+            .unwrap();
+        let icon = presentation.item_icon(&name, 0).unwrap();
+        let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+        let faded = modulated(mesh, [255, 255, 255, 127], false).unwrap();
+        for vertex in faded.vertices() {
+            assert_eq!(
+                u32::from(vertex.style_flags) & render_model::UI_STYLE_COLOR_MASK != 0,
+                covered,
+                "{name} retains its sampled coverage policy"
+            );
+            assert_eq!(
+                vertex.color[3], 127,
+                "{name} keeps control opacity independent"
+            );
+        }
+        assert!(
+            faded.batches().iter().all(|batch| batch.alpha_cutoff
+                == Some(assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD))
+        );
+        if covered {
+            let mut nodes = [control(icon, 127, false)];
+            presentation.apply_gui_models(&mut nodes);
+            let UiVisual::Mesh(mesh) = nodes[0].visual() else {
+                panic!("{name} keeps the covered mesh during control fades");
+            };
+            assert!(mesh.vertices().iter().all(|vertex| vertex.color[3] == 127));
+        }
+    }
+}
+
+#[test]
 fn carried_cubes_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
     for face in BlockFace::ALL {
         let mut flags = [0; 6];

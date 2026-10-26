@@ -39,6 +39,12 @@ pub fn has_carried_bitmap_shape(name: &str) -> bool {
     .any(|kind| name == kind.identifier())
 }
 
+/// Keeps accepted copper-grate GUI samples opaque independently of control fades.
+#[must_use]
+pub fn forces_covered_gui_alpha(kind: crate::facts::BlockRenderKind) -> bool {
+    kind == crate::facts::BlockRenderKind::CopperGrate
+}
+
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.
 pub const GUI_ITEM_SIDE: f32 = 16.0;
 /// First accepted alpha byte for non-blended block GUI texels.
