@@ -13,7 +13,7 @@ use {super::UiPresentationRuntime, ui::IconRef};
 
 pub(super) mod cape;
 pub(super) mod controller;
-mod equipment;
+pub(in crate::ui_runtime::presentation) mod equipment;
 mod fitting;
 pub mod geometry;
 pub(super) mod hats;
@@ -525,7 +525,7 @@ impl PlayerPreviewPose {
 
 #[derive(Clone, Copy)]
 pub(super) struct ProjectedVertex {
-    screen: [f32; 2],
+    pub(super) screen: [f32; 2],
     depth: f32,
     uv: [f32; 2],
     pub(super) world: [f32; 3],
@@ -597,7 +597,7 @@ pub(super) fn render_body_with_cape(
 
 /// A posed, viewer-facing biped.
 pub(super) struct Rig {
-    parts: [Option<glam::Affine3A>; 6],
+    pub(super) parts: [Option<glam::Affine3A>; 6],
     body: f32,
     head_yaw: f32,
     head_pitch: f32,

@@ -56,6 +56,13 @@ pub(super) fn plan_segment(
     current: &UiRenderInput,
     segment: Range<usize>,
 ) -> UiDamage {
+    if !current.models.is_empty()
+        && current.shares_draw_buffers(previous)
+        && segment.start <= segment.end
+        && segment.end <= current.batches.len()
+    {
+        return model_damage(previous, current, &segment);
+    }
     if previous.viewport_size != current.viewport_size
         || previous.safe_area != current.safe_area
         || !Arc::ptr_eq(&previous.textures, &current.textures)
@@ -70,9 +77,9 @@ pub(super) fn plan_segment(
     if bytemuck::cast_slice::<_, u8>(&previous.vertices)
         == bytemuck::cast_slice::<_, u8>(&current.vertices)
     {
-        return UiDamage::Unchanged;
+        return model_damage(previous, current, &segment);
     }
-    let mut damage = None;
+    let mut damage = model_damage(previous, current, &segment);
     // Backdrops draw into the scene, never into a retained layer.
     for batch in current.batches[segment]
         .iter()
@@ -85,6 +92,31 @@ pub(super) fn plan_segment(
                 bytemuck::bytes_of(&previous.vertices[index as usize])
                     == bytemuck::bytes_of(&current.vertices[index as usize])
             }) {
+                continue;
+            }
+            if triangle.iter().any(|&index| {
+                (previous.vertices[index as usize].style_flags
+                    | current.vertices[index as usize].style_flags)
+                    & render_api::UI_STYLE_MODEL_VERTEX
+                    != 0
+            }) {
+                if triangle.iter().any(|&index| {
+                    (previous.vertices[index as usize].style_flags
+                        ^ current.vertices[index as usize].style_flags)
+                        & render_api::UI_STYLE_MODEL_VERTEX
+                        != 0
+                }) {
+                    return UiDamage::Full;
+                }
+                for input in [previous, current] {
+                    if let Some(pose) = input
+                        .models
+                        .iter()
+                        .find(|pose| Some(pose.scope) == batch.isolated_depth_scope)
+                    {
+                        damage = damage.union(UiDamage::Rect(pose.bounds));
+                    }
+                }
                 continue;
             }
             let mut bounds = [
@@ -104,14 +136,48 @@ pub(super) fn plan_segment(
                 }
             }
             if let Some(rect) = clipped(bounds, batch.scissor, current.viewport_size) {
-                damage = Some(match damage {
-                    Some(previous) => union(previous, rect),
-                    None => rect,
-                });
+                damage = damage.union(UiDamage::Rect(rect));
             }
         }
     }
-    damage.map_or(UiDamage::Unchanged, UiDamage::Rect)
+    damage
+}
+
+/// Includes both retired and incoming model coverage when a palette changes in this segment.
+fn model_damage(
+    previous: &UiRenderInput,
+    current: &UiRenderInput,
+    segment: &Range<usize>,
+) -> UiDamage {
+    let mut damage = UiDamage::Unchanged;
+    for pose in current.models.iter().chain(previous.models.iter()) {
+        if !current.batches[segment.clone()]
+            .iter()
+            .any(|batch| batch.isolated_depth_scope == Some(pose.scope))
+        {
+            continue;
+        }
+        let old = previous.models.iter().find(|old| old.scope == pose.scope);
+        let new = current.models.iter().find(|new| new.scope == pose.scope);
+        if old != new && pose.bounds.width != 0 && pose.bounds.height != 0 {
+            damage = damage.union(UiDamage::Rect(pose.bounds));
+        }
+    }
+    damage
+}
+
+/// Refreshes existing glint coverage from model bounds without visiting resident model vertices.
+pub(super) fn update_model_animation_damage(input: &UiRenderInput, damage: &mut [UiDamage]) {
+    for (batch, damage) in input.batches.iter().zip(damage) {
+        if *damage != UiDamage::Unchanged
+            && let Some(pose) = input
+                .models
+                .iter()
+                .find(|pose| Some(pose.scope) == batch.isolated_depth_scope)
+        {
+            *damage = UiDamage::Rect(pose.bounds);
+        }
+    }
 }
 
 /// Precomputes glint triangles once on admission; clocks and glint texture/settings changes
@@ -144,6 +210,20 @@ pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
                     .iter()
                     .any(|vertex| vertex.style_flags & UI_STYLE_GLINT != 0)
                 {
+                    continue;
+                }
+                if vertices
+                    .iter()
+                    .any(|vertex| vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX != 0)
+                {
+                    let Some(pose) = input
+                        .models
+                        .iter()
+                        .find(|pose| Some(pose.scope) == batch.isolated_depth_scope)
+                    else {
+                        return UiDamage::Full;
+                    };
+                    damage = damage.union(UiDamage::Rect(pose.bounds));
                     continue;
                 }
                 if vertices

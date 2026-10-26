@@ -118,6 +118,19 @@ pub struct HudFrame {
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
 }
 
+impl HudFrame {
+    /// Shares the HUD binding's model visibility with capture, so hidden modes do no model work.
+    pub fn paper_doll_requested(
+        &self,
+        mode: Option<protocol::PlayerGameMode>,
+        settings: &launcher::menu::settings_options::SettingsOptions,
+    ) -> bool {
+        self.paper_doll_visible
+            && mode.is_none_or(protocol::PlayerGameMode::shows_hotbar)
+            && settings.value(launcher::menu::settings_options::SettingId::HidePaperdoll) == 0
+    }
+}
+
 /// Per-frame layout geometry derived from the Java GUI-scale rule. All
 /// emitted coordinates are relative to the safe content rect: the retained
 /// tree translates root nodes by the safe-area origin during layout.

@@ -28,6 +28,7 @@ pub struct PlayerAuthInputTraceSample {
     pub yaw: f32,
     pub head_yaw: f32,
     pub camera_orientation: [f32; 3],
+    pub interact_rotation: [f32; 2],
     /// Flag names in the encoder's ascending-bit (wire) order. Callers that
     /// present the trace may sort them for display.
     pub flag_names: Vec<&'static str>,
@@ -56,6 +57,7 @@ pub fn player_auth_input_trace_sample(packet: &Packet) -> Option<PlayerAuthInput
         yaw: input.player_rotation.y,
         head_yaw: input.player_head_rotation.0,
         camera_orientation: input.camera_orientation.to_array(),
+        interact_rotation: input.interact_rotation.to_array(),
         flag_names: flag_names(flag_items),
         input_mode: input_mode_name(input.input_mode),
     })
@@ -104,6 +106,7 @@ mod tests {
             yaw: 179.5,
             head_yaw: 181.0,
             camera_orientation: [0.0, 1.0, 0.0],
+            interact_rotation: [-12.5, 179.5],
             flags: PlayerInputFlags::UP | PlayerInputFlags::SPRINTING,
             input_mode: PlayerInputMode::GamePad,
             vehicle: None,
@@ -125,6 +128,7 @@ mod tests {
         assert_eq!(projected.yaw, 179.5);
         assert_eq!(projected.head_yaw, 181.0);
         assert_eq!(projected.camera_orientation, [0.0, 1.0, 0.0]);
+        assert_eq!(projected.interact_rotation, [-12.5, 179.5]);
         // Wire order: Up is bit 10, Sprinting bit 20.
         assert_eq!(projected.flag_names, vec!["Up", "Sprinting"]);
         assert_eq!(projected.input_mode, "GamePad");
@@ -175,6 +179,7 @@ mod tests {
             yaw: _,
             head_yaw: _,
             camera_orientation,
+            interact_rotation: _,
             flag_names,
             input_mode,
         } = PlayerAuthInputTraceSample {
@@ -188,6 +193,7 @@ mod tests {
             yaw: 0.0,
             head_yaw: 0.0,
             camera_orientation: [0.0; 3],
+            interact_rotation: [0.0; 2],
             flag_names: Vec::new(),
             input_mode: "Mouse",
         };

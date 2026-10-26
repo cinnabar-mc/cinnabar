@@ -9,15 +9,18 @@ pub struct ModInteraction {
     pub attack_pulse: bool,
 }
 
-/// Allows a personal override to shorten actor reach within the current mode's limit.
+/// Applies a bounded personal actor reach without enabling attacks forbidden by the mode.
 pub fn effective_reach(default: f64, interaction: Option<&ModInteraction>) -> f64 {
+    if default <= 0.0 {
+        return default;
+    }
     interaction
         .and_then(|interaction| interaction.attack_reach)
-        .filter(|reach| reach.is_finite() && *reach >= 0.0)
-        .map_or(default, |reach| default.min(f64::from(reach)))
+        .filter(|reach| (0.0..=mod_api::MAX_ENTITY_REACH_BLOCKS).contains(reach))
+        .map_or(default, f64::from)
 }
 
-/// Keeps ordinary block picking available when an actor override shortens reach.
+/// Checks obstructions along the actor ray while retaining ordinary block-pick distance.
 pub fn block_pick_reach(default: f64, actor_reach: f64) -> f64 {
     default.max(actor_reach)
 }
@@ -114,16 +117,16 @@ mod tests {
     }
 
     #[test]
-    fn personal_reach_cannot_admit_an_actor_beyond_survival_reach() {
+    fn personal_reach_admits_an_actor_within_the_requested_range() {
         let interaction = ModInteraction {
             attack_reach: Some(5.0),
             ..Default::default()
         };
         let target = player(4.0);
-        assert_eq!(
+        assert!(matches!(
             crosshair(&target, Some(&interaction), None),
-            Crosshair::Miss
-        );
+            Crosshair::Actor(_)
+        ));
         assert_eq!(
             crosshair(&target, Some(&interaction), Some(2.0)),
             Crosshair::Block
@@ -135,25 +138,33 @@ mod tests {
     }
 
     #[test]
-    fn personal_reach_cannot_extend_the_actor_pick_ray() {
+    fn personal_reach_extends_the_actor_pick_ray_within_the_local_bound() {
         let interaction = ModInteraction {
-            attack_reach: Some(6.0),
+            attack_reach: Some(mod_api::MAX_ENTITY_REACH_BLOCKS),
             ..Default::default()
         };
-        let target = player(6.25);
+        let target = player(mod_api::MAX_ENTITY_REACH_BLOCKS + 0.25);
         assert_eq!(crosshair(&target, None, None), Crosshair::Miss);
-        assert_eq!(
+        assert!(matches!(
             crosshair(&target, Some(&interaction), None),
+            Crosshair::Actor(_)
+        ));
+        assert_eq!(
+            crosshair(
+                &player(mod_api::MAX_ENTITY_REACH_BLOCKS + 1.0),
+                Some(&interaction),
+                None
+            ),
             Crosshair::Miss
         );
         assert_eq!(
-            crosshair(&target, Some(&interaction), Some(5.5)),
+            crosshair(&target, Some(&interaction), Some(4.0)),
             Crosshair::Block
         );
     }
 
     #[test]
-    fn personal_override_is_bounded_by_each_mode_and_input_limit() {
+    fn personal_override_preserves_attack_eligibility_and_unmodified_defaults() {
         for mode in [
             protocol::PlayerGameMode::Survival,
             protocol::PlayerGameMode::Adventure,
@@ -171,15 +182,22 @@ mod tests {
                 } else {
                     gameplay::mining::survival_reach(input)
                 };
-                for reach in [0.0, 1.0, 6.0] {
+                assert_eq!(effective_reach(pick, None), pick);
+                assert_eq!(effective_reach(caps.attack_reach, None), caps.attack_reach);
+                for reach in [0.0, 1.0, mod_api::MAX_ENTITY_REACH_BLOCKS] {
                     let interaction = ModInteraction {
                         attack_reach: Some(reach),
                         ..Default::default()
                     };
-                    assert!(
-                        effective_reach(caps.attack_reach, Some(&interaction)) <= caps.attack_reach
+                    assert_eq!(
+                        effective_reach(caps.attack_reach, Some(&interaction)),
+                        if caps.can_attack {
+                            f64::from(reach)
+                        } else {
+                            0.0
+                        }
                     );
-                    assert!(effective_reach(pick, Some(&interaction)) <= pick);
+                    assert_eq!(effective_reach(pick, Some(&interaction)), f64::from(reach));
                 }
             }
         }
@@ -208,7 +226,13 @@ mod tests {
 
     #[test]
     fn invalid_adapter_value_cannot_widen_reach() {
-        for reach in [f32::NAN, f32::INFINITY, -1.0] {
+        for reach in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            -1.0,
+            mod_api::MAX_ENTITY_REACH_BLOCKS + 1.0,
+        ] {
             let interaction = ModInteraction {
                 attack_reach: Some(reach),
                 ..Default::default()

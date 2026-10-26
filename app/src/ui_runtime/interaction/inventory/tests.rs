@@ -99,8 +99,10 @@ fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
     }
 }
 
+/// Vanilla's screen mapping cancels on Menu Cancel (Mouse 4 by default) and binds no hotbar
+/// action, so a hotbar slot sharing that button does not keep the inventory open.
 #[test]
-fn mouse_back_bound_to_hotbar_swaps_without_closing_inventory() {
+fn mouse_back_bound_to_hotbar_still_closes_inventory() {
     use bevy::input::mouse::MouseButtonInput;
     use launcher::menu::settings_options::BindingId;
     use semantic_input::PhysicalControl;
@@ -131,18 +133,84 @@ fn mouse_back_bound_to_hotbar_swaps_without_closing_inventory() {
         app.update();
 
         assert!(
-            app.world().resource::<UiRuntimeResource>().inventory_open(),
+            !app.world().resource::<UiRuntimeResource>().inventory_open(),
             "ordered={ordered}"
         );
         let player = app.world().resource::<client_state::PlayerRuntime>();
-        let ledger = player.inventory.ledger();
-        assert!(ledger.displayed_stack(0).is_none(), "ordered={ordered}");
-        assert_eq!(
-            ledger.displayed_stack(3).map(|stack| stack.count),
-            Some(2),
+        assert!(
+            player.inventory.ledger().displayed_stack(3).is_none(),
             "ordered={ordered}"
         );
-        assert_eq!(ledger.pending_request_count(), 1, "ordered={ordered}");
+    }
+}
+
+/// Rebinding Menu Cancel moves screen cancelling to the new mouse button or key: it closes the
+/// inventory, and the Back button it left closes nothing.
+#[test]
+fn remapped_menu_cancel_closes_inventory() {
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    use launcher::menu::settings_options::BindingId;
+    use semantic_input::PhysicalControl;
+
+    let forward = PhysicalControl::MouseButton(
+        client_shell::physical_input::mouse_button_code(MouseButton::Forward).unwrap(),
+    );
+    let x = PhysicalControl::KeyboardUsage(
+        client_shell::physical_input::keyboard_usage(KeyCode::KeyX).unwrap(),
+    );
+    for (control, ordered) in [(forward, false), (forward, true), (x, false)] {
+        let (mut app, window) = ordered::personal_app(2);
+        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
+        assert!(client_shell::menu::test_support::remap_control(
+            &mut menu,
+            BindingId::MenuCancel.row(false).unwrap(),
+            control,
+        ));
+        app.insert_resource(menu);
+        let press_mouse = |app: &mut App, button: MouseButton| {
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(button);
+            if ordered {
+                app.world_mut()
+                    .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                        button,
+                        state: ButtonState::Pressed,
+                        window,
+                    }));
+            }
+        };
+
+        press_mouse(&mut app, MouseButton::Back);
+        app.update();
+        assert!(
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "{control:?} ordered={ordered}"
+        );
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
+        if control == forward {
+            press_mouse(&mut app, MouseButton::Forward);
+        } else {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyX);
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyX,
+                logical_key: Key::Character("x".into()),
+                state: ButtonState::Pressed,
+                text: Some("x".into()),
+                repeat: false,
+                window,
+            });
+        }
+        app.update();
+        assert!(
+            !app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "{control:?} ordered={ordered}"
+        );
     }
 }
 

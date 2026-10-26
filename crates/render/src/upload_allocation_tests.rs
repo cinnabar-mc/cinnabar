@@ -75,6 +75,7 @@ fn ui_input() -> render_model::UiRenderInput {
         UiTexturePage,
     };
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [64, 64],
         safe_area: [0; 4],

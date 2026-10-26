@@ -54,6 +54,7 @@ pub(crate) fn publish_assisted_interaction(
     mut frame: ResMut<AimAssistFrame>,
     mut interaction: ResMut<InteractionOriginSnapshot>,
     mut activation: Local<AimActivation>,
+    mut movement: ResMut<client_interaction::movement::MovementTicker>,
 ) {
     let identity = context.world.stream.as_ref().map(|stream| {
         (
@@ -113,6 +114,14 @@ pub(crate) fn publish_assisted_interaction(
             |id| context.collisions.block_identifier(mode, id),
             |id| context.collisions.block_tags(mode, id),
         );
+        if state.settings().is_some() {
+            movement.publish_interaction_aim(
+                tick,
+                frame
+                    .interaction_direction()
+                    .map(|direction| direction.to_array()),
+            );
+        }
     }
     if frame.skipped_queries != previous_queries
         && (previous_queries == 0 || previous_queries / 64 != frame.skipped_queries / 64)

@@ -154,9 +154,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
-  plane and top art with its direction; other mapped-face cubes such as carved pumpkins,
-  observers, dispensers and droppers still need checking against their native tessellation,
-  plus native-server captures.
+  plane and top art with its direction. Observers, crafters, dispensers, droppers and piston
+  bodies select each face's slot, UV turn and texture variant from their state. Piston bodies
+  remain full cubes: the native three-quarter body and its separately drawn head are
+  incomplete. Jigsaw and vault faces, carved pumpkins and native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -372,6 +373,10 @@ A fresh jump press ends a glide after its first ten ticks unless the player has
 Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
 input push, on live ticks and correction replay. Whether that push reads the glide
 flag before or after the same tick's stop check is unverified.
+Interaction rotation retains picked aim independently of body, head and camera input.
+Active assistance publishes its target direction, or body facing when no target is found,
+to the matching unsent tick. Ordinary crosshair input uses the direction lookup table.
+Touch picking and camera-actor substitution remain incomplete.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -465,8 +470,11 @@ Sneaking box height, pose fit and crouch eye follow StartGame's base game versio
 Near-contact collision fixes do not establish complete collision-engine parity.
 Remote player presentation interpolates received positions along straight segments,
 which can cross a block corner between clear endpoints. Teleports discard that
-segment immediately. Behavioral coverage of these cases does not establish
+segment immediately. A remote player teleport also releases the old riding link before
+the next seat update. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
+Remote alive notices restore depleted health to the streamed maximum while keeping
+movement interpolation intact. Repeated notices preserve a living actor's hurt timing.
 
 The anchor probe after teleports and replayed corrections reads the mover's contextual
 collision, so scaffolding and powder snow the player's own move passes through never push
@@ -511,6 +519,8 @@ geometry, artwork and owner-root placement. Startup harness definitions are comp
 from tagged items and present pack resources. Resource-only session overrides reuse
 those definitions while preserving authored item conditions. Expression roots retain
 the worn slot through owner placement; worn equipment counts exclude hands.
+Missing copper armour definitions reuse standard pack definitions when the matching
+textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
@@ -541,7 +551,8 @@ and rendered qualification remain incomplete.
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
   Movement retains signed byte rotations and exact network heights through tick and
-  frame interpolation and predicted picking. Remote reset packets snap through the same
+  frame interpolation. Interaction picks use completed actor steps while pending motion
+  remains separate. Remote reset packets snap through the same
   owner as other player moves. Rotation-only player packets preserve active movement
   and body yaw while applying pitch immediately. Normal player moves place directly before
   the first actor tick or when their target terrain is missing, preserving any active lerp.
@@ -770,9 +781,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Client-owned panel collections support bounded four-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
-  The desktop mouse Back button uses existing cancellation in menus, containers,
-  chat popups, forms, signs and emotes; binding capture still accepts the button.
-  Cross-platform device acceptance remains incomplete.
+  Menu Cancel (`key.menuCancel`) is a remappable keyboard and mouse control that defaults to
+  the mouse Back button, as in vanilla. It cancels menus, containers, the bed screen, chat
+  popups, forms, player mod views, signs, credits, mob effects and emotes beside the fixed
+  Escape and platform Back keys, outranks a hotbar slot on the same button, and its keyboard
+  binding yields to focused text boxes; binding capture still accepts the button. Vanilla's
+  handling of a keyboard Menu Cancel inside text boxes is unverified, and cross-platform device
+  acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -791,7 +806,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and lifecycle behavior without leaking UI-owned input into movement.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
-  The HUD paper doll keeps its own animated mesh while a screen shows another player renderer.
+  The HUD paper doll retains its source geometry and samples its own GPU bone palette while
+  a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
+  broader HUD and hardware frame-work acceptance remain open.
   The inventory's live player renderer still draws the static preview model turned toward
   the pointer; native renders the animated actor there, so that remains incomplete.
   The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
@@ -1227,7 +1244,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
-  Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as mouse Back elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
+  Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as a fixed Menu Cancel elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
 - The reusable Dragonfly client-part helper offers bundles and typed wire v2 messages;
   the local server imports the same implementation. Explicit world notices fence
   messages before notice admission until the client acknowledges that specific
@@ -1273,7 +1290,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Generic resolved action filtering exposes synchronous module verdicts, retained
   releases and lifecycle reconciliation; timing and rates belong to modules, and
   attack and use pulses reach it as repeats. Local weather overrides retain
-  transactional host APIs. These contracts have offline behavior coverage; populated-world interaction and rendering acceptance
+  transactional host APIs. Granted actor reach requests set the local pick and attack
+  distance within the API bound, preserving attack eligibility, obstruction checks and
+  ordinary block reach. These contracts have offline behavior coverage; populated-world
+  interaction and rendering acceptance remain incomplete.
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.
