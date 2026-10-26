@@ -256,7 +256,7 @@ fn layered_hud_surface_keeps_foreground_text_and_collection_art() {
         ]}}).to_string(),
         "collections":{"tiles":{"definition":{"columns":1,"viewport":[200,60],
             "template":{"screen":"tile.root","document":json!({"namespace":"tile","root":{
-                "type":"custom","renderer":"cinnabar_vector_path","size":[180,60],
+                "type":"custom","renderer":"cinnabar_vector_path","size":[48,20],
                 "color":[1,0.7,0.2,1],"bindings":[
                     {"binding_name":"#item_art_paths","binding_name_override":"#paths"},
                     {"binding_name":"#item_art_view_box","binding_name_override":"#view_box"},
@@ -276,6 +276,15 @@ fn layered_hud_surface_keeps_foreground_text_and_collection_art() {
         "the mod HUD must draw"
     );
     snapshot::write(&drawn, "mod-hud-surface");
+    let mut without_art = surface.clone();
+    Arc::make_mut(&mut without_art.collections.get_mut("tiles").unwrap().definition).items[0].art =
+        None;
+    let mut p = presentation();
+    publish(&mut p, Some(&Arc::new(without_art)));
+    assert!(
+        snapshot::rasterize(&drawn) != snapshot::rasterize(&frame(&player, &mut p)),
+        "the collection artwork must paint"
+    );
     let mut whole = surface;
     let mut document: serde_json::Value = serde_json::from_str(&whole.document).unwrap();
     document["root"] = json!({"type":"panel","size":["100%","100%"],
