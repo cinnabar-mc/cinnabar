@@ -14,7 +14,7 @@ mod hit_position_tests;
 mod target;
 pub use target::{
     ActorHit, Crosshair, actor_is_pickable, actor_pick_unique_id, block_pick_distance, classify,
-    classify_block_hit, obstructs_placement, pick_actor, pick_actor_by, pick_distance,
+    classify_block_hit, obstructs_placement, pick_actor, pick_actor_by, pick_box, pick_distance,
     ray_box_entry, trim_actor_pick,
 };
 
@@ -212,10 +212,26 @@ impl MeleeRuntime {
 
     /// Records this frame's attack input; returns whether a press is waiting.
     pub fn observe_input(&mut self, pressed: bool, held: bool) -> bool {
+        self.observe_input_with_capture(pressed, held, None)
+    }
+
+    /// Retains a capture-only press identity with its FIFO entry through admission retries.
+    pub fn observe_input_with_capture(
+        &mut self,
+        pressed: bool,
+        held: bool,
+        frame: Option<[u64; 2]>,
+    ) -> bool {
         if pressed {
-            self.queue.push();
+            self.queue.push(frame);
         }
         self.queue.pending() || held
+    }
+
+    /// Expires old presses before returning the next waiting press's captured input boundary.
+    pub fn pending_capture_frame(&mut self, now_millis: u64) -> Option<[u64; 2]> {
+        self.defer(now_millis);
+        self.queue.first_pending()?.capture_frame
     }
 
     /// Records whether actor picking consumes the current attack target.

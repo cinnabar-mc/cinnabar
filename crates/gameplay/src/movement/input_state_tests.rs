@@ -47,6 +47,35 @@ fn forced_sneak_does_not_invent_sneak_request_lanes() {
     assert_eq!(bits & requests.bits(), 0);
 }
 
+/// Sneak actions compare with the actor state left by metadata before this tick.
+#[test]
+fn sneak_actions_follow_metadata_before_local_stance_changes() {
+    let actions = PlayerInputFlags::START_SNEAKING | PlayerInputFlags::STOP_SNEAKING;
+    for previous in [false, true] {
+        for server in [None, Some(false), Some(true)] {
+            for current in [false, true] {
+                let mut sample = settle_tests::settled_sample(41, [0.0; 3]);
+                sample.processed.sneaking = previous;
+                let held = encoding::HeldInput::from(&sample);
+                sample.input.server_sneaking = server;
+                sample.processed.sneaking = current;
+                let expected = if server.unwrap_or(previous) == current {
+                    PlayerInputFlags::NONE
+                } else if current {
+                    PlayerInputFlags::START_SNEAKING
+                } else {
+                    PlayerInputFlags::STOP_SNEAKING
+                };
+                assert_eq!(
+                    encoding::input_flags(&sample, held).bits() & actions.bits(),
+                    expected.bits(),
+                    "previous={previous}, server={server:?}, current={current}",
+                );
+            }
+        }
+    }
+}
+
 /// PersistSneak follows the input device's persistent controls, never the pose.
 #[test]
 fn persist_sneak_is_sent_for_touch_and_gamepad_only() {

@@ -23,6 +23,10 @@ impl NativeFocus {
 }
 
 #[cfg(all(windows, not(test)))]
+mod raw_mouse;
+#[cfg(all(windows, not(test)))]
+pub(super) use raw_mouse::WindowsRawMouse;
+#[cfg(all(windows, not(test)))]
 mod windows;
 #[cfg(all(windows, not(test)))]
 pub(crate) use windows::NativeCaptureReady;

@@ -22,11 +22,16 @@ use {client_presentation::camera::AutoFly, client_state::DrivenInput};
 
 #[cfg(any(windows, test))]
 mod native;
+#[cfg(any(windows, test))]
+mod raw_mouse;
 
 /// Installs focus tracking without opening or calling into a native window.
 pub(super) fn install(app: &mut App) {
     #[cfg(all(windows, not(test)))]
-    native::install(app);
+    {
+        native::install(app);
+        raw_mouse::install(app, native::WindowsRawMouse::default());
+    }
     app.init_resource::<CursorFocus>()
         .add_message::<WindowFocused>()
         .add_message::<WindowOccluded>()
@@ -283,6 +288,9 @@ mod grab_free_tests;
 
 #[cfg(test)]
 mod high_rate_tests;
+
+#[cfg(test)]
+mod raw_mouse_tests;
 
 #[cfg(test)]
 mod recapture_tests;

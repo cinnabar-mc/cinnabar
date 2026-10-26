@@ -58,6 +58,7 @@ fn rotation_mode_changes_pitch_without_starting_an_idle_player_lerp() {
 #[test]
 fn rotation_mode_preserves_an_active_target_and_uses_its_remaining_head_ticks() {
     let mut store = player(0.0);
+    store.advance_interpolation_ticks(1);
     let offset = store.get(1).unwrap().network_position_offset();
     store.apply_player_move(
         1,

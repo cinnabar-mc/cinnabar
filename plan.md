@@ -62,6 +62,8 @@ closes no gate and provides no new runtime or performance evidence.
   conformance findings, classify every decode error, and qualify frame and mutation
   latency against the current [live-testing requirements](docs/agents/live-testing.md).
   Use the current headless client workflow for scripted tests; keep captures local.
+  Opt-in packet captures retain attack and mouseover pick geometry, input-frame identities,
+  applied packet correspondence and remote actor time. Live comparison evidence remains open.
   Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
   live custom-dimension transfer acceptance remains open.
 
@@ -425,7 +427,8 @@ Snapped corrections and teleports keep the local input tick when the server stam
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
-and replay. Server glide/swim/crawl and Riptide spin flags start or end the local state
+and replay. An agreeing server stance adds no action and leaves earlier queued actions intact.
+Server glide/swim/crawl and Riptide spin flags start or end the local state
 without start/stop actions. Each retained frame captures the flag word it starts with; a
 stamped write becomes a correction of the following frame where it differs from that
 capture and requests replay when that following frame is retained. Current stamps
@@ -455,7 +458,8 @@ Sneaking box height, pose fit and crouch eye follow StartGame's base game versio
 Near-contact collision fixes do not establish complete collision-engine parity.
 Remote player presentation interpolates received positions along straight segments,
 which can cross a block corner between clear endpoints. Teleports discard that
-segment immediately. Behavioral coverage of these cases does not establish
+segment immediately. A remote player teleport also releases the old riding link before
+the next seat update. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
 
 The anchor probe after teleports and replayed corrections reads the mover's contextual
@@ -533,8 +537,10 @@ and rendered qualification remain incomplete.
   Movement retains signed byte rotations and exact network heights through tick and
   frame interpolation and predicted picking. Remote reset packets snap through the same
   owner as other player moves. Rotation-only player packets preserve active movement
-  and body yaw while applying pitch immediately. Specialized projectile and vehicle movement,
-  other remote-player packet modes, stance and riding update timing, partially loaded terrain,
+  and body yaw while applying pitch immediately. Normal player moves place directly before
+  the first actor tick or when their target terrain is missing, preserving any active lerp.
+  Specialized projectile and vehicle movement, other remote-player packet modes,
+  stance and riding update timing, partially loaded terrain,
   and matched packet-stream replay acceptance remain incomplete.
   Player deaths hide after their brief sequence while retaining the actor; later
   server flags control visibility through revival. Original Zeqa acceptance remains open.
@@ -1145,8 +1151,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   while constraining the storage budget. Proprietary Adreno Vulkan drivers use direct terrain
   draws after indirect draws produced empty frames on Adreno 619 and 750. Both devices pass the
   coverage, occlusion and reupload fixtures with this fallback; PowerVR GE8320 also passes.
-  Mali-G57, Mali-G78 and Mali-G715 fixture pipeline compilation still crashes without completed
-  frames.
+  Mali-G57, Mali-G78, Mali-G715 and PowerVR DXT fixture pipeline compilation failed before
+  completed frames. Shader translation now separates logical Function/Private allocations from
+  host buffer layouts and preserves either advertised image-robustness feature. Composed terrain
+  programs validate for Vulkan 1.1 and 1.3 with bounds checks enabled, and host terrain pixels
+  remain unchanged; physical-device validation of these compiler fixes remains open.
   Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
   with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
   CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
@@ -1611,7 +1620,11 @@ reference hardware, frame/hitch, streaming, join and capture budgets. Capture th
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
 
-Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
+Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
+compression to and from disk, so storing or loading one stages no encoded copy of its
+artwork pixels. Prepared actor artwork pages still copy multi-layer pack entity textures
+that the session entity pack also keeps, so those pixels stay resident twice during a
+session; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
 Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
 their admission metadata and file hashes. Decoded and compiled session outputs are freed
@@ -1635,6 +1648,10 @@ including hands, labels and the base UI raster. Enhanced water, shadows and shaf
 disable sampling while their required targets are unavailable. Injected failures cover
 recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
 remain incomplete.
+
+Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
+frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
+screens with a free cursor still receive every raw report.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

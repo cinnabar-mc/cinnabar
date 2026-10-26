@@ -81,9 +81,10 @@ test-time = { path = "../test-time" }
 wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
-naga = { workspace = true, features = ["wgsl-out"] }
+naga = { workspace = true, features = ["wgsl-out", "spv-out"] }
 wesl = "0.6.0"
 tempfile = "3"
+spirv = "0.4"
 
 [lints]
 workspace = true

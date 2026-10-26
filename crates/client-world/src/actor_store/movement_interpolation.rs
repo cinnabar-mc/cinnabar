@@ -30,6 +30,22 @@ pub(super) fn duration(interpolation: ActorInterpolation) -> Option<u32> {
 }
 
 impl ActorSnapshot {
+    /// Places a Normal update directly without replacing any interpolation already in flight.
+    pub(super) fn apply_direct_player_move(&mut self, mut pose: ActorPose) {
+        self.previous_pose = self.current_pose();
+        let rotation = [pose.pitch, pose.yaw];
+        pose.pitch = signed_pitch(pose.pitch);
+        pose.yaw = wrap_degrees(pose.yaw);
+        self.previous_pose.pitch =
+            wrap_degrees(self.previous_pose.pitch + pose.pitch - rotation[0]);
+        self.previous_pose.yaw = wrap_degrees(self.previous_pose.yaw + pose.yaw - rotation[1]);
+        let state = &mut self.status.movement_interpolation;
+        state.last_received = Some(pose);
+        self.received_pose.head_yaw = pose.head_yaw;
+        state.head_ticks = self.interpolation_ticks_remaining.max(state.rotation_ticks);
+        self.set_current_pose(pose);
+    }
+
     /// Applies rotation mode immediately while preserving the current movement target and counters.
     pub(super) fn apply_player_rotation(
         &mut self,
@@ -201,6 +217,7 @@ pub(super) struct PickState {
     pub(super) runtime_id: u64,
     /// The yaw one tick before `state`, which this frame eases from.
     pub(super) previous_yaw: f32,
+    pub(super) capture_previous_position: Option<[f32; 3]>,
     pub(super) state: MotionState,
 }
 
