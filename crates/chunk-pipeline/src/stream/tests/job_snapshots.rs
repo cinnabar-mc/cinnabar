@@ -917,3 +917,37 @@ fn the_applied_tags_name_their_slots() {
     stream.set_world_materials(Arc::from([(1_u32, 1_u8), (7, 4)]), Instant::now());
     assert_eq!(stream.world_material_slots(), 0b1001);
 }
+
+#[test]
+fn a_section_dirtied_every_tick_settles_once_a_mesh_past_the_change_is_drawn() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now);
+    let progress = stream.world_material_progress();
+    // The remesh publishes after redstone has dirtied the section again, so the drawn
+    // generation is already stale.
+    stream.mark_dirty_exact(center, now);
+    let drawn = stream.revisions.dirty(center).unwrap();
+    stream.mark_dirty_exact(center, now);
+    stream.acknowledge_mesh_upload(center, drawn.revision, drawn.since, now);
+    assert_eq!(stream.world_material_progress(), progress + 1);
+    assert!(stream.set_world_materials(Arc::from([]), now).is_some());
+}
+
+#[test]
+fn a_section_that_never_publishes_holds_the_next_change_only_for_a_bounded_wait() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now);
+    for _ in 1..super::super::resource_reload::WORLD_MATERIAL_HOLD_ROUNDS {
+        stream.mark_dirty_exact(center, now);
+        stream.count_mesh_round();
+    }
+    assert_eq!(stream.set_world_materials(Arc::from([]), now), None);
+    let progress = stream.world_material_progress();
+    stream.count_mesh_round();
+    assert_eq!(stream.world_material_progress(), progress + 1);
+    assert!(stream.set_world_materials(Arc::from([]), now).is_some());
+}

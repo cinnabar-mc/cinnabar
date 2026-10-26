@@ -102,6 +102,8 @@ impl WorldStream {
             world_materials: Arc::from([]),
             world_material_outstanding: HashMap::new(),
             world_material_progress: 0,
+            mesh_rounds: 0,
+            world_material_deadline: 0,
             seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
             ingress_dimension: bootstrap.dimension,
             deferred_ingress: VecDeque::new(),

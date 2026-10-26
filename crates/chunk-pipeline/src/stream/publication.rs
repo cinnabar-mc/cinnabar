@@ -120,6 +120,9 @@ impl WorldStream {
         dirty_since: Instant,
         applied_at: Instant,
     ) {
+        // A world material remesh is done once any mesh at or past its revision is drawn, even
+        // if newer dirt has made this one stale already.
+        self.settle_world_material(key, Some(generation));
         let Some(dirty) = self.revisions.dirty(key) else {
             return;
         };
@@ -149,7 +152,6 @@ impl WorldStream {
             self.withdrawn_meshes.remove(&key);
         }
         self.revisions.clear_if_current(key, generation);
-        self.settle_world_material(key, Some(generation));
         self.note_near_drawn(key.chunk());
         self.acknowledge_actor_block_syncs(key, generation);
         self.stats.publication_stages.mesh_uploads_acknowledged = self
