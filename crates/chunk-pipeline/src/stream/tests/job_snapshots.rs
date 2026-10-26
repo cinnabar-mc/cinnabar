@@ -874,3 +874,39 @@ fn alternating_binds_wait_for_the_last_change_to_publish_and_keep_jobs_running()
         Some(vec![center])
     );
 }
+
+#[test]
+fn unrelated_dirt_after_a_change_publishes_does_not_hold_the_next_change() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    let bound: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8)]);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&bound), now),
+        Some(vec![center])
+    );
+    let progress = stream.world_material_progress();
+    // Redstone keeps dirtying the section: a newer revision publishes, then it is dirty again.
+    stream.mark_dirty_exact(center, now);
+    publish(&mut stream, center);
+    assert_eq!(stream.world_material_progress(), progress + 1);
+    stream.mark_dirty_exact(center, now);
+    assert!(stream.revisions.dirty(center).is_some());
+    assert_eq!(
+        stream.set_world_materials(Arc::from([]), now),
+        Some(vec![center]),
+        "the change's own remesh published, so the next change applies"
+    );
+}
+
+#[test]
+fn an_unloaded_section_settles_the_change_it_was_held_for() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now);
+    assert_eq!(stream.set_world_materials(Arc::from([]), now), None);
+    stream.settle_world_material(center, None);
+    assert!(stream.set_world_materials(Arc::from([]), now).is_some());
+}
+
