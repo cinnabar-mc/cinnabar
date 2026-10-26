@@ -40,11 +40,7 @@ pub fn block_changes_preserve_meshes(
     (water_filled, world_materials): (&[u32], &[(u32, u8)]),
 ) -> bool {
     let layers = previous.storages().len();
-    let world = |value: u32| {
-        world_materials
-            .binary_search_by_key(&value, |(listed, _)| *listed)
-            .map_or(0, |index| world_materials[index].1)
-    };
+    let world = |value: u32| crate::chunk::world_material_tag(world_materials, value);
     if layers != replacement.storages().len() {
         return false;
     }
