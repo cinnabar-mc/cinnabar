@@ -2,11 +2,24 @@ use super::*;
 
 /// The fixture's terrain catalog plus `bindings` as its Cinnabar material bindings.
 fn bound_stack(bindings: &Value) -> LayeredPackView {
+    bound_stack_with(bindings, json!({}), Vec::new())
+}
+
+/// [`bound_stack`] with the terrain entries `terrain` and the files `extra` add.
+fn bound_stack_with(
+    bindings: &Value,
+    terrain: Value,
+    extra: Vec<(&str, Vec<u8>)>,
+) -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000001";
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
-    let terrain =
-        json!({"texture_data":{"state":{"textures":["textures/base_a","textures/base_b"]}}});
+    let mut entries = json!({"state":{"textures":["textures/base_a","textures/base_b"]}});
+    entries
+        .as_object_mut()
+        .unwrap()
+        .extend(terrain.as_object().unwrap().clone());
+    let terrain = json!({"texture_data": entries});
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (path, bytes) in [
         ("manifest.json", manifest.to_string().into_bytes()),
@@ -20,7 +33,10 @@ fn bound_stack(bindings: &Value) -> LayeredPackView {
             pack_entity_compiler::MATERIAL_BINDINGS_PATH,
             bindings.to_string().into_bytes(),
         ),
-    ] {
+    ]
+    .into_iter()
+    .chain(extra)
+    {
         writer
             .start_file(path, zip::write::SimpleFileOptions::default())
             .unwrap();
@@ -328,25 +344,7 @@ fn a_vanilla_model_whose_later_quad_fails_admits_none_of_its_materials() {
         "bindings": [{"block": record.name.as_ref(), "material": "example:glass"}]
     });
     let base = super::exclusions::model_with(VisualKind::Model, &[(0, 2)], &[1, 2], 0, 0);
-    // The second quad's material names a terrain key the stack does not define.
-    let keys = keys();
-    let terrain = keys
-        .terrain_entries()
-        .map(|(key, value)| (key.into(), value.clone()))
-        .collect::<Vec<_>>();
-    let materials = keys
-        .material_sources()
-        .map(|(id, source)| {
-            let mut source = source.clone();
-            if id == 2 {
-                source.key = "absent".into();
-            }
-            (id, source)
-        })
-        .collect::<Vec<_>>();
-    let blocks = keys.block_sources().to_vec();
-    let keys = keys.with_sources(terrain, materials, blocks);
-    let compiled = compile(&bound_stack(&document), &base, &keys);
+    let compiled = compile(&bound_stack(&document), &base, &second_material_unsourced());
     assert!(
         compiled.overlay.template_overrides.is_empty(),
         "the second quad has no terrain art"
@@ -357,6 +355,78 @@ fn a_vanilla_model_whose_later_quad_fails_admits_none_of_its_materials() {
             .all(|material| material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND == 0),
         "the first quad's bound copy is released"
     );
+}
+
+/// The fixture's keys with material 2 naming a terrain key no stack defines.
+fn second_material_unsourced() -> MaterialKeys {
+    keys_with_sources(None, "absent")
+}
+
+/// The fixture's keys with the terrain keys materials 1 and 2 copy their art from replaced;
+/// `None` keeps material 1's.
+fn keys_with_sources(first: Option<&str>, second: &str) -> MaterialKeys {
+    let keys = keys();
+    let terrain = keys
+        .terrain_entries()
+        .map(|(key, value)| (key.into(), value.clone()))
+        .collect::<Vec<_>>();
+    let materials = keys
+        .material_sources()
+        .map(|(id, source)| {
+            let mut source = source.clone();
+            match (id, first) {
+                (1, Some(key)) => source.key = key.into(),
+                (2, _) => source.key = second.into(),
+                _ => {}
+            }
+            (id, source)
+        })
+        .collect::<Vec<_>>();
+    let blocks = keys.block_sources().to_vec();
+    keys.with_sources(terrain, materials, blocks)
+}
+
+#[test]
+fn a_released_texture_slot_takes_no_texture_set_surfaces_to_its_next_texture() {
+    let record = first_record();
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"example:glass": {"material": {"states": ["Blending"]}}},
+        "bindings": [{"block": record.name.as_ref(), "material": "example:glass"}]
+    });
+    let surface = || png(16, 16, |x, _| [128 + x as u8, 128, 255, 255]);
+    // Material 1 varies over a texture set and a missing raster, so admitting it fails and
+    // releases the set's slot, which material 2 then takes.
+    let stack = bound_stack_with(
+        &document,
+        json!({"copied": {"textures": {"variations": [
+            {"path": "textures/copied"}, {"path": "textures/missing"}
+        ]}}}),
+        vec![
+            (
+                "textures/copied.texture_set.json",
+                json!({"format_version": "1.16.100", "minecraft:texture_set": {
+                    "color": "copied", "normal": "copied_normal",
+                    "metalness_emissive_roughness": [0, 255, 128]
+                }})
+                .to_string()
+                .into_bytes(),
+            ),
+            (
+                "textures/copied.png",
+                png(16, 16, |_, _| [40, 90, 140, 255]),
+            ),
+            ("textures/copied_normal.png", surface()),
+        ],
+    );
+    let base = super::exclusions::model_with(VisualKind::Model, &[(0, 2)], &[1, 2], 0, 0);
+    let compiled = compile(&stack, &base, &keys_with_sources(Some("copied"), "state"));
+    assert!(
+        compiled.overlay.enhanced.is_none(),
+        "the released texture's surfaces do not follow its slot"
+    );
+    base.with_block_overlay(2, &compiled.overlay)
+        .expect("the overlay names only its own slots");
 }
 
 #[test]
