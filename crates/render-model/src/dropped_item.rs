@@ -6,6 +6,7 @@ mod atlas;
 mod block;
 mod bounds;
 mod budget;
+mod carried;
 mod cost;
 mod culling;
 mod mesh;
@@ -15,6 +16,7 @@ pub use atlas::atlas_layer_limit;
 pub use block::block_mesh;
 pub use bounds::{DroppedItemBounds, DroppedItemCullView, DroppedItemFrustum};
 pub use budget::ItemModelBudget;
+pub use carried::enderman_carried_block_transform;
 pub use cost::{ItemModelCost, block_quad_vertex_count};
 
 pub use mesh::{

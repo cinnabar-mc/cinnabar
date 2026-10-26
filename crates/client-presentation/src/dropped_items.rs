@@ -30,6 +30,8 @@ pub(crate) struct DroppedItemFrame<'a> {
     pub(crate) partial_tick: f32,
     pub(crate) fishing_line_anchors:
         &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+    /// Blocks actors carry this frame, drawn with the world's block models.
+    pub(crate) carried_blocks: &'a [crate::actor_publication::carried_blocks::CarriedBlock],
     pub(crate) prepared_blocks: Option<&'a Arc<crate::presentation::equipment::PreparedBlockItems>>,
 }
 
@@ -558,6 +560,7 @@ impl DroppedItemPublisher<'_, '_> {
         let DroppedItemFrame {
             partial_tick,
             fishing_line_anchors,
+            carried_blocks,
             prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
@@ -743,6 +746,34 @@ impl DroppedItemPublisher<'_, '_> {
                     } else if candidate.visible {
                         instances.push(instance);
                     }
+                }
+                let air = stream.air_block_id();
+                for carried in carried_blocks {
+                    let id = stream.resolve_block_network_id(carried.block_runtime_id);
+                    if id == air {
+                        continue;
+                    }
+                    // Cubes use their composed carried faces (a grass block's tinted side
+                    // overlay over dirt); other shapes, such as crossed plants, keep their world
+                    // model.
+                    let mode = stream.network_id_mode();
+                    let model = Self::carried_block_model(cache, icons, assets, mode, id)
+                        .or_else(|| Self::block_model(cache, assets, mode, id));
+                    let Some(model) = cache.count_item(model) else {
+                        continue;
+                    };
+                    if cache.is_planning() {
+                        continue;
+                    }
+                    let (block_level, sky_level) = carried.light;
+                    instances.push(DroppedItemInstance {
+                        model,
+                        world_from_item: carried.world_from_block,
+                        block_level: u32::from(block_level),
+                        sky_level: u32::from(sky_level),
+                        overlay_rgba8: 0,
+                        glint: false,
+                    });
                 }
             }
         });
