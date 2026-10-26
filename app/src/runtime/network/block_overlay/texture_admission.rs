@@ -120,6 +120,8 @@ pub(super) struct TextureCheckpoint {
     animations: usize,
     frames: usize,
     serial: u64,
+    /// Recorded texture-set colours.
+    pbr: usize,
 }
 
 impl Builder<'_> {
@@ -140,10 +142,12 @@ impl Builder<'_> {
             animations: self.overlay.animations.len(),
             frames: self.overlay.animation_frames.len(),
             serial: self.slots.serial,
+            pbr: self.pbr.checkpoint(),
         }
     }
 
-    /// Releases unpublished materials, textures, and their cached successes and failures.
+    /// Releases unpublished materials, textures, their texture-set colours, and their cached
+    /// successes and failures.
     pub(super) fn rollback_textures(&mut self, checkpoint: TextureCheckpoint) {
         self.overlay.materials.truncate(checkpoint.materials);
         self.terrain_materials
@@ -171,5 +175,6 @@ impl Builder<'_> {
             .frames
             .retain(|_, entry| entry.serial <= checkpoint.serial);
         self.slots.serial = checkpoint.serial;
+        self.pbr.rollback(checkpoint.pbr);
     }
 }
