@@ -183,7 +183,8 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
             ItemVisualDefinitionRoute::BlockItem { .. }
         ));
         let model = models
-            .get(&definition.key)
+            .get(definition.key.identifier.as_ref())
+            .and_then(|variants| variants.get(&definition.key.metadata))
             .and_then(|held| held.model(icons))
             .expect("noncube block item retains its held model");
         assert!(
