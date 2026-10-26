@@ -899,7 +899,12 @@ fn first_person_equip_dip_and_mirrored_art() {
     let turned = first_person_display(FirstPersonShape::Sprite { mirrored_art: true }, REST);
     let half_turn = rest.rotation.inverse() * turned.rotation;
     assert!(half_turn.angle_between(Quat::IDENTITY) > 3.0);
-    let block = first_person_display(FirstPersonShape::Block, REST);
+    let block = first_person_display(
+        FirstPersonShape::Block {
+            quarter_turn: false,
+        },
+        REST,
+    );
     assert!((block.scale - 0.4).abs() < 1e-5);
     assert!(
         (block.translation - Vec3::new(0.56, -0.52, -0.72)).length() < 1e-5,

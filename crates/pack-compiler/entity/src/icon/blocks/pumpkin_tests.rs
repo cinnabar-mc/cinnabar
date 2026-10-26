@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn pumpkin_gui_fronts_keep_their_class_artwork_without_changing_held_sheets() {
+fn pumpkin_gui_and_held_fronts_keep_their_class_artwork_in_the_carried_pose() {
     let root = tempfile::tempdir().unwrap();
     let records = read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
@@ -56,6 +56,11 @@ fn pumpkin_gui_fronts_keep_their_class_artwork_without_changing_held_sheets() {
             .unwrap()
             .unwrap();
         let gui = blocks.gui_cube_tiles(root.path(), visual).unwrap().unwrap();
+        let shown = &blocks.records[blocks.icon_state(visual).0 as usize];
+        assert!(matches!(
+            shown.property(assets::facts::BlockProperty::MinecraftCardinalDirection),
+            Some(assets::facts::StateValue::String(direction)) if direction.as_ref() == "south"
+        ));
         let expected = match record.name.as_ref() {
             "minecraft:carved_pumpkin" => [240, 10, 20, 255],
             "minecraft:lit_pumpkin" => [10, 240, 20, 255],
@@ -74,18 +79,17 @@ fn pumpkin_gui_fronts_keep_their_class_artwork_without_changing_held_sheets() {
             &[20, 30, 40, 255]
         );
         assert_eq!(&gui[BlockFace::Up as usize].rgba8[..4], &[90, 80, 70, 255]);
-        let Some(assets::facts::StateValue::String(direction)) =
-            record.property(assets::facts::BlockProperty::MinecraftCardinalDirection)
-        else {
-            panic!("missing held facing");
-        };
-        let held_front = match direction.as_ref() {
-            "north" => BlockFace::North,
-            "south" => BlockFace::South,
-            "east" => BlockFace::East,
-            "west" => BlockFace::West,
-            _ => panic!("unknown held facing"),
-        };
-        assert_eq!(&held[held_front as usize].rgba8[..4], &expected);
+        assert_eq!(
+            &held[BlockFace::South as usize].rgba8[..4],
+            &expected,
+            "held {} {}",
+            record.name,
+            record.canonical_state
+        );
+        assert_eq!(&held[BlockFace::Up as usize].rgba8[..4], &[90, 80, 70, 255]);
+        assert_eq!(
+            &held[BlockFace::West as usize].rgba8[..4],
+            &[20, 30, 40, 255]
+        );
     }
 }

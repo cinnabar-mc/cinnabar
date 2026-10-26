@@ -608,6 +608,9 @@ and rendered qualification remain incomplete.
   Pumpkin GUI cubes keep their class-specific front artwork independently of held face
   sheets; jack o’lantern GUI cubes retain uniform texture brightness. Shared cube
   silhouette and texture-coordinate acceptance remains incomplete.
+  Held pumpkin cubes use the same canonical class artwork independently of placement
+  facing. Their first-person block pose retains the item-space quarter turn.
+  Held lighting and broader held-shape acceptance remain incomplete.
   Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
   placed book counts and the held world model.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.

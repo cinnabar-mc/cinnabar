@@ -121,7 +121,10 @@ impl EquipmentRuntime {
             return None;
         }
         let shape = if block {
-            FirstPersonShape::Block
+            FirstPersonShape::Block {
+                quarter_turn: assets::facts::pack::face_slots(&item.identifier)
+                    == Some(assets::facts::pack::FaceSlots::Pumpkin),
+            }
         } else {
             FirstPersonShape::Sprite {
                 mirrored_art: item.grip.mirrored_art(),

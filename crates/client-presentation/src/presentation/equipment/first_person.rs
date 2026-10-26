@@ -38,7 +38,12 @@ pub(super) fn sprite_pose(state: ItemAnimationState) -> Option<RenderBoneTransfo
 /// Presentation-mode-1 correction and default display matrix cancel the block Y turns.
 #[cfg(test)]
 pub(super) fn block_pose(state: ItemAnimationState) -> Option<RenderBoneTransform> {
-    pose(state, FirstPersonShape::Block)
+    pose(
+        state,
+        FirstPersonShape::Block {
+            quarter_turn: false,
+        },
+    )
 }
 
 /// Vanilla offhand item pose, not the main-hand swing stack. Blocks use
