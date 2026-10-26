@@ -309,7 +309,7 @@ mod tests {
                 ..default()
             };
             let world = WorldVariant {
-                key: 5,
+                program: 5,
                 textures: 1,
                 blend,
                 depth,

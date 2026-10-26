@@ -46,6 +46,8 @@ pub(crate) struct ChunkPipeline {
         crate::chunk::world_materials::WorldTerrainKey,
         bevy::render::render_resource::CachedRenderPipelineId,
     >,
+    /// The published revision `world_ids` was last pruned to.
+    pub(in crate::chunk) world_pruned: Option<u64>,
     pub(in crate::chunk) world_fallback: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     /// The same passes over the model pipeline.
     pub(in crate::chunk) world_model_variants:
@@ -87,6 +89,7 @@ impl FromWorld for ChunkPipeline {
                 descriptor.clone(),
             ),
             world_ids: Default::default(),
+            world_pruned: None,
             world_fallback: Variants::new(
                 ChunkPipelineSpecializer,
                 crate::chunk::world_materials::fallback_descriptor(&descriptor),

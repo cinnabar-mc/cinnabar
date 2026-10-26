@@ -83,3 +83,19 @@ fn a_rim_glow_reads_the_surface_normal_and_view_direction() {
     )
     .unwrap();
 }
+
+#[test]
+fn a_program_is_identified_by_its_source_and_texture_count() {
+    let material = |source: &str, textures| WorldMaterial {
+        source: source.into(),
+        textures,
+    };
+    let plain = material(PLAIN, 0).program();
+    assert_eq!(
+        material(PLAIN, 0).program(),
+        plain,
+        "equal programs share it"
+    );
+    assert_ne!(material(PLAIN, 1).program(), plain);
+    assert_ne!(material(&format!("{PLAIN} "), 0).program(), plain);
+}

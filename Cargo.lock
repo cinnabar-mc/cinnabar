@@ -6006,6 +6006,7 @@ dependencies = [
  "mod-api",
  "naga",
  "serde",
+ "sha2",
  "test-alloc",
  "world",
 ]

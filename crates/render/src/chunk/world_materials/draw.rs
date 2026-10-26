@@ -194,6 +194,13 @@ pub(in crate::chunk) fn queue_world_material_chunks(
             .get(entity)
             .map_or(0, |(_, instance)| slot_mask(instance))
     };
+    let pipeline = &mut *pipeline;
+    crate::world_material::prune_pipelines(
+        &mut pipeline.world_ids,
+        &mut pipeline.world_pruned,
+        &world,
+        |key| key.world.program,
+    );
     if !sections.queueing(world.has_materials(), all, mask_of) {
         return;
     }
@@ -280,7 +287,7 @@ pub(in crate::chunk) fn queue_world_material_chunks(
         }
         let plan = plan_view(
             draws,
-            |mask| ready_mask(mask, &world, &pipeline, &pipeline_cache, base),
+            |mask| ready_mask(mask, &world, pipeline, &pipeline_cache, base),
             |slot| world.variant(slot).map(|variant| variant.blend),
         );
         if !plan.translucent.is_empty() {
@@ -299,7 +306,8 @@ pub(in crate::chunk) fn queue_world_material_chunks(
             pipeline
                 .world_ids
                 .iter()
-                .map(|(key, id)| (key.world.key, *id)),
+                .map(|(key, id)| (key.world.program, *id)),
+            &world,
             failures,
         );
     }
