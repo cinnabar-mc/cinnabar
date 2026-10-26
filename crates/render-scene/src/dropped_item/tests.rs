@@ -32,14 +32,14 @@ fn publish_caps_instances_and_keeps_models_until_the_revision_changes() {
         color: OPAQUE_WHITE,
     };
     let lines = vec![vertex; MAX_DYNAMIC_ITEM_VERTICES + 2];
-    scene.publish(1, Arc::from([model]), &many, &lines, f32::NAN);
+    scene.publish(1, Arc::from([model]), &many, &lines, &[], f32::NAN);
     assert_eq!(scene.instance_count(), MAX_DROPPED_ITEM_INSTANCES);
     assert_eq!(scene.dynamic.len() % 3, 0);
     assert!(scene.dynamic.len() <= MAX_DYNAMIC_ITEM_VERTICES);
     assert_eq!(scene.daylight, 1.0);
-    scene.publish(1, Arc::from([]), &many[..1], &[], 0.5);
+    scene.publish(1, Arc::from([]), &many[..1], &[], &[], 0.5);
     assert_eq!(scene.models.len(), 1);
-    scene.publish(2, Arc::from([]), &[], &[], 0.5);
+    scene.publish(2, Arc::from([]), &[], &[], &[], 0.5);
     assert!(scene.models.is_empty());
 }
 

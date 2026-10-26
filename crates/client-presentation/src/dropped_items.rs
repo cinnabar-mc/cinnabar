@@ -15,9 +15,9 @@ use client_world::{BlockEntityKind, RopeKind};
 use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 use {
     render_model::{
-        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, ItemMeshVertex,
-        MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
-        pack_overlay_rgba8, rope_color, rope_ribbon,
+        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, DynamicLightRun,
+        ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
+        dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
     },
     render_scene::{ChunkTextureAssets, DroppedItemScene},
 };
@@ -87,6 +87,8 @@ pub(crate) struct PublishScratch {
     instances: Vec<DroppedItemInstance>,
     terrain_instances: Vec<TerrainItemInstance>,
     lines: Vec<ItemMeshVertex>,
+    /// Light runs over `lines`, one per rope.
+    line_lights: Vec<DynamicLightRun>,
     /// The startup icon each static placement resolved during demand collection.
     placement_icons: Vec<Option<ui::IconRef>>,
     transitions: HashMap<i64, Vec<TerrainItemTransition>>,
@@ -602,6 +604,7 @@ impl DroppedItemPublisher<'_, '_> {
             instances,
             terrain_instances,
             lines,
+            line_lights,
             placement_icons,
             transitions,
             dropped,
@@ -800,6 +803,7 @@ impl DroppedItemPublisher<'_, '_> {
         });
 
         lines.clear();
+        line_lights.clear();
         if let Some((camera, _)) = camera {
             stream.authority().ropes_into(partial_tick, ropes);
             for rope in ropes.iter() {
@@ -836,6 +840,12 @@ impl DroppedItemPublisher<'_, '_> {
                 rope_ribbon(
                     from, rope.to, camera, segments, sag, half_width, color, lines,
                 );
+                let (block, sky) = stream.rope_light(rope);
+                line_lights.push(DynamicLightRun {
+                    end: lines.len() as u32,
+                    block,
+                    sky,
+                });
             }
         }
         dial_models.warm(cache, icons);
@@ -846,6 +856,7 @@ impl DroppedItemPublisher<'_, '_> {
             Arc::clone(&cache.shared),
             instances,
             lines,
+            line_lights,
             DAYLIGHT,
         );
         scene.set_glint(glint.0, glint.1.scroll());
