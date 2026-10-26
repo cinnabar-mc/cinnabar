@@ -23,6 +23,7 @@ pub(super) struct BakedBlocks {
     pub model_sprites: BTreeMap<(u32, u32), u32>,
     pub block_sprites: BTreeMap<u32, u32>,
     pub block_sheets: Vec<IconBlockSheet>,
+    pub gui_block_sheets: Vec<IconBlockSheet>,
     /// Model thumbnails by sprite, with the world state whose quads they project.
     pub block_models: Vec<IconBlockModel>,
 }
@@ -73,6 +74,16 @@ pub(super) fn run(
             }
         }
     }
+    let mut gui_tiles = BTreeMap::new();
+    if let Some(blocks) = blocks {
+        for (&visual, held) in &carried_tiles {
+            if let Some(gui) = blocks.gui_cube_tiles(root, BlockVisualId(visual))?
+                && &gui != held
+            {
+                gui_tiles.insert(visual, gui);
+            }
+        }
+    }
     let mut model_sprites = BTreeMap::new();
     let mut model_sprites_by_state = BTreeMap::new();
     if let Some(world) = world {
@@ -94,7 +105,10 @@ pub(super) fn run(
             .collect();
         for (visual, metadata) in model_keys {
             let plan = &block_plan[&visual];
-            let raster = if let Some(tiles) = carried_tiles.get(&visual) {
+            let raster = if let Some(tiles) = gui_tiles
+                .get(&visual)
+                .or_else(|| carried_tiles.get(&visual))
+            {
                 Some((
                     model::Model::cube(
                         tiles.clone().map(|tile| tile.rgba8.to_vec().into()),
@@ -153,7 +167,12 @@ pub(super) fn run(
             .iter()
             .filter(|(visual, value)| value.is_ok() && !model_sprites.contains_key(&(**visual, 0)))
             .count();
-        preflight(sprites, block_count, carried_tiles.len(), compiled)?;
+        preflight(
+            sprites,
+            block_count,
+            carried_tiles.len() + gui_tiles.len(),
+            compiled,
+        )?;
     }
     let mut baked: BTreeMap<[u8; 32], Vec<(&cube::Cube<'_>, u32)>> = BTreeMap::new();
     let mut output_hashes: BTreeMap<[u8; 32], Vec<u32>> = BTreeMap::new();
@@ -211,11 +230,22 @@ pub(super) fn run(
             })
         })
         .collect();
+    let gui_block_sheets = gui_tiles
+        .iter()
+        .filter_map(|(&visual, tiles)| {
+            let sprite = compose_block_item_sheet(tiles)?;
+            Some(IconBlockSheet {
+                visual: BlockVisualId(visual),
+                sprite: insert_sprite(sprites, sprite, &block_models),
+            })
+        })
+        .collect();
     Ok(BakedBlocks {
         flat_sprites,
         model_sprites,
         block_sprites,
         block_sheets,
+        gui_block_sheets,
         block_models: block_models
             .into_iter()
             .map(|(sprite, visual)| IconBlockModel {

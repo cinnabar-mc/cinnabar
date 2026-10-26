@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, IconEntry, IconSprite, ItemVisualDefinitionRoute, MAX_ICON_BLOCK_SHEETS,
-    encode_icon_catalog_with_sources,
+    encode_icon_catalog_with_gui_cube_sheets,
 };
 use sha2::{Digest, Sha256};
 
@@ -185,6 +185,7 @@ fn compile(
         model_sprites,
         block_sprites,
         block_sheets,
+        gui_block_sheets,
         block_models,
     } = bake::run(
         root,
@@ -255,13 +256,14 @@ fn compile(
             sprite: *sprite,
         })
         .collect::<Vec<_>>();
-    let bytes = encode_icon_catalog_with_sources(
+    let bytes = encode_icon_catalog_with_gui_cube_sheets(
         compiled.source_manifest_sha256,
         &sprites,
         &entries,
         &block_sheets,
         &block_models,
         &source_sprites,
+        &gui_block_sheets,
     )?;
     Ok(CompiledIconCarrier {
         report: IconCompileReport {

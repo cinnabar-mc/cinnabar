@@ -261,6 +261,18 @@ impl GuiModelPreparation {
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
             held_sources.insert(*visual, icon);
+        }
+        for sheet in icons.gui_block_sheets() {
+            sources.insert(
+                sheet.visual.0,
+                icons.sprites()[sheet.sprite as usize].clone(),
+            );
+        }
+        for (visual, sprite) in &sources {
+            if !cube_shape_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
+                continue;
+            }
+            let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
             if let Some(mesh) = item_gui::cube(sheet_faces(icon), lighting_for_visual(*visual)) {
                 meshes.insert(*visual, mesh);
             }

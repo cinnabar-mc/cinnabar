@@ -7,7 +7,7 @@
     { "identifier": "minecraft:lit_blast_furnace", "lighting": "incomplete" },
     { "identifier": "minecraft:lit_deepslate_redstone_ore", "lighting": "incomplete" },
     { "identifier": "minecraft:lit_furnace", "lighting": "incomplete" },
-    { "identifier": "minecraft:lit_pumpkin", "lighting": "incomplete" },
+    { "identifier": "minecraft:lit_pumpkin", "lighting": "unshaded" },
     { "identifier": "minecraft:lit_redstone_ore", "lighting": "incomplete" },
     { "identifier": "minecraft:lit_smoker", "lighting": "incomplete" },
     { "identifier": "minecraft:magma", "lighting": "incomplete" },

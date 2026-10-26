@@ -600,6 +600,9 @@ and rendered qualification remain incomplete.
   Redstone-torch icons select lit artwork independently of their placement power state.
   Twisting and weeping vine icons select their stem face independently of the growing tip;
   pointed dripstone and sulfur spike icons select their hanging tip face.
+  Pumpkin GUI cubes keep their class-specific front artwork independently of held face
+  sheets; jack o’lantern GUI cubes retain uniform texture brightness. Shared cube
+  silhouette and texture-coordinate acceptance remains incomplete.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Terrain-backed GUI meshes retain independently averaged texture levels and choose a
@@ -612,7 +615,7 @@ and rendered qualification remain incomplete.
   pinned catalog.
   The hotbar catalog comparison still has open shape, artwork and item-variant differences;
   animated dials and glint also require phase-matched acceptance.
-  Glowstone, sea lanterns, shroomlight and froglight GUI cubes retain uniform texture
+  Glowstone, sea lanterns, shroomlight, froglight and jack o’lantern GUI cubes retain uniform texture
   brightness. The emissive-cube census rejects missing classifications after registry
   changes; partial emissive faces and entries marked incomplete still need acceptance.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.

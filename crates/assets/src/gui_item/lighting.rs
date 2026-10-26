@@ -70,6 +70,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn jack_o_lantern_inventory_faces_keep_full_texture_brightness() {
+        assert_eq!(
+            cube_lighting("minecraft:lit_pumpkin"),
+            CubeLighting::Unshaded
+        );
+        assert_eq!(
+            cube_lighting("minecraft:carved_pumpkin"),
+            CubeLighting::Directional
+        );
+        assert_eq!(
+            cube_lighting("minecraft:pumpkin"),
+            CubeLighting::Directional
+        );
+    }
+
+    #[test]
     fn every_emissive_registry_cube_has_an_explicit_lighting_classification() {
         let registry = crate::pinned_block_registry_bytes();
         let protocol = crate::active_content_registry_protocol();

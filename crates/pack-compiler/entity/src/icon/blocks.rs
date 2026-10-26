@@ -247,6 +247,42 @@ impl IconBlocks {
         self.tiles(root, self.icon_state(visual), true, true)
     }
 
+    /// Loads cube artwork for the GUI independently of the held sheet.
+    pub(super) fn gui_cube_tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        let Some(record) = self.records.get(visual.0 as usize) else {
+            return Ok(None);
+        };
+        if assets::facts::pack::face_slots(&record.name)
+            != Some(assets::facts::pack::FaceSlots::Pumpkin)
+        {
+            return Ok(None);
+        }
+        let Some(pack) = self.pack.as_ref() else {
+            return Ok(None);
+        };
+        let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
+        for face in BlockFace::ALL {
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+                .map(String::into_boxed_str)
+                .or_else(|| resolve_carried_fallback_key(&pack.blocks, record, face))
+            else {
+                return Ok(None);
+            };
+            let Some((path, overlay)) = pack.terrain.get_carried_for_record(&key, record) else {
+                return Ok(None);
+            };
+            let Some(tile) = super::carried::tile(root, path, overlay, false)? else {
+                return Ok(None);
+            };
+            tiles.push(tile);
+        }
+        Ok(tiles.try_into().ok())
+    }
+
     /// Resolves explicit carried faces for shapes whose world model cannot supply an icon.
     pub(super) fn carried_tiles(
         &self,
@@ -623,3 +659,7 @@ mod lightning_rod_tests;
 #[cfg(test)]
 #[path = "blocks/button_tests.rs"]
 mod button_tests;
+
+#[cfg(test)]
+#[path = "blocks/pumpkin_tests.rs"]
+mod pumpkin_tests;

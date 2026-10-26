@@ -289,3 +289,88 @@ fn carried_artwork_round_trips_independently_of_gui_thumbnails() {
         legacy.lookup_index("test:pane", 0)
     );
 }
+
+#[test]
+fn gui_cube_sheets_round_trip_independently_of_held_cube_sheets() {
+    let [width, height] = BLOCK_ITEM_SHEET_SIZE;
+    let sprites = [
+        sprite(16, 16, 7),
+        sprite(width, height, 23),
+        sprite(width, height, 81),
+    ];
+    let entries = [entry("fixture:cube", 0, 0)];
+    let held = [IconBlockSheet {
+        visual: BlockVisualId(7),
+        sprite: 1,
+    }];
+    let gui = [IconBlockSheet {
+        visual: BlockVisualId(7),
+        sprite: 2,
+    }];
+    let bytes = assets::encode_icon_catalog_with_gui_cube_sheets(
+        [9; 32],
+        &sprites,
+        &entries,
+        &held,
+        &[],
+        &[],
+        &gui,
+    )
+    .unwrap();
+    let catalog = RuntimeIconCatalog::decode(&bytes).unwrap();
+    assert_eq!(catalog.block_sheets(), &held);
+    assert_eq!(catalog.gui_block_sheets(), &gui);
+    assert_eq!(
+        catalog.sprites()[catalog.block_sheets()[0].sprite as usize].rgba8[0],
+        23
+    );
+    assert_eq!(
+        catalog.sprites()[catalog.gui_block_sheets()[0].sprite as usize].rgba8[0],
+        81
+    );
+    let legacy = encode_icon_catalog_with_block_sheets([9; 32], &sprites, &entries, &held).unwrap();
+    let legacy = RuntimeIconCatalog::decode(&legacy).unwrap();
+    assert_eq!(legacy.block_sheets(), &held);
+    assert!(legacy.gui_block_sheets().is_empty());
+}
+
+#[test]
+fn gui_cube_sheets_reject_bad_references_dimensions_order_and_framing() {
+    use sha2::{Digest, Sha256};
+    let [width, height] = BLOCK_ITEM_SHEET_SIZE;
+    let sprites = [sprite(16, 16, 7), sprite(width, height, 23)];
+    let encode = |gui: &[IconBlockSheet]| {
+        assets::encode_icon_catalog_with_gui_cube_sheets([9; 32], &sprites, &[], &[], &[], &[], gui)
+    };
+    for bad in [
+        vec![IconBlockSheet {
+            visual: BlockVisualId(7),
+            sprite: 2,
+        }],
+        vec![IconBlockSheet {
+            visual: BlockVisualId(7),
+            sprite: 0,
+        }],
+        vec![
+            IconBlockSheet {
+                visual: BlockVisualId(7),
+                sprite: 1
+            };
+            2
+        ],
+    ] {
+        assert!(encode(&bad).is_err());
+    }
+    let mut bytes = encode(&[IconBlockSheet {
+        visual: BlockVisualId(7),
+        sprite: 1,
+    }])
+    .unwrap();
+    let end = bytes.len() - 32;
+    bytes.drain(end - 8..end);
+    let end = bytes.len() - 32;
+    bytes[56..64].copy_from_slice(&(end as u64).to_le_bytes());
+    let hash = Sha256::digest(&bytes[..end]);
+    bytes[end..].copy_from_slice(&hash);
+    assert!(RuntimeIconCatalog::decode(&bytes).is_err());
+}
