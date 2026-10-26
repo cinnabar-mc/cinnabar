@@ -1,5 +1,175 @@
 use super::*;
 
+/// Stages completed light and mesh work, with one more dispatchable job in each lane.
+fn stream_with_ready_worker_service() -> WorldStream {
+    let mut stream = light_scheduler::lit_stream(1);
+    let light = SubChunkKey::new(1, -4, 0, 0);
+    stream.record_known_air(light);
+    stream.mark_light_changed_sources([light]);
+    let job = stream.take_pending_light_job(light);
+    let identity = job.identity;
+    stream
+        .lighting
+        .in_flight_batches
+        .insert(identity.batch_id, 1);
+    stream
+        .lighting
+        .tx
+        .send(LightCompletion {
+            key: light,
+            identity,
+            result: solve_prepared_light_job(job),
+            queue_wait: Duration::ZERO,
+            duration: Duration::ZERO,
+        })
+        .unwrap();
+    let pending_light = SubChunkKey::new(1, -8, 0, 0);
+    stream.record_known_air(pending_light);
+    stream.mark_light_changed_sources([pending_light]);
+
+    for x in [4, 8] {
+        let key = SubChunkKey::new(1, x, 0, 0);
+        stream
+            .authority
+            .commit_sub_chunk(key, SubChunk::decode(&[8, 1, 1, 2], &RAW_IDS))
+            .unwrap();
+        light_scheduler::install_current_light(&mut stream, key, 0, 0, false);
+        let revision = stream.mark_dirty_exact(key, Instant::now());
+        if x == 4 {
+            stream.mesh_jobs.remove_pending(&key);
+            stream.mesh_jobs.in_flight.insert(key, revision);
+            stream
+                .mesh_tx
+                .send(MeshCompletion {
+                    output_permit: None,
+                    _job_permit: Some(super::super::meshing::admission::MeshJobPermit::new(
+                        &stream.admitted_mesh_jobs,
+                    )),
+                    key,
+                    revision,
+                    source: stream.authority.terrain().sub_chunk(key).unwrap(),
+                    biome_sources: stream.biome_neighbourhood(key),
+                    biome: PackedBiomeRecord::fallback(),
+                    tint_identity: stream.biome_tint_identity(),
+                    mesh: ChunkMesh::default(),
+                    dependency_mask: MeshDependencyMask::default(),
+                    light_halo: stream.mesh_light_halo(key).unwrap(),
+                    queue_wait: Duration::ZERO,
+                    dispatch_wait: Duration::ZERO,
+                    duration: Duration::ZERO,
+                    urgent: false,
+                })
+                .unwrap();
+        }
+    }
+    stream
+}
+
+/// Admits an air column and queues its completed decode without scheduling a worker.
+fn queue_decoded_air_column(stream: &mut WorldStream, sequence: u64) {
+    let event = LevelChunkEvent {
+        dimension: stream.current_dimension(),
+        x: sequence as i32,
+        z: 0,
+        mode: LevelChunkMode::Inline { count: 0 },
+        payload: biome_payload(stream.current_dimension(), 0),
+    };
+    stream
+        .submit(sequence, WorldEvent::LevelChunk(event))
+        .unwrap();
+    let queued = stream.pending_decode.pop_front().unwrap();
+    stream.in_flight_decode_jobs += 1;
+    stream
+        .decode_tx
+        .send(queued.job.run(queued.queued_at))
+        .unwrap();
+}
+
+/// Reclaim during each intake commit cannot strand completed results and replacement work.
+#[test]
+fn repeated_ingress_reclaims_keep_ready_workers_serviced() {
+    thread_local! {
+        static RECLAIM: std::cell::RefCell<Option<Arc<AtomicBool>>> = const {
+            std::cell::RefCell::new(None)
+        };
+    }
+    let mut stream = stream_with_ready_worker_service();
+    let reclaim = Arc::new(AtomicBool::new(false));
+    RECLAIM.set(Some(Arc::clone(&reclaim)));
+    stream.observe_commits(|_| {
+        RECLAIM.with_borrow(|flag| flag.as_ref().unwrap().store(true, Ordering::Release));
+    });
+    let mut work = WorldStreamPoll::default();
+    for sequence in 1..=4 {
+        stream.service_yield = None;
+        queue_decoded_air_column(&mut stream, sequence);
+        reclaim.store(false, Ordering::Release);
+        stream.service_yield = Some(Arc::clone(&reclaim));
+        // An injected spent allocation still owes each ready lane bounded progress.
+        stream.frame_deadline = Some(Instant::now() - Duration::from_secs(1));
+        work.accumulate(stream.poll([0.0; 3], 1));
+        assert_eq!(stream.committed_sequence(), sequence);
+        assert_eq!(stream.loaded_column_count(), sequence as usize);
+        assert_eq!(stream.stats.decode_errors, 0);
+        assert!(reclaim.load(Ordering::Acquire));
+        assert!(stream.mesh_changes.len() <= MAX_PENDING_MESH_CHANGES);
+        assert!(
+            stream.admitted_mesh_jobs.load(Ordering::Acquire)
+                <= super::super::meshing::admission::mesh_worker_cap()
+        );
+    }
+    RECLAIM.set(None);
+    assert!(
+        work.light_results > 0,
+        "ready light must retire its batch slot"
+    );
+    assert!(
+        work.mesh_results > 0,
+        "ready mesh must release its job permit"
+    );
+    assert!(
+        work.light_jobs_dispatched > 0,
+        "light workers must be refilled"
+    );
+    assert!(
+        work.mesh_jobs_dispatched > 0,
+        "mesh workers must be refilled"
+    );
+    assert!(stream.stats.accepted_light_jobs > 0);
+}
+
+/// Ready downstream work cannot consume intake's bounded progress after the deadline.
+#[test]
+fn expired_worker_service_keeps_intake_progress_bounded() {
+    let mut stream = stream_with_ready_worker_service();
+    for sequence in 1..=4 {
+        queue_decoded_air_column(&mut stream, sequence);
+    }
+    stream.frame_deadline = Some(Instant::now() - Duration::from_secs(1));
+    let report = stream.poll([0.0; 3], 1);
+    assert_eq!(report.light_results, 1);
+    assert_eq!(report.mesh_results, 1);
+    assert_eq!(report.decoded_results, 1);
+    assert_eq!(report.commit_steps, 1);
+    assert_eq!(stream.committed_sequence(), 1);
+    assert_eq!(stream.loaded_column_count(), 1);
+    assert_eq!(stream.decode_rx.len(), 3);
+    assert!(stream.mesh_changes.len() <= MAX_PENDING_MESH_CHANGES);
+}
+
+/// An already raised reclaim stops downstream acceptance and admission as well as intake.
+#[test]
+fn raised_reclaim_leaves_ready_worker_results_queued() {
+    let mut stream = stream_with_ready_worker_service();
+    stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
+    let report = stream.poll([0.0; 3], 1);
+    assert_eq!(report, WorldStreamPoll::default());
+    assert_eq!(stream.lighting.rx.len(), 1);
+    assert_eq!(stream.lighting.in_flight_batches.len(), 1);
+    assert_eq!(stream.mesh_rx.len(), 1);
+    assert_eq!(stream.admitted_mesh_jobs.load(Ordering::Acquire), 1);
+}
+
 /// Queues `count` inline air columns with their decodes already completed.
 fn stream_with_decoded_columns(count: u64) -> WorldStream {
     let mut stream = block_entity_visual_stream();

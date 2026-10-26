@@ -102,46 +102,16 @@ impl WorldStream {
                 floor_to_i32(camera_position[2]).div_euclid(16),
             ));
         }
-        while !self.service_yield_requested()
-            && (report.decoded_results == 0 || !self.poll_budget_exhausted())
-        {
-            let Ok(completion) = self.decode_rx.try_recv() else {
-                break;
-            };
-            report.decoded_results += 1;
-            self.service_item("decode_result", |stream| {
-                stream.accept_decode_completion(completion)
-            });
-        }
-        self.apply_ready();
-        if self.retention_due || self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.promote_deferred_ingress();
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.expire_sub_chunk_deadlines(Instant::now());
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.request_due_sub_chunk_recoveries(Instant::now());
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.pump_deferred_retries();
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.dispatch_decode_jobs();
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.dispatch_far_summaries();
-
         let now = Instant::now();
-        let remaining = frame_deadline.saturating_duration_since(now);
-        self.poll_deadline = Some(now + remaining - remaining / commit_budget::WORLD_MESH_SHARE);
+        // Completed jobs keep their admission slots until accepted. Service and refill
+        // those queues before intake can spend the slice or be interrupted by reclaim.
+        let intake_remaining = self
+            .poll_deadline
+            .unwrap_or(now)
+            .saturating_duration_since(now);
+        let worker_deadline = frame_deadline - intake_remaining;
+        let remaining = worker_deadline.saturating_duration_since(now);
+        self.poll_deadline = Some(worker_deadline - remaining / commit_budget::WORLD_MESH_SHARE);
         while !self.service_yield_requested()
             && (report.light_results == 0 || !self.poll_budget_exhausted())
         {
@@ -162,7 +132,7 @@ impl WorldStream {
         if self.service_yield_requested() {
             return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
         }
-        self.poll_deadline = Some(frame_deadline);
+        self.poll_deadline = Some(worker_deadline);
         self.retry_staged_mesh_completions(usize::MAX);
         while !self.service_yield_requested()
             && self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
@@ -219,6 +189,46 @@ impl WorldStream {
         };
         report.mesh_jobs_dispatched =
             self.dispatch_mesh_jobs_with_limits(camera_position, dispatch_budget, removal_budget);
+
+        // Intake keeps the remaining allocation and its guaranteed progress item.
+        self.poll_deadline = Some(frame_deadline);
+        while !self.service_yield_requested()
+            && (report.decoded_results == 0 || !self.poll_budget_exhausted())
+        {
+            let Ok(completion) = self.decode_rx.try_recv() else {
+                break;
+            };
+            report.decoded_results += 1;
+            self.service_item("decode_result", |stream| {
+                stream.accept_decode_completion(completion)
+            });
+        }
+        self.apply_ready();
+        if self.retention_due || self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
+        self.promote_deferred_ingress();
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
+        self.expire_sub_chunk_deadlines(Instant::now());
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
+        self.request_due_sub_chunk_recoveries(Instant::now());
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
+        self.pump_deferred_retries();
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
+        self.dispatch_decode_jobs();
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
+        self.dispatch_far_summaries();
+
         self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items)
     }
 
