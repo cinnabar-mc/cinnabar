@@ -858,6 +858,36 @@ fn a_block_that_stops_hiding_faces_remeshes_the_sections_beside_it_too() {
     );
 }
 
+#[test]
+fn a_block_a_material_starts_moving_remeshes_the_sections_beside_it_too() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    let sections: Vec<SubChunkKey> = center.mesh_neighbourhood_dependents().collect();
+    for key in &sections {
+        stream.resident.insert(*key);
+        stream.mark_dirty_exact(*key, now);
+    }
+    let shaded = ::meshing::WorldMaterialBlock::new(1, 1, false);
+    assert_eq!(
+        stream.set_world_materials(Arc::from([shaded]), now),
+        Some(vec![center]),
+        "a material that only shades changes only its own sections"
+    );
+    for key in &sections {
+        stream.settle_world_material(*key, None);
+    }
+    let mut remeshed = stream
+        .set_world_materials(Arc::from([shaded.displacing(true)]), now)
+        .unwrap();
+    remeshed.sort();
+    let mut expected = sections.clone();
+    expected.sort();
+    assert_eq!(
+        remeshed, expected,
+        "a displaced block may uncover the faces its neighbours turn toward it"
+    );
+}
+
 /// Acknowledges `key`'s current dirty revision as uploaded, as the renderer does once its mesh
 /// is drawn.
 fn publish(stream: &mut WorldStream, key: SubChunkKey) {

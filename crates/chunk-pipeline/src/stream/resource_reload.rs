@@ -302,14 +302,14 @@ impl WorldStream {
 pub(in crate::stream) const WORLD_MATERIAL_HOLD_ROUNDS: u64 = 600;
 
 /// Sorted network values whose entry differs between `old` and `new`, both sorted by value,
-/// and, of those, the ones whose change moves which faces they hide (see-through or not), so
-/// the sections beside a section holding them remesh too.
+/// and, of those, the ones whose change moves which faces they hide (see-through or displaced,
+/// or not), so the sections beside a section holding them remesh too.
 fn changed_tag_values(
     old: &[::meshing::WorldMaterialBlock],
     new: &[::meshing::WorldMaterialBlock],
 ) -> (Vec<u32>, Vec<u32>) {
     let hides = |block: Option<&::meshing::WorldMaterialBlock>| {
-        !block.is_some_and(|block| block.see_through)
+        !block.is_some_and(|block| block.see_through || block.displaces)
     };
     let (mut changed, mut occluding) = (Vec::new(), Vec::new());
     let (mut old, mut new) = (old.iter().peekable(), new.iter().peekable());
