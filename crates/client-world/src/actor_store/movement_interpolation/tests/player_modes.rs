@@ -44,6 +44,7 @@ fn rotation_mode_changes_pitch_without_starting_an_idle_player_lerp() {
     assert_eq!(actor.yaw, before.yaw);
     assert_eq!(actor.head_yaw, before.head_yaw);
     assert_eq!(actor.previous_pose, before);
+    assert_eq!(actor.last_received_pose(), before);
     assert_eq!(actor.on_ground, Some(true));
     assert_eq!(actor.interpolation_ticks_remaining, 0);
     store.advance_interpolation_ticks(4);

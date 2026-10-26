@@ -36,14 +36,14 @@ impl ActorSnapshot {
         movement: &protocol::ActorMoveEvent,
         sequence: u64,
     ) {
+        let state = &mut self.status.movement_interpolation;
+        state.last_received.get_or_insert(self.received_pose);
         if let Some(pitch) = movement.pitch.filter(|value| value.is_finite()) {
             self.pitch = signed_pitch(pitch);
         }
         if let Some(head_yaw) = movement.head_yaw.filter(|value| value.is_finite()) {
             self.received_pose.head_yaw = head_yaw;
         }
-        let state = &mut self.status.movement_interpolation;
-        state.last_received.get_or_insert(self.received_pose);
         state.head_ticks = self.interpolation_ticks_remaining.max(state.rotation_ticks);
         self.on_ground = movement.on_ground.or(self.on_ground);
         self.movement_revision = sequence;
