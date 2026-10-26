@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 /// The tags last resolved, keyed by session, block-name revision and set revision.
 type Resolved = ((u64, u64, u64), Arc<[(u32, u8)]>);
+/// The stream session and its world material progress when a change was last held.
+type Held = Option<(u64, u64)>;
 
 /// Resolves every bound block identifier to its network values and tags them with one more
 /// than their material slot. The stream remeshes only the sections holding a block whose tag
@@ -17,7 +19,7 @@ type Resolved = ((u64, u64, u64), Arc<[(u32, u8)]>);
 pub(super) fn tag_world_material_blocks(
     scene: Option<Res<WorldMaterialScene>>,
     mut client_world: ResMut<ClientWorld>,
-    (mut resolved, mut held): (Local<Option<Resolved>>, Local<Option<u64>>),
+    (mut resolved, mut held): (Local<Option<Resolved>>, Local<Held>),
     queue: Option<ResMut<ChunkRenderQueue>>,
 ) {
     let Some(stream) = client_world.stream.as_ref() else {
@@ -43,8 +45,9 @@ pub(super) fn tag_world_material_blocks(
     if Arc::ptr_eq(stream.world_material_tags(), &tags) {
         return;
     }
-    // A held change retries only once the stream reports progress on the outstanding one.
-    if *held == Some(stream.world_material_progress()) {
+    // A held change retries only once this stream reports progress on the outstanding one.
+    let session = authority.actor_session_id();
+    if still_held(*held, session, stream.world_material_progress()) {
         return;
     }
     let Some(stream) = client_world.stream.as_mut() else {
@@ -52,13 +55,20 @@ pub(super) fn tag_world_material_blocks(
     };
     // While the previous change still remeshes, this one waits for a later frame.
     let Some(withdrawn) = stream.set_world_materials(tags, web_time::Instant::now()) else {
-        *held = Some(stream.world_material_progress());
+        *held = Some((session, stream.world_material_progress()));
         return;
     };
     *held = None;
     if let Some(mut queue) = queue {
         queue.withdraw_uploads(withdrawn);
     }
+}
+
+/// Whether a change `held` (the stream session and its progress when it was held) is still
+/// waiting: only while the same stream has made no progress, so a replacement stream's first
+/// change is never skipped.
+fn still_held(held: Held, session: u64, progress: u64) -> bool {
+    held == Some((session, progress))
 }
 
 /// Sorted unique network values of the bound blocks, each with one more than its slot; a
@@ -86,6 +96,17 @@ fn tags<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_held_change_waits_only_for_progress_on_its_own_stream() {
+        assert!(!still_held(None, 1, 0));
+        assert!(still_held(Some((1, 0)), 1, 0));
+        assert!(!still_held(Some((1, 0)), 1, 1), "the stream made progress");
+        assert!(
+            !still_held(Some((1, 3)), 2, 3),
+            "a replacement stream at the same progress is not held"
+        );
+    }
 
     #[test]
     fn bound_blocks_tag_every_network_value_once() {
