@@ -478,8 +478,12 @@ impl Instance {
             CallbackOutcome::Deferred => Ok(CallbackOutcome::Deferred),
         };
         let deferred = matches!(&result, Ok(CallbackOutcome::Deferred));
+        let retry_values = result.is_err() && self.status == InstanceStatus::Recovering;
         let state = self.store.data_mut();
-        state.controls.finish_text_frame(deferred);
+        if retry_values {
+            state.controls.retain_value_edits();
+        }
+        state.controls.finish_text_frame(deferred || retry_values);
         state.touch.finish_frame(deferred);
         result.map(|_| ())
     }

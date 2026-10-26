@@ -184,11 +184,16 @@ fn fuel_recovery_keeps_touch_taps_and_trusted_drawing_observations() {
     let old_mask = render.masks.create(MaskDepth::Test).unwrap();
     commit(&mut instance.store);
     let owner = instance.touch_owner();
+    instance.store.data_mut().controls.frame.keys_pressed = vec!["KeyQ".into()];
+    instance.store.data_mut().controls.frame.keys_held = vec!["KeyQ".into()];
+    assert!(instance.queue_touch_press("menu"));
     instance.frame(CallbackOutcome::Executed).unwrap_err();
     assert!(instance.queue_touch_press("menu"));
     instance.recover_frame_fuel().unwrap();
     assert_eq!(instance.touch_owner(), owner);
     let state = instance.store.data_mut();
+    assert!(state.controls.frame.keys_pressed.is_empty());
+    assert!(state.controls.frame.keys_held.is_empty());
     state.touch.begin_frame();
     assert_eq!(state.read_presses().unwrap().unwrap(), ["menu"]);
     let observed = state.render.retained.observe_entities().unwrap();

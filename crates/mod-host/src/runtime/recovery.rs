@@ -33,7 +33,6 @@ impl Instance {
         self.begin_frame();
         self.store.data_mut().rollback_callback();
         self.store.data_mut().render.restart_guest();
-        let panel = self.store.data().controls.panel.clone();
         let open = self.panel_open();
         // This placeholder is never entered or published; both result paths restore real state.
         let placeholder = Store::new(
@@ -54,8 +53,7 @@ impl Instance {
                 return Err(error.context("mod quarantined after frame fuel recovery failed"));
             }
         }
-        // Init can author defaults before it has a frame to read queued native edits.
-        self.store.data_mut().controls.panel = panel;
+        controls::restore_value_edits(self.store.data_mut());
         self.set_panel_open(open);
         Ok(true)
     }
