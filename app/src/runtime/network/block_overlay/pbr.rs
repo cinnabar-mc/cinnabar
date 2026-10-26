@@ -50,6 +50,7 @@ impl Builder<'_> {
         let mut references = BTreeMap::new();
         let budget = self.surface_budget();
         let mut remaining = budget;
+        let flags = self.texture_flags();
         for (texture, (path, tint)) in candidates {
             let Some(set) = pack_runtime::pack_textures::PackTextureSet::find(view, &path) else {
                 continue;
@@ -63,7 +64,7 @@ impl Builder<'_> {
                 Ok(texture) => PbrPages::page_for(texture.native_frame_size()),
                 Err(_) => 0,
             };
-            let (cutout, overlay_mask) = self.texture_flags(texture);
+            let (cutout, overlay_mask) = flags.get(&texture).copied().unwrap_or_default();
             let layer = decoded.and_then(|decoded| {
                 let frame = decoded.frame_with_inherited_tint(0, 1, tint)?;
                 build_pbr_mips(&frame, pages.tile_size(page), cutout, overlay_mask)
@@ -104,17 +105,15 @@ impl Builder<'_> {
         budget
     }
 
-    /// Whether any overlay material drawing `texture` cuts out or masks a tint overlay.
-    fn texture_flags(&self, texture: u32) -> (bool, bool) {
-        self.overlay
-            .materials
-            .iter()
-            .filter(|material| material.texture.raw() == texture)
-            .fold((false, false), |(cutout, mask), material| {
-                (
-                    cutout || material.flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT != 0,
-                    mask || material.flags & assets::MATERIAL_FLAG_OVERLAY_MASK != 0,
-                )
-            })
+    /// Whether any overlay material drawing each raw texture reference cuts out or masks a
+    /// tint overlay.
+    fn texture_flags(&self) -> std::collections::HashMap<u32, (bool, bool)> {
+        let mut flags = std::collections::HashMap::<u32, (bool, bool)>::new();
+        for material in &self.overlay.materials {
+            let (cutout, mask) = flags.entry(material.texture.raw()).or_default();
+            *cutout |= material.flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT != 0;
+            *mask |= material.flags & assets::MATERIAL_FLAG_OVERLAY_MASK != 0;
+        }
+        flags
     }
 }
