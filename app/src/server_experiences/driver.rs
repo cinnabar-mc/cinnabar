@@ -560,9 +560,6 @@ fn present_world_materials(
             .world
             .note_compile_failures(|key| failures.failed(key));
     }
-    if service.live.is_none() && !withdrawals.permissions.is_empty() {
-        withdrawals.permissions.clear();
-    }
     let run = service.world.run();
     // A slot the stream's applied tags still name stays carried: meshes built from them may
     // carry it however few resident meshes do now.
@@ -576,7 +573,7 @@ fn present_world_materials(
     let carried = (carried.0, carried.1 | table);
     if !service
         .world
-        .follow(service.live.as_mut(), carried, &withdrawals.permissions)
+        .follow(service.live.as_mut(), carried, &mut withdrawals.permissions)
     {
         return;
     }
