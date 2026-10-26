@@ -67,7 +67,7 @@ fn a_stopped_client_part_revokes_its_world_materials_in_one_publication() {
     assert!(present(&live, &mut presenter));
     let bound = std::sync::Arc::clone(presenter.set());
     assert!(bound.entity("example:moth").is_some() && bound.block("example:lamp").is_some());
-    let revision = live.contribution_revision();
+    let revision = live.world_contribution();
     // Repeated failures stop the part; its contributions go with it.
     live.instances
         .get_mut("bundle0")
@@ -83,7 +83,7 @@ fn a_stopped_client_part_revokes_its_world_materials_in_one_publication() {
         live.poll(1, now, true, |_| true).unwrap();
     }
     assert!(live.instances["bundle0"].stopped.is_some());
-    assert_ne!(live.contribution_revision(), revision);
+    assert_ne!(live.world_contribution(), revision);
     assert!(present(&live, &mut presenter));
     let revoked = presenter.set();
     // One publication removes the material and both bindings together.
@@ -120,4 +120,62 @@ fn a_transaction_binding_outside_the_namespace_is_refused_whole() {
             .is_err()
     );
     assert_eq!(contributions.world, Default::default());
+}
+
+/// Completes one message callback on `bundle0` whose transaction carries `commands`.
+fn callback(live: &mut Live<FakeWorker>, sequence: u64, commands: Vec<Command>) {
+    receive(live, "bundle0", sequence);
+    let now = sequence * CALLBACK_INTERVAL_MS;
+    live.poll(1, now, true, |_| true).unwrap();
+    let epoch = live.epoch;
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    let owner = instance.owner.clone();
+    instance.helper.as_mut().unwrap().response = Some(Transaction {
+        owner,
+        epoch,
+        commands,
+    });
+    live.poll(1, now, true, |_| true).unwrap();
+}
+
+/// A world material declaration of `bundle0`'s material 1 with its own program per `round`.
+fn redeclare(round: u32) -> Command {
+    Command::WorldMaterial {
+        id: 1,
+        material: Some(WorldMaterialSpec {
+            source: format!(
+                "fn shade(input: WorldMaterialInput) -> Surface {{ return Surface(vec3<f32>({round}.0), 1.0, vec3<f32>(0.0)); }}"
+            ),
+            textures: Vec::new(),
+            params: Vec::new(),
+            depth: WorldDepth::Test,
+            blend: WorldBlend::Opaque,
+        }),
+    }
+}
+
+#[test]
+fn only_world_commands_and_stops_change_the_world_contribution() {
+    let mut live = bound();
+    let built = live.world_contribution();
+    callback(&mut live, 1, Vec::new());
+    assert_eq!(
+        live.world_contribution(),
+        built,
+        "a callback without world commands leaves the presenter idle"
+    );
+    callback(&mut live, 2, vec![redeclare(1)]);
+    let redeclared = live.world_contribution();
+    assert_ne!(redeclared, built);
+    live.instances.get_mut("bundle0").unwrap().stop(
+        &mut live.budget,
+        &mut live.scene_revision,
+        "for the test",
+    );
+    assert_ne!(live.world_contribution(), redeclared);
+    assert_ne!(
+        bound().world_contribution().0,
+        built.0,
+        "each runtime has its own identity"
+    );
 }
