@@ -233,3 +233,31 @@ fn the_last_matching_binding_decides_both_method_and_masks() {
         assert_ne!(material.glow_mask, assets::NO_MASK);
     }
 }
+
+#[test]
+fn many_bindings_for_other_blocks_leave_a_blocks_own_binding_intact() {
+    const OTHERS: usize = 20_000;
+    let mut bindings: Vec<_> = (0..OTHERS)
+        .map(|index| json!({"block": format!("test:other_{index}"), "material": "example:glass"}))
+        .collect();
+    bindings.push(json!({
+        "block": "test:generator",
+        "states": {"minecraft:cardinal_direction": "west"},
+        "material": "example:glass"
+    }));
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"example:glass": {"material": {"states": ["Blending", "DisableCulling"]}}},
+        "bindings": bindings
+    });
+    assert_eq!(
+        generator_coverage(document.clone()),
+        [0, assets::MATERIAL_FLAG_ALPHA_BLEND]
+    );
+    assert_eq!(
+        compiled_generator(document)
+            .gaps
+            .unmatched_material_bindings,
+        OTHERS as u32
+    );
+}
