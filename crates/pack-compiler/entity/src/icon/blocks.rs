@@ -389,6 +389,13 @@ impl IconBlocks {
         let record = self.records.get(visual.0 as usize)?;
         let icon_face = if assets::facts::block_render_fact(&record.name).kind
             == assets::facts::BlockRenderKind::TripwireHook
+            || record.traits.contains(BlockTraits::DRIPSTONE_OFFSET)
+            || [
+                assets::facts::BlockProperty::TwistingVinesAge,
+                assets::facts::BlockProperty::WeepingVinesAge,
+            ]
+            .iter()
+            .any(|property| record.property(*property).is_some())
         {
             BlockFace::North
         } else {

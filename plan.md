@@ -598,6 +598,8 @@ and rendered qualification remain incomplete.
   Legacy filled-bucket aux values select their matching named bucket artwork rather than
   treating the aux value as an atlas-array index.
   Redstone-torch icons select lit artwork independently of their placement power state.
+  Twisting and weeping vine icons select their stem face independently of the growing tip;
+  pointed dripstone and sulfur spike icons select their hanging tip face.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
   Terrain-backed GUI meshes retain independently averaged texture levels and choose a
