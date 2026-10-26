@@ -430,6 +430,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                     [x as i32, y as i32, z as i32],
                                     part_template,
                                     entry.variant & 3,
+                                    visible_quad_mask,
                                     emission > 0,
                                 )
                             };

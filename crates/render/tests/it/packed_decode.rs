@@ -26,6 +26,7 @@ fn packed_decoder_witnesses_validate() {
     for (shader, witness) in [
         (CUBE_SHADER, CUBE_WITNESS),
         (MODEL_SHADER, MODEL_WITNESS),
+        (MODEL_SHADER, MODEL_SHADE_WITNESS),
         (LIQUID_SHADER, LIQUID_WITNESS),
     ] {
         let module = naga::front::wgsl::parse_str(&source(shader, witness)).unwrap();
@@ -212,6 +213,101 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
                 "{name}: rejected quad must lie outside a common clip plane: {clips:?}"
             );
         }
+    }
+}
+
+/// Detail quads native tessellation draws straight after a cuboid without a new vertex colour,
+/// such as bamboo leaves, keep the face coefficient their light samples carry instead of an
+/// unshaded faceless quad's.
+#[test]
+fn detail_quads_take_the_shade_face_their_light_carries() {
+    // Native coefficients of ordinary, non-emitting east (or west) and down faces.
+    const EAST_FACE_SHADE: f32 = 0.6;
+    const DOWN_FACE_SHADE: f32 = 0.5;
+    let Some(gpu) = Gpu::for_fixture("detail quad shade") else {
+        return;
+    };
+    let storage = wgpu::BufferUsages::STORAGE;
+    let uniform = wgpu::BufferUsages::UNIFORM;
+    let east = assets::BlockFace::East as u32;
+    let shade_faces = [
+        assets::BlockFace::East.model_quad_face_id(),
+        assets::BlockFace::Down.model_quad_face_id(),
+        0,
+    ];
+    let first_detail = assets::BlockFace::ALL.len() as u32;
+    let quad_count = first_detail + shade_faces.len() as u32;
+    let mut template = vec![1, 0, quad_count, 0];
+    for quad in 0..quad_count {
+        let flags = assets::BlockFace::ALL
+            .get(quad as usize)
+            .map_or(assets::MODEL_QUAD_FLAG_TWO_SIDED, |face| {
+                face.model_quad_face_id()
+            });
+        template.extend([0; 10]);
+        template.extend([0, flags]);
+    }
+    let draws = [east, first_detail, first_detail + 1, first_detail + 2];
+    let mut geometry: Vec<u32> = draws
+        .iter()
+        .flat_map(|&quad| meshing::PackedModelDrawRef::new(2, quad).words())
+        .collect();
+    geometry.resize(8, 0);
+    let lighting_base = 6;
+    let visible = draws.iter().fold(0, |mask, quad| mask | (1 << quad));
+    geometry.extend(PackedModelRef::new(3 | (4 << 4), 0, lighting_base, visible).words());
+    // Sky light 15 without ambient occlusion on every corner; detail quads add a shade face.
+    for quad in 0..quad_count {
+        let shade_face = quad
+            .checked_sub(first_detail)
+            .map_or(0, |detail| shade_faces[detail as usize]);
+        let sample = 0x00f0 | (shade_face << meshing::LIGHT_SAMPLE_SHADE_FACE_SHIFT);
+        geometry.extend([sample | (sample << 16); 2]);
+    }
+    let origins = gpu.words(&[0; 8], storage);
+    let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage);
+    let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
+    let empty = gpu.words(&[0; 8], storage);
+    let clock = gpu.words(&[0; 4], uniform);
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(
+        &render_model::LightmapInputs::default().build(),
+    ));
+    let template = gpu.words(&template, storage);
+    let geometry = gpu.words(&geometry, storage);
+    let bindings = [
+        (0, view.as_entire_binding()),
+        (2, origins.as_entire_binding()),
+        (3, materials.as_entire_binding()),
+        (9, empty.as_entire_binding()),
+        (10, empty.as_entire_binding()),
+        (11, clock.as_entire_binding()),
+        (12, template.as_entire_binding()),
+        (13, geometry.as_entire_binding()),
+        (LIGHTMAP_BINDING, lightmap.as_entire_binding()),
+    ]
+    .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+    let values = gpu.compute_readback(
+        &source(MODEL_SHADER, MODEL_SHADE_WITNESS),
+        &bindings,
+        OUTPUT_BINDING,
+        draws.len(),
+        draws.len() as u32,
+    );
+    for ((name, expected), value) in [
+        ("cuboid east face", EAST_FACE_SHADE),
+        ("detail after an east face", EAST_FACE_SHADE),
+        ("detail after a down face", DOWN_FACE_SHADE),
+        ("ordinary faceless quad", 1.0),
+    ]
+    .into_iter()
+    .zip(values)
+    {
+        assert_eq!(value[1], 1, "{name} must be visible");
+        let shade = f32::from_bits(value[0]);
+        assert!(
+            (shade - expected).abs() < 1.0e-6,
+            "{name}: {shade} != {expected}"
+        );
     }
 }
 
@@ -434,6 +530,13 @@ const MODEL_WITNESS: &str = r#"
         if (quad.valid) { results[3u + corner] = vec4(vertex.visibility, vertex.biome_record, 0u); }
         else { results[3u + corner] = bitcast<vec4<u32>>(vertex.clip_position); }
     }
+}
+"#;
+
+const MODEL_SHADE_WITNESS: &str = r#"
+@compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
+    let vertex = model_vertex(0u, id.x);
+    results[id.x] = vec4(bitcast<u32>(vertex.native_ao_face), vertex.visibility.x & MODEL_VISIBLE, 0u, 0u);
 }
 "#;
 

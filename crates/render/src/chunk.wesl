@@ -345,7 +345,8 @@ fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
 }
 
 /// Packed light sample of `corner`: block light in bits 0-3, sky light in bits 4-7, the
-/// ambient-occlusion level in bits 8-10 and the emitting-face flag in bit 11.
+/// ambient-occlusion level in bits 8-10 and the emitting-face flag in bit 11. Model samples
+/// may add a shade face in bits 12-14 (see `model_shade_normal`).
 fn cube_light_sample(lighting_record_index: u32, corner: u32) -> u32 {
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     return select(lighting_word & 0xffffu, lighting_word >> 16u, (corner & 1u) != 0u);

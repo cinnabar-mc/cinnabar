@@ -1,5 +1,8 @@
-//! Passive session-bound evidence, never an effective permission resolver.
-use protocol::AbilitiesUpdate;
+//! Session-bound ability layers: the latest accepted update with any later game-mode
+//! assignments applied, never an effective permission resolver.
+use protocol::{AbilitiesUpdate, AbilityLayersEvidence, PlayerGameMode};
+
+use crate::game_mode_capabilities::assign_mode_layers;
 
 use super::LocalPlayerFacts;
 
@@ -81,7 +84,19 @@ impl LocalPlayerFacts {
         self.local_abilities.update = Some(update);
     }
 
-    /// None means unknown. Received-empty and unavailable remain distinct evidence.
+    /// Rewrites the retained layers for a committed game mode; a later accepted update
+    /// replaces the result. Unknown and unavailable evidence stay as they are.
+    pub(super) fn assign_mode_to_local_abilities(&mut self, mode: PlayerGameMode) {
+        if let Some(update) = &mut self.local_abilities.update
+            && let AbilityLayersEvidence::Received(layers) = &update.layers
+        {
+            update.layers =
+                AbilityLayersEvidence::Received(assign_mode_layers(layers, mode).into());
+        }
+    }
+
+    /// None means unknown. Received-empty and unavailable remain distinct evidence, and
+    /// received layers include game-mode assignments made since the update arrived.
     pub fn local_abilities(&self) -> Option<&AbilitiesUpdate> {
         self.local_abilities.update.as_ref()
     }

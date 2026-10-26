@@ -29,6 +29,8 @@ pub const DEFAULT_ACTOR_PICK_RADIUS: f32 = 0.1;
 pub const NPC_COMPONENT_IDENTIFIER: &str = "minecraft:npc";
 /// Behavior component key for tripod-camera interactions, independent of the actor's identity.
 pub const TRIPOD_CAMERA_COMPONENT_IDENTIFIER: &str = "minecraft:tripod_camera";
+/// The actor type whose native renderer draws its synced carried block.
+pub const ENDERMAN_IDENTIFIER: &str = "minecraft:enderman";
 
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]

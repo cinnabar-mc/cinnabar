@@ -292,7 +292,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
     );
     assert_eq!(
         app.world_mut()
-            .query::<(&Aabb, &Visibility)>()
+            .query::<(&ChunkRenderInstance, &Visibility, &NoCpuCulling)>()
             .iter(app.world())
             .count(),
         1,
@@ -740,14 +740,27 @@ fn material_uv_flags_rotate_and_reflect_greedy_coordinates() {
 
 #[test]
 fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
-    use bevy::camera::primitives::{Aabb, Frustum};
+    use bevy::camera::{
+        Camera,
+        primitives::Frustum,
+        visibility::{VisibilityPlugin, VisibleEntities},
+    };
     let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .add_plugins(ChunkRenderPlugin::new(1));
+    app.add_plugins((
+        MinimalPlugins,
+        bevy::asset::AssetPlugin::default(),
+        bevy::mesh::MeshPlugin,
+        VisibilityPlugin,
+    ))
+    .add_plugins(ChunkRenderPlugin::new(1));
     let key = SubChunkKey::new(0, 0, 0, 0);
     let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
         &glam::camera::rh::proj::directx::orthographic(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0),
     ));
+    let camera = app
+        .world_mut()
+        .spawn((Camera::default(), frustum, VisibleEntities::default()))
+        .id();
     for models in [false, true, false, true] {
         let cube = solid_mesh(1);
         let mesh = if models {
@@ -768,14 +781,14 @@ fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
             .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
             .unwrap();
         app.update();
-        let bounds = *app
-            .world_mut()
-            .query::<&Aabb>()
-            .single(app.world())
-            .unwrap();
+        let visible = app
+            .world()
+            .get::<VisibleEntities>(camera)
+            .unwrap()
+            .len(std::any::TypeId::of::<ChunkRenderInstance>());
         assert_eq!(
-            frustum.intersects_obb_identity(&bounds),
-            models,
+            visible,
+            usize::from(models),
             "displaced model overhang must survive a frustum excluding the whole cell, including cube/model replacement"
         );
     }

@@ -71,27 +71,26 @@ pub(crate) fn advance_actor_motion(
     mut state: ResMut<client_presentation::actor_publication::ActorFrameState>,
     physics: Option<Res<LocalPhysicsController>>,
     time: Res<Time<Real>>,
-    network: Option<
-        Res<client_runtime::network::NetworkHandle<super::resource_packs::PackApplication>>,
-    >,
 ) {
-    if let Some(stream) = world.stream.as_mut() {
-        stream.capture_pick_motion(
-            network
-                .as_ref()
-                .and_then(|network| network.pick_trace())
-                .is_some(),
-        );
-    }
     client_presentation::actor_publication::advance_actor_motion(
         &mut state,
         world.stream.as_mut(),
         time.delta().min(simulation_clock::MAX_FRAME_ELAPSED),
         physics.and_then(|physics| physics.predicted_vehicle_feed()),
     );
+}
+
+/// Records the actor clock only after the corresponding live motion has completed.
+pub(crate) fn complete_actor_motion_trace(
+    world: Res<ClientWorld>,
+    state: Res<client_presentation::actor_publication::ActorFrameState>,
+    network: Option<
+        Res<client_runtime::network::NetworkHandle<super::resource_packs::PackApplication>>,
+    >,
+) {
     if world.stream.is_some()
         && let Some(trace) = network.as_ref().and_then(|network| network.pick_trace())
-        && let Some(step) = state.motion_step()
+        && let Some(step) = state.frame_step()
     {
         trace.advance(step.ticks, step.partial_tick);
     }

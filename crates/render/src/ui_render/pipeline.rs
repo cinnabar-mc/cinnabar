@@ -84,6 +84,16 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 7,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<render_model::UiModelBone>() as u64),
+                },
+                count: None,
+            },
         ],
     )
 }

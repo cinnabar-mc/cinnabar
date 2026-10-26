@@ -196,6 +196,51 @@ fn raster_only_leaf_replacement_preserves_the_base_weighted_selector() {
 }
 
 #[test]
+fn only_base_visuals_whose_face_art_changed_are_retextured() {
+    let mut base = RuntimeAssets::diagnostic();
+    base.materials = vec![
+        Material::unvaried(),
+        Material {
+            variation_start: 2,
+            variation_count: 2,
+            ..Material::unvaried()
+        },
+        Material {
+            variation_weight: 0.25_f32.to_bits(),
+            ..Material::unvaried()
+        },
+        Material {
+            variation_weight: 0.75_f32.to_bits(),
+            ..Material::unvaried()
+        },
+        Material::unvaried(),
+    ]
+    .into();
+    let diagnostic = base.visuals[0];
+    base.visuals = [0, 1, 4]
+        .map(|material| BlockVisual {
+            faces: [material; 6],
+            ..diagnostic
+        })
+        .into();
+    let mut overlay = cube_overlay(page(16));
+    let untouched = base.with_block_overlay(3, &overlay).unwrap();
+    assert!((0..4).all(|visual| !untouched.is_retextured(crate::BlockVisualId(visual))));
+    // Repointing one weighted leaf changes the art of every face that selects it.
+    overlay.material_overrides.push(MaterialOverride {
+        material: 3,
+        texture: TextureRef::new(1, 0).unwrap(),
+        animation: NO_ANIMATION,
+        variation: None,
+    });
+    let runtime = base.with_block_overlay(3, &overlay).unwrap();
+    let retextured = (0..4)
+        .filter(|&visual| runtime.is_retextured(crate::BlockVisualId(visual)))
+        .collect::<Vec<_>>();
+    assert_eq!(retextured, [1]);
+}
+
+#[test]
 fn weighted_override_ranges_are_checked_before_offsetting() {
     let mut base = RuntimeAssets::diagnostic();
     base.materials = vec![Material::unvaried(); 2].into();

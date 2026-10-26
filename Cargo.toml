@@ -87,6 +87,7 @@ members = [
     "tools/architecture",
     "tools/bedrock-replay",
     "tools/devtool",
+    "tools/mod-docs",
     "tools/workspace-declarations",
     "tools/dist",
     "tools/jsonui-editor",
@@ -170,6 +171,7 @@ wit-bindgen = "=0.57.1"
 wasmtime-wasi = { version = "=36.0.16", default-features = false, features = ["preview1"] }
 wasi-preview1-component-adapter-provider = "=36.0.16"
 wit-component = "=0.247.0"
+wit-parser = "=0.247.0"
 
 
 # Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1,

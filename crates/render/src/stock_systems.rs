@@ -64,8 +64,9 @@ enum Scheduled {
 }
 
 /// Mesh-entity bounds and change marking, visibility ranges, GPU-culled entities and the
-/// deferred-camera MSAA check: the client spawns no `Mesh3d`, `Mesh2d`, `VisibilityRange`,
-/// `NoCpuCulling` or `DeferredPrepass` component.
+/// deferred-camera MSAA check: the client spawns no `Mesh3d`, `Mesh2d`, `VisibilityRange` or
+/// `DeferredPrepass` component, and nothing reads the `ViewVisibility` of the chunk entities
+/// that carry `NoCpuCulling`.
 fn remove_unused_main_systems(world: &mut World) {
     remove(
         world,

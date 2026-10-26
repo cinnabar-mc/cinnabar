@@ -17,6 +17,9 @@ use {
     ui::IconRef,
 };
 
+/// Prepared variants support borrowed item-name lookups without allocating a temporary key.
+pub(super) type HeldModels = BTreeMap<Box<str>, BTreeMap<u32, HeldModel>>;
+
 /// One item's held model. A sprite item's extruded mesh is built the first time a preview holds
 /// it, since every item has one and most are never held.
 pub(super) struct HeldModel {
@@ -45,7 +48,8 @@ impl HeldModel {
         }
     }
 
-    const fn ready(model: PreviewHeldModel) -> Self {
+    /// Admits an already prepared held mesh without lazy sprite extrusion.
+    pub(super) const fn ready(model: PreviewHeldModel) -> Self {
         Self {
             model,
             sprite: None,
@@ -86,12 +90,12 @@ pub(super) fn prepare(
     icon_refs: &[IconRef],
     equipment: Option<&RuntimeEquipmentCatalog>,
     blocks: &BTreeMap<u32, IconRef>,
-) -> Result<BTreeMap<ItemVisualKey, HeldModel>, UiPresentationError> {
+) -> Result<HeldModels, UiPresentationError> {
     let Some(hand_pivots) = player_hands(entities) else {
         // A model without native item bones cannot safely manufacture a grip origin.
         return Ok(BTreeMap::new());
     };
-    let mut models = BTreeMap::new();
+    let mut models = HeldModels::new();
     for entry in icons.entries() {
         let sprite = icons
             .lookup_held_index(&entry.identifier, entry.metadata)
@@ -128,11 +132,8 @@ pub(super) fn prepare(
             }
         };
         if let Some((model, sprite)) = model {
-            models.insert(
-                ItemVisualKey {
-                    identifier: entry.identifier.clone(),
-                    metadata: entry.metadata,
-                },
+            models.entry(entry.identifier.clone()).or_default().insert(
+                entry.metadata,
                 HeldModel {
                     sprite,
                     ..HeldModel::ready(model.with_glint(
@@ -159,19 +160,19 @@ pub(super) fn prepare(
             let Some(model) = authored(entities, equipment, binding, hand_pivots, source) else {
                 continue;
             };
-            models.insert(
-                ItemVisualKey {
-                    identifier: binding.identifier.clone(),
-                    metadata: 0,
-                },
-                HeldModel::ready(model.with_glint(Some(entities.item_visuals().iter().any(
-                    |definition| {
-                        definition.key.identifier == binding.identifier
-                            && definition.key.metadata == 0
-                            && definition.glint.enabled().unwrap_or(false)
-                    },
-                )))),
-            );
+            models
+                .entry(binding.identifier.clone())
+                .or_default()
+                .insert(
+                    0,
+                    HeldModel::ready(model.with_glint(Some(entities.item_visuals().iter().any(
+                        |definition| {
+                            definition.key.identifier == binding.identifier
+                                && definition.key.metadata == 0
+                                && definition.glint.enabled().unwrap_or(false)
+                        },
+                    )))),
+                );
         }
     }
     Ok(models)

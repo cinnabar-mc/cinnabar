@@ -177,6 +177,7 @@ fn mods(app: &mut App, enabled: bool) {
 
 fn ui() -> UiRenderInput {
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [64, 48],
         safe_area: [0; 4],

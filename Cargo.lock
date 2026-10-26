@@ -5936,6 +5936,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-docs"
+version = "0.1.28"
+dependencies = [
+ "anyhow",
+ "mod-api",
+ "mod-host",
+ "server-experience",
+ "tempfile",
+ "ui",
+ "wit-parser 0.247.0",
+]
+
+[[package]]
 name = "mod-host"
 version = "0.1.28"
 dependencies = [

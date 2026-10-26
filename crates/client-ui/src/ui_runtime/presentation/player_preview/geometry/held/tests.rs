@@ -62,6 +62,7 @@ fn grip_snapshot(mesh: &ui::UiMesh) -> render_model::UiRenderInput {
         .collect::<Vec<_>>();
     let fixed_pages = pages.len();
     render_model::UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: size,
         safe_area: [0; 4],

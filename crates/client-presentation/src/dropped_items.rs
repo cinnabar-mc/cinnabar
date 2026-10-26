@@ -15,9 +15,9 @@ use client_world::{BlockEntityKind, RopeKind};
 use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 use {
     render_model::{
-        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, ItemMeshVertex,
-        MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
-        pack_overlay_rgba8, rope_color, rope_ribbon,
+        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, DynamicLightRun,
+        ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
+        dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
     },
     render_scene::{ChunkTextureAssets, DroppedItemScene},
 };
@@ -30,6 +30,8 @@ pub(crate) struct DroppedItemFrame<'a> {
     pub(crate) partial_tick: f32,
     pub(crate) fishing_line_anchors:
         &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+    /// Blocks actors carry this frame, drawn with the world's block models.
+    pub(crate) carried_blocks: &'a [crate::actor_publication::carried_blocks::CarriedBlock],
     pub(crate) prepared_blocks: Option<&'a Arc<crate::presentation::equipment::PreparedBlockItems>>,
 }
 
@@ -85,6 +87,8 @@ pub(crate) struct PublishScratch {
     instances: Vec<DroppedItemInstance>,
     terrain_instances: Vec<TerrainItemInstance>,
     lines: Vec<ItemMeshVertex>,
+    /// Light runs over `lines`, one per rope.
+    line_lights: Vec<DynamicLightRun>,
     /// The startup icon each static placement resolved during demand collection.
     placement_icons: Vec<Option<ui::IconRef>>,
     transitions: HashMap<i64, Vec<TerrainItemTransition>>,
@@ -387,6 +391,31 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
+    /// The model an actor draws a carried block with. Cubes use their composed carried faces
+    /// (a grass block's tinted side overlay over dirt) unless a session pack retextured them;
+    /// other shapes, such as crossed plants, and retextured cubes use their world model. A
+    /// retextured cube whose world model cannot be built keeps its startup faces.
+    fn actor_carried_block_model(
+        cache: &mut ModelCache,
+        icons: &UiPresentationRuntime,
+        assets: &RuntimeAssets,
+        mode: NetworkIdMode,
+        id: u32,
+    ) -> Option<u32> {
+        let startup_art = match mode {
+            NetworkIdMode::Sequential => Some(id),
+            NetworkIdMode::Hashed => assets.sequential_id_for_hash(id),
+        }
+        .is_some_and(|visual| !assets.is_retextured(assets::BlockVisualId(visual)));
+        if startup_art {
+            Self::carried_block_model(cache, icons, assets, mode, id)
+                .or_else(|| Self::block_model(cache, assets, mode, id))
+        } else {
+            Self::block_model(cache, assets, mode, id)
+                .or_else(|| Self::carried_block_model(cache, icons, assets, mode, id))
+        }
+    }
+
     /// Shares a session block's admitted geometry and artwork across static and dropped items.
     fn session_block_model(
         cache: &mut ModelCache,
@@ -558,6 +587,7 @@ impl DroppedItemPublisher<'_, '_> {
         let DroppedItemFrame {
             partial_tick,
             fishing_line_anchors,
+            carried_blocks,
             prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
@@ -574,6 +604,7 @@ impl DroppedItemPublisher<'_, '_> {
             instances,
             terrain_instances,
             lines,
+            line_lights,
             placement_icons,
             transitions,
             dropped,
@@ -744,10 +775,35 @@ impl DroppedItemPublisher<'_, '_> {
                         instances.push(instance);
                     }
                 }
+                let air = stream.air_block_id();
+                for carried in carried_blocks {
+                    let id = stream.resolve_block_network_id(carried.block_runtime_id);
+                    if id == air {
+                        continue;
+                    }
+                    let mode = stream.network_id_mode();
+                    let model = Self::actor_carried_block_model(cache, icons, assets, mode, id);
+                    let Some(model) = cache.count_item(model) else {
+                        continue;
+                    };
+                    if cache.is_planning() {
+                        continue;
+                    }
+                    let (block_level, sky_level) = carried.light;
+                    instances.push(DroppedItemInstance {
+                        model,
+                        world_from_item: carried.world_from_block,
+                        block_level: u32::from(block_level),
+                        sky_level: u32::from(sky_level),
+                        overlay_rgba8: 0,
+                        glint: false,
+                    });
+                }
             }
         });
 
         lines.clear();
+        line_lights.clear();
         if let Some((camera, _)) = camera {
             stream.authority().ropes_into(partial_tick, ropes);
             for rope in ropes.iter() {
@@ -784,6 +840,12 @@ impl DroppedItemPublisher<'_, '_> {
                 rope_ribbon(
                     from, rope.to, camera, segments, sag, half_width, color, lines,
                 );
+                let (block, sky) = stream.rope_light(rope);
+                line_lights.push(DynamicLightRun {
+                    end: lines.len() as u32,
+                    block,
+                    sky,
+                });
             }
         }
         dial_models.warm(cache, icons);
@@ -794,6 +856,7 @@ impl DroppedItemPublisher<'_, '_> {
             Arc::clone(&cache.shared),
             instances,
             lines,
+            line_lights,
             DAYLIGHT,
         );
         scene.set_glint(glint.0, glint.1.scroll());

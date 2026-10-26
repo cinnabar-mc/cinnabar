@@ -50,6 +50,7 @@ pub(in crate::compiler) mod lever;
 pub(in crate::compiler) mod lightning_rod;
 pub(in crate::compiler) mod lily_pad;
 pub(in crate::compiler) mod literal;
+pub(in crate::compiler) mod mapped_face;
 pub(in crate::compiler) mod mineral_cubes;
 pub(in crate::compiler) mod multiface;
 pub(in crate::compiler) mod named_blocks;

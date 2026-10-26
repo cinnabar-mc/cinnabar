@@ -600,6 +600,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             coverage.publish_full(instance.key, instance.generation);
         }
         arena.transparent_liquids.record(entity, &gpu);
+        arena.record_transparent_model_change(entity, Some(&gpu));
         arena.allocations.insert(
             entity,
             ArenaAllocation {

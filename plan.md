@@ -154,9 +154,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
-  plane and top art with its direction; other mapped-face cubes such as carved pumpkins,
-  observers, dispensers and droppers still need checking against their native tessellation,
-  plus native-server captures.
+  plane and top art with its direction. Observers, crafters, dispensers, droppers and piston
+  bodies select each face's slot, UV turn and texture variant from their state. Piston bodies
+  remain full cubes: the native three-quarter body and its separately drawn head are
+  incomplete. Jigsaw and vault faces, carved pumpkins and native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -221,6 +222,13 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   the current PR, review and acceptance workflow. Follow the current branch policy.
 - [ ] Verify invisible-block presentation, including conditional camera-facing marker
   sprites and their display/input conditions; invisible terrain alone does not close acceptance.
+- [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
+  or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
+  handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
+  stonecutter saw do this. Standalone candles are not compiled yet; their wicks need the same
+  marking when they are. Inset cuboid faces, such as bamboo stems, still pick the nearest AO
+  corner instead of interpolating across the face with the stalk's random offset, so the
+  inherited light can differ from native.
 
 ### Lighting, atmosphere and publication
 
@@ -365,6 +373,11 @@ A fresh jump press ends a glide after its first ten ticks unless the player has
 Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
 input push, on live ticks and correction replay. Whether that push reads the glide
 flag before or after the same tick's stop check is unverified.
+Initial session pitch and yaw reach the local view before its first movement input.
+Interaction rotation retains picked aim independently of body, head and camera input.
+Active assistance publishes its target direction, or body facing when no target is found,
+to the matching unsent tick. Ordinary crosshair input uses the direction lookup table.
+Touch picking and camera-actor substitution remain incomplete.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -427,7 +440,8 @@ Snapped corrections and teleports keep the local input tick when the server stam
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
-and replay. Server glide/swim/crawl and Riptide spin flags start or end the local state
+and replay. An agreeing server stance adds no action and leaves earlier queued actions intact.
+Server glide/swim/crawl and Riptide spin flags start or end the local state
 without start/stop actions. Each retained frame captures the flag word it starts with; a
 stamped write becomes a correction of the following frame where it differs from that
 capture and requests replay when that following frame is retained. Current stamps
@@ -457,8 +471,11 @@ Sneaking box height, pose fit and crouch eye follow StartGame's base game versio
 Near-contact collision fixes do not establish complete collision-engine parity.
 Remote player presentation interpolates received positions along straight segments,
 which can cross a block corner between clear endpoints. Teleports discard that
-segment immediately. Behavioral coverage of these cases does not establish
+segment immediately. A remote player teleport also releases the old riding link before
+the next seat update. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
+Remote alive notices restore depleted health to the streamed maximum while keeping
+movement interpolation intact. Repeated notices preserve a living actor's hurt timing.
 
 The anchor probe after teleports and replayed corrections reads the mover's contextual
 collision, so scaffolding and powder snow the player's own move passes through never push
@@ -503,6 +520,8 @@ geometry, artwork and owner-root placement. Startup harness definitions are comp
 from tagged items and present pack resources. Resource-only session overrides reuse
 those definitions while preserving authored item conditions. Expression roots retain
 the worn slot through owner placement; worn equipment counts exclude hands.
+Missing copper armour definitions reuse standard pack definitions when the matching
+textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
@@ -529,11 +548,16 @@ and rendered qualification remain incomplete.
   establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
+  Endermen draw their synced carried block, including crossed plants, with its world model
+  at the native carried-block transform and the body's light. Its hurt overlay, per-layer
+  material, tint and invisible-carrier behavior are unverified, and the other native
+  additional-rendering layers (iron golem, mooshroom, snow golem, minecart) remain unaudited.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
   Movement retains signed byte rotations and exact network heights through tick and
-  frame interpolation and predicted picking. Remote reset packets snap through the same
+  frame interpolation. Interaction picks use completed actor steps while pending motion
+  remains separate. Remote reset packets snap through the same
   owner as other player moves. Rotation-only player packets preserve active movement
   and body yaw while applying pitch immediately. Normal player moves place directly before
   the first actor tick or when their target terrain is missing, preserving any active lerp.
@@ -762,9 +786,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Client-owned panel collections support bounded four-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
-  The desktop mouse Back button uses existing cancellation in menus, containers,
-  chat popups, forms, signs and emotes; binding capture still accepts the button.
-  Cross-platform device acceptance remains incomplete.
+  Menu Cancel (`key.menuCancel`) is a remappable keyboard and mouse control that defaults to
+  the mouse Back button, as in vanilla. It cancels menus, containers, the bed screen, chat
+  popups, forms, player mod views, signs, credits, mob effects and emotes beside the fixed
+  Escape and platform Back keys, outranks a hotbar slot on the same button, and its keyboard
+  binding yields to focused text boxes; binding capture still accepts the button. Vanilla's
+  handling of a keyboard Menu Cancel inside text boxes is unverified, and cross-platform device
+  acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -783,7 +811,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and lifecycle behavior without leaking UI-owned input into movement.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
-  The HUD paper doll keeps its own animated mesh while a screen shows another player renderer.
+  The HUD paper doll retains its source geometry and samples its own GPU bone palette while
+  a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
+  broader HUD and hardware frame-work acceptance remain open.
   The inventory's live player renderer still draws the static preview model turned toward
   the pointer; native renders the animated actor there, so that remains incomplete.
   The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
@@ -1098,6 +1128,9 @@ qualification remain incomplete.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+First-run setup retains extracted resource versions, bound to their pinned archive hashes,
+so compiler updates reuse source packs while rebuilding stale carriers. Packaged upgrade and
+rollback acceptance of this reuse remains incomplete.
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
@@ -1219,7 +1252,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
-  Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as mouse Back elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
+  Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as a fixed Menu Cancel elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
 - The reusable Dragonfly client-part helper offers bundles and typed wire v2 messages;
   the local server imports the same implementation. Explicit world notices fence
   messages before notice admission until the client acknowledges that specific
@@ -1265,7 +1298,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Generic resolved action filtering exposes synchronous module verdicts, retained
   releases and lifecycle reconciliation; timing and rates belong to modules, and
   attack and use pulses reach it as repeats. Local weather overrides retain
-  transactional host APIs. These contracts have offline behavior coverage; populated-world interaction and rendering acceptance
+  transactional host APIs. Granted actor reach requests set the local pick and attack
+  distance within the API bound, preserving attack eligibility, obstruction checks and
+  ordinary block reach. These contracts have offline behavior coverage; populated-world
+  interaction and rendering acceptance remain incomplete.
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.
@@ -1311,7 +1347,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   traps preserve later queued work, stale world callbacks are discarded,
   and queue overflow visibly stops the affected part.
   Full rendered development-loop, complete server-helper delivery and personal-renderer port acceptance remain incomplete;
-  see [mod projects](docs/mod-projects.md).
+  see [mod projects](docs/modding/src/appendix/paired-projects.md).
   Server Experience block storage and player focus use bound world instances, with opening
   generations that invalidate stale callback work and migration from dimension-keyed stores.
   Server WIT 0.8 adds registered world definitions, instance creation/unload, typed scoped state,
@@ -1607,7 +1643,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   geometry and block/item component behavior beyond the currently supported cases.
 
 See [Android](docs/android.md), [iOS](docs/ios.md), [mods](docs/modding-spike.md),
-See [Android](docs/android.md), [mods](docs/mods/README.md),
+See [Android](docs/android.md), [mods](docs/modding/src/appendix/paired-mods.md),
 [server experiences](docs/server-experiences.md) and
 [experience runtime](docs/experience-runtime.md) for existing implementation contracts.
 

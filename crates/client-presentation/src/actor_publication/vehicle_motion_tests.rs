@@ -38,6 +38,7 @@ fn rider() -> LocalPlayerFeed {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         teleported: false,

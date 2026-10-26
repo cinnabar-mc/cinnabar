@@ -45,8 +45,7 @@ impl ActorStore {
         self.advance_interpolation(ticks, true);
     }
 
-    /// Predicts where this frame's `ticks` move each remote actor, for picks, without touching
-    /// the live actors whose per-tick animation advances later in the frame.
+    /// Stages remote motion for vehicle and collision queries without advancing live actors.
     pub(crate) fn predict_remote_motion(&mut self, ticks: u32) {
         self.picks_ahead = ticks > 0;
         if !self.picks_ahead {
@@ -61,7 +60,6 @@ impl ActorStore {
                 .map(|(runtime_id, actor)| movement_interpolation::PickState {
                     runtime_id: *runtime_id,
                     previous_yaw: actor.yaw,
-                    capture_previous_position: None,
                     state: actor.motion_state(),
                 }),
         );
@@ -71,9 +69,6 @@ impl ActorStore {
         for _ in 0..ticks {
             for pick in &mut self.pick_states {
                 pick.previous_yaw = pick.state.pose.yaw;
-                if self.capture_picks {
-                    pick.capture_previous_position = Some(pick.state.pose.position);
-                }
                 pick.state.tick();
             }
             self.hold_local_vehicle_pick();
@@ -81,32 +76,8 @@ impl ActorStore {
         }
     }
 
-    /// Retains previous predicted feet only while an opt-in capture is active.
-    pub(crate) fn set_pick_capture(&mut self, enabled: bool) {
-        self.capture_picks = enabled;
-    }
-
-    /// Projects exact pick motion without exposing interpolation implementation state.
-    pub(crate) fn capture_pick_motion_state(
-        &self,
-        actor: &ActorSnapshot,
-    ) -> ([f32; 3], [f32; 3], u32) {
-        match self.pick_ahead(actor.runtime_id) {
-            Some(pick) => (
-                pick.capture_previous_position
-                    .unwrap_or(actor.previous_pose.position),
-                pick.state.pose.position,
-                pick.state.remaining,
-            ),
-            None => (
-                actor.previous_pose.position,
-                actor.position,
-                actor.interpolation_ticks_remaining,
-            ),
-        }
-    }
-
-    /// The predicted pose picks read this frame, or `None` when the live pose is current.
+    /// The staged pose used to verify motion prediction before live actors advance.
+    #[cfg(test)]
     pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<ActorPose> {
         if !self.picks_ahead {
             return None;
@@ -121,8 +92,7 @@ impl ActorStore {
         self.pick(runtime_id).map(|pick| &pick.state)
     }
 
-    /// This frame's predicted motion of a remote actor, while picks are ahead of the live
-    /// actors.
+    /// Staged remote motion before this frame advances the live actors.
     pub(in crate::actor_store) fn pick_ahead(
         &self,
         runtime_id: u64,

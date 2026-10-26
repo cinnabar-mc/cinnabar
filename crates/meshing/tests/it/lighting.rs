@@ -194,6 +194,123 @@ fn torch_planes_take_own_cell_light_without_neighbor_ao() {
     }
 }
 
+/// Native tessellation emits detail quads such as bamboo leaves right after a cuboid's east
+/// face without a new vertex light, so they repeat that face's final (top, +Z) vertex, AO
+/// included, and carry the east face for its shade.
+#[test]
+fn detail_quads_repeat_the_last_cuboid_vertex_light() {
+    let (low, high) = (128, 160);
+    let face = |face: assets::BlockFace, positions| ModelQuad {
+        positions,
+        uvs: [[0; 2]; 4],
+        material: 0,
+        flags: face.model_quad_face_id(),
+    };
+    let mut quads: Vec<_> = assets::BlockFace::ALL
+        .into_iter()
+        .map(|block_face| {
+            let positions = match block_face {
+                assets::BlockFace::West => [
+                    [low, 0, low],
+                    [low, 0, high],
+                    [low, 256, high],
+                    [low, 256, low],
+                ],
+                assets::BlockFace::East => [
+                    [high, 0, high],
+                    [high, 0, low],
+                    [high, 256, low],
+                    [high, 256, high],
+                ],
+                assets::BlockFace::Down => [
+                    [low, 0, low],
+                    [high, 0, low],
+                    [high, 0, high],
+                    [low, 0, high],
+                ],
+                assets::BlockFace::Up => [
+                    [low, 256, high],
+                    [high, 256, high],
+                    [high, 256, low],
+                    [low, 256, low],
+                ],
+                assets::BlockFace::North => [
+                    [high, 0, low],
+                    [low, 0, low],
+                    [low, 256, low],
+                    [high, 256, low],
+                ],
+                assets::BlockFace::South => [
+                    [low, 0, high],
+                    [high, 0, high],
+                    [high, 256, high],
+                    [low, 256, high],
+                ],
+            };
+            face(block_face, positions)
+        })
+        .collect();
+    let leaf = ModelQuad {
+        positions: [
+            [high, 256, 144],
+            [272, 256, 144],
+            [272, 0, 144],
+            [high, 0, 144],
+        ],
+        uvs: [[0; 2]; 4],
+        material: 0,
+        flags: assets::MODEL_QUAD_FLAG_TWO_SIDED | assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
+    };
+    quads.extend([leaf; 4]);
+    let assets = runtime_assets_with_model_geometry(
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: quads.len() as u32,
+            flags: 0,
+        }],
+        quads.clone(),
+    );
+    let block = [8, 8, 8];
+    // A solid diagonal above the top +Z corner shades only that corner of the east face.
+    let center = blocks(&[[8, 9, 9]]);
+    // Block light rises with Y and Z: 2 in the own cell, 4 in the +Y+Z diagonal.
+    let sampler = |[_, y, z]: [i32; 3]| MeshLightSample::try_new((y + z - 14) as u8, 6).unwrap();
+    let lighting = bake_template_lighting_with_sampler(
+        &BlockClassifier::new(AIR),
+        &assets,
+        NetworkIdMode::Sequential,
+        &MeshNeighbourhood::new(&center),
+        &sampler,
+        block,
+        0,
+        0,
+    )
+    .unwrap();
+    let east = assets::BlockFace::East as usize;
+    let corner = quads[east]
+        .positions
+        .iter()
+        .position(|&[_, y, z]| y == 256 && z == high)
+        .unwrap();
+    let last_stem_vertex = lighting[east].samples()[corner];
+    // Brightest of the own, +Y, +Z and +Y+Z cells, sky 6, one shaded sample.
+    assert_eq!(last_stem_vertex, 4 | (6 << 4) | (1 << 8));
+    assert!(
+        lighting[..6]
+            .iter()
+            .all(|face| face.samples()[0] >> 12 == 0)
+    );
+    let east_shade = (assets::BlockFace::East.model_quad_face_id() as u16)
+        << meshing::LIGHT_SAMPLE_SHADE_FACE_SHIFT;
+    for (index, leaf) in lighting[6..].iter().enumerate() {
+        assert_eq!(
+            leaf.samples(),
+            [last_stem_vertex | east_shade; 4],
+            "leaf {index}"
+        );
+    }
+}
+
 fn runtime_assets_with_model_geometry(
     model_templates: Vec<ModelTemplate>,
     model_quads: Vec<ModelQuad>,

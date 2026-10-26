@@ -165,6 +165,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_CHART_COORDINATE_BITS", &format!("{}u", u16::BITS))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))
         .replace("MODEL_RANDOM_OFFSET_FLAG", &format!("{}u", meshing::MODEL_REF_FLAG_RANDOM_OFFSET))
+        .replace("MODEL_SHADE_FACE_SHIFT", &format!("{}u", meshing::LIGHT_SAMPLE_SHADE_FACE_SHIFT))
         .replace("MODEL_BAMBOO_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_BAMBOO))
         .replace("BAMBOO_STEM_SIDE_QUAD_MASK", &format!("{}u", assets::bamboo::STEM_SIDE_QUAD_MASK))
         .replace("BAMBOO_POSITIVE_X_LEAF_QUAD", &format!("{}u", assets::bamboo::POSITIVE_X_LEAF_QUAD))

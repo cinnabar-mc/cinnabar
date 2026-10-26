@@ -271,6 +271,7 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [10.5, 20.25],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
@@ -444,6 +445,7 @@ fn fixture_movement_snapshot() -> PlayerAuthInputSnapshot {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [10.5, 20.25],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING

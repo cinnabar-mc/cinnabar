@@ -561,7 +561,12 @@ pub fn drive_menu_input(
         return;
     }
 
-    if mouse_buttons.just_pressed(MouseButton::Back) {
+    if crate::menu::settings_options::control_bindings::menu_cancel_mouse(
+        Some(&*menu),
+        &mouse_buttons,
+    )
+    .is_some()
+    {
         menu.go_back_from_input();
         gui_scale_drag.cancel_pointer(&mut menu, &mut presentation);
         modifiers.capture_pressed(&keys);
@@ -881,6 +886,16 @@ pub fn drive_menu_input(
                 if input.repeat => {}
             KeyCode::Space if input.repeat && !menu.has_focused_field() => {}
             KeyCode::Escape => menu.go_back_from_input(),
+            // A Menu Cancel key goes back like Escape unless a field takes typed keys.
+            key if !input.repeat
+                && !menu.has_focused_field()
+                && crate::menu::settings_options::control_bindings::menu_cancel_key(
+                    Some(&*menu),
+                    key,
+                ) =>
+            {
+                menu.go_back_from_input()
+            }
             KeyCode::Backspace if native_settings => menu.go_back_from_input(),
             KeyCode::ArrowUp => {
                 menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, -1)

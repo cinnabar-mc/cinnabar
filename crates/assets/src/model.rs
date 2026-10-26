@@ -363,8 +363,14 @@ const _: () = assert!(std::mem::size_of::<ModelQuad>() == 48);
 pub const MODEL_QUAD_FLAG_FACE_MASK: u32 = 0x07;
 pub const MODEL_QUAD_FLAG_TWO_SIDED: u32 = 1 << 3;
 pub const MODEL_QUAD_FLAG_CULL_FACE_MASK: u32 = 0x70;
-pub(crate) const MODEL_QUAD_FLAGS_MASK: u32 =
-    MODEL_QUAD_FLAG_FACE_MASK | MODEL_QUAD_FLAG_TWO_SIDED | MODEL_QUAD_FLAG_CULL_FACE_MASK;
+/// Detail quad that native tessellation draws straight after a cuboid without setting a new
+/// vertex colour or light. It keeps the shade and final vertex light of the last face that
+/// cuboid drew; the cuboid is the run of distinct faced quads just before the detail quads.
+pub const MODEL_QUAD_FLAG_INHERITED_SHADE: u32 = 1 << 7;
+pub(crate) const MODEL_QUAD_FLAGS_MASK: u32 = MODEL_QUAD_FLAG_FACE_MASK
+    | MODEL_QUAD_FLAG_TWO_SIDED
+    | MODEL_QUAD_FLAG_CULL_FACE_MASK
+    | MODEL_QUAD_FLAG_INHERITED_SHADE;
 
 pub(crate) const fn model_quad_flags_are_valid(flags: u32) -> bool {
     flags & !MODEL_QUAD_FLAGS_MASK == 0

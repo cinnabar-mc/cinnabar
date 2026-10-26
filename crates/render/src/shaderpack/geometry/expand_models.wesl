@@ -1,5 +1,5 @@
 // Expands placed block-model quads (plants, stairs, slabs, translucent cubes ...) into Iris faces.
-import render::model::{model_quad_at, model_corner_position, model_corner_uv, model_light_sample, model_quad_normal, stem_colour};
+import render::model::{model_quad_at, model_corner_position, model_corner_uv, model_light_sample, model_quad_normal, model_shade_normal, stem_colour};
 import render::material::materials;
 import render::biome_tint::blended_biome_tint_gamma;
 import render::lighting::{light_ao_factor, material_ambient_occlusion, material_face_shade};
@@ -58,7 +58,7 @@ fn model_face(job: vec4<u32>) -> JobFace {
     var source: FaceSource;
     source.normal = normal;
     source.tint = vec4(tint, 1.0);
-    source.face_shade = material_face_shade(authored, (samples[0] & 2048u) != 0u, material.flags);
+    source.face_shade = material_face_shade(model_shade_normal(authored, samples[0]), (samples[0] & 2048u) != 0u, material.flags);
     source.block = quad.block_position;
     source.chunk_origin = quad.chunk_origin.xyz;
     source.material_id = quad.selected_material_id;

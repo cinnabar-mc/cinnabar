@@ -6,6 +6,7 @@ mod atlas;
 mod block;
 mod bounds;
 mod budget;
+mod carried;
 mod cost;
 mod culling;
 mod mesh;
@@ -15,6 +16,7 @@ pub use atlas::atlas_layer_limit;
 pub use block::block_mesh;
 pub use bounds::{DroppedItemBounds, DroppedItemCullView, DroppedItemFrustum};
 pub use budget::ItemModelBudget;
+pub use carried::enderman_carried_block_transform;
 pub use cost::{ItemModelCost, block_quad_vertex_count};
 
 pub use mesh::{
@@ -32,6 +34,16 @@ pub const MIN_ITEM_ATLAS_SIDE: u32 = 32;
 pub const MAX_ITEM_LAYERS: usize = 512;
 pub const MAX_DROPPED_ITEM_INSTANCES: usize = 1_024;
 pub const MAX_DYNAMIC_ITEM_VERTICES: usize = 65_536;
+/// Distinct block and sky light pairs that dynamic geometry can be drawn with.
+pub const DYNAMIC_LIGHT_LEVELS: usize = 16 * 16;
+
+/// Light levels for the dynamic vertices from the previous run's end up to `end`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DynamicLightRun {
+    pub end: u32,
+    pub block: u8,
+    pub sky: u8,
+}
 /// Layer 0 is always opaque white so untextured dynamic geometry (lines) can use it.
 pub const WHITE_LAYER: u32 = 0;
 

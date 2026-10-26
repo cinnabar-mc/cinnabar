@@ -16,6 +16,16 @@ use render_model::{UiRenderBatch, UiTextureCatalog, UiTexturePage};
 impl Raster {
     /// Clears the whole layer or its damage rectangle, then replays every overlapping batch in order.
     fn draw(&self, input: &UiRenderInput, output: &wgpu::Texture, damage: Option<UiScissor>) {
+        let bones: Vec<_> = input
+            .models
+            .iter()
+            .flat_map(|model| model.bones.iter().copied())
+            .collect();
+        if !bones.is_empty() {
+            self.gpu
+                .queue
+                .write_buffer(&self.models, 0, bytemuck::cast_slice(&bones));
+        }
         let resident: Vec<_> = input
             .vertices
             .iter()
@@ -37,6 +47,29 @@ impl Raster {
         let color = output.create_view(&Default::default());
         let depth = target(&self.gpu, true).create_view(&Default::default());
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        if let Some(rect) = damage
+            .and_then(|rect| crate::render_bounds::scissor(rect, [output.width(), output.height()]))
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("UI damage parity clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &color,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.clear);
+            pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+            pass.draw(0..3, 0..1);
+        }
         let mut start = 0;
         let mut lifetime = super::super::model_depth::ModelDepthLifetime::default();
         while let Some(first) = input.batches.get(start) {
@@ -93,15 +126,6 @@ impl Raster {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if initial
-                && let Some(rect) = damage.and_then(|rect| {
-                    crate::render_bounds::scissor(rect, [output.width(), output.height()])
-                })
-            {
-                pass.set_pipeline(&self.clear);
-                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
-                pass.draw(0..3, 0..1);
-            }
             pass.set_vertex_buffer(0, vertices.slice(..));
             pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.set_bind_group(0, &self.binding, &[]);
@@ -120,10 +144,15 @@ impl Raster {
                     continue;
                 };
                 pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+                let instance = render_model::ui_model_instance(
+                    &input.models,
+                    batch.isolated_depth_scope,
+                    batch.texture_page,
+                );
                 pass.draw_indexed(
                     batch.first_index..batch.first_index + batch.index_count,
                     0,
-                    batch.texture_page..batch.texture_page + 1,
+                    instance..instance + 1,
                 );
             }
             if needs_depth {
@@ -250,6 +279,7 @@ fn quad(
 /// Combines transparent texture pixels, stable overlays and overlapping clipped model quads.
 fn scene() -> UiRenderInput {
     let mut input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [SIDE; 2],
         safe_area: [0; 4],
@@ -765,4 +795,178 @@ fn retained_glint_clock_damage_matches_full_replay_with_unchanged_depth_models()
         "synthetic glint clock must change pixels"
     );
     assert_eq!(raster.pixels(&retained), expected);
+}
+
+/// Resident model vertices use the same projection, UVs, lighting and damage as CPU witnesses.
+#[test]
+fn skinned_ui_model_matches_projected_gpu_pixels() {
+    let mut animated = scene();
+    animated.textures = Arc::new(
+        UiTextureCatalog::new(
+            vec![
+                UiTexturePage::owned(
+                    [2, 2],
+                    Arc::from([
+                        230, 40, 30, 255, 20, 210, 60, 255, 30, 70, 230, 255, 220, 200, 20, 255,
+                    ]),
+                )
+                .unwrap(),
+            ],
+            1,
+        )
+        .unwrap(),
+    );
+    let bone = render_model::UiModelBone {
+        screen: (glam::Mat4::from_translation(glam::Vec3::new(20., 12., 0.5))
+            * glam::Mat4::from_rotation_z(0.17)
+            * glam::Mat4::from_scale(glam::Vec3::new(24., 28., 1.)))
+        .to_cols_array_2d(),
+        normal: [[0.8, 0., 0.6, 0.], [0., 1., 0., 0.], [-0.6, 0., 0.8, 0.]],
+        overlay: [0.3, 0.1, 0.2, 0.15],
+        uv_rect: [0.; 4],
+        uv_cross: [2., 2., 0., 0.],
+        tint: [0.8, 1., 0.7, 1.],
+        styles: [render_model::UI_STYLE_ADDITIVE, 0, 0, 0],
+    };
+    let vertex = UiRenderVertex {
+        position: [0.; 2],
+        clip_z: 0.,
+        clip_w: 1.,
+        uv: [0.; 2],
+        color: [255; 4],
+        style_flags: render_api::UI_STYLE_MODEL_VERTEX,
+        alpha_cutoff: -1.,
+        model_light: 1.,
+        overlay_color: [0., 0., 1., 0.],
+    };
+    animated.vertices = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]]
+        .map(|point| UiRenderVertex {
+            position: point,
+            uv: point,
+            ..vertex
+        })
+        .into();
+    animated.indices = Arc::from([0, 1, 2, 0, 2, 3]);
+    animated.batches =
+        Arc::from([
+            UiRenderBatch::new(0, UiScissor::new(0, 0, SIDE, SIDE), 0, 6, 0)
+                .with_depth_test(true)
+                .with_depth_write(true)
+                .with_isolated_depth_scope(Some(7)),
+        ]);
+    animated.models = Arc::from([render_model::UiModelPose {
+        scope: 7,
+        bones: Arc::from([bone]),
+        bounds: UiScissor::new(10, 10, 45, 45),
+    }]);
+    animated.validate().unwrap();
+    let Some(raster) = Raster::new(&animated) else {
+        return;
+    };
+    let before = target(&raster.gpu, false);
+    raster.draw(&animated, &before, None);
+    let mut projected = animated.clone();
+    projected.models = Arc::from([]);
+    projected.vertices = animated
+        .vertices
+        .iter()
+        .copied()
+        .map(|vertex| bone.project(vertex))
+        .collect::<Vec<_>>()
+        .into();
+    projected.validate().unwrap();
+    let expected = target(&raster.gpu, false);
+    raster.draw(&projected, &expected, None);
+    for (actual, expected) in raster
+        .pixels(&before)
+        .into_iter()
+        .zip(raster.pixels(&expected))
+    {
+        assert!(
+            actual.abs_diff(expected) <= 1,
+            "GPU model shading changed: {actual} vs {expected}"
+        );
+    }
+    // A CPU fallback can cover pixels outside the incoming model's conservative bounds.
+    let mut fallback = projected.clone();
+    for vertex in Arc::make_mut(&mut fallback.vertices) {
+        vertex.position[0] -= 16.;
+    }
+    for (previous, next) in [(&fallback, &animated), (&animated, &fallback)] {
+        raster.draw(previous, &before, None);
+        let damage = match plan(previous, next) {
+            UiDamage::Full => None,
+            UiDamage::Rect(rect) => Some(rect),
+            UiDamage::Unchanged => panic!("projection transitions must redraw their coverage"),
+        };
+        raster.draw(next, &before, damage);
+        raster.draw(next, &expected, None);
+        assert_eq!(raster.pixels(&before), raster.pixels(&expected));
+    }
+    raster.draw(&animated, &before, None);
+    let mut moved_bone = bone;
+    moved_bone.screen[3][0] += 5.;
+    let mut moved = animated.clone();
+    moved.revision += 1;
+    moved.models = Arc::from([render_model::UiModelPose {
+        scope: 7,
+        bones: Arc::from([moved_bone]),
+        bounds: UiScissor::new(15, 10, 45, 45),
+    }]);
+    let UiDamage::Rect(damage) = plan(&animated, &moved) else {
+        panic!("palette motion must redraw its old and new coverage")
+    };
+    raster.draw(&moved, &before, Some(damage));
+    let full = target(&raster.gpu, false);
+    raster.draw(&moved, &full, None);
+    assert_eq!(raster.pixels(&before), raster.pixels(&full));
+    // A simultaneous ordinary HUD edit must preserve palette coverage in the damage union.
+    let mut mixed = moved.clone();
+    quad(&mut mixed, [1., 1., 7., 7.], [220, 100, 30, 255], 0, None);
+    raster.draw(&mixed, &before, None);
+    let mut changed = mixed.clone();
+    Arc::make_mut(&mut changed.vertices)[4].color[0] = 20;
+    Arc::make_mut(&mut Arc::make_mut(&mut changed.models)[0].bones)[0].screen[3][0] += 4.;
+    Arc::make_mut(&mut changed.models)[0].bounds.x += 4;
+    let UiDamage::Rect(damage) = plan(&mixed, &changed) else {
+        panic!("mixed HUD and palette changes need bounded damage");
+    };
+    raster.draw(&changed, &before, Some(damage));
+    raster.draw(&changed, &full, None);
+    assert_eq!(raster.pixels(&before), raster.pixels(&full));
+
+    // Clock-only glint updates use posed coverage even after a retained palette changes.
+    for vertex in Arc::make_mut(&mut moved.vertices) {
+        vertex.style_flags |= UI_STYLE_GLINT;
+    }
+    let Some(glint) = Raster::with_glint_pattern(
+        &moved,
+        1.,
+        [2, 2],
+        &[
+            255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 120, 40, 180, 255,
+        ],
+    ) else {
+        return;
+    };
+    let retained = target(&glint.gpu, false);
+    let reference = target(&glint.gpu, false);
+    glint.draw(&moved, &retained, None);
+    let initial = glint.pixels(&retained);
+    let mut coverage = animated_batches(&moved);
+    assert_eq!(coverage[0], UiDamage::Rect(moved.models[0].bounds));
+    update_model_animation_damage(&changed, &mut coverage);
+    assert_eq!(coverage[0], UiDamage::Rect(changed.models[0].bounds));
+    glint.gpu.queue.write_buffer(
+        &glint.viewport,
+        0,
+        bytemuck::cast_slice(&[SIDE as f32, SIDE as f32, 0.75_f32, 1.]),
+    );
+    let UiDamage::Rect(damage) = animated_batches(&moved)[0] else {
+        panic!("model glint needs posed coverage");
+    };
+    glint.draw(&moved, &retained, Some(damage));
+    glint.draw(&moved, &reference, None);
+    assert_ne!(glint.pixels(&reference), initial);
+    assert_eq!(glint.pixels(&retained), glint.pixels(&reference));
 }
