@@ -14,7 +14,7 @@ mod-api = { path = "../../crates/mod-api" }
 mod-host = { path = "../../crates/mod-host" }
 server-experience = { path = "../../crates/server-experience" }
 ui = { path = "../../crates/ui" }
-wit-parser = "=0.247.0"
+wit-parser.workspace = true
 
 [dev-dependencies]
 tempfile = "=3.27.0"
