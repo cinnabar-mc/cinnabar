@@ -114,7 +114,7 @@ fn quads(materials: [u32; 6], along_z: bool) -> Vec<ModelQuad> {
         ],
         uvs: [[0, SAW_TOP_V], [0, 4096], [4096, 4096], [4096, SAW_TOP_V]],
         material: materials[BlockFace::West as usize],
-        flags: MODEL_QUAD_FLAG_TWO_SIDED,
+        flags: MODEL_QUAD_FLAG_TWO_SIDED | assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
     });
     quads
 }

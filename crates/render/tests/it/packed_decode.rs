@@ -216,30 +216,29 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     }
 }
 
-/// Native bamboo draws its leaves straight after the stem's east face without a new vertex
-/// colour, so they keep that face's coefficient instead of an unshaded faceless quad's.
+/// Detail quads native tessellation draws straight after a cuboid without a new vertex colour,
+/// such as bamboo leaves, keep the face coefficient their light samples carry instead of an
+/// unshaded faceless quad's.
 #[test]
-fn bamboo_leaves_keep_the_east_stem_face_shade() {
-    // Native face coefficient of an ordinary, non-emitting east (or west) face.
+fn detail_quads_take_the_shade_face_their_light_carries() {
+    // Native coefficients of ordinary, non-emitting east (or west) and down faces.
     const EAST_FACE_SHADE: f32 = 0.6;
-    let Some(gpu) = Gpu::for_fixture("bamboo leaf shade") else {
+    const DOWN_FACE_SHADE: f32 = 0.5;
+    let Some(gpu) = Gpu::for_fixture("detail quad shade") else {
         return;
     };
     let storage = wgpu::BufferUsages::STORAGE;
     let uniform = wgpu::BufferUsages::UNIFORM;
-    let leaf = assets::bamboo::FIRST_LEAF_QUAD;
-    let east = assets::bamboo::LEAF_SHADE_FACE as u32;
-    // Two templates over the same quads: bamboo, and an ordinary model.
-    let mut template = vec![
-        2,
-        0,
-        leaf + 1,
-        assets::MODEL_TEMPLATE_FLAG_BAMBOO,
-        0,
-        leaf + 1,
+    let east = assets::BlockFace::East as u32;
+    let shade_faces = [
+        assets::BlockFace::East.model_quad_face_id(),
+        assets::BlockFace::Down.model_quad_face_id(),
         0,
     ];
-    for quad in 0..=leaf {
+    let first_detail = assets::BlockFace::ALL.len() as u32;
+    let quad_count = first_detail + shade_faces.len() as u32;
+    let mut template = vec![1, 0, quad_count, 0];
+    for quad in 0..quad_count {
         let flags = assets::BlockFace::ALL
             .get(quad as usize)
             .map_or(assets::MODEL_QUAD_FLAG_TWO_SIDED, |face| {
@@ -248,20 +247,23 @@ fn bamboo_leaves_keep_the_east_stem_face_shade() {
         template.extend([0; 10]);
         template.extend([0, flags]);
     }
-    let draws = [(2, east), (2, leaf), (3, leaf)];
+    let draws = [east, first_detail, first_detail + 1, first_detail + 2];
     let mut geometry: Vec<u32> = draws
         .iter()
-        .flat_map(|&(reference, quad)| meshing::PackedModelDrawRef::new(reference, quad).words())
+        .flat_map(|&quad| meshing::PackedModelDrawRef::new(2, quad).words())
         .collect();
     geometry.resize(8, 0);
-    let lighting_base = 8;
-    for template in 0..2 {
-        let visible = (1 << east) | (1 << leaf);
-        geometry
-            .extend(PackedModelRef::new(3 | (4 << 4), template, lighting_base, visible).words());
+    let lighting_base = 6;
+    let visible = draws.iter().fold(0, |mask, quad| mask | (1 << quad));
+    geometry.extend(PackedModelRef::new(3 | (4 << 4), 0, lighting_base, visible).words());
+    // Sky light 15 without ambient occlusion on every corner; detail quads add a shade face.
+    for quad in 0..quad_count {
+        let shade_face = quad
+            .checked_sub(first_detail)
+            .map_or(0, |detail| shade_faces[detail as usize]);
+        let sample = 0x00f0 | (shade_face << meshing::LIGHT_SAMPLE_SHADE_FACE_SHIFT);
+        geometry.extend([sample | (sample << 16); 2]);
     }
-    // Sky light 15 without ambient occlusion on every corner of every quad.
-    geometry.extend(vec![0x00f0_00f0; 2 * (leaf as usize + 1)]);
     let origins = gpu.words(&[0; 8], storage);
     let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage);
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
@@ -292,8 +294,9 @@ fn bamboo_leaves_keep_the_east_stem_face_shade() {
         draws.len() as u32,
     );
     for ((name, expected), value) in [
-        ("bamboo stem east face", EAST_FACE_SHADE),
-        ("bamboo leaf", EAST_FACE_SHADE),
+        ("cuboid east face", EAST_FACE_SHADE),
+        ("detail after an east face", EAST_FACE_SHADE),
+        ("detail after a down face", DOWN_FACE_SHADE),
         ("ordinary faceless quad", 1.0),
     ]
     .into_iter()

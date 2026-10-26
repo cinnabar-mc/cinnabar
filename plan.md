@@ -221,12 +221,13 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   the current PR, review and acceptance workflow. Follow the current branch policy.
 - [ ] Verify invisible-block presentation, including conditional camera-facing marker
   sprites and their display/input conditions; invisible terrain alone does not close acceptance.
-- [ ] Match detail quads that native tessellation draws after a cube pass without a new
-  vertex colour or light, so they keep the last (east) face's shade and final vertex light.
-  Bamboo leaves do this. Lantern handles, candle wicks, sea pickle crowns, brewing-stand
-  details and the stonecutter blade follow the same native pattern and remain unverified.
-  Bamboo stem faces still pick the nearest AO corner instead of interpolating across the
-  inset face with the stalk's random offset.
+- [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
+  or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
+  handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
+  stonecutter saw do this. Standalone candles are not compiled yet; their wicks need the same
+  marking when they are. Inset cuboid faces, such as bamboo stems, still pick the nearest AO
+  corner instead of interpolating across the face with the stalk's random offset, so the
+  inherited light can differ from native.
 
 ### Lighting, atmosphere and publication
 
