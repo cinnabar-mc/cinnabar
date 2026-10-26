@@ -286,6 +286,25 @@ impl WorldMaterials {
     }
 }
 
+/// The previous value of one changed declaration, which restores it.
+#[derive(Debug)]
+pub enum WorldUndo {
+    Material(u32, Option<WorldMaterialSpec>),
+    Binding(u32, Option<WorldBinding>),
+}
+
+impl WorldMaterials {
+    /// Restores what `undo` records. Undoing changes newest first returns to a state the
+    /// declarations were in before, so it cannot be refused.
+    pub fn undo(&mut self, undo: WorldUndo) {
+        let restored = match undo {
+            WorldUndo::Material(id, previous) => self.set_material(id, previous.as_ref()).map(drop),
+            WorldUndo::Binding(id, previous) => self.set_binding(id, previous.as_ref()).map(drop),
+        };
+        debug_assert!(restored.is_ok(), "an undo restores a held state");
+    }
+}
+
 /// Why a declaration that would exceed the bundle's memory limit is refused.
 const MEMORY_REFUSAL: &str = "world materials exceed the bundle's memory limit";
 
