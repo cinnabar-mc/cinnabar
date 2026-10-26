@@ -435,3 +435,139 @@ fn displace(input: WorldVertexInput) -> vec3<f32> { return input.normal * parame
         "a withdrawn compute stays cached and comes back as it was"
     );
 }
+
+#[test]
+fn a_new_compute_validates_off_the_frame_as_its_bundles_one_job() {
+    let held = Arc::new(std::sync::Mutex::new(Vec::<admission::Job>::new()));
+    let run_held = || {
+        let jobs: Vec<admission::Job> = held.lock().unwrap().drain(..).collect();
+        let count = jobs.len();
+        for job in jobs {
+            job();
+        }
+        count
+    };
+    let world = glass_world();
+    let mut presenter =
+        WorldMaterialPresenter::with_executor(admission::Executor::Held(Arc::clone(&held)));
+    present(
+        &mut presenter,
+        &world,
+        &every_permission(),
+        &BTreeSet::new(),
+    );
+    assert!(
+        presenter.set().computes.is_empty(),
+        "the compute is not validated on the frame"
+    );
+    assert!(presenter.set().block("example:glass").is_none());
+    assert_eq!(
+        held.lock().unwrap().len(),
+        1,
+        "only the compute's validation runs, as the bundle's one job"
+    );
+    // Its validation, then the material's measuring and decoding, each on a later frame.
+    for _ in 0..4 {
+        run_held();
+        present(
+            &mut presenter,
+            &world,
+            &every_permission(),
+            &BTreeSet::new(),
+        );
+    }
+    assert_eq!(presenter.set().computes.len(), 1);
+    assert_eq!(glass(&presenter).cells, Some(0));
+    // A changed program validates off the frame too, and the one it replaces keeps
+    // publishing meanwhile, so the glass keeps its cells.
+    let before = presenter.set().computes[0].key;
+    let mut changed = world.clone();
+    changed
+        .set_compute(
+            7,
+            Some(&WorldComputeSpec {
+                source: format!("{STEP}\n"),
+                cells: 128,
+                params: vec![1.0],
+            }),
+        )
+        .unwrap();
+    present(
+        &mut presenter,
+        &changed,
+        &every_permission(),
+        &BTreeSet::new(),
+    );
+    assert_eq!(presenter.set().computes[0].key, before);
+    assert_eq!(glass(&presenter).cells, Some(0));
+    run_held();
+    present(
+        &mut presenter,
+        &changed,
+        &every_permission(),
+        &BTreeSet::new(),
+    );
+    assert_ne!(presenter.set().computes[0].key, before);
+    assert_eq!(glass(&presenter).cells, Some(0));
+}
+
+#[test]
+fn a_validating_compute_keeps_its_bundles_one_job_across_rebuilds_and_removal() {
+    let held = Arc::new(std::sync::Mutex::new(Vec::<admission::Job>::new()));
+    let queued = || held.lock().unwrap().len();
+    let run_held = || {
+        let jobs: Vec<admission::Job> = held.lock().unwrap().drain(..).collect();
+        for job in jobs {
+            job();
+        }
+    };
+    let compute = |source: &str| WorldComputeSpec {
+        source: source.into(),
+        cells: 128,
+        params: vec![1.0],
+    };
+    let other = format!("{STEP}\n");
+    let mut presenter =
+        WorldMaterialPresenter::with_executor(admission::Executor::Held(Arc::clone(&held)));
+    let mut only_a = WorldMaterials::default();
+    only_a.set_compute(7, Some(&compute(STEP))).unwrap();
+    present(
+        &mut presenter,
+        &only_a,
+        &every_permission(),
+        &BTreeSet::new(),
+    );
+    assert_eq!(queued(), 1, "compute A validates");
+    // Compute B and a material reading A arrive while A still validates.
+    let mut more = glass_world();
+    more.set_compute(8, Some(&compute(&other))).unwrap();
+    present(&mut presenter, &more, &every_permission(), &BTreeSet::new());
+    assert_eq!(
+        queued(),
+        1,
+        "neither B's validation nor the material's measuring starts"
+    );
+    assert!(presenter.set().block("example:glass").is_none());
+    // A's declaration goes away while it validates: its job keeps the bundle busy.
+    let mut only_b = WorldMaterials::default();
+    only_b.set_compute(8, Some(&compute(&other))).unwrap();
+    present(
+        &mut presenter,
+        &only_b,
+        &every_permission(),
+        &BTreeSet::new(),
+    );
+    assert_eq!(
+        queued(),
+        1,
+        "the removed validation is still the bundle's job"
+    );
+    run_held();
+    present(
+        &mut presenter,
+        &only_b,
+        &every_permission(),
+        &BTreeSet::new(),
+    );
+    assert_eq!(queued(), 1, "once it returns, B validates");
+}
