@@ -97,3 +97,9 @@ float iris_dot_fma(float a, float b, float c) {
     if (output_exp >= 255) return uintBitsToFloat(sign | 2139095040u);
     return uintBitsToFloat(sign | (uint(output_exp) << 23u) | (mantissa & 8388607u));
 }
+
+/// Rounds the initial component product, preserving the sign of a zero product.
+float iris_dot_mul(float a, float b) {
+    uint sign = (floatBitsToUint(a) ^ floatBitsToUint(b)) & 2147483648u;
+    return iris_dot_fma(a, b, uintBitsToFloat(sign));
+}

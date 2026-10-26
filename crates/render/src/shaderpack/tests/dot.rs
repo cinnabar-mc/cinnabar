@@ -15,7 +15,7 @@ void main() {
 }
 ";
 
-/// Builds normal addends (plus signed zero), edge products and deterministic random samples.
+/// Builds edge products and deterministic random samples across all binary32 bit patterns.
 fn samples() -> Vec<[u32; 4]> {
     let edges = [
         0.0_f32.to_bits(),
@@ -35,10 +35,7 @@ fn samples() -> Vec<[u32; 4]> {
     let mut samples = Vec::new();
     for a in edges {
         for b in edges {
-            for c in edges
-                .into_iter()
-                .filter(|c| !f32::from_bits(*c).is_subnormal())
-            {
+            for c in edges {
                 samples.push([a, b, c, 0]);
                 samples.push([a ^ (1 << 31), b, c ^ (1 << 31), 0]);
             }
@@ -52,10 +49,7 @@ fn samples() -> Vec<[u32; 4]> {
             state ^= state << 5;
             state
         };
-        let [a, b, mut c] = [next(), next(), next()];
-        if f32::from_bits(c).is_subnormal() {
-            c &= 1 << 31;
-        }
+        let [a, b, c] = [next(), next(), next()];
         samples.push([a, b, c, 0]);
         // Near cancellation exercises every retained product bit.
         let product = f32::from_bits(a) * f32::from_bits(b);

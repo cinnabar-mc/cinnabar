@@ -7,7 +7,8 @@
 //! last-bit difference into an unrelated value, so pack noise (BSL's waving foliage) came out
 //! as a different pattern. Calls in function bodies therefore go through `iris_dot` helpers
 //! spelled with explicit `fma`. Constant expressions keep the built-in: naga folds those
-//! itself and cannot call functions there.
+//! itself and cannot call functions there. Backends that need software rounding also replace
+//! the initial product, preserving subnormal values and signed zero without float64.
 
 use crate::token::{Tok, id, lex};
 
@@ -84,7 +85,10 @@ pub(super) fn order(src: &[Tok], software_fma: bool) -> Option<Vec<Tok>> {
         format!(
             "{}{}",
             include_str!("dot_fma.glsl"),
-            HELPERS.replace("fma(", "iris_dot_fma(")
+            HELPERS
+                .replace("fma(", "iris_dot_fma(")
+                .replace("a.x * b.x", "iris_dot_mul(a.x, b.x)")
+                .replace("a * b", "iris_dot_mul(a, b)")
         )
     } else {
         HELPERS.to_owned()
