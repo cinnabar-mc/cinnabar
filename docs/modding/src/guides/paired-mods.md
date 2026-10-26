@@ -97,7 +97,7 @@ Run keeps the world in `cosmic/.local/world` and client data in `cosmic/.local/c
 
 ## Edit and reload
 
-Change the label in `src/client.rs` or the texture, close the client, and rerun `cinnabar-cxb mod run`. That rebuilds both guests and replaces this mod's development installation. It is a restart loop: client parts have no live bundle update, and shared-definition changes need both halves rebuilt. Keep existing block ids when reusing a saved world, or the world's saved identities will not match your registry.
+Change the label in `src/client.rs` or the texture, close the client, and rerun `cinnabar-cxb mod run`. That rebuilds both guests and replaces this mod's development installation. This command provides a restart loop, and shared-definition changes need both halves rebuilt. Keep existing block ids when reusing a saved world, or the world's saved identities will not match your registry.
 
 ## Package and hand over
 
