@@ -19,6 +19,7 @@ mod limits_tests;
 pub(in crate::chunk) mod model;
 mod node;
 pub(in crate::chunk) mod occlusion;
+mod order;
 #[cfg(test)]
 mod pixel_tests;
 mod prepare;

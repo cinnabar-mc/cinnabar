@@ -424,7 +424,11 @@ pub fn check_in_background(layout: &InstallLayout) {
 
 /// Shares live preferences with the worker; channel changes always clear earlier consent.
 pub fn configure(mut preferences: Preferences) {
-    if std::env::var("CINNABAR_UPDATE_CHECK").is_ok_and(|value| value == "0") {
+    // The launch environment is read once; the menu configures every frame.
+    static CHECKS_DISABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        std::env::var("CINNABAR_UPDATE_CHECK").is_ok_and(|value| value == "0")
+    });
+    if *CHECKS_DISABLED {
         preferences.checks = false;
     }
     let force = STATE

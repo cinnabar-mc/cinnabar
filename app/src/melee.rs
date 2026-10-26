@@ -227,13 +227,16 @@ pub(crate) fn prepare_melee(
 }
 
 /// Drains ordered presses before advancing this frame's held mining work once.
-pub(crate) fn produce_attacks(world: &mut bevy::prelude::World) {
+pub(crate) fn produce_attacks(
+    world: &mut bevy::prelude::World,
+    mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
+) {
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
+        &mut windows,
     );
-    world
-        .run_system_cached(maintain_attacks)
+    crate::ordered_interactions::run_cached(world, maintain_attacks, ())
         .expect("attack maintenance resources");
 }
 
