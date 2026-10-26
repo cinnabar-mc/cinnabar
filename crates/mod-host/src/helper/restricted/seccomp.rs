@@ -5,7 +5,8 @@
 //! process but the helper itself, changing file modes, owners, times, extended attributes or
 //! lengths (which Landlock does not cover, or covers only from ABI 3), System V IPC and POSIX
 //! message queues, namespaces and mounts, BPF, performance counters, keys, io_uring, modules and
-//! system administration. A foreign architecture or the x32 ABI kills
+//! system administration. Calls numbered above the newest one reviewed, which later kernels
+//! add, report `ENOSYS`, so new kernel surface stays closed until reviewed. A foreign architecture or the x32 ABI kills
 //! the process.
 
 use anyhow::{Result, ensure};
@@ -42,12 +43,25 @@ const FIOSETOWN: u32 = 0x8901;
 const SIOCSPGRP: u32 = 0x8902;
 /// `IOPRIO_WHO_PROCESS` (`linux/ioprio.h`).
 const IOPRIO_WHO_PROCESS: u32 = 1;
+/// `PR_SET_PTRACER` (`linux/prctl.h`), which the C library crate lacks.
+const PR_SET_PTRACER: u32 = 0x5961_6d61;
+/// `PRIO_PROCESS`, whose C type differs between C libraries.
+const PRIO_BY_PROCESS: u32 = libc::PRIO_PROCESS as _;
 
 /// System calls the C library crate does not number on every architecture. They come from the
 /// table every architecture shares for calls added since Linux 5.1.
 const SYS_FCHMODAT2: libc::c_long = 452;
+const SYS_LISTMOUNT: libc::c_long = 457;
+const SYS_STATMOUNT: libc::c_long = 458;
 const SYS_SETXATTRAT: libc::c_long = 463;
 const SYS_REMOVEXATTRAT: libc::c_long = 466;
+const SYS_OPEN_TREE_ATTR: libc::c_long = 467;
+const SYS_FILE_GETATTR: libc::c_long = 468;
+const SYS_FILE_SETATTR: libc::c_long = 469;
+const SYS_LISTNS: libc::c_long = 470;
+/// The newest system call reviewed for this filter, `listns`. Every call numbered above it
+/// fails with `ENOSYS`, as on a kernel that lacks it, until it is reviewed and this moves.
+const NEWEST_REVIEWED: libc::c_long = SYS_LISTNS;
 #[cfg(target_arch = "x86_64")]
 const _: () = assert!(SYS_FCHMODAT2 == libc::SYS_fchmodat2);
 
@@ -91,6 +105,10 @@ const DENIED: &[libc::c_long] = &[
     libc::SYS_lremovexattr,
     libc::SYS_fremovexattr,
     SYS_REMOVEXATTRAT,
+    // Inode flags such as no-atime, no-dump or synchronous writes, which Landlock does not
+    // cover either.
+    SYS_FILE_GETATTR,
+    SYS_FILE_SETATTR,
     libc::SYS_truncate,
     libc::SYS_ftruncate,
     // System V IPC and POSIX message queues: objects any process of the user may share.
@@ -119,6 +137,10 @@ const DENIED: &[libc::c_long] = &[
     libc::SYS_unshare,
     libc::SYS_setns,
     libc::SYS_open_tree,
+    SYS_OPEN_TREE_ATTR,
+    SYS_LISTMOUNT,
+    SYS_STATMOUNT,
+    SYS_LISTNS,
     libc::SYS_move_mount,
     libc::SYS_fsopen,
     libc::SYS_fsconfig,
@@ -148,6 +170,7 @@ const DENIED: &[libc::c_long] = &[
     libc::SYS_acct,
     libc::SYS_personality,
     libc::SYS_quotactl,
+    libc::SYS_quotactl_fd,
     libc::SYS_fanotify_init,
 ];
 
@@ -159,6 +182,7 @@ const DENIED_ARCH: &[libc::c_long] = &[
     libc::SYS_uselib,
     libc::SYS_ioperm,
     libc::SYS_iopl,
+    libc::SYS_modify_ldt,
     libc::SYS_chmod,
     libc::SYS_chown,
     libc::SYS_lchown,
@@ -168,6 +192,16 @@ const DENIED_ARCH: &[libc::c_long] = &[
 ];
 #[cfg(not(target_arch = "x86_64"))]
 const DENIED_ARCH: &[libc::c_long] = &[];
+
+/// Every refused call is one the filter has reviewed, so none falls past [`NEWEST_REVIEWED`]
+/// unnoticed.
+const _: () = {
+    let mut index = 0;
+    while index < DENIED.len() {
+        assert!(DENIED[index] <= NEWEST_REVIEWED);
+        index += 1;
+    }
+};
 
 /// A BPF statement.
 const fn statement(code: u32, k: u32) -> sock_filter {
@@ -269,6 +303,15 @@ pub(super) fn program(own_pid: u32) -> Vec<sock_filter> {
         jump(BPF_JMP | libc::BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 1),
         statement(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
     ]);
+    filter.extend([
+        jump(
+            BPF_JMP | libc::BPF_JGE | BPF_K,
+            NEWEST_REVIEWED as u32 + 1,
+            0,
+            1,
+        ),
+        statement(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | libc::ENOSYS as u32),
+    ]);
     for &call in DENIED.iter().chain(DENIED_ARCH) {
         filter.extend([jump(BPF_JMP | BPF_JEQ | BPF_K, call as u32, 0, 1), deny]);
     }
@@ -299,7 +342,7 @@ pub(super) fn program(own_pid: u32) -> Vec<sock_filter> {
         filter.extend(allow_only(call, &[(0, itself)]));
     }
     // Priorities only by process, not by process group or user.
-    let by_process: &[u32] = &[libc::PRIO_PROCESS as u32];
+    let by_process: &[u32] = &[PRIO_BY_PROCESS];
     filter.extend(allow_only(
         libc::SYS_setpriority,
         &[(0, by_process), (1, itself)],
@@ -317,6 +360,19 @@ pub(super) fn program(own_pid: u32) -> Vec<sock_filter> {
         &[libc::F_SETOWN as u32, F_SETOWN_EX, F_SETSIG],
     ));
     filter.extend(deny_values(libc::SYS_ioctl, 1, &[FIOSETOWN, SIOCSPGRP]));
+    // The helper keeps the death signal, undumpability and tracing protection it was given,
+    // and adopts no orphans; other `prctl` options, such as thread names, stay.
+    filter.extend(deny_values(
+        libc::SYS_prctl,
+        0,
+        &[
+            libc::PR_SET_PDEATHSIG as u32,
+            libc::PR_SET_DUMPABLE as u32,
+            PR_SET_PTRACER,
+            libc::PR_SET_CHILD_SUBREAPER as u32,
+            libc::PR_SET_MM as u32,
+        ],
+    ));
     // clone3 reports ENOSYS so the C library falls back to clone, whose flags a filter can
     // read; clone may create threads but not processes.
     filter.extend([
@@ -582,6 +638,62 @@ mod tests {
         for call in [libc::SYS_read, libc::SYS_execve] {
             let x32 = call | X32_SYSCALL_BIT as libc::c_long;
             assert_eq!(verdict(&filter, x32, [0; 6]), SECCOMP_RET_KILL_PROCESS);
+        }
+    }
+
+    /// Calls newer than the newest reviewed one report `ENOSYS`; the reviewed ones keep their
+    /// verdicts.
+    #[test]
+    fn calls_past_the_newest_reviewed_are_unknown() {
+        let enosys = SECCOMP_RET_ERRNO | libc::ENOSYS as u32;
+        for call in [NEWEST_REVIEWED + 1, NEWEST_REVIEWED + 40, 1023] {
+            assert_eq!(helper(call, &[0]), enosys, "{call}");
+        }
+        assert_eq!(helper(NEWEST_REVIEWED, &[0]), EPERM);
+        assert_eq!(helper(libc::SYS_read, &[0]), ALLOW);
+    }
+
+    /// Attack surface below the threshold is refused by number.
+    #[test]
+    fn mount_namespace_and_inode_flag_calls_are_refused() {
+        for call in [
+            SYS_OPEN_TREE_ATTR,
+            SYS_LISTMOUNT,
+            SYS_STATMOUNT,
+            SYS_LISTNS,
+            SYS_FILE_GETATTR,
+            SYS_FILE_SETATTR,
+            libc::SYS_quotactl_fd,
+        ] {
+            assert_eq!(helper(call, &[0]), EPERM, "{call}");
+        }
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(helper(libc::SYS_modify_ldt, &[0]), EPERM);
+    }
+
+    /// The helper cannot drop its death signal, become dumpable, name a tracer, adopt orphans
+    /// or edit its memory map's metadata, but other `prctl` options stay.
+    #[test]
+    fn prctl_keeps_the_helpers_protections() {
+        for option in [
+            libc::PR_SET_PDEATHSIG as u64,
+            libc::PR_SET_DUMPABLE as u64,
+            u64::from(PR_SET_PTRACER),
+            libc::PR_SET_CHILD_SUBREAPER as u64,
+            libc::PR_SET_MM as u64,
+        ] {
+            assert_eq!(helper(libc::SYS_prctl, &[option, 0]), EPERM, "{option:#x}");
+        }
+        for option in [
+            libc::PR_SET_NAME,
+            libc::PR_GET_DUMPABLE,
+            libc::PR_SET_NO_NEW_PRIVS,
+        ] {
+            assert_eq!(
+                helper(libc::SYS_prctl, &[option as u64, 1]),
+                ALLOW,
+                "{option}"
+            );
         }
     }
 

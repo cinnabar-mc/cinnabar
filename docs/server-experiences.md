@@ -183,10 +183,13 @@ socket call, tracing and cross-process memory, signals to any process but the he
 every kernel: `kill`, `tgkill` and queued signals only to its own process id, no `tkill`, process
 descriptors or I/O signal owners, so signal isolation does not depend on Landlock's ABI 6 scope,
 which stays as a second layer), other processes' resource limits, priorities and scheduling,
-changes to any file's mode, owner, times, extended attributes or length (by path, which Landlock
-does not cover, or by descriptor), System V IPC and POSIX message queues, namespaces and mounts,
-BPF, performance counters, keys, io_uring, modules and administration calls; a foreign
-architecture or x32 call kills it. A helper that cannot lock down exits before reading the
+changes to any file's mode, owner, times, extended attributes, inode flags or length (by path,
+which Landlock does not cover, or by descriptor), System V IPC and POSIX message queues,
+namespaces, mounts and their listings, BPF, performance counters, keys, io_uring, modules,
+quotas, the x86-64 local descriptor table and administration calls, and the `prctl` options that
+would drop its death signal, make it dumpable, name a tracer or adopt orphans. Every call
+numbered above the newest one reviewed (`listns`) fails with `ENOSYS`, so calls a later kernel
+adds stay closed until reviewed; a foreign architecture or x32 call kills it. A helper that cannot lock down exits before reading the
 component, and a kernel without Landlock refuses. The component compiles after the lockdown, so
 the compiler is contained too, under the same limits and the parent's callback deadline.
 `crates/mod-host/tests/restricted_faults.rs` injects each forbidden operation into a contained

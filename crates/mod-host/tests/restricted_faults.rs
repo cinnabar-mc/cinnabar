@@ -269,6 +269,23 @@ fn run(op: &str) -> String {
             status(unsafe { libc::syscall(libc::SYS_tgkill, libc::getpid(), libc::gettid(), 0) })
         }
         "renice-self" => renice(0),
+        // SAFETY (prctl probes): option calls on scalar arguments.
+        "drop-death-signal" => status(i64::from(unsafe {
+            libc::prctl(libc::PR_SET_PDEATHSIG, 0, 0, 0, 0)
+        })),
+        "dumpable-again" => status(i64::from(unsafe {
+            libc::prctl(libc::PR_SET_DUMPABLE, 1, 0, 0, 0)
+        })),
+        // `PR_SET_PTRACER`, naming the parent.
+        "name-tracer" => status(i64::from(unsafe {
+            libc::prctl(0x5961_6d61, libc::getppid() as libc::c_ulong, 0, 0, 0)
+        })),
+        "subreaper" => status(i64::from(unsafe {
+            libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0)
+        })),
+        "thread-name" => status(i64::from(unsafe {
+            libc::prctl(libc::PR_SET_NAME, c"probe".as_ptr(), 0, 0, 0)
+        })),
         "dumpable" => format!("dumpable {}", unsafe {
             libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0)
         }),
@@ -301,6 +318,20 @@ fn run(op: &str) -> String {
         "truncate" => status(i64::from(unsafe {
             libc::truncate(c_path(target).as_ptr(), 0)
         })),
+        // `file_setattr` and `file_getattr` with a zeroed `struct file_attr` (24 bytes):
+        // allowed, the first would clear the file's inode flags.
+        "file-setattr" | "file-getattr" => status(unsafe {
+            let attr = [0u8; 24];
+            let call = if op == "file-setattr" { 469 } else { 468 };
+            libc::syscall(
+                call,
+                libc::AT_FDCWD,
+                c_path(target).as_ptr(),
+                attr.as_ptr(),
+                attr.len(),
+                0u32,
+            )
+        }),
         "ftruncate-memfd" => on_memory_file(|fd| unsafe { libc::ftruncate(fd, 4096) }),
         "fchmod-memfd" => on_memory_file(|fd| unsafe { libc::fchmod(fd, 0o600) }),
         "fchown-memfd" => {
@@ -460,6 +491,13 @@ fn the_lockdown_denies_file_attribute_changes() {
             "{op}"
         );
     }
+    for op in ["file-setattr", "file-getattr"] {
+        assert_eq!(
+            probe(&format!("{op}={path}")),
+            format!("denied {}", libc::EPERM),
+            "{op}"
+        );
+    }
     let metadata = std::fs::metadata(file.path()).unwrap();
     assert_eq!(
         (metadata.len(), metadata.permissions().mode() & 0o777),
@@ -559,6 +597,25 @@ fn a_helper_outside_a_memory_limited_cgroup_fails_its_audit() {
     let report = probe_with("read-file", contain_outside_cgroup);
     assert!(report.starts_with("lockdown-failed"), "{report}");
     assert!(report.contains("memory limit"), "{report}");
+}
+
+/// The helper cannot drop the death signal that ties it to the client, become dumpable again,
+/// let another process trace it or adopt orphans, but it can still name its threads.
+#[test]
+fn the_lockdown_keeps_the_death_signal_and_dumpability() {
+    if !lockdown_supported() {
+        return;
+    }
+    for op in [
+        "drop-death-signal",
+        "dumpable-again",
+        "name-tracer",
+        "subreaper",
+    ] {
+        assert_eq!(probe(op), format!("denied {}", libc::EPERM), "{op}");
+    }
+    assert_eq!(probe("dumpable"), "dumpable 0");
+    assert_eq!(probe("thread-name"), "allowed");
 }
 
 /// The running helper stays undumpable, so processes of the same user cannot trace it or read
