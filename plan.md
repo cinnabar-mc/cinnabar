@@ -1352,7 +1352,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   populated-world and displayed-frame acceptance remain pending.
   Personal panels and HUD editor surfaces can bind the host local player's name
 - Mods draw their HUDs as JSON-UI surfaces over gameplay: independent top-level controls
-  are painted and cached on their own; roots with layered descendants stay together
+  are painted and cached on their own; roots with layered descendants or collection grids stay together
   to preserve paint order. Item and projected values resolve on the host,
   named controls embed in the same mod's panels, updates replace single control
   definitions and rebuild only the controls reading them, and mods read text metrics,

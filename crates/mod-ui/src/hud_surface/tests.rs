@@ -753,3 +753,21 @@ impl json_ui::TextureSource for ArtMetrics {
         None
     }
 }
+
+/// Template-like properties on ordinary controls never become recursive host traversal.
+#[test]
+fn ordinary_controls_ignore_grid_template_properties() {
+    let mut authored = (*surface(json!({}))).clone();
+    let mut document: Value = serde_json::from_str(&authored.document).unwrap();
+    let mut first = rect([10., 10.], json!([]));
+    first["grid_item_template"] = json!("hud.root");
+    document["root"]["controls"] =
+        json!([{ "first":first }, { "second":rect([40.,10.], json!([])) }]);
+    authored.document = document.to_string();
+    authored.validate_hud().unwrap();
+    let mut ui = ModUi::default();
+    let mut harness = Harness::new();
+    publish(&mut ui, &[(OWNER, 1, &Arc::new(authored))]);
+    harness.paint(&mut ui, false);
+    assert!(!harness.painted().is_empty());
+}
