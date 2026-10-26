@@ -538,7 +538,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             network_id_mode,
             neighbourhood,
             &lighting,
-            options.water_filled,
+            (options.water_filled, options.world_materials),
         )
     } else {
         (Vec::new(), Vec::new())
