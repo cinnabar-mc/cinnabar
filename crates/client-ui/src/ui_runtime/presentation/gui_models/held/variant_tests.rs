@@ -201,22 +201,28 @@ fn selection_consumers_held_previews_draw_the_selected_definition_in_both_orders
                         },
                     ));
             }
-            ui.dress_player_preview(&player, &runtime, Some(&world), Default::default(), |_| {
-                Some(client_world::CanonicalItemStack {
-                    identifier: Some(item.into()),
-                    identity: assets::ItemStackIdentity::empty(),
-                    visual: assets::ItemVisualRoute::Missing,
-                    enchanted: false,
-                    glint: assets::item::glint::ItemGlint::Session { enabled: true },
-                    use_animation: assets::item_use::ItemUseAnimation::None,
-                    grip: assets::item::grip::ItemGrip::Unresolved,
-                    map_id: None,
-                    charged_projectile: None,
-                    charged_projectile_role: assets::item_use::ItemProjectileRole::None,
-                    damage: None,
-                    durability: assets::item::durability::ItemDurability::NotDamageable,
-                })
-            });
+            ui.dress_player_preview(
+                &player,
+                &runtime,
+                Some(world.authority().inventory_ui()),
+                Default::default(),
+                |_| {
+                    Some(client_world::CanonicalItemStack {
+                        identifier: Some(item.into()),
+                        identity: assets::ItemStackIdentity::empty(),
+                        visual: assets::ItemVisualRoute::Missing,
+                        enchanted: false,
+                        glint: assets::item::glint::ItemGlint::Session { enabled: true },
+                        use_animation: assets::item_use::ItemUseAnimation::None,
+                        grip: assets::item::grip::ItemGrip::Unresolved,
+                        map_id: None,
+                        charged_projectile: None,
+                        charged_projectile_role: assets::item_use::ItemProjectileRole::None,
+                        damage: None,
+                        durability: assets::item::durability::ItemDurability::NotDamageable,
+                    })
+                },
+            );
             assert_model(&ui, &pack, 0, "mapped");
             assert_model(&ui, &pack, 1, "ordinary");
             assert!(

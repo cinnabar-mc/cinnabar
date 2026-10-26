@@ -52,7 +52,7 @@ pub(super) struct CrashApp {
     pointer: Pointer,
     hovered: Option<CrashAction>,
     input: Input<CrashAction>,
-    controllers: Option<gilrs::Gilrs>,
+    controllers: Option<bootstrap_ui::controllers::Controllers>,
     preferences: Preferences,
     modifiers: ModifiersState,
     overlay_dirty: bool,
@@ -94,7 +94,7 @@ impl CrashApp {
             pointer: Pointer::default(),
             hovered: None,
             input,
-            controllers: bootstrap_ui::controllers(),
+            controllers: None,
             preferences,
             modifiers: ModifiersState::default(),
             overlay_dirty: true,
@@ -287,6 +287,7 @@ impl ApplicationHandler for CrashApp {
             }
         }
         self.window = Some(window);
+        self.controllers = bootstrap_ui::controllers();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
@@ -419,12 +420,16 @@ impl ApplicationHandler for CrashApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        while let Some(event) = self.controllers.as_mut().and_then(gilrs::Gilrs::next_event) {
+        while let Some(event) = self
+            .controllers
+            .as_mut()
+            .and_then(bootstrap_ui::controllers::Controllers::next_event)
+        {
             if !self.pointer.active {
                 continue;
             }
             // Bumpers page through the details; everything else navigates like setup.
-            if let gilrs::EventType::ButtonPressed(button, _) = event.event {
+            if let bootstrap_ui::controllers::Event::ButtonPressed(button) = event {
                 let page = self.log.map_or(0.0, |log| (log.visible - 1.0).max(1.0));
                 match button {
                     gilrs::Button::LeftTrigger => {
@@ -438,7 +443,7 @@ impl ApplicationHandler for CrashApp {
                     _ => {}
                 }
             }
-            if let Some(command) = input::controller(event.event, &self.preferences.settings) {
+            if let Some(command) = input::controller(event, &self.preferences.settings) {
                 let (action, changed) =
                     self.input
                         .apply(&self.screen, Source::Controller, command, None);

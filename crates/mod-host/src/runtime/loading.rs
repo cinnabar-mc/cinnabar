@@ -5,7 +5,24 @@ use wasmtime::{
     component::{Component, HasSelf, Linker},
 };
 
+#[cfg(test)]
+mod tests;
+
 impl Instance {
+    /// Clears world-scoped observations and output while preserving guest memory and HUD.
+    pub(crate) fn clear_drawing_world(&mut self) {
+        let state = self.store.data_mut();
+        state.clear_world_output();
+        state.terrain.clear_world();
+        state.player_state.revoke();
+        state.snapshot = None;
+        state.gameplay_facts = Default::default();
+        state.controls.begin_frame();
+        state.touch.restart_guest();
+        state.pressed = false;
+        state.events.modifiers = Default::default();
+    }
+
     /// Revokes previously published drawing and installs the current admission ceiling.
     pub(crate) fn bind_drawing_policy(
         &mut self,
@@ -14,7 +31,6 @@ impl Instance {
     ) {
         let state = self.store.data_mut();
         state.render.revoke();
-        state.block_highlights.revoke();
         state.grants = grants;
         state.drawing_policy = Some(session);
         state
@@ -30,14 +46,7 @@ impl Instance {
     pub(crate) fn drawing_entity_keys(
         &self,
     ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
-        self.store
-            .data()
-            .render
-            .retained
-            .snapshot()
-            .entities
-            .values()
-            .copied()
+        self.store.data().drawing_entity_keys()
     }
 
     /// Reconciles native actor lifetime changes outside guest callback transactions.
@@ -61,7 +70,7 @@ impl Instance {
     pub(crate) fn check(engine: &Engine, bytes: &[u8]) -> Result<()> {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
-        PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         exports::Exports::check(&linker.instantiate_pre(&component)?)
     }
 
@@ -77,9 +86,10 @@ impl Instance {
         declared: Declared,
         panel_bundle: Option<Arc<ui::mod_panel::PanelBundle>>,
     ) -> Result<Self> {
+        let component = Component::new(engine, bytes)?;
         Self::new_with_drawing_policy(
             engine,
-            bytes,
+            &component,
             grants,
             settings,
             declared,
@@ -91,7 +101,7 @@ impl Instance {
     /// Installs session limits before instantiation and init can call any import.
     pub(crate) fn new_with_drawing_policy(
         engine: &Engine,
-        bytes: &[u8],
+        component: &Component,
         grants: ModGrants,
         settings: String,
         declared: Declared,
@@ -102,9 +112,8 @@ impl Instance {
             || grants.clone(),
             |session| grants.for_drawing_session(session),
         );
-        let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
-        PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         let mut state = State::new(grants, settings, declared);
         state.drawing_policy = policy;
         if let Some(mut session) = policy {
@@ -115,47 +124,74 @@ impl Instance {
             session.permissions = state.grants.drawing_permissions();
             state.render.masks.bind(session);
         }
-        if let Some(bundle) = panel_bundle.filter(|_| state.grants.controls) {
-            state.controls.panel = Some(bundle.panel.clone());
-            state.controls.bundle = Some(bundle);
-        }
-        let pre = linker.instantiate_pre(&component)?;
+        state.controls.bundle = panel_bundle.filter(|_| state.grants.controls);
+        let pre = linker.instantiate_pre(component)?;
         exports::Exports::check(&pre)?;
-        let mut store = Store::new(engine, state);
+        Self::instantiate(pre, state)
+    }
+
+    /// Initializes a fresh store from admitted code and caller-selected host state.
+    pub(super) fn instantiate(
+        pre: wasmtime::component::InstancePre<State>,
+        state: State,
+    ) -> Result<Self> {
+        let mut store = Store::new(pre.engine(), state);
+        let (exports, last_fuel) = Self::initialize(&pre, &mut store)?;
+        Ok(Self {
+            store,
+            pre,
+            exports,
+            status: InstanceStatus::Running,
+            last_fuel,
+            callback_budget: None,
+            filter_identity: super::action_filter::next_identity(),
+            consecutive_frame_overruns: 0,
+        })
+    }
+
+    /// Initializes admitted code with fresh controls, keeping the store available on failure.
+    pub(super) fn initialize(
+        pre: &wasmtime::component::InstancePre<State>,
+        store: &mut Store<State>,
+    ) -> Result<(exports::Exports, u64)> {
+        // Fresh memory starts from admitted controls, without edits owned by the old guest.
+        let state = store.data_mut();
+        state.controls.panel = state
+            .controls
+            .bundle
+            .as_ref()
+            .map(|bundle| bundle.panel.clone());
+        state.controls.finish_text_frame(false);
+        state.controls.layout = None;
+        state.touch.restart_guest();
         store.limiter(|state| &mut state.limits);
         let initial = FRAME_FUEL;
-        crate::execution::arm(&mut store, initial, true)?;
-        let instance = pre.instantiate(&mut store)?;
-        let (init, exports) = exports::Exports::find(&mut store, &instance)?;
+        crate::execution::arm(store, initial, true)?;
+        let instance = pre.instantiate(&mut *store)?;
+        let (init, exports) = exports::Exports::find(store, &instance)?;
         let instantiated = initial - store.get_fuel().unwrap_or(0).min(initial);
         let mut armed = initial;
         if exports.loads_session() {
             armed = LOAD_FUEL;
-            crate::execution::arm(&mut store, armed, true)?;
+            crate::execution::arm(store, armed, true)?;
         }
-        init.call(&mut store, ())?;
-        init.post_return(&mut store)?;
-        commit(&mut store);
+        init.call(&mut *store, ())?;
+        init.post_return(&mut *store)?;
+        commit(store);
         let last_fuel = armed - store.get_fuel().unwrap_or(0).min(armed)
             + if exports.loads_session() {
                 instantiated
             } else {
                 0
             };
-        Ok(Self {
-            store,
-            exports,
-            status: InstanceStatus::Running,
-            last_fuel,
-            callback_budget: None,
-        })
+        Ok((exports, last_fuel))
     }
 
     /// Initializes a replacement through the bounded loading lane with its full guest limits.
     pub(crate) fn replacement(
         &self,
         engine: &Engine,
-        bytes: &[u8],
+        component: &Component,
         grants: ModGrants,
         settings: String,
         declared: Declared,
@@ -170,7 +206,7 @@ impl Instance {
         }
         let mut candidate = Self::new_with_drawing_policy(
             engine,
-            bytes,
+            component,
             grants,
             settings,
             declared,
@@ -179,6 +215,7 @@ impl Instance {
         )?;
         candidate.callback_budget = budget;
         candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();
+        candidate.set_text_measure(self.store.data().hud.text.clone());
         Ok(candidate)
     }
 

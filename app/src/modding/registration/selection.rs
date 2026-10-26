@@ -1,13 +1,14 @@
 //! Settings-driven registration writes, and the registration and status the Mods tab shows.
 
 use super::{
-    Entry, REGISTRATION_FILE, Registration, STATUS_FILE, StatusList, source::observe,
+    Entry, REGISTRATION_FILE, Registration, STATUS_FILE, StatusList, source::Observer,
     status::write_json,
 };
 use launcher::mods::Status;
+use launcher_host::mod_library::paths::{resolved_component, same_path};
 use mod_host::ModGrants;
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(super) const SELECTION_CHANGED: &str = "The mod selection changed before removal finished.";
 
@@ -21,43 +22,16 @@ pub(in crate::modding) struct Receipt {
 impl Receipt {
     /// Rejects a changed or unreadable registration, including changes which reuse its request ID.
     pub(in crate::modding) fn confirm(&self, directory: &Path) -> Result<(), String> {
-        let current = observe(&directory.join(REGISTRATION_FILE));
+        let current = Observer::default().observe(
+            &directory.join(REGISTRATION_FILE),
+            std::time::Instant::now(),
+        );
         if current.fingerprint == self.fingerprint && current.result.is_ok() {
             Ok(())
         } else {
             Err(SELECTION_CHANGED.into())
         }
     }
-}
-
-/// Matches resolved entries, also resolving a missing companion through its existing parent.
-pub(in crate::modding) fn same_path(left: &Path, right: &Path) -> bool {
-    left == right
-        || resolved_path(left)
-            .zip(resolved_path(right))
-            .is_some_and(|(left, right)| left == right)
-}
-
-/// Resolves directory aliases without requiring a not-yet-created settings entry to exist.
-pub(super) fn resolved_path(path: &Path) -> Option<PathBuf> {
-    path.canonicalize()
-        .ok()
-        .or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))
-}
-
-/// Resolves only directory aliases; a selected leaf link must still fail source admission.
-pub(super) fn resolved_component(path: &Path) -> PathBuf {
-    path.parent()
-        .and_then(|parent| parent.canonicalize().ok())
-        .zip(path.file_name())
-        .map(|(parent, name)| parent.join(name))
-        .unwrap_or_else(|| path.into())
-}
-
-/// Uses a resolved component path for panel ownership and cards without a source revision.
-pub(in crate::modding) fn component_id(component: &Path) -> u64 {
-    let digest = Sha256::digest(component.to_string_lossy().as_bytes());
-    u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"))
 }
 
 /// A valid entry and the status for its list's current request.
@@ -68,7 +42,13 @@ pub(in crate::modding) struct Registered {
 
 /// Reads the same bounded, migrated registration the watcher consumes.
 pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
-    let Ok(Some(registration)) = observe(&directory.join(REGISTRATION_FILE)).result else {
+    let Ok(Some(registration)) = Observer::default()
+        .observe(
+            &directory.join(REGISTRATION_FILE),
+            std::time::Instant::now(),
+        )
+        .result
+    else {
         return Vec::new();
     };
     let statuses = mod_host::local_files::read(&directory.join(STATUS_FILE), super::MAX_BYTES)
@@ -110,7 +90,10 @@ fn edit(
     change: impl FnOnce(&mut Registration) -> Result<(), String>,
 ) -> Result<Receipt, String> {
     let path = directory.join(REGISTRATION_FILE);
-    let mut registration = observe(&path).result?.unwrap_or_else(Registration::empty);
+    let mut registration = Observer::default()
+        .observe(&path, std::time::Instant::now())
+        .result?
+        .unwrap_or_else(Registration::empty);
     change(&mut registration)?;
     registration.request_id = request_id;
     write_selection(&path, registration)
@@ -271,6 +254,28 @@ pub(in crate::modding) fn allow_requested(
         .ok_or("This mod doesn't declare its permissions.")?;
     change_grants(directory, component, request_id, |grants| {
         *grants = requested;
+        Ok(())
+    })
+}
+
+/// Grants all applicable capabilities and declared commands without changing the source's host.
+pub(in crate::modding) fn grant_all(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+) -> Result<(), String> {
+    let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+    let packet = mod_host::SourceKind::of(&bytes) == mod_host::SourceKind::Packet;
+    let requested = mod_host::declarations_snapshot(&bytes)
+        .and_then(|declared| declared.requested)
+        .map_err(|error| error.to_string())?;
+    change_grants(directory, component, request_id, |grants| {
+        for capability in ModGrants::CAPABILITIES {
+            (capability.set)(grants, true, requested.as_ref());
+        }
+        // Wrapped packet mods share the component framing, so check their packet interface.
+        grants.packets =
+            packet || mod_host::packet_mod::CompiledPacketMod::compile(&bytes, grants).is_ok();
         Ok(())
     })
 }

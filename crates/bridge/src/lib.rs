@@ -30,6 +30,7 @@ mod error;
 mod framed;
 pub mod join_profile;
 pub mod latency_trace;
+pub mod leave_profile;
 #[cfg(not(target_arch = "wasm32"))]
 mod packet_delay;
 #[cfg(not(target_arch = "wasm32"))]

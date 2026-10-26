@@ -1,6 +1,24 @@
 use super::style::style_scene;
 use super::*;
-mod counter;
+mod annotation;
+
+/// Builds annotation spans sharing one colour at one position.
+pub(super) fn spans(
+    texts: &[&str],
+    color: [f32; 4],
+    position: ui::mod_presentation::SpanPosition,
+) -> Arc<ui::mod_presentation::Spans> {
+    Arc::new(ui::mod_presentation::Spans {
+        spans: texts
+            .iter()
+            .map(|text| ui::mod_presentation::Span {
+                text: (*text).into(),
+                color,
+            })
+            .collect(),
+        position,
+    })
+}
 use protocol_ids::ActorFlag;
 
 mod badges;
@@ -112,7 +130,7 @@ pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {
         view_depth: 5.0,
         camera_forward_y: 0.0,
         cinnabar_badge: false,
-        counter: None,
+        annotation: None,
     }
 }
 
@@ -393,7 +411,7 @@ fn projected_tags_keep_mount_names_and_hide_only_their_score() {
         project_nametags(
             cache,
             &boards,
-            stream,
+            stream.authority().nametag_ui(),
             view(Vec3::ZERO),
             None,
             1.0,
@@ -732,10 +750,12 @@ fn cosmetic_shadow_and_border_preserve_each_records_depth_selection_and_record_b
         ],
         ..Default::default()
     };
-    let style: ui::mod_hud::NametagStyle = serde_json::from_value(
-        serde_json::json!({"scale":2.,"shadow":true,"border_color":[1.,1.,1.,1.]}),
-    )
-    .unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        scale: 2.,
+        shadow: true,
+        border_color: Some([1.; 4]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, None);
     assert!(
         scene.records[..7]
@@ -780,7 +800,13 @@ fn own_tag_color_and_border_width_preserve_other_tags() {
         records: vec![plate, glyph, remote],
         ..Default::default()
     };
-    let style: ui::mod_hud::NametagStyle = serde_json::from_value(serde_json::json!({"border_width":3.,"border_color":[1.,1.,1.,1.],"text_color":[0.,1.,0.,1.],"own_text_color":[1.,0.,0.,1.]})).unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        border_width: 3.,
+        border_color: Some([1.; 4]),
+        text_color: Some([0., 1., 0., 1.]),
+        own_text_color: Some([1., 0., 0., 1.]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, Some(glyph.runtime_id));
     assert_eq!(scene.records[0].rect, [-5., -4., 5., -1.]);
     assert_eq!(scene.records[5].color, [1., 0., 0., 0.125]);
@@ -849,7 +875,7 @@ fn projection_limits_extraction_to_the_nearest_tags_and_reuses_their_text() {
         project_nametags(
             cache,
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view(Vec3::new(0.0, 1.62, 5.0)),
             None,
             0.5,

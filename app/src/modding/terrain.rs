@@ -31,13 +31,14 @@ const PHYSICS_FLAGS: [(BlockPhysicsFlags, TerrainPhysicsFlags); 7] = [
     (BlockPhysicsFlags::PASSABLE, TerrainPhysicsFlags::PASSABLE),
 ];
 
-/// Sampler scratch, cached block metadata, the registry generation they describe and the
-/// round-robin cursor across every mod's subscriptions.
+/// Sampler scratch, cached block metadata, the registry generation they describe, the
+/// round-robin cursor across every mod's subscriptions and the scans behind block searches.
 #[derive(Default)]
 pub(super) struct TerrainSampling {
     sampler: sim::TerrainSampler,
     descriptors: mod_host::TerrainDescriptors,
     scheduler: mod_host::TerrainScheduler,
+    searches: super::block_search::BlockSearches,
     scope: Option<(u64, NetworkIdMode)>,
     generation: u64,
 }
@@ -68,24 +69,25 @@ struct Source<'a> {
 }
 
 impl TerrainSampling {
-    /// Refreshes every mod's subscriptions once, before callbacks, under one cell budget.
-    /// Without a current world, subscriptions keep their samples until it returns.
+    /// Refreshes every mod's subscriptions once, before callbacks, under one cell budget, and
+    /// answers their block searches. Without a current world, subscriptions keep their samples
+    /// until it returns.
     pub(super) fn refresh(
         &mut self,
         hosts: &mut ModHosts,
         context: &GameplayContext<'_>,
         observation: Option<&mod_host::WorldObservation>,
     ) {
-        let authority = context
+        let stream = context
             .world
             .as_ref()
-            .and_then(|world| world.stream.as_ref())
-            .map(|stream| stream.authority());
-        let (Some(observation), Some(authority), Some(registries)) =
-            (observation, authority, context.collisions.as_ref())
+            .and_then(|world| world.stream.as_ref());
+        let (Some(observation), Some(stream), Some(registries)) =
+            (observation, stream, context.collisions.as_ref())
         else {
             return;
         };
+        let authority = stream.authority();
         let mode = authority.network_id_mode();
         let scope = Some((observation.session, mode));
         if self.scope != scope || registries.is_changed() {
@@ -104,6 +106,7 @@ impl TerrainSampling {
         let mut hosts: Vec<_> = hosts.iter_mut().collect();
         self.scheduler
             .refresh(&mut hosts, mod_api::MAX_TERRAIN_FRAME_CELLS, &mut source);
+        self.searches.refresh(&mut hosts, stream, observation);
     }
 }
 

@@ -481,3 +481,144 @@ fn native_body_is_unchanged_by_java_physics_replay() {
     assert_eq!(rig.java.body_yaw, [0.0; 2]);
     assert_eq!((rig.previous_body_yaw, rig.body_yaw), native);
 }
+
+/// Local legs consume every physics step even when the actor clock stalls or catches up.
+#[test]
+fn local_running_jump_gait_is_independent_of_actor_tick_cadence() {
+    /// Replays the same resolved movement with a different actor tick schedule.
+    fn run(actor_ticks: &[usize]) -> (JavaMotion, f32, f32) {
+        let (mut actors, mut store) = fixture();
+        early(&actors, &mut store, 1);
+        let authority = (
+            SessionGeneration::new(1),
+            PositionAuthorityGeneration::new(1),
+        );
+        for (index, count) in actor_ticks.iter().enumerate() {
+            let actor = actors.get_mut(&1).unwrap();
+            let delta = [0.3, if index < 5 { 0.2 } else { -0.2 }, 0.0];
+            actor.previous_position = actor.position;
+            for (position, step) in actor.position.iter_mut().zip(delta) {
+                *position += step;
+            }
+            actor.on_ground = Some(false);
+            early(&actors, &mut store, *count);
+            store.sync_local_swing_motion(
+                1,
+                authority,
+                [LocalSwingMotionSample {
+                    tick: index as u64 + 1,
+                    delta,
+                    yaw: 0.0,
+                    progress: LocalSwingProgress {
+                        frame_alpha: Some(0.75),
+                        ..Default::default()
+                    },
+                }],
+            );
+        }
+        let state = store.rigs.values().next().unwrap();
+        (
+            store.get(1).unwrap().java,
+            state.motion.distance,
+            state.motion.speed,
+        )
+    }
+    let (expected, distance, speed) = run(&[1; 10]);
+    assert!(expected.limb_swing[1] > 0.0);
+    assert!(distance > 0.0);
+    for cadence in [[0; 10], [0, 2, 0, 2, 0, 2, 0, 2, 0, 2], [3; 10]] {
+        let (actual, actual_distance, actual_speed) = run(&cadence);
+        assert_eq!(actual.limb_swing, expected.limb_swing, "{cadence:?}");
+        assert_eq!(actual.limb_amount, expected.limb_amount, "{cadence:?}");
+        assert_eq!(actual_distance, distance, "{cadence:?}");
+        assert_eq!(actual_speed, speed, "{cadence:?}");
+    }
+}
+
+/// A replacement movement tick replays the gait; attack-only retries never take another step.
+#[test]
+fn local_gait_retries_restore_only_the_changed_movement_tick() {
+    let (actors, mut store) = fixture();
+    early(&actors, &mut store, 1);
+    let authority = (
+        SessionGeneration::new(1),
+        PositionAuthorityGeneration::new(1),
+    );
+    let movement = |delta, attack| LocalSwingMotionSample {
+        tick: 1,
+        delta: [delta, 0.2, 0.0],
+        yaw: 0.0,
+        progress: LocalSwingProgress {
+            java: [0.0, attack],
+            ..Default::default()
+        },
+    };
+    store.sync_local_swing_motion(1, authority, [movement(0.3, 0.0)]);
+    let original = store.get(1).unwrap().java;
+    let original_walk = store.rigs.values().next().unwrap().motion.walk_state();
+    store.sync_local_swing_motion(1, authority, [movement(0.3, 0.25)]);
+    let after_attack = store.get(1).unwrap().java;
+    assert_eq!(after_attack.limb_swing, original.limb_swing);
+    assert_eq!(after_attack.limb_amount, original.limb_amount);
+    assert_eq!(
+        store.rigs.values().next().unwrap().motion.walk_state(),
+        original_walk
+    );
+    store.sync_local_swing_motion(1, authority, [movement(0.1, 0.25)]);
+    let replayed = store.get(1).unwrap().java;
+    let replayed_walk = store.rigs.values().next().unwrap().motion.walk_state();
+    let (actors, mut fresh) = fixture();
+    early(&actors, &mut fresh, 1);
+    fresh.sync_local_swing_motion(1, authority, [movement(0.1, 0.25)]);
+    let expected = fresh.get(1).unwrap().java;
+    assert_eq!(replayed.limb_swing, expected.limb_swing);
+    assert_eq!(replayed.limb_amount, expected.limb_amount);
+    assert_eq!(
+        replayed_walk,
+        fresh.rigs.values().next().unwrap().motion.walk_state()
+    );
+}
+
+/// Hurt events arriving after movement stay after that tick when its displacement is replayed.
+#[test]
+fn local_gait_corrections_preserve_intervening_and_consecutive_hurt_events() {
+    let (actors, mut corrected) = fixture();
+    let (_, mut fresh) = fixture();
+    early(&actors, &mut corrected, 1);
+    early(&actors, &mut fresh, 1);
+    let authority = (
+        SessionGeneration::new(1),
+        PositionAuthorityGeneration::new(1),
+    );
+    let movement = |tick, step| LocalSwingMotionSample {
+        tick,
+        delta: [step, 0.2, 0.0],
+        yaw: 0.0,
+        progress: LocalSwingProgress::default(),
+    };
+    for tick in 1..=3 {
+        corrected.sync_local_swing_motion(1, authority, [movement(tick, 0.3)]);
+        corrected.hurt_java_limbs(1);
+        corrected.sync_local_swing_motion(1, authority, [movement(tick, 0.1)]);
+        corrected.hurt_java_limbs(1);
+        corrected.sync_local_swing_motion(1, authority, [movement(tick, 0.2)]);
+        fresh.sync_local_swing_motion(1, authority, [movement(tick, 0.2)]);
+        fresh.hurt_java_limbs(1);
+        fresh.hurt_java_limbs(1);
+        let actual = corrected.get(1).unwrap().java;
+        let expected = fresh.get(1).unwrap().java;
+        assert_eq!(actual.limb_swing, expected.limb_swing, "tick {tick}");
+        assert_eq!(actual.limb_amount, expected.limb_amount, "tick {tick}");
+    }
+    let boosted = fresh.get(1).unwrap().java.limb_amount[1];
+    corrected.sync_local_swing_motion(1, authority, [movement(4, 0.2)]);
+    fresh.sync_local_swing_motion(1, authority, [movement(4, 0.2)]);
+    let actual = corrected.get(1).unwrap().java;
+    let expected = fresh.get(1).unwrap().java;
+    assert_eq!(actual.limb_swing, expected.limb_swing);
+    assert_eq!(actual.limb_amount, expected.limb_amount);
+    assert!(
+        actual.limb_amount[1] < boosted,
+        "a new movement tick consumes the boost"
+    );
+}

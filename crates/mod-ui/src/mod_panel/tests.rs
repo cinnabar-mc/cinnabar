@@ -4,7 +4,7 @@ use crate::test_support::sample_panel as panel;
 /// Custom artwork follows both toggle states through the actual global binding pipeline.
 #[test]
 fn authored_toggle_faces_follow_native_control_values() {
-    let surface = ui::mod_panel::Surface { previews: Default::default(), collections: Default::default(),
+    let surface = ui::mod_panel::Surface {  collections: Default::default(),
         screen: "extension.screen".into(), bindings: Default::default(), transitions: Default::default(),
         document: serde_json::json!({"namespace":"extension","screen":{"type":"screen","controls":[
             {"enabled":{"type":"panel","bindings":[{"binding_name":"#row_0_toggle_enabled","binding_name_override":"#visible"}]}},
@@ -36,10 +36,10 @@ fn authored_toggle_faces_follow_native_control_values() {
 /// Prepares two authored routes with distinct wrapper facts for each owner or revision.
 fn prepared_panels(title: &str) -> ([Panel; 2], Arc<prepared::PreparedPanelUi>) {
     let mut content = panel();
-    content.title = title.into();
-    content.surface = Some(ui::mod_panel::Surface {
+    // Distinct titles give distinct wrapper facts through the authored reference size.
+    content.reference_size = Some([400. + title.bytes().map(f32::from).sum::<f32>(), 300.]);
+    content.surface = ui::mod_panel::Surface {
         collections: Default::default(),
-        previews: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({
@@ -48,9 +48,9 @@ fn prepared_panels(title: &str) -> ([Panel; 2], Arc<prepared::PreparedPanelUi>) 
         })
         .to_string(),
         bindings: Default::default(),
-    });
+    };
     let mut other = content.clone();
-    other.surface.as_mut().unwrap().document = serde_json::json!({
+    other.surface.document = serde_json::json!({
         "namespace": "extension",
         "screen": {"type": "screen", "size": [80, 60], "controls": []}
     })
@@ -58,10 +58,7 @@ fn prepared_panels(title: &str) -> ([Panel; 2], Arc<prepared::PreparedPanelUi>) 
     let bundle = Arc::new(ui::mod_panel::PanelBundle {
         panel: content.clone(),
         control_schemas: Default::default(),
-        surfaces: std::collections::BTreeMap::from([(
-            "other".into(),
-            other.surface.as_ref().unwrap().clone(),
-        )]),
+        surfaces: std::collections::BTreeMap::from([("other".into(), other.surface.clone())]),
     });
     let prepared = prepared::PreparedPanelUi::prepare(bundle).unwrap();
     ([content, other], prepared)
@@ -78,10 +75,7 @@ fn prepared_routes_match_their_own_control_schema() {
     }];
     let bundle = Arc::new(ui::mod_panel::PanelBundle {
         panel: initial.clone(),
-        surfaces: std::collections::BTreeMap::from([(
-            "options".into(),
-            options.surface.clone().unwrap(),
-        )]),
+        surfaces: std::collections::BTreeMap::from([("options".into(), options.surface.clone())]),
         control_schemas: std::collections::BTreeMap::from([(
             "options".into(),
             options.controls.clone(),
@@ -308,15 +302,7 @@ impl json_ui::TextureSource for InputArt {
 
 /// Resolves the native panel's input regions without a renderer or local game assets.
 pub(super) fn panel_frame(panel: &ModPanel) -> EngineFrame {
-    let (catalog, _) = template::catalog(
-        &panel.panel,
-        panel.viewport,
-        panel.category,
-        panel.page,
-        panel.rows,
-        panel.edit.as_ref(),
-    )
-    .unwrap();
+    let catalog = template::catalog(&panel.panel, panel.viewport, panel.edit.as_ref()).unwrap();
     let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
         .control
         .unwrap();
@@ -351,12 +337,15 @@ fn close_button_resets_scroll_and_feedback_before_reopening() {
         let mut ui = ModUi::default();
         ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
             .unwrap();
-        let settled = Arc::clone(&ui.mod_panel.as_ref().unwrap().data);
         ui.set_mod_panel_open(true);
-        let close_at = {
+        {
             let current = ui.mod_panel.as_mut().unwrap();
             current.viewport = [600.0, 400.0];
-            current.rows = 10;
+            current.refresh_data();
+        }
+        let settled = Arc::clone(&ui.mod_panel.as_ref().unwrap().data);
+        let close_at = {
+            let current = ui.mod_panel.as_mut().unwrap();
             current.view.scroll.insert("list".into(), 40.0);
             if motion_enabled {
                 current
@@ -366,9 +355,7 @@ fn close_button_resets_scroll_and_feedback_before_reopening() {
                 current
                     .motion
                     .advance(&current.panel, &mut current.view, Some(0), 1.03, true);
-                current
-                    .motion
-                    .write(&current.panel, Arc::make_mut(&mut current.data));
+                current.motion.write(Arc::make_mut(&mut current.data));
                 assert!(current.motion.active());
                 assert_ne!(current.data, settled);
             }
@@ -464,9 +451,7 @@ fn closing_panel_restores_settled_hover_bindings() {
         current
             .motion
             .advance(&current.panel, &mut current.view, Some(0), 1.2, true);
-        current
-            .motion
-            .write(&current.panel, Arc::make_mut(&mut current.data));
+        current.motion.write(Arc::make_mut(&mut current.data));
         assert!(!current.motion.active());
         assert_ne!(current.data, settled);
     }
@@ -479,13 +464,10 @@ fn closing_panel_restores_settled_hover_bindings() {
 /// Reopening unchanged content clears settled hover and restores a toggle closed mid-transition.
 #[test]
 fn reopening_panel_restores_settled_feedback_bindings() {
-    use ui::mod_panel::Theme;
-
-    for theme in [Theme::Default, Theme::Monochrome] {
+    {
         for enabled in [false, true] {
             let mut settings = panel();
             settings.motion = true;
-            settings.theme = theme;
             if let Control::Toggle { value, .. } = &mut settings.controls[0] {
                 *value = !enabled;
             }
@@ -502,9 +484,7 @@ fn reopening_panel_restores_settled_feedback_bindings() {
                 current
                     .motion
                     .advance(&current.panel, &mut current.view, Some(0), 1.2, true);
-                current
-                    .motion
-                    .write(&current.panel, Arc::make_mut(&mut current.data));
+                current.motion.write(Arc::make_mut(&mut current.data));
             }
             if let Control::Toggle { value, .. } = &mut settings.controls[0] {
                 *value = enabled;
@@ -520,9 +500,7 @@ fn reopening_panel_restores_settled_feedback_bindings() {
                 current
                     .motion
                     .advance(&current.panel, &mut current.view, Some(0), 1.24, true);
-                current
-                    .motion
-                    .write(&current.panel, Arc::make_mut(&mut current.data));
+                current.motion.write(Arc::make_mut(&mut current.data));
                 assert_ne!(current.data, settled);
             }
             assert!(ui.mod_panel_motion_active());
@@ -559,63 +537,6 @@ fn relabeled_controls_keep_the_retained_catalog_shape() {
 }
 
 #[test]
-fn compact_module_cards_align_and_wrap_without_losing_bindings() {
-    use ui::mod_panel::{Icon, Section, Style};
-    let mut settings = panel();
-    settings.style = Style::Compact;
-    settings.controls.clear();
-    settings.sections = (0..3)
-        .map(|index| {
-            settings.controls.extend([
-                Control::Toggle {
-                    id: format!("enabled{index}"),
-                    label: "Enabled".into(),
-                    value: false,
-                },
-                Control::Keybind {
-                    id: format!("binding{index}"),
-                    label: "Keybind".into(),
-                    key: "F8".into(),
-                    capturing: false,
-                },
-            ]);
-            Section {
-                id: format!("section{index}"),
-                label: "Module".into(),
-                category: "Modules".into(),
-                icon: Icon::Pointer,
-                toggle: Some(format!("enabled{index}")),
-                controls: vec![format!("binding{index}")],
-            }
-        })
-        .collect();
-    let wide = layout::Layout::new(&settings, [600., 400.], 0, 10);
-    assert_eq!(wide.pages.len(), 1);
-    assert_eq!(wide.pages[0].len(), 3);
-    let baseline = wide.pages[0][0].offset[1] + wide.pages[0][0].height;
-    assert!(
-        wide.pages[0]
-            .iter()
-            .all(|card| card.offset[1] + card.height == baseline)
-    );
-    let narrow = layout::Layout::new(&settings, [260., 200.], 0, 3);
-    let bindings: Vec<_> = narrow
-        .pages
-        .iter()
-        .flatten()
-        .flat_map(|card| &card.controls)
-        .collect();
-    assert_eq!(bindings.len(), 3);
-    assert!(
-        narrow
-            .pages
-            .iter()
-            .flatten()
-            .all(|card| card.offset[0] + narrow.card_width <= narrow.width)
-    );
-}
-
-#[test]
 fn keycaps_use_readable_ascii_names_for_modifiers_and_extended_keys() {
     for (physical, visible) in [
         ("KeyR", "R"),
@@ -638,9 +559,8 @@ fn exiting_panel(exit: Option<f64>) -> Panel {
 
     let mut content = panel();
     content.motion = true;
-    content.surface = Some(Surface {
+    content.surface = Surface {
         collections: Default::default(),
-        previews: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({
             "namespace": "extension",
@@ -657,7 +577,7 @@ fn exiting_panel(exit: Option<f64>) -> Panel {
                 exit: exit.map(SurfaceValue::Number),
             },
         )]),
-    });
+    };
     content
 }
 
@@ -668,7 +588,7 @@ fn open_painted(ui: &mut ModUi, content: &Panel) {
         .unwrap();
     ui.set_mod_panel_open(true);
     let current = ui.mod_panel.as_mut().unwrap();
-    let surface = current.panel.surface.as_ref().unwrap();
+    let surface = &current.panel.surface;
     current.motion.transitions.advance(surface, 1.0, true);
     current.view.scroll.insert("list".into(), 40.0);
     current.pointer = Some([10.0, 10.0]);
@@ -772,8 +692,6 @@ fn route_changes_end_an_exit_and_binding_updates_continue_it() {
     let mut updated = content.clone();
     updated
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#fade".into(), SurfaceValue::Number(0.5));
     ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&updated))
@@ -781,8 +699,8 @@ fn route_changes_end_an_exit_and_binding_updates_continue_it() {
     assert!(ui.mod_panel_painting());
 
     let mut rerouted = updated.clone();
-    rerouted.surface.as_mut().unwrap().screen = "extension.other".into();
-    rerouted.surface.as_mut().unwrap().document = serde_json::json!({
+    rerouted.surface.screen = "extension.other".into();
+    rerouted.surface.document = serde_json::json!({
         "namespace": "extension",
         "other": {"type": "screen", "size": [80, 60], "controls": []}
     })
@@ -791,73 +709,6 @@ fn route_changes_end_an_exit_and_binding_updates_continue_it() {
         .unwrap();
     assert!(!ui.mod_panel_painting());
     assert!(!ui.mod_panel_motion_active());
-}
-
-/// Packet publication checks the selected route's schema and keeps its current visibility.
-#[test]
-fn packet_prepared_updates_accept_route_schemas_and_reject_changed_previews() {
-    let ([initial, _], _) = prepared_panels("Packet routes");
-    let mut options = initial.clone();
-    options.controls = vec![Control::Button {
-        id: "back".into(),
-        label: "Back".into(),
-    }];
-    options.surface.as_mut().unwrap().previews.insert(
-        "sample".into(),
-        ui::mod_panel::preview::ControlPreview {
-            reference: "fixture.first".into(),
-            ..Default::default()
-        },
-    );
-    let bundle = Arc::new(ui::mod_panel::PanelBundle {
-        panel: initial,
-        surfaces: std::collections::BTreeMap::from([(
-            "options".into(),
-            options.surface.clone().unwrap(),
-        )]),
-        control_schemas: std::collections::BTreeMap::from([(
-            "options".into(),
-            options.controls.clone(),
-        )]),
-    });
-    let prepared = prepared::PreparedPanelUi::prepare(bundle).unwrap();
-    let owner = prepared::PanelUiOwner::PacketSession(1);
-    let mut ui = ModUi::default();
-    ui.set_prepared_mod_panel(owner, Arc::clone(&prepared), &options)
-        .unwrap();
-    ui.set_mod_panel_open(true);
-    let mut changed = options.clone();
-    changed
-        .surface
-        .as_mut()
-        .unwrap()
-        .bindings
-        .insert("#value".into(), ui::mod_panel::SurfaceValue::Number(2.));
-    ui.set_prepared_mod_panel(owner, Arc::clone(&prepared), &changed)
-        .unwrap();
-    assert!(ui.mod_panel_open());
-    changed
-        .surface
-        .as_mut()
-        .unwrap()
-        .previews
-        .get_mut("sample")
-        .unwrap()
-        .reference = "fixture.second".into();
-    assert!(
-        ui.set_prepared_mod_panel(owner, prepared, &changed)
-            .is_err()
-    );
-    assert!(ui.mod_panel_open());
-    assert_eq!(
-        ui.mod_panel.as_ref().unwrap().panel.surface,
-        options.surface.map(|mut surface| {
-            surface
-                .bindings
-                .insert("#value".into(), ui::mod_panel::SurfaceValue::Number(2.));
-            surface
-        })
-    );
 }
 
 /// Host-authored fallback controls retain only their admitted schema between packet updates.
@@ -922,6 +773,27 @@ fn gameplay_hud_policy_updates_without_replacing_panel_or_capture() {
     );
 }
 
+/// A packet menu output changing only the gameplay HUD flag stays on its prepared route and
+/// keeps a captured gesture.
+#[test]
+fn packet_menu_gameplay_hud_policy_updates_on_the_prepared_route() {
+    let ([mut settings, _], prepared) = prepared_panels("Packet HUD");
+    let owner = prepared::PanelUiOwner::PacketSession(1);
+    let mut ui = ModUi::default();
+    ui.set_prepared_mod_panel(owner, Arc::clone(&prepared), &settings)
+        .unwrap();
+    ui.set_mod_panel_open(true);
+    ui.mod_panel.as_mut().unwrap().drag = Some(1);
+    for visible in [true, false, true] {
+        settings.show_gameplay_hud = visible;
+        ui.set_prepared_mod_panel(owner, Arc::clone(&prepared), &settings)
+            .unwrap();
+        assert_eq!(ui.mod_panel_shows_gameplay_hud(), visible);
+        assert!(ui.mod_panel.as_ref().unwrap().prepared.is_some());
+        assert_eq!(ui.mod_panel.as_ref().unwrap().drag, Some(1));
+    }
+}
+
 /// Packet publication rejects unadmitted documents and schemas.
 #[test]
 fn packet_prepared_updates_accept_route_schemas_and_reject_changed_documents() {
@@ -933,10 +805,7 @@ fn packet_prepared_updates_accept_route_schemas_and_reject_changed_documents() {
     }];
     let bundle = Arc::new(ui::mod_panel::PanelBundle {
         panel: initial,
-        surfaces: std::collections::BTreeMap::from([(
-            "options".into(),
-            options.surface.clone().unwrap(),
-        )]),
+        surfaces: std::collections::BTreeMap::from([("options".into(), options.surface.clone())]),
         control_schemas: std::collections::BTreeMap::from([(
             "options".into(),
             options.controls.clone(),
@@ -951,8 +820,6 @@ fn packet_prepared_updates_accept_route_schemas_and_reject_changed_documents() {
     let mut changed = options.clone();
     changed
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#value".into(), ui::mod_panel::SurfaceValue::Number(2.));
     ui.set_prepared_mod_panel(owner, Arc::clone(&prepared), &changed)
@@ -960,7 +827,7 @@ fn packet_prepared_updates_accept_route_schemas_and_reject_changed_documents() {
     assert!(ui.mod_panel_open());
     let accepted = ui.mod_panel.as_ref().unwrap().panel.clone();
     let mut document = changed.clone();
-    document.surface.as_mut().unwrap().document = serde_json::json!({
+    document.surface.document = serde_json::json!({
         "namespace":"extension", "screen":{"type":"screen","size":[80,60],"controls":[]}
     })
     .to_string();
@@ -994,14 +861,14 @@ fn open_route_changes_preserve_surface_transition_progress() {
     use ui::mod_panel::SurfaceValue;
 
     let mut content = exiting_panel(Some(0.0));
-    let surface = content.surface.as_mut().unwrap();
+    let surface = &mut content.surface;
     let fade = surface.transitions.get_mut("#fade").unwrap();
     fade.from = Some(SurfaceValue::Number(0.0));
     fade.duration = 1.0;
     fade.easing = Default::default();
     let mut options = content.clone();
-    options.surface.as_mut().unwrap().screen = "extension.options".into();
-    options.surface.as_mut().unwrap().document = serde_json::json!({
+    options.surface.screen = "extension.options".into();
+    options.surface.document = serde_json::json!({
         "namespace": "extension",
         "options": {"type": "screen", "size": [80, 60], "controls": []}
     })
@@ -1035,7 +902,7 @@ fn open_route_changes_preserve_surface_transition_progress() {
         .unwrap();
     assert_eq!(transition_values(&mut ui, 3.5), values(0.0));
     let mut builtin = content.clone();
-    builtin.surface = None;
+    builtin.surface = crate::test_support::sample_surface(&builtin.controls);
     builtin.motion = false;
     ui.set_mod_panel(PanelUiOwner::Environment(1), Some(&builtin))
         .unwrap();

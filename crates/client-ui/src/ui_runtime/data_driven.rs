@@ -51,6 +51,16 @@ pub struct DataDrivenUi {
 }
 
 impl DataDrivenUi {
+    /// Retires server stores and screens while keeping host observations and lifetime counters.
+    pub(super) fn next_session(&self) -> Self {
+        Self {
+            shown: self.shown,
+            ignored_store_changes: self.ignored_store_changes,
+            host: self.host,
+            ..Self::default()
+        }
+    }
+
     /// The synced data stores the screens read.
     #[must_use]
     pub fn stores(&self) -> &DataStores {
@@ -77,14 +87,6 @@ impl DataDrivenUi {
         self.ignored_store_changes
     }
 
-    pub(super) fn clear(&mut self) {
-        self.stores.clear();
-        self.active = None;
-        self.focus = None;
-        self.closing = false;
-        self.outgoing.clear();
-    }
-
     /// The oldest packet waiting for the network flush.
     pub(super) fn take_packet(&mut self) -> Option<Packet> {
         self.outgoing.pop_front()
@@ -95,7 +97,7 @@ impl UiRuntime {
     /// Records the host's screens as this frame starts, which screen requests answered from UI
     /// events read along with the runtime's own screens.
     pub fn observe_host_screens(&mut self, host: SceneHost) {
-        self.data_driven.host = host;
+        self.session.data_driven.host = host;
     }
 
     /// Whether the top screen shows a menu, so a screen request must answer busy: vanilla
@@ -103,7 +105,7 @@ impl UiRuntime {
     pub(super) fn data_driven_busy(&self, player_runtime: &player_state::PlayerState) -> bool {
         let host = SceneHost {
             loading: self.loading_screen,
-            ..self.data_driven.host
+            ..self.session.data_driven.host
         };
         self.shows_menu(player_runtime, host)
     }
@@ -121,16 +123,16 @@ impl UiRuntime {
         match event {
             DataDrivenUiEvent::Store(changes) => {
                 for change in changes {
-                    let outcome = self.data_driven.stores.apply(change);
+                    let outcome = self.session.data_driven.stores.apply(change);
                     if outcome != StoreApply::Applied {
-                        self.data_driven.ignored_store_changes += 1;
+                        self.session.data_driven.ignored_store_changes += 1;
                         tracing::debug!(target: "ddui", ?outcome, "data store change skipped");
                     }
                 }
             }
             DataDrivenUiEvent::Show(show) => {
                 let screen = ScriptedScreen::from_screen_id(&show.screen_id);
-                let reason = if busy || self.data_driven.active.is_some() {
+                let reason = if busy || self.session.data_driven.active.is_some() {
                     Some(DataDrivenScreenCloseReason::UserBusy)
                 } else if screen.is_none() {
                     // Pack-defined DDUI screens are not drawn; closing them lets scripts go on.
@@ -148,11 +150,11 @@ impl UiRuntime {
                 match (reason, screen) {
                     (Some(reason), _) => self.queue_screen_closed(show.form_id, reason),
                     (None, Some(screen)) => {
-                        self.data_driven.focus = None;
-                        self.data_driven.shown += 1;
-                        self.data_driven.active = Some(ActiveScreen {
+                        self.session.data_driven.focus = None;
+                        self.session.data_driven.shown += 1;
+                        self.session.data_driven.active = Some(ActiveScreen {
                             form_id: show.form_id,
-                            instance: self.data_driven.shown,
+                            instance: self.session.data_driven.shown,
                             screen,
                             property: screen.property(show.data_instance_id).into(),
                         });
@@ -162,6 +164,7 @@ impl UiRuntime {
             }
             DataDrivenUiEvent::Close { form_id } => {
                 let matches = self
+                    .session
                     .data_driven
                     .active
                     .as_ref()
@@ -182,11 +185,12 @@ impl UiRuntime {
 
     /// Ends the showing screen and reports `reason` to the server.
     pub fn close_data_driven_screen(&mut self, reason: DataDrivenScreenCloseReason) {
-        self.data_driven.focus = None;
-        if let Some(active) = self.data_driven.active.take() {
+        self.session.data_driven.focus = None;
+        if let Some(active) = self.session.data_driven.active.take() {
             // Only the player's own close consumed this frame's input; a server close leaves it
             // free, so a request following it at once is not refused.
-            self.data_driven.closing = reason == DataDrivenScreenCloseReason::ClientCanceled;
+            self.session.data_driven.closing =
+                reason == DataDrivenScreenCloseReason::ClientCanceled;
             self.queue_screen_closed(active.form_id, reason);
         }
     }
@@ -194,19 +198,20 @@ impl UiRuntime {
     /// Ends the frame a screen closed in, returning its input to the other screens; the host
     /// calls it as each frame starts.
     pub fn release_closed_data_driven_input(&mut self) {
-        self.data_driven.closing = false;
+        self.session.data_driven.closing = false;
     }
 
     /// The showing screen as OreUI draws it; `None` while nothing readable shows.
     #[must_use]
     pub fn data_driven_form(&self) -> Option<DataDrivenForm> {
-        let active = self.data_driven.active.as_ref()?;
+        let active = self.session.data_driven.active.as_ref()?;
         self.project_screen(active)
             .map(|projection| projection.form)
     }
 
     fn queue_screen_closed(&mut self, form_id: u32, reason: DataDrivenScreenCloseReason) {
-        self.data_driven
+        self.session
+            .data_driven
             .outgoing
             .push_back(data_driven_screen_closed_packet(form_id, reason));
     }

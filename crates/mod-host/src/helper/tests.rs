@@ -5,6 +5,12 @@ use std::collections::BTreeSet;
 /// Builds startup metadata without enabling developer execution in the test environment.
 fn startup() -> Start {
     Start {
+        drawing: crate::presentation::Context {
+            connection: 1,
+            epoch: 1,
+            ..Default::default()
+        },
+        assets: Default::default(),
         protocol: HELPER_PROTOCOL,
         owner: Principal {
             session: "session".into(),
@@ -70,6 +76,7 @@ fn delayed_start_keeps_frame_polling_responsive_and_reports_launch_failure() {
     assert!(
         helper
             .dispatch(Dispatch {
+                drawing: crate::presentation::Context::default(),
                 event: Event::Epoch,
                 epoch: 1,
                 gui: None,
@@ -103,9 +110,47 @@ fn startup_deadline_revokes_launch_before_preparation_completes() {
         .unwrap()
         .recv_timeout(Duration::from_secs(5))
         .unwrap()
+        .1
         .unwrap_err();
     assert_eq!(error.to_string(), "helper startup revoked");
     assert!(helper.poll().is_none());
+}
+
+#[test]
+fn completed_callback_survives_a_long_pause_before_polling() {
+    let (requests, _) = mpsc::sync_channel(1);
+    let (sender, responses) = mpsc::sync_channel(1);
+    let (_, log) = mpsc::sync_channel(1);
+    let mut helper = Helper {
+        process: Default::default(),
+        requests,
+        responses: Mutex::new(responses),
+        log: Mutex::new(log),
+        pending_since: Some(Instant::now()),
+        quarantined: false,
+    };
+    let dispatched = helper.pending_since.unwrap();
+    sender
+        .send((
+            dispatched + Duration::from_millis(1),
+            Ok(Reply::Committed {
+                transaction: Transaction {
+                    owner: startup().owner,
+                    epoch: 1,
+                    commands: Vec::new(),
+                },
+                fuel: 1,
+                references: Vec::new(),
+                presentation: None,
+            }),
+        ))
+        .unwrap();
+    assert!(matches!(
+        helper.poll_at(dispatched + HELPER_DEADLINE + Duration::from_secs(10)),
+        Some(Ok(Reply::Committed { .. }))
+    ));
+    assert!(!helper.quarantined);
+    assert!(helper.pending_since.is_none());
 }
 
 #[test]
@@ -122,6 +167,7 @@ fn dropping_a_pending_helper_revokes_its_launch() {
     let error = responses
         .recv_timeout(Duration::from_secs(5))
         .unwrap()
+        .1
         .unwrap_err();
     assert_eq!(error.to_string(), "helper startup revoked");
 }
@@ -137,6 +183,7 @@ fn maximum_typed_message_round_trips_through_dispatch_ipc() {
     .unwrap();
     assert_eq!(record.len(), MAX_MESSAGE_BYTES);
     let request = Dispatch {
+        drawing: crate::presentation::Context::default(),
         event: Event::Message {
             channel: "f".repeat(MAX_IDENTIFIER_BYTES),
             record,
@@ -239,4 +286,103 @@ fn helper_stderr_lines_are_cut_rate_limited_and_their_drops_counted() {
         lines.last().unwrap(),
         &format!("{dropped} more helper stderr lines dropped")
     );
+}
+
+#[test]
+fn idle_helpers_have_no_deadline_and_late_replies_still_expire() {
+    let (requests, _) = mpsc::sync_channel(1);
+    let (sender, responses) = mpsc::sync_channel(1);
+    let (_, log) = mpsc::sync_channel(1);
+    let mut helper = Helper {
+        process: Default::default(),
+        requests,
+        responses: Mutex::new(responses),
+        log: Mutex::new(log),
+        pending_since: None,
+        quarantined: false,
+    };
+    let now = Instant::now();
+    assert!(helper.poll_at(now + HELPER_DEADLINE * 10).is_none());
+    assert!(!helper.quarantined);
+    helper.pending_since = Some(now);
+    sender
+        .send((
+            now + HELPER_DEADLINE,
+            Ok(Reply::Committed {
+                transaction: Transaction {
+                    owner: startup().owner,
+                    epoch: 1,
+                    commands: Vec::new(),
+                },
+                fuel: 1,
+                references: Vec::new(),
+                presentation: None,
+            }),
+        ))
+        .unwrap();
+    assert_eq!(
+        helper
+            .poll_at(now + HELPER_DEADLINE * 2)
+            .unwrap()
+            .unwrap_err()
+            .to_string(),
+        "helper deadline exceeded"
+    );
+    assert!(helper.quarantined);
+}
+
+/// A full recovery transaction and a maximally escaped failure fit the same bounded reply.
+#[test]
+fn recovery_output_and_failure_fit_one_reply() {
+    use server_experience::runtime::Command;
+    use server_experience::wire::Scalar;
+
+    let mut transaction = Transaction {
+        owner: Principal {
+            session: "\\\"".repeat(MAX_IDENTIFIER_BYTES),
+            bundle: "\\\"".repeat(MAX_IDENTIFIER_BYTES),
+            generation: u64::MAX,
+        },
+        epoch: u64::MAX,
+        commands: Vec::new(),
+    };
+    let command = Command::Send {
+        channel: "x".repeat(MAX_IDENTIFIER_BYTES),
+        schema: u16::MAX,
+        record: vec![Scalar::Bool(false)],
+    };
+    let command_bytes = serde_json::to_vec(&command).unwrap().len();
+    while serde_json::to_vec(&transaction).unwrap().len() + command_bytes < MAX_HOST_OUTPUT {
+        transaction.commands.push(command.clone());
+    }
+    let failure = CallFailure::of(
+        &transaction.owner.bundle,
+        "dispatch",
+        &anyhow::anyhow!("\\\"".repeat(MAX_FAILURE_REASON_BYTES)),
+    );
+    let mut frame = Vec::new();
+    answer(
+        &mut frame,
+        Reply::Recovered {
+            failure,
+            transaction,
+            confirmation: None,
+            references: vec![
+                mod_render::retained::EntityKey {
+                    session: u64::MAX,
+                    dimension: i32::MIN,
+                    runtime_id: u64::MAX,
+                    spawn_revision: u64::MAX,
+                };
+                mod_api::MAX_DRAW_ENTITIES
+            ],
+        },
+        "fixture",
+        "dispatch",
+    )
+    .unwrap();
+    assert!(matches!(
+        read_frame::<Reply>(&mut frame.as_slice(), MAX_REPLY_IPC).unwrap(),
+        Reply::Recovered { .. }
+    ));
 }

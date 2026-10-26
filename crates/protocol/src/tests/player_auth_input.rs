@@ -17,11 +17,13 @@ fn snapshot() -> PlayerAuthInputSnapshot {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [-32.0, 87.0],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 
@@ -71,8 +73,7 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
         ),
         (0.25, -0.5, -0.75)
     );
-    assert_eq!(input.interact_rotation.x, input.player_rotation.x);
-    assert_eq!(input.interact_rotation.y, input.player_rotation.y);
+    assert_eq!(input.interact_rotation.to_array(), [-32.0, 87.0]);
     assert_eq!(input.input_mode, InputMode::Mouse);
     assert_eq!(input.play_mode, ClientPlayMode::Normal);
     // The protocol-1001 Unknown(-1) workaround is gone: gophertunnel writes
@@ -254,6 +255,10 @@ fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     invalid_rotation.yaw = f32::INFINITY;
     assert!(player_auth_input(invalid_rotation).is_err());
 
+    let mut invalid_interaction = snapshot();
+    invalid_interaction.interact_rotation[0] = f32::NAN;
+    assert!(player_auth_input(invalid_interaction).is_err());
+
     let mut invalid_raw_carrier = snapshot();
     invalid_raw_carrier.raw_move_vector[0] = f32::NAN;
     assert!(player_auth_input(invalid_raw_carrier).is_err());
@@ -269,4 +274,89 @@ fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
         panic!("expected PlayerAuthInput payload");
     };
     assert_eq!(input.client_tick.0, u64::MAX);
+}
+
+#[test]
+fn a_predicted_vehicle_adds_its_rotation_id_and_flag() {
+    let mut input = snapshot();
+    input.vehicle = Some(protocol::PredictedVehicleInput {
+        unique_id: -42,
+        position: [10.5, 62.375, -4.0],
+        delta: [0.25, -0.01, 0.0],
+        rotation: [0.0, 135.5],
+    });
+    let packet = player_auth_input(input).expect("valid vehicle input");
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert!(
+        input
+            .input_data
+            .contains(&InputData::Isinclientpredictedvehicle)
+    );
+    let rotation = input.vehicle_rotation.expect("vehicle rotation");
+    assert_eq!((rotation.x, rotation.y), (0.0, 135.5));
+    assert_eq!(input.client_predicted_vehicle.map(|id| id.0), Some(-42));
+    // The wire reports the vehicle's position and motion in place of the rider's.
+    assert_eq!(
+        (input.position.x, input.position.y, input.position.z),
+        (10.5, 62.375, -4.0)
+    );
+    assert_eq!(
+        (input.pos_delta.x, input.pos_delta.y, input.pos_delta.z),
+        (0.25, -0.01, 0.0)
+    );
+}
+
+#[test]
+fn the_predicted_vehicle_flag_cannot_be_asserted_without_a_vehicle() {
+    let mut input = snapshot();
+    input.flags |= PlayerInputFlags::IN_CLIENT_PREDICTED_VEHICLE;
+    assert_eq!(
+        player_auth_input(input).unwrap_err(),
+        protocol::PlayerAuthInputError::UndeclaredVehicle
+    );
+}
+
+/// Every accumulated action must survive the movement packet's encode/decode boundary.
+#[test]
+fn accumulated_block_actions_survive_one_input_packet() {
+    let mut interactions = protocol::PlayerAuthInputInteractions::default();
+    let expected: Vec<_> = (0..24)
+        .map(|index| protocol::BlockAction {
+            kind: if index % 2 == 0 {
+                protocol::BlockActionKind::StartDestroy
+            } else {
+                protocol::BlockActionKind::AbortDestroy
+            },
+            position: [index, 64, -index],
+            face: 1,
+        })
+        .collect();
+    for action in &expected {
+        interactions.block_actions.push(*action);
+    }
+    let packet = protocol::player_auth_input_with_interactions(snapshot(), &interactions).unwrap();
+    let decoded = decode_batch(encode(&packet).unwrap()).unwrap();
+    let packets::Packet::PlayerAuthInput(input) = &*decoded[0].data else {
+        panic!("expected player input");
+    };
+    assert!(input.input_data.contains(&InputData::Performblockactions));
+    let actions = input.player_block_actions.as_ref().unwrap();
+    assert_eq!(actions.len(), expected.len());
+    for (actual, expected) in actions.iter().zip(expected) {
+        assert_eq!(
+            actual.player_action_type.to_raw(),
+            expected.kind.wire_value()
+        );
+        assert_eq!(
+            [
+                actual.position.x.0,
+                actual.position.y.0,
+                actual.position.z.0
+            ],
+            expected.position
+        );
+        assert_eq!(actual.facing.0, i32::from(expected.face));
+    }
 }

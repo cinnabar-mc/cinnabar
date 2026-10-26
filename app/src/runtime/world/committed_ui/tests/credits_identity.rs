@@ -36,6 +36,7 @@ fn committed_actor_names_preserve_login_chat_identity_and_credits_name() {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         teleported: false,

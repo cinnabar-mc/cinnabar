@@ -61,6 +61,7 @@ fn detailed_cached_frames_cannot_displace_current_items_and_retry_when_selected(
         Arc::clone(&models),
         &[instance(ordinary - 1), instance(ordinary)],
         &[],
+        &[],
         1.0,
     );
     world.run_system_once(prepare_items).unwrap();
@@ -83,6 +84,7 @@ fn detailed_cached_frames_cannot_displace_current_items_and_retry_when_selected(
         1,
         Arc::clone(&models),
         &[instance(withheld), instance(ordinary)],
+        &[],
         &[],
         1.0,
     );
@@ -119,6 +121,7 @@ fn detailed_cached_frames_cannot_displace_current_items_and_retry_when_selected(
         models,
         &[instance(resident), instance(ordinary)],
         &[],
+        &[],
         1.0,
     );
     world.run_system_once(prepare_items).unwrap();
@@ -147,9 +150,11 @@ fn current_frames_fit_before_speculation_with_a_small_device_buffer() {
     let prepared = PreparedModels::new(
         &models,
         &[false, true, true],
-        assets::texture::policy::device_policy(),
-        MAX_ITEM_LAYERS as u32,
-        budget,
+        render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            MAX_ITEM_LAYERS,
+            budget,
+        ),
     );
     assert!(prepared.ranges[0].vertices.is_empty());
     assert!(!prepared.ranges[1].vertices.is_empty());
@@ -169,9 +174,11 @@ fn prioritized_mesh_handles_sample_their_own_texture_layers() {
     let prepared = PreparedModels::new(
         &models,
         &[false, false, true],
-        assets::texture::policy::device_policy(),
-        MAX_ITEM_LAYERS as u32,
-        assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            MAX_ITEM_LAYERS,
+            assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        ),
     );
     let layer_bytes = (prepared.side * prepared.side * 4) as usize;
     for (slot, model) in models.iter().enumerate() {
@@ -222,6 +229,7 @@ fn a_rejected_current_model_does_not_rebuild_when_drawable_frames_change() {
         Arc::clone(&models),
         &[instance(0), instance(2)],
         &[],
+        &[],
         1.0,
     );
     world.run_system_once(prepare_items).unwrap();
@@ -236,6 +244,7 @@ fn a_rejected_current_model_does_not_rebuild_when_drawable_frames_change() {
             1,
             Arc::clone(&models),
             &[instance(frame), instance(2)],
+            &[],
             &[],
             1.0,
         );
@@ -262,6 +271,7 @@ fn a_capacity_rejected_current_model_retries_when_other_current_geometry_shrinks
         Arc::clone(&models),
         &[instance(0), instance(1), instance(2)],
         &[],
+        &[],
         1.0,
     );
     world.run_system_once(prepare_items).unwrap();
@@ -277,6 +287,7 @@ fn a_capacity_rejected_current_model_retries_when_other_current_geometry_shrinks
         1,
         models,
         &[instance(1), instance(2), instance(3)],
+        &[],
         &[],
         1.0,
     );

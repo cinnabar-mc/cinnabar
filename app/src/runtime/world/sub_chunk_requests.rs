@@ -46,7 +46,7 @@ pub(crate) fn flush_sub_chunk_requests(
     };
     let packet = protocol::request_sub_chunks(
         batch.receipt.dimension,
-        center,
+        batch.center,
         batch.receipt.members.iter().map(|member| member.position),
     )
     .expect("bounded current request members have admitted offsets");

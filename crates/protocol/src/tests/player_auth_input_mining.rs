@@ -22,25 +22,24 @@ fn snapshot() -> PlayerAuthInputSnapshot {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [10.5, 20.25],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 
 fn interactions(predict: bool) -> PlayerAuthInputInteractions {
     let mut value = PlayerAuthInputInteractions::default();
     if predict {
-        value
-            .block_actions
-            .push(BlockAction {
-                kind: BlockActionKind::PredictDestroy,
-                position: [13, 71, -29],
-                face: 5,
-            })
-            .unwrap();
+        value.block_actions.push(BlockAction {
+            kind: BlockActionKind::PredictDestroy,
+            position: [13, 71, -29],
+            face: 5,
+        });
     }
     value
 }

@@ -51,7 +51,6 @@ pub(crate) fn ui_pass_timestamps(
 
 impl GpuTimestamps {
     /// Times an owned pack render pass on detailed Metal frames without marker passes.
-    #[cfg(feature = "shaderpacks")]
     pub(crate) fn shaderpack_render_pass(
         &self,
         stage: RuntimeStage,
@@ -65,7 +64,6 @@ impl GpuTimestamps {
     }
 
     /// Claims pack queries only when the backend needs owned passes and detail is requested.
-    #[cfg(feature = "shaderpacks")]
     pub(super) fn shaderpack_owned_span(
         &self,
         stage: RuntimeStage,
@@ -78,7 +76,6 @@ impl GpuTimestamps {
     }
 
     /// Times an owned pack compute pass under the same policy as pack render passes.
-    #[cfg(feature = "shaderpacks")]
     pub(crate) fn shaderpack_compute_pass(
         &self,
         stage: RuntimeStage,

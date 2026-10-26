@@ -266,10 +266,16 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
   modes (no oracle; coefficients need measurement); firework boost relies on server motion only.
 - Scaffolding is solid only from above and sneak descends (provisional rate). Honey jump/slide,
   soul speed and depth strider are simulated with provisional coefficients; sweet berry bush
-  slowdown, dolphin's grace and client-predicted vehicles are open.
+  slowdown, dolphin's grace and client-predicted horses are open.
 - Riding: player physics is suspended while mounted, the rider follows its mount seat, and boat
-  paddle flags are sent; client-predicted vehicles (no vehicle simulator) and
-  the vehicle predicate/coefficients (see plan.md) are open (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
+  paddle flags are sent. A boat the player steers from its controlling seat is client-predicted:
+  paddling, momentum, steering, collision and buoyancy run locally, inputs report the boat's
+  position, rotation and id, server moves apply only when they teleport, and a vehicle correction
+  restarts prediction from the corrected state (vanilla rewinds and replays; incomplete). A seat
+  that locks rotation turns the rider's view with the vehicle, holds it within the seat's range
+  and faces the rider's body along the seat. Open: horse prediction, collision with other boats,
+  leashed-boat momentum,
+  snow-layer friction, touch paddle buttons and bubble columns (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
   registry regeneration described in plan.md.
 - Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
   scroll-notch magnitude; UI key-repeat (MED/LOW).
@@ -332,6 +338,7 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 | 0 / 92 flags | yes | every `is_*` query, on-fire camera overlay, invisible body (NoDraw; armor and held items stay, as vanilla never hides held items for invisibility), show/always-show name, sneak tag dimming, sleeping, riding layouts (saddled, baby, tamed, sheared) |
 | 1 structural_integrity, 2 variant, 43 mark_variant, 104 skin_id, 101 trade_tier, 48 invulnerable_ticks, 55 fuse_time, 21 swell_dir | yes | integer queries; render-controller texture, geometry and part-visibility arrays re-evaluated per tick for vanilla and server-pack entities alike |
 | 3 color, 82 color2 | yes | engine-side change colour, not a Molang query: sheep wool takes its byte dye or the `jeb_` rainbow and tamed wolves their collar dye; other engine dye tints (tropical fish, llama carpet) are missing |
+| 64 peek_id, 65 attach_face | yes | shulkers: the Int peek target (hundredths) steps the lid-open fraction 0.05 per tick and publishes `variable.shulker.peekamount` through the native sine table; the Byte attach face publishes `variable.shulker.facingdirection` (down while riding). Body yaw stays zero. Attach position (66/67) snapping and peek-dependent bounds are missing |
 | 4 name, 81 always_show_nametag, 84 score_tag, 143 nameplate_render_distance_max | yes | nametag text (players included), forced visibility, score line within 10 blocks, tag range (default 64) |
 | 38 scale | yes | multiplies the authored model scale for body, equipment, texture layers and culling; `query.model_scale`; default nametag height. Hitbox and published nametag height come from 53/54, which the server scales. The first-person hand keeps the authored scale |
 | 53 width, 54 height | yes | hitbox (melee, block use, particles), nametag height, primed-TNT offset |
@@ -380,4 +387,4 @@ their client entities name no render controller. The entity compiler gives such 
 native hull, raft and chest models (authored `geometry.boat`-style geometry replaces them) and a
 controller that picks the wood texture and raft model from the actor variant. Streamed row times
 pose the paddles, and a struck boat rocks about its render origin. Missing: the bubble-column rock,
-the water cutout inside the hull, and client-predicted driving (see Riding).
+the water cutout inside the hull (driving is covered under Riding).

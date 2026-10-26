@@ -20,6 +20,11 @@ pub struct LocalMovementFacts {
     /// Runtime identity of the retained mount, when its actor is available.
     pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
+    /// The boat the player steers from its controlling seat.
+    pub vehicle: Option<super::vehicle::SteeredVehicle>,
+    /// The current vehicle selects the local player as its controller.
+    pub vehicle_controlled_locally: bool,
+    /// Abilities permit flight.
     pub can_fly: bool,
     pub flight: FlightAuthority,
     pub ability_sequence: Option<u64>,
@@ -27,6 +32,8 @@ pub struct LocalMovementFacts {
     pub vertical_fly_speed: Option<f64>,
     pub creative_flight: bool,
     pub elytra_ready: bool,
+    /// Effective Instabuild ability after mode defaults and ability layers.
+    pub instabuild: bool,
     pub can_stand_on_snow: bool,
     pub depth_strider: u8,
     pub soul_speed: u8,
@@ -103,6 +110,10 @@ pub fn read(
         ride_seat: ride
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
+        vehicle: (ride == Some(super::RideKind::Boat))
+            .then(|| steered_vehicle(stream))
+            .flatten(),
+        vehicle_controlled_locally: stream.local_vehicle_controlled(),
         can_fly,
         flight: capabilities.map(|caps| caps.flight).unwrap_or_default(),
         ability_sequence: player.facts.local_abilities_sequence(),
@@ -116,6 +127,7 @@ pub fn read(
         }),
         creative_flight: capabilities.is_some_and(|capabilities| capabilities.creative_inventory),
         elytra_ready,
+        instabuild: player.facts.instabuild().unwrap_or(false),
         can_stand_on_snow,
         depth_strider: boots_level(i16::from(Enchantment::Depthstrider.wire_value())),
         soul_speed: boots_level(i16::from(Enchantment::Soulspeed.wire_value())),
@@ -128,6 +140,33 @@ pub fn read(
         sprint_blocked: !hunger_exempt && hunger_below_floor.unwrap_or(true),
         sprint_start_blocked: item_in_use,
     }
+}
+
+/// The boat the local player steers, with its seat in the boat's frame.
+fn steered_vehicle(stream: &impl crate::GameplayWorld) -> Option<super::vehicle::SteeredVehicle> {
+    let vehicle = stream.local_controlled_vehicle()?;
+    let (seat, _) = stream.local_rider_seat_on([0.0; 3], 0.0)?;
+    Some(super::vehicle::SteeredVehicle {
+        runtime_id: vehicle.runtime_id,
+        unique_id: vehicle.unique_id,
+        body: boat_body(vehicle)?,
+        position: vehicle.last_received_native_position(),
+        yaw: vehicle.last_received_pose().yaw,
+        velocity: vehicle.native_velocity(),
+        seat,
+        revision: stream.local_vehicle_revision(),
+    })
+}
+
+/// The boat's collision body, measured at the origin so its size never depends on how
+/// precisely its world position is held.
+fn boat_body(vehicle: &client_world::ActorSnapshot) -> Option<sim::BoatBody> {
+    let (min, max) = vehicle.bounding_box_at([0.0; 3])?;
+    Some(sim::BoatBody {
+        width: max[0] - min[0],
+        height: max[1] - min[1],
+        height_offset: vehicle.network_position_offset(),
+    })
 }
 
 /// An elytra flies until its damage reaches one below its maximum. An accepted
@@ -192,6 +231,60 @@ mod tests {
             command_permission: 0,
             layers: AbilityLayersEvidence::Received(layers.into()),
         }
+    }
+
+    /// A boat spawned at `x`, through the authority that admits it.
+    fn boat_at(x: f32) -> client_world::ActorSnapshot {
+        use std::sync::Arc;
+        let mut authority = client_world::WorldAuthority::new(
+            protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                local_player_unique_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: protocol::air_network_id(false),
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(assets::RuntimeAssets::diagnostic()),
+            None,
+            [0.0; 3],
+            None,
+        );
+        let spawn = protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id: 70,
+            runtime_id: 7,
+            kind: protocol::ActorKind::Entity {
+                identifier: "minecraft:boat".into(),
+            },
+            position: [x, 64.0, 0.0],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            body_yaw: 0.0,
+            held_item: Default::default(),
+            metadata: Arc::from([]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        };
+        authority
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
+                Some(1),
+            )
+            .unwrap();
+        authority.actor(7).expect("spawn committed").clone()
+    }
+
+    #[test]
+    fn a_boat_far_from_the_origin_keeps_its_collision_size() {
+        let near = boat_body(&boat_at(0.0)).expect("near boat body");
+        let far = boat_body(&boat_at(16_777_216.0)).expect("far boat body");
+        assert!(near.width > 0.0);
+        assert_eq!(far, near);
     }
 
     #[test]

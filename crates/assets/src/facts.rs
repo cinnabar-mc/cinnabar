@@ -1,6 +1,7 @@
 //! Validated block and item facts compiled from the pinned registries.
 
 pub mod block;
+pub mod connection;
 pub mod liquid;
 pub mod rules;
 pub use block::{BlockFact, BlockFacts, BlockStateIdentity};
@@ -18,16 +19,18 @@ pub use properties::{PropertyDomain, StateValue, block_property_domain};
 pub use properties_generated::BlockProperty;
 
 mod block_aux;
+mod dropped_item;
 pub mod entity;
 mod item;
+pub use dropped_item::{DroppedItemPresentation, dropped_item_presentation};
 mod item_carrier;
 pub use block_aux::block_item_has_aux_states;
 pub use item::{
-    ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, ContainerRoles, EMPTY_BUCKET_IDENTIFIER,
-    FILLED_MAP_IDENTIFIER, FISHING_ROD_IDENTIFIER, HARNESS_TAG, ItemFact, ItemFactRecord,
-    ItemFactsPayload, ItemRepairMaterial, ItemTag, ItemTagDefinition, ItemTagSet, ItemTier,
-    ItemTraits, ItemUseAnimationFact, PotionForm, TIPPED_ARROW_ATLAS_KEY, TOTEM_IDENTIFIER,
-    harness_color, has_bucket_name,
+    ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, BRUSH_IDENTIFIER, ContainerRoles,
+    EMPTY_BUCKET_IDENTIFIER, FILLED_MAP_IDENTIFIER, FISHING_ROD_IDENTIFIER, HARNESS_TAG, ItemFact,
+    ItemFactRecord, ItemFactsPayload, ItemRepairMaterial, ItemTag, ItemTagDefinition, ItemTagSet,
+    ItemTier, ItemTraits, ItemUseAnimationFact, LEGACY_ITEM_ALIASES, PotionForm, SPAWN_EGG_SUFFIX,
+    TIPPED_ARROW_ATLAS_KEY, TOTEM_IDENTIFIER, harness_color, has_bucket_name,
 };
 pub use item_carrier::{
     ITEM_FACTS_EXPANSION_PATH, ITEM_FACTS_FILENAME, ITEM_FACTS_INPUTS, ITEM_FACTS_SOURCE_PATH,

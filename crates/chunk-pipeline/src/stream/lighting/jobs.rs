@@ -196,14 +196,20 @@ impl WorldStream {
                 self.lighting.priority_wakeups.remove(&key);
                 continue;
             }
-            if key
+            if let Some(neighbour) = key
                 .mesh_dependents()
                 .filter(|candidate| *candidate != key)
-                .any(|neighbour| {
-                    selected.contains(&neighbour)
-                        || self.lighting.jobs.in_flight.contains_key(&neighbour)
+                .find(|neighbour| {
+                    selected.contains(neighbour)
+                        || self.lighting.jobs.in_flight.contains_key(neighbour)
                 })
             {
+                // Completion releases this exclusion even when the shared face is unchanged.
+                self.lighting
+                    .exclusion_waiters
+                    .entry(neighbour)
+                    .or_default()
+                    .insert(key);
                 if queued {
                     self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
@@ -268,6 +274,12 @@ impl WorldStream {
                 lower = next;
             }
             let batch_urgent = batch_inputs.iter().any(|(_, pending, _, _)| pending.urgent);
+            let context = LightBatchContext {
+                retained: &batch_keys,
+                top_sub_chunk_y: (key.dimension == 0)
+                    .then(|| self.light_column_top_sub_chunk_y(key))
+                    .flatten(),
+            };
             let batch = batch_inputs
                 .into_iter()
                 .map(|(key, mut pending, block_generation, bounds)| {
@@ -277,7 +289,7 @@ impl WorldStream {
                         pending,
                         block_generation,
                         bounds,
-                        &batch_keys,
+                        &context,
                         batch_id,
                     )
                 })
@@ -334,21 +346,22 @@ impl WorldStream {
         drop(dispatch);
         dispatched
     }
+    /// Takes one member's exact identity and snapshots while reusing immutable batch inputs.
     fn take_prepared_light_job(
         &mut self,
         key: SubChunkKey,
         pending: PendingLight,
         block_generation: u64,
         bounds: LightBounds,
-        retained_batch: &HashSet<SubChunkKey>,
+        context: &LightBatchContext<'_>,
         batch_id: u64,
     ) -> PreparedLightJob {
         if !self.lighting.ownership.contains_key(&key) {
             debug_assert!(self.lighting.store.light(key).is_some());
         }
         self.lighting.remove_waiter_target(key);
-        let blocks = self.light_block_snapshot(key);
-        self.register_untrusted_light_waiters(key, retained_batch);
+        let blocks = self.light_block_snapshot_with_top(key, context.top_sub_chunk_y);
+        self.register_untrusted_light_waiters(key, context.retained, context.top_sub_chunk_y);
         let prior = self.light_prior_snapshot(key);
         // Changed cells stand for the whole key only while the light around it is settled: each
         // neighbour outside the batch has current light or none yet, whose first solve relights
@@ -361,7 +374,7 @@ impl WorldStream {
                 key.mesh_dependents()
                     .filter(|neighbour| *neighbour != key)
                     .all(|neighbour| {
-                        !retained_batch.contains(&neighbour)
+                        !context.retained.contains(&neighbour)
                             && !matches!(
                                 self.light_source_state(neighbour),
                                 LightSourceState::Stale
@@ -380,7 +393,7 @@ impl WorldStream {
             batch_id,
             urgent: pending.urgent,
         };
-        self.lighting.jobs.pending.remove(&key);
+        self.lighting.jobs.remove_pending(&key);
         self.lighting.priority_wakeups.remove(&key);
         self.lighting.jobs.in_flight.insert(key, identity);
         PreparedLightJob {
@@ -392,6 +405,29 @@ impl WorldStream {
             queued_at: pending.queued_at,
             changed,
         }
+    }
+    /// Captures one pending member through the normal input validation for isolated solver tests.
+    #[cfg(test)]
+    pub(in crate::stream) fn take_pending_light_job(
+        &mut self,
+        key: SubChunkKey,
+    ) -> PreparedLightJob {
+        let retained = HashSet::from([key]);
+        let context = LightBatchContext {
+            retained: &retained,
+            top_sub_chunk_y: (key.dimension == 0)
+                .then(|| self.light_column_top_sub_chunk_y(key))
+                .flatten(),
+        };
+        self.lighting.next_batch_id += 1;
+        self.take_prepared_light_job(
+            key,
+            self.lighting.jobs.pending[&key],
+            self.lighting.block_generations[&key],
+            light_bounds(key).unwrap(),
+            &context,
+            self.lighting.next_batch_id,
+        )
     }
     pub(in crate::stream) fn accept_light_completion(&mut self, completion: LightCompletion) {
         #[cfg(feature = "tracy")]
@@ -635,13 +671,7 @@ impl WorldStream {
         urgent: bool,
         monotonic_faces: [bool; 6],
     ) {
-        // Unchanged light invalidates no mesh, yet still completes the halo deferred meshes wait on.
-        for dependent in key.mesh_neighbourhood_dependents() {
-            if self.mesh_jobs.pending.contains_key(&dependent) {
-                self.mesh_jobs.refresh.wake_near(dependent);
-            }
-        }
-        let mut requeue = self.lighting.waiters.remove(&key).unwrap_or_default();
+        let mut invalidated = self.lighting.waiters.remove(&key).unwrap_or_default();
         let completed_uniform_direct_sky = self
             .lighting
             .store
@@ -655,17 +685,9 @@ impl WorldStream {
                 let neighbour_in_flight = self.lighting.jobs.in_flight.contains_key(&neighbour);
                 let neighbour_in_same_batch =
                     self.lighting.last_dispatched_batch.get(&neighbour) == Some(&batch_id);
-                if !neighbour_in_flight
-                    && let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour)
-                {
-                    let revision = pending.revision;
-                    // Its retained light was solved against this face's previous light.
-                    self.lighting.changed_cells.remove(&neighbour);
-                    if urgent {
-                        pending.urgent = true;
-                        self.lighting.jobs.scan.push_front((neighbour, revision));
-                    }
-                    self.lighting.priority_wakeups.insert(neighbour, revision);
+                if !neighbour_in_flight && self.lighting.jobs.pending.contains_key(&neighbour) {
+                    // A deferred neighbour needs the same readiness wake as an explicit waiter.
+                    invalidated.insert(neighbour);
                     continue;
                 }
                 if neighbour_in_same_batch {
@@ -685,9 +707,15 @@ impl WorldStream {
                 {
                     continue;
                 }
-                requeue.insert(neighbour);
+                invalidated.insert(neighbour);
             }
         }
+        let mut requeue = self
+            .lighting
+            .exclusion_waiters
+            .remove(&key)
+            .unwrap_or_default();
+        requeue.extend(invalidated.iter().copied());
         for neighbour in requeue {
             if self.current_known_target_dominates_source_face(key, neighbour, monotonic_faces) {
                 continue;
@@ -695,7 +723,9 @@ impl WorldStream {
             if let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour) {
                 let revision = pending.revision;
                 let effective_urgent = urgent || pending.urgent;
-                self.lighting.changed_cells.remove(&neighbour);
+                if invalidated.contains(&neighbour) {
+                    self.lighting.changed_cells.remove(&neighbour);
+                }
                 if effective_urgent {
                     pending.urgent = true;
                 }
@@ -705,16 +735,30 @@ impl WorldStream {
                 self.lighting.priority_wakeups.insert(neighbour, revision);
                 continue;
             }
-            if let Some(revision) = self.mark_light_dirty_exact_with_priority(neighbour, urgent) {
+            if invalidated.contains(&neighbour)
+                && let Some(revision) = self.mark_light_dirty_exact_with_priority(neighbour, urgent)
+            {
                 self.lighting.priority_wakeups.insert(neighbour, revision);
             }
         }
+        // Geometry dispatch checks each notified key after all accepted light invalidations.
+        for dependent in key.mesh_neighbourhood_dependents() {
+            if self.mesh_jobs.pending.contains_key(&dependent) {
+                self.mesh_jobs
+                    .notify_deferred(RESIDENT_MESH_LANE, dependent);
+                self.mesh_jobs.refresh.wake_near(dependent);
+            }
+        }
     }
-    pub(in crate::stream) fn known_air_has_vertical_direct_sky(&self, key: SubChunkKey) -> bool {
+    /// Checks direct sky at this member using its batch's already captured ceiling.
+    pub(in crate::stream) fn known_air_has_vertical_direct_sky(
+        &self,
+        key: SubChunkKey,
+        top_sub_chunk_y: Option<i32>,
+    ) -> bool {
         if key.dimension != 0 || !self.known_air.contains(&key) {
             return false;
         }
-        let top_sub_chunk_y = self.light_column_top_sub_chunk_y(key);
         if Some(key.y) == top_sub_chunk_y {
             return true;
         }
@@ -729,6 +773,12 @@ impl WorldStream {
                     .is_some_and(|direct| is_uniform_direct_sky(light, direct.mask.as_ref()))
             })
     }
+}
+
+/// Immutable column-wide inputs shared while each selected member becomes an in-flight job.
+struct LightBatchContext<'a> {
+    retained: &'a HashSet<SubChunkKey>,
+    top_sub_chunk_y: Option<i32>,
 }
 
 /// Occupies one light worker slot until the solve itself finishes.

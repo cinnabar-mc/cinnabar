@@ -121,19 +121,38 @@ fn same_name_rows_keep_their_own_badge() {
     assert_eq!(badges(&render(&mut list)), 1);
 }
 
-/// Counter runs preserve their RGBA colors, reserve space in narrow columns, and honor prefix placement.
+/// Builds roster spans with distinct texts and colours at one position.
+fn spans(
+    texts: &[&str],
+    position: ui::mod_presentation::SpanPosition,
+) -> Arc<ui::mod_presentation::Spans> {
+    Arc::new(ui::mod_presentation::Spans {
+        spans: texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| ui::mod_presentation::Span {
+                text: (*text).into(),
+                color: [0.2, 0.4, 0.6, 1. - index as f32 * 0.25],
+            })
+            .collect(),
+        position,
+    })
+}
+
+/// Annotation spans keep their RGBA colours and order, reserve space in narrow columns, and
+/// sit before the name or after it, including spans a mod placed above or below.
 #[test]
-fn totem_counts_render_separate_tints_before_or_after_a_clipped_name() {
-    for before in [false, true] {
+fn annotation_spans_render_separate_tints_before_or_after_a_clipped_name() {
+    use ui::mod_presentation::SpanPosition;
+    for position in [
+        SpanPosition::Before,
+        SpanPosition::After,
+        SpanPosition::Above,
+        SpanPosition::Below,
+    ] {
         let mut list = PlayerList::new();
-        let style = ui::mod_hud::TotemCounterStyle {
-            render_first: before,
-            show_prefix: true,
-            prefix_color: [0.2, 0.4, 0.6, 0.5],
-            ..Default::default()
-        };
         let mut player = row("VeryLongPlayerName", true);
-        player.annotation = style.annotation(2).map(Arc::new);
+        player.annotation = Some(spans(&["| ", "-2"], position));
         list.refresh(&[player], MAX_ROWS);
         let nodes = render(&mut list);
         let find = |wanted: &str| {
@@ -146,9 +165,9 @@ fn totem_counts_render_separate_tints_before_or_after_a_clipped_name() {
                 .unwrap()
         };
         let (prefix, color) = find("| ");
-        assert_eq!(color, [51, 102, 153, 128]);
+        assert_eq!(color, [51, 102, 153, 255]);
         let (value, color) = find("-2");
-        assert_eq!(color, [85, 255, 85, 255]);
+        assert_eq!(color, [51, 102, 153, 191]);
         let (name, _) = find("VeryLongPlayerName");
         let head = nodes
             .iter()
@@ -159,7 +178,7 @@ fn totem_counts_render_separate_tints_before_or_after_a_clipped_name() {
             .unwrap();
         assert!(
             head.dest.x + head.dest.w <= name.x.min(prefix.x),
-            "skin head remains before both the player name and its counter"
+            "skin head remains before both the player name and its spans"
         );
         assert!(prefix.x + prefix.w <= value.x + 0.001);
         let badge = nodes
@@ -168,13 +187,73 @@ fn totem_counts_render_separate_tints_before_or_after_a_clipped_name() {
             .unwrap();
         assert!(
             value.x + value.w <= badge.dest.x,
-            "counter remains before its column's badge"
+            "spans remain before their column's badge"
         );
-        assert!(if before {
+        assert!(if position == SpanPosition::Before {
             value.x + value.w <= name.x
         } else {
             name.x + name.w <= prefix.x
         });
+    }
+}
+
+/// One space separates the name from spans before or after it, and spans meet each other with
+/// none; a row has no other line, so spans placed above or below lay out as after the name.
+#[test]
+fn annotation_spans_keep_one_space_and_follow_the_name_from_other_lines() {
+    use ui::mod_presentation::SpanPosition;
+    let layout = |position| {
+        let mut list = PlayerList::new();
+        let mut player = row("Alex", false);
+        player.annotation = Some(spans(&["| ", "-2"], position));
+        list.refresh(&[player], MAX_ROWS);
+        let nodes = render(&mut list);
+        ["Alex", "| ", "-2"].map(|wanted| {
+            nodes
+                .iter()
+                .find_map(|node| {
+                    matches!(&node.draw, Draw::Text { text, .. } if text == wanted)
+                        .then_some(node.dest)
+                })
+                .unwrap()
+        })
+    };
+    let space = Measure.extent(" ")[0];
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+    let [name, prefix, value] = layout(SpanPosition::After);
+    assert!(close(prefix.x, name.x + name.w + space));
+    assert!(close(value.x, prefix.x + prefix.w));
+    let [name, prefix, value] = layout(SpanPosition::Before);
+    assert!(close(name.x, value.x + value.w + space));
+    assert!(close(value.x, prefix.x + prefix.w));
+    for position in [SpanPosition::Above, SpanPosition::Below] {
+        assert_eq!(
+            layout(position),
+            layout(SpanPosition::After),
+            "{position:?}"
+        );
+    }
+}
+
+/// The roster template has a label for every span an annotation may carry.
+#[test]
+fn every_annotation_span_slot_is_drawn() {
+    let texts: Vec<String> = (0..ui::mod_presentation::MAX_ANNOTATION_SPANS)
+        .map(|index| format!("s{index}"))
+        .collect();
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let mut list = PlayerList::new();
+    let mut player = row("A", false);
+    player.annotation = Some(spans(&texts, ui::mod_presentation::SpanPosition::After));
+    list.refresh(&[player], MAX_ROWS);
+    let nodes = render(&mut list);
+    for text in texts {
+        assert!(
+            nodes
+                .iter()
+                .any(|node| matches!(&node.draw, Draw::Text { text: drawn, .. } if drawn == text)),
+            "{text} is drawn"
+        );
     }
 }
 

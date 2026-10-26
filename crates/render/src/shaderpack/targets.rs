@@ -200,7 +200,9 @@ impl ViewTargets {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack sky vertices"),
                 size: super::sky::SKY_BUFFER_BYTES,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::VERTEX
+                    | wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         });

@@ -113,6 +113,7 @@ fn publish(world: &mut World, revision: u64, blend: u32) {
         .overlay(),
     };
     let input = UiRenderInput {
+        models: Default::default(),
         revision,
         viewport_size: SIZE,
         safe_area: [0; 4],

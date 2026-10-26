@@ -30,7 +30,8 @@ pub struct GameData {
 /// StartGame's session settings and world rules.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupSettings {
-    /// The world's lighting compatibility version.
+    /// The level's base game version as sent; [`crate::BaseGameVersion::parse`]
+    /// resolves the effective version that version-gated behavior reads.
     pub base_game_version: String,
     /// The block-breaking negotiation, separate from authority over any one block.
     pub server_authoritative_block_breaking: bool,
@@ -277,28 +278,35 @@ mod tests {
     }
 
     #[test]
-    fn conflicting_components_do_not_publish_presentation_facts() {
+    fn a_later_declaration_of_the_same_item_supplies_its_presentation_facts() {
         let first = component_item("custom_blade");
         let second = component_item("other_blade");
         let items = StartupItems::from_wire(&ItemRegistry {
             item_data: vec![first, second],
         });
-        assert!(items.registry.is_err());
-        assert!(items.icon_keys.is_empty());
-        assert!(items.components.is_empty());
-        assert_eq!(items.identifiers.len(), 2);
+        let registry = items
+            .registry
+            .as_ref()
+            .expect("repeated items keep the registry");
+        assert_eq!(registry.entries.len(), 1);
+        assert_eq!(
+            items.icon_keys.as_ref(),
+            &[(Arc::from("test:sword"), Arc::from("other_blade"))]
+        );
+        assert_eq!(items.components.len(), 1);
     }
 
     #[test]
-    fn conflicting_registry_ids_are_a_semantic_rejection() {
+    fn a_reused_registry_id_belongs_to_the_later_item() {
         let items =
             StartupItems::from_wire(&registry(&[("minecraft:stick", 5), ("minecraft:stone", 5)]));
-        assert!(matches!(items.registry, Err(WorldPacketError::Item(_))));
-        assert_eq!(
-            items.identifiers.len(),
-            2,
-            "rejected items keep their identifiers"
-        );
+        let registry = items
+            .registry
+            .as_ref()
+            .expect("reused IDs keep the registry");
+        assert_eq!(registry.entries.len(), 1);
+        assert_eq!(registry.entries[0].identifier.as_ref(), "minecraft:stone");
+        assert_eq!(registry.entries[0].network_id, 5);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //! textures, and the canonical state an item is drawn from.
 //!
 //! Vanilla's item renderer draws a block item flat when it cannot tessellate
-//! its shape, and then shows the carried texture, down face, at the
+//! its shape, and then shows the carried icon face at the
 //! block's variant.
 
 use std::{borrow::Cow, path::Path, sync::Arc};
@@ -121,6 +121,25 @@ impl IconBlocks {
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
+        if record.model_family == ModelFamily::Button {
+            // The base game's button UI shape is the unpressed plate on a west wall, which is the
+            // world shape of the east-facing state.
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    candidate.name == record.name
+                        && state[BlockProperty::FacingDirection.name()]["value"] == 5
+                        && state[BlockProperty::ButtonPressedBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         let crafter = record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier();
         if crafter
             || assets::facts::block_render_fact(&record.name).kind
@@ -181,6 +200,7 @@ impl IconBlocks {
         if block.support() == VisualSupport::VanillaFallback
             && self.records.get(visual.0 as usize).is_some_and(|record| {
                 record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier()
+                    || record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
                     || record
                         .traits
                         .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
@@ -261,6 +281,16 @@ impl IconBlocks {
                     return Ok(None);
                 };
                 transform
+            } else if carried
+                && record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
+            {
+                // The base game's observer item draws its default state turned south, whose
+                // south face shows the authored north slot and whose north face the south slot.
+                match face {
+                    BlockFace::North => (BlockFace::South, 0),
+                    BlockFace::South => (BlockFace::North, 0),
+                    _ => (face, 0),
+                }
             } else if record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier() {
                 // The inventory pose faces south with its top upright.
                 match face {
@@ -347,7 +377,7 @@ impl IconBlocks {
         super::carried::model_tile(self, root, &material.key, material.path, material.overlay)
     }
 
-    /// Selects the carried down-face material at the block's world variant.
+    /// Selects an attachment face or the item's carried icon face at its world variant.
     fn carried_material(
         &self,
         visual: BlockVisualId,
@@ -355,12 +385,27 @@ impl IconBlocks {
     ) -> Option<CarriedMaterial<'_>> {
         let pack = self.pack.as_ref()?;
         let record = self.records.get(visual.0 as usize)?;
+        let icon_face = if assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::TripwireHook
+        {
+            BlockFace::North
+        } else {
+            BlockFace::Down
+        };
         let key = match face {
             Some(face) => resolve_carried_face_key(&pack.blocks, record, face)?.into(),
+            None if icon_face != BlockFace::Down => {
+                resolve_carried_face_key(&pack.blocks, record, icon_face)
+                    .or_else(|| {
+                        resolve_carried_fallback_key(&pack.blocks, record, icon_face)
+                            .map(String::from)
+                    })?
+                    .into()
+            }
             None => resolve_carried_down_key(&pack.blocks, record)?,
         };
         // The world key's variant stands in for the block's variant.
-        let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(BlockFace::Down))
+        let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))
             .key
             .and_then(|world| pack.terrain.get_for_model_record(&world, record))
             .map_or(0, |(_, variant)| variant as usize);
@@ -563,5 +608,13 @@ mod tests;
 mod crafter_tests;
 
 #[cfg(test)]
+#[path = "blocks/observer_tests.rs"]
+mod observer_tests;
+
+#[cfg(test)]
 #[path = "blocks/lightning_rod_tests.rs"]
 mod lightning_rod_tests;
+
+#[cfg(test)]
+#[path = "blocks/button_tests.rs"]
+mod button_tests;

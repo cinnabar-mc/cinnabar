@@ -33,6 +33,7 @@ mod native_bind_pose;
 mod native_boat;
 mod native_dragon_geometry;
 mod native_held_items;
+mod native_thrown_trident;
 mod pack;
 mod painting;
 mod policy_sources;
@@ -41,7 +42,7 @@ mod sanitize;
 mod vanilla_refs;
 mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
-pub use sample_omissions::missing_harness_bindings;
+pub use sample_omissions::missing_equipment_bindings;
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub(crate) use pack::compile_entity_pack_unless;
@@ -276,6 +277,14 @@ fn compile_with_behavior(
         None,
     )?;
     total_source_bytes += native_boat::complete_bindings(
+        root,
+        &mut sources,
+        &mut source_payloads,
+        &mut symbols,
+        &mut geometries,
+        None,
+    )?;
+    total_source_bytes += native_thrown_trident::complete_bindings(
         root,
         &mut sources,
         &mut source_payloads,

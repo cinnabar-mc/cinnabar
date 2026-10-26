@@ -25,7 +25,9 @@ fn section(bytes: &mut Vec<u8>, name: &str, data: &[u8]) {
 
 /// A valid existing bundle with no product layout or assets.
 fn bundle(title: &str) -> String {
-    serde_json::json!({"panel":{"title":title,"toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}).to_string()
+    serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+        "surface":crate::tests::panel_surface(title)},"surfaces":{}})
+    .to_string()
 }
 
 #[test]
@@ -45,7 +47,10 @@ fn static_assets_leave_executable_and_unrelated_metadata_bytes_unchanged() {
     );
     let assets = ComponentAssets::read(&source).unwrap();
     assert_eq!(assets.executable.as_ref(), original);
-    assert_eq!(assets.panel_bundle.as_ref().unwrap().panel.title, "Local");
+    assert_eq!(
+        assets.panel_bundle.as_ref().unwrap().panel.surface.screen,
+        "Local.root"
+    );
     assert_eq!(
         assets.font.as_deref(),
         Some(b"bounded font source".as_slice())

@@ -19,7 +19,12 @@ use reqwest::{StatusCode, header::RANGE};
 
 use super::runner::Cancelled;
 
+#[cfg(test)]
+mod cache_tests;
+
 const REPORT_INTERVAL: Duration = Duration::from_millis(100);
+/// Binds an extracted cache to the verified archive, independently of the client build.
+const PACK_STAMP: &str = "archive-sha256";
 
 /// The kit's pinned pack, unpacked below `workspace`.
 fn pack_paths(kit: &Path, workspace: &Path) -> Result<(VanillaSource, PackPaths)> {
@@ -27,6 +32,14 @@ fn pack_paths(kit: &Path, workspace: &Path) -> Result<(VanillaSource, PackPaths)
     let source = VanillaSource::read(&manifest)?;
     let paths = source.local_paths(workspace)?;
     Ok((source, paths))
+}
+
+/// Whether the current resource version has already been extracted from its verified archive.
+pub(super) fn pack_cached(kit: &Path, workspace: &Path) -> Result<bool> {
+    let (source, paths) = pack_paths(kit, workspace)?;
+    Ok(paths.is_unpacked()
+        && fs::read_to_string(paths.cache.join(PACK_STAMP))
+            .is_ok_and(|stamp| stamp == source.sha256.to_ascii_lowercase()))
 }
 
 /// Leaves the verified archive where [`unpack`] reads it; `progress` receives (bytes received,
@@ -77,11 +90,24 @@ pub(super) fn fetch_archive(
 
 /// Extracts the archive [`fetch_archive`] verified into the manifest's cache directory.
 pub(super) fn unpack(kit: &Path, workspace: &Path, cancel: &AtomicBool) -> Result<()> {
-    let (_, paths) = pack_paths(kit, workspace)?;
+    if pack_cached(kit, workspace)? {
+        return Ok(());
+    }
+    let (source, paths) = pack_paths(kit, workspace)?;
+    // An interrupted extraction or a changed archive at the same cache path is rebuilt.
+    if paths.cache.exists() {
+        fs::remove_dir_all(&paths.cache)?;
+    }
     match vanilla_pack::unpack(&paths, &UnpackLimits::PINNED, &|| {
         cancel.load(Ordering::Relaxed)
     }) {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            fs::write(
+                paths.cache.join(PACK_STAMP),
+                source.sha256.to_ascii_lowercase(),
+            )?;
+            Ok(())
+        }
         Err(UnpackError::Cancelled) => Err(Cancelled.into()),
         Err(error) => Err(error.into()),
     }

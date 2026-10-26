@@ -9,7 +9,7 @@ use super::{MANIFEST_PATH, VerifiedBundle, directory, read_entry};
 use crate::{
     crypto::{self, SignedDocument},
     manifest::{Manifest, PackageOffer, Scope, identifier},
-    policy::{MAX_BUNDLE_BYTES, MAX_EXPANDED_BYTES, MAX_MARKER_BYTES},
+    policy::{MAX_BUNDLE_BYTES, MAX_EXPANDED_BYTES, MAX_MANIFEST_BYTES},
 };
 
 #[derive(Debug, Serialize)]
@@ -30,7 +30,7 @@ pub fn verify(bytes: &[u8]) -> Result<Metadata> {
         .get(MANIFEST_PATH)
         .ok_or_else(|| anyhow::anyhow!("manifest missing"))?
         .size;
-    ensure!(size <= MAX_MARKER_BYTES as u64, "manifest too large");
+    ensure!(size <= MAX_MANIFEST_BYTES as u64, "manifest too large");
     let mut remaining = MAX_EXPANDED_BYTES;
     let signed = read_entry(&entries, MANIFEST_PATH, size, &mut remaining)?;
     let signed: SignedDocument = serde_json::from_slice(&signed)?;

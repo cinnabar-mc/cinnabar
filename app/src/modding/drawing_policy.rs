@@ -3,17 +3,45 @@
 use client_extensions::modding::{drawing_policy::session_permissions, multi::ModHosts};
 use mod_api::drawing::DrawingSession;
 
+/// A connection may remain live while a dimension transfer has no usable world.
+pub(super) fn world_active(world: Option<&crate::runtime::world::ClientWorld>) -> bool {
+    world.is_some_and(|world| world.stream.is_some() && !world.dimension_transfer.active())
+}
+
+/// Replaces availability from all current scene contributors under one native session fence.
+pub(crate) fn rebuild_frame<'a>(
+    resources: impl IntoIterator<Item = &'a std::sync::Arc<mod_render::retained::Resources>>,
+    authority: Option<&client_world::WorldAuthority>,
+    frame: &mut render_scene::mod_scene::retained::DrawingFrame,
+) {
+    frame.connection = 0;
+    frame.dimension = 0;
+    frame.live_owners.clear();
+    frame.entity_poses.clear();
+    frame.loaded_blocks.clear();
+    let Some(authority) = authority else { return };
+    frame.connection = authority.actor_session_id();
+    frame.dimension = authority.current_dimension();
+    for resources in resources {
+        if resources.connection == frame.connection && resources.dimension == frame.dimension {
+            publish_retained(resources, authority.terrain(), frame);
+        }
+    }
+}
+
 /// Fences user-consented capabilities to the live world independently of server negotiation.
 pub(super) fn bind(hosts: &mut ModHosts, gameplay: &super::gameplay::GameplayContext<'_>) -> bool {
     let mut changed = false;
     let fence = gameplay
         .world
         .as_ref()
-        .and_then(|world| (!world.dimension_transfer.active()).then_some(world.stream.as_ref()?))
+        .and_then(|world| world.stream.as_ref())
         .map(|stream| {
             let authority = stream.authority();
             (authority.actor_session_id(), authority.current_dimension())
         });
+    // A loading gap suspends world output, but the actor authority still owns the connection.
+    let world_active = world_active(gameplay.world.as_deref());
     for index in 0..hosts.host_count() {
         let host = hosts.host_mut(index);
         let (connection, dimension) = fence.unwrap_or_default();
@@ -21,44 +49,21 @@ pub(super) fn bind(hosts: &mut ModHosts, gameplay: &super::gameplay::GameplayCon
             .session
             .as_ref()
             .is_some_and(|session| session.is_local_world());
-        changed |= host.bind_drawing_session(DrawingSession {
-            connection,
-            dimension,
-            local,
-            permissions: session_permissions(connection),
-        });
+        changed |= host.bind_drawing_world(
+            DrawingSession {
+                connection,
+                dimension,
+                local,
+                permissions: session_permissions(connection),
+            },
+            world_active,
+        );
     }
     changed
 }
 
-/// Publishes availability for only the block anchors in the current retained output.
-pub(super) fn publish_frame(
-    hosts: &ModHosts,
-    gameplay: &super::gameplay::GameplayContext<'_>,
-    frame: &mut render_scene::mod_scene::retained::DrawingFrame,
-) {
-    *frame = Default::default();
-    let Some(world) = gameplay
-        .world
-        .as_ref()
-        .filter(|world| !world.dimension_transfer.active())
-    else {
-        return;
-    };
-    let Some(stream) = world.stream.as_ref() else {
-        return;
-    };
-    frame.connection = stream.authority().actor_session_id();
-    frame.dimension = stream.authority().current_dimension();
-    for (output, _) in hosts.render_outputs() {
-        for resources in &output.retained {
-            publish_retained(resources, stream.authority().terrain(), frame);
-        }
-    }
-}
-
 /// Adds one retained snapshot's live owner and authoritative block anchors to the frame.
-pub(super) fn publish_retained(
+pub(crate) fn publish_retained(
     resources: &mod_render::retained::Resources,
     terrain: &world::ChunkStore,
     frame: &mut render_scene::mod_scene::retained::DrawingFrame,

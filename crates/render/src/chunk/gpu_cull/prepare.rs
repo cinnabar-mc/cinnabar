@@ -29,14 +29,9 @@ pub(in crate::chunk) struct ChunkHiddenEntities {
     pub(super) hidden: HashSet<Entity>,
     pub(super) changed: Vec<Entity>,
     /// Moves whenever `hidden` changes; shader-pack draw lists rebuild only then.
-    #[cfg_attr(not(feature = "shaderpacks"), allow(dead_code))]
     revision: u64,
 }
 
-#[cfg_attr(
-    not(feature = "shaderpacks"),
-    expect(dead_code, reason = "read by shader-pack draws")
-)]
 impl ChunkHiddenEntities {
     /// Whether the cave culler hides render entity `entity`.
     pub(in crate::chunk) fn contains(&self, entity: Entity) -> bool {

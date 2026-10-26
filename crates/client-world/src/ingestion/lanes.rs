@@ -236,6 +236,15 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
                 ..Footprint::session(C::CONTROLS)
             }
         }
+        // A vehicle correction reads the steered vehicle and its revision from the actors, so
+        // it keeps wire order with their links and moves.
+        WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_vehicle() => {
+            Footprint {
+                positional: true,
+                local_authority: true,
+                ..Footprint::session(C::CONTROLS.with(C::ACTORS))
+            }
+        }
         WorldEvent::PlayerMovementCorrection(_) => Footprint::session(C::NONE),
         WorldEvent::LevelChunk(event) => {
             Footprint::terrain([ChunkKey::new(event.dimension, event.x, event.z)], true)
@@ -365,9 +374,19 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         WorldEvent::ItemActor(ItemActorEvent::Registry(_)) => {
             Footprint::session(C::ACTORS.with(C::INVENTORY))
         }
-        WorldEvent::Ui(UiEvent::PlayerGameMode { .. } | UiEvent::DefaultGameMode(_)) => {
-            Footprint::session(C::UI.with(C::ACTORS))
+        // A local game-mode update also commits an ordered item-use control.
+        WorldEvent::Ui(UiEvent::PlayerGameMode {
+            actor_unique_id, ..
+        }) if *actor_unique_id == context.local_unique_id => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
         }
+        // A default change may commit an ordered item-use control for a local
+        // player following the default.
+        WorldEvent::Ui(UiEvent::DefaultGameMode(_)) => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
+        }
+        WorldEvent::Ui(UiEvent::PlayerGameMode { .. }) => Footprint::session(C::UI.with(C::ACTORS)),
+        WorldEvent::Ui(UiEvent::GameMode(_)) => Footprint::session(C::UI.with(C::CONTROLS)),
         WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { .. })) => {
             Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
         }

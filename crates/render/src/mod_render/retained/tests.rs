@@ -223,7 +223,7 @@ fn animation_changes_only_the_frame_uniform() {
     let mesh_buffer = gpu.meshes.values().next().unwrap().buffer.id();
     let view = gpu.views.values().next().unwrap();
     let instances = view.uploaded.clone();
-    let instance_buffer = view.buffer.id();
+    let instance_buffer = view.buffer.as_ref().unwrap().id();
     app.world_mut()
         .resource_mut::<clock::AnimationClock>()
         .phase = mod_render::material::phase(1.);
@@ -231,7 +231,7 @@ fn animation_changes_only_the_frame_uniform() {
     let gpu = app.world().resource::<gpu::Gpu>();
     assert_eq!(mesh_buffer, gpu.meshes.values().next().unwrap().buffer.id());
     let view = gpu.views.values().next().unwrap();
-    assert_eq!(instance_buffer, view.buffer.id());
+    assert_eq!(instance_buffer, view.buffer.as_ref().unwrap().id());
     assert_eq!(instances, view.uploaded);
     assert_eq!(
         view.frame_uploaded.animation[0],
@@ -422,9 +422,13 @@ fn out_of_memory_draws_what_fits_and_uploads_geometry_later() {
     let geometry_attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     {
         let attempts = std::rc::Rc::clone(&geometry_attempts);
-        let _failure = crate::gpu_allocation::inject(move |label, _| {
+        let _failure = crate::gpu_allocation::inject(move |label, bytes| {
             attempts.set(attempts.get() + usize::from(label == "mod retained geometry"));
-            label.starts_with("mod retained")
+            label == "mod retained geometry"
+                || (label == "mod retained drawing"
+                    && bytes
+                        > std::mem::size_of::<render_scene::mod_scene::retained::GpuInstance>()
+                            as u64)
         });
         app.world_mut().run_system_once(gpu::queue).unwrap();
     }
@@ -442,4 +446,54 @@ fn out_of_memory_draws_what_fits_and_uploads_geometry_later() {
     let view = gpu.views.values().next().unwrap();
     assert_eq!(view.uploaded.len(), 2);
     assert_eq!(view.batches[0].instances, 0..2);
+}
+
+/// Both explicit revocation and disconnect remove session-owned GPU allocations.
+#[test]
+fn client_part_revoke_and_disconnect_release_uploaded_meshes() {
+    for disconnect in [false, true] {
+        let (mut app, _) = crate::queue_review_support::app();
+        app.init_resource::<gpu::Gpu>()
+            .init_resource::<materials::Materials>()
+            .init_resource::<clock::AnimationClock>()
+            .init_resource::<pipeline::Pipeline>()
+            .insert_resource(DrawingFrame {
+                connection: 1,
+                ..default()
+            })
+            .init_resource::<render_scene::ModRenderScene>()
+            .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>();
+        let (store, _, _) = drawing();
+        app.world_mut().resource_mut::<DrawingFrame>().live_owners = store
+            .snapshot()
+            .geometry
+            .keys()
+            .map(|id| (id.owner, id.generation))
+            .collect();
+        let output = mod_render::RenderOutput {
+            retained: vec![store.snapshot().clone()],
+            ..default()
+        };
+        app.world_mut()
+            .resource_mut::<render_scene::ModRenderScene>()
+            .apply_server(&output, 1);
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert_eq!(app.world().resource::<gpu::Gpu>().meshes.len(), 1);
+        if disconnect {
+            app.world_mut().resource_mut::<DrawingFrame>().connection = 0;
+        } else {
+            app.world_mut()
+                .resource_mut::<render_scene::ModRenderScene>()
+                .apply_server(&default(), 0);
+        }
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert!(app.world().resource::<gpu::Gpu>().meshes.is_empty());
+        assert!(
+            app.world()
+                .resource::<gpu::Gpu>()
+                .views
+                .values()
+                .all(|view| view.uploaded.is_empty())
+        );
+    }
 }

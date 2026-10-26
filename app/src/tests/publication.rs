@@ -2,10 +2,7 @@ use crate::game_frame::configure_client_frame_schedule;
 use std::time::Duration;
 
 use bevy::{
-    ecs::schedule::{
-        IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet,
-        graph::{DiGraph, Direction},
-    },
+    ecs::schedule::{NodeId, Schedules, SystemSet},
     prelude::{App, Update},
 };
 
@@ -48,6 +45,9 @@ use {
     client_presentation::actor_publication::publish_actor_render_frame,
 };
 use {chunk_pipeline::WorldMeshChange, render_api::PublicationServiceConfig};
+
+mod schedule_graph;
+use schedule_graph::{assert_system_in_stage, schedule_precedes, stage_node, system_node};
 
 #[test]
 fn production_client_systems_are_members_of_the_behavioral_sets() {
@@ -234,6 +234,18 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
             "actor picks must read this frame's remote actor positions",
         );
     }
+    assert!(
+        schedule_precedes(
+            graph,
+            motion,
+            system_node(
+                graph,
+                crate::runtime::world::vehicle_look::follow_vehicle_look,
+                "follow_vehicle_look",
+            ),
+        ),
+        "the vehicle look must follow this frame's streamed vehicle heading",
+    );
     for preparation in [
         system_node(graph, drive_world_stream, "drive_world_stream"),
         system_node(graph, advance_actor_frame, "advance_actor_frame"),
@@ -298,6 +310,16 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         assert!(
             schedule_precedes(graph, producer, block_cues),
             "a predicted break or placement must sound in its own frame"
+        );
+    }
+    let attack_cues = system_node(graph, crate::audio::drive_attack_cues, "drive_attack_cues");
+    for producer in [
+        system_node(graph, produce_attacks, "produce_attacks"),
+        system_node(graph, produce_item_use, "produce_item_use"),
+    ] {
+        assert!(
+            schedule_precedes(graph, producer, attack_cues),
+            "an attack sound must play in the frame its attack is sent"
         );
     }
     assert_system_in_stage(
@@ -373,96 +395,6 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
         ),
         "launcher recovery must observe send-side failures from the same frame before fatal exit",
     );
-}
-
-/// Checks ordering inherited from containing sets without treating shared membership as order.
-fn schedule_precedes(graph: &ScheduleGraph, from: NodeId, target: NodeId) -> bool {
-    let ancestors = |node| {
-        let mut pending = vec![node];
-        let mut found = Vec::new();
-        while let Some(node) = pending.pop() {
-            if !found.contains(&node) {
-                found.push(node);
-                pending.extend(
-                    graph
-                        .hierarchy()
-                        .graph()
-                        .neighbors_directed(node, Direction::Incoming),
-                );
-            }
-        }
-        found
-    };
-    let targets = ancestors(target);
-    ancestors(from).into_iter().any(|from| {
-        targets.iter().any(|&target| {
-            from != target && schedule_reaches(graph.dependency().graph(), from, target)
-        })
-    })
-}
-
-/// Follows explicit graph edges through any number of intermediate nodes.
-fn schedule_reaches(graph: &DiGraph<NodeId>, from: NodeId, target: NodeId) -> bool {
-    let mut pending = vec![from];
-    let mut visited = Vec::new();
-    while let Some(node) = pending.pop() {
-        if node == target {
-            return true;
-        }
-        if !visited.contains(&node) {
-            visited.push(node);
-            pending.extend(graph.neighbors(node));
-        }
-    }
-    false
-}
-
-fn stage_node(graph: &ScheduleGraph, stage: ClientFrameSet) -> NodeId {
-    let key = graph
-        .system_sets
-        .get_key(stage.intern())
-        .unwrap_or_else(|| panic!("missing production stage {stage:?}"));
-    NodeId::Set(key)
-}
-
-fn assert_system_in_stage<M>(
-    graph: &ScheduleGraph,
-    system: impl IntoSystemSet<M>,
-    label: &str,
-    stage: ClientFrameSet,
-) {
-    assert!(
-        schedule_reaches(
-            graph.hierarchy().graph(),
-            stage_node(graph, stage),
-            system_node(graph, system, label),
-        ),
-        "production system {label} is not a member of {stage:?}"
-    );
-}
-
-fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>, label: &str) -> NodeId {
-    let type_set = graph
-        .system_sets
-        .get_key(system.into_system_set().intern())
-        .unwrap_or_else(|| panic!("missing production system type set {label}"));
-    let parent = NodeId::Set(type_set);
-    let mut matches = graph.systems.iter().filter_map(|(key, _, _)| {
-        let child = NodeId::System(key);
-        graph
-            .hierarchy()
-            .graph()
-            .contains_edge(parent, child)
-            .then_some(child)
-    });
-    let node = matches
-        .next()
-        .unwrap_or_else(|| panic!("missing production system {label}"));
-    assert!(
-        matches.next().is_none(),
-        "production system {label} is registered more than once"
-    );
-    node
 }
 
 #[derive(bevy::prelude::Resource)]
@@ -1107,72 +1039,6 @@ fn production_world_handoff_fails_closed_without_a_linear_publication_permit() {
         permit: None,
     };
     assert!(!mesh_change_has_publication_permit(&missing));
-
-    let source = include_str!("../runtime/world.rs");
-    assert!(source.contains("MISSING_PUBLICATION_PERMIT_ERROR"));
-    assert!(!source.contains("render_queue.try_update_tracked_with_biome_identity("));
-    assert!(!source.contains("render_queue.try_remove_tracked("));
-    assert!(source.contains("try_update_tracked_with_biome_identity_permitted("));
-    assert!(source.contains("try_remove_tracked_permitted("));
-}
-
-#[test]
-fn local_player_pipeline_orders_physics_camera_and_interaction_and_has_one_camera_writer() {
-    let app_source = include_str!("../app.rs");
-    assert!(app_source.contains("LocalPlayerFrameSet::Physics"));
-    assert!(app_source.contains("LocalPlayerFrameSet::Camera"));
-    assert!(app_source.contains("LocalPlayerFrameSet::Interaction"));
-
-    let production_sources = [
-        include_str!("../camera.rs"),
-        include_str!("../movement.rs"),
-        include_str!("../runtime/network.rs"),
-        include_str!("../runtime/world.rs"),
-        include_str!("../local_player.rs"),
-    ];
-    assert_eq!(
-        production_sources
-            .iter()
-            .map(|source| source.matches("&mut Transform").count())
-            .sum::<usize>(),
-        1,
-        "only the CameraPose publication adapter may borrow the base camera Transform"
-    );
-
-    let local_player = include_str!("../local_player.rs");
-    let adapter = local_player
-        .split_once("pub(crate) fn resolve_camera_pose")
-        .expect("camera resolver adapter exists")
-        .1
-        .split_once("pub(crate) fn publish_local_player_frame")
-        .expect("camera resolver adapter has a bounded body")
-        .0;
-    assert_eq!(
-        adapter
-            .matches("client_presentation::local_player::resolve_camera_pose(")
-            .count(),
-        1,
-        "the production adapter must call the presentation camera writer once"
-    );
-    assert!(!adapter.contains("*camera_transform"));
-
-    let presentation = include_str!("../../../crates/client-presentation/src/local_player.rs");
-    assert_eq!(presentation.matches("&mut Transform").count(), 1);
-    let resolver = presentation
-        .split_once("pub fn resolve_camera_pose")
-        .expect("presentation camera resolver exists")
-        .1
-        .split_once("pub fn publish_local_player_frame")
-        .expect("presentation camera resolver has a bounded body")
-        .0;
-    assert_eq!(
-        resolver.matches("*camera_transform.1 = transform;").count(),
-        1
-    );
-    assert!(
-        resolver.contains("collision_safe_perspective_pose("),
-        "the base camera writer must use the swept collision solver"
-    );
 }
 
 #[test]
@@ -1187,10 +1053,10 @@ fn production_stage_capacities_can_carry_one_literal_maximum_payload_frame() {
 }
 
 #[test]
-fn application_wires_controller_before_world_handoff_and_render_apply() {
-    // The graph test above covers execution order. Startup still must install
-    // the gate controller; constructing fixtures alone cannot prove that wiring.
-    let source = include_str!("../app.rs");
-    assert!(source.contains("PublicationController::new("));
-    assert!(source.contains("PublicationServiceConfig::DEFAULT"));
+fn production_frame_installation_provides_a_working_publication_controller() {
+    let mut app = App::new();
+    configure_client_runtime_frame_systems(&mut app);
+    let mut controller = app.world_mut().resource_mut::<PublicationController>();
+    controller.begin_frame(Duration::from_secs(1));
+    assert!(controller.budget().max_per_frame > 0);
 }

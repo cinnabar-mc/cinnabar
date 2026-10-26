@@ -84,7 +84,7 @@ pub fn mini_carrier() -> Arc<RuntimeUiAssets> {
 /// Enables the minimal carrier on a deterministic font fixture.
 pub fn mini_engine_presentation() -> UiPresentationRuntime {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.enable_json_ui(mini_carrier()).unwrap();
+    presentation.enable_json_ui_inline(mini_carrier()).unwrap();
     presentation
 }
 
@@ -99,7 +99,7 @@ pub fn engine_presentation_with(font: Arc<RuntimeFontCatalog>) -> Option<UiPrese
     let mut presentation =
         UiPresentationRuntime::with_hud(font, fixture_hud()).expect("build fixture HUD");
     presentation
-        .enable_json_ui(carrier)
+        .enable_json_ui_inline(carrier)
         .expect("enable installed UI fixture");
     Some(presentation)
 }

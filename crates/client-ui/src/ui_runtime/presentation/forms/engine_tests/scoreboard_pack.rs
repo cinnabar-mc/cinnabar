@@ -53,7 +53,7 @@ fn presentation() -> UiPresentationRuntime {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation
-        .enable_json_ui(Arc::new(RuntimeUiAssets::decode(&bytes).unwrap()))
+        .enable_json_ui_inline(Arc::new(RuntimeUiAssets::decode(&bytes).unwrap()))
         .unwrap();
     presentation
 }
@@ -213,6 +213,7 @@ fn submit(presentation: &UiPresentationRuntime, runtime: &mut UiRuntime) {
                 pointer_edges: vec![down],
                 wheel: Vec::new(),
                 typed: Vec::new(),
+                menu_cancel: None,
                 now: if down { 0.5 } else { 0.51 },
                 animator: None,
             },

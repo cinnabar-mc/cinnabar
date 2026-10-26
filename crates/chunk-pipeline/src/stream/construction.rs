@@ -145,13 +145,16 @@ impl WorldStream {
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,
             poll_heavy_guarantee: false,
+            worker_service_due: false,
             service_yield: None,
             between_frames_service: false,
-            service_window: Duration::ZERO,
+            service_poll_time: Duration::ZERO,
             retention_due: false,
             retention_cursor: None,
             maintenance_items: 0,
             service_item_max: Duration::ZERO,
+            #[cfg(test)]
+            after_service_item: None,
             maintenance_guarantee: true,
             chunk_data_offloaded: false,
             commit_steps: 0,
@@ -279,23 +282,23 @@ impl WorldStream {
         level_chunk_payload: Option<Bytes>,
     ) -> Result<(), WorldStreamError> {
         self.order.validate_sequence(sequence)?;
-        self.promote_deferred_ingress();
         let footprint = self.ingress_footprint(&event);
         if let WorldEvent::ChangeDimension(change) = &event {
             self.ingress_dimension = change.dimension;
         }
+        // Admit against the state the caller's `can_admit` saw: promotion below may commit
+        // events whose retained deltas take the light credit this event was promised.
+        let retained_commits = self.authority.retained_commit_count();
         if self.defers_preparation(&event, &footprint) {
-            self.order.admit_deferred(
-                sequence,
-                footprint,
-                self.authority.retained_commit_count(),
-            )?;
+            self.order
+                .admit_deferred(sequence, footprint, retained_commits)?;
             self.deferred_ingress
                 .push_back((sequence, event, level_chunk_payload));
+            self.promote_deferred_ingress();
             return Ok(());
         }
-        let retained_commits = self.authority.retained_commit_count();
         self.order.admit(sequence, footprint, retained_commits)?;
+        self.promote_deferred_ingress();
         self.prepare_admitted(sequence, event, level_chunk_payload)
     }
 

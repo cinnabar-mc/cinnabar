@@ -24,7 +24,7 @@ pub struct NetworkConfig {
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
-    pub client_blob_cache: protocol::ClientBlobCache,
+    pub client_blob_cache: Option<protocol::ClientBlobCache>,
     pub player_skin: client_shell::player_skin::LocalPlayerSkin,
     /// The player's language, input mode and GUI scale, reported at login.
     pub login_settings: protocol::LoginSettings,

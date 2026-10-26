@@ -299,6 +299,21 @@ impl FrameState {
             && self.previous_rotation.rotation_changed(self.motion.input)
     }
 
+    /// Local walking can advance while the independent actor clock has no new endpoint.
+    fn samples_local_walk(&self, state: &ActorRigState) -> bool {
+        state.java.local_body.has_walk()
+            && (self.needs_walk_sampling()
+                || state
+                    .java
+                    .local_body
+                    .walk_changed(&state.motion, self.motion.input))
+            && self
+                .motion
+                .sampling
+                .as_ref()
+                .is_some_and(|sampling| sampling.uses_walk())
+    }
+
     /// A changing stride or speed requires walk sampling between ticks.
     fn needs_walk_sampling(&self) -> bool {
         self.motion

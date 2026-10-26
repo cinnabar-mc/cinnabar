@@ -41,9 +41,8 @@ fn draggable() -> Panel {
             step: 0.001,
         })
         .collect();
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         collections: Default::default(),
-        previews: Default::default(),
         screen: "drag.root".into(),
         transitions: Default::default(),
         bindings: BTreeMap::from([("#position".into(), SurfaceValue::Vector(vec![96.0, 91.0]))]),
@@ -60,7 +59,7 @@ fn draggable() -> Panel {
             }}]
         }})
         .to_string(),
-    });
+    };
     panel
 }
 
@@ -114,8 +113,6 @@ fn echo(presentation: &mut UiPresentationRuntime, panel: &mut Panel, events: &[E
         .collect();
     panel
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#position".into(), SurfaceValue::Vector(values));
     publish(presentation, panel);
@@ -211,7 +208,7 @@ fn ordinary_button_above_a_drag_handle_receives_the_press() {
         id: "done".into(),
         label: "Done".into(),
     });
-    let surface = panel.surface.as_mut().unwrap();
+    let surface = &mut panel.surface;
     let mut document: serde_json::Value = serde_json::from_str(&surface.document).unwrap();
     document["root"]["controls"]
         .as_array_mut()
@@ -253,7 +250,7 @@ fn disabled_buttons_and_unmapped_modals_block_underlying_drag_capture() {
         json!({"type":"input_panel","modal":true}),
     ] {
         let mut panel = draggable();
-        let surface = panel.surface.as_mut().unwrap();
+        let surface = &mut panel.surface;
         let mut document: serde_json::Value = serde_json::from_str(&surface.document).unwrap();
         let mut overlay = overlay;
         overlay["offset"] = json!([96, 91]);
@@ -289,7 +286,7 @@ fn disabled_buttons_and_unmapped_modals_block_underlying_drag_capture() {
 #[test]
 fn repeated_absolute_routes_keep_the_grabbed_rectangle() {
     let mut panel = draggable();
-    let surface = panel.surface.as_mut().unwrap();
+    let surface = &mut panel.surface;
     surface.document = json!({"namespace":"drag","root":{
         "type":"screen","size":["100%","100%"],"controls":[
             {"first":{"type":"button","offset":[20,20],"size":[100,100],
@@ -326,7 +323,7 @@ fn replacing_a_drag_document_releases_its_old_capture() {
     frame(&mut presentation, [1280, 800]);
     let at = pointer(&presentation, [120.0, 100.0]);
     presentation.mod_ui_mut().mod_panel_events(at, true, true);
-    let surface = panel.surface.as_mut().unwrap();
+    let surface = &mut panel.surface;
     let mut document: serde_json::Value = serde_json::from_str(&surface.document).unwrap();
     document["root"]["controls"][0]["handle"]["size"] = json!([120, 30]);
     surface.document = document.to_string();
@@ -349,7 +346,7 @@ fn relative_axis_preserves_its_initial_value_across_a_rebound_handle() {
         unreachable!()
     };
     *value = 0.2003;
-    let surface = panel.surface.as_mut().unwrap();
+    let surface = &mut panel.surface;
     surface.document = surface
         .document
         .replace("mod.drag:0:1", "mod.drag_axis:0:x");
@@ -383,7 +380,7 @@ fn relative_axis_preserves_its_initial_value_across_a_rebound_handle() {
 #[test]
 fn relative_axis_uses_the_declared_reference_extent_for_a_scale_handle() {
     let mut panel = draggable();
-    let surface = panel.surface.as_mut().unwrap();
+    let surface = &mut panel.surface;
     surface.document = surface
         .document
         .replace("mod.drag:0:1", "mod.drag_axis:0:x:112");
@@ -411,7 +408,7 @@ fn relative_axis_uses_the_declared_reference_extent_for_a_scale_handle() {
 #[test]
 fn bound_relative_axis_extent_is_captured_until_release_and_resampled_on_the_next_grab() {
     let mut panel = draggable();
-    let surface = panel.surface.as_mut().unwrap();
+    let surface = &mut panel.surface;
     surface.document = surface
         .document
         .replace("mod.drag:0:1", "mod.drag_axis:0:x:#resize_extent");
@@ -434,8 +431,6 @@ fn bound_relative_axis_extent_is_captured_until_release_and_resampled_on_the_nex
     // A newly prepared catalog and a new extent do not alter this gesture's sensitivity.
     panel
         .surface
-        .as_mut()
-        .unwrap()
         .bindings
         .insert("#resize_extent".into(), SurfaceValue::Number(224.0));
     echo(&mut presentation, &mut panel, &events);

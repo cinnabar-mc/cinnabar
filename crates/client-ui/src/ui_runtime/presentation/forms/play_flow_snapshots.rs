@@ -560,7 +560,12 @@ fn snapshot_update_ready_notice() {
     view.screen = MenuScreen::Home;
     snapshot(&player, &view, "updater-home-before");
     view.updates.ready = Some(launcher::menu::updates::Ready {
-        version: "2.0.0".into(),
+        release: update_manifest::build::Build {
+            version: "2.0.0".into(),
+            number: 2,
+            channel: Some(update_manifest::channel::Channel::Beta),
+        },
+        switching: false,
         writable: true,
         protocol_required: false,
     });

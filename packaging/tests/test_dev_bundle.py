@@ -51,7 +51,7 @@ if sys.argv[1]=='cargo':
 ''')
             command = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
             result = subprocess.run(
-                ["make", "--no-print-directory", "play", "SHADERPACKS=1", "PROFILE=dev",
+                ["make", "--no-print-directory", "play", "PROFILE=dev",
                  "CINNABAR_BUILD_COMMIT=fixture", f"CARGO={command} cargo", f"GO={command} go"],
                 cwd=root, env={**os.environ, "PATH": str(binary)+os.pathsep+os.environ["PATH"]},
                 text=True, capture_output=True,

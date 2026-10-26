@@ -37,6 +37,7 @@ fn input(pages: Vec<UiTexturePage>, repeats: f32, flags: u16) -> UiRenderInput {
         ));
     }
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [6, 2],
         safe_area: [0; 4],

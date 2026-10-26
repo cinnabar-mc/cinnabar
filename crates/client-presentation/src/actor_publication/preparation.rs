@@ -50,7 +50,7 @@ pub struct ActorFrameState {
 
 impl ActorFrameState {
     /// Cosmetic motion shared by the world attachment and the HUD paperdoll for this frame.
-    pub fn cosmetic_motion(&self) -> Vec<(cosmetics::Item, render_model::hats::Motion)> {
+    pub fn cosmetic_motion(&mut self) -> &[(cosmetics::Item, render_model::hats::Motion)] {
         self.hat_state.local_motion()
     }
 
@@ -67,6 +67,11 @@ impl ActorFrameState {
         self.step
     }
 
+    /// This frame's staged actor clock step, before actor preparation consumes it.
+    pub fn motion_step(&self) -> Option<crate::actor_clock::ActorFrameStep> {
+        self.motion_step
+    }
+
     /// Returns the resolved camera rotation and position captured for actor evaluation.
     pub fn sampling_camera(&self) -> Option<([f32; 2], [f32; 3])> {
         self.captured_sampling_camera
@@ -78,12 +83,13 @@ impl ActorFrameState {
     }
 }
 
-/// Predicts remote poses from the supplied interval, independently of local physics.
+/// Stages remote motion from the supplied interval, independently of local physics.
 /// Live actor publication later consumes the same step.
 pub fn advance_actor_motion(
     state: &mut ActorFrameState,
     stream: Option<&mut WorldStream>,
     delta: std::time::Duration,
+    local_vehicle: Option<client_world::LocalVehicleFeed>,
 ) {
     let session_id = stream
         .as_ref()
@@ -94,6 +100,9 @@ pub fn advance_actor_motion(
     }
     let step = state.actor_clock.advance(delta);
     if let Some(stream) = stream {
+        // The steered boat's prediction lands first, so picks, the camera and the rider's
+        // seat all read this frame's boat.
+        stream.sync_local_vehicle_pose(local_vehicle);
         stream.predict_remote_actor_motion(step.ticks);
     }
     state.motion_step = Some(step);
@@ -310,6 +319,12 @@ pub fn advance_actor_frame(
                 max_ticks: timing.max_use_ticks,
                 charged: timing.hand_charged,
             };
+        }
+        // A seat that locks rotation faces the rider's body along the vehicle.
+        if let Some(feed) = &mut local_feed
+            && let Some(lock) = stream.authority().local_seat_view_lock(step.partial_tick)
+        {
+            feed.yaw = lock.facing();
         }
         if let Some(feed) = &local_feed {
             stream.sync_local_player_pose(feed);

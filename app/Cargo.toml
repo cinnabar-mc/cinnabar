@@ -12,7 +12,6 @@ reads = [
     "assets/cinnangles-sans-source.json",
     "assets/vanilla-source.json",
     "crates/assets/data/*",
-    "crates/client-presentation/src/local_player.rs",
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
@@ -43,8 +42,6 @@ default = ["acceptance"]
 acceptance = ["dep:acceptance", "bridge/join-profile"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
-# Experimental Java (OptiFine/Iris) shader packs as a third Video renderer.
-shaderpacks = ["render/shaderpacks", "dep:shaderpack", "launcher/shaderpacks"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
@@ -113,7 +110,6 @@ oreui = { path = "../crates/oreui" }
 mod-ui = { path = "../crates/mod-ui" }
 particles = { path = "../crates/particles" }
 resource-pack = { path = "../crates/resource-pack" }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -127,7 +123,6 @@ test-alloc = { path = "../crates/test-alloc", optional = true }
 mimalloc = { workspace = true, optional = true }
 client-extensions = { path = "../crates/client-extensions" }
 bootstrap-ui = { path = "../crates/bootstrap-ui" }
-crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
@@ -145,12 +140,16 @@ update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
 mod-host = { path = "../crates/mod-host" }
 server-experience = { path = "../crates/server-experience" }
-shaderpack = { path = "../crates/shaderpack", optional = true }
+shaderpack = { path = "../crates/shaderpack" }
 rayon.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+
+# The out-of-process crash monitor; iOS cannot start a second process.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios")))'.dependencies]
+crash-monitor = { path = "../crates/crash-monitor" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { workspace = true, features = ["webgpu"] }
@@ -160,8 +159,11 @@ wgpu = { workspace = true, features = ["gles"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
-objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-quartz-core"] }
+
+# The display link that requests full ProMotion and window refresh rates.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSRunLoop", "NSString"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CADisplayLink", "CAFrameRateRange", "CALayer", "CAMetalLayer", "objc2-metal"] }
 
@@ -169,6 +171,7 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 raw-window-handle = "0.6.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_UI_Input",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
@@ -178,6 +181,7 @@ resource-pack = { path = "../crates/resource-pack", features = ["test-support"] 
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"
+
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }
@@ -204,6 +208,9 @@ pack-compiler = { path = "../crates/pack-compiler" }
 pack-entity-compiler = { path = "../crates/pack-compiler/entity" }
 chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true

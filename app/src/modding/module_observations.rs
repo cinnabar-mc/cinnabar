@@ -3,7 +3,8 @@ use super::gameplay::GameplayContext;
 use client_ui::ui_runtime::UiRuntime;
 use mod_host::{
     ActorObservation, ActorObservationBounds, CombatKind, CombatObservation, MotionObservation,
-    ObservedActor, VitalsObservation, WorldObservation, module_observations::ModuleObservations,
+    ObservedActor, VitalsObservation, WorldObservation,
+    module_observations::{ModuleObservations, RecordedCombatObservation},
 };
 use simulation_clock::identity::SessionGeneration;
 use std::{
@@ -20,8 +21,19 @@ pub(super) struct ModuleObserver {
     server_revision: u64,
     attack_revision: u64,
     sequence: u64,
-    history: VecDeque<CombatObservation>,
+    history: VecDeque<RecordedCombatObservation>,
     ping: PingPoll,
+    /// Every admitted actor's life, reused between frames once mods release it.
+    lives: std::sync::Arc<Vec<mod_host::module_observations::ActorLifeObservation>>,
+}
+
+/// Converts a HUD stat's retained counters back to attribute points, as mods read them.
+fn stat_points(stat: ui::BoundedStat) -> (f32, f32) {
+    let scale = f32::from(stat.scale());
+    (
+        f32::from(stat.current()) / scale,
+        f32::from(stat.maximum()) / scale,
+    )
 }
 
 /// Keeps observed identifiers bounded at a valid UTF-8 prefix.
@@ -300,7 +312,7 @@ fn nearest_observed_actors<'a>(
 
 impl ModuleObserver {
     /// Appends retained facts with a monotonic cursor, allowing independent incremental consumers.
-    fn push(&mut self, mut event: CombatObservation) {
+    fn push(&mut self, mut event: CombatObservation, life: Option<u64>) {
         let Some(sequence) = self.sequence.checked_add(1) else {
             return;
         };
@@ -309,9 +321,57 @@ impl ModuleObserver {
         if self.history.len() == mod_api::MAX_OBSERVED_COMBAT_EVENTS {
             self.history.pop_front();
         }
-        self.history.push_back(event);
+        self.history
+            .push_back(RecordedCombatObservation { event, life });
     }
-    /// Observes native owners without depending on gameplay input capture.
+    /// Copies the authority's recorded lives without reading the actor's later state.
+    fn collect_combat(
+        &mut self,
+        authority: &client_world::WorldAuthority,
+        world: &WorldObservation,
+    ) {
+        for event in authority
+            .combat_evidence()
+            .filter(|event| event.revision > self.server_revision)
+            .copied()
+            .collect::<Vec<_>>()
+        {
+            self.server_revision = event.revision;
+            if event.dimension == world.dimension {
+                self.push(
+                    CombatObservation {
+                        sequence: 0,
+                        session: world.session,
+                        dimension: world.dimension,
+                        kind: match event.kind {
+                            client_world::ActorCombatKind::Hurt => CombatKind::Hurt,
+                            client_world::ActorCombatKind::Death => CombatKind::Death,
+                            client_world::ActorCombatKind::Totem => CombatKind::Totem,
+                        },
+                        player: event.player,
+                        local: event.runtime_id == authority.local_player_runtime_id(),
+                        runtime_id: event.runtime_id,
+                        distance: None,
+                        position: (event.position[0], event.position[1], event.position[2]),
+                    },
+                    Some(event.life),
+                );
+            }
+        }
+    }
+
+    /// Fences retained evidence to one session and dimension while keeping cursors unique.
+    fn bind_scope(&mut self, scope: (u64, i32), server_revision: u64, attack_revision: u64) {
+        if self.scope != Some(scope) {
+            self.scope = Some(scope);
+            self.history.clear();
+            self.server_revision = server_revision;
+            self.attack_revision = attack_revision;
+        }
+    }
+
+    /// Observes native owners without depending on gameplay input capture. Actor lives are
+    /// published only when a mod may read them.
     pub(super) fn capture(
         &mut self,
         gameplay: &GameplayContext<'_>,
@@ -319,6 +379,7 @@ impl ModuleObserver {
         world: Option<&WorldObservation>,
         player: &player_state::PlayerState,
         interaction: Option<&super::interaction::ModInteraction>,
+        actor_reads: bool,
     ) -> ModuleObservations {
         let Some(world) = world else {
             self.scope = None;
@@ -335,20 +396,18 @@ impl ModuleObserver {
             return ModuleObservations::default();
         };
         let scope = (world.session, world.dimension);
-        if self.scope != Some(scope) {
-            self.scope = Some(scope);
-            self.history.clear();
-            // Old dimension/session evidence must not replay into the newly opened scope.
-            self.server_revision = authority
+        self.bind_scope(
+            scope,
+            authority
                 .combat_evidence()
                 .last()
-                .map_or(0, |event| event.revision);
-            self.attack_revision = gameplay
+                .map_or(0, |event| event.revision),
+            gameplay
                 .melee
                 .as_ref()
                 .and_then(|melee| melee.admitted_attack())
-                .map_or(0, |attack| attack.sequence);
-        }
+                .map_or(0, |attack| attack.sequence),
+        );
         let motion = gameplay
             .physics
             .as_ref()
@@ -373,8 +432,8 @@ impl ModuleObserver {
         let vitals = Some(VitalsObservation {
             session: world.session,
             dimension: world.dimension,
-            hunger: hunger.map(|stat| stat.current() as f32),
-            max_hunger: hunger.map(|stat| stat.maximum() as f32),
+            hunger: hunger.map(|stat| stat_points(stat).0),
+            max_hunger: hunger.map(|stat| stat_points(stat).1),
             saturation: ui.gameplay_hud().saturation(),
             held_food: player
                 .selected_stack()
@@ -467,48 +526,28 @@ impl ModuleObserver {
             .filter(|attack| attack.sequence > self.attack_revision)
         {
             self.attack_revision = attack.sequence;
-            self.push(CombatObservation {
-                sequence: 0,
-                session: world.session,
-                dimension: world.dimension,
-                kind: CombatKind::AttackAdmitted,
-                local: false,
-                player: authority
-                    .actor(attack.hit.runtime_id)
-                    .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. })),
-                runtime_id: attack.hit.runtime_id,
-                distance: Some(attack.hit.distance as f32),
-                position: (
-                    attack.hit.point[0],
-                    attack.hit.point[1],
-                    attack.hit.point[2],
-                ),
-            });
-        }
-        for event in authority
-            .combat_evidence()
-            .filter(|event| event.revision > self.server_revision)
-            .copied()
-            .collect::<Vec<_>>()
-        {
-            self.server_revision = event.revision;
-            if event.dimension == world.dimension {
-                self.push(CombatObservation {
+            self.push(
+                CombatObservation {
                     sequence: 0,
                     session: world.session,
                     dimension: world.dimension,
-                    kind: match event.kind {
-                        client_world::ActorCombatKind::Hurt => CombatKind::Hurt,
-                        client_world::ActorCombatKind::Death => CombatKind::Death,
-                    },
-                    player: event.player,
-                    local: event.runtime_id == authority.local_player_runtime_id(),
-                    runtime_id: event.runtime_id,
-                    distance: None,
-                    position: (event.position[0], event.position[1], event.position[2]),
-                });
-            }
+                    kind: CombatKind::AttackAdmitted,
+                    local: false,
+                    player: authority.actor(attack.hit.runtime_id).is_some_and(|actor| {
+                        matches!(actor.kind, protocol::ActorKind::Player { .. })
+                    }),
+                    runtime_id: attack.hit.runtime_id,
+                    distance: Some(attack.hit.distance as f32),
+                    position: (
+                        attack.hit.point[0],
+                        attack.hit.point[1],
+                        attack.hit.point[2],
+                    ),
+                },
+                attack.life,
+            );
         }
+        self.collect_combat(authority, world);
         let ping_ms = self.ping.sample(
             world.session,
             authority.local_player_runtime_id(),
@@ -519,13 +558,17 @@ impl ModuleObserver {
                 .map(PathBuf::from),
         );
         ModuleObservations {
-            world_day: gameplay.world_day(world),
-            local_totem_uses: authority.totem_activations(authority.local_player_runtime_id()),
+            world_time: gameplay.world_time(world),
             motion,
             vitals,
             ping_ms,
             actors,
             combat: self.history.iter().cloned().collect(),
+            actor_lives: if actor_reads {
+                super::actor_lives::publish(&mut self.lives, Some(authority))
+            } else {
+                Default::default()
+            },
         }
     }
 }
@@ -571,6 +614,14 @@ mod tests {
             )
             .unwrap();
         stream.authority().remote_actors().next().unwrap().clone()
+    }
+
+    #[test]
+    fn hunger_reaches_mods_in_attribute_points() {
+        let stat = ui::BoundedStat::new_scaled(1_450, 2_000, 100).unwrap();
+        assert_eq!(stat_points(stat), (14.5, 20.));
+        let unscaled = ui::BoundedStat::new_scaled(700, 1_000, 1).unwrap();
+        assert_eq!(stat_points(unscaled), (700., 1_000.));
     }
 
     /// Retains the full-sort selection as a behavior and allocation reference.
@@ -775,3 +826,7 @@ mod tests {
         assert_eq!(poll.sample(5, 7, None), None);
     }
 }
+
+#[cfg(test)]
+#[path = "module_observations/combat_tests.rs"]
+mod combat_tests;

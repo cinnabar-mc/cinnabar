@@ -229,3 +229,28 @@ fn group_relative_water_segments_match_absolute_ones() {
         );
     }
 }
+
+/// Precomputed distances must order faces exactly as comparing each pair's distances would,
+/// including equal-distance ties broken by stream and then stable identity.
+#[test]
+fn sorting_with_cached_distances_matches_pairwise_distance_order() {
+    use crate::chunk::transparent::face_metric::TransparentFaceMetric;
+
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut faces = ice_and_water(Vec3::ZERO, 0);
+    faces.extend(ice_and_water(Vec3::ZERO, 200));
+    for camera in [Vec3::new(3.2, 1.7, 9.4), Vec3::new(40.0, 70.0, -12.0)] {
+        let metric = TransparentFaceMetric::new(camera).for_chunk(key);
+        let mut expected = faces.clone();
+        expected.sort_by(|left, right| {
+            metric
+                .distance(right.centroid)
+                .total_cmp(&metric.distance(left.centroid))
+                .then_with(|| left.stream.cmp(&right.stream))
+                .then_with(|| left.stable.cmp(&right.stable))
+        });
+        let mut sorted = faces.clone();
+        super::plan::sort_faces(key, camera, &mut sorted);
+        assert_eq!(sorted, expected);
+    }
+}

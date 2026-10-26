@@ -60,6 +60,8 @@ mod lantern;
 mod lever;
 #[path = "tests/lightning_rod.rs"]
 mod lightning_rod;
+#[path = "tests/mapped_face.rs"]
+mod mapped_face;
 #[path = "tests/potted_plants.rs"]
 mod potted_plants;
 #[path = "tests/sea_pickle.rs"]

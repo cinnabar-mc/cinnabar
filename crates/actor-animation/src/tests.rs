@@ -2,6 +2,59 @@ use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
 use protocol_ids::{ActorDataKey, ActorFlag};
 
 #[test]
+fn custom_identity_uses_its_admitted_builtin_appearance() {
+    let base = "minecraft:pig";
+    let actor = TestActor {
+        kind: ActorKind::Entity {
+            identifier: "fixture:ship".into(),
+        },
+        entity_fact_override: Some(assets::facts::entity::EntityFacts::pinned().get(base)),
+        ..TestActor::default()
+    };
+    let mut store =
+        ActorAnimationStore::with_assets(test_support::counting_random_assets_for(base));
+    store.insert(1, 0, &actor);
+    assert_eq!(
+        store.rigs.len(),
+        1,
+        "the declared built-in appearance has no rig"
+    );
+    assert!(
+        matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "fixture:ship")
+    );
+
+    store.set_pack(Some((
+        test_support::counting_random_assets_for("fixture:ship"),
+        vec![0],
+    )));
+    store.insert(1, 0, &actor);
+    assert!(
+        store.rigs.values().next().unwrap().pack,
+        "custom artwork lost priority over the base"
+    );
+    store.set_pack(Some((
+        test_support::counting_random_assets_for(base),
+        vec![0],
+    )));
+    store.insert(1, 0, &actor);
+    assert!(
+        store.rigs.values().next().unwrap().pack,
+        "the built-in appearance ignored the server pack"
+    );
+    store.set_pack(None);
+
+    let unknown = TestActor {
+        entity_fact_override: None,
+        ..actor.clone()
+    };
+    store.insert(1, 0, &unknown);
+    assert!(
+        store.rigs.is_empty(),
+        "unknown constructors borrowed unrelated artwork"
+    );
+}
+
+#[test]
 fn item_animation_interpolates_observations_before_rendering_and_wraps_the_swing() {
     let previous = ItemAnimationState {
         attack_time: 5.0 / 6.0,

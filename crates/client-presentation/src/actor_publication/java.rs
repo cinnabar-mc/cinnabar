@@ -383,13 +383,13 @@ fn third_person_input(
     local: bool,
 ) -> JavaBipedInput {
     let motion = rig.java;
-    let lerp = |[from, to]: [f32; 2]| from + (to - from) * alpha;
+    let (limb_swing, limb_amount) = motion.limb_motion(alpha);
     let body_yaw = lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha);
     let (head_yaw, head_pitch) = head_look(actor, alpha, local);
     let using = actor.is_using_item();
     JavaBipedInput {
-        limb_swing: motion.limb_swing[1] - motion.limb_amount[1] * (1.0 - alpha),
-        limb_amount: lerp(motion.limb_amount).min(1.0),
+        limb_swing,
+        limb_amount,
         age: actor.status.age_ticks as f32 + alpha,
         head_yaw: wrap_degrees(head_yaw - body_yaw),
         head_pitch,

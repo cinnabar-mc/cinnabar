@@ -81,6 +81,11 @@ fn a_replayed_correction_retires_the_retained_pick() {
     runtime.retain_pick(
         &frame_origin(Vec3::from_array(START)),
         ticker.position_authority_identity(),
+        super::FrameHits {
+            endpoint: [0.0; 3],
+            ordinary: Some(gameplay::block_use::PickResult::Miss),
+            liquid: Some(gameplay::block_use::PickResult::Miss),
+        },
     );
     assert!(runtime.pick(&ticker).is_some());
 
@@ -90,4 +95,59 @@ fn a_replayed_correction_retires_the_retained_pick() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, rewind, &world).unwrap();
     assert_eq!(ticker.interaction_authority_identity(), interactions);
     assert_eq!(runtime.pick(&ticker), None);
+    assert!(runtime.take_picks(&ticker).is_empty());
+}
+
+/// A tick consumes the whole FIFO once while retaining the latest frame for an immediate press.
+#[test]
+fn frame_picks_are_consumed_once_in_arrival_order() {
+    let ticker = ticker_with_ticks(0);
+    let mut runtime = BlockUseRuntime::default();
+    let hits = super::FrameHits {
+        endpoint: [0.0; 3],
+        ordinary: Some(gameplay::block_use::PickResult::Miss),
+        liquid: Some(gameplay::block_use::PickResult::Miss),
+    };
+    for x in [0.5, 0.6, 0.7] {
+        runtime.retain_pick(
+            &frame_origin(Vec3::new(x, 2.62, 0.5)),
+            ticker.position_authority_identity(),
+            hits,
+        );
+    }
+    let picks = runtime.take_picks(&ticker);
+    assert_eq!(
+        picks.iter().map(|pick| pick.origin.x).collect::<Vec<_>>(),
+        [0.5, 0.6, 0.7]
+    );
+    assert!(runtime.take_picks(&ticker).is_empty());
+    assert_eq!(runtime.pick(&ticker), picks.last().copied());
+}
+
+/// A later unavailable query does not erase an earlier valid observation in the same batch.
+#[test]
+fn unavailable_frames_preserve_pending_picks_and_tick_retirement_preserves_only_the_latest() {
+    let ticker = ticker_with_ticks(0);
+    let mut runtime = BlockUseRuntime::default();
+    let hits = super::FrameHits {
+        endpoint: [0.0; 3],
+        ordinary: Some(gameplay::block_use::PickResult::Miss),
+        liquid: Some(gameplay::block_use::PickResult::Miss),
+    };
+    runtime.retain_pick(
+        &frame_origin(Vec3::from_array(START)),
+        ticker.position_authority_identity(),
+        hits,
+    );
+    runtime.unavailable_pick();
+    assert!(runtime.pick(&ticker).is_none());
+    assert_eq!(runtime.take_picks(&ticker).len(), 1);
+    runtime.retain_pick(
+        &frame_origin(Vec3::from_array(START)),
+        ticker.position_authority_identity(),
+        hits,
+    );
+    runtime.discard_pending_picks();
+    assert!(runtime.take_picks(&ticker).is_empty());
+    assert!(runtime.pick(&ticker).is_some());
 }

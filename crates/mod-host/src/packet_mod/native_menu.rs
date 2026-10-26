@@ -156,7 +156,7 @@ mod tests {
     /// A minimal authored packet menu using the production panel schema.
     fn output() -> String {
         serde_json::json!({"open":true,"keys":["KeyR"],"panel":{
-            "title":"Menu","toggle_key":"ShiftRight","dark":true,
+            "toggle_key":"ShiftRight",
             "controls":[{"kind":"button","id":"action","label":"Action"}],
             "surface":{"screen":"fixture.root","document":serde_json::json!({
                 "namespace":"fixture","root":{"type":"panel","controls":[{"action":{
@@ -418,8 +418,6 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .surface
-                .as_ref()
-                .unwrap()
                 .document
                 .contains("cinnabar_glass")
         );

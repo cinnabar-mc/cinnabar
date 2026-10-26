@@ -44,6 +44,7 @@ fn zeqa_correction_burst_preserves_outbound_look() {
             subject: protocol::MovementCorrectionSubject::Player,
             on_ground: false,
             tick: recorded.tick,
+            vehicle_angular_velocity: None,
         };
         apply_committed_control(
             CommittedControlEvent::PlayerMovementCorrection {
@@ -73,8 +74,10 @@ fn zeqa_correction_burst_preserves_outbound_look() {
             yaw,
             head_yaw: yaw,
             camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
+            interact_rotation: [-bevy_pitch.to_degrees(), yaw],
             flags: protocol::PlayerInputFlags::NONE,
             input_mode: protocol::PlayerInputMode::Mouse,
+            vehicle: None,
         })
         .unwrap();
         let sent = protocol::player_auth_input_trace_sample(&packet).unwrap();

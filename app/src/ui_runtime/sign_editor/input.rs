@@ -6,9 +6,10 @@ use bevy::{
     prelude::{
         ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
     },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorOptions, PrimaryWindow},
 };
 use client_runtime::network::NetworkHandle;
+use client_shell::physical_input::set_cursor_capture;
 
 use crate::ui_runtime::interaction::input_capture::restore_gameplay_input_after_chat;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
@@ -102,13 +103,18 @@ pub(crate) fn drive_sign_editor(
         return;
     }
     *owned_last_frame = true;
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    set_cursor_capture(&mut cursor, false);
     let mut measure = measure;
     let mut finish = runtime.sign_editor_mut().take_finish_request();
     let mut explicit_finish = false;
     if input_available {
-        if mouse.just_pressed(MouseButton::Back) {
+        // The editor takes every typed key, so only a mouse Menu Cancel finishes it here.
+        if client_shell::menu::settings_options::control_bindings::menu_cancel_mouse(
+            menu.as_deref(),
+            &mouse,
+        )
+        .is_some()
+        {
             finish = true;
             explicit_finish = true;
         }

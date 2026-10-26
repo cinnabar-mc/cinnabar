@@ -42,7 +42,7 @@ fn returning_to_an_admitted_fence_still_restarts_the_revoked_guest() {
         assert!(host.reload_if_changed().unwrap());
         let digest = host.source_digest();
         host.bind_drawing_session(DrawingSession {
-            dimension: 1,
+            connection: 2,
             ..original
         });
         host.bind_drawing_session(original);
@@ -85,8 +85,9 @@ fn session_transfer_clears_output_and_rebuilds_without_a_source_edit() {
         connection: 2,
         ..session
     });
-    assert!(host.is_revoked());
-    assert!(host.label().is_none());
+    assert!(host.is_active());
+    assert_eq!(host.label(), Some("Hello"));
+    assert!(!host.needs_drawing_restart());
 }
 
 #[test]
@@ -98,6 +99,8 @@ fn session_end_and_grant_change_stop_a_guest_with_disclosed_memory() {
         ..Default::default()
     };
     host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().unwrap());
+    assert!(host.is_active());
     host.bind_drawing_session(DrawingSession {
         permissions: DrawingPermissions::default(),
         ..session
@@ -225,4 +228,79 @@ fn quarantine_cancels_a_pending_drawing_restart() {
         assert!(!host.reload_if_changed().unwrap());
         assert!(!host.is_active());
     }
+}
+
+#[test]
+fn dimension_transfer_preserves_guest_memory_and_retained_hud() {
+    let frame = "i32.const 1024 i32.const 1024 i32.load i32.const 1 i32.add i32.store \
+        i32.const 1024 i32.load i32.const 1 i32.gt_u if \
+        i32.const 1 i32.const 4 i32.const 128 call $label end";
+    let (directory, mut host) = load_fixture(frame);
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    host.reload_if_changed().unwrap();
+    host.frame(false).unwrap();
+    assert_eq!(host.label(), Some("Hello"));
+    // Exercise the unavailable-world gap as well as both destinations in a round trip.
+    for dimension in [1, 0] {
+        host.bind_drawing_world(host.drawing_session().unwrap(), false);
+        assert!(host.is_active());
+        assert!(!host.needs_drawing_restart());
+        assert_eq!(
+            host.label(),
+            Some(if dimension == 1 { "Hello" } else { "ello" })
+        );
+        host.bind_drawing_session(DrawingSession {
+            dimension,
+            ..session
+        });
+        assert!(!host.reload_if_changed().unwrap());
+        host.frame(false).unwrap();
+        assert_eq!(
+            host.label(),
+            Some("ello"),
+            "the guest counter must survive the transfer"
+        );
+    }
+    // A connection replacement shares only compiled code; its counter and HUD start fresh.
+    let compiled = Arc::downgrade(&host.compiled);
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        ..session
+    });
+    assert!(host.is_revoked());
+    assert!(host.label().is_none());
+    assert!(host.reload_if_changed().unwrap());
+    assert!(Arc::ptr_eq(&compiled.upgrade().unwrap(), &host.compiled));
+    host.frame(false).unwrap();
+    assert_eq!(host.label(), Some("Hello"));
+    // Off-frame preparation shares compilation too, while the predecessor remains loaded.
+    let bytes = std::fs::read(directory.path().join("mod.wat")).unwrap();
+    let candidate = ModHost::prepare_snapshot_in_session(
+        &directory.path().join("mod.wat"),
+        &bytes,
+        ModGrants::default(),
+        None,
+        host.drawing_session(),
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(&candidate.compiled, &host.compiled));
+    drop(host);
+    assert!(compiled.upgrade().is_some());
+    drop(candidate);
+    assert!(compiled.upgrade().is_none());
+}
+
+#[test]
+fn edited_component_replaces_compilation_without_reusing_guest_state() {
+    let (directory, mut host) = load_fixture("");
+    let compiled = Arc::downgrade(&host.compiled);
+    std::fs::write(directory.path().join("mod.wat"), fixture("", "Fresh")).unwrap();
+    assert!(host.reload_if_changed().unwrap());
+    assert_eq!(host.label(), Some("Fresh"));
+    assert!(compiled.upgrade().is_none());
 }

@@ -92,6 +92,7 @@ mod tests {
             model_light: 0.,
         };
         let input = UiRenderInput {
+            models: Default::default(),
             vertices: [vertex(6.), vertex(12.), vertex(120.)].into(),
             indices: [0, 0, 0, 1, 1, 1, 2, 2, 2].into(),
             batches: [

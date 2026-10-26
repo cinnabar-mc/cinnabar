@@ -113,6 +113,7 @@ impl WorldStream {
         let biomes_changed =
             self.authority.runtime_assets().biome_assets() != assets.biome_assets();
         self.biome_records = None;
+        self.mesh_memory.reload_assets(&assets);
         self.authority.replace_runtime_assets(assets);
         self.reload_far_terrain_resources();
         if biomes_changed {

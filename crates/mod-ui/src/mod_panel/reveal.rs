@@ -25,10 +25,7 @@ struct Geometry {
 impl CollectionReveals {
     /// Queues newly admitted identities, including repeated requests for the same item.
     pub(super) fn publish(&mut self, next: &Panel) {
-        let Some(surface) = &next.surface else {
-            self.pending.clear();
-            return;
-        };
+        let surface = &next.surface;
         self.pending.retain(|name, request| {
             surface
                 .collections
@@ -73,11 +70,7 @@ impl CollectionReveals {
                 continue;
             }
             let request = &request.target;
-            let Some(collection) = panel
-                .surface
-                .as_ref()
-                .and_then(|s| s.collections.get(&name))
-            else {
+            let Some(collection) = panel.surface.collections.get(&name) else {
                 continue;
             };
             let Some(index) = collection

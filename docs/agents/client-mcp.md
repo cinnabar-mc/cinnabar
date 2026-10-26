@@ -8,7 +8,8 @@ schemas document every argument. Agents drive the client only through this endpo
 
 - `connect` with `local_server` runs `make local-server`'s binary on a free loopback port. Remote
   joins need `allow_remote`, since they sign in with the configured account; ask the owner first.
-  The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, and `/tp` for captures.
+  The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, `/tp`, `/weather` and
+  `/time set <ticks|noon|midnight|…>` (frozen until `/time cycle`) for captures.
 - `input` sends real key and mouse events, so mods' ability keys (`Digit1`…) work; `F1` hides the HUD.
   To test Retina rendering headlessly, pass `CINNABAR_WINDOW_SCALE_FACTOR=2` in the
   launch environment. Capture sizes stay in physical pixels; pointer input uses
@@ -38,6 +39,9 @@ schemas document every argument. Agents drive the client only through this endpo
   item's resolved use profile. `state.local_mods` also reports bounded
   host status and validated panel controls, so tests can verify module toggles and settings
   directly before sending a stimulus. These diagnostics do not grant movement authority.
+- `state.client_part_screens` lists each running client part's open modal screen: its `bundle`,
+  its `template` (such as `ui/terminal.json`), whether it is `focused` (owns input) and whether
+  the last frame `drawn` it. `state.screens` lists only the client's own scenes.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per
   rendered frame, so it suits the local showcase server; record remote servers with
   `fixed_clock: false`. Audio is captured to a WAV and muxed in. A real-time recording never

@@ -15,7 +15,10 @@ use protocol::PlayerInputMode;
 use semantic_input::Action;
 use {
     crate::runtime::world::ClientWorld,
-    client_presentation::{camera::AutoFly, local_player::LocalViewPose},
+    client_presentation::{
+        camera::{AutoFly, CameraSettingsAuthority},
+        local_player::LocalViewPose,
+    },
     client_state::{PlayerRuntime, RuntimeSettings, SemanticInputSnapshot},
 };
 
@@ -26,13 +29,14 @@ use client_interaction::movement::{
 
 use client_interaction::movement::LocomotionState;
 
-/// Reads user movement settings and any native extension policy in one system parameter.
+/// Reads user movement settings, mods' control modes and the camera's movement capture in one
+/// system parameter.
 #[derive(SystemParam)]
 pub(crate) struct MovementSettings<'w> {
-    camera: Option<Res<'w, client_presentation::camera::CameraSettingsAuthority>>,
+    camera: Option<Res<'w, CameraSettingsAuthority>>,
     settings: Option<Res<'w, RuntimeSettings>>,
     #[cfg(not(target_arch = "wasm32"))]
-    mods: Option<Res<'w, crate::modding::ModRuntime>>,
+    mods: Option<Res<'w, crate::modding::ModControlModes>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -92,19 +96,10 @@ pub(crate) fn advance_local_physics(
         .map(|settings| settings.user_settings_update().1.gameplay)
         .unwrap_or_default();
     #[cfg(not(target_arch = "wasm32"))]
-    let gameplay = {
-        let mut gameplay = gameplay;
-        if let Some(policy) = settings
-            .mods
-            .as_deref()
-            .and_then(|mods| mods.movement_toggles())
-        {
-            gameplay.toggle_sprint = policy.toggle_sprint;
-            gameplay.toggle_sneak = policy.toggle_sneak;
-            gameplay.always_sprint = policy.always_sprint;
-        }
-        gameplay
-    };
+    let gameplay = settings
+        .mods
+        .as_deref()
+        .map_or(gameplay, |mods| mods.apply(gameplay));
     let mut frame = gameplay::movement::PhysicsFrameInput {
         delta: time.delta(),
         now: time.elapsed(),
@@ -137,12 +132,11 @@ pub(crate) fn advance_local_physics(
             },
         ),
     };
-    if settings.camera.as_deref().is_some_and(|camera| {
-        matches!(
-            camera.detached_view(),
-            Some(client_presentation::camera::DetachedView::Fly { .. })
-        )
-    }) {
+    if settings
+        .camera
+        .as_deref()
+        .is_some_and(CameraSettingsAuthority::captures_movement)
+    {
         frame.movement = [0.0; 2];
         frame.raw_movement = [0.0; 2];
         frame.analogue_movement = [0.0; 2];
@@ -192,5 +186,71 @@ fn publish_physics_view(physics: &LocalPhysicsController, view: &mut LocalViewPo
         physics.render_feet_position(),
     ) {
         view.set_subject_position(Vec3::from_array(eye), Vec3::from_array(feet));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use crate::modding::ModControlModes;
+    use gameplay::movement::control_modes::{ControlModes, ControlObservation};
+    use std::time::Duration;
+
+    /// Walks forward through sprint press, release and press under `settings`, optionally with
+    /// both edges in each press frame, returning whether
+    /// the player sprints after the second press and whether that press stopped the sprint.
+    fn second_sprint_press(settings: ui::GameplaySettings, quick: bool) -> (bool, bool) {
+        let mut controls = ControlModes::default();
+        let frame = |millis, pressed: bool| ControlObservation {
+            now: Duration::from_millis(millis),
+            forward: 1.0,
+            sprint_pressed: pressed,
+            sprint_held: pressed && !quick,
+            toggle_sprint: settings.toggle_sprint,
+            always_sprint: settings.always_sprint,
+            toggle_sneak: settings.toggle_sneak,
+            ..ControlObservation::default()
+        };
+        assert!(controls.update(frame(0, true)).sprint_request);
+        assert!(
+            controls.update(frame(50, false)).sprint_request,
+            "a released sprint key keeps sprinting"
+        );
+        let output = controls.update(frame(100, true));
+        (output.sprint_request, output.stop_sprinting)
+    }
+
+    /// A sprint press released before physics still toggles on and off through mod control modes.
+    #[test]
+    fn control_mode_toggle_sprint_keeps_presses_released_within_one_frame() {
+        let modes = ModControlModes(Some(mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        }));
+        assert_eq!(
+            second_sprint_press(modes.apply(ui::GameplaySettings::default()), true),
+            (false, true)
+        );
+    }
+
+    /// With toggle sprint from control modes, a second sprint press stops an ongoing sprint,
+    /// which the player's own hold sprint cannot; omitting the modes restores hold sprint.
+    #[test]
+    fn control_mode_toggle_sprint_stops_an_ongoing_sprint_on_a_second_press() {
+        let player = ui::GameplaySettings::default();
+        assert_eq!(second_sprint_press(player, false), (true, false));
+        let toggled = ModControlModes(Some(mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        }));
+        assert_eq!(
+            second_sprint_press(toggled.apply(player), false),
+            (false, true)
+        );
+        assert_eq!(
+            second_sprint_press(ModControlModes(None).apply(player), false),
+            (true, false)
+        );
     }
 }

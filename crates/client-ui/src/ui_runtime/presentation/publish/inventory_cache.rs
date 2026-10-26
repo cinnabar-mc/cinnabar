@@ -47,8 +47,8 @@ impl InventoryCache {
             name_generation: runtime.item_name_generation(),
             base_lang: runtime.lang_catalog.clone(),
             active_lang: runtime.active_lang.clone(),
-            server_lang: runtime.server_lang.clone(),
-            items: runtime.session_items.clone(),
+            server_lang: runtime.session.server_lang.clone(),
+            items: runtime.session.session_items.clone(),
             recipes: player.inventory.crafting_catalog_snapshot(),
             crafting_revision: player.inventory.crafting_revision(),
         };

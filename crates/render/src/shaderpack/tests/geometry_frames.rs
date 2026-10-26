@@ -277,15 +277,26 @@ fn pack_final_replaces_only_its_camera_viewport() {
         false,
         true,
     );
-    for (index, pixel) in bytes.as_chunks::<4>().0.iter().enumerate() {
-        let (x, y) = (index % SIZE[0] as usize, index / SIZE[0] as usize);
-        let expected = if y < 2 && (1..3).contains(&x) {
-            [0, 0, 255]
-        } else if y < 2 {
-            [255, 0, 0]
-        } else {
-            [128; 3]
-        };
-        assert_eq!(&pixel[..3], &expected, "pixel {x},{y}");
+    for (y, row) in bytes
+        .as_chunks::<{ wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize }>()
+        .0
+        .iter()
+        .enumerate()
+    {
+        for (x, pixel) in row[..SIZE[0] as usize * 4]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .enumerate()
+        {
+            let expected = if y < 2 && (1..3).contains(&x) {
+                [0, 0, 255]
+            } else if y < 2 {
+                [255, 0, 0]
+            } else {
+                [128; 3]
+            };
+            assert_eq!(&pixel[..3], &expected, "pixel {x},{y}");
+        }
     }
 }

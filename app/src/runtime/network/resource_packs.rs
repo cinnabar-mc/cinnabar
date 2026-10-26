@@ -687,6 +687,14 @@ fn base_world_assets() -> Option<&'static assets::RuntimeAssets> {
         .or_else(|| BASE_WORLD_ASSETS.get().map(AsRef::as_ref))
 }
 
+/// The world sidecar's source facts with the carrier they describe, once installed.
+pub(super) fn base_material_keys() -> Option<&'static (
+    assets::material_keys::MaterialKeys,
+    Arc<assets::RuntimeAssets>,
+)> {
+    BASE_MATERIAL_KEYS.get()
+}
+
 /// Installs immutable source facts and pixels from the same world carrier.
 pub(crate) fn set_base_material_keys(
     keys: assets::material_keys::MaterialKeys,
@@ -947,3 +955,6 @@ mod tests;
 
 #[cfg(test)]
 mod fingerprint_bench;
+
+#[cfg(all(test, target_os = "linux", feature = "reports"))]
+mod memory_report;

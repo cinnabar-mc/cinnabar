@@ -5,6 +5,7 @@
 //! opens its own.
 
 pub mod canvas;
+pub mod controllers;
 pub mod gpu;
 pub mod input;
 pub mod startup;
@@ -100,10 +101,8 @@ pub fn decode_logo() -> Option<Image> {
 }
 
 /// Opens connected controllers, or reports why controller input is unavailable.
-pub fn controllers() -> Option<gilrs::Gilrs> {
-    gilrs::Gilrs::new()
-        .map_err(|error| tracing::warn!("bootstrap controller input unavailable: {error}"))
-        .ok()
+pub fn controllers() -> Option<controllers::Controllers> {
+    controllers::Controllers::new()
 }
 
 /// The saved menu choices the bootstrap windows honour without loading a resource pack. The

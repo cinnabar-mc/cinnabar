@@ -5,20 +5,82 @@ use std::path::{Component, Path, PathBuf};
 
 use bevy::prelude::*;
 use launcher::install_layout::InstallLayout;
-use render_model::SHADER_PACKS_ENABLED;
 use render_scene::shaderpack::ShaderPackRequest;
 use ui::RenderMode;
 
 use super::{MenuRuntime, RenderModeConfig, RuntimeSettings, compiled_render_mode};
 
-#[cfg(feature = "shaderpacks")]
 pub(super) mod import;
 pub(super) mod reload;
-#[cfg(feature = "shaderpacks")]
 pub(super) mod removal;
 pub(super) mod status;
 #[cfg(test)]
 mod tests;
+
+/// Shader settings and requests share one scheduling condition.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct ShaderPackUiSystems;
+
+/// Installs shader settings work separately from the always-available renderer controls.
+pub(super) fn configure(app: &mut App) {
+    app.add_message::<bevy::window::WindowFocused>()
+        .init_resource::<reload::ShaderPackReloadReport>()
+        .init_resource::<super::shader_options::ShaderOptionsHost>()
+        .configure_sets(Update, ShaderPackUiSystems.run_if(work_pending))
+        .add_systems(
+            Update,
+            (
+                (
+                    refresh_shader_packs,
+                    reload::reload_on_key,
+                    reload::apply_reload,
+                )
+                    .chain()
+                    .before(super::apply_menu_render_mode),
+                (
+                    sync_shader_pack_request,
+                    status::sync_shader_pack_status,
+                    reload::report_reload,
+                )
+                    .chain()
+                    .after(super::apply_menu_render_mode)
+                    .before(super::authored_textures::update_authored_textures),
+                super::shader_options::drive_shader_options.after(super::apply_menu_render_mode),
+            )
+                .in_set(ShaderPackUiSystems),
+        );
+    import::configure(app);
+    removal::configure(app);
+}
+
+/// Reads existing selection and worker state, retaining one screen-close frame for discovery.
+/// The local value only lets discovery observe closing; it never owns load or worker state.
+pub(super) fn work_pending(world: &World, mut screen_was_open: Local<bool>) -> bool {
+    let screen_open = world
+        .get_resource::<MenuRuntime>()
+        .is_some_and(MenuRuntime::takes_shader_pack_drops);
+    let closing = *screen_was_open && !screen_open;
+    *screen_was_open = screen_open;
+    closing
+        || world
+            .get_resource::<MenuRuntime>()
+            .is_some_and(MenuRuntime::has_shader_pack_work)
+        || world
+            .get_resource::<ShaderPackRequest>()
+            .is_some_and(|request| request.pack.is_some())
+        || world
+            .get_resource::<RuntimeSettings>()
+            .is_some_and(|settings| {
+                settings.user_settings_update().1.video.render_mode == RenderMode::ShaderPack
+            })
+        || world
+            .get_resource::<Messages<bevy::window::FileDragAndDrop>>()
+            .is_some_and(|drops| !drops.is_empty())
+        || import::work_pending(world)
+        || removal::work_pending(world)
+        || reload::work_pending(world)
+        || super::shader_options::work_pending(world)
+}
 
 /// The install's shader-pack folders and the packs last listed from them.
 pub(super) struct ShaderPackDirs {
@@ -57,7 +119,6 @@ impl ShaderPackDirs {
 }
 
 /// `(name, path to open)` of each shader pack in `dir`.
-#[cfg(feature = "shaderpacks")]
 fn discover(dir: &Path) -> Vec<(String, PathBuf)> {
     shaderpack::discover_packs(dir)
         .into_iter()
@@ -65,22 +126,9 @@ fn discover(dir: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// Builds without shader packs list none and never read the disk.
-#[cfg(not(feature = "shaderpacks"))]
-fn discover(_dir: &Path) -> Vec<(String, PathBuf)> {
-    Vec::new()
-}
-
 /// Where Iris saves the options of the pack at `entry` (its zip or folder in the pack folder).
-#[cfg(feature = "shaderpacks")]
 fn option_file(entry: &Path) -> Option<PathBuf> {
     shaderpack::option_file(entry)
-}
-
-/// Builds without shader packs save no options.
-#[cfg(not(feature = "shaderpacks"))]
-fn option_file(_entry: &Path) -> Option<PathBuf> {
-    None
 }
 
 /// The pack the settings select, by the name the player sees.
@@ -121,12 +169,8 @@ pub(super) fn selected_pack(
     })
 }
 
-/// Re-lists the shader-pack folder into the menu's picker when this build compiles shader
-/// packs and the install layout is known.
+/// Re-lists the shader-pack folder into the menu's picker when the install layout is known.
 pub(super) fn refresh(config: &mut RenderModeConfig, menu: &mut MenuRuntime) {
-    if !SHADER_PACKS_ENABLED {
-        return;
-    }
     let Some(dirs) = config.shader_packs.as_mut() else {
         return;
     };

@@ -79,20 +79,28 @@ fn fill(app: &App, slots: usize) {
 
 /// Removes the fixture actor through world ingress while leaving its block ray intact.
 fn remove_actor(world: &mut World) {
-    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
-    let stream = client.stream.as_mut().unwrap();
-    let sequence = stream.committed_sequence() + 1;
-    stream
-        .submit(
-            sequence,
-            protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(protocol::ActorRemoveEvent {
-                dimension: 0,
-                unique_id: 99,
-            })),
-        )
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(
+                    protocol::ActorRemoveEvent {
+                        dimension: 0,
+                        unique_id: 99,
+                    },
+                )),
+            )
+            .unwrap();
+        stream.poll([4.5, 2.620_01, 8.5], 0);
+        assert_eq!(stream.committed_sequence(), sequence);
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
-    stream.poll([4.5, 2.620_01, 8.5], 0);
-    assert_eq!(stream.committed_sequence(), sequence);
 }
 
 /// Applies an authoritative inventory event through the real retained ingress and UI drain.
@@ -355,6 +363,7 @@ fn ordered_mouse_review_overflow_drains_an_accepted_block_stop_before_neutral_re
             .sequential_id;
         stream.predict_block([4, 2, 6], 0, stone);
     }
+    world_pick_for_setup(app.world_mut());
     mouse_frame(app.world_mut(), MouseButton::Right, &[ButtonState::Pressed]);
     app.world_mut()
         .run_system_cached(produce_block_use)
@@ -491,3 +500,11 @@ fn ordered_mouse_review_changed_world_cancels_a_frozen_block_use() {
 
 #[path = "world.rs"]
 mod world_evidence;
+
+/// Publishes the fixture's changed geometry before its first physical input edge.
+fn world_pick_for_setup(world: &mut World) {
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
+}

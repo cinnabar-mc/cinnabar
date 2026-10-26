@@ -46,6 +46,17 @@ pub(crate) struct InteractionRuntime {
     overflowed_batches: u64,
 }
 
+impl InteractionRuntime {
+    /// Whether the next drain will invalidate world-owned work for this scope.
+    pub(crate) fn changes_world(
+        &self,
+        session: simulation_clock::identity::SessionGeneration,
+        dimension: i32,
+    ) -> bool {
+        self.frames.changes_world(session, dimension)
+    }
+}
+
 /// Picks and later edges wait for camera publication and movement admission.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DispatchPhase {
@@ -156,6 +167,22 @@ pub(crate) fn held(
             )
 }
 
+/// Reads unconsumed action events in their original order, unless the batch is quarantined.
+pub(crate) fn later_button_events<'a>(
+    runtime: Option<&InteractionRuntime>,
+    input: &'a SemanticInputSnapshot,
+    action: Action,
+) -> impl Iterator<Item = &'a ActionEvent> + 'a {
+    let consumed = runtime.map_or(0, |runtime| runtime.ingested);
+    let blocked = is_blocked(runtime);
+    input
+        .snapshot()
+        .and_then(|input| input.ordered.as_ref())
+        .into_iter()
+        .flat_map(move |ordered| ordered.events().iter().skip(consumed))
+        .filter(move |event| !blocked && event.action == action)
+}
+
 /// Cancels unadmitted gestures without deleting gameplay-owned accepted carriers.
 fn cancel_pending_owners(world: &mut World) {
     world.resource_mut::<MeleeRuntime>().cancel();
@@ -201,6 +228,17 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
         .snapshot()
         .cloned();
     let Some(snapshot) = snapshot.filter(|input| input.ordered.is_some()) else {
+        world
+            .resource_mut::<ItemUseRuntime>()
+            .finish_ordered_use_buttons();
+        run_cached(world, crate::item_use::ordered::synchronize_scope, ())
+            .expect("item-use scope synchronization");
+        run_cached(
+            world,
+            crate::item_use::ordered::synchronize_server_events,
+            (),
+        )
+        .expect("item-use server events");
         if world.remove_resource::<InteractionRuntime>().is_some() {
             cancel_pending_owners(world);
         }
@@ -225,6 +263,11 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
     };
     let new_frame = runtime.frames.observe_frame(scope, snapshot.frame_sequence);
     if new_frame {
+        world
+            .resource_mut::<ItemUseRuntime>()
+            .finish_ordered_use_buttons();
+        run_cached(world, crate::item_use::ordered::synchronize_scope, ())
+            .expect("item-use scope synchronization");
         runtime.ingested = 0;
     }
     let focused = windows.single(world).is_ok_and(|window| window.focused)
@@ -259,6 +302,12 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
             world.resource_mut::<ItemUseRuntime>().cancel_for_respawn();
         }
     }
+    run_cached(
+        world,
+        crate::item_use::ordered::synchronize_server_events,
+        (),
+    )
+    .expect("ordered item-use server events");
     let start = runtime.ingested;
     let tail = ordered.events().get(start..).unwrap_or_default();
     if ordered.overflowed() {
@@ -327,6 +376,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
     {
         // A blocked suffix expires only at its final opportunity, without replay next frame.
         runtime.ingested = ordered.events().len();
+        world
+            .resource_mut::<ItemUseRuntime>()
+            .finish_ordered_use_buttons();
     }
     // Held hand actions keep capturing the selected stack, so they still announce it now.
     let selection_ready = ![Action::Attack, Action::Use]
@@ -364,6 +416,12 @@ fn dispatch(world: &mut World, input: InteractionInput) {
                 .expect("ordered attack admission");
         }
         Action::Use => {
+            run_cached(
+                world,
+                crate::item_use::ordered::observe_button,
+                input.clone(),
+            )
+            .expect("ordered item button observation");
             if run_cached(world, crate::block_use::ordered::press, input.clone())
                 .expect("ordered block admission")
             {

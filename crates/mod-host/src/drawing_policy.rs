@@ -56,20 +56,43 @@ impl ModGrants {
 }
 
 impl ModHost {
-    /// Binds authority before callbacks. A changed fence stops the guest because previously
-    /// disclosed observations cannot be removed from its memory. Reload creates a fresh guest.
+    /// Binds an available world's authority before callbacks.
     pub fn bind_drawing_session(&mut self, session: DrawingSession) -> bool {
-        if self.drawing_session == Some(session) {
+        self.bind_drawing_world(session, session.connection != 0)
+    }
+
+    /// Separates connection trust from temporary world availability. Observations already
+    /// disclosed to memory require a fresh guest across connections or policy changes.
+    /// A dimension/loading gap only invalidates world output; HUD and guest state survive.
+    pub fn bind_drawing_world(&mut self, session: DrawingSession, world_active: bool) -> bool {
+        let world_active = world_active && session.connection != 0;
+        if self.drawing_session == Some(session) && self.drawing_world_active == world_active {
             return false;
         }
-        if self.is_active() || self.needs_drawing_restart() {
-            self.drawing_restart = DrawingRestart::Pending;
+        let same_authority = self.drawing_session.is_some_and(|previous| {
+            previous.connection == session.connection
+                && previous.local == session.local
+                && previous.permissions == session.permissions
+        });
+        if !same_authority {
+            if self.is_active() || self.needs_drawing_restart() {
+                self.drawing_restart = DrawingRestart::Pending;
+            }
+            self.instance.revoke();
+            self.pending_events.clear();
+        } else {
+            self.clear_world_events();
         }
-        self.pending_events.clear();
-        self.instance.revoke();
+        self.instance.clear_drawing_world();
         self.drawing_session = Some(session);
+        self.drawing_world_active = world_active;
+        let mut output_scope = session;
+        if !world_active {
+            output_scope.connection = 0;
+            output_scope.permissions = DrawingPermissions::default();
+        }
         self.instance
-            .bind_drawing_policy(self.grants.for_drawing_session(session), session);
+            .bind_drawing_policy(self.grants.for_drawing_session(output_scope), output_scope);
         true
     }
 

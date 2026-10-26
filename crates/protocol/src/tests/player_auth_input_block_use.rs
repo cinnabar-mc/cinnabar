@@ -27,8 +27,10 @@ fn movement() -> PlayerAuthInputSnapshot {
         yaw: 180.0,
         head_yaw: 180.0,
         camera_orientation: [0.0, 0.0, -1.0],
+        interact_rotation: [0.0, 180.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 
@@ -243,11 +245,13 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [10.5, 20.25],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     };
     let mut rebuilt =
         protocol::player_auth_input_with_interactions(snapshot, &interactions).unwrap();

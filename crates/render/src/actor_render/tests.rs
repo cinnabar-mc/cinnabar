@@ -201,7 +201,7 @@ fn generic_frame() -> render_scene::ActorRenderFrame {
             session_id: 1,
             dimension: 0,
             runtime_id: 2,
-            spawn_revision: 3,
+            spawn_revision: std::num::NonZeroU64::new(3).unwrap(),
             ingress_sequence: 4,
             source_tick: None,
             movement_revision: 0,
@@ -522,7 +522,6 @@ fn skin_array_allocation_failure_keeps_old_view_and_does_not_publish_residency()
 }
 
 /// Skin arrays allow the pack's raw view only while a pack draws, re-homed by GPU copies.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn skin_arrays_allow_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
@@ -711,7 +710,7 @@ fn diagnostic_body(runtime_id: u64, texture_layer: u32) -> render_model::ActorRi
                 session_id: 1,
                 dimension: 0,
                 runtime_id,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: Some(1),
                 movement_revision: 1,

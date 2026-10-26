@@ -85,3 +85,53 @@ fn armour_queries_preserve_material_indices_tint_and_glider_admission() {
         );
     }
 }
+
+#[test]
+fn enderman_carrying_air_is_empty_handed_in_both_id_modes() {
+    let carrying = |runtime_id: u32, air: u32| {
+        let actor = crate::tests::actor_with_metadata(HashMap::from([(
+            ActorDataKey::CarryBlockRuntimeID.wire_value(),
+            ActorMetadataValue::Int(runtime_id as i32),
+        )]));
+        let context = ActorTickContext {
+            air_block_network_id: Some(air),
+            ..Default::default()
+        };
+        query(
+            &QueryInputs {
+                actor: &actor,
+                input: &ActorTickInput::default(),
+                context: &context,
+                anim_tick: 0,
+                anim_time: None,
+                swell_amount: None,
+                life_tick: 0,
+                finished: (false, false),
+                state_time: 0.0,
+                bones: &[],
+                bone_names: &[],
+            },
+            Q::IsCarryingBlock,
+            &[],
+        )
+        .number()
+    };
+    for air in [
+        protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        protocol_ids::HASHED_AIR_NETWORK_ID,
+    ] {
+        assert_eq!(carrying(air, air), 0.0, "air {air:#x}");
+        assert_eq!(
+            carrying(air.wrapping_add(1), air),
+            1.0,
+            "block beside {air:#x}"
+        );
+    }
+    assert_eq!(carrying(0, protocol_ids::HASHED_AIR_NETWORK_ID), 1.0);
+    let empty = crate::tests::actor_with_metadata(HashMap::new());
+    let context = ActorTickContext {
+        air_block_network_id: Some(protocol_ids::HASHED_AIR_NETWORK_ID),
+        ..Default::default()
+    };
+    assert!(!carries_block(&empty, &context));
+}

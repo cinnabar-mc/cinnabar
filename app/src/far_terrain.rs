@@ -44,8 +44,7 @@ pub(crate) struct FarTerrain {
     publication: Option<PublicationKey>,
     /// Session/dimension identity and residency indexes used by near publication receipts.
     source_revision: Option<((u64, u64), u64, u64)>,
-    /// Where the receipts' section membership was last reconciled with the stream.
-    source_cursor: Option<TerrainPublicationCursor>,
+    source_cursor: TerrainPublicationCursor,
     retiring: Vec<Retiring>,
 }
 
@@ -81,7 +80,7 @@ impl FarTerrain {
             published: None,
             publication: None,
             source_revision: None,
-            source_cursor: None,
+            source_cursor: TerrainPublicationCursor::default(),
             retiring: Vec::new(),
         }
     }
@@ -116,48 +115,39 @@ impl FarTerrain {
         true
     }
 
-    /// Keeps near receipts bounded and scoped to the stream even while far terrain is disabled.
-    /// Membership follows the stream's replayed changes, or every section when their history no
-    /// longer reaches back. Returns whether `scene` was replaced, which extraction must see.
+    /// Updates shared near receipts and reports whether extraction needs a new source handle.
     fn publish_source(
         &mut self,
-        stream: Option<&WorldStream>,
+        stream: Option<&mut WorldStream>,
         scene: &mut FarTerrainScene,
     ) -> bool {
-        let revision = stream.map(WorldStream::terrain_publication_source);
+        let revision = stream
+            .as_deref()
+            .map(WorldStream::terrain_publication_source);
         if self.source_revision == revision {
             return false;
         }
         let replaced = self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0);
         if replaced {
-            scene.publications = stream.map(|_| Default::default());
+            scene.publications = stream.as_ref().map(|_| Default::default());
             self.publication = None;
-            self.source_cursor = None;
+            self.source_cursor = TerrainPublicationCursor::default();
         }
         if let (Some(stream), Some(publications)) = (stream, &scene.publications) {
-            let cursor = stream.terrain_publication_cursor();
-            match self
-                .source_cursor
-                .and_then(|since| stream.terrain_publication_changes(since))
-            {
-                Some(changes) => publications.apply_membership(changes),
-                None => publications.retain(stream.terrain_publication_sections()),
-            }
-            self.source_cursor = Some(cursor);
+            let (reset, columns) = stream.take_terrain_publication_columns(&self.source_cursor);
+            publications.retain(reset, columns);
         }
         self.source_revision = revision;
         replaced
     }
 
-    /// Shares current section requirements without rebuilding an unchanged publication target.
-    /// Returns whether `scene` changed, which extraction must see.
+    /// Updates section requirements and reports whether extraction needs a new target.
     fn publish_target(
         &mut self,
         stream: &WorldStream,
         horizon: i32,
         scene: &mut FarTerrainScene,
     ) -> bool {
-        let replaced = self.publish_source(Some(stream), scene);
         let revision = stream.terrain_publication_revision();
         let centre = stream.far_terrain_centre();
         let key = (
@@ -167,7 +157,7 @@ impl FarTerrain {
             horizon,
         );
         if self.publication == Some(key) && scene.target.is_some() {
-            return replaced;
+            return false;
         }
         let mut target = self
             .publication
@@ -315,8 +305,7 @@ impl FarTerrain {
             Some(now + EXIT_SUMMARY_WAIT),
             &mut SummaryBudget::new(usize::MAX, usize::MAX),
         );
-        self.cache.leave_world();
-        self.cache.sync();
+        self.cache.finish();
     }
 }
 
@@ -509,11 +498,16 @@ pub(crate) fn feed_far_terrain(
     {
         stream.set_full_detail_radius(full_detail);
     }
+    if far.source_revision
+        != world
+            .stream
+            .as_ref()
+            .map(WorldStream::terrain_publication_source)
+        && far.publish_source(world.stream.as_mut(), scene.bypass_change_detection())
+    {
+        scene.set_changed();
+    }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
-        // Borrowed mutably only on a change, so extraction does not copy the scene every frame.
-        if far.publish_source(world.stream.as_ref(), scene.bypass_change_detection()) {
-            scene.set_changed();
-        }
         far.cache.poll_budgeted(now, &mut summary_budget);
         if far.published.take().is_some() {
             *scene = FarTerrainScene {

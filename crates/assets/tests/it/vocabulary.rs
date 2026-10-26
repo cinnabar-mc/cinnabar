@@ -6,32 +6,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::Deserialize;
+use assets::vocabulary::{Exception, Exceptions, Location, Reference};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Reference {
-    file: String,
-    pointer: String,
-    domain: String,
-    identifier: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Exception {
-    reference: Reference,
-    reason: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Exceptions {
-    schema: u32,
-    entries: Vec<Exception>,
-}
+mod rule_tests;
 
 struct Vocabulary {
     domains: BTreeMap<String, BTreeSet<String>>,
@@ -53,6 +32,13 @@ impl Vocabulary {
                     .insert(identifier.into())
             );
         }
+        domains.insert(
+            "entity_material".into(),
+            domains["material"]
+                .iter()
+                .map(|name| name.strip_suffix(".skinning").unwrap_or(name).to_owned())
+                .collect(),
+        );
         domains.insert(
             "item_tag".into(),
             include_str!("../../../protocol/data/item_tags_native.tsv")
@@ -109,6 +95,12 @@ impl Vocabulary {
         }
         let registry_blocks = domains["registry_block"].clone();
         domains.get_mut("block").unwrap().extend(registry_blocks);
+        // Legacy aux routes name both current and pre-flattening block identities.
+        let any_block = domains["block"]
+            .union(&domains["legacy_block"])
+            .cloned()
+            .collect();
+        domains.insert("any_block".into(), any_block);
         Self { domains }
     }
 
@@ -146,15 +138,58 @@ fn pointer(parent: &str, key: &str) -> String {
 fn add(refs: &mut BTreeSet<Reference>, file: &str, path: &str, domain: &str, identifier: &str) {
     refs.insert(Reference {
         file: file.into(),
-        pointer: path.into(),
+        location: Location::Pointer(path.into()),
         domain: domain.into(),
         identifier: identifier.into(),
     });
 }
 
+/// Keys named policy rules by collection, rule ID and field, retaining the identifier domain.
+fn rule_refs(
+    refs: &mut BTreeSet<Reference>,
+    file: &str,
+    rules: &[Value],
+    path: &str,
+    domain: &str,
+) {
+    let mut ids = BTreeSet::new();
+    for (index, rule) in rules.iter().enumerate() {
+        let id = rule["id"]
+            .as_str()
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| panic!("missing stable rule ID in {file}{path}/{index}"));
+        assert!(ids.insert(id), "duplicate rule ID {id:?} in {file}{path}");
+        let prefix = format!("{path}/{index}");
+        let mut occurrences = BTreeSet::new();
+        walk(&mut occurrences, file, rule, &prefix, domain);
+        for mut reference in occurrences {
+            let Location::Pointer(pointer) = &reference.location else {
+                unreachable!("rule occurrences have relative JSON pointers");
+            };
+            let mut field = pointer.strip_prefix(&prefix).unwrap();
+            // String lists select identities; repeating one identity would make its key ambiguous.
+            if let Some((parent, _)) = field.rsplit_once('/')
+                && rule.pointer(parent).is_some_and(Value::is_array)
+            {
+                field = parent;
+            }
+            reference.location = Location::Rule {
+                collection: path.strip_prefix('/').unwrap().into(),
+                id: id.into(),
+                field: field.into(),
+            };
+            assert!(
+                refs.insert(reference.clone()),
+                "ambiguous rule identifier occurrence: {reference:?}"
+            );
+        }
+    }
+}
+
 /// Selects the registry namespace for a JSON table, failing when a new table has no policy.
 fn table_domain(file: &str) -> &'static str {
     match file {
+        "entity-material-states.json" => "entity_material",
         "entity-components-1.26.50.json" => "actor",
         "block-properties-v2193.json" => "property",
         "item-use-profiles.json"
@@ -191,7 +226,8 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     path,
                     "/entries" | "/frames" | "/equipment" | "/materials" | "/twins"
                 );
-                if state
+                if (file == "entity-material-states.json" && path.is_empty())
+                    || state
                     || identity_map
                     || key.starts_with("minecraft:")
                     || key == "cinnabar:reserved"
@@ -294,6 +330,12 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                             name.as_str().unwrap(),
                         );
                     }
+                } else if file == "registry-policy.json"
+                    && path.is_empty()
+                    && let Some(rules) = value.as_array()
+                    && rules.iter().any(|rule| rule.get("id").is_some())
+                {
+                    rule_refs(refs, file, rules, &child, child_domain);
                 } else {
                     walk(refs, file, value, &child, child_domain);
                 }
@@ -388,12 +430,16 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         | "block-components-v2193.tsv"
         | "facts-expansion-v2193.tsv"
         | "block-placement-v2193.tsv" => "block",
+        "block-aux-state-owners.tsv" => "any_block",
         _ => panic!("missing identifier policy for {file}"),
     };
     for (i, line) in text
         .lines()
         .filter(|line| {
-            !line.starts_with('#') && !line.starts_with("identifier\t") && !line.is_empty()
+            !line.starts_with('#')
+                && !line.starts_with("identifier\t")
+                && !line.starts_with("game_version\t")
+                && !line.is_empty()
         })
         .enumerate()
     {
@@ -549,8 +595,8 @@ fn failures(
     for reference in refs {
         if !vocabulary.contains(reference) && !allowed.contains(reference) {
             errors.push(format!(
-                "unknown {} identifier {} in {}{}",
-                reference.domain, reference.identifier, reference.file, reference.pointer
+                "unknown {} identifier {} in {} at {:?}",
+                reference.domain, reference.identifier, reference.file, reference.location
             ));
         }
     }
@@ -568,11 +614,10 @@ fn committed_data_identifiers_belong_to_their_pinned_vocabularies() {
             .map(str::to_owned)
             .collect(),
     );
-    let exceptions: Exceptions = serde_json::from_value(json(
-        &root.join("crates/assets/data/vocabulary-exceptions.json"),
-    ))
+    let exceptions = Exceptions::parse(
+        &fs::read(root.join("crates/assets/data/vocabulary-exceptions.json")).unwrap(),
+    )
     .unwrap();
-    assert_eq!(exceptions.schema, 1);
     let errors = failures(&vocabulary, &references(&root), &exceptions.entries);
     assert!(errors.is_empty(), "{}", errors.join("\n"));
 }

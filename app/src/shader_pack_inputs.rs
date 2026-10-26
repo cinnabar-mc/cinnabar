@@ -5,7 +5,7 @@
 use bevy::{
     prelude::{
         App, DetectChanges, DetectChangesMut, IntoScheduleConfigs, Local, Plugin, Query, Res,
-        ResMut, Resource, Time, Transform, Update, With,
+        ResMut, Resource, SystemCondition, Time, Transform, Update, With,
     },
     time::Real,
 };
@@ -30,10 +30,14 @@ use render_scene::{
 
 use crate::{
     environment::{
-        CameraMediumState, FixedTime, VisualTimeOverride, rendered_clock, update_atmosphere_frame,
+        CameraMediumState, ClientPartEnvironment, FixedTime, VisualTimeOverride, rendered_clock,
+        update_atmosphere_frame,
     },
     runtime::world::ClientWorld,
 };
+
+#[cfg(test)]
+mod time_override_tests;
 
 /// Highest block or sky light level; light is stored in one nibble.
 const MAX_LIGHT_LEVEL: u8 = 15;
@@ -55,15 +59,11 @@ const QUART_BLOCKS: i32 = 4;
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct FrameTimeCounterPin(pub(crate) Option<f32>);
 
-/// Keeps [`ShaderPackFrameInputs`] in step with the game each frame. Builds without the
-/// `shaderpacks` feature register nothing, so they do no work.
+/// Samples the game for [`ShaderPackFrameInputs`] only while a pack requests it.
 pub(crate) struct ShaderPackInputsPlugin;
 
 impl Plugin for ShaderPackInputsPlugin {
     fn build(&self, app: &mut App) {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         app.init_resource::<ShaderPackFrameInputs>()
             .init_resource::<FrameTimeCounterPin>()
             .init_resource::<ShaderPackIdMaps>()
@@ -74,15 +74,30 @@ impl Plugin for ShaderPackInputsPlugin {
                     publish_frame_inputs
                         .after(update_atmosphere_frame)
                         .after(LocalPlayerFrameSet::Interaction)
-                        .run_if(shader_inputs_sampled),
+                        .run_if(shader_work_pending.and_then(shader_inputs_sampled)),
                     publish_dimension
                         .after(update_atmosphere_frame)
-                        .run_if(requested_pack_failed),
-                    publish_actor_ids.run_if(actor_ids_published),
-                    mesh_like_java_for_shader_packs.run_if(java_meshing_may_change),
+                        .run_if(shader_work_pending.and_then(requested_pack_failed)),
+                    publish_actor_ids.run_if(shader_work_pending.and_then(actor_ids_published)),
+                    mesh_like_java_for_shader_packs
+                        .run_if(shader_work_pending.and_then(java_meshing_may_change)),
                 ),
             );
     }
+}
+
+/// Keeps sampling and the final native-meshing/id reset inside the pack lifecycle.
+fn shader_work_pending(
+    request: Option<Res<ShaderPackRequest>>,
+    status: Option<Res<ShaderPackStatus>>,
+    ids: Res<ShaderPackIdMaps>,
+    actors: Res<ShaderPackActorIds>,
+) -> bool {
+    request.is_some_and(|request| request.pack.is_some())
+        || status
+            .is_some_and(|status| status.is_ready() || (status.is_changed() && !status.is_added()))
+        || ids.is_loaded()
+        || !actors.by_runtime_id.is_empty()
 }
 
 /// Whether the requested pack is the one that failed to load; it renders Vanilla until a
@@ -128,7 +143,7 @@ fn actor_ids_published(ids: Res<ShaderPackIdMaps>, actor_ids: Res<ShaderPackActo
 /// Java meshing follows a ready pack, so it is re-evaluated while one is ready and whenever
 /// the load status changes.
 fn java_meshing_may_change(status: Option<Res<ShaderPackStatus>>) -> bool {
-    status.is_some_and(|status| status.is_ready() || status.is_changed())
+    status.is_some_and(|status| status.is_ready() || (status.is_changed() && !status.is_added()))
 }
 
 /// Bedrock blocks Java fills with water (`seagrass`, `kelp` and `kelp_plant`, `bubble_column`
@@ -194,6 +209,7 @@ type EnvironmentSources<'w> = (
     Res<'w, WorldClock>,
     Option<Res<'w, FixedTime>>,
     Option<Res<'w, VisualTimeOverride>>,
+    Option<Res<'w, ClientPartEnvironment>>,
     Res<'w, Time<Real>>,
     Res<'w, AtmosphereFrame>,
     Res<'w, WorldLighting>,
@@ -229,7 +245,7 @@ fn publish_frame_inputs(
     mut inputs: ResMut<ShaderPackFrameInputs>,
     mut samples: Local<CameraSamples>,
 ) {
-    let (clock, fixed_time, visual_time, time, frame, lighting, medium) = environment;
+    let (clock, fixed_time, visual_time, client_part, time, frame, lighting, medium) = environment;
     let (client_world, player_runtime, ui, vision, server_camera, physics, pin) = player;
     let mut next = ShaderPackFrameInputs {
         frame_time_counter: pin.0,
@@ -237,7 +253,12 @@ fn publish_frame_inputs(
     };
 
     // Same clock as the vanilla atmosphere draws with.
-    let clock = rendered_clock(*clock, fixed_time.as_deref(), visual_time.as_deref());
+    let clock = rendered_clock(
+        *clock,
+        fixed_time.as_deref(),
+        visual_time.as_deref(),
+        client_part.as_deref(),
+    );
     let day = DayClock::at(visual_world_time(clock, time.elapsed_secs_f64()));
     next.world_time = day.world_time;
     next.world_day = day.world_day;
@@ -536,23 +557,9 @@ fn fraction(current: u16, maximum: u16) -> Option<f32> {
 mod tests {
     use super::*;
 
-    #[cfg(not(feature = "shaderpacks"))]
-    #[test]
-    fn builds_without_shaderpacks_install_no_shader_inputs() {
-        let mut app = App::new();
-        app.add_plugins(ShaderPackInputsPlugin);
-        app.update();
-        assert!(!app.world().contains_resource::<ShaderPackFrameInputs>());
-        assert!(!app.world().contains_resource::<ShaderPackIdMaps>());
-        assert!(!app.world().contains_resource::<ShaderPackActorIds>());
-    }
-
     /// Shader-only sampling follows the request, including before a pack becomes ready.
     #[test]
     fn world_sampling_stops_when_shaders_are_off() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         let mut app = App::new();
         app.init_resource::<WorldClock>()
             .init_resource::<Time<Real>>()
@@ -598,9 +605,6 @@ mod tests {
     /// A failed pack renders Vanilla, so it samples only the dimension the loader retries on.
     #[test]
     fn failed_packs_track_only_the_dimension() {
-        if !render_model::SHADER_PACKS_ENABLED {
-            return;
-        }
         use render_scene::SkyKind;
         let mut app = App::new();
         app.init_resource::<WorldClock>()

@@ -80,7 +80,7 @@ pub(crate) fn gameplay_app(menu_visible: bool) -> App {
         .unwrap();
     app.init_resource::<Time<Real>>()
         .init_resource::<Time>()
-        .init_resource::<client_state::EmoteInputConsumed>()
+        .init_resource::<client_state::ScreenInputConsumed>()
         .init_resource::<ButtonInput<bevy::input::keyboard::KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()

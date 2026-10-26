@@ -1,4 +1,5 @@
 //! Startup carrier loading and required registry verification.
+pub(super) mod interface;
 mod menu;
 mod timing;
 pub(crate) mod world;

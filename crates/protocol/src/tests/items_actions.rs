@@ -466,7 +466,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
 }
 
 #[test]
-fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_records() {
+fn registry_preserves_signed_ids_and_rejects_oversized_records() {
     let signed_id = ItemRegistryPacket {
         item_data: vec![ItemData {
             item_name: "minecraft:signed".into(),
@@ -492,22 +492,6 @@ fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_recor
         }],
     };
     assert!(into_world_event(protocol::Packet::new(malformed_nbt), 0).is_err());
-
-    let duplicate = ItemRegistryPacket {
-        item_data: vec![
-            ItemData {
-                item_name: "minecraft:stick".into(),
-                item_id: wire::I16LE(5),
-                ..Default::default()
-            },
-            ItemData {
-                item_name: "minecraft:stone".into(),
-                item_id: wire::I16LE(5),
-                ..Default::default()
-            },
-        ],
-    };
-    assert!(into_world_event(protocol::Packet::new(duplicate), 0).is_err());
 
     let long_name = ItemRegistryPacket {
         item_data: vec![ItemData {

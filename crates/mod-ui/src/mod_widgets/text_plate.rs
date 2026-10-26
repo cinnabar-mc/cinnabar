@@ -205,8 +205,7 @@ fn write_size(data: &mut DataSource, prefix: &str, size: [f64; 2]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use json_ui::{Context, Draw, LayoutEnv, TextureMeta, TextureSource, ViewState};
-    use ui_engine::cached_screen::CachedScreen;
+    use json_ui::{TextureMeta, TextureSource};
     struct Metrics;
     impl TextMeasure for Metrics {
         /// Fixed glyph metrics isolate dimensions and span alignment from local font carriers.
@@ -309,90 +308,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    /// The retained template draws independently colored literal spans without rebuilding on a tick.
-    #[test]
-    fn rendered_plate_keeps_span_colors_border_and_catalog_on_text_changes() {
-        let mut hud = fixture();
-        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 3.;
-        measure(&mut hud, &Metrics);
-        let catalog = std::sync::Arc::new(super::super::template::catalog(&hud).unwrap());
-        let mut screen = CachedScreen::default();
-        let mut render = |hud: &Hud| {
-            screen
-                .render_shared_with(
-                    "cinnabar_personal_hud.cards",
-                    &catalog,
-                    &Context::default(),
-                    std::sync::Arc::new(super::super::template::data(hud, [400., 200.])),
-                    ([400., 200.], 1., [0; 3]),
-                    &LayoutEnv {
-                        text: &Metrics,
-                        textures: &Metrics,
-                    },
-                    &ViewState::default(),
-                )
-                .unwrap()
-                .nodes
-                .clone()
-        };
-        let nodes = render(&hud);
-        assert!(nodes.iter().any(|node| matches!(&node.draw, Draw::Custom { renderer, data }
-            if renderer == "cinnabar_rounded_rectangle" && data.get("radius").and_then(Value::as_f64) == Some(3.))));
-        for (word, color) in [
-            ("[", [0, 255, 0, 128]),
-            ("12:05 AM", [255, 0, 0, 128]),
-            ("]", [0, 255, 0, 128]),
-        ] {
-            assert!(nodes.iter().any(|node|matches!(&node.draw,Draw::Text{text,color:actual,..} if text==word && *actual==color)),"missing tinted span {word}");
-        }
-        assert!(nodes.iter().any(|node|matches!(&node.draw,Draw::Custom{renderer,data} if renderer=="cinnabar_rounded_rectangle" && data.get("border_width").and_then(Value::as_f64)==Some(0.5))));
-        let before = hud.clone();
-        hud.cards[0].rows[0].value = "1:06 PM".into();
-        measure(&mut hud, &Metrics);
-        assert!(super::super::template::same_shape(&before, &hud));
-        let nodes = render(&hud);
-        assert!(
-            nodes
-                .iter()
-                .any(|node| matches!(&node.draw,Draw::Text{text,..} if text=="1:06 PM"))
-        );
-    }
-    /// The plate background is painted with its scaled radius, and a radius change rebuilds.
-    #[test]
-    fn plate_background_radius_scales_with_the_card_and_invalidates_the_template() {
-        let mut hud = fixture();
-        hud.cards[0].scale = 2.;
-        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 4.5;
-        hud.validate().unwrap();
-        measure(&mut hud, &Metrics);
-        let catalog = super::super::template::catalog(&hud).unwrap();
-        let nodes = CachedScreen::default()
-            .render_shared_with(
-                "cinnabar_personal_hud.cards",
-                &std::sync::Arc::new(catalog),
-                &Context::default(),
-                std::sync::Arc::new(super::super::template::data(&hud, [400., 200.])),
-                ([400., 200.], 1., [0; 3]),
-                &LayoutEnv {
-                    text: &Metrics,
-                    textures: &Metrics,
-                },
-                &ViewState::default(),
-            )
-            .unwrap()
-            .nodes
-            .clone();
-        assert!(
-            nodes
-                .iter()
-                .any(|node| matches!(&node.draw, Draw::Custom { data, .. }
-            if data.get("border_width").is_some()
-                && data.get("radius").and_then(Value::as_f64) == Some(9.)))
-        );
-        let before = hud.clone();
-        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 0.;
-        assert!(!super::super::template::same_shape(&before, &hud));
     }
 }

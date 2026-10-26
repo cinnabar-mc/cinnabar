@@ -22,6 +22,7 @@ mod effects;
 mod emote;
 mod encoding;
 mod input_state;
+mod interaction_rotation;
 
 pub use input_state::TickInput;
 mod evidence;
@@ -36,6 +37,7 @@ mod speed_authority;
 mod state;
 mod teleport_ack;
 pub mod trace;
+pub mod vehicle;
 pub use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
@@ -53,7 +55,9 @@ pub use diagnostics::{
     CorrectionContext, CorrectionContextLine, CorrectionContextLog, CorrectionKind,
     CorrectionPacket, note_correction, note_motion,
 };
-pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
+pub use effects::{
+    BoostSpan, LocalMovementEffectTimeline, MeleeEffects, MiningEffects, MovementBoost,
+};
 use encoding::{HeldInput, input_flags};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -75,7 +79,7 @@ pub use physics::{
 pub use prediction_sync::send_movement_prediction_sync;
 use sim::WorldCollisionIdentity;
 pub use speed_authority::LocalMovementSpeedAuthority;
-pub use state::ProcessedMovementState;
+pub use state::{PoseFlags, ProcessedMovementState};
 pub use teleport_ack::ServerTeleportKind;
 use tokio::sync::watch;
 pub use trace::note_click_drop;
@@ -472,10 +476,12 @@ impl MovementTicker {
             yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
+            interact_rotation: interaction_rotation::from_facing(sample.pitch, sample.yaw),
             flags: input_flags(sample, self.previous_input)
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),
             input_mode: sample.input_mode,
+            vehicle: sample.processed.vehicle.map(|vehicle| vehicle.input()),
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
@@ -770,8 +776,8 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::FullRestored;
     }
 
+    /// The next movement tick to be simulated and queued.
     #[must_use]
-    #[cfg(any(test, feature = "test-support"))]
     pub const fn next_tick(&self) -> u64 {
         self.next_tick
     }
@@ -936,32 +942,11 @@ impl MovementTicker {
     }
 }
 
-/// Provisional local pre-first-input anchor: public protocol documentation does
-/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
-/// separate clock domain.
-const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
-
-pub fn reset_start_game_prediction(
-    movement: &mut MovementTicker,
-    local_physics: &mut LocalPhysicsController,
-    session_generation: u64,
-    initial_position: [f32; 3],
-) {
-    movement.reset(
-        session_generation,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        initial_position,
-    );
-    local_physics.reanchor_network_position_before_advance(
-        initial_position,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        false,
-    );
-}
-
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod anchor_probe_context_tests;
 #[cfg(test)]
 mod anchor_probe_tests;
 #[cfg(test)]

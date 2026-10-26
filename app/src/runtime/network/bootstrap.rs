@@ -94,6 +94,7 @@ pub(super) fn apply(
         player_game_mode_uses_world_default,
         server_authoritative_block_breaking,
         rewind_history_size,
+        base_game_version,
         hardcore,
         hud_rules,
         death_rules,
@@ -190,7 +191,7 @@ pub(super) fn apply(
     );
     #[cfg(not(target_arch = "wasm32"))]
     {
-        ui_runtime.experiences.marker = packs.extension_marker.take();
+        ui_runtime.session.experiences.marker = packs.extension_marker.take();
     }
     player_runtime.facts.publish_bootstrap_game_modes(
         player_game_mode,
@@ -224,6 +225,7 @@ pub(super) fn apply(
             custom_blocks: &custom_blocks,
             item_registry: world_item_registry,
             world_default_game_mode,
+            player_game_mode_uses_world_default,
             terrain_before_spawn,
         },
         &packs,
@@ -257,6 +259,7 @@ pub(super) fn apply(
         session_generation: clock.session_generation(),
         position: resolved.position,
         rewind_history_size,
+        base_game_version,
         auto_fly: auto_fly.enabled(),
         collision_registry_complete: collisions.is_complete(),
     })

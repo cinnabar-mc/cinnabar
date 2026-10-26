@@ -134,6 +134,15 @@ pub struct ServerFormStore {
     settings_selected: bool,
 }
 impl ServerFormStore {
+    /// Retires forms and responses while preserving revision and reissue accounting.
+    pub(super) fn next_session(&self) -> Self {
+        Self {
+            next_revision: self.next_revision,
+            replaced_by_reissue: self.replaced_by_reissue,
+            ..Self::default()
+        }
+    }
+
     pub fn admit(
         &mut self,
         event: FormRequestEvent,

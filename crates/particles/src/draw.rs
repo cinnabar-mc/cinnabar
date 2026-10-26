@@ -38,6 +38,13 @@ pub struct ParticleView {
     pub half_diagonal: f32,
 }
 
+impl ParticleView {
+    /// Retains the draw path's angular guard around the frustum diagonal.
+    pub(crate) fn cos_limit(&self) -> f32 {
+        (self.half_diagonal + 0.15).min(3.0).cos()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DrawLists {
     /// Cutout and opaque materials that write depth, sorted far to near.
@@ -54,6 +61,14 @@ pub struct DrawLists {
 }
 
 pub const MAX_DRAW_DISTANCE: f32 = 128.0;
+
+/// Uses the draw path's distance and guarded view cone without evaluating particle expressions.
+pub(super) fn particle_may_draw(view: &ParticleView, cos_limit: f32, position: [f32; 3]) -> bool {
+    let relative = sub(position, view.position);
+    let distance_sq = dot(relative, relative);
+    !(distance_sq > MAX_DRAW_DISTANCE * MAX_DRAW_DISTANCE
+        || (distance_sq > 4.0 && dot(relative, view.forward) < cos_limit * distance_sq.sqrt()))
+}
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -294,11 +309,7 @@ fn emit_emitter(
             p.pos
         };
         let relative = sub(position, view.position);
-        let distance_sq = dot(relative, relative);
-        if distance_sq > MAX_DRAW_DISTANCE * MAX_DRAW_DISTANCE {
-            continue;
-        }
-        if distance_sq > 4.0 && dot(relative, view.forward) < cos_limit * distance_sq.sqrt() {
+        if !particle_may_draw(view, cos_limit, position) {
             continue;
         }
         if let Some(per_render) = &def.particle.per_render {
@@ -429,7 +440,7 @@ impl ParticleSystem {
         world: &dyn ParticleWorld,
         mut hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
     ) -> DrawLists {
-        let cos_limit = (view.half_diagonal + 0.15).min(3.0).cos();
+        let cos_limit = view.cos_limit();
         let mut scratch = std::mem::take(&mut self.draw_scratch);
         let collected = &mut scratch.instances;
         collected.clear();

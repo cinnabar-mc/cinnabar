@@ -156,54 +156,11 @@ pub struct HungerPaint {
     /// Food in half shanks.
     pub current: u32,
     pub saturation_empty: bool,
-    pub saturation_overlay: Option<u32>,
-    pub food_preview: Option<u32>,
-    pub food_saturation_preview: Option<u32>,
-    pub overlay_color: [u8; 4],
-    pub inverse_overlay: bool,
     /// Background, full and half art; none hides the row.
     pub sprites: Option<[&'static str; 3]>,
 }
 
 impl HungerPaint {
-    /// Applies known food values to the exact native hunger renderer, including pack relocation.
-    pub fn set_overlay(
-        &mut self,
-        style: &ui::mod_hud::HungerOverlay,
-        saturation: Option<f32>,
-        food: Option<&protocol::FoodProperties>,
-    ) {
-        if self.sprites.is_none() {
-            return;
-        }
-        let color = style.color.unwrap_or([1.; 4]);
-        self.inverse_overlay = style.inverse_color;
-        self.overlay_color = color.map(|component| (component.clamp(0., 1.) * 255.).round() as u8);
-        self.saturation_overlay = style
-            .saturation
-            .then_some(saturation)
-            .flatten()
-            .filter(|value| value.is_finite() && *value >= 0.)
-            .map(|value| value.ceil().min(20.) as u32);
-        self.food_preview = style
-            .potential_hunger
-            .unwrap_or(style.held_food)
-            .then_some(food)
-            .flatten()
-            .map(|food| self.current.saturating_add(food.nutrition()).min(20));
-        self.food_saturation_preview = style
-            .potential_saturation
-            .unwrap_or(style.held_food)
-            .then_some(food)
-            .flatten()
-            .zip(saturation)
-            .filter(|(_, value)| value.is_finite() && *value >= 0.)
-            .map(|(food, current)| {
-                (current + food.nutrition() as f32 * food.saturation_modifier() * 2.)
-                    .min(self.current.saturating_add(food.nutrition()).min(20) as f32)
-                    .ceil() as u32
-            });
-    }
     /// Texture candidates do not depend on a control's animation phase.
     pub fn textures(&self) -> impl Iterator<Item = &str> {
         self.sprites.iter().flatten().copied()
@@ -214,7 +171,7 @@ impl HungerPaint {
         let shaking = hunger_shakes(self.saturation_empty, self.current, updates);
         (0..10u32).flat_map(move |index| {
             let Some([background, full, half]) = self.sprites else {
-                return [None, None, None].into_iter().flatten();
+                return [None, None].into_iter().flatten();
             };
             let y = if shaking {
                 hunger_shake_offset(index, updates)
@@ -230,14 +187,6 @@ impl HungerPaint {
             [
                 Some(Cell::icon(at, background)),
                 foreground.map(|texture| Cell::icon(at, texture)),
-                self.food_preview
-                    .filter(|preview| *preview > self.current && *preview > index * 2)
-                    .map(|preview| {
-                        let mut cell =
-                            Cell::icon(at, if preview - index * 2 == 1 { half } else { full });
-                        cell.alpha = 110;
-                        cell
-                    }),
             ]
             .into_iter()
             .flatten()

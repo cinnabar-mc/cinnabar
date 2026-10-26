@@ -118,6 +118,22 @@ pub struct LoadedPackage {
 }
 
 impl ModHost {
+    /// Keeps undelivered connection catalogs and closure notifications, replacing departed
+    /// screen geometry and edits with the current closed layout before callbacks resume.
+    pub(crate) fn clear_world_events(&mut self) {
+        self.pending_events
+            .retain(|event| matches!(event, ModEvent::DataChanged(_) | ModEvent::ViewClosed));
+        let closed = self.instance.view_open();
+        self.layout = None;
+        self.instance.set_layout(None);
+        if self.instance.has_events() {
+            self.pending_events.insert(0, ModEvent::ScreenChanged(None));
+            if closed && !self.pending_events.contains(&ModEvent::ViewClosed) {
+                self.pending_events.push(ModEvent::ViewClosed);
+            }
+        }
+    }
+
     /// The modifiers held with the events about to be dispatched (`screen.held-modifiers`).
     pub fn set_held_modifiers(&mut self, held: KeyModifiers) {
         self.instance.set_held_modifiers(held);
@@ -287,7 +303,7 @@ impl ModHost {
         self.instance.last_fuel()
     }
 
-    /// The committed overlay, view and bound data; empty after a trap.
+    /// The committed overlay, view and bound data; empty after quarantine.
     pub fn screens(&self) -> &ModScreens {
         self.instance.screens()
     }

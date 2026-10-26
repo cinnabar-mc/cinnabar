@@ -30,7 +30,6 @@ pub(super) struct GpuArtworkPage {
     raw_views: ArtworkRawViews,
 }
 
-#[cfg(feature = "shaderpacks")]
 impl GpuArtworkPage {
     /// The page's array texture, for single-layer raw views; `None` until it is recreated to
     /// allow them.
@@ -106,7 +105,6 @@ impl GpuGlint {
     }
 
     /// The glint texture for raw views; `None` until it is recreated to allow them.
-    #[cfg(feature = "shaderpacks")]
     pub fn raw_texture(&self) -> Option<&Texture> {
         self.texture
             .as_ref()
@@ -689,7 +687,7 @@ mod tests {
                     session_id: 1,
                     dimension: 0,
                     runtime_id,
-                    spawn_revision: 1,
+                    spawn_revision: std::num::NonZeroU64::MIN,
                     ingress_sequence: 1,
                     source_tick: Some(1),
                     movement_revision: 1,

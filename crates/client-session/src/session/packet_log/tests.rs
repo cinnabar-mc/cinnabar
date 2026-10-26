@@ -40,6 +40,7 @@ fn secret_packet_id() -> u32 {
 
 fn packet(packet_id: u32, elapsed_us: u64, body: &'static [u8]) -> CaptureRecord {
     CaptureRecord::Packet {
+        sequence: 1,
         direction: PacketDirection::Clientbound,
         packet_id,
         elapsed_us,
@@ -521,6 +522,7 @@ fn a_full_queue_drops_packets_and_reports_them_in_a_gap_before_the_next() {
         feed.packet(
             PacketDirection::Clientbound,
             packet_id,
+            1,
             at(micros),
             PacketBody::whole(&body),
         );
@@ -576,6 +578,7 @@ fn a_stop_writes_the_queued_records_and_the_last_gap_while_feeds_live() {
         feed.packet(
             PacketDirection::Serverbound,
             9,
+            1,
             started + Duration::from_micros(micros),
             PacketBody::whole(&body),
         );
@@ -600,6 +603,7 @@ fn a_stop_writes_the_queued_records_and_the_last_gap_while_feeds_live() {
     feed.packet(
         PacketDirection::Serverbound,
         9,
+        1,
         started,
         PacketBody::whole(&body),
     );
@@ -614,11 +618,12 @@ fn the_writer_stops_at_the_size_limit_with_a_final_marker() {
         feed.packet(
             PacketDirection::Serverbound,
             9,
+            1,
             started + Duration::from_micros(micros),
             PacketBody::whole(&body),
         );
     }
-    let one = RECORD_HEADER_BYTES + 10;
+    let one = packet(9, 0, &[7; 10]).encoded_len();
     let limit = CAPTURE_HEADER_BYTES + 2 * one + RECORD_HEADER_BYTES;
     let writer = CaptureWriter::with_limit(Vec::new(), header(3), limit).unwrap();
     let written = queue.drain(writer).unwrap();
@@ -773,6 +778,7 @@ fn capture_byte_budget_drops_before_record_slots_fill_and_recovers_after_drain()
         feed.packet(
             PacketDirection::Clientbound,
             9,
+            1,
             started,
             PacketBody::whole(&body),
         );
@@ -785,6 +791,7 @@ fn capture_byte_budget_drops_before_record_slots_fill_and_recovers_after_drain()
     feed.packet(
         PacketDirection::Clientbound,
         9,
+        1,
         started,
         PacketBody::whole(&body),
     );
@@ -806,6 +813,7 @@ fn capture_refuses_a_body_larger_than_its_byte_budget() {
     feed.packet(
         PacketDirection::Clientbound,
         9,
+        1,
         started,
         PacketBody::whole(&body),
     );
@@ -833,6 +841,7 @@ fn queued_capture_bodies_release_unrelated_batch_storage() {
     feed.packet(
         PacketDirection::Clientbound,
         9,
+        1,
         started,
         PacketBody::whole(&body),
     );
@@ -889,6 +898,7 @@ fn capture_charges_the_body_while_disk_output_is_blocked() {
     feed.packet(
         PacketDirection::Clientbound,
         9,
+        1,
         started,
         PacketBody::whole(&body),
     );
@@ -898,6 +908,7 @@ fn capture_charges_the_body_while_disk_output_is_blocked() {
     feed.packet(
         PacketDirection::Clientbound,
         9,
+        1,
         started,
         PacketBody::whole(&body),
     );
@@ -923,6 +934,7 @@ fn an_exited_capture_writer_stops_allocating_packet_bodies() {
         feed.packet(
             PacketDirection::Clientbound,
             9,
+            1,
             started,
             PacketBody::whole(&body),
         );
@@ -941,6 +953,7 @@ fn an_exited_capture_writer_stops_allocating_packet_bodies() {
             feed.packet(
                 PacketDirection::Clientbound,
                 9,
+                1,
                 started,
                 PacketBody::whole(&body),
             );
@@ -974,6 +987,7 @@ fn a_failed_capture_write_stops_allocating_packet_bodies() {
     feed.packet(
         PacketDirection::Clientbound,
         9,
+        1,
         started,
         PacketBody::whole(&body),
     );
@@ -983,6 +997,7 @@ fn a_failed_capture_write_stops_allocating_packet_bodies() {
         feed.packet(
             PacketDirection::Clientbound,
             9,
+            1,
             started,
             PacketBody::whole(&body),
         );
@@ -1065,4 +1080,63 @@ fn a_busy_sample_snapshot_never_blocks_ingress_and_counts_the_offer() {
     log.reject(1, 1, 9, PacketOutcome::Failed, b"sample");
     drop(locked);
     assert_eq!(log.missed_samples.load(Ordering::Relaxed), 1);
+}
+
+/// An admitted actor attack keeps its frozen state beside the exact packet, even under limits.
+#[test]
+fn captured_attack_and_pick_share_the_tap_sequence() {
+    let log = fresh_log();
+    let started = Instant::now();
+    let (feed, queue, stop) = channel(2, started);
+    let tap = SessionTap::new(&log, log.begin_session(), started, Some(feed));
+    let state = protocol::capture::PickState {
+        target: 42,
+        pick_frame: [1, 10],
+        press_frame: [1, 11],
+        transaction_frame: [1, 12],
+        hit: [0.0, 1.0, -2.0],
+        ..Default::default()
+    };
+    let stack = protocol::NetworkItemStack::empty();
+    let attack = protocol::use_actor_packet(protocol::ActorUseRequest {
+        actor_runtime_id: state.target,
+        action: protocol::ActorUseAction::Attack,
+        selected_slot: 0,
+        selected_item: protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+            .unwrap(),
+        player_position: state.eye,
+        hit_position: state.hit,
+    })
+    .unwrap();
+    let body = Bytes::from_static(&[1, 2]);
+    let id = tap.record_with_pick(
+        PacketDirection::Serverbound,
+        attack.kind().id(),
+        PacketBody::whole(&body),
+        state,
+    );
+    let trace = tap.pick_trace().unwrap();
+    trace.world(1, 99);
+    drop(stop);
+    let writer = CaptureWriter::new(Vec::new(), header(1)).unwrap();
+    let bytes = queue.drain(writer).unwrap();
+    let file = read_capture(Bytes::from(bytes)).unwrap();
+    assert!(matches!(&file.records[..], [
+        CaptureRecord::Packet { sequence, .. },
+        CaptureRecord::Pick { packet_sequence, state: captured, .. }
+    ] if *sequence == id.0 && *packet_sequence == id.0 && *captured == state));
+    assert!(tap.pick_trace().is_none());
+    assert_eq!(trace.packet_sequence(1), 0);
+}
+
+#[test]
+fn disabled_capture_exposes_no_pick_trace_and_does_not_allocate() {
+    let log = fresh_log();
+    let tap = SessionTap::new(&log, log.begin_session(), Instant::now(), None);
+    let body = Bytes::from_static(&[1, 2]);
+    let (_, allocations) = test_alloc::count(|| {
+        assert!(tap.pick_trace().is_none());
+        tap.record(PacketDirection::Serverbound, 9, PacketBody::whole(&body))
+    });
+    assert_eq!(allocations, 0);
 }
