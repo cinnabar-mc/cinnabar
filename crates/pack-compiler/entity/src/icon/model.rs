@@ -118,7 +118,12 @@ impl<'a> Model<'a> {
         self
     }
 
-    pub(super) fn read(world: &'a RuntimeAssets, visual: BlockVisualId) -> Result<Self, Reject> {
+    /// Reads a compiled state with its item identity for GUI-specific shapes.
+    pub(super) fn read(
+        world: &'a RuntimeAssets,
+        visual: BlockVisualId,
+        render_kind: assets::facts::BlockRenderKind,
+    ) -> Result<Self, Reject> {
         if visual.0 as usize >= world.visual_count() {
             return Err(Reject::Geometry);
         }
@@ -134,7 +139,13 @@ impl<'a> Model<'a> {
             tint: None,
         };
         let faces = BlockFace::ALL.map(|face| block.face(face).material_id());
-        Self::build(parts, block.kind(), faces, block.model_template())
+        Self::build(
+            parts,
+            block.kind(),
+            faces,
+            block.model_template(),
+            render_kind,
+        )
     }
 
     /// State `visual` of a session block overlay.
@@ -153,7 +164,7 @@ impl<'a> Model<'a> {
             tint,
         };
         let template = (block.model_template != NO_MODEL_TEMPLATE).then_some(block.model_template);
-        Self::build(parts, block.kind, block.faces, template)
+        Self::build(parts, block.kind, block.faces, template, Default::default())
     }
 
     /// Draws carried cube faces from overlay pixels without cloning the texture page.
@@ -169,7 +180,7 @@ impl<'a> Model<'a> {
             textures: Textures::Overlay(overlay, base),
             tint: None,
         };
-        Self::build(parts, VisualKind::Cube, faces, None)
+        Self::build(parts, VisualKind::Cube, faces, None, Default::default())
     }
 
     fn build(
@@ -177,6 +188,7 @@ impl<'a> Model<'a> {
         kind: VisualKind,
         materials: [u32; 6],
         template: Option<u32>,
+        render_kind: assets::facts::BlockRenderKind,
     ) -> Result<Self, Reject> {
         let mut tiles = std::collections::BTreeMap::new();
         if kind == VisualKind::Cube {
@@ -188,31 +200,38 @@ impl<'a> Model<'a> {
                 }
             }
         }
-        let faces = block_gui_quads(kind, materials, template, parts.templates, parts.quads)
-            .map_err(reject)?
-            .into_iter()
-            .filter(|quad| quad.visible_in_gui())
-            .map(|quad| {
-                let tile = match tiles.entry(quad.material) {
-                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(tile(parts, quad.material)?)
-                    }
-                };
-                Ok(Face {
-                    corners: quad.corners,
-                    uvs: quad
-                        .uvs
-                        .map(|uv| uv.map(|component| component * tile.uv_scale)),
-                    tile: tile.pixels.clone(),
-                    size: [tile.side; 2],
-                    blend: tile.blend,
-                    face_dimming: parts.materials[quad.material as usize].flags
-                        & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
-                        == 0,
-                })
+        let faces = block_gui_quads(
+            render_kind,
+            kind,
+            materials,
+            template,
+            parts.templates,
+            parts.quads,
+        )
+        .map_err(reject)?
+        .into_iter()
+        .filter(|quad| quad.visible_in_gui())
+        .map(|quad| {
+            let tile = match tiles.entry(quad.material) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(tile(parts, quad.material)?)
+                }
+            };
+            Ok(Face {
+                corners: quad.corners,
+                uvs: quad
+                    .uvs
+                    .map(|uv| uv.map(|component| component * tile.uv_scale)),
+                tile: tile.pixels.clone(),
+                size: [tile.side; 2],
+                blend: tile.blend,
+                face_dimming: parts.materials[quad.material as usize].flags
+                    & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
+                    == 0,
             })
-            .collect::<Result<Vec<_>, Reject>>()?;
+        })
+        .collect::<Result<Vec<_>, Reject>>()?;
         Ok(Self {
             faces,
             projection: assets::gui_item::project_cube,
@@ -563,6 +582,7 @@ mod review_tests {
                 VisualKind::Model,
                 [1; 6],
                 Some(0),
+                Default::default(),
             )
             .unwrap()
             .raster();
@@ -627,6 +647,7 @@ mod review_tests {
             VisualKind::Model,
             [1; 6],
             Some(0),
+            Default::default(),
         )
         .unwrap();
         assert_eq!(model.faces.len(), quads.len());

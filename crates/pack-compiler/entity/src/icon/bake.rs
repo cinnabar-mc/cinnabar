@@ -365,7 +365,15 @@ fn model_raster(
         return Ok(super::shapes::raster(root, blocks, visual)?.map(|raster| (raster, None)));
     }
     let state = blocks.map_or(visual, |blocks| blocks.icon_state(visual));
-    if let Ok(model) = model::Model::read(world, state) {
+    if let Ok(model) = model::Model::read(
+        world,
+        state,
+        blocks
+            .and_then(|blocks| blocks.name(state))
+            .map(assets::facts::block_render_fact)
+            .map(|fact| fact.kind)
+            .unwrap_or_default(),
+    ) {
         return Ok(Some((model.raster(), Some(state))));
     }
     Ok(

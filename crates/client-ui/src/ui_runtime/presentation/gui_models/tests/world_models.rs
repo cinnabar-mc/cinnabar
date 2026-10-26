@@ -141,7 +141,8 @@ fn cutout_world_model_slots_preserve_original_texels_and_rotated_uvs() {
     }
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
     let mut expected_atlas = atlas::Atlas::new(first, MODEL_PAGES);
-    let expected = block_models::mesh(&world, VISUAL, &mut expected_atlas).unwrap();
+    let expected =
+        block_models::mesh(&world, VISUAL, &mut expected_atlas, Default::default()).unwrap();
     let (_, textures) = expected_atlas.finish().unwrap();
     let expected_source = textures[&atlas::key([side as u16; 2], tile)];
     assert_eq!(actual.indices(), expected.indices());

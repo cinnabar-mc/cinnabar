@@ -10,6 +10,13 @@ use ui::IconRef;
 mod block_model;
 mod shield;
 
+/// Chooses how overlapping surfaces in a block preview are resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BlockModelOrder {
+    Depth,
+    Paint,
+}
+
 pub(super) use block_model::mesh as block_model;
 
 pub(super) fn shield(
@@ -71,7 +78,7 @@ pub(super) fn cutout_cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option
             faces[face as usize],
         )
     });
-    block_model(&quads, lighting)
+    block_model(&quads, lighting, BlockModelOrder::Depth)
 }
 
 /// Converts directional face lighting or uniform brightness to the shared byte-space tint.

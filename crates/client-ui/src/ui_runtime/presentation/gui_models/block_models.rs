@@ -14,6 +14,7 @@ use super::{atlas::Atlas, item_gui};
 
 /// One block state's shape and the world tables it indexes.
 struct Shape<'a> {
+    render_kind: assets::facts::BlockRenderKind,
     kind: VisualKind,
     faces: [u32; 6],
     template: Option<u32>,
@@ -30,6 +31,7 @@ pub(super) fn mesh(
     world: &RuntimeAssets,
     visual: BlockVisualId,
     atlas: &mut Atlas,
+    render_kind: assets::facts::BlockRenderKind,
 ) -> Option<Arc<UiMesh>> {
     if world.is_diagnostic() || visual.0 as usize >= world.visual_count() {
         return None;
@@ -39,6 +41,7 @@ pub(super) fn mesh(
         return None;
     }
     let shape = Shape {
+        render_kind,
         kind: block.kind(),
         faces: BlockFace::ALL.map(|face| block.face(face).material_id()),
         template: block.model_template(),
@@ -53,6 +56,7 @@ pub(super) fn mesh(
 /// Builds GUI geometry from a block shape, keeping the thumbnail when any input is unsupported.
 fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
     let quads = block_gui_quads(
+        shape.render_kind,
         shape.kind,
         shape.faces,
         shape.template,
@@ -109,7 +113,20 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .into_iter()
                 .map(|quad| (quad, textures[&quad.material]))
                 .collect();
-            item_gui::block_model(&placed, Default::default())
+            let order = shape
+                .template
+                .and_then(|id| shape.templates.get(id as usize))
+                .filter(|template| {
+                    shape.render_kind != assets::facts::BlockRenderKind::BambooFence
+                        && template.flags
+                            & (assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD
+                                | assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER)
+                            != 0
+                })
+                .map_or(item_gui::BlockModelOrder::Depth, |_| {
+                    item_gui::BlockModelOrder::Paint
+                });
+            item_gui::block_model(&placed, Default::default(), order)
         },
     )
 }

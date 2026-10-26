@@ -391,10 +391,28 @@ impl GuiModelPreparation {
             }
         }
         if let Some(refs) = self.icon_refs.as_deref() {
+            let render_kinds: BTreeMap<_, _> = icons
+                .entries()
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.sprite,
+                        assets::facts::block_render_fact(&entry.identifier).kind,
+                    )
+                })
+                .collect();
             for thumbnail in icons.block_models() {
                 if let Some(icon) = refs.get(thumbnail.sprite as usize)
                     && !models.contains_key(&icon_key(*icon))
-                    && let Some(mesh) = block_models::mesh(world, thumbnail.visual, &mut atlas)
+                    && let Some(mesh) = block_models::mesh(
+                        world,
+                        thumbnail.visual,
+                        &mut atlas,
+                        render_kinds
+                            .get(&thumbnail.sprite)
+                            .copied()
+                            .unwrap_or_default(),
+                    )
                 {
                     models.insert(icon_key(*icon), mesh);
                     optional_models.insert(icon_key(*icon));

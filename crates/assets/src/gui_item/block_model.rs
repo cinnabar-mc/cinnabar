@@ -60,6 +60,7 @@ pub enum GuiBlockReject {
 
 /// Inventory geometry, independent of the placed block's connection shape.
 pub fn block_gui_quads(
+    render_kind: crate::facts::BlockRenderKind,
     kind: VisualKind,
     faces: [u32; 6],
     template: Option<u32>,
@@ -110,6 +111,13 @@ pub fn block_gui_quads(
             .into_iter()
             .flat_map(|(min, max)| inventory_cuboid_quads(min, max, faces))
             .collect());
+    }
+    if kind == VisualKind::Model
+        && flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0
+        && render_kind != crate::facts::BlockRenderKind::BambooFence
+    {
+        let material = faces[BlockFace::South as usize];
+        return Ok(gui_fence_quads(material));
     }
     let mut carried = block_item_quads(kind, faces, template, templates, quads)?;
     if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_HEAVY_CORE != 0 {
@@ -253,6 +261,75 @@ const INVENTORY_FENCE_BOXES: [([i8; 3], [i8; 3]); 8] = [
     ([7, 5, 0], [9, 7, 16]),
     ([7, 5, 16], [9, 7, 18]),
 ];
+
+/// Projects each post, then the rear and front rail halves with independently restarted UVs.
+fn gui_fence_quads(material: u32) -> Vec<GuiBlockQuad> {
+    let posts = [INVENTORY_FENCE_BOXES[0], INVENTORY_FENCE_BOXES[1]];
+    let midpoint = (posts[0].0[2] + posts[1].1[2]) / 2;
+    let start = INVENTORY_FENCE_BOXES
+        .iter()
+        .map(|(min, _)| min[2])
+        .min()
+        .unwrap();
+    let end = INVENTORY_FENCE_BOXES
+        .iter()
+        .map(|(_, max)| max[2])
+        .max()
+        .unwrap();
+    let mut boxes = posts.map(|(min, max)| (min, max, false)).to_vec();
+    for (near, far) in [(start, midpoint), (midpoint, end)] {
+        for (mut min, mut max) in [INVENTORY_FENCE_BOXES[2], INVENTORY_FENCE_BOXES[5]] {
+            min[2] = near;
+            max[2] = far;
+            boxes.push((min, max, true));
+        }
+    }
+    boxes
+        .into_iter()
+        .flat_map(|(min, max, restart)| {
+            CUBE_FACES.map(|(face, unit, _, _)| {
+                let corners = unit.map(|point| {
+                    std::array::from_fn(|axis| {
+                        (f32::from(min[axis]) + point[axis] * f32::from(max[axis] - min[axis]))
+                            / 16.0
+                    })
+                });
+                let offset = if restart {
+                    f32::from(min[2]) / 16.0
+                } else {
+                    0.0
+                };
+                let uvs = corners.map(|[x, y, z]| match face {
+                    BlockFace::Up => [x, z - offset],
+                    BlockFace::South => [x, 1.0 - y],
+                    BlockFace::West => [z - offset, 1.0 - y],
+                    _ => unreachable!("the GUI cube contains its three outward faces"),
+                });
+                fence_face(face, corners, uvs, material)
+            })
+        })
+        .collect()
+}
+
+/// Retains each face's interpolation diagonal after compact projected coordinates round.
+fn fence_face(
+    face: BlockFace,
+    corners: [[f32; 3]; 4],
+    uvs: [[f32; 2]; 4],
+    material: u32,
+) -> GuiBlockQuad {
+    let order = if face == BlockFace::South {
+        [3, 0, 1, 2]
+    } else {
+        [2, 3, 0, 1]
+    };
+    GuiBlockQuad {
+        corners: order.map(|i| corners[i]),
+        uvs: order.map(|i| uvs[i]),
+        material,
+        two_sided: false,
+    }
+}
 
 /// Every outward face of the inventory fence, with native position-derived UVs. Held items
 /// draw these one-sided, so faces hidden from the inventory camera are kept.

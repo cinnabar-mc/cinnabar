@@ -134,7 +134,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
   until exact face-coverage behavior is verified separately. Inventory fences draw the
-  native two-post shape. Walls now use the custom carried two-post shape, and vanilla
+  native two-post shape, with separately textured rear and front rail halves and ordered
+  surface overlap. Acacia texture-boundary sampling remains unqualified.
+  Walls use the carried two-post shape, and vanilla
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
   and fresh integrated-frame acceptance remain unverified. World bamboo fences and bamboo
   fence gates stretch their native texture regions over each piece face; the bamboo fence

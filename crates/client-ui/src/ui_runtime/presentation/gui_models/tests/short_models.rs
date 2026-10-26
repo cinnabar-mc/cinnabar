@@ -149,6 +149,7 @@ fn normalized_opaque_and_cutout_sheets_keep_the_shortened_gui_model() {
             &source_world,
             assets::BlockVisualId(1),
             &mut atlas::Atlas::new(first, MODEL_PAGES),
+            Default::default(),
         )
         .unwrap();
         assert_eq!(actual.indices(), expected.indices());
@@ -169,6 +170,7 @@ fn normalized_opaque_and_cutout_sheets_keep_the_shortened_gui_model() {
             &full,
             assets::BlockVisualId(1),
             &mut atlas::Atlas::new(first, MODEL_PAGES),
+            Default::default(),
         )
         .unwrap();
         assert_ne!(
