@@ -156,8 +156,8 @@ pub(crate) fn register_shaders(
     shaders: &mut bevy::asset::Assets<Shader>,
     registered: &mut BTreeSet<u64>,
 ) {
-    let live: BTreeSet<u64> = scene.set.materials.iter().map(|m| m.key).collect();
-    for published in &scene.set.materials {
+    let live: BTreeSet<u64> = scene.set.published().map(|m| m.key).collect();
+    for published in scene.set.published() {
         if WorldVariant::of(published).is_none() || !registered.insert(published.key) {
             continue;
         }
@@ -281,10 +281,14 @@ pub(crate) fn prepare(
     let set = &scene.set;
     if gpu.revision != Some(set.revision) {
         gpu.revision = Some(set.revision);
-        let live: BTreeSet<u64> = set.materials.iter().map(|m| m.key).collect();
+        let live: BTreeSet<u64> = set.published().map(|m| m.key).collect();
         gpu.entries.retain(|key, _| live.contains(key));
         let mut slots = Vec::with_capacity(set.materials.len());
         for published in &set.materials {
+            let Some(published) = published else {
+                slots.push(None);
+                continue;
+            };
             if !gpu.entries.contains_key(&published.key)
                 && let Some(entry) = create(&device, &queue, &cache, published)
             {
@@ -298,7 +302,9 @@ pub(crate) fn prepare(
         }
         gpu.slots = slots;
         for (slot, published) in set.materials.iter().enumerate() {
-            if let Some(entry) = gpu.entries.get_mut(&published.key) {
+            if let Some(published) = published
+                && let Some(entry) = gpu.entries.get_mut(&published.key)
+            {
                 entry.params = published.params;
                 entry.tag = u8::try_from(slot + 1).unwrap_or(0);
             }
@@ -438,11 +444,12 @@ mod tests {
     fn scene() -> WorldMaterialScene {
         let mut scene = WorldMaterialScene::with_bound_entities(&["example:moth"]);
         let set = std::sync::Arc::make_mut(&mut scene.set);
-        set.materials[0].textures = std::sync::Arc::from([abi::publication::Texture {
-            width: 2,
-            height: 2,
-            rgba: std::sync::Arc::from([255_u8; 16]),
-        }]);
+        set.materials[0].as_mut().unwrap().textures =
+            std::sync::Arc::from([abi::publication::Texture {
+                width: 2,
+                height: 2,
+                rgba: std::sync::Arc::from([255_u8; 16]),
+            }]);
         scene
     }
 
@@ -456,7 +463,7 @@ mod tests {
         ];
         let published = scene();
         register_shaders(&families, &published, &mut shaders, &mut registered);
-        let key = published.set.materials[0].key;
+        let key = published.set.published().next().unwrap().key;
         for family in &families {
             assert!(shaders.get(shader(family.namespace, key).id()).is_some());
         }

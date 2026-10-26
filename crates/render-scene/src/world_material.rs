@@ -70,14 +70,14 @@ impl WorldMaterialScene {
             ..WorldMaterialSet::default()
         };
         for (slot, entity) in entities.iter().enumerate() {
-            set.materials.push(Published {
+            set.materials.push(Some(Published {
                 key: slot as u64 + 1,
                 material: Arc::clone(&material),
                 textures: Arc::from([]),
                 params: [0.0; 16],
                 depth: Depth::Test,
                 blend: Blend::Opaque,
-            });
+            }));
             set.entities.insert((*entity).into(), slot as u16);
         }
         Self { set: Arc::new(set) }
