@@ -265,7 +265,7 @@ impl WorldAuthority {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
-    /// Binds the local Java torso to the current simulation; `None` restores actor-clock motion.
+    /// Binds local torso and legs to the current simulation; `None` restores actor-clock motion.
     pub fn set_local_motion_authority(
         &mut self,
         authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
@@ -273,7 +273,7 @@ impl WorldAuthority {
         self.actors
             .set_local_motion_authority(self.local_player_runtime_id, authority);
     }
-    /// Applies completed local torso samples without advancing other actor motion or clocks.
+    /// Applies completed local torso and leg samples without advancing other actor clocks.
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (SessionGeneration, PositionAuthorityGeneration),

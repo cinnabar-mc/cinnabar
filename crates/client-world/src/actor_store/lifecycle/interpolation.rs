@@ -4,7 +4,7 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl ActorStore {
-    /// Java torso ticks follow this local simulation identity rather than the remote actor clock.
+    /// Local torso and leg ticks follow this simulation identity rather than the remote actor clock.
     pub(crate) fn set_local_motion_authority(
         &mut self,
         runtime_id: u64,
@@ -14,7 +14,7 @@ impl ActorStore {
             .set_local_motion_authority(runtime_id, authority);
     }
 
-    /// Corrects only local torso motion after this frame's interaction admissions.
+    /// Corrects local torso and leg motion after this frame's interaction admissions.
     pub(crate) fn sync_local_swing_motion(
         &mut self,
         runtime_id: u64,
