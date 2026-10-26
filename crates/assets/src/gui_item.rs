@@ -39,6 +39,13 @@ pub fn has_carried_bitmap_shape(name: &str) -> bool {
     .any(|kind| name == kind.identifier())
 }
 
+/// Glass panes hold a solid plate; other pane-family blocks retain their sprite artwork.
+#[must_use]
+pub fn has_carried_glass_plate(name: &str) -> bool {
+    name == "minecraft:glass_pane"
+        || crate::facts::block_render_fact(name).kind == crate::facts::BlockRenderKind::StainedPane
+}
+
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.
 pub const GUI_ITEM_SIDE: f32 = 16.0;
 /// First accepted alpha byte for non-blended block GUI texels.

@@ -678,6 +678,9 @@ impl EquipmentRuntime {
                     .copied()
                     .map(|mut vertex| {
                         for uv in [&mut vertex.uv, &mut vertex.back_uv] {
+                            if *uv == render_model::ONE_SIDED_BACK_UV {
+                                continue;
+                            }
                             for axis in 0..2 {
                                 uv[axis] = rect[axis] + uv[axis] * (rect[axis + 2] - rect[axis]);
                             }

@@ -15,6 +15,8 @@ const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
 #[cfg(test)]
 mod tests;
 
+mod panes;
+
 /// Composed block-item sheets and the visual IDs that select them.
 pub struct BlockSheets {
     pub sheets: Vec<IconSprite>,
@@ -56,23 +58,23 @@ pub fn collect_held(
     entities: &RuntimeEntityAssets,
     icons: &assets::RuntimeIconCatalog,
 ) -> BlockSheets {
-    let states: BTreeMap<u32, HeldDisplay> = icons
+    let states: BTreeMap<_, _> = icons
         .block_models()
         .iter()
-        .map(|model| {
-            (
-                model.sprite,
-                if model.held_sprite.is_some() {
-                    HeldDisplay::Sprite
-                } else {
-                    HeldDisplay::Block(model.visual.0)
-                },
-            )
-        })
+        .map(|model| (model.sprite, (model.visual.0, model.held_sprite.is_some())))
         .collect();
     let display = |key: &assets::ItemVisualKey| {
         let sprite = u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
-        states.get(&sprite).copied()
+        let &(visual, flat) = states.get(&sprite)?;
+        Some(
+            if assets::gui_item::has_carried_glass_plate(&key.identifier) {
+                HeldDisplay::GlassPlate(visual)
+            } else if flat {
+                HeldDisplay::Sprite
+            } else {
+                HeldDisplay::Block(visual)
+            },
+        )
     };
     collect_shapes(world, entities, Some(&display))
 }
@@ -81,6 +83,7 @@ pub fn collect_held(
 #[derive(Clone, Copy)]
 enum HeldDisplay {
     Block(u32),
+    GlassPlate(u32),
     Sprite,
 }
 
@@ -116,21 +119,28 @@ fn collect_shapes(
         if matches!(display_state, Some(HeldDisplay::Sprite)) {
             continue;
         }
-        let model = (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
-            .then(|| frame_model(world, visual))
-            .flatten()
-            .or_else(|| cube_model(world, visual));
+        let model = match display_state {
+            Some(HeldDisplay::GlassPlate(shown)) => panes::model(world, shown),
+            _ => None,
+        }
+        .or_else(|| {
+            (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
+                .then(|| frame_model(world, visual))
+                .flatten()
+        })
+        .or_else(|| cube_model(world, visual));
         let cube = model
             .is_none()
             .then(|| cube_materials(world, visual))
             .flatten();
         let model = model.or_else(|| {
-            // Items the inventory draws flat (torches, plants, panes) stay sprites in hand.
+            // Flat carried artwork, such as torches and plants, keeps its sprite in hand.
             if cube.is_some() {
                 return None;
             }
             let shown = match display_state {
                 Some(HeldDisplay::Block(shown)) => shown,
+                Some(HeldDisplay::GlassPlate(_)) => return None,
                 None if display.is_some()
                     && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>
                 {

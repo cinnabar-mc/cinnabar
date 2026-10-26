@@ -572,3 +572,31 @@ fn every_pinned_stair_family_selects_its_first_person_turn() {
     }
     assert!(stairs > 0);
 }
+
+#[test]
+fn cutout_model_keeps_authored_backface_culling_after_atlas_placement() {
+    let (mut runtime, _, item) = block_fixture();
+    let HeldKind::Block(visual) = item.kind else {
+        unreachable!()
+    };
+    let mut vertices =
+        render_model::textured_cube_vertices(render_model::equipment::blocks::face_rects([
+            0.0, 0.0, 1.0, 1.0,
+        ]));
+    for vertex in &mut vertices {
+        vertex.back_uv = render_model::ONE_SIDED_BACK_UV;
+    }
+    let blocks = Arc::make_mut(&mut runtime.blocks.source);
+    blocks.models.insert(visual, vertices);
+    blocks
+        .alpha
+        .insert(visual, render_model::HandItemAlphaMode::Cutout);
+    runtime.held_mesh(&item, true).unwrap();
+    let geometry = runtime.take_pending_geometries().pop().unwrap();
+    assert!(
+        geometry
+            .vertices
+            .iter()
+            .all(|vertex| vertex.back_uv == render_model::ONE_SIDED_BACK_UV)
+    );
+}

@@ -612,6 +612,8 @@ and rendered qualification remain incomplete.
   facing. Their first-person block pose retains the item-space quarter turn.
   Held stairs select that turn from their pinned model family or active stair topology,
   independently of inventory GUI orientation. Rendered stair acceptance remains open.
+  Glass panes retain their carried plate, body and edge artwork instead of a flat sprite.
+  Rendered glass-pane acceptance remains open.
   Bedrock hand rigs shade posed normals in world space and interpolate their combined
   directional and eye light in gamma space. Held block emission supplies a minimum
   light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
