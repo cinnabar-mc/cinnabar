@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -36,6 +38,9 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 		return nil, fmt.Errorf("%w: publish prompt", errDeviceAuthorization)
 	}
 	token, err := f.Token(ctx, response)
+	for err != nil && retryablePoll(ctx, response, err) {
+		token, err = f.Token(ctx, response)
+	}
 	if err != nil {
 		if deviceCodeExpired(ctx, response, err) {
 			return nil, fmt.Errorf("%w: %w", errDeviceAuthorization, errDeviceCodeExpired)
@@ -43,6 +48,23 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 		return nil, fmt.Errorf("%w: complete", errDeviceAuthorization)
 	}
 	return token, nil
+}
+
+// retryablePoll reports whether a failed token poll was a transport or provider-side failure
+// that should not end sign-in. Mobile systems suspend the app while the player signs in through
+// the browser, which breaks in-flight requests; polling resumes until the code is used, denied
+// or expired. A prompt without an expiry is not retried, so polling always stays bounded.
+func retryablePoll(ctx context.Context, response *oauth2.DeviceAuthResponse, err error) bool {
+	if ctx.Err() != nil || response.Expiry.IsZero() ||
+		errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var providerError *oauth2.RetrieveError
+	if errors.As(err, &providerError) {
+		return providerError.Response != nil && providerError.Response.StatusCode >= http.StatusInternalServerError
+	}
+	var transportError *url.Error
+	return errors.As(err, &transportError)
 }
 
 // deviceCodeExpired distinguishes device expiry from unrelated caller timeouts without retaining provider details.

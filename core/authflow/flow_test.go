@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -373,5 +376,48 @@ func TestDeviceFlowExpiryDoesNotRetainProviderError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), secret) || errors.As(err, &providerError) {
 		t.Fatal("device flow retained provider error details")
+	}
+}
+
+func TestDeviceFlowKeepsPollingThroughTransientFailures(t *testing.T) {
+	future := time.Now().Add(time.Hour)
+	interrupted := &url.Error{Op: "Post", URL: "https://login.example.test/token", Err: syscall.ECONNRESET}
+	unavailable := &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusServiceUnavailable}}
+	denied := &oauth2.RetrieveError{Response: &http.Response{StatusCode: http.StatusBadRequest}, ErrorCode: "access_denied"}
+	cases := []struct {
+		name     string
+		expiry   time.Time
+		failures []error
+		wantPoll int
+		wantOK   bool
+	}{
+		{name: "interrupted connection", expiry: future, failures: []error{interrupted, interrupted}, wantPoll: 3, wantOK: true},
+		{name: "provider unavailable", expiry: future, failures: []error{unavailable}, wantPoll: 2, wantOK: true},
+		{name: "provider denied", expiry: future, failures: []error{denied}, wantPoll: 1},
+		{name: "interrupted without expiry", failures: []error{interrupted}, wantPoll: 1},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			polls := 0
+			flow := DeviceFlow{
+				Authorize: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+					return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234", Expiry: test.expiry}, nil
+				},
+				Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+					polls++
+					if polls <= len(test.failures) {
+						return nil, test.failures[polls-1]
+					}
+					return &oauth2.Token{AccessToken: "token"}, nil
+				},
+			}
+			token, err := flow.Request(context.Background(), func(*oauth2.DeviceAuthResponse) error { return nil })
+			if (err == nil) != test.wantOK || (test.wantOK && token == nil) {
+				t.Fatalf("Request() = %v, %v; want success %v", token, err, test.wantOK)
+			}
+			if polls != test.wantPoll {
+				t.Fatalf("polls = %d, want %d", polls, test.wantPoll)
+			}
+		})
 	}
 }
