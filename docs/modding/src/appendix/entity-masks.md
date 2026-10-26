@@ -1,6 +1,6 @@
 # Entity masks
 
-[Personal mods](mods/personal.md) use `cinnabar:world-draw/masks@0.1.0` to retain
+[Personal mods](personal-mods.md) use `cinnabar:world-draw/masks@0.1.0` to retain
 actor selections across successful callbacks. User grants apply in local and
 remote worlds. Server grants do not authorize this interface.
 
@@ -16,7 +16,7 @@ remote worlds. Server grants do not authorize this interface.
 
 Each component owns its handles and quota. Foreign, removed and replaced actors
 return `stale-handle`. Session changes, transfers, reloads, traps and revocation
-clear masks. Numeric bounds live in [`mod_api::drawing`](../crates/mod-api/src/drawing.rs).
+clear masks. Numeric bounds live in [`mod_api::drawing`](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/drawing.rs).
 
 Coverage is the union of admitted body/equipment draws, preserving alpha cutouts
 and blended-material alpha. Shared edges have no internal boundary. Missing
@@ -32,5 +32,5 @@ independent of world HDR emission and bloom.
 
 Effects read declared selections with `mask(index, uv)`; undeclared indices read
 zero. Missing coverage skips the whole effect. No graphics resources or global
-entity-ID buffer are exposed. See the [WIT](../crates/mod-api/wit/deps/world-draw/drawing.wit)
-and [host checks](../crates/mod-host/src/masks.rs).
+entity-ID buffer are exposed. See the [WIT](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/wit/deps/world-draw/drawing.wit)
+and [host checks](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-host/src/masks.rs).

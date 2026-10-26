@@ -195,7 +195,7 @@ fn slot_boxes(slot: usize) -> &'static [ArmorBox] {
 }
 
 /// The triangles of armor slot `slot`, with normalized model UVs, in blocks.
-pub(super) fn armor_vertices(slot: usize) -> Vec<ActorVertex> {
+pub(in crate::ui_runtime::presentation) fn armor_vertices(slot: usize) -> Vec<ActorVertex> {
     let mut vertices = Vec::new();
     for armor in slot_boxes(slot) {
         let px = 1.0 / 16.0;

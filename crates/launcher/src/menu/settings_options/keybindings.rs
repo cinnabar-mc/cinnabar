@@ -67,7 +67,7 @@ impl SettingsOptions {
         if !LATE_DEFAULTS.contains(&action) || self.keys.contains_key(*name) {
             return false;
         }
-        let defaults = ControlSettings::default();
+        let defaults = ControlSettings::builtin();
         let default = defaults
             .bindings()
             .iter()
@@ -90,7 +90,7 @@ impl SettingsOptions {
                     let Some((name, _, _)) = self.binding(index) else {
                         return true;
                     };
-                    let Some(code) = self.keys.get(&name) else {
+                    let Some(code) = self.keys.get(name) else {
                         return true;
                     };
                     *code == UNBOUND_CONTROL
@@ -100,24 +100,28 @@ impl SettingsOptions {
     }
 
     /// Resolves a settings row to its persisted name and optional semantic action.
-    fn binding(&self, index: usize) -> Option<(String, Option<Action>, Option<PhysicalControl>)> {
+    fn binding(
+        &self,
+        index: usize,
+    ) -> Option<(&'static str, Option<Action>, Option<PhysicalControl>)> {
         if let Some(index) = index.checked_sub(GAMEPAD_OFFSET) {
-            if let Some((action, name)) = GAMEPAD_BINDINGS.get(index) {
-                return Some((format!("gamepad:{name}"), Some(*action), None));
+            let name = gamepad_row_names().get(index)?.as_str();
+            if let Some((action, _)) = GAMEPAD_BINDINGS.get(index) {
+                return Some((name, Some(*action), None));
             }
-            let (name, control) = EXTRA_GAMEPAD.get(index.checked_sub(GAMEPAD_BINDINGS.len())?)?;
+            let (row, control) = EXTRA_GAMEPAD.get(index.checked_sub(GAMEPAD_BINDINGS.len())?)?;
             return Some((
-                format!("gamepad:{name}"),
-                BindingId::from_name(name)?.definition().action,
+                name,
+                BindingId::from_name(row)?.definition().action,
                 *control,
             ));
         }
         if let Some((action, name)) = KEY_BINDINGS.get(index) {
-            return Some(((*name).to_owned(), Some(*action), None));
+            return Some((name, Some(*action), None));
         }
         let (name, control) = EXTRA_KEYS.get(index.checked_sub(KEY_BINDINGS.len())?)?;
         Some((
-            (*name).to_owned(),
+            name,
             BindingId::from_name(name)?.definition().action,
             Some(*control),
         ))
@@ -126,19 +130,19 @@ impl SettingsOptions {
     /// Reads the persisted device binding, falling back to the gameplay router's defaults.
     pub fn key_control(&self, index: usize) -> Option<PhysicalControl> {
         let (name, action, fallback) = self.binding(index)?;
-        if self.keys.get(&name) == Some(&UNBOUND_CONTROL) {
+        if self.keys.get(name) == Some(&UNBOUND_CONTROL) {
             return None;
         }
         if action.is_some_and(|action| self.default_yields(action)) {
             return None;
         }
         self.keys
-            .get(&name)
+            .get(name)
             .and_then(|code| decode_control(*code))
             .filter(|control| is_gamepad(*control) == (index >= GAMEPAD_OFFSET))
             .or(fallback)
             .or_else(|| {
-                ControlSettings::default()
+                ControlSettings::builtin()
                     .bindings()
                     .iter()
                     .find(|binding| {
@@ -201,7 +205,7 @@ impl SettingsOptions {
                     self.keys.insert(name.to_owned(), code);
                 }
                 None => {
-                    self.keys.remove(&name);
+                    self.keys.remove(name);
                 }
             }
             return false;
@@ -218,7 +222,7 @@ impl SettingsOptions {
             return false;
         };
         let previous_defaults = self.active_late_defaults();
-        self.keys.insert(name, UNBOUND_CONTROL);
+        self.keys.insert(name.to_owned(), UNBOUND_CONTROL);
         for (action, control) in previous_defaults {
             if control.is_none() {
                 let (_, name) = KEY_BINDINGS
@@ -245,7 +249,7 @@ impl SettingsOptions {
         {
             *control = Self::default().key_control(index);
         }
-        let previous = self.keys.remove(&name);
+        let previous = self.keys.remove(name);
         let inserted_defaults = self.preserve_late_defaults(active_defaults);
         if self.controls().is_err() {
             for name in inserted_defaults.into_iter().flatten() {
@@ -261,7 +265,7 @@ impl SettingsOptions {
 
     /// Rebuilds and validates the gameplay bindings before handing them to the router.
     pub fn controls(&self) -> Result<ControlSettings, semantic_input::BindingError> {
-        let original = ControlSettings::default();
+        let original = ControlSettings::builtin();
         let mut bindings = original.bindings().to_vec();
         for action in LATE_DEFAULTS {
             if self.default_yields(action) {
@@ -274,7 +278,7 @@ impl SettingsOptions {
             let Some((name, Some(action), _)) = self.binding(index) else {
                 continue;
             };
-            let Some(code) = self.keys.get(&name) else {
+            let Some(code) = self.keys.get(name) else {
                 continue;
             };
             let control = decode_control(*code);
@@ -328,6 +332,19 @@ impl SettingsOptions {
             original.gamepad_look_deadzone,
         )
     }
+}
+
+/// Persisted names of the gamepad rows, `gamepad:` before each row's name, in row order.
+fn gamepad_row_names() -> &'static [String] {
+    static NAMES: std::sync::LazyLock<Box<[String]>> = std::sync::LazyLock::new(|| {
+        GAMEPAD_BINDINGS
+            .iter()
+            .map(|(_, name)| *name)
+            .chain(EXTRA_GAMEPAD.iter().map(|(name, _)| *name))
+            .map(|name| format!("gamepad:{name}"))
+            .collect()
+    });
+    &NAMES
 }
 
 impl SettingsOptions {
@@ -419,6 +436,49 @@ mod unbound_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_defaults_and_row_names_match_their_sources() {
+        assert_eq!(ControlSettings::builtin(), &ControlSettings::default());
+        for (index, (_, name)) in GAMEPAD_BINDINGS.iter().enumerate() {
+            assert_eq!(gamepad_row_names()[index], format!("gamepad:{name}"));
+        }
+        for (index, (name, _)) in EXTRA_GAMEPAD.iter().enumerate() {
+            assert_eq!(
+                gamepad_row_names()[GAMEPAD_BINDINGS.len() + index],
+                format!("gamepad:{name}")
+            );
+        }
+        assert_eq!(
+            gamepad_row_names().len(),
+            GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len()
+        );
+    }
+
+    /// Bindings resolve from the saved settings on every read, so an edit applies the next frame.
+    #[test]
+    fn remaps_and_unbinds_resolve_on_the_next_read() {
+        let mut settings = SettingsOptions::default();
+        let pad = BindingId::PickItem.row(true).unwrap();
+        let key = BindingId::PickItem.row(false).unwrap();
+        assert!(settings.remap(pad, PhysicalControl::GamepadButton(9)));
+        assert_eq!(
+            settings.key_control(pad),
+            Some(PhysicalControl::GamepadButton(9))
+        );
+        assert!(settings.remap(key, PhysicalControl::KeyboardUsage(0x15)));
+        assert_eq!(
+            settings.named_key_control(BindingId::PickItem),
+            Some(PhysicalControl::KeyboardUsage(0x15))
+        );
+        assert!(settings.unbind_key(key));
+        assert_eq!(settings.named_key_control(BindingId::PickItem), None);
+        assert!(settings.reset_key(key));
+        assert_eq!(
+            settings.named_key_control(BindingId::PickItem),
+            SettingsOptions::default().named_key_control(BindingId::PickItem)
+        );
+    }
 
     #[test]
     fn controller_pick_remap_creates_a_semantic_binding() {

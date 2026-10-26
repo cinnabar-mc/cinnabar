@@ -29,6 +29,13 @@ const STRAFE_STEP: f32 = 0.1;
 /// Flat water draws without a sort, so the strafe needs shores to have anything to sort.
 const STRAFE_SHORE_PERIOD: i32 = 3;
 
+/// Spawns a render-world sub-chunk entity synced from a main entity of the same id.
+pub(super) fn spawn_chunk(world: &mut World, instance: ChunkRenderInstance) -> Entity {
+    let entity = world.spawn(instance).id();
+    world.entity_mut(entity).insert(MainEntity::from(entity));
+    entity
+}
+
 /// A flat 16x16 water surface, or with `shore` also one wall of side faces, which
 /// makes its faces overlap on screen and their order matter.
 pub(super) fn ocean_surface(key: SubChunkKey, shore: bool) -> ChunkRenderInstance {
@@ -164,12 +171,13 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
         .add_render_command::<Transparent3d, DrawTransparentLiquidDirectCommands>()
         .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
         .add_render_command::<Transparent3d, crate::chunk::transparent::mixed::DrawMixedTerrainCommands>();
+    install_visible_transparent_tracking(app.world_mut());
     let mut surfaces = Vec::new();
     for z in -radius..=radius {
         for x in -radius..=radius {
             let key = SubChunkKey::new(0, x, SURFACE_SUBCHUNK_Y, z);
             let surface = ocean_surface(key, is_shore(key, shore_period));
-            surfaces.push((app.world_mut().spawn(surface).id(), key));
+            surfaces.push((spawn_chunk(app.world_mut(), surface), key));
         }
     }
     while app.world().resource::<ChunkGpuArena>().allocations.len() < surfaces.len() {
@@ -269,7 +277,7 @@ impl Fixture {
 
     /// Streams one more water sub-chunk in and uploads it.
     pub(super) fn spawn_surface(&mut self, key: SubChunkKey, shore: bool) {
-        let entity = self.app.world_mut().spawn(ocean_surface(key, shore)).id();
+        let entity = spawn_chunk(self.app.world_mut(), ocean_surface(key, shore));
         self.surfaces.push((entity, key));
         while !self
             .app
@@ -305,7 +313,7 @@ impl Fixture {
         let spawned = into
             .iter()
             .map(|&(key, shore)| {
-                let entity = self.app.world_mut().spawn(ocean_surface(key, shore)).id();
+                let entity = spawn_chunk(self.app.world_mut(), ocean_surface(key, shore));
                 self.surfaces.push((entity, key));
                 entity
             })
@@ -349,31 +357,32 @@ impl Fixture {
 
     /// Runs one prepare and queue for the camera at `camera` looking along `forward`.
     pub(super) fn frame_looking(&mut self, camera: Vec3, forward: Vec3) {
-        let visible = self
+        let mut visible = self
             .surfaces
             .iter()
             .filter(|(_, key)| in_frustum(camera, forward, *key))
             .map(|&(entity, _)| (entity, MainEntity::from(entity)))
-            .collect();
+            .collect::<Vec<_>>();
+        // Bevy lists visible entities by main entity and diffs them against the last frame.
+        visible.sort_unstable_by_key(|(_, main)| *main);
         let world = self.app.world_mut();
         let mut entity = world.entity_mut(self.view);
         entity.get_mut::<ExtractedView>().unwrap().world_from_view =
             GlobalTransform::from(Transform::from_translation(camera).looking_to(forward, Vec3::Y));
-        entity
-            .get_mut::<RenderVisibleEntities>()
-            .unwrap()
+        let mut visibility = entity.get_mut::<RenderVisibleEntities>().unwrap();
+        let class = visibility
             .classes
-            .insert(
-                std::any::TypeId::of::<ChunkRenderInstance>(),
-                bevy::render::view::RenderVisibleEntitiesClass {
-                    entities_cpu_culling: visible,
-                    ..Default::default()
-                },
-            );
+            .entry(std::any::TypeId::of::<ChunkRenderInstance>())
+            .or_default();
+        class.prepare_for_new_frame();
+        class.update_cpu_culled_entities(&visible);
         world
             .resource_mut::<ViewSortedRenderPhases<Transparent3d>>()
             .prepare_for_new_frame(self.retained);
         world.run_system_once(prepare_transparent_sorts).unwrap();
+        world
+            .run_system_once(track_visible_transparent_chunks)
+            .unwrap();
         world.run_system_once(queue_transparent_chunks).unwrap();
         // A frame is long enough for the worker; keep its result for the next prepare.
         let runtime = world.resource::<TransparentSortRuntime>();

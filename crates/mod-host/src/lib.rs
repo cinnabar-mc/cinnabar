@@ -141,12 +141,13 @@ pub const MAX_LABEL_BYTES: usize = 256;
 /// multi-millisecond host import evicted its caches. A full 200k callback therefore takes
 /// about 0.05 ms, 0.2 ms at p99; a frame's `mod_api::TOTAL_MOD_FRAME_FUEL`, two of them, about
 /// 0.1 ms, 0.5 ms at p99 and 1.7 ms at worst, well inside the live-testing main-CPU budgets.
-pub(crate) const FRAME_FUEL: u64 = 200_000;
+pub const FRAME_FUEL: u64 = 200_000;
 const _: () = assert!(
     mod_api::TOTAL_MOD_FRAME_FUEL == 2 * FRAME_FUEL,
     "a frame admits two full frame callbacks"
 );
-pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum linear memory available to one personal mod.
+pub const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Where a mod came from, which reload reads again.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

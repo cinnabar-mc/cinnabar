@@ -15,10 +15,16 @@ struct VertexOutput {
     @location(1) @interpolate(flat) textures: vec2<u32>,
     @location(2) @interpolate(flat) material_biome: vec2<u32>,
     @location(3) @interpolate(flat) frame_face: vec2<f32>,
+    // Vanilla shading reads neither family's biome lattice position, baked lightmap colour nor
+    // normal; distant water's many small triangles pay for every interpolant they carry.
+    @if(ENHANCED)
     @location(4) @interpolate(flat) local_position: vec3<f32>,
+    @if(ENHANCED)
     @location(5) @interpolate(flat) world_origin: vec3<f32>,
     @location(6) world_position: vec3<f32>,
+    @if(ENHANCED)
     @location(7) lighting: vec3<f32>,
+    @if(ENHANCED)
     @location(8) normal: vec3<f32>,
     @if(ENHANCED)
     @location(9) sky_ao: vec2<f32>,
@@ -50,6 +56,7 @@ fn vertex(
         out.frame_face.x = liquid.frame_blend;
         out.routing.y = liquid.two_sided;
         out.world_position = liquid.world_position;
+        @if(ENHANCED)
         out.lighting = liquid.lighting;
         @if(ENHANCED)
         out.normal = liquid.normal;
@@ -75,7 +82,9 @@ fn vertex(
     out.frame_face.x = model.frame_blend;
     out.routing.y = model.visibility.y;
     out.world_position = model.world_position;
+    @if(ENHANCED)
     out.lighting = model.lighting;
+    @if(ENHANCED)
     out.normal = model.normal;
     @if(ENHANCED)
     out.sky_ao.x = model.sky_light;
@@ -89,9 +98,11 @@ fn vertex(
     out.tint_gamma = model.tint_gamma;
     out.model_uv = model.uv;
     out.material_biome.x = model.material_flags;
+    @if(ENHANCED)
     out.local_position = model.local_position;
     out.material_biome.y = model.biome_record;
     out.routing.w = model.visibility.x;
+    @if(ENHANCED)
     out.world_origin = model.world_origin;
     return out;
 }
@@ -104,6 +115,7 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     liquid.next_texture = in.textures.y;
     liquid.frame_blend = in.frame_face.x;
     liquid.water_tint = in.water_tint;
+    @if(ENHANCED)
     liquid.lighting = in.lighting;
     @if(ENHANCED)
     liquid.sky_light = in.sky_ao.x;
@@ -127,13 +139,16 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     model.clip_position = in.clip_position;
     model.uv = in.model_uv;
     model.current_texture = in.textures.x;
+    @if(ENHANCED)
     model.normal = in.normal;
     model.material_flags = in.material_biome.x;
+    @if(ENHANCED)
     model.local_position = in.local_position;
     model.biome_record = in.material_biome.y;
     model.next_texture = in.textures.y;
     model.frame_blend = in.frame_face.x;
     model.visibility.x = in.routing.w;
+    @if(ENHANCED)
     model.lighting = in.lighting;
     @if(ENHANCED)
     model.sky_light = in.sky_ao.x;
@@ -147,6 +162,7 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     model.native_ao_face = in.native_light_ao.z;
     @if(!ENHANCED)
     model.tint_gamma = in.tint_gamma;
+    @if(ENHANCED)
     model.world_origin = in.world_origin;
     model.visibility.y = in.routing.y;
     model.world_position = in.world_position;

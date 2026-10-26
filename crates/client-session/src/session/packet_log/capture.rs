@@ -89,12 +89,13 @@ pub(crate) struct CaptureFeed {
     stopped: Arc<AtomicBool>,
     started: Instant,
     dropped: Arc<AtomicU64>, // packets dropped since the last gap record
+    pub(crate) trace: Arc<protocol::capture::PickTrace>,
 }
 
 /// The writer side of a capture: queued records, the stop request and the drop count.
 pub(crate) struct CaptureQueue {
+    trace: Arc<protocol::capture::PickTrace>,
     records: Receiver<QueuedRecord>,
-    stopped: Arc<AtomicBool>,
     stop: Receiver<()>,
     started: Instant,
     dropped: Arc<AtomicU64>,
@@ -103,6 +104,7 @@ pub(crate) struct CaptureQueue {
 /// Holds its byte reservation until the body is released after writing or a failed enqueue.
 struct QueuedRecord {
     record: CaptureRecord,
+    pick: Option<protocol::capture::PickState>,
     _reservation: Option<ByteReservation>,
 }
 
@@ -154,14 +156,15 @@ pub(crate) fn channel(
     let stopped = Arc::new(AtomicBool::new(false));
     let feed = CaptureFeed {
         sender,
+        trace: Arc::new(protocol::capture::PickTrace::new(Arc::clone(&stopped))),
         retained: Arc::new(AtomicUsize::new(0)),
         stopped: Arc::clone(&stopped),
         started,
         dropped: Arc::clone(&dropped),
     };
     let queue = CaptureQueue {
+        trace: Arc::clone(&feed.trace),
         records,
-        stopped,
         stop,
         started,
         dropped,
@@ -207,12 +210,27 @@ impl CaptureFeed {
     }
 
     /// Copies a packet within the byte budget and queues it without waiting for disk or room.
+    #[cfg(test)]
     pub(crate) fn packet(
         &self,
         direction: PacketDirection,
         packet_id: u32,
+        sequence: u64,
         now: Instant,
         body: PacketBody<'_>,
+    ) {
+        self.packet_with_pick(direction, packet_id, sequence, now, body, None);
+    }
+
+    /// Admits packet bytes and their frozen pick together within one queue slot.
+    pub(crate) fn packet_with_pick(
+        &self,
+        direction: PacketDirection,
+        packet_id: u32,
+        sequence: u64,
+        now: Instant,
+        body: PacketBody<'_>,
+        pick: Option<protocol::capture::PickState>,
     ) {
         if self.stopped.load(Ordering::Acquire) {
             return;
@@ -225,6 +243,7 @@ impl CaptureFeed {
                     elapsed_us,
                     dropped,
                 },
+                pick: None,
                 _reservation: None,
             }) {
                 Ok(()) => {}
@@ -241,16 +260,40 @@ impl CaptureFeed {
         };
         let record = QueuedRecord {
             record: CaptureRecord::Packet {
+                sequence,
                 direction,
                 packet_id,
                 elapsed_us,
                 body: Bytes::copy_from_slice(body.as_slice()),
             },
+            pick,
             _reservation: Some(reservation),
         };
         if let Err(TrySendError::Full(_)) = self.sender.try_send(record) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
+    }
+}
+
+impl QueuedRecord {
+    /// Writes an admitted packet and its pick consecutively, with one shared timestamp.
+    fn write<W: Write>(&self, writer: &mut CaptureWriter<W>) -> io::Result<bool> {
+        let pick = match (&self.record, self.pick) {
+            (
+                CaptureRecord::Packet {
+                    sequence,
+                    elapsed_us,
+                    ..
+                },
+                Some(state),
+            ) => Some(CaptureRecord::Pick {
+                elapsed_us: *elapsed_us,
+                packet_sequence: *sequence,
+                state,
+            }),
+            _ => None,
+        };
+        writer.write_pair(&self.record, pick.as_ref())
     }
 }
 
@@ -263,7 +306,7 @@ impl CaptureQueue {
             crossbeam_channel::select! {
                 recv(self.records) -> record => {
                     let Ok(record) = record else { break };
-                    if !writer.write(&record.record)? {
+                    if !record.write(&mut writer)? {
                         break;
                     }
                     if self.records.is_empty() {
@@ -271,9 +314,9 @@ impl CaptureQueue {
                     }
                 }
                 recv(self.stop) -> _ => {
-                    self.stopped.store(true, Ordering::Release);
+                    self.trace.stop();
                     for record in self.records.try_iter().take(self.records.len()) {
-                        if !writer.write(&record.record)? {
+                        if !record.write(&mut writer)? {
                             break;
                         }
                     }
@@ -296,7 +339,7 @@ impl CaptureQueue {
 impl Drop for CaptureQueue {
     /// Disables producer copies on every writer exit, including write failures.
     fn drop(&mut self) {
-        self.stopped.store(true, Ordering::Release);
+        self.trace.stop();
     }
 }
 

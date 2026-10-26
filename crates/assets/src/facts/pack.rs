@@ -72,7 +72,8 @@ domain!(PackBlock {
     SculkShrieker,
     BigDripleaf,
     SmallDripleaf,
-    StrawBed
+    StrawBed,
+    Observer
 });
 domain!(TextureSelector {
     Door,

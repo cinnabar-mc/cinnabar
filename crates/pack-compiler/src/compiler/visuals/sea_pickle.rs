@@ -54,13 +54,24 @@ pub(in crate::compiler) fn compile_rule(
     let template = if let Some(&template) = templates.get(&key) {
         template
     } else {
-        let quads = quads(material, count, dead);
-        let chunks = quads.chunks(assets::MAX_MODEL_TEMPLATE_QUADS);
+        // Each body stays in one part: its cap and tips take their light from its cuboid.
+        let mut chunks: Vec<Vec<ModelQuad>> = Vec::new();
+        for body in bodies(count)
+            .iter()
+            .map(|&body| body_quads(material, body, dead))
+        {
+            match chunks.last_mut() {
+                Some(chunk) if chunk.len() + body.len() <= assets::MAX_MODEL_TEMPLATE_QUADS => {
+                    chunk.extend(body);
+                }
+                _ => chunks.push(body),
+            }
+        }
         let parts = chunks.len();
         let mut template = None;
-        for (index, chunk) in chunks.enumerate() {
+        for (index, chunk) in chunks.into_iter().enumerate() {
             let part = push_model_template(
-                chunk.to_vec(),
+                chunk,
                 if index + 1 < parts {
                     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
                 } else {
@@ -112,68 +123,68 @@ fn region(quad: &mut ModelQuad, rect: [u16; 4]) {
     }
 }
 
-/// Emits closed bodies plus two double-sided crossed tips for each live pickle.
-fn quads(material: u32, count: u8, dead: bool) -> Vec<ModelQuad> {
-    let mut result = Vec::with_capacity((usize::from(count) + 1) * if dead { 7 } else { 9 });
-    for &[x, z, height] in bodies(count) {
-        let min = [position(x - 0.125), 0, position(z - 0.125)];
-        let max = [position(x + 0.125), position(height), position(z + 0.125)];
-        let side_top = ((1.0 - height) * 4096.0).round() as u16;
-        let regions = [
-            [3072, side_top, 4096, 4096],
-            [1024, side_top, 2048, 4096],
-            [2048, 1280, 3072, 256],
-            [1024, 1280, 2048, 256],
-            [0, side_top, 1024, 4096],
-            [2048, side_top, 3072, 4096],
-        ];
-        for (mut quad, rect) in super::geometry::vanilla_cuboid_quads([material; 6], min, max)
-            .into_iter()
-            .zip(regions)
-        {
-            region(&mut quad, rect);
-            result.push(quad);
-        }
-        let low = position(height - 0.05);
-        let mut cap =
-            super::geometry::vanilla_cuboid_quads([material; 6], min, max)[BlockFace::Up as usize];
-        for vertex in &mut cap.positions {
-            vertex[1] = low;
-        }
-        region(&mut cap, [2048, 1280, 3072, 256]);
-        result.push(cap);
-        if dead {
-            continue;
-        }
-        let high = position(height + 0.15);
-        let [west, east, north, south] = [x - 0.04, x + 0.04, z - 0.04, z + 0.04].map(position);
-        for (positions, u) in [
-            (
-                [
-                    [west, high, north],
-                    [west, low, north],
-                    [east, low, south],
-                    [east, high, south],
-                ],
-                0,
-            ),
-            (
-                [
-                    [east, high, north],
-                    [east, low, north],
-                    [west, low, south],
-                    [west, high, south],
-                ],
-                3072,
-            ),
-        ] {
-            result.push(ModelQuad {
-                positions,
-                uvs: [[u, 0], [u, 1280], [u + 1024, 1280], [u + 1024, 0]],
-                material,
-                flags: MODEL_QUAD_FLAG_TWO_SIDED,
-            });
-        }
+/// Emits one closed body with its inset cap, plus two double-sided crossed tips when live. Native
+/// tessellation draws the cap and tips after the body without a new vertex colour or light.
+fn body_quads(material: u32, [x, z, height]: [f64; 3], dead: bool) -> Vec<ModelQuad> {
+    let mut result = Vec::with_capacity(if dead { 7 } else { 9 });
+    let min = [position(x - 0.125), 0, position(z - 0.125)];
+    let max = [position(x + 0.125), position(height), position(z + 0.125)];
+    let side_top = ((1.0 - height) * 4096.0).round() as u16;
+    let regions = [
+        [3072, side_top, 4096, 4096],
+        [1024, side_top, 2048, 4096],
+        [2048, 1280, 3072, 256],
+        [1024, 1280, 2048, 256],
+        [0, side_top, 1024, 4096],
+        [2048, side_top, 3072, 4096],
+    ];
+    for (mut quad, rect) in super::geometry::vanilla_cuboid_quads([material; 6], min, max)
+        .into_iter()
+        .zip(regions)
+    {
+        region(&mut quad, rect);
+        result.push(quad);
+    }
+    let low = position(height - 0.05);
+    let mut cap =
+        super::geometry::vanilla_cuboid_quads([material; 6], min, max)[BlockFace::Up as usize];
+    for vertex in &mut cap.positions {
+        vertex[1] = low;
+    }
+    cap.flags |= assets::MODEL_QUAD_FLAG_INHERITED_SHADE;
+    region(&mut cap, [2048, 1280, 3072, 256]);
+    result.push(cap);
+    if dead {
+        return result;
+    }
+    let high = position(height + 0.15);
+    let [west, east, north, south] = [x - 0.04, x + 0.04, z - 0.04, z + 0.04].map(position);
+    for (positions, u) in [
+        (
+            [
+                [west, high, north],
+                [west, low, north],
+                [east, low, south],
+                [east, high, south],
+            ],
+            0,
+        ),
+        (
+            [
+                [east, high, north],
+                [east, low, north],
+                [west, low, south],
+                [west, high, south],
+            ],
+            3072,
+        ),
+    ] {
+        result.push(ModelQuad {
+            positions,
+            uvs: [[u, 0], [u, 1280], [u + 1024, 1280], [u + 1024, 0]],
+            material,
+            flags: MODEL_QUAD_FLAG_TWO_SIDED | assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
+        });
     }
     result
 }

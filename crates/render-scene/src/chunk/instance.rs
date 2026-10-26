@@ -5,8 +5,6 @@ use crate::{ChunkUploadPriority, ChunkUploadToken};
 #[derive(Component, Clone, ExtractComponent)]
 #[extract_app(bevy::render::RenderApp)]
 #[extract_component_filter(Changed<ChunkRenderInstance>)]
-#[require(VisibilityClass)]
-#[component(on_add = visibility::add_visibility_class::<ChunkRenderInstance>)]
 pub struct ChunkRenderInstance {
     pub key: SubChunkKey,
     pub cube_quads: Arc<[PackedQuad]>,

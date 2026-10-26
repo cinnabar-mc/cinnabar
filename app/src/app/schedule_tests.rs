@@ -1,5 +1,5 @@
 use crate::runtime::network::session::NetworkConfig;
-use bevy::ecs::schedule::Schedules;
+use bevy::ecs::schedule::{ScheduleLabel, Schedules};
 use simulation_clock::identity::SessionGeneration;
 
 use super::*;
@@ -69,6 +69,57 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
         result.is_ok(),
         "production Update schedule: {:?}",
         result.err()
+    );
+}
+
+/// Systems, including auto-inserted sync points, and run conditions the client's own frame
+/// registrations dispatch every `Update` and `PostUpdate`. Each one costs executor and parameter
+/// work on every frame even when it finds nothing to do, so growth must be deliberate: change
+/// these with the registrations, and prefer one set condition over a condition per system.
+const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 143, 8), ("PostUpdate", 1, 0)];
+
+#[test]
+fn client_frame_dispatch_stays_within_its_budget() {
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.add_plugins(FlyCameraPlugin::default());
+    configure_client_production_frame_systems(&mut app);
+    configure_client_runtime_frame_systems(&mut app);
+    session::configure_finish_system(&mut app);
+    let mut schedules = app
+        .world_mut()
+        .remove_resource::<Schedules>()
+        .expect("Schedules resource");
+    let mut dispatched = Vec::new();
+    for (name, label) in [
+        ("Update", Update.intern()),
+        ("PostUpdate", bevy::prelude::PostUpdate.intern()),
+    ] {
+        let Some(schedule) = schedules.get_mut(label) else {
+            dispatched.push((name, 0, 0));
+            continue;
+        };
+        let graph = schedule.graph();
+        let conditions = graph
+            .systems
+            .iter()
+            .map(|(_, _, conditions)| conditions.len())
+            .chain(
+                graph
+                    .system_sets
+                    .iter()
+                    .map(|(_, _, conditions)| conditions.len()),
+            )
+            .sum::<usize>();
+        schedule
+            .initialize(app.world_mut())
+            .unwrap_or_else(|error| panic!("{name} builds: {error:?}"));
+        dispatched.push((name, schedule.systems_len(), conditions));
+    }
+    app.world_mut().insert_resource(schedules);
+    assert_eq!(
+        dispatched, FRAME_DISPATCH_BUDGET,
+        "(schedule, systems, run conditions) dispatched per frame"
     );
 }
 

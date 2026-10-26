@@ -145,3 +145,61 @@ fn move_player_teleports_keep_their_own_rules() {
         .unwrap();
     assert_eq!(authority.actor(2).unwrap().position[0], 0.1);
 }
+
+/// Normal player updates place the actor directly until its first completed actor tick.
+#[test]
+fn normal_player_moves_before_the_first_tick_do_not_start_interpolation() {
+    let mut authority = authority(true, true);
+    for (sequence, x) in [(2, 1.0), (3, 2.0)] {
+        let mut movement = movement(Some(x), false);
+        movement.player_mode = Some(protocol::MovePlayerMode::Normal);
+        authority
+            .apply_ordered_event(
+                WorldEvent::Actor(ActorEvent::Move(movement)),
+                Some(sequence),
+            )
+            .unwrap();
+        let actor = authority.actor(2).unwrap();
+        assert_eq!(actor.position[0], x);
+        assert_eq!(actor.last_received_pose().position[0], x);
+        assert_eq!(actor.interpolation_ticks_remaining, 0);
+        assert!(!actor.teleported);
+    }
+    authority.advance_actor_interpolation_ticks(1);
+    let mut movement = movement(Some(5.0), false);
+    movement.player_mode = Some(protocol::MovePlayerMode::Normal);
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Move(movement)), Some(4))
+        .unwrap();
+    assert_eq!(authority.actor(2).unwrap().position[0], 2.0);
+    authority.advance_actor_interpolation_ticks(1);
+    assert_eq!(authority.actor(2).unwrap().position[0], 3.0);
+}
+
+/// A target outside resident terrain moves directly without cancelling an earlier lerp.
+#[test]
+fn normal_player_moves_without_terrain_preserve_the_active_interpolation() {
+    let mut authority = authority(true, true);
+    authority.advance_actor_interpolation_ticks(1);
+    let mut ordinary = movement(Some(9.0), false);
+    ordinary.player_mode = Some(protocol::MovePlayerMode::Normal);
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Move(ordinary)), Some(2))
+        .unwrap();
+    authority.advance_actor_interpolation_ticks(1);
+    assert_eq!(authority.actor(2).unwrap().position[0], 3.0);
+    ordinary.position[0] = Some(20.0);
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Move(ordinary)), Some(3))
+        .unwrap();
+    let actor = authority.actor(2).unwrap();
+    assert_eq!(actor.position[0], 20.0);
+    assert_eq!(actor.interpolation_ticks_remaining, 2);
+    assert_eq!(actor.received_pose.position[0], 9.0);
+    assert_eq!(actor.last_received_pose().position[0], 20.0);
+    assert!(!actor.teleported);
+    authority.advance_actor_interpolation_ticks(1);
+    assert_eq!(authority.actor(2).unwrap().position[0], 14.5);
+    authority.advance_actor_interpolation_ticks(1);
+    assert_eq!(authority.actor(2).unwrap().position[0], 9.0);
+}

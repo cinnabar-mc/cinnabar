@@ -160,6 +160,7 @@ fn scaled_views_draw_screen_batches_without_native_allocation_or_usable_upscaler
             frame(&mut app);
         }
         let input = UiRenderInput {
+            models: Default::default(),
             revision: 1,
             viewport_size: [SIDE; 2],
             safe_area: [0; 4],

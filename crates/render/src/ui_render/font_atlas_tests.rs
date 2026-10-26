@@ -46,6 +46,7 @@ pub(super) fn input() -> UiRenderInput {
             overlay_color: [0.; 4],
         });
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [256; 2],
         safe_area: [0; 4],

@@ -298,7 +298,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev spirv-tools
       # Builds the whole workspace, which the cache keeps fresh, and runs only affected tests.
       # Cargo's messages name every unit these builds use, fresh ones included; saves leave out the rest.
       - name: Build Rust tests

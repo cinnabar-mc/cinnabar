@@ -130,6 +130,9 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) allocations: HashMap<Entity, ArenaAllocation>,
     /// The transparent water of `allocations`, updated wherever an allocation changes.
     pub(in crate::chunk) transparent_liquids: TransparentLiquidResidents,
+    /// Changes to the transparent models of `allocations`, recorded wherever an allocation
+    /// changes and consumed by the model draw orders.
+    pub(in crate::chunk) transparent_model_changes: TransparentModelResidentChanges,
     pub(in crate::chunk) retired_allocations: Vec<RetiredArenaAllocation>,
     pub(in crate::chunk) pending_removals: BTreeSet<Entity>,
     pub(in crate::chunk) retirement_budget: TransparentRetirementBudget,
@@ -210,6 +213,8 @@ impl ChunkGpuArena {
             shared_biome_ranges: SharedBiomeRanges::default(),
             allocations: HashMap::new(),
             transparent_liquids: TransparentLiquidResidents::default(),
+            // A new arena may replace one whose allocations the orders still witness.
+            transparent_model_changes: TransparentModelResidentChanges::all_changed(),
             retired_allocations: Vec::new(),
             pending_removals: BTreeSet::new(),
             retirement_budget: TransparentRetirementBudget::with_limits(
@@ -220,6 +225,18 @@ impl ChunkGpuArena {
         };
         super::telemetry::log_initial_arena_capacity(&arena, render_device);
         arena
+    }
+
+    /// Records for the model draw orders that `entity`'s resident allocation becomes `next`;
+    /// call before changing `allocations`.
+    pub(in crate::chunk) fn record_transparent_model_change(
+        &mut self,
+        entity: Entity,
+        next: Option<&GpuChunkAllocation>,
+    ) {
+        let previous = self.allocations.get(&entity).map(|resident| &resident.gpu);
+        self.transparent_model_changes
+            .record(entity, previous, next);
     }
 }
 

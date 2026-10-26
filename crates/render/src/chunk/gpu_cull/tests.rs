@@ -114,6 +114,7 @@ fn records_reproduce_every_cpu_indirect_command_from_every_side() {
                             CullRecord::default(),
                             record,
                         ],
+                        &[0, 1, 2, 3],
                         CullCamera::new(Some(camera)),
                         index_counts,
                         |_| true,
@@ -366,12 +367,13 @@ fn fixed_draw_counts_cover_exactly_what_enabled_records_can_emit() {
     assert_eq!(table.draw_bounds(), [6, 2, 1, 1]);
 
     let index_counts = [6, 6, 6, 6];
+    let order = (0..table.slot_count()).collect::<Vec<_>>();
     let offsets = [-7.5, 0.0, 0.25, 8.0, 15.0, 16.5, 40.0];
     for x in offsets {
         for y in offsets {
             for z in offsets {
                 let camera = CullCamera::new(Some([x, 64.0 + y, z - 16.0]));
-                let args = reference_args(table.records(), camera, index_counts, |slot| {
+                let args = reference_args(table.records(), &order, camera, index_counts, |slot| {
                     slot_enabled(table.enabled(), slot)
                 });
                 for (stream, args) in args.iter().enumerate() {

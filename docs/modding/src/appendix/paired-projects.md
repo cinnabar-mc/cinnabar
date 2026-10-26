@@ -1,7 +1,7 @@
 # Paired mod reference
 
-Start with [the first-hour guide](mods/README.md). Full code lives in
-[`examples/mods/cosmic`](../examples/mods/cosmic).
+Start with [the first-hour guide](paired-mods.md). Full code lives in
+[`examples/mods/cosmic`](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/cosmic).
 
 ## Entry points
 
@@ -144,7 +144,7 @@ receivers get `(uuid.UUID, T)`; world access belongs in Dragonfly transactions.
 
 Current low-level `OnClientMessage`/`OnEpoch` hooks also receive the originating
 `cinnabarext.PlayerSession`; match it to the admitted session before routing input.
-The [generated helper pin](../crates/experience-sdk/src/project/go.rs) predates these
+The [generated helper pin](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/experience-sdk/src/project/go.rs) predates these
 signatures. To use them, update the main server module's helper dependency to the
 Cinnabar revision deployed with the host; regenerating bindings alone is insufficient.
 

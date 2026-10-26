@@ -1,5 +1,6 @@
 // Terrain cull: frustum, enabled bit, two-phase Hi-Z and facing runs into compacted,
-// slot-ordered indirect args. `count` decides, `scan` offsets workgroups, `emit` writes.
+// rank-ordered indirect args. `count` decides, `scan` offsets workgroups, `emit` writes.
+// Ranks follow the CPU's nearest-first slot order, so early depth rejects farther terrain.
 // `cull_occlusion` instead writes one occluded bit per slot for CPU readback.
 //
 // Commands never rely on the vertex_index or instance_index builtins seeing their base vertex
@@ -56,10 +57,14 @@ struct CullView {
     // Commands each stream region holds. Count draws are not validated, so nothing past it
     // is written or counted even if a slot count ever outruns the storage.
     region_draws: vec4<u32>,
+    // x: word of `enabled` where the slot visited at each rank begins, after the slot bits.
+    order: vec4<u32>,
 }
 
 @group(0) @binding(0) var<uniform> view: CullView;
 @group(0) @binding(1) var<storage, read> records: array<CullRecord>;
+// Slot enabled bits, then from `view.order.x` the slot visited at each rank. Sharing one
+// binding keeps the kernels inside the default eight storage buffers per stage.
 @group(0) @binding(2) var<storage, read> enabled: array<u32>;
 @group(0) @binding(3) var<storage, read_write> history: array<u32>;
 @group(0) @binding(4) var<storage, read_write> record_draws: array<u32>;
@@ -79,6 +84,11 @@ fn record_origin(record: CullRecord) -> vec3<i32> {
 
 fn slot_enabled(slot: u32) -> bool {
     return ((enabled[slot >> 5u] >> (slot & 31u)) & 1u) != 0u;
+}
+
+// The record slot the count and emit kernels visit at `rank`.
+fn ranked_slot(rank: u32) -> u32 {
+    return enabled[view.order.x + rank];
 }
 
 // Bevy's sphere then box test on the sub-chunk box, with slack so it never culls more.
@@ -318,7 +328,7 @@ fn cull_count(
 ) {
     var draws = 0u;
     if (gid.x < view.params.x) {
-        draws = record_decision(gid.x);
+        draws = record_decision(ranked_slot(gid.x));
         record_draws[gid.x] = draws;
     }
     sums[lid] = unpack_draws(draws);
@@ -382,7 +392,7 @@ fn cull_emit(
         return;
     }
     let offset = group_sums[wid.x] + sums[lid] - mine;
-    let record = records[gid.x];
+    let record = records[ranked_slot(gid.x)];
     solid_runs(record, true, offset.x);
     if (mine.y != 0u) {
         let cutout = cutout_range(record);
