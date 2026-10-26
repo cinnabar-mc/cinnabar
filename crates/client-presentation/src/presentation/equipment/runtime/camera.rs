@@ -120,7 +120,9 @@ impl EquipmentRuntime {
         {
             return None;
         }
-        let shape = if block {
+        let shape = if block && Self::first_person_button(item) {
+            FirstPersonShape::Button
+        } else if block {
             FirstPersonShape::Block {
                 quarter_turn: self.first_person_block_quarter_turn(item),
             }

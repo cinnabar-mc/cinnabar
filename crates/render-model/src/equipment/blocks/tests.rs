@@ -878,6 +878,49 @@ fn custom_content_carried_tints_are_baked_without_changing_alpha() {
 }
 
 #[test]
+fn carried_buttons_use_their_unpressed_ceiling_panel() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let held = collect_held(&world, &entities, &icons);
+    let mut checked = 0;
+    for definition in entities.item_visuals() {
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            continue;
+        };
+        if assets::registry::pinned_block_model_family(block_visual.0)
+            != Some(assets::ModelFamily::Button)
+            || !assets::registry::pinned_block_identity(block_visual.0)
+                .is_some_and(|(name, _)| name == definition.key.identifier.as_ref())
+        {
+            continue;
+        }
+        let name = definition.key.identifier.as_ref();
+        let vertices = held
+            .models
+            .get(&block_visual.0)
+            .unwrap_or_else(|| panic!("{name} holds its button panel"));
+        assert_eq!(vertices.len(), 36, "{name}");
+        for (axis, expected) in [[-0.1875, 0.1875], [0.375, 0.5], [-0.125, 0.125]]
+            .into_iter()
+            .enumerate()
+        {
+            let min = vertices
+                .iter()
+                .map(|v| v.position[axis])
+                .fold(f32::INFINITY, f32::min);
+            let max = vertices
+                .iter()
+                .map(|v| v.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert_eq!([min, max], expected, "{name} axis {axis}");
+        }
+        checked += 1;
+    }
+    assert!(checked > 0);
+}
+
+#[test]
 fn pinned_trapdoors_hold_a_centered_thin_panel() {
     let Some((world, entities, icons)) = pinned_carriers() else {
         return;

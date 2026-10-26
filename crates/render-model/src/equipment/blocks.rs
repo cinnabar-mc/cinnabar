@@ -15,6 +15,7 @@ const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
 #[cfg(test)]
 mod tests;
 
+mod buttons;
 mod panes;
 mod trapdoors;
 
@@ -76,6 +77,12 @@ pub fn collect_held(
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
             {
                 HeldDisplay::Trapdoor(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Button)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Button(visual)
             } else if flat {
                 HeldDisplay::Sprite
             } else {
@@ -92,6 +99,7 @@ enum HeldDisplay {
     Block(u32),
     GlassPlate(u32),
     Trapdoor(u32),
+    Button(u32),
     Sprite,
 }
 
@@ -130,6 +138,7 @@ fn collect_shapes(
         let model = match display_state {
             Some(HeldDisplay::GlassPlate(shown)) => panes::model(world, shown),
             Some(HeldDisplay::Trapdoor(shown)) => trapdoors::model(world, shown),
+            Some(HeldDisplay::Button(shown)) => buttons::model(world, shown),
             _ => None,
         }
         .or_else(|| {
@@ -149,7 +158,9 @@ fn collect_shapes(
             }
             let shown = match display_state {
                 Some(HeldDisplay::Block(shown)) => shown,
-                Some(HeldDisplay::GlassPlate(_) | HeldDisplay::Trapdoor(_)) => return None,
+                Some(
+                    HeldDisplay::GlassPlate(_) | HeldDisplay::Trapdoor(_) | HeldDisplay::Button(_),
+                ) => return None,
                 None if display.is_some()
                     && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>
                 {
