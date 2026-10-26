@@ -37,6 +37,9 @@ pub struct TranslateConfig {
     /// satisfies (such as `= false`) are translated with `options` as they are. For tooling
     /// and coverage runs.
     pub force_disabled: bool,
+    /// Emulate fused dot accumulation when the backend cannot guarantee binary32 FMA.
+    #[serde(default)]
+    pub software_fused_dot: bool,
 }
 
 impl Default for TranslateConfig {
@@ -46,6 +49,7 @@ impl Default for TranslateConfig {
             environment: Environment::default(),
             options: OptionValues::new(),
             force_disabled: false,
+            software_fused_dot: false,
         }
     }
 }
@@ -201,8 +205,14 @@ impl ShaderPack {
                 if cancelled() {
                     return None;
                 }
-                let translated =
-                    self.translate_one(program, config, &properties, &profile_disabled, 0);
+                let translated = self.translate_one(
+                    program,
+                    config,
+                    &properties,
+                    &profile_disabled,
+                    0,
+                    &cancelled,
+                );
                 let mut done = completed.lock().unwrap_or_else(|error| error.into_inner());
                 *done += 1;
                 progress(*done, programs.len());
@@ -229,6 +239,7 @@ impl ShaderPack {
                         &properties,
                         &profile_disabled,
                         releases[i],
+                        &cancelled,
                     );
                     (i, translated)
                 })
@@ -290,6 +301,7 @@ impl ShaderPack {
         properties: &ShaderProperties,
         profile_disabled: &[String],
         released: u32,
+        cancelled: &(impl Fn() -> bool + Sync),
     ) -> ProgramTranslation {
         let defines = self.defines(&config.environment, &config.options);
         let rule = properties.program_rule(&program.folder, &program.name);
@@ -313,6 +325,7 @@ impl ShaderPack {
                     stages: vec![],
                     diagnostics: vec![],
                     reflection: None,
+                    geometry: None,
                     draw_buffers: vec![0],
                     consts: vec![],
                     released_overrides: 0,
@@ -375,6 +388,8 @@ impl ShaderPack {
             }
         }
         let cx = Context {
+            software_fused_dot: config.software_fused_dot,
+            cancelled,
             source: &self.source,
             options: &self.options,
             values: &values,

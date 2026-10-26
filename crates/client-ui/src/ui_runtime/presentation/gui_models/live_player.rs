@@ -34,25 +34,33 @@ impl UiPresentationRuntime {
         motion: &[(cosmetics::Item, render_model::hats::Motion)],
     ) {
         let retained = &mut self.gui_models.live_player.hat_motion;
-        retained.clear();
-        retained.extend(motion.iter().copied());
-        // The next capture updates the model vertices. Retained drawing compares those
-        // vertices and preserves the rest of the HUD, including its indices and batches.
+        if retained.len() == motion.len()
+            && motion
+                .iter()
+                .all(|(item, value)| retained.get(item) == Some(value))
+        {
+            return;
+        }
+        retained.retain(|item, _| motion.iter().any(|(active, _)| active == item));
+        for &(item, value) in motion {
+            retained.insert(item, value);
+        }
+        // The next capture updates model vertices without discarding the retained HUD.
     }
 
     /// Projects the full-body evaluation, never the separate first-person hand skeleton.
     pub fn capture_hud_player(
         &mut self,
-        stream: Option<&chunk_pipeline::WorldStream>,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
         swimming: bool,
     ) {
-        self.capture_hud_player_with_emote(stream, swimming, None);
+        self.capture_hud_player_with_emote(local, swimming, None);
     }
 
     /// Projects an optional local render-only emote without changing the world rig or hand.
     pub fn capture_hud_player_with_emote(
         &mut self,
-        stream: Option<&chunk_pipeline::WorldStream>,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
         swimming: bool,
         emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
@@ -62,7 +70,10 @@ impl UiPresentationRuntime {
         let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.cape_vertices.clear();
-        live.hat_vertices.clear();
+        live.hat_vertices.retain(|item, vertices| {
+            vertices.clear();
+            self.menu_preview_model.cosmetics.contains(item)
+        });
         live.emitters.clear();
         live.emitter_owner = None;
         live.parts = [None; 6];
@@ -73,26 +84,18 @@ impl UiPresentationRuntime {
             0.0
         };
         live.overlay_color = [0.0; 4];
-        let Some(stream) = stream else {
+        let Some(local) = local else {
             live.source = None;
             live.fire = Default::default();
             return;
         };
-        let id = stream.local_player_runtime_id();
-        live.emitter_owner = stream.authority().actor(id).map(|actor| {
-            (
-                stream.authority().actor_session_id(),
-                id,
-                actor.spawn_revision,
-            )
-        });
-        live.fire_size = stream.authority().actor(id).and_then(|actor| {
+        let id = local.runtime_id();
+        live.emitter_owner = local
+            .actor()
+            .map(|actor| (local.session_id(), id, actor.spawn_revision));
+        live.fire_size = local.actor().and_then(|actor| {
             live.fire.observe(
-                (
-                    stream.authority().actor_session_id(),
-                    id,
-                    actor.spawn_revision,
-                ),
+                (local.session_id(), id, actor.spawn_revision),
                 actor.is_on_fire(),
                 fire_frames,
             );
@@ -103,7 +106,7 @@ impl UiPresentationRuntime {
             let (min, max) = actor.bounding_box()?;
             Some([max[0] - min[0], max[1] - min[1]])
         });
-        let Some(rig) = stream.authority().actor_rig(id) else {
+        let Some(rig) = local.rig() else {
             return;
         };
         let emote_pose = emote.and_then(|(emote, phase)| {
@@ -113,7 +116,7 @@ impl UiPresentationRuntime {
         let Some(pose) = emote_pose
             .as_ref()
             .map(|pose| pose.current.as_ref())
-            .or_else(|| stream.authority().actor_ui_pose(id))
+            .or_else(|| local.pose())
         else {
             return;
         };

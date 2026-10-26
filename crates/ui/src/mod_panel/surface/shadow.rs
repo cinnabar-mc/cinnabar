@@ -53,7 +53,6 @@ mod tests {
         Surface {
             screen: "shadow.root".into(),
             document: json!({"namespace":"shadow","root":node}).to_string(),
-            previews: Default::default(),
             bindings: Default::default(),
             transitions: Default::default(),
             collections: Default::default(),

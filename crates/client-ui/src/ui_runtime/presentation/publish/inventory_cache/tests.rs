@@ -92,7 +92,7 @@ fn capture(
     let items = ItemResolver {
         runtime,
         presentation,
-        authority: Some(stream.authority()),
+        authority: Some(stream.authority().inventory_ui()),
     };
     let update = cache.capture(player, &items, &ItemIconFrames::default());
     let expected = capture_contents(
@@ -127,7 +127,7 @@ fn capture(
 fn canonical_registry_arrival_and_replacement_invalidate_without_slot_writes() {
     let player = player();
     let mut runtime = UiRuntime::new(1);
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     let presentation = presentation();
     let mut stream = stream();
     let mut cache = InventoryCache::default();
@@ -154,7 +154,7 @@ fn canonical_registry_arrival_and_replacement_invalidate_without_slot_writes() {
 fn language_components_artwork_and_replaced_authority_refresh_their_sources() {
     let player = player();
     let mut runtime = UiRuntime::new(1);
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     let mut presentation = presentation();
     let mut stream = stream();
     assert!(stream.seed_item_registry(registry("fixture:one")));
@@ -285,13 +285,13 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
         .contents
         .unwrap();
     assert!(closed.crafting.output.is_none());
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     let open = capture(&mut cache, &player, &runtime, &presentation, &stream)
         .contents
         .unwrap();
     assert_eq!(open.crafting.output.as_ref().unwrap().1.count, 2);
     assert!(open.crafting.icons[0].is_some());
-    runtime.inventory_open = false;
+    runtime.session.inventory_open = false;
     capture(&mut cache, &player, &runtime, &presentation, &stream);
     let icons = Arc::new(SessionIcons {
         icons: vec![SessionIcon {
@@ -305,7 +305,7 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
     });
     session_icons::observe(&mut presentation, Some(&icons));
     capture(&mut cache, &player, &runtime, &presentation, &stream);
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     let refreshed = capture(&mut cache, &player, &runtime, &presentation, &stream)
         .contents
         .unwrap();
@@ -318,9 +318,9 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
         .contents
         .unwrap();
     assert_eq!(replaced.crafting.output.unwrap().1.network_id, ITEM_ID + 1);
-    runtime.inventory_open = false;
+    runtime.session.inventory_open = false;
     capture(&mut cache, &player, &runtime, &presentation, &stream);
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     let reopen = capture(&mut cache, &player, &runtime, &presentation, &stream)
         .contents
         .unwrap();

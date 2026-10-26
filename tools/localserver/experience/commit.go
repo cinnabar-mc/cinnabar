@@ -44,15 +44,40 @@ func (messageTeller) tell(p world.Entity, text string) {
 // commit applies ops, the committed result of ev's callback on snap, in a fresh task of the
 // event's world, unless the snapshot went stale or an op is invalid; then it applies nothing.
 // Once the result has applied, its client messages go out to the actor's client part.
-func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) {
+// Cancellation returns an error only when the transaction did not run.
+func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) error {
+	// Historical removals retain the same private-state authority as final leaves.
+	if context := snap.req.Info.Context; context != nil && context.OpeningClosed {
+		return h.commitLeave(d.id, ev, snap, ops)
+	}
+	if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
+		err := h.commitLeave(d.id, ev, snap, ops)
+		if err != nil {
+			h.log.Warn("leave commit refused", "experience", d.id, "error", err)
+		}
+		return err
+	}
+	for _, op := range ops {
+		if op.World != nil {
+			err := h.commitLifecycle(ctx, d, ev, snap, ops)
+			if err != nil {
+				h.log.Warn("world operation refused", "experience", d.id, "error", err)
+			}
+			return err
+		}
+	}
 	var sends []*SendClientOp
 	var result error
-	task := ev.w.Do(func(tx *world.Tx) { sends, result = h.apply(tx, d.id, ev, snap, ops) })
-	if err := await(ctx, task); err != nil {
+	applied := false
+	task := ev.w.Do(func(tx *world.Tx) {
+		sends, result = h.apply(tx, d.id, ev, snap, ops)
+		applied = true
+	})
+	if err := await(ctx, task); err != nil && !applied {
 		if ctx.Err() == nil {
 			h.log.Warn("commit failed", "experience", d.id, "error", err)
 		}
-		return
+		return err
 	}
 	switch {
 	case errors.Is(result, errStale):
@@ -61,9 +86,11 @@ func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapsho
 		h.log.Error("invalid result discarded", "experience", d.id, "error", result)
 	default:
 		for _, send := range sends {
-			h.sendClient(d, ev.actor.UUID(), send)
+			h.sendCurrent(d, ev, send)
 		}
 	}
+	// A completed transaction must not replay merely because its caller was cancelled.
+	return nil
 }
 
 // apply checks snap against the world in tx and validates every op before it applies any. Then
@@ -86,14 +113,35 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	if err := slotsCurrent(actor, snap, plan.slots); err != nil {
 		return nil, err
 	}
-	for _, op := range ops {
+	if err := containersCurrent(tx, snap, plan.containers); err != nil {
+		return nil, err
+	}
+	if err := h.validateEntities(tx, exp, ev, snap, actor, ops); err != nil {
+		return nil, err
+	}
+	h.simulation.mu.Lock()
+	defer h.simulation.mu.Unlock()
+	timers, err := h.validateTimers(exp, ev, snap, ops)
+	if err != nil {
+		return nil, err
+	}
+	for i, op := range ops {
 		if op.SetBlockState != nil {
 			pos := op.SetBlockState.Pos.cube()
-			b := tx.Block(pos).(Block)
+			b, overlays, _ := ownBlock(tx.Block(pos))
 			// validate checked the block and its states.
 			if changed, _ := b.withStates(op.SetBlockState.States); changed != b {
-				tx.SetBlock(pos, changed, nil)
+				tx.SetBlock(pos, changed.inWorld(overlays), nil)
 			}
+			continue
+		}
+		if op.SetOverlays != nil {
+			pos := op.SetOverlays.Pos.cube()
+			b, _, _ := ownBlock(tx.Block(pos))
+			// validate checked the host and its overlays; they change nothing else.
+			tx.SetBlock(pos, b.inWorld(plan.overlays[i]), &world.SetOpts{
+				DisableBlockUpdates: true, DisableLiquidDisplacement: true,
+			})
 			continue
 		}
 		if op.SetBlock == nil {
@@ -106,7 +154,7 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 			continue
 		}
 		b, _ := h.reg.Lookup(op.SetBlock.ID)
-		tx.SetBlock(pos, b, nil)
+		tx.SetBlock(pos, b.inWorld(nil), nil)
 		h.store.Place(exp, ev.instance.storeKey(pos))
 	}
 	for _, grow := range []bool{false, true} {
@@ -119,6 +167,14 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 				h.log.Error("validated data write failed", "experience", exp, "pos", w.pos, "error", err)
 			}
 		}
+		for _, write := range plan.states {
+			if (write.delta > 0) != grow {
+				continue
+			}
+			if err := h.store.setState(exp, write.address, write.key, write.data, write.present); err != nil {
+				return nil, err
+			}
+		}
 	}
 	for _, w := range plan.slots {
 		inv, slot := slotHolder(actor.(*player.Player), w.slot)
@@ -126,15 +182,30 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 			h.log.Error("validated slot write failed", "experience", exp, "slot", w.slot, "error", err)
 		}
 	}
+	for _, w := range plan.containers {
+		if err := w.inv.SetItem(w.slot, w.stack); err != nil {
+			h.log.Error("validated container write failed", "experience", exp, "pos", w.pos, "slot", w.slot, "error", err)
+		}
+	}
+	for _, w := range plan.powers {
+		h.applyPower(tx, exp, ev.instance, w)
+	}
 	for _, drop := range plan.drops {
 		tx.AddEntity(entity.NewItem(world.EntitySpawnOpts{Position: drop.pos.Vec3Centre()}, drop.stack))
 	}
 	for _, update := range plan.updates {
 		pos := update.Pos.cube()
 		// A later op of the result may have replaced the block; only its own block is updated.
-		if b, ok := tx.Block(pos).(Block); ok && b.t.exp == exp {
+		if b, _, ok := ownBlock(tx.Block(pos)); ok && b.t.exp == exp {
 			tx.ScheduleBlockUpdate(pos, b, time.Duration(update.Ticks)*tickDuration)
 		}
+	}
+	if timers != nil {
+		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
+	}
+	h.applyEntities(tx, exp, ev, actor, ops)
+	if plan.pass {
+		passInteraction(actor, ev)
 	}
 	var sends []*SendClientOp
 	for _, op := range ops {
@@ -151,13 +222,24 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 // current validates retained cells and rejected network boundaries, then resolves the actor.
 // A boundary that gains an owned network member makes the callback's topology stale.
 func (h *Host) current(tx *world.Tx, exp string, ev event, snap snapshot) (world.Entity, error) {
+	if !h.playerCurrent(ev) {
+		return nil, fmt.Errorf("%w: player location epoch changed", errStale)
+	}
+	return h.currentWorld(tx, exp, ev, snap)
+}
+
+// currentWorld validates transaction-owned state after a coordinator has fenced player admission.
+func (h *Host) currentWorld(tx *world.Tx, exp string, ev event, snap snapshot) (world.Entity, error) {
+	if snap.req.Info.Context != nil && !h.store.statesCurrent(exp, stateAddresses(ev.instance.handle.ID, ev.storePrincipal(snap.req.Actor)), snap.req.Info.Context.Stores) {
+		return nil, fmt.Errorf("%w: private state changed", errStale)
+	}
 	if instance, ok := h.worlds.of(tx.World()); !ok || instance.handle != ev.instance.handle {
 		return nil, fmt.Errorf("%w: world instance changed", errStale)
 	}
 	for _, was := range snap.cells {
 		now := h.cellState(tx, exp, ev.instance, was.pos)
 		if now.loaded != was.loaded || now.id != was.id || now.block != was.block ||
-			now.hasToken != was.hasToken || now.token != was.token {
+			now.overlays != was.overlays || now.hasToken != was.hasToken || now.token != was.token {
 			return nil, fmt.Errorf("%w: the cell at %v changed", errStale, was.pos)
 		}
 	}
@@ -200,12 +282,21 @@ type itemDrop struct {
 	stack item.Stack
 }
 
-// commitPlan is what validate found the ops to write, in their order.
+// commitPlan is what validate found the ops to write, in their order. overlays holds the
+// checked overlay list of each set_overlays op, by the op's index; pass is set when the result
+// passes its interaction's click on.
 type commitPlan struct {
-	writes  []dataWrite
-	slots   []slotWrite
-	drops   []itemDrop
-	updates []*ScheduleUpdateOp
+	writes   []dataWrite
+	slots    []slotWrite
+	drops    []itemDrop
+	updates  []*ScheduleUpdateOp
+	states   []stateWrite
+	overlays map[int]*overlayList
+	pass     bool
+	// containers are the validated set_container_slot ops, in their order.
+	containers []containerWrite
+	// powers are the validated set_redstone_power ops, in their order.
+	powers []powerWrite
 }
 
 // tickDuration is one game tick, which a scheduled update counts in.
@@ -283,6 +374,19 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 	tells, sends := 0, 0
 	for i, op := range ops {
 		switch {
+		case op.Entity != nil:
+			// Checked against the live world transaction before any mutation.
+		case op.Schedule != nil || op.CancelSchedule != nil:
+			// Checked together under the simulation lock before any mutation.
+		case op.World != nil:
+			return commitPlan{}, fmt.Errorf("%w: lifecycle result in block commit", errInvalid)
+		case op.StoreWrite != nil:
+			write, err := h.validateStateWrite(ev, snap, op.StoreWrite, plan.states)
+			if err != nil {
+				return commitPlan{}, err
+			}
+			used += write.delta
+			plan.states = append(plan.states, write)
 		case op.SetBlock != nil:
 			c, err := writable(i, op.SetBlock.Pos, false)
 			if err != nil {
@@ -407,6 +511,48 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 				return commitPlan{}, fmt.Errorf("%w: more than %d scheduled updates", errInvalid, maxScheduledUpdates)
 			}
 			plan.updates = append(plan.updates, op.ScheduleUpdate)
+		case op.SetOverlays != nil:
+			c, err := writable(i, op.SetOverlays.Pos, true)
+			if err != nil {
+				return commitPlan{}, err
+			}
+			b, ok := h.reg.Lookup(c.id)
+			if !c.owned || !ok || b.t.exp != exp {
+				return commitPlan{}, fmt.Errorf("%w: op %d sets the overlays of %s, which is not its own block",
+					errInvalid, i, c.id)
+			}
+			list, err := b.t.overlays.check(op.SetOverlays.Overlays)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d: %v", errInvalid, i, err)
+			}
+			if plan.overlays == nil {
+				plan.overlays = make(map[int]*overlayList)
+			}
+			plan.overlays[i] = list
+		case op.PassInteraction != nil:
+			switch {
+			case ev.call.Interact == nil || ev.interaction == nil:
+				return commitPlan{}, fmt.Errorf("%w: op %d passes on the click of no interaction", errInvalid, i)
+			case plan.pass:
+				return commitPlan{}, fmt.Errorf("%w: op %d passes the click on again", errInvalid, i)
+			}
+			plan.pass = true
+		case op.SetContainerSlot != nil:
+			w, err := h.containerWrite(exp, snap, op.SetContainerSlot)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d: %v", errInvalid, i, err)
+			}
+			plan.containers = append(plan.containers, w)
+		case op.SetRedstonePower != nil:
+			c, err := writable(i, op.SetRedstonePower.Pos, true)
+			if err != nil {
+				return commitPlan{}, err
+			}
+			w, err := h.powerWriteOf(exp, c, op.SetRedstonePower)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
+			}
+			plan.powers = append(plan.powers, w)
 		default:
 			return commitPlan{}, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}

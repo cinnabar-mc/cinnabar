@@ -67,6 +67,9 @@ pub(super) struct ControlState {
     pub panel: Option<Panel>,
     pub bundle: Option<Arc<PanelBundle>>,
     pub open: bool,
+    /// Where the host last laid out this mod's panel; none while another mod's panel or no
+    /// panel is up.
+    pub layout: Option<ui::mod_hud::PanelLayout>,
     pub keys: Vec<String>,
     pub interaction: InteractionOutput,
     pub dirty_settings: Option<String>,
@@ -81,6 +84,47 @@ pub(super) struct ControlState {
 }
 
 impl ControlState {
+    /// Retains panel preferences while removing references into the departed world.
+    pub(super) fn clear_world_projections(&mut self) {
+        for panel in self
+            .panel
+            .iter_mut()
+            .chain(self.pending_panel.iter_mut().flatten())
+        {
+            super::world_lifecycle::clear_surface_world(&mut panel.surface);
+        }
+    }
+
+    /// Discards failed guest writes while retaining committed preferences and native input.
+    pub(super) fn rollback(&mut self) {
+        let Self {
+            frame: _,
+            text_events: _,
+            field_events: _,
+            text_events_in_frame: _,
+            panel: _,
+            bundle: _,
+            open: _,
+            layout: _,
+            keys: _,
+            interaction: _,
+            dirty_settings: _,
+            settings: _,
+            pending_panel,
+            pending_open,
+            pending_keys,
+            pending_settings,
+            pending_interaction,
+            reads: _,
+            writes: _,
+        } = self;
+        *pending_panel = None;
+        *pending_open = None;
+        *pending_keys = None;
+        *pending_settings = None;
+        *pending_interaction = InteractionOutput::default();
+    }
+
     pub(super) fn settings(&self) -> &str {
         &self.settings
     }
@@ -93,6 +137,7 @@ impl ControlState {
             panel: None,
             bundle: None,
             open: false,
+            layout: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
             dirty_settings: None,
@@ -277,6 +322,13 @@ pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
                 && event.value.is_finite()),
         "invalid panel events"
     );
+    ensure!(
+        frame
+            .pointer
+            .is_none_or(|(x, y)| x.is_finite() && y.is_finite())
+            && frame.wheel.is_finite(),
+        "invalid panel pointer"
+    );
     Ok(())
 }
 
@@ -322,6 +374,8 @@ pub(super) fn read_selected(
         } else {
             Vec::new()
         },
+        pointer: frame.pointer,
+        wheel: frame.wheel,
     }))
 }
 
@@ -392,6 +446,9 @@ impl cinnabar::extension::panel::Host for State {
         if !key_valid(&panel.toggle_key) {
             return Ok(Err("invalid panel toggle key".into()));
         }
+        if let Err(error) = super::hud::surface::actor_authority(self, &panel.surface) {
+            return Ok(Err(error));
+        }
         self.controls.pending_panel = Some(Some(panel));
         Ok(Ok(()))
     }
@@ -416,16 +473,33 @@ impl cinnabar::extension::panel::Host for State {
                 "panel update schema differs from the registered bundle".into(),
             ));
         }
-        match PanelPatch::parse(&json).and_then(|patch| match &self.controls.bundle {
-            Some(bundle) => patch.apply_bundle(current, bundle),
-            None => patch.apply(current, &std::collections::BTreeMap::new()),
-        }) {
+        match PanelPatch::parse(&json)
+            .and_then(|patch| match &self.controls.bundle {
+                Some(bundle) => patch.apply_bundle(current, bundle),
+                None => patch.apply(current, &std::collections::BTreeMap::new()),
+            })
+            .and_then(|panel| {
+                super::hud::surface::actor_authority(self, &panel.surface).map(|()| panel)
+            }) {
             Ok(panel) => {
                 self.controls.pending_panel = Some(Some(panel));
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(format!("invalid panel update: {error}"))),
         }
+    }
+
+    fn read_layout(&mut self) -> Result<Option<cinnabar::extension::panel::PanelLayout>> {
+        Ok(self
+            .controls
+            .layout
+            .filter(|_| self.grants.controls && self.controls.open)
+            .map(|layout| cinnabar::extension::panel::PanelLayout {
+                width: layout.size[0],
+                height: layout.size[1],
+                scale: layout.scale,
+                offset: (layout.offset[0], layout.offset[1]),
+            }))
     }
 }
 

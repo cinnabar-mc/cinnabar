@@ -109,8 +109,8 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
         clock(2_000, 5.0),
     );
     assert_eq!(runtime.last_use, Some(Duration::from_millis(1_820)));
-    // One attempt per tick; a failure keeps the schedule and retries next tick.
-    assert_eq!(runtime.due(true, 5, clock(5_000, 5.0)), None);
+    // A later buffered pick may use an elapsed deadline in the same tick.
+    assert!(runtime.due(true, 5, clock(5_000, 5.0)).is_some());
     let (trigger, due) = runtime.due(true, 6, clock(5_000, 5.0)).unwrap();
     runtime.record(trigger, due, 6, LocalUse::Nothing, clock(5_000, 5.0));
     assert!(runtime.due(true, 7, clock(5_001, 5.0)).is_some());
@@ -519,19 +519,36 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
     );
 }
 
-/// Any hand repeats a block's own use while held, swinging and predicting success like the
-/// press; other non-block uses and buckets still do not repeat.
+/// Block interactions repeat for any non-bucket hand and preserve their prediction and swing.
 #[test]
 fn held_block_uses_repeat_for_any_hand() {
     let empty = verified(NetworkItemStack::empty());
     let tool = verified(network_item(2, 0));
     let block = verified(network_item(2, 77));
+    let clicked = block_fact("minecraft:chest");
     for item in [&empty, &tool] {
-        assert!(super::repeats_while_held(item, false, LocalUse::Interact));
-        assert!(!super::repeats_while_held(item, true, LocalUse::Interact));
-        assert!(!super::repeats_while_held(item, false, LocalUse::Nothing));
+        assert!(super::repeats_while_held(
+            item,
+            false,
+            LocalUse::Interact,
+            clicked,
+            Default::default()
+        ));
+        assert!(!super::repeats_while_held(
+            item,
+            true,
+            LocalUse::Interact,
+            clicked,
+            Default::default()
+        ));
     }
-    assert!(super::repeats_while_held(&block, false, LocalUse::Nothing));
+    assert!(super::repeats_while_held(
+        &block,
+        false,
+        LocalUse::Nothing,
+        clicked,
+        Default::default()
+    ));
     let observed =
         crate::interaction_authority::FrozenBlockObservation::fixture([2, 63, 0], 3, empty);
     let packets = use_packets(
@@ -579,6 +596,54 @@ fn held_block_uses_repeat_for_any_hand() {
     assert_eq!(transaction.target_block_id, 9);
     assert_eq!(transaction.click_position, [0.5, 1.0, 0.5]);
     assert!(!transaction.cooldown_active);
+}
+
+/// Unknown item-specific successes must not be retried on a failed-prediction clock.
+#[test]
+fn failed_held_repeats_require_a_known_passive_crop_hand() {
+    use assets::facts::ItemTraits;
+
+    let empty = verified(NetworkItemStack::empty());
+    let item = verified(network_item(2, 0));
+    let crop = block_fact("minecraft:wheat");
+    let soil = block_fact("minecraft:dirt");
+    assert!(super::repeats_while_held(
+        &empty,
+        false,
+        LocalUse::Nothing,
+        crop,
+        Default::default()
+    ));
+    for traits in [ItemTraits::HOE, ItemTraits::PICKAXE] {
+        assert!(super::repeats_while_held(
+            &item,
+            false,
+            LocalUse::Nothing,
+            crop,
+            traits
+        ));
+        assert!(!super::repeats_while_held(
+            &item,
+            false,
+            LocalUse::Nothing,
+            soil,
+            traits
+        ));
+        assert!(!super::repeats_while_held(
+            &item,
+            true,
+            LocalUse::Nothing,
+            crop,
+            traits
+        ));
+    }
+    assert!(!super::repeats_while_held(
+        &item,
+        false,
+        LocalUse::Nothing,
+        crop,
+        Default::default()
+    ));
 }
 
 /// Orientation caching applies to placement-direction states, not pillar axes.

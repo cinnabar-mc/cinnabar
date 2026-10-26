@@ -140,6 +140,17 @@ pub(super) fn validate(snapshot: Option<&PlayerStateSnapshot>) -> Result<()> {
 }
 
 impl State {
+    /// Applies the combat stream's grants to both events and their retained lives.
+    fn can_read_combat(&self, event: &crate::CombatObservation) -> bool {
+        event.local
+            || event.kind == crate::CombatKind::AttackAdmitted
+            || if event.player {
+                self.grants.players
+            } else {
+                self.grants.entities
+            }
+    }
+
     /// Charges one shared read and selects authorized rows before applying the caller's bound.
     fn read_actor_observations(
         &mut self,
@@ -205,6 +216,34 @@ impl cinnabar::extension::player_state::Host for State {
             .read_actor_observations(limit)?
             .map(|actors| actors.cloned().collect()))
     }
+    fn read_actor_lives(
+        &mut self,
+        runtime_ids: Vec<u64>,
+    ) -> Result<Result<Vec<Option<crate::ActorLife>>, String>> {
+        self.player_state.read_budget()?;
+        if runtime_ids.len() > mod_api::MAX_ACTOR_LIFE_READS {
+            return Ok(Err("actor life read exceeds bounds".into()));
+        }
+        if !self.grants.players && !self.grants.entities {
+            return Ok(Err("actor observation capability denied".into()));
+        }
+        let lives = &self.player_state.observations.actor_lives;
+        Ok(Ok(runtime_ids
+            .into_iter()
+            .map(|runtime_id| {
+                let index = lives
+                    .binary_search_by_key(&runtime_id, |observed| observed.runtime_id)
+                    .ok()?;
+                let observed = lives[index];
+                let granted = if observed.player {
+                    self.grants.players
+                } else {
+                    self.grants.entities
+                };
+                granted.then_some(observed.life)
+            })
+            .collect()))
+    }
     fn read_combat(
         &mut self,
         after: u64,
@@ -222,18 +261,36 @@ impl cinnabar::extension::player_state::Host for State {
             .observations
             .combat
             .iter()
-            .filter(|event| {
-                event.sequence > after
-                    && (event.local
-                        || event.kind == crate::CombatKind::AttackAdmitted
-                        || if event.player {
-                            self.grants.players
-                        } else {
-                            self.grants.entities
-                        })
-            })
+            .map(|recorded| &recorded.event)
+            .filter(|event| event.sequence > after && self.can_read_combat(event))
             .take(limit as usize)
-            .cloned()
+            .copied()
+            .collect()))
+    }
+
+    fn read_combat_lives(
+        &mut self,
+        sequences: Vec<u64>,
+    ) -> Result<Result<Vec<Option<u64>>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        if sequences.len() > mod_api::MAX_COMBAT_LIFE_READS {
+            return Ok(Err("combat life read exceeds bounds".into()));
+        }
+        let history = &self.player_state.observations.combat;
+        Ok(Ok(sequences
+            .into_iter()
+            .map(|sequence| {
+                let index = history
+                    .binary_search_by_key(&sequence, |recorded| recorded.event.sequence)
+                    .ok()?;
+                let recorded = &history[index];
+                self.can_read_combat(&recorded.event)
+                    .then_some(recorded.life)
+                    .flatten()
+            })
             .collect()))
     }
 
@@ -351,6 +408,19 @@ impl cinnabar::extension::player_state::Host for State {
             return Ok(Err("player-state capability denied".into()));
         }
         Ok(Ok(self.player_state.current_revision))
+    }
+
+    fn read_world_time(&mut self) -> Result<Result<Option<crate::WorldTimeObservation>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        let session = self.player_state.world.as_ref().map(|world| world.session);
+        Ok(Ok(self
+            .player_state
+            .observations
+            .world_time
+            .filter(|time| Some(time.session) == session)))
     }
 }
 

@@ -25,14 +25,14 @@ pub(in crate::chunk) fn render_plugin(
     backends: wgpu::Backends,
     required_features: WgpuFeatures,
 ) -> Option<RenderPlugin> {
-    render_plugin_with_limits(backends, required_features, None)
+    render_plugin_with_storage_limit(backends, required_features, None)
 }
 
-/// Creates a renderer with explicit limits so startup tests exercise device-dependent layouts.
-fn render_plugin_with_limits(
+/// Overrides the storage budget while retaining the adapter's other supported limits.
+pub(super) fn render_plugin_with_storage_limit(
     backends: wgpu::Backends,
     required_features: WgpuFeatures,
-    limits: Option<wgpu::Limits>,
+    storage_limit: Option<u32>,
 ) -> Option<RenderPlugin> {
     let noop = backends == wgpu::Backends::NOOP;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -46,13 +46,17 @@ fn render_plugin_with_limits(
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let adapter =
-        bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .ok()?;
+    let adapter = match bevy::tasks::block_on(
+        instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
+    ) {
+        Ok(adapter) => adapter,
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => return None,
+        Err(error) => panic!("terrain fixture adapter request failed: {error}"),
+    };
     if !adapter.features().contains(required_features) {
         return None;
     }
-    let required_limits = if noop {
+    let mut required_limits = if noop {
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: required_vertex_storage_buffers(),
             ..Default::default()
@@ -60,11 +64,17 @@ fn render_plugin_with_limits(
     } else {
         adapter.limits()
     };
+    if let Some(storage) = storage_limit {
+        required_limits.max_storage_buffers_per_shader_stage = storage;
+    }
     let descriptor = wgpu::DeviceDescriptor {
         required_features,
-        required_limits: limits.unwrap_or(required_limits),
+        required_limits,
         ..Default::default()
     };
+    if !descriptor.required_limits.check_limits(&adapter.limits()) {
+        return None;
+    }
     let adapter_info = adapter.get_info();
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&descriptor)).unwrap();
     Some(RenderPlugin {
@@ -86,15 +96,9 @@ pub(crate) fn noop_render_plugin(required_features: WgpuFeatures) -> RenderPlugi
 
 #[test]
 fn minimum_storage_device_selects_compact_pipelines_after_device_initialization() {
-    let render = render_plugin_with_limits(
-        wgpu::Backends::NOOP,
-        WgpuFeatures::empty(),
-        Some(wgpu::Limits {
-            max_storage_buffers_per_shader_stage: 4,
-            ..Default::default()
-        }),
-    )
-    .unwrap();
+    let render =
+        render_plugin_with_storage_limit(wgpu::Backends::NOOP, WgpuFeatures::empty(), Some(4))
+            .unwrap();
     let (mut app, _) = chunk_app_with(render, Msaa::Off, camera_transform(), |app| {
         app.add_plugins((crate::ActorRenderPlugin, crate::HandRigRenderPlugin));
     });

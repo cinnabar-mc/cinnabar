@@ -69,6 +69,7 @@ pub(in crate::shaderpack) fn ready_world() -> World {
     prepare_actor_kernels(&mut world, &device);
     world.insert_resource(device);
     world.insert_resource(RenderQueue::new(gpu.queue));
+    world.insert_resource(RenderAdapter::new(gpu.adapter));
     world
 }
 

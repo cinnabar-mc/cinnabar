@@ -258,9 +258,11 @@ fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
             continue;
         };
         if matches!(model.placements[0], PreviewHeldPlacement::Sprite { .. }) {
-            let original = presentation
-                .item_icon(&key.identifier, key.metadata)
+            // Carried artwork can differ from the inventory thumbnail.
+            let sprite = icons
+                .lookup_held_index(&key.identifier, key.metadata)
                 .unwrap();
+            let original = presentation.icon_refs.as_ref().unwrap()[sprite];
             assert_eq!(
                 (model.source.page, model.source.uv),
                 (original.page, original.uv)

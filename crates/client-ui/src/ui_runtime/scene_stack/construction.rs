@@ -80,7 +80,7 @@ fn data_driven_settings() -> ScreenSettings {
 
 impl UiRuntime {
     /// Visits the authoritative scene construction without allocating a stack.
-    pub(super) fn visit_scenes_in(
+    pub(in crate::ui_runtime) fn visit_scenes_in(
         &self,
         player_runtime: &player_state::PlayerState,
         host: SceneHost,
@@ -124,6 +124,12 @@ impl UiRuntime {
             visit(
                 Scene::Emote,
                 json(Some(ui_screens::emote_screen::EMOTE_SCREEN)),
+            );
+        }
+        if self.mob_effect_screen().is_open() {
+            visit(
+                Scene::MobEffects,
+                json(Some(ui_screens::mob_effect_screen::MOB_EFFECT_SCREEN)),
             );
         }
         if let Some(stage) = host.loading.filter(|_| host.menu.is_none()) {

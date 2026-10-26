@@ -50,7 +50,7 @@ pub struct FocusItems {
 impl UiRuntime {
     /// Applies a player input to the showing screen and queues what the server must receive.
     pub fn data_driven_action(&mut self, action: DataDrivenAction) {
-        let Some(active) = self.data_driven.active.clone() else {
+        let Some(active) = self.session.data_driven.active.clone() else {
             return;
         };
         let Some(projection) = self.project_screen(&active) else {
@@ -66,7 +66,7 @@ impl UiRuntime {
                     && matches!(target, Some(ItemTarget::Control { kind, .. }) if wanted(kind))
             })
         };
-        let focus = self.data_driven.focus;
+        let focus = self.session.data_driven.focus;
         match action {
             DataDrivenAction::Close | DataDrivenAction::Dismiss => {
                 let enabled = projection.form.close == Some(true);
@@ -77,13 +77,13 @@ impl UiRuntime {
                     self.close_data_driven_screen(DataDrivenScreenCloseReason::ClientCanceled);
                 }
             }
-            DataDrivenAction::Blur => self.data_driven.focus = None,
+            DataDrivenAction::Blur => self.session.data_driven.focus = None,
             DataDrivenAction::Type(_) | DataDrivenAction::Backspace => {
                 let Some(Focus::Text(index)) = focus else {
                     return;
                 };
                 if !shows(index, |kind| kind == TargetKind::TextField) {
-                    self.data_driven.focus = None;
+                    self.session.data_driven.focus = None;
                     return;
                 }
                 let path = format!("layout[{index}].text");
@@ -105,7 +105,7 @@ impl UiRuntime {
                 );
             }
             DataDrivenAction::Choose(choice) => {
-                self.data_driven.focus = None;
+                self.session.data_driven.focus = None;
                 let Some(Focus::Dropdown(index)) = focus else {
                     return;
                 };
@@ -127,7 +127,7 @@ impl UiRuntime {
                 else {
                     return;
                 };
-                self.data_driven.focus = None;
+                self.session.data_driven.focus = None;
                 let ItemTarget::Control { index, kind } = target else {
                     let ItemTarget::MessageButton(second) = target else {
                         return;
@@ -151,10 +151,10 @@ impl UiRuntime {
                         self.write_screen(&active.property, &path("toggled"), Write::Flip);
                     }
                     (TargetKind::TextField, DataDrivenAction::Activate(_)) => {
-                        self.data_driven.focus = Some(Focus::Text(index));
+                        self.session.data_driven.focus = Some(Focus::Text(index));
                     }
                     (TargetKind::Dropdown, DataDrivenAction::Activate(_)) => {
-                        self.data_driven.focus = (focus != Some(Focus::Dropdown(index)))
+                        self.session.data_driven.focus = (focus != Some(Focus::Dropdown(index)))
                             .then_some(Focus::Dropdown(index));
                     }
                     (
@@ -177,9 +177,10 @@ impl UiRuntime {
     /// dropdown whose option list is open.
     #[must_use]
     pub fn data_driven_focus_items(&self) -> FocusItems {
-        let (Some(active), Some(focus)) =
-            (self.data_driven.active.as_ref(), self.data_driven.focus)
-        else {
+        let (Some(active), Some(focus)) = (
+            self.session.data_driven.active.as_ref(),
+            self.session.data_driven.focus,
+        ) else {
             return FocusItems::default();
         };
         let Some(projection) = self.project_screen(active) else {
@@ -207,7 +208,8 @@ impl UiRuntime {
 
     /// The string at `path` in the showing screen's property.
     fn screen_value(&self, property: &str, path: &str) -> Option<String> {
-        self.data_driven
+        self.session
+            .data_driven
             .stores()
             .property(SCRIPT_STORE, property)?
             .at_path(path)?
@@ -217,7 +219,11 @@ impl UiRuntime {
 
     /// The value of dropdown `index`'s option at list position `choice`.
     fn dropdown_value(&self, property: &str, index: usize, choice: usize) -> Option<f64> {
-        let property = self.data_driven.stores().property(SCRIPT_STORE, property)?;
+        let property = self
+            .session
+            .data_driven
+            .stores()
+            .property(SCRIPT_STORE, property)?;
         CustomFormView::read(property)?
             .controls
             .into_iter()
@@ -231,6 +237,7 @@ impl UiRuntime {
     /// Writes one input locally and queues it for the server; unchanged values send nothing.
     fn write_screen(&mut self, property: &str, path: &str, write: Write) {
         let current = self
+            .session
             .data_driven
             .stores()
             .property(SCRIPT_STORE, property)
@@ -251,11 +258,13 @@ impl UiRuntime {
             }
         };
         match self
+            .session
             .data_driven
             .stores
             .write(SCRIPT_STORE, property, path, value)
         {
             Ok(update) => self
+                .session
                 .data_driven
                 .outgoing
                 .push_back(data_store_update_packet(&update)),

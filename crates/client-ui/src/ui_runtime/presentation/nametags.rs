@@ -19,8 +19,8 @@ use ui::{FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache};
 use ui_screens::text::bounded_text;
 
 use super::nametag_atlas::{GlyphPage, NametagAtlas};
+mod annotation;
 pub(super) mod bounds;
-mod counter;
 pub(super) mod style;
 
 #[cfg(test)]
@@ -69,13 +69,13 @@ pub struct NametagAnchor {
     /// Camera depth gained by one block of world-Y lift.
     pub(super) camera_forward_y: f32,
     pub(super) cinnabar_badge: bool,
-    pub(super) counter: Option<Arc<ui::mod_hud::CounterAnnotation>>,
+    pub(super) annotation: Option<Arc<ui::mod_presentation::Spans>>,
 }
 
 impl NametagAnchor {
-    /// Attaches native literal counter runs only after the actor passed ordinary nametag eligibility.
-    pub fn set_counter_annotation(&mut self, counter: Option<Arc<ui::mod_hud::CounterAnnotation>>) {
-        self.counter = counter;
+    /// Attaches mod spans only after the actor passed ordinary nametag eligibility.
+    pub fn set_annotation(&mut self, annotation: Option<Arc<ui::mod_presentation::Spans>>) {
+        self.annotation = annotation;
     }
     /// Native actor identity for presentation filters against retained world facts.
     pub const fn runtime_id(&self) -> u64 {
@@ -350,7 +350,7 @@ fn nametag_with_lines(
         view_depth,
         camera_forward_y: view.camera_forward.y,
         cinnabar_badge: false,
-        counter: None,
+        annotation: None,
     })
 }
 
@@ -432,7 +432,7 @@ fn has_nametag_lines(
 pub fn project_nametags(
     cache: &mut NametagTextCache,
     scoreboards: &ui::ScoreboardStore,
-    stream: &chunk_pipeline::WorldStream,
+    names: client_world::ui_read::NametagUi<'_>,
     view: NametagView,
     picked_actor: Option<u64>,
     partial_tick: f32,
@@ -441,7 +441,7 @@ pub fn project_nametags(
 ) -> Vec<NametagAnchor> {
     #[cfg(feature = "tracy")]
     let _zone = tracing::info_span!("nametag.select").entered();
-    let authority = stream.authority();
+    let authority = names;
     for cached in cache.entries.values_mut() {
         cached.queried = false;
     }
@@ -461,7 +461,7 @@ pub fn project_nametags(
             .remote_actors()
             .filter(|actor| show_players || !matches!(actor.kind, ActorKind::Player { .. }))
             .filter_map(|actor| {
-                let name = stream.authority().actor_name_tag(actor.unique_id)?;
+                let name = authority.actor_name_tag(actor.unique_id)?;
                 let (_, distance_squared) =
                     nametag_geometry(actor, view.camera_position, picked_actor, partial_tick)?;
                 has_nametag_lines(
@@ -509,7 +509,7 @@ pub fn project_nametags(
 /// Reserves cosmetic expansion before atlas requests or line-prefix admission.
 pub fn build_nametag_scene<'p>(
     anchors: &[NametagAnchor],
-    style: Option<&ui::mod_hud::NametagStyle>,
+    style: Option<&ui::mod_presentation::NametagStyle>,
     font: &RuntimeFontCatalog,
     layouts: &mut TextLayoutCache,
     atlas: &mut NametagAtlas,
@@ -534,9 +534,9 @@ pub fn build_nametag_scene<'p>(
         .flat_map(|anchor| {
             let badge_records = usize::from(anchor.cinnabar_badge) * text_cost;
             let counter_records = anchor
-                .counter
+                .annotation
                 .as_ref()
-                .map_or(0, |counter| counter::record_budget(counter, style));
+                .map_or(0, |spans| annotation::record_budget(spans, style));
             let count = anchor
                 .lines
                 .len()
@@ -545,11 +545,11 @@ pub fn build_nametag_scene<'p>(
                 count * line_cost + usize::from(count != 0) * (badge_records + counter_records);
             anchor.lines.iter().take(count).chain(
                 anchor
-                    .counter
+                    .annotation
                     .as_ref()
                     .filter(|_| count != 0)
                     .into_iter()
-                    .flat_map(|counter| counter::texts(counter)),
+                    .flat_map(|spans| annotation::texts(spans)),
             )
         })
         .cloned()
@@ -577,9 +577,9 @@ pub fn build_nametag_scene<'p>(
         let badge = badge.filter(|_| anchor.cinnabar_badge);
         let badge_records = usize::from(badge.is_some()) * text_cost;
         let counter_records = anchor
-            .counter
+            .annotation
             .as_ref()
-            .map_or(0, |counter| counter::record_budget(counter, style));
+            .map_or(0, |spans| annotation::record_budget(spans, style));
         let remaining_lines =
             available_records.saturating_sub(badge_records + counter_records) / line_cost;
         placed.clear();
@@ -597,9 +597,9 @@ pub fn build_nametag_scene<'p>(
             continue;
         }
         let counter = anchor
-            .counter
+            .annotation
             .as_ref()
-            .and_then(|policy| counter::Layout::measure(policy, atlas, font, layouts, pages));
+            .and_then(|spans| annotation::Layout::measure(spans, atlas, font, layouts, pages));
         let separate = counter.as_ref().is_some_and(|counter| counter.separate());
         let before = counter.as_ref().is_some_and(|counter| counter.before());
         let counter_width = counter.as_ref().map_or(0., |counter| counter.width());

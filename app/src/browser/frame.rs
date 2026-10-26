@@ -26,7 +26,7 @@ pub(super) fn configure(app: &mut App) {
     .init_resource::<crate::acceptance::AcceptanceRun>()
     .init_resource::<client_interaction::movement::LocomotionState>()
     .init_resource::<world::WorldStreamFramePoll>()
-    .init_resource::<client_state::EmoteInputConsumed>()
+    .init_resource::<client_state::ScreenInputConsumed>()
     .init_resource::<crate::ui_runtime::presentation::publish::PreparedUiPublication>()
     .init_resource::<crate::melee::MeleeTarget>()
     .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()

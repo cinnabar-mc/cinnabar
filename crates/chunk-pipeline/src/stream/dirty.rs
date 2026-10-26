@@ -55,9 +55,10 @@ impl WorldStream {
         self.urgent_work_due = true;
     }
     /// Keys of `prepared` whose committed replacement leaves every mesh unchanged: the key is
-    /// resident with blocks, needs no relight, and [`meshing::block_changes_preserve_meshes`]
-    /// proves its resident section and replacement feed the mesher identically. A batch whose
-    /// keys are not strictly ascending, and so may repeat, proves nothing. Call before commit.
+    /// resident with blocks, needs no relight, changes no overlay host's cell (whose overlays show
+    /// only on their host state), and [`meshing::block_changes_preserve_meshes`] proves its
+    /// resident section and replacement feed the mesher identically. A batch whose keys are not
+    /// strictly ascending, and so may repeat, proves nothing. Call before commit.
     pub(super) fn mesh_neutral_mutations(
         &self,
         prepared: &[PreparedSubChunkMutation],
@@ -79,6 +80,16 @@ impl WorldStream {
                     && !relight.contains(&key)
                     && self.resident.contains(&key)
                     && !self.known_air.contains(&key)
+            })
+            .filter(|mutation| {
+                let dimension = mutation.key().dimension;
+                !mutation.changed_positions().any(|position| {
+                    terrain
+                        .block_entity(BlockEntityKey::new(
+                            dimension, position.x, position.y, position.z,
+                        ))
+                        .is_some_and(|nbt| nbt.cell_overlays().is_some())
+                })
             })
             .filter(|mutation| {
                 let (Some(previous), Some(replacement)) = (
@@ -119,16 +130,16 @@ impl WorldStream {
     ) {
         self.mark_changed_sources_with_mesh_dirty(sources, std::iter::empty(), now);
     }
-    /// Expands one inline commit before invalidating meshes, and relights only changed inputs.
+    /// Invalidates combined block/biome meshes while relighting only block and residency changes.
     pub(super) fn mark_inline_changed_sources(
         &mut self,
         sources: BTreeSet<SubChunkKey>,
         preexpanded_dirty: impl IntoIterator<Item = SubChunkKey>,
-        light_neutral: &BTreeSet<SubChunkKey>,
+        relight_sources: &BTreeSet<SubChunkKey>,
         now: Instant,
     ) {
         self.mark_light_changed_sources_reaching(
-            sources.difference(light_neutral).copied(),
+            relight_sources.iter().copied(),
             false,
             NeighbourReach::ALL,
             None,
@@ -402,6 +413,7 @@ impl WorldStream {
             if samples_changed_light
                 && self.resident.contains(&dependent)
                 && self.authority.terrain().sub_chunk(dependent).is_some()
+                && !self.has_settled_air_publication(dependent)
             {
                 self.invalidate_mesh_with_priority(dependent, now, urgent);
             }

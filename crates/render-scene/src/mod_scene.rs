@@ -1,6 +1,6 @@
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use mod_api::MAX_BLOCK_HIGHLIGHTS;
-use mod_render::{RenderOutput, block_highlights, geometry::ModVertex, position_box};
+use mod_render::{RenderOutput, block_highlights, geometry::ModVertex};
 use std::sync::Arc;
 
 /// Requests host-owned skin preparation for a selected actor even when its main body is hidden.
@@ -35,16 +35,19 @@ pub fn mask_targets(frame: &crate::ActorRenderFrame) -> Vec<(mod_api::drawing::M
 #[derive(Resource, Clone, Debug, Default)]
 pub struct ModRenderScene {
     generation: u64,
+    personal_generation: u64,
+    server_generation: u64,
+    personal: RenderOutput,
+    server: RenderOutput,
+    merge: mod_render::RenderMerge,
     pub passes: Vec<mod_render::Pass>,
     pub retained: Vec<Arc<mod_render::retained::Resources>>,
+    pub gpu_reservations: Vec<mod_render::GpuReservation>,
     pub masks: Arc<[mod_render::masks::Mask]>,
     pub vertices: Arc<[ModVertex]>,
+    pub bundle_vertices: Vec<(mod_render::GpuLedger, Arc<[ModVertex]>)>,
     primitives: Arc<mod_render::Primitives>,
-    pub marker_vertices: Arc<[ModVertex]>,
-    position_box: Option<[[f32; 3]; 2]>,
     pub block_vertices: Arc<[ModVertex]>,
-    block_positions: Arc<[[i32; 3]]>,
-    block_color: [f32; 4],
     drawn_blocks: Arc<[mod_api::native_render::BlockHighlight]>,
 }
 
@@ -57,54 +60,87 @@ impl ExtractResource<bevy::render::RenderApp> for ModRenderScene {
 }
 
 impl ModRenderScene {
+    /// Identifies a current server contributor so frame publication preserves its anchor policy.
+    pub fn is_server_contributor(&self, resources: &Arc<mod_render::retained::Resources>) -> bool {
+        self.server
+            .retained
+            .iter()
+            .any(|server| Arc::ptr_eq(server, resources))
+    }
+
     /// Adopts `output` unless `generation` is already applied.
     pub fn apply(&mut self, output: &RenderOutput, generation: u64) {
-        if generation == self.generation {
+        if generation == self.personal_generation {
             return;
         }
-        self.generation = generation;
+        self.personal_generation = generation;
+        self.personal = output.clone();
+        self.publish_layers();
+    }
+
+    /// Publishes changed personal content without comparing it to the merged server layer.
+    pub fn apply_if_changed(&mut self, output: &RenderOutput) {
+        if self.personal != *output {
+            self.apply(output, self.personal_generation.wrapping_add(1));
+        }
+    }
+
+    /// Publishes session-owned client-part drawing beside personal mod output.
+    pub fn apply_server(&mut self, output: &RenderOutput, generation: u64) -> bool {
+        if generation == self.server_generation {
+            return false;
+        }
+        self.server_generation = generation;
+        self.server = output.clone();
+        self.publish_layers();
+        true
+    }
+
+    /// Combines both owners through the same renderer budgets and publication path.
+    fn publish_layers(&mut self) {
+        let output = self.merge.merge([&self.personal, &self.server]);
+        self.generation = self.generation.wrapping_add(1);
         self.passes.clone_from(&output.passes);
         self.retained.clone_from(&output.retained);
-        self.masks = Arc::clone(&output.masks);
-        if !Arc::ptr_eq(&self.primitives, &output.primitives) {
+        if !Arc::ptr_eq(&self.primitives, &output.primitives)
+            || self
+                .gpu_reservations
+                .iter()
+                .map(|r| (&r.ledger, &r.primitives))
+                .ne(output
+                    .gpu_reservations
+                    .iter()
+                    .map(|r| (&r.ledger, &r.primitives)))
+        {
             self.primitives = Arc::clone(&output.primitives);
-            self.vertices = mod_render::geometry::build(&output.primitives).into();
+            self.vertices = mod_render::geometry::build_partition(
+                &output.primitives,
+                &output.gpu_reservations,
+                None,
+            )
+            .into();
+            self.bundle_vertices = output
+                .gpu_reservations
+                .iter()
+                .enumerate()
+                .map(|(index, r)| {
+                    (
+                        r.ledger.clone(),
+                        mod_render::geometry::build_partition(
+                            &output.primitives,
+                            &output.gpu_reservations,
+                            Some(index),
+                        )
+                        .into(),
+                    )
+                })
+                .collect();
         }
+        self.gpu_reservations.clone_from(&output.gpu_reservations);
+        self.masks = Arc::clone(&output.masks);
     }
 
-    /// Publishes a host-owned own-position box independently of guest render output.
-    pub fn set_position_box(&mut self, bounds: Option<[[f32; 3]; 2]>) {
-        let bounds = bounds.filter(position_box::valid);
-        if self.position_box == bounds {
-            return;
-        }
-        self.position_box = bounds;
-        self.marker_vertices = match bounds {
-            Some(bounds) => {
-                let mut vertices = Vec::with_capacity(position_box::VERTICES);
-                position_box::append(&mut vertices, bounds);
-                vertices.into()
-            }
-            None => Arc::from([]),
-        };
-    }
-
-    /// Highlights loaded unit blocks through world geometry, independently of guest primitives.
-    pub fn set_block_highlights(&mut self, positions: &[[i32; 3]], color: [f32; 4]) {
-        let positions = &positions[..positions.len().min(MAX_BLOCK_HIGHLIGHTS)];
-        let valid = color
-            .iter()
-            .all(|v| v.is_finite() && (0.0..=1.0).contains(v));
-        let positions = if valid { positions } else { &[] };
-        if self.block_positions.as_ref() == positions && self.block_color == color {
-            return;
-        }
-        self.block_positions = Arc::from(positions);
-        self.block_color = color;
-        self.rebuild_block_highlights();
-    }
-
-    /// Adopts validated drawing highlights alongside host-discovered loaded-block selections.
+    /// Adopts a packet mod's validated block highlights, drawn through world geometry.
     pub fn set_drawn_block_highlights(
         &mut self,
         blocks: &[mod_api::native_render::BlockHighlight],
@@ -114,21 +150,10 @@ impl ModRenderScene {
             return;
         }
         self.drawn_blocks = Arc::from(blocks);
-        self.rebuild_block_highlights();
-    }
-
-    /// Both producers share geometry, depth and the existing combined vertex budget.
-    fn rebuild_block_highlights(&mut self) {
         self.block_vertices = block_highlights::build_styled(
-            self.block_positions
+            self.drawn_blocks
                 .iter()
-                .map(|position| (*position, self.block_color, None))
-                .chain(
-                    self.drawn_blocks
-                        .iter()
-                        .map(|block| (block.position, block.colour, block.outline.as_ref())),
-                )
-                .take(MAX_BLOCK_HIGHLIGHTS),
+                .map(|block| (block.position, block.colour, block.outline.as_ref())),
         )
         .into();
     }
@@ -153,14 +178,20 @@ impl ModRenderScene {
     }
 
     pub fn vertex_count(&self) -> usize {
-        self.vertices.len() + self.marker_vertices.len() + self.block_vertices.len()
+        self.vertices.len()
+            + self.block_vertices.len()
+            + self
+                .bundle_vertices
+                .iter()
+                .map(|(_, vertices)| vertices.len())
+                .sum::<usize>()
     }
 }
 
 #[cfg(test)]
 mod block_highlights_tests;
 #[cfg(test)]
-mod position_box_tests;
+mod layers_tests;
 
 /// Same-frame placement and GPU inputs for retained world drawing.
 pub mod retained;

@@ -28,7 +28,7 @@ fn collection_hover_tracks_live_native_feedback_without_republishing_items() {
     value["surface"]["collections"]["modules"]["definition"]["template"]["document"] =
         json!(document.to_string());
     let panel: Panel = serde_json::from_value(value).unwrap();
-    let surface = panel.surface.as_ref().unwrap();
+    let surface = &panel.surface;
     let catalog = Arc::new(super::surface::catalog(surface).unwrap());
     let mut screen = CachedScreen::default();
     let mut data = Arc::new(super::data::control_data(&panel));
@@ -47,7 +47,7 @@ fn collection_hover_tracks_live_native_feedback_without_republishing_items() {
         (0.23, None, 0.0),
     ] {
         motion.advance(&panel, &mut view, hovered, now, true);
-        motion.write(&panel, Arc::make_mut(&mut data));
+        motion.write(Arc::make_mut(&mut data));
         let render = screen
             .render_shared_with(
                 &surface.screen,
@@ -91,7 +91,7 @@ pub(super) fn catalogue() -> Panel {
             "button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.item:open"}],
             "controls":[{"label":{"type":"label","text":"#item_name","size":[95,20],
                 "bindings":[{"binding_name":"#item_name"}]}}]}}).to_string()});
-    serde_json::from_value(json!({"title":"Collection","toggle_key":"ShiftRight","dark":true,
+    serde_json::from_value(json!({"toggle_key":"ShiftRight",
         "controls":(0..99).map(|i|json!({"kind":"button","id":format!("module_{i}"),"label":format!("Module {i}")})).collect::<Vec<_>>(),
         "surface":{"screen":"list.root","document":json!({"namespace":"list","root":{
             "type":"panel","size":[308,120],"controls":[{"tiles":{"type":"panel","cinnabar_collection":"modules"}}]}}).to_string(),
@@ -103,7 +103,7 @@ pub(super) fn catalogue() -> Panel {
 /// Makes four columns of independently bound artwork behind the native viewport.
 pub(super) fn four_column_catalogue() -> Panel {
     let mut panel = catalogue();
-    let surface = panel.surface.as_mut().unwrap();
+    let surface = &mut panel.surface;
     surface.document = json!({"namespace":"list","root":{"type":"panel","size":[452,289],
         "controls":[{"tiles":{"type":"panel","cinnabar_collection":"modules"}}]}})
     .to_string();
@@ -149,7 +149,7 @@ pub(super) fn four_column_catalogue() -> Panel {
 fn collection_four_columns_render_item_art_and_reuse_steady_frames() {
     let panel = four_column_catalogue();
     panel.validate().unwrap();
-    let surface = panel.surface.as_ref().unwrap();
+    let surface = &panel.surface;
     let catalog = Arc::new(super::surface::catalog(surface).unwrap());
     let context = Context::default();
     let mut screen = CachedScreen::default();
@@ -277,7 +277,7 @@ fn collection_four_columns_render_item_art_and_reuse_steady_frames() {
 fn collection_scrolls_all_items_with_bounded_nodes_and_correct_actions() {
     let panel = catalogue();
     panel.validate().unwrap();
-    let surface = panel.surface.as_ref().unwrap();
+    let surface = &panel.surface;
     let catalog = Arc::new(super::surface::catalog(surface).unwrap());
     let root = Arc::new(
         json_ui::resolve(&catalog, &surface.screen, &Context::default())
@@ -364,7 +364,7 @@ fn collection_scrolls_all_items_with_bounded_nodes_and_correct_actions() {
                 .unwrap()
                 .apply(&panel, &Default::default())
                 .unwrap();
-        let filtered_surface = filtered.surface.as_ref().unwrap();
+        let filtered_surface = &filtered.surface;
         let data = Arc::new(super::data::control_data(&filtered));
         view.scroll.clear();
         let render = screen
@@ -414,14 +414,14 @@ fn collection_scrolls_all_items_with_bounded_nodes_and_correct_actions() {
 #[test]
 fn collection_filter_is_transactional_and_keeps_painted_action_identity() {
     let panel = catalogue();
-    let surface = panel.surface.as_ref().unwrap();
+    let surface = &panel.surface;
     let original = &surface.collections["modules"];
     assert_eq!(original.control(0, "open"), Some(0));
     let filtered = PanelPatch::parse(r#"{"collection_order":{"modules":[98,4]}}"#)
         .unwrap()
         .apply(&panel, &Default::default())
         .unwrap();
-    let changed = &filtered.surface.as_ref().unwrap().collections["modules"];
+    let changed = &filtered.surface.collections["modules"];
     assert!(Arc::ptr_eq(&original.definition, &changed.definition));
     assert_eq!(changed.control(0, "open"), Some(98));
     assert_eq!(original.control(0, "open"), Some(0));
@@ -431,10 +431,7 @@ fn collection_filter_is_transactional_and_keeps_painted_action_identity() {
                 .and_then(|patch| patch.apply(&filtered, &Default::default()))
                 .is_err()
         );
-        assert_eq!(
-            filtered.surface.as_ref().unwrap().collections["modules"].order,
-            [98, 4]
-        );
+        assert_eq!(filtered.surface.collections["modules"].order, [98, 4]);
     }
 }
 

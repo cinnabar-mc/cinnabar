@@ -1,6 +1,8 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
 mod backup_font;
+#[cfg(feature = "test-support")]
+mod bedrock_hotbar;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -13,7 +15,6 @@ mod data_driven;
 mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
-mod hud_editor;
 #[cfg(feature = "test-support")]
 mod menu_keyboard;
 mod panorama;
@@ -168,6 +169,10 @@ fn png_fixture(
     if let Fixture::TouchUtilities(view) = &fixture {
         return touch_utilities::png(state, dir, *view);
     }
+    #[cfg(feature = "test-support")]
+    if let Fixture::BedrockHotbar { raised } = &fixture {
+        return bedrock_hotbar::png(state, dir, *raised);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -182,10 +187,11 @@ fn png_fixture(
         | Fixture::BackupFont
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(..)
-        | Fixture::HudEditor { .. } => false,
+        | Fixture::HudSurface(..) => false,
         #[cfg(feature = "test-support")]
         Fixture::TouchEditor { .. }
         | Fixture::TouchUtilities(..)
+        | Fixture::BedrockHotbar { .. }
         | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
@@ -244,6 +250,7 @@ fn png_fixture(
         | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
+        | Fixture::BedrockHotbar { .. }
         | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
@@ -292,9 +299,26 @@ fn png_fixture(
         Fixture::TouchEditor { .. } | Fixture::TouchUtilities(..) => {
             unreachable!("touch editor uses the complete presentation path")
         }
-        Fixture::HudEditor { hud, edited } => {
+        Fixture::HudSurface(surface) => {
             let mut engine = json_engine(&carriers)?;
-            hud_editor::paint(&engine, &mut frame, &hud, edited)?;
+            let surface = Arc::new(*surface);
+            let mut ui = mod_ui::ModUi::default();
+            ui.set_hud_surfaces(std::iter::once(mod_ui::PublishedHudSurface {
+                owner: mod_ui::PanelUiOwner::Environment(0),
+                revision: 1,
+                surface: &surface,
+                authority: Default::default(),
+            }));
+            // The first paint lays out the root the projection then measures against.
+            for _ in 0..2 {
+                frame.nodes.clear();
+                *frame.next = 1;
+                ui.paint_hud_surfaces(Some(&engine), &mut frame, &|_, _| None);
+                ui.set_hud_projection(
+                    Some(crate::fixtures::hud_surface::camera(size[0] / size[1])),
+                    &|_| None,
+                );
+            }
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         Fixture::ModPanel(panel, hud, identity) => {
@@ -319,10 +343,14 @@ fn png_fixture(
                     .set_local_player_head(Some(&portrait));
                 ui.set_local_player_panel_identity(name, true);
             }
-            if let Some(hud) = &hud {
-                ui.set_mod_hud_sources(
-                    [(mod_ui::PanelUiOwner::Environment(0), 1, hud.as_ref())].into_iter(),
-                )?;
+            if let Some(hud) = hud {
+                let hud = Arc::new(*hud);
+                ui.set_hud_surfaces(std::iter::once(mod_ui::PublishedHudSurface {
+                    owner: mod_ui::PanelUiOwner::Environment(0),
+                    revision: 1,
+                    surface: &hud,
+                    authority: Default::default(),
+                }));
             }
             ui.set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))?;
             ui.set_mod_panel_open(true);
@@ -525,6 +553,7 @@ fn png_fixture(
                     .paint(
                         &engine,
                         ChatInput {
+                            local_player: "Alex",
                             editor: &editor,
                             messages: &messages,
                             suggestions: &suggestions,
@@ -637,11 +666,8 @@ fn panel_textures(
     panel: &ui::mod_panel::Panel,
     root: &Path,
 ) -> Result<Vec<(String, Vec<u8>)>, Error> {
-    let Some(surface) = &panel.surface else {
-        return Ok(Vec::new());
-    };
-    let document: serde_json::Value =
-        serde_json::from_str(&surface.resolved_document()?).map_err(|error| error.to_string())?;
+    let document: serde_json::Value = serde_json::from_str(&panel.surface.resolved_document()?)
+        .map_err(|error| error.to_string())?;
     let mut paths = std::collections::BTreeSet::new();
     collect_textures(&document, &mut paths);
     let mut files = Vec::new();

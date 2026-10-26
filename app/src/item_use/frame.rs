@@ -15,9 +15,10 @@ pub(crate) struct FrozenAirUse {
 pub(super) struct FramePolicy {
     pub held: bool,
     pub before_flush: bool,
-    pub delay_fix_enabled: bool,
     pub aim_rotation: Option<bevy::prelude::Quat>,
     pub release_facing: gameplay::item_use::RiptideFacing,
+    /// Resolves against this tick instead of the next unsent one.
+    pub sample: Option<gameplay::movement::InteractionSample>,
 }
 
 /// Observes one proposal without executing a held-use tick or sending a packet.
@@ -32,9 +33,9 @@ pub(super) fn observe(
     let FramePolicy {
         held,
         before_flush,
-        delay_fix_enabled,
         aim_rotation,
         release_facing,
+        sample: pinned_sample,
     } = policy;
     let stream = context.client_world.stream.as_ref()?;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -76,7 +77,9 @@ pub(super) fn observe(
         )
     };
     // The completed local pose remains available while its movement input waits in the FIFO.
-    if runtime.is_releasing(held)
+    // Server reconciliation reads item facts; only local action observation captures releases.
+    if pinned_sample.is_none()
+        && runtime.is_releasing(held)
         && let Some(edge) = movement.build_action_state()
     {
         let first = runtime.observe_riptide_release(
@@ -90,10 +93,14 @@ pub(super) fn observe(
             view.set_rotation(rotation);
         }
     }
-    if movement.has_held_release() {
+    // A pinned sample reconciles a server write, which a local release
+    // awaiting admission does not hold back.
+    if pinned_sample.is_none() && movement.has_held_release() {
         return None;
     }
-    let sample = if before_flush {
+    let sample = if let Some(sample) = pinned_sample {
+        Some(sample)
+    } else if before_flush {
         movement
             .newest_unsent_sample()
             .map(Into::into)
@@ -104,7 +111,6 @@ pub(super) fn observe(
     let sample = sample?;
     // Pending presses suppress new starts while accepted uses keep advancing.
     let press_pending = context.block_use.press_pending()
-        || (!delay_fix_enabled && context.melee.press_pending())
         || (context.ordered.is_some() && context.melee.has_queued_work(movement))
         || crate::ordered_interactions::is_blocked(context.ordered.as_deref());
     let frame = UseFrame {
@@ -130,7 +136,7 @@ pub(super) fn observe(
         charge_projectile: loading_projectile(player_runtime, stream, &context.ui, creative),
         press_consumed: before_flush
             || press_pending
-            || (!delay_fix_enabled && context.melee.blocks_use_at(now_millis))
+            || attack_holds_off(&context.melee, now_millis, runtime.pulse_pending())
             || context.block_use.press_interacted(),
     };
     if let Some(reason) = runtime.press_drop_reason(&frame) {
@@ -148,6 +154,16 @@ pub(super) fn observe(
         duration,
         aim_rotation,
     })
+}
+
+/// Whether an unresolved or recent attack holds a use press off; a mod's use pulse skips
+/// this client delay, so an air use can follow an attack.
+fn attack_holds_off(
+    melee: &client_interaction::melee::MeleeRuntime,
+    now: u64,
+    pulse: bool,
+) -> bool {
+    !pulse && (melee.press_pending() || melee.blocks_use_at(now))
 }
 
 /// Commits one proposal through the existing item-use admission and release-fence owners.

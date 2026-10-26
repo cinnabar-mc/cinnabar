@@ -12,12 +12,14 @@ use {super::*, inventory::crossbow_animation_frame};
 
 mod admission;
 mod crossbow;
-mod delayfix;
 mod frame_order;
 mod progress;
+mod pulse;
 mod respawn;
 mod riptide;
 mod rockets;
+mod server_flag;
+mod server_flag_model;
 
 fn crossbow_duration() -> u32 {
     match classify("minecraft:crossbow", false, 0, None).unwrap() {
@@ -490,33 +492,39 @@ fn selected_count_change_cancels_the_old_use_without_release() {
     assert_eq!(kinds(&released), ["release"]);
 }
 
-/// Count admission belongs to release; a held update does not replace its start snapshot.
+/// Vanilla's normal tick refreshes the in-use stack, count included, without
+/// restarting the use; release then compares with the refreshed count, so a
+/// release at the refreshed count sends its transaction and one at another
+/// count stops the use without it.
 #[test]
-fn selected_count_change_while_held_keeps_the_original_use_until_release() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_press(true);
-    runtime.step(&item_frame(
-        100,
-        true,
-        stack(2, MENU_ITEM, 16),
-        "minecraft:golden_apple",
-    ));
-    let timing = runtime.active_timing();
-    let held = runtime.step(&item_frame(
-        101,
-        true,
-        stack(2, MENU_ITEM, 15),
-        "minecraft:golden_apple",
-    ));
-    assert!(held.packets.is_empty() && !held.started);
-    assert_eq!(runtime.active_timing(), timing);
-    let released = runtime.step(&item_frame(
-        102,
-        false,
-        stack(2, MENU_ITEM, 16),
-        "minecraft:golden_apple",
-    ));
-    assert_eq!(kinds(&released), ["release"]);
+fn a_held_count_change_refreshes_the_in_use_stack() {
+    for (released_count, expected) in [(15, vec!["release"]), (16, vec![])] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        runtime.step(&item_frame(
+            100,
+            true,
+            stack(2, MENU_ITEM, 16),
+            "minecraft:golden_apple",
+        ));
+        let timing = runtime.active_timing();
+        let held = runtime.step(&item_frame(
+            101,
+            true,
+            stack(2, MENU_ITEM, 15),
+            "minecraft:golden_apple",
+        ));
+        assert!(held.packets.is_empty() && !held.started);
+        assert_eq!(runtime.active_timing(), timing);
+        let released = runtime.step(&item_frame(
+            102,
+            false,
+            stack(2, MENU_ITEM, released_count),
+            "minecraft:golden_apple",
+        ));
+        assert_eq!(kinds(&released), expected, "released at {released_count}");
+        assert!(!runtime.is_using());
+    }
 }
 
 /// A briefly unverifiable selection (inventory request in flight) keeps the use and its release.
@@ -887,14 +895,13 @@ impl AdmissionQueue {
 }
 
 #[test]
-fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
+fn a_pulse_admits_once_per_tick_and_session_reset_restores_rearm() {
     let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
     let mut runtime = ItemUseRuntime::default();
     runtime.synchronize(1);
-    runtime.set_delay_fix(true);
     runtime.observe_press(true);
     assert!(runtime.step(&first).swung.is_some());
-    runtime.observe_press(true);
+    runtime.observe_pulse(true);
     assert_eq!(
         runtime.press_drop_reason(&first),
         Some("use_tick_already_admitted")
@@ -906,9 +913,10 @@ fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
         selection: Some(stack(3, SNOWBALL, 16)),
         ..first.clone()
     };
-    runtime.observe_press(true);
+    runtime.observe_pulse(true);
     assert!(runtime.step(&next).swung.is_some());
     runtime.synchronize(2);
+    assert!(!runtime.pulse_pending());
     runtime.observe_press(true);
     assert!(runtime.step(&first).swung.is_some());
     runtime.observe_press(true);

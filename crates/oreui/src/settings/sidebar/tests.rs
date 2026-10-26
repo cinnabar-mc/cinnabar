@@ -38,10 +38,7 @@ fn mods_follow_resource_packs_in_the_same_group() {
     let position = |section: &str| TABS.iter().position(|tab| tab.section == section).unwrap();
     let packs = position("global_texture_pack_forced_index");
     let mods = position(launcher::mods::SECTION);
-    assert_eq!(
-        mods,
-        packs + 1 + usize::from(launcher::menu::settings_options::SHADER_PACK_BINDINGS)
-    );
+    assert_eq!(mods, packs + 2);
     assert!(TABS[mods].group.is_none());
     assert_ne!(section_index(launcher::mods::SECTION), 0);
 }

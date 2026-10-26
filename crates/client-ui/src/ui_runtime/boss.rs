@@ -53,7 +53,7 @@ impl Responses {
 impl UiRuntime {
     /// Local actor loss hides a bar without synthesizing a wire removal reply.
     pub fn retain_boss_actors(&mut self, has_actor: impl FnMut(i64) -> bool) {
-        let retired = self.boss_bars.retain_actors(has_actor);
+        let retired = self.session.boss_bars.retain_actors(has_actor);
         if retired != 0 {
             tracing::info!(
                 session = self.session_id(),
@@ -69,6 +69,7 @@ impl UiRuntime {
         event: protocol::BossEvent,
     ) -> Result<UiApplyOutcome, UiRuntimeError> {
         let tracked = self
+            .session
             .boss_bars
             .stacked_iter()
             .any(|bar| bar.target_entity_id == event.target_entity_id);
@@ -78,13 +79,14 @@ impl UiRuntime {
         let target_entity_id = event.target_entity_id;
         let action = event.action;
         let result = self
+            .session
             .boss_bars
             .apply(sequence, scoreboard_adapter::boss(event))
             .map_err(UiRuntimeError::RetainedUiSequence)?;
         if result == ui::RetainedUiApply::Applied
             && let Some(event) = lifecycle
         {
-            self.boss_responses.push(event);
+            self.session.boss_responses.push(event);
         }
         if matches!(
             action,
@@ -108,7 +110,7 @@ impl UiRuntime {
         mut send: impl FnMut(protocol::Packet) -> Result<(), FormTransportError>,
     ) -> Result<usize, FormTransportError> {
         let mut sent = 0;
-        while let Some(event) = self.boss_responses.pending.front() {
+        while let Some(event) = self.session.boss_responses.pending.front() {
             let packet = protocol::boss_registration_response(event)
                 .expect("queued boss subscription lifecycle event");
             match send(packet) {
@@ -119,12 +121,12 @@ impl UiRuntime {
                         registered = event.action == protocol::BossAction::Show,
                         "boss subscription reply queued for server"
                     );
-                    self.boss_responses.pending.pop_front();
+                    self.session.boss_responses.pending.pop_front();
                     sent += 1;
                 }
                 Err(FormTransportError::Full) => return Err(FormTransportError::Full),
                 Err(FormTransportError::Closed) => {
-                    self.boss_responses.pending.clear();
+                    self.session.boss_responses.pending.clear();
                     return Err(FormTransportError::Closed);
                 }
             }

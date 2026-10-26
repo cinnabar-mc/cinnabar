@@ -880,35 +880,23 @@ fn lay_out_and_emit(
     gated: Option<(&mut MeasureCache, bool)>,
 ) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
-        let (laid, report, gate) = match gated {
-            Some((measures, false)) => {
+        let (laid, report) = match gated {
+            Some((measures, gated)) => {
                 let (output, report) =
-                    crate::layout::layout_reusing(&bound, root_size, env, state, measures);
+                    crate::layout::layout_reusing(&bound, root_size, env, state, measures, gated);
                 return FormRender {
                     bound,
-                    nodes: output.nodes.into(),
-                    hits: output.hits.into(),
+                    nodes: output.nodes,
+                    hits: output.hits,
                     report,
                     cancel_target: output.cancel,
                     root_panel: output.root_panel,
                 };
             }
-            Some((measures, true)) => {
-                let (laid, report) =
-                    crate::layout::layout_culled(&bound, root_size, env, state, measures);
-                (laid, report, true)
-            }
-            None => {
-                let (laid, report) = layout_with(&bound, root_size, env, state);
-                (laid, report, false)
-            }
+            None => layout_with(&bound, root_size, env, state),
         };
         (
-            if gate {
-                crate::emit::emit_gated(&laid, env)
-            } else {
-                emit(&laid, env)
-            },
+            emit(&laid, env),
             hit_regions(&laid).into(),
             report,
             global_mapping(&laid, Button::MenuCancel.as_str()),

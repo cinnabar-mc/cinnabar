@@ -60,6 +60,19 @@ impl Default for EmoteState {
 }
 
 impl EmoteState {
+    /// Retires selection and playback while retaining equipped choices and pending preferences.
+    pub(super) fn next_session(&mut self) -> Self {
+        Self {
+            slots: self.slots,
+            playback_revision: self.playback_revision,
+            catalog: std::mem::take(&mut self.catalog),
+            catalog_page: self.catalog_page,
+            chosen: self.chosen,
+            preferences: self.preferences.take(),
+            ..Self::default()
+        }
+    }
+
     pub fn open(&mut self) {
         self.mode = Mode::Wheel;
         self.selected = None;
@@ -256,10 +269,10 @@ impl EmoteState {
 
 impl super::UiRuntime {
     pub fn emotes(&self) -> &EmoteState {
-        &self.emotes
+        &self.session.emotes
     }
     pub fn emotes_mut(&mut self) -> &mut EmoteState {
-        &mut self.emotes
+        &mut self.session.emotes
     }
 }
 

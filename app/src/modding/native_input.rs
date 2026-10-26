@@ -1,4 +1,5 @@
 //! Applies negotiated packet intents to the client's ordinary movement pipeline.
+use super::ModControlModes;
 use bevy::prelude::*;
 use mod_api::native_camera::{Effects, LookIntent};
 
@@ -7,6 +8,9 @@ use mod_api::native_camera::{Effects, LookIntent};
 pub(super) struct NativeInput {
     pub(super) scope: Option<(u64, i32)>,
     pub(super) movement: semantic_input::finalized::MovementOverlay,
+    /// Personal mods' sprint and sneak intents, in the world scope that held them.
+    intents: semantic_input::finalized::MovementOverlay,
+    intents_scope: Option<(u64, i32)>,
 }
 
 impl NativeInput {
@@ -22,6 +26,45 @@ impl NativeInput {
         }
         self.scope = scope;
         self.movement.apply(input, intent);
+    }
+
+    /// Holds personal-mod sprint and sneak intents over this frame's bindings. Leaving input
+    /// ownership releases them; a different world starts without the previous world's holds.
+    fn hold_intents(
+        &mut self,
+        input: &mut semantic_input::finalized::FinalizedInput,
+        scope: Option<(u64, i32)>,
+        intents: Option<mod_host::GameplayMovementIntents>,
+    ) {
+        if self
+            .intents_scope
+            .zip(scope)
+            .is_some_and(|(old, new)| old != new)
+        {
+            self.intents = Default::default();
+        }
+        self.intents_scope = scope.or(self.intents_scope);
+        let intents = intents.filter(|_| scope.is_some());
+        self.intents.hold(
+            input,
+            [
+                false,
+                intents.is_some_and(|intents| intents.sneak),
+                intents.is_some_and(|intents| intents.sprint),
+            ],
+        );
+    }
+}
+
+impl ModControlModes {
+    /// The player's gameplay settings with this frame's mod modes in place of their own.
+    pub(crate) fn apply(&self, mut gameplay: ui::GameplaySettings) -> ui::GameplaySettings {
+        if let Some(modes) = self.0 {
+            gameplay.toggle_sprint = modes.toggle_sprint;
+            gameplay.toggle_sneak = modes.toggle_sneak;
+            gameplay.always_sprint = modes.always_sprint;
+        }
+        gameplay
     }
 }
 
@@ -94,6 +137,39 @@ impl super::gameplay::GameplayContext<'_> {
         state.apply(input, scope, intent);
     }
 
+    /// Holds sprint and sneak as if bound while gameplay owns input; omission releases them.
+    pub(super) fn apply_movement_intents(
+        &mut self,
+        intents: Option<mod_host::GameplayMovementIntents>,
+        input_owned: bool,
+    ) {
+        let scope = self
+            .world
+            .as_ref()
+            .and_then(|world| world.stream.as_ref())
+            .map(|stream| {
+                let authority = stream.authority();
+                (authority.actor_session_id(), authority.current_dimension())
+            })
+            .filter(|_| input_owned);
+        let (Some(state), Some(input)) = (self.native_input.as_mut(), self.input.as_mut()) else {
+            return;
+        };
+        let scope = scope.filter(|_| {
+            input
+                .snapshot()
+                .is_some_and(|input| !input.authority_released)
+        });
+        state.hold_intents(input, scope, intents);
+    }
+
+    /// Publishes the control modes mods renewed this frame; omission restores the player's own.
+    pub(super) fn apply_control_modes(&mut self, modes: Option<mod_host::GameplayControlModes>) {
+        if let Some(published) = self.control_modes.as_mut() {
+            published.0 = modes;
+        }
+    }
+
     /// Applies absolute look at render cadence, rather than consuming asynchronous relative steps.
     pub(super) fn apply_native_look(&mut self, effects: Option<&Effects>) {
         if let Some(look) = effects.and_then(|effects| effects.look) {
@@ -144,6 +220,94 @@ mod tests {
         );
         assert!(delta.yaw > 0.0 && delta.yaw < 0.03);
     }
+    /// Control modes replace the player's three control settings only while present.
+    #[test]
+    fn control_modes_replace_the_player_settings_only_while_present() {
+        let player = ui::GameplaySettings {
+            toggle_sprint: false,
+            always_sprint: true,
+            toggle_sneak: true,
+            ..Default::default()
+        };
+        assert_eq!(ModControlModes(None).apply(player), player);
+        let modes = mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        };
+        assert_eq!(
+            ModControlModes(Some(modes)).apply(player),
+            ui::GameplaySettings {
+                toggle_sprint: true,
+                toggle_sneak: false,
+                always_sprint: false,
+                ..player
+            }
+        );
+    }
+
+    /// Each frame publishes the merged modes it was given, so omission restores the player's own.
+    #[test]
+    fn published_control_modes_are_replaced_every_frame() {
+        use bevy::ecs::system::RunSystemOnce;
+        let modes = mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: true,
+            always_sprint: false,
+        };
+        let mut world = World::new();
+        world.init_resource::<ModControlModes>();
+        world
+            .run_system_once(
+                move |mut gameplay: super::super::gameplay::GameplayContext| {
+                    gameplay.apply_control_modes(Some(modes));
+                },
+            )
+            .unwrap();
+        assert_eq!(world.resource::<ModControlModes>().0, Some(modes));
+        world
+            .run_system_once(|mut gameplay: super::super::gameplay::GameplayContext| {
+                gameplay.apply_control_modes(None);
+            })
+            .unwrap();
+        assert_eq!(world.resource::<ModControlModes>().0, None);
+    }
+
+    #[test]
+    fn personal_intents_hold_sprint_and_sneak_and_release_outside_their_scope() {
+        let fresh = || {
+            let mut router = semantic_input::SemanticInputRouter::default();
+            router
+                .route(semantic_input::DeviceFrame::default())
+                .unwrap();
+            semantic_input::finalized::FinalizedInput::from_finalized(router.finalize().unwrap())
+        };
+        let intents = Some(mod_host::GameplayMovementIntents {
+            sprint: true,
+            sneak: false,
+        });
+        let mut state = NativeInput::default();
+        let mut held = fresh();
+        state.hold_intents(&mut held, Some((1, 0)), intents);
+        let sprint = held.phase(semantic_input::Action::Sprint);
+        assert!(sprint.pressed && sprint.held);
+        assert!(!held.phase(semantic_input::Action::Sneak).held);
+        assert_eq!(held.raw_movement(), [0.0; 2]);
+        let mut lost = fresh();
+        state.hold_intents(&mut lost, None, intents);
+        assert!(lost.phase(semantic_input::Action::Sprint).released);
+        assert!(!lost.phase(semantic_input::Action::Sprint).held);
+        let mut renewed = fresh();
+        state.hold_intents(&mut renewed, Some((1, 0)), intents);
+        let mut omitted = fresh();
+        state.hold_intents(&mut omitted, Some((1, 0)), None);
+        assert!(omitted.phase(semantic_input::Action::Sprint).released);
+        state.hold_intents(&mut fresh(), Some((1, 0)), intents);
+        let mut next_world = fresh();
+        state.hold_intents(&mut next_world, Some((2, 0)), None);
+        assert!(!next_world.phase(semantic_input::Action::Sprint).released);
+    }
+
     #[test]
     fn losing_walking_eligibility_publishes_the_retiring_buttons() {
         let fresh = || {

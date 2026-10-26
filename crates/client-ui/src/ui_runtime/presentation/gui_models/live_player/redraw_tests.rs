@@ -38,7 +38,7 @@ fn frame(
             ..Default::default()
         },
     )]);
-    presentation.capture_hud_player(Some(stream), false);
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     presentation
         .build(
             player,

@@ -1,7 +1,7 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P},
+    facts::{BlockFact, BlockProperty as P, ItemTraits},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
@@ -264,7 +264,6 @@ pub struct BlockUseRuntime {
     last_use: Option<Duration>,
     /// The last success was a block interaction.
     slow_repeat: bool,
-    last_attempt_tick: Option<u64>,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
     /// The latest press was resolved as a block interaction.
@@ -411,11 +410,11 @@ impl BlockUseRuntime {
         self.position_authority = Some(authority);
     }
 
-    /// The trigger due now, with the repeat's due time; at most one attempt per tick.
+    /// The trigger due now; each buffered pick may use an elapsed repeat deadline.
     pub fn due(
         &self,
         held: bool,
-        tick: u64,
+        _tick: u64,
         clock: RepeatClock,
     ) -> Option<(ItemUseTrigger, Duration)> {
         if self.waiting_for_authority {
@@ -424,7 +423,7 @@ impl BlockUseRuntime {
         if self.latched_press {
             return Some((ItemUseTrigger::PlayerInput, clock.now));
         }
-        if !held || self.last_attempt_tick == Some(tick) {
+        if !held {
             return None;
         }
         let interval = repeat_interval_millis(
@@ -460,7 +459,7 @@ impl BlockUseRuntime {
     }
 
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
-    /// retries (and resends its transaction) on the next tick.
+    /// remains eligible for the next buffered pick.
     pub fn record(
         &mut self,
         trigger: ItemUseTrigger,
@@ -471,7 +470,6 @@ impl BlockUseRuntime {
     ) {
         self.rejected_tick = None;
         self.latched_press = false;
-        self.last_attempt_tick = Some(tick);
         if trigger == ItemUseTrigger::PlayerInput {
             self.press_interacted = local_use == LocalUse::Interact;
             if self.press_interacted {
@@ -492,15 +490,21 @@ impl BlockUseRuntime {
     }
 }
 
-/// Whether a held repeat sends its transaction: block items always do, and any other hand
-/// repeats only a block's own use. Buckets never do, as some bucket kinds skip held repeats;
-/// other items' own uses on blocks are not predicted, so they do not repeat yet.
+/// Allows failed crop attempts with empty hands, hoes and pickaxes. Other non-block
+/// uses need a predicted block interaction until their successful-use timing is modeled.
 pub fn repeats_while_held(
     item: &VerifiedNetworkItemStack,
     bucket: bool,
     local_use: LocalUse,
+    clicked: BlockFact,
+    traits: ItemTraits,
 ) -> bool {
-    item.block_runtime_id() != 0 || (local_use == LocalUse::Interact && !bucket)
+    let passive_crop_use = clicked.family == ModelFamily::Crop
+        && (item.is_empty()
+            || traits.contains(ItemTraits::HOE)
+            || traits.contains(ItemTraits::PICKAXE));
+    item.block_runtime_id() != 0
+        || (!bucket && (local_use == LocalUse::Interact || passive_crop_use))
 }
 
 /// The cell and state a switch use predicts within the observed world.
@@ -689,3 +693,6 @@ mod packets;
 pub use packets::HeldPlacementInventory;
 
 mod stopping;
+
+mod pick;
+pub use pick::{BlockPick, PickResult};

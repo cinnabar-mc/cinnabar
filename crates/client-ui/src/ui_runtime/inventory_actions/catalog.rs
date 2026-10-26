@@ -95,6 +95,38 @@ impl UiRuntime {
         }
     }
 
+    /// A primary press on the empty background of the creative item grid. Vanilla maps it
+    /// to `button.destroy_selection`, which deletes the held stack in creative.
+    pub fn destroy_held_on_item_grid(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+    ) -> Outcome {
+        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        self.inventory_ledger_mut(player_runtime)
+            .begin_destroy_cursor(None)
+    }
+
+    /// A Shift-click on a slot whose control routes it to `button.container_auto_destroy`,
+    /// as the creative layout's hotbar slots do: deletes the slot's whole stack, in creative
+    /// and with nothing held.
+    pub fn destroy_on_auto_place(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        hit: InventoryCellHit,
+    ) -> Outcome {
+        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        let target = gesture_target(hit).ok_or(InventoryGestureError::InvalidRequest)?;
+        let ledger = self.inventory_ledger_mut(player_runtime);
+        if ledger.cursor_stack().is_some() {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        ledger.begin_destroy_target(target)
+    }
+
     /// A click on a catalog cell: take the item, or delete the held stack.
     pub(super) fn creative_click(
         &mut self,

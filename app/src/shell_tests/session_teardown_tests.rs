@@ -426,3 +426,60 @@ fn back_during_the_realm_lookup_keeps_joining() {
     assert!(app.world().resource::<MenuRuntime>().is_connecting());
     assert!(!session_events.is_closed());
 }
+
+/// A leave fences buffered transfer controls before the next frame joins either destination.
+#[test]
+fn leaving_then_immediately_rejoining_advances_authority_without_old_transfer_controls() {
+    for address in ["old.example:19132", "other.example:19132"] {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu_fixture::suppress_catalog(&mut menu);
+        menu_fixture::use_missing_core(&mut menu);
+        menu.request_connect("old.example:19132".into());
+        menu.take_join_intent();
+        menu.show_world();
+        menu.open_pause();
+        menu.activate(MenuAction::PauseDisconnect);
+        let (network, old_ingress) = NetworkHandle::<PackApplication>::stub_with_control_sender();
+        old_ingress
+            .try_send(NetworkControlEvent::Transferred {
+                target: client_session::SessionTransferTarget {
+                    host: "stale.example".into(),
+                    port: 19132,
+                },
+                decode_error_count: 0,
+            })
+            .unwrap();
+        let mut app = drive_once((menu, SessionController::default()), network);
+        let left = app.world().resource::<UiRuntimeResource>().session_id();
+        assert!(old_ingress.is_closed());
+        assert!(app.world().resource::<MenuRuntime>().is_visible());
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .request_connect(address.into());
+        app.update();
+        let current = app.world().resource::<UiRuntimeResource>().session_id();
+        assert!(current > left);
+        assert_eq!(
+            current,
+            app.world().resource::<SessionController>().generation()
+        );
+        assert!(
+            old_ingress
+                .try_send(NetworkControlEvent::Stopped {
+                    decode_error_count: 0
+                })
+                .is_err()
+        );
+        assert!(app.world().resource::<ClientWorld>().stream.is_none());
+        assert!(app.world().resource::<FatalError>().0.is_none());
+        assert!(
+            app.world_mut()
+                .resource_mut::<NetworkHandle<PackApplication>>()
+                .control_events_mut()
+                .try_recv()
+                .is_err()
+        );
+        let view = app.world().resource::<MenuRuntime>().view();
+        assert!(view.disconnect_message.as_ref().unwrap().contains(address));
+    }
+}

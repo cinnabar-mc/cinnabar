@@ -39,7 +39,10 @@ pub fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
 pub fn release_off_frame(retired: impl Send + 'static) {
     let spawned = std::thread::Builder::new()
         .name("session-release".to_owned())
-        .spawn(move || drop(retired));
+        .spawn(move || {
+            let _span = bevy::log::info_span!("session.release_allocations").entered();
+            drop(retired);
+        });
     if let Err(error) = spawned {
         bevy::log::warn!("session release thread unavailable, released on the frame: {error}");
     }

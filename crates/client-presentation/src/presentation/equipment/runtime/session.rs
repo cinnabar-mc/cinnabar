@@ -190,19 +190,14 @@ impl EquipmentRuntime {
         }
     }
 
-    /// What a custom item is held as: its block's cube sheet (vanilla holds a block item as its
-    /// block), else its icon; with the mesh key, atlas placement and artwork location.
-    pub(super) fn session_held(
+    /// Returns the session block sheet only while its artwork placement is admitted.
+    pub(super) fn session_held_block(
         &self,
         identifier: &str,
-        metadata: u32,
-    ) -> Option<(usize, MeshKey, Placement, ActorArtworkLocation)> {
-        if let Some(&sheet) = self.session.block_sheets.get(identifier) {
-            let (placement, location) = self.session_placement(sheet)?;
-            return Some((sheet, MeshKey::SessionBlock(sheet), placement, location));
-        }
-        let (index, placement, location) = self.session_sprite(identifier, metadata)?;
-        Some((index, MeshKey::Session(index), placement, location))
+    ) -> Option<(usize, Placement, ActorArtworkLocation)> {
+        let sheet = *self.session.block_sheets.get(identifier)?;
+        let (placement, location) = self.session_placement(sheet)?;
+        Some((sheet, placement, location))
     }
 
     /// The session icon for `identifier` with its atlas placement and artwork location.

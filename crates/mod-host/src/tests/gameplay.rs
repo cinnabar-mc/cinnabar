@@ -37,42 +37,6 @@ fn delay(value: u32, error: bool) -> String {
     )
 }
 
-fn show_position(enabled: bool, error: bool) -> String {
-    format!(
-        "i32.const {} i32.const 256 call $show i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
-        u8::from(enabled),
-        u8::from(error)
-    )
-}
-
-#[test]
-fn real_position_visual_is_denied_by_default_retained_on_success_and_cleared_on_trap() {
-    let (_directory, mut denied) = load("", &show_position(true, true), ModGrants::default());
-    denied.frame(false).unwrap();
-    assert!(!denied.show_real_position());
-    let granted = ModGrants {
-        packet_delay: true,
-        ..Default::default()
-    };
-    let (_directory, mut enabled) = load(&show_position(true, false), "", granted.clone());
-    enabled.frame(false).unwrap();
-    assert!(enabled.show_real_position());
-    let (_directory, mut disabled) = load(
-        &show_position(true, false),
-        &show_position(false, false),
-        granted.clone(),
-    );
-    disabled.frame(false).unwrap();
-    assert!(!disabled.show_real_position());
-    let (_directory, mut trapped) = load(
-        &show_position(true, false),
-        &format!("{} unreachable", show_position(false, false)),
-        granted,
-    );
-    assert!(trapped.frame(false).is_err());
-    assert!(!trapped.show_real_position());
-}
-
 #[test]
 fn packet_delay_is_denied_by_default_and_bounded_without_a_gameplay_frame() {
     let (_directory, mut denied) = load("", &delay(200, true), ModGrants::default());
@@ -435,6 +399,8 @@ fn mod_host_movement() -> crate::GameplayMovementSnapshot {
         },
         on_ground: true,
         jump_held: false,
+        sprint_held: false,
+        sneak_held: false,
         eligible: true,
         knockback_sequence: 1,
     }
@@ -473,4 +439,113 @@ fn explicit_jump_cancellation_commits_once_without_gameplay_and_wins_over_pulse(
     let (_directory, mut trapped) = load("", &format!("{cancel} unreachable"), grants);
     assert!(trapped.frame(false).is_err());
     assert!(!trapped.take_jump_cancel());
+}
+
+/// Stages toggle-sprint and always-sprint control modes, whatever the host answers.
+const CONTROL_MODES: &str =
+    "i32.const 1 i32.const 1 i32.const 0 i32.const 1 i32.const 256 call $modes";
+
+/// The control modes `CONTROL_MODES` stages.
+fn staged_modes() -> crate::GameplayControlModes {
+    crate::GameplayControlModes {
+        toggle_sprint: true,
+        toggle_sneak: false,
+        always_sprint: true,
+    }
+}
+
+/// A focused gameplay controls frame, in which a mod may set control modes.
+fn focused_controls() -> crate::ControlFrame {
+    crate::ControlFrame {
+        focused: true,
+        gameplay: true,
+        ..crate::empty_controls()
+    }
+}
+
+/// Control modes cross the component boundary, need movement authority, last only while renewed
+/// in focused gameplay and are cleared by a trap.
+#[test]
+fn control_modes_commit_per_renewed_frame_and_clear_after_a_trap() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let (_directory, mut host) = load("", CONTROL_MODES, grants.clone());
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()));
+    host.frame_with_controls(false, Some(snapshot()), crate::empty_controls())
+        .unwrap();
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "outside focused gameplay the modes cannot be renewed"
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()));
+    assert!(host.is_active());
+
+    let once = format!(
+        "i32.const 1024 i32.load i32.eqz if {CONTROL_MODES} end \
+         i32.const 1024 i32.const 1 i32.store"
+    );
+    let (_directory, mut once) = load("", &once, grants.clone());
+    once.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(once.control_modes(), Some(staged_modes()));
+    once.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(once.control_modes(), None, "omission expires renewed modes");
+
+    let (_directory, mut denied) = load("", CONTROL_MODES, ModGrants::default());
+    denied
+        .frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(denied.control_modes(), None);
+
+    let (_directory, mut omitted) = load(CONTROL_MODES, "", grants.clone());
+    omitted
+        .frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(
+        omitted.control_modes(),
+        None,
+        "init does not set frame modes"
+    );
+
+    let (_directory, mut trapped) = load("", &format!("{CONTROL_MODES} unreachable"), grants);
+    assert!(
+        trapped
+            .frame_with_controls(false, Some(snapshot()), focused_controls())
+            .is_err()
+    );
+    assert!(!trapped.is_active());
+    assert_eq!(trapped.control_modes(), None);
+}
+
+/// Components compiled against the original gameplay interface still instantiate unchanged.
+#[test]
+fn legacy_gameplay_component_keeps_its_original_import_type() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let source = include_str!("gameplay_0_1.wat")
+        .replace("$GAMEPLAY", &format!("{name}/gameplay@{version}"))
+        .replace("$INIT", "")
+        .replace("$FRAME", "");
+    let mut host = ModHost::load_snapshot_with_grants(
+        &directory.path().join("legacy-gameplay.wat"),
+        source.as_bytes(),
+        ModGrants::default(),
+    )
+    .unwrap();
+    host.frame(false).unwrap();
+    assert!(host.is_active());
 }

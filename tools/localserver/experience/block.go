@@ -49,6 +49,17 @@ type blockType struct {
 	visual *visualType
 	// network is set for a network member, whose callbacks have the network around it.
 	network bool
+	// item is how the block's item is offered; with ItemNone the block has no item and drops
+	// nothing by itself.
+	item BlockItem
+	// redstone is set for a block that takes part in redstone; every other block opts out.
+	redstone bool
+	// overlays is what an overlay host may carry, nil for a block that carries none; its
+	// blocks in a world are HostBlocks.
+	overlays *overlaySet
+	// overlay is set for an overlay type: a hidden block that only overlays draw, never in a
+	// world, without an item or creative entry.
+	overlay bool
 }
 
 // Block is an Experience block, in a world or as an item: its type and its state, an index of
@@ -69,6 +80,7 @@ var (
 	_ block.Traited               = Block{}
 	_ world.CustomItem            = Block{}
 	_ block.Breakable             = Block{}
+	_ block.Pickable              = Block{}
 	_ block.Activatable           = Block{}
 	_ item.UsableOnBlock          = Block{}
 	_ world.NeighbourUpdateTicker = Block{}
@@ -216,6 +228,15 @@ func (Block) Category() category.Category {
 	return category.Construction()
 }
 
+// Pick is the block's item, which picking the block gives; the empty stack for a block without
+// one, which picking leaves alone.
+func (b Block) Pick() item.Stack {
+	if b.t.item == ItemNone {
+		return item.Stack{}
+	}
+	return item.NewStack(Block{t: b.t}, 1)
+}
+
 // BreakInfo follows the block's mining; its BreakHandler hands the break to the hook sink.
 func (b Block) BreakInfo() block.BreakInfo {
 	return b.t.breakInfo
@@ -269,6 +290,10 @@ type hookSink interface {
 	scheduledTick(b Block, pos cube.Pos, tx *world.Tx)
 	// breakHandler handles the block at pos having been broken.
 	breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User)
+	// redstonePower is the power that the redstone block at pos emits.
+	redstonePower(b Block, pos cube.Pos, tx *world.Tx) int
+	// redstoneChanged handles a change in the power that the redstone block at pos receives.
+	redstoneChanged(b Block, pos cube.Pos, tx *world.Tx)
 }
 
 // sinkHolder lets an atomic.Pointer hold a hookSink.
@@ -303,3 +328,7 @@ func (noHooks) neighbourUpdateTick(Block, cube.Pos, cube.Pos, *world.Tx) {}
 func (noHooks) scheduledTick(Block, cube.Pos, *world.Tx) {}
 
 func (noHooks) breakHandler(Block, cube.Pos, *world.Tx, item.User) {}
+
+func (noHooks) redstonePower(Block, cube.Pos, *world.Tx) int { return 0 }
+
+func (noHooks) redstoneChanged(Block, cube.Pos, *world.Tx) {}

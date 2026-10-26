@@ -133,7 +133,97 @@
         "data": "010000",
         "plain": false
       }
-    ]
+    ],
+    "game_mode": "creative"
+  },
+  "containers": {
+    "blocks": [
+      {
+        "pos": {
+          "x": 12,
+          "y": 65,
+          "z": -7
+        },
+        "loaded": true,
+        "pair": {
+          "x": 11,
+          "y": 65,
+          "z": -7
+        },
+        "slots": [
+          null,
+          null,
+          null,
+          {
+            "id": "minecraft:iron_ingot",
+            "metadata": 0,
+            "count": 16,
+            "max_count": 64,
+            "data": null,
+            "plain": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "pos": {
+          "x": 12,
+          "y": 64,
+          "z": -8
+        },
+        "loaded": false
+      }
+    ],
+    "truncated": true
   },
   "call": {
     "type": "interact",

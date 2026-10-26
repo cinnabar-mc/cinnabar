@@ -28,6 +28,7 @@ pub enum Action {
     MoveDown(u64),
     Permission(u64, usize, bool),
     AllowRequested(u64),
+    GrantAll(u64),
     RevokeAll(u64),
     Customize(u64),
     ShowAllPermissions(u64),
@@ -140,7 +141,7 @@ pub struct AvailableUpdate {
     pub release_url: String,
 }
 
-/// Directory contents and the ordered Active list, published off-frame by the app.
+/// Directory contents and the ordered Active list, published by the library service.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Library {
     /// Live update operations, retained through the runtime reload acknowledgement.

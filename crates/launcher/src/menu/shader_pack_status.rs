@@ -5,6 +5,22 @@
 
 use std::{fmt::Write, time::Duration};
 
+/// Feedback for the selected pack, distinguishing a usable pack from a failed load.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PackIssue {
+    Failure(std::sync::Arc<str>),
+    Warning(std::sync::Arc<str>),
+}
+
+impl PackIssue {
+    /// Returns the explanation displayed below the selected pack.
+    pub fn description(&self) -> &str {
+        match self {
+            Self::Failure(text) | Self::Warning(text) => text,
+        }
+    }
+}
+
 /// How long a load runs before its toast stands, so a pack that loads at once only reports
 /// how it went.
 pub const LOADING_TOAST_DELAY: Duration = Duration::from_millis(500);
@@ -39,12 +55,10 @@ pub enum PackLoad<'a> {
     },
     Ready {
         pack: &'a str,
+        warnings: Option<&'a str>,
     },
     /// `reason` holds one problem per line, the first summarising the failure.
-    Failed {
-        pack: &'a str,
-        reason: &'a str,
-    },
+    Failed { pack: &'a str, reason: &'a str },
 }
 
 /// A change to the shader-pack toasts.
@@ -72,7 +86,10 @@ enum Seen {
     #[default]
     Idle,
     Loading(String),
-    Ready(String),
+    Ready {
+        pack: String,
+        warnings: Option<String>,
+    },
     Failed {
         pack: String,
         reason: String,
@@ -83,8 +100,14 @@ impl Seen {
     fn is(&self, load: PackLoad<'_>) -> bool {
         match (self, load) {
             (Self::Idle, PackLoad::Idle) => true,
-            (Self::Loading(seen), PackLoad::Loading { pack, .. })
-            | (Self::Ready(seen), PackLoad::Ready { pack }) => seen == pack,
+            (Self::Loading(seen), PackLoad::Loading { pack, .. }) => seen == pack,
+            (
+                Self::Ready {
+                    pack: seen,
+                    warnings: why,
+                },
+                PackLoad::Ready { pack, warnings },
+            ) => seen == pack && why.as_deref() == warnings,
             (
                 Self::Failed {
                     pack: seen,
@@ -100,7 +123,10 @@ impl Seen {
         match load {
             PackLoad::Idle => Self::Idle,
             PackLoad::Loading { pack, .. } => Self::Loading(pack.to_owned()),
-            PackLoad::Ready { pack } => Self::Ready(pack.to_owned()),
+            PackLoad::Ready { pack, warnings } => Self::Ready {
+                pack: pack.to_owned(),
+                warnings: warnings.map(str::to_owned),
+            },
             PackLoad::Failed { pack, reason } => Self::Failed {
                 pack: pack.to_owned(),
                 reason: reason.to_owned(),
@@ -142,10 +168,10 @@ impl PackNotices {
                 .is_some_and(|loading| loading.shown.is_some());
             match load {
                 PackLoad::Idle => return standing.then_some(PackToast::Withdraw),
-                PackLoad::Ready { pack } => {
+                PackLoad::Ready { pack, warnings } => {
                     return Some(PackToast::Outcome {
                         title: format!("Shader pack {} loaded", pack_label(pack)),
-                        message: String::new(),
+                        message: warnings.map_or_else(String::new, failure_summary),
                     });
                 }
                 PackLoad::Failed { pack, reason } => {
@@ -213,10 +239,25 @@ pub fn failure_summary(reason: &str) -> String {
     summary
 }
 
-/// The pack picker's description while the selected pack has failed: the reason's lines,
-/// the first [`DESCRIBED_LINES`] of them, then a count of the rest.
+/// Explains skipped programs while supported passes continue drawing.
+pub fn warning_description(reason: &str) -> String {
+    diagnostic_description(
+        "Some programs are unavailable. Supported passes continue running.",
+        reason,
+    )
+}
+
+/// Explains why the selected pack failed and the native renderer is drawing instead.
 pub fn failure_description(reason: &str) -> String {
-    let mut text = String::from("This pack failed to load, so Vanilla draws instead.");
+    diagnostic_description(
+        "This pack failed to load, so Vanilla draws instead.",
+        reason,
+    )
+}
+
+/// Formats a bounded list of program diagnostics after the supplied load summary.
+fn diagnostic_description(summary: &str, reason: &str) -> String {
+    let mut text = summary.to_owned();
     let mut lines = reason.lines().filter(|line| !line.trim().is_empty());
     for line in lines.by_ref().take(DESCRIBED_LINES) {
         text.push('\n');

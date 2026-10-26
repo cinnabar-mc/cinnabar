@@ -1,6 +1,8 @@
 //! The render-world geometry resource: preparing expansion work and draw lists each frame, and
 //! recording the expansion before any camera draws.
 
+mod draws;
+
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hash, Hasher};
 
@@ -9,7 +11,6 @@ use bevy::math::{DVec3, IVec3, Vec3};
 use bevy::platform::hash::FixedHasher;
 use bevy::prelude::{Entity, FromWorld, Has, Query, Res, ResMut, Resource, World, default};
 use bevy::render::camera::ExtractedCamera;
-use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::render_resource::{
     BindGroup, BindGroupEntry, Buffer, BufferDescriptor, BufferId, BufferInitDescriptor,
     BufferUsages, ComputePassDescriptor, PipelineCache,
@@ -22,9 +23,7 @@ use render_scene::{ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
 use super::draw::{DrawInputs, ViewDraws, face_indices};
 use super::expansion_buffers::{ExpansionBuffers, PARAM_WORDS, frame_job_capacity};
-use super::jobs::{
-    GeometryCategory, JOB_KINDS, JobKind, MaterialTables, SectionPlan, plan_section,
-};
+use super::jobs::{JOB_KINDS, JobKind, MaterialTables, SectionPlan, plan_section};
 use super::pipelines::{
     EXPAND_WORKGROUP_SIZE, ExpansionPipelines, output_layout, source_bindings, source_layout,
     storage_buffers_per_stage,
@@ -266,36 +265,6 @@ impl ShaderpackGeometry {
         self.layout
     }
 
-    /// Records `category` for `view` (a render-world view entity with visible chunks): its
-    /// camera list, or with `shadow` its shadow-pass list from
-    /// [`Self::prepare_shadow_view`]. The pass must already hold a pipeline built with
-    /// [`super::vertex_buffer_layouts`] and the program's bind groups. Returns the draws
-    /// issued.
-    pub fn draw<'w>(
-        &'w self,
-        pass: &mut TrackedRenderPass<'w>,
-        category: GeometryCategory,
-        view: Entity,
-        shadow: bool,
-    ) -> u32 {
-        let Some(index_buffer) = &self.index_buffer else {
-            return 0;
-        };
-        let lists = if shadow { &self.shadows } else { &self.views };
-        let Some(draws) = lists.get(&view) else {
-            return 0;
-        };
-        let origins = self.draw_origins.as_ref().filter(|_| self.layout.packed());
-        draws.record(
-            pass,
-            category,
-            &self.pages,
-            index_buffer,
-            &self.constants,
-            origins,
-        )
-    }
-
     /// Builds (or keeps, when the sections it lists are unchanged) `view`'s shadow-pass list:
     /// the resident sections `frustum` keeps. While neither the residency nor the frustum
     /// moved, the list stands without walking the sections.
@@ -420,7 +389,7 @@ impl ShaderpackGeometry {
             self.draw_origins = Some(device.create_buffer(&BufferDescriptor {
                 label: Some("shader-pack terrain draw origins"),
                 size: u64::from(capacity) * DRAW_ORIGIN_BYTES,
-                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                usage: BufferUsages::VERTEX | BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }));
             self.draw_origin_capacity = capacity;
@@ -465,7 +434,7 @@ impl ShaderpackGeometry {
         self.index_buffer = Some(device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("shader-pack terrain face indices"),
             contents: bytemuck::cast_slice(&face_indices(faces)),
-            usage: BufferUsages::INDEX,
+            usage: BufferUsages::INDEX | BufferUsages::STORAGE,
         }));
         self.index_faces = faces;
     }

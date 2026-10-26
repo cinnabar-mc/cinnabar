@@ -17,8 +17,6 @@ use ui_engine::engine::{
 };
 
 mod hunger_animation;
-mod hunger_overlay;
-pub use hunger_overlay::saturation_mask;
 mod mob_effects;
 mod status;
 mod status_motion;
@@ -31,8 +29,12 @@ pub const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 /// The standalone crosshair's side in GUI px.
 pub const CROSSHAIR_SIDE: f32 = 16.0;
 pub const HUNGER_RENDERER: &str = "hunger_renderer";
-/// The built-in Java pack's effect rows; vanilla's `mob_effects_renderer` draws the column.
-const JAVA_MOB_EFFECTS_RENDERER: &str = "java_mob_effects_renderer";
+/// Vanilla's status effect column.
+pub const MOB_EFFECTS_RENDERER: &str = "mob_effects_renderer";
+/// The built-in Java pack's effect rows.
+pub const JAVA_MOB_EFFECTS_RENDERER: &str = "java_mob_effects_renderer";
+/// The crosshair overlay's cursor.
+pub const CURSOR_RENDERER: &str = "cursor_renderer";
 
 /// One sprite a renderer draws, relative to its control's origin, in GUI px.
 #[derive(Clone, Debug, PartialEq)]
@@ -235,13 +237,12 @@ fn paint(
             for cell in hud.hunger.cells(updates) {
                 paint_cell(canvas, &cell, top_left, visible, alpha);
             }
-            hunger_overlay::paint(canvas, &hud.hunger, updates, node, visible);
             return PaintKind::Bottom;
         }
         "bubbles_renderer" => (&hud.bubbles, top_left, PaintKind::Bottom),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left, PaintKind::Bottom),
         JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]], PaintKind::Other),
-        "mob_effects_renderer" => {
+        MOB_EFFECTS_RENDERER => {
             mob_effects::paint(canvas, &hud.effects, dest, alpha);
             return PaintKind::Other;
         }
@@ -283,8 +284,7 @@ fn paint(
             }
             return PaintKind::Other;
         }
-        // A cosmetic cursor renderer supplied ahead of this one draws instead.
-        "cursor_renderer" => {
+        CURSOR_RENDERER => {
             if let Some(sprite) = hud.crosshair {
                 crosshair(canvas, sprite, dest, hud.crosshair_blend);
             }

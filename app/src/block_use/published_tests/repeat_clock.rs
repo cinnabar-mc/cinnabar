@@ -33,6 +33,7 @@ fn held_repeats_keep_submillisecond_deadline_precision() {
         world
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_millis(300) + lateness);
+        publish_fixed_pick(&mut world);
         world.run_system_cached(produce_block_use).unwrap();
         assert_eq!(
             transaction_targets(&mut captured).len(),

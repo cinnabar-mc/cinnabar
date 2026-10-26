@@ -80,7 +80,11 @@ mod pack_skybox;
 mod panorama_render;
 mod particle_render;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod pipeline_compilation;
 mod pipeline_warmup;
+#[cfg(not(target_arch = "wasm32"))]
+pub use pipeline_compilation::PipelineCompilationPlugin;
 #[cfg(test)]
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;
@@ -103,9 +107,7 @@ mod queue_writes;
 mod screen_overlay_render;
 mod shader_asset;
 mod shader_safety;
-#[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
-#[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::geometry::{
     BlockEntityIdFn, CONSTANT_VERTEX_BUFFER, DEFAULT_GEOMETRY_BUDGET_BYTES,
     DRAW_ORIGIN_VERTEX_BUFFER, FRAME_EXPANSION_FACES, GEOMETRY_VERTEX_BUFFER, GeometryCategory,
@@ -122,6 +124,7 @@ mod surface_capabilities;
 mod surface_lifecycle;
 mod transparent_phase;
 mod ui_render;
+pub use ui_render::presentation::UiFrameContent;
 #[cfg(all(test, target_os = "macos"))]
 mod upload_allocation_tests;
 mod upload_staging;

@@ -73,7 +73,7 @@ fn targetless_frames_leave_empty_proofs_for_the_next_target_to_replay() {
     use bevy::ecs::system::RunSystemOnce;
     let key = SubChunkKey::new(0, 3, 0, 4);
     let source = render_scene::terrain_publication::TerrainPublications::default();
-    source.retain(std::iter::once(key));
+    source.retain(true, [(key.chunk(), vec![key])]);
     let mut app = crate::chunk::tests::gpu_publication::noop_gpu_publication_app(
         render_scene::ChunkUploadAcknowledgements::default(),
         ChunkGpuRemovalQueue::default(),

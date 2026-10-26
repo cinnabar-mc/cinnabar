@@ -1,5 +1,5 @@
 //! Boats and rafts, which vanilla draws with a native model rather than a render controller.
-use super::painting::{encode_document, unused_source_path};
+use super::painting::{encode_document, replace_with_documents, unused_source_path};
 use super::*;
 use assets::facts::entity::{BOAT_RAFT_VARIANT as RAFT_VARIANT, BOAT_WOOD_TEXTURES as WOODS};
 use serde_json::json;
@@ -340,26 +340,17 @@ pub(super) fn complete_bindings(
         unused_source_path("render_controllers/_cinnabar/boats.json".into(), payloads),
         json!({ "format_version": "1.8.0", "render_controllers": controllers }),
     )?);
-    let bytes: usize = documents.iter().map(|(_, bytes)| bytes.len()).sum();
-    if remaining_budget.is_some_and(|(count, budget)| documents.len() > count || bytes > budget)
-        || (remaining_budget.is_some()
-            && symbols.len() + documents.len() + 2 > assets::MAX_ENTITY_ASSET_SYMBOLS)
-    {
-        return Ok(0);
-    }
-    for (key, ..) in &replaced {
-        symbols.remove(key);
-    }
-    for (path, bytes) in documents {
-        parse_source(&path, &root.join(&path), &bytes, symbols, geometries)?;
-        sources.push(EntityAssetSource {
-            path: path.clone().into(),
-            source_bytes: bytes.len() as u32,
-            source_sha256: Sha256::digest(&bytes).into(),
-        });
-        payloads.insert(path.into(), bytes.into());
-    }
-    Ok(bytes)
+    let replaced: Vec<_> = replaced.into_iter().map(|(key, ..)| key).collect();
+    replace_with_documents(
+        root,
+        sources,
+        payloads,
+        symbols,
+        geometries,
+        remaining_budget,
+        &replaced,
+        documents,
+    )
 }
 
 #[cfg(test)]

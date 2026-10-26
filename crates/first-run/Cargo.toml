@@ -14,7 +14,6 @@ anyhow.workspace = true
 assets = { path = "../assets" }
 bootstrap-ui = { path = "../bootstrap-ui" }
 diagnostics = { path = "../diagnostics" }
-gilrs = "0.11.2"
 launcher = { path = "../launcher" }
 launcher-host = { path = "../launcher-host" }
 render-model = { path = "../render-model" }
@@ -23,6 +22,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 ui = { path = "../ui" }
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "x11"] }
 

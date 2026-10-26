@@ -5,7 +5,6 @@ use bevy::{ecs::system::RunSystemOnce, render::renderer::PendingCommandBuffers};
 use render_scene::RuntimeStage;
 
 #[test]
-#[cfg(feature = "shaderpacks")]
 fn shaderpack_owned_query_policy_claims_only_detailed_owned_passes() {
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
     for detailed in [false, true] {
@@ -24,7 +23,6 @@ fn shaderpack_owned_query_policy_claims_only_detailed_owned_passes() {
 }
 
 #[test]
-#[cfg(feature = "shaderpacks")]
 fn shaderpack_owned_pass_queries_follow_frame_detail() {
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
     for detailed in [false, true] {

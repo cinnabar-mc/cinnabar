@@ -321,10 +321,9 @@ fn section_membership_stamps_track_insert_remove_replace_and_retire() {
     assert_eq!(stream.terrain_publication_source(), empty);
 }
 
-/// Replaying membership changes onto the sections as of a cursor reproduces the current
-/// sections, until retirement or more changes than the history holds force a full reconcile.
+/// Applying changed columns reproduces current sections, with a full snapshot after retirement.
 #[test]
-fn replayed_publication_membership_matches_current_sections() {
+fn changed_publication_columns_match_current_sections() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -347,7 +346,8 @@ fn replayed_publication_membership_matches_current_sections() {
         seed % bound
     };
     let mut mirror = sections(&stream);
-    let mut cursor = stream.terrain_publication_cursor();
+    let cursor = TerrainPublicationCursor::default();
+    assert!(stream.take_terrain_publication_columns(&cursor).0);
     for step in 0..400 {
         for _ in 0..next(40) {
             let key = SubChunkKey::new(0, next(4) as i32, next(6) as i32 - 2, next(4) as i32);
@@ -375,34 +375,27 @@ fn replayed_publication_membership_matches_current_sections() {
         if retired {
             stream.resident.retire();
         }
-        let now = stream.terrain_publication_cursor();
-        let replayed = stream.terrain_publication_changes(cursor).map(|changes| {
-            for (key, member) in changes {
-                if member {
-                    mirror.insert(key);
-                } else {
-                    mirror.remove(&key);
-                }
-            }
-        });
-        assert_eq!(replayed.is_none(), retired, "step {step}");
-        if replayed.is_none() {
-            mirror = sections(&stream);
+        let (reset, columns) = stream.take_terrain_publication_columns(&cursor);
+        if reset {
+            mirror.clear();
+        }
+        for (column, keys) in columns {
+            mirror.retain(|key| key.chunk() != column);
+            mirror.extend(keys);
         }
         assert_eq!(mirror, sections(&stream), "step {step}");
-        cursor = now;
     }
     let key = SubChunkKey::new(0, 9, 0, 9);
-    for _ in 0..=super::column_set::MEMBERSHIP_JOURNAL_CAPACITY / 2 {
+    for _ in 0..8193 {
         stream.record_known_air(key);
         stream.resident.remove(&key);
     }
-    assert!(stream.terrain_publication_changes(cursor).is_none());
-    assert!(
-        stream
-            .terrain_publication_changes(stream.terrain_publication_cursor())
-            .is_some_and(|mut changes| changes.next().is_none())
-    );
+    let (reset, columns) = stream.take_terrain_publication_columns(&cursor);
+    assert!(!reset);
+    assert_eq!(columns.count(), 1, "repeated changes coalesce");
+    let (reset, mut columns) = stream.take_terrain_publication_columns(&cursor);
+    assert!(!reset);
+    assert!(columns.next().is_none());
 }
 
 /// First delivery publishes air evidence at either radius; missing data never proves emptiness.

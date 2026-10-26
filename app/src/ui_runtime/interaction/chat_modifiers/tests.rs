@@ -9,6 +9,41 @@ mod command_chat;
 mod focus;
 mod platform_back;
 
+/// UIKit supplies Return as text without a physical key; repeats must not submit it.
+#[test]
+fn uikit_return_sends_chat_once_and_ignores_repeats() {
+    let key = KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified);
+    for newline in ["\n", "\r"] {
+        let mut h = Harness::new();
+        h.press(KeyCode::KeyT, None);
+        h.press(key, Some("Hello 世界"));
+        h.release(key);
+        assert_eq!(h.text(), "Hello 世界");
+        h.app.world_mut().write_message(KeyboardInput {
+            key_code: key,
+            logical_key: Key::Character(newline.into()),
+            state: ButtonState::Pressed,
+            text: Some(newline.into()),
+            repeat: true,
+            window: h.window,
+        });
+        h.app.update();
+        let runtime = h.app.world().resource::<UiRuntimeResource>();
+        assert!(runtime.chat_focused());
+        assert!(runtime.pending_chat_sends().is_empty());
+        h.press(key, Some(newline));
+        h.release(key);
+        h.app.update();
+        let runtime = h.app.world().resource::<UiRuntimeResource>();
+        assert!(!runtime.chat_focused());
+        assert_eq!(runtime.pending_chat_sends().len(), 1);
+        assert_eq!(
+            runtime.pending_chat_sends()[0].message.as_ref(),
+            "Hello 世界"
+        );
+    }
+}
+
 #[test]
 fn mouse_back_closes_the_chat_popup_before_chat_and_consumes_its_press() {
     use bevy::{input::mouse::MouseButtonInput, window::WindowEvent};

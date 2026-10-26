@@ -38,8 +38,8 @@ fn block_cracks_are_consumed_in_sequence_and_cleared_on_session_change() {
         .unwrap();
 
     // Envelopes validate ordering only; active authority arrives from the stream.
-    assert_eq!(runtime.block_cracks.status().active, 0);
-    assert_eq!(runtime.block_cracks.status().consumed, 0);
+    assert_eq!(runtime.session.block_cracks.status().active, 0);
+    assert_eq!(runtime.session.block_cracks.status().consumed, 0);
     assert!(matches!(
         runtime.retain_block_crack(SequencedBlockCrackEvent {
             session_id: 4,
@@ -52,8 +52,8 @@ fn block_cracks_are_consumed_in_sequence_and_cleared_on_session_change() {
 
     player_runtime.begin_session(5);
     runtime.begin_session(5);
-    assert_eq!(runtime.block_cracks.status().active, 0);
-    assert_eq!(runtime.block_cracks.status().consumed, 0);
+    assert_eq!(runtime.session.block_cracks.status().active, 0);
+    assert_eq!(runtime.session.block_cracks.status().consumed, 0);
 }
 
 #[test]
@@ -73,8 +73,8 @@ fn block_crack_stops_consume_without_retaining_a_history() {
             .unwrap();
     }
 
-    assert_eq!(runtime.block_cracks.status().active, 0);
-    assert_eq!(runtime.block_cracks.status().consumed, 0);
+    assert_eq!(runtime.session.block_cracks.status().active, 0);
+    assert_eq!(runtime.session.block_cracks.status().consumed, 0);
 }
 
 mod chat_tests;
@@ -90,4 +90,5 @@ mod inventory_timeout_tests;
 mod localized_text_tests;
 mod quick_craft_tests;
 mod retained_bounds_tests;
+mod session_reset_tests;
 mod trading_tests;

@@ -6,33 +6,67 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 pub mod backdrop;
 mod collection;
-pub mod hud_card;
+pub mod definitions;
+pub mod hud_control;
+mod hud_index;
 pub mod local_player_head;
 mod paint_transform;
-pub mod preview;
+mod patch;
 mod shadow;
 mod static_templates;
 mod transition;
+mod value;
 pub use collection::{CollectionArt, CollectionDefinition, CollectionItem, SurfaceCollection};
+pub use hud_index::HudIndex;
+pub use patch::{MAX_SURFACE_PATCH_BYTES, SurfacePatch};
 use static_templates::{acyclic, authored, bound_expansion, local_reference, resolved_value};
 pub use transition::{MAX_TRANSITION_SECONDS, SurfaceTransition, TransitionEasing};
+use value::bounded;
+pub use value::{
+    ActorPoint, ItemValue, PROJECTED_VISIBLE_SUFFIX, ProjectValue, Projection, SurfaceItem,
+    SurfaceValue, WorldPoint, projected_visible_name,
+};
+
+/// Draws the item an `{"item":..}` value bound to `#item_renderer_data` names.
+pub const ITEM_RENDERER: &str = "inventory_item_renderer";
 
 /// Host-owned track action consumed without invoking an extension control.
 pub const SCROLL_TRACK_ACTION: &str = "mod.scroll_track";
 
-pub const MAX_SURFACE_BYTES: usize = 96 * 1024;
+/// Document bytes one surface may carry; first-party HUD and layout documents reach about
+/// 96 KiB, so twice that leaves them headroom.
+pub const MAX_SURFACE_BYTES: usize = 192 * 1024;
 pub const MAX_SURFACE_NODES: usize = 4096;
-pub const MAX_SURFACE_BINDINGS: usize = 128;
+/// Bindings and transitions one panel surface retains.
+pub const MAX_SURFACE_BINDINGS: usize = 256;
+/// Bindings and transitions one HUD surface retains; a full HUD has many live rows.
+pub const MAX_HUD_SURFACE_BINDINGS: usize = 512;
 pub(crate) const MAX_BINDING_NAME_BYTES: usize = 96;
+
+/// Where a surface is presented, which selects its binding budget and permitted nodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceRole {
+    /// An input-owning personal or packet-mod panel.
+    Panel,
+    /// A mod's gameplay HUD layer: never hit-tested and never embedding HUD controls.
+    Hud,
+}
+
+impl SurfaceRole {
+    /// The most bindings, and separately transitions, a surface in this role retains.
+    pub fn max_bindings(self) -> usize {
+        match self {
+            Self::Panel => MAX_SURFACE_BINDINGS,
+            Self::Hud => MAX_HUD_SURFACE_BINDINGS,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Surface {
     pub screen: String,
     pub document: String,
-    /// Independently bound, inert pack controls fitted inside authored preview nodes.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub previews: BTreeMap<String, preview::ControlPreview>,
     #[serde(default)]
     pub bindings: BTreeMap<String, SurfaceValue>,
     /// Numeric bindings that ease toward each new value, keyed by binding name.
@@ -43,56 +77,49 @@ pub struct Surface {
     pub collections: BTreeMap<String, SurfaceCollection>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SurfaceValue {
-    Bool(bool),
-    Number(f64),
-    Text(String),
-    Vector(Vec<f64>),
-}
-
-impl SurfaceValue {
-    /// Rejects unbounded scalar values before a host retains extension bindings.
-    pub fn validate(&self) -> Result<(), String> {
-        let valid = match self {
-            Self::Bool(_) => true,
-            Self::Number(number) => bounded(number),
-            Self::Text(text) => text.len() <= 256 && !text.chars().any(char::is_control),
-            Self::Vector(numbers) => {
-                (2..=4).contains(&numbers.len()) && numbers.iter().all(bounded)
-            }
-        };
-        if valid {
-            Ok(())
-        } else {
-            Err("surface binding value exceeds its bounds".into())
-        }
-    }
-
-    /// The components a transition eases: one for a number, each element of a 2–4-number
-    /// array, and none for other values.
-    pub fn numbers(&self) -> Option<&[f64]> {
-        match self {
-            SurfaceValue::Number(number) => Some(std::slice::from_ref(number)),
-            SurfaceValue::Vector(numbers) if (2..=4).contains(&numbers.len()) => Some(numbers),
-            _ => None,
-        }
-    }
-}
-
 impl Surface {
-    /// Rejects oversized trees and dynamic factories before the host retains them.
+    /// Rejects oversized trees and dynamic factories before a panel retains them.
     pub fn validate(&self) -> Result<(), String> {
-        preview::validate(&self.previews)?;
-        let _ = self.walk()?;
-        self.validate_bindings()
+        self.validate_as(SurfaceRole::Panel)
     }
 
-    /// Validates only changing scalar values and their declared transitions, retaining the
+    /// Rejects oversized trees, dynamic factories and input actions before a HUD retains them.
+    pub fn validate_hud(&self) -> Result<(), String> {
+        self.validate_as(SurfaceRole::Hud)
+    }
+
+    /// Validates the document for `role`, then its bindings within that role's budget.
+    pub fn validate_as(&self, role: SurfaceRole) -> Result<(), String> {
+        self.validate_root(&self.resolved_root()?, role)
+    }
+
+    /// Validates for `role` and returns the canonical static document, resolving the root
+    /// once for both.
+    pub fn validated_document(&self, role: SurfaceRole) -> Result<String, String> {
+        let root = self.resolved_root()?;
+        self.validate_root(&root, role)?;
+        self.document_from(root)
+    }
+
+    /// [`Self::validate_as`] over an already resolved root.
+    fn validate_root(&self, root: &Value, role: SurfaceRole) -> Result<(), String> {
+        let actions = self.walk_root(root, role)?;
+        if role == SurfaceRole::Hud && !actions.is_empty() {
+            return Err("HUD surfaces cannot declare input actions".into());
+        }
+        self.validate_bindings_as(role)
+    }
+
+    /// Validates only changing panel values and their declared transitions, retaining the
     /// already checked document. A transition may name a binding a later update supplies.
     pub fn validate_bindings(&self) -> Result<(), String> {
-        if self.bindings.len() > MAX_SURFACE_BINDINGS {
+        self.validate_bindings_as(SurfaceRole::Panel)
+    }
+
+    /// [`Self::validate_bindings`] within `role`'s binding budget. Projected values are global
+    /// bindings only, and their host-published `<name>_visible` companions cannot be authored.
+    pub fn validate_bindings_as(&self, role: SurfaceRole) -> Result<(), String> {
+        if self.bindings.len() > role.max_bindings() {
             return Err("surface has too many bindings".into());
         }
         for (name, value) in &self.bindings {
@@ -101,8 +128,16 @@ impl Surface {
             }
             value.validate()?;
             backdrop::validate_world_binding(name, value)?;
+            if value.projection().is_some() {
+                let companion = projected_visible_name(name);
+                if !binding_name(&companion) || self.bindings.contains_key(&companion) {
+                    return Err(format!(
+                        "surface binding {companion} is reserved for {name}'s projection"
+                    ));
+                }
+            }
         }
-        if self.transitions.len() > MAX_SURFACE_BINDINGS {
+        if self.transitions.len() > role.max_bindings() {
             return Err("surface has too many transitions".into());
         }
         for (name, transition) in &self.transitions {
@@ -119,13 +154,18 @@ impl Surface {
 
     /// Returns authored pressed actions so the owning capability validates routes.
     pub fn actions(&self) -> Result<Vec<String>, String> {
-        self.walk()
+        self.walk(SurfaceRole::Panel)
     }
 
     /// Returns a canonical static document consumed by the native renderer.
     /// No host context can later select an authored branch that escaped validation.
     pub fn resolved_document(&self) -> Result<String, String> {
-        let mut root = self.resolved_root()?;
+        self.document_from(self.resolved_root()?)
+    }
+
+    /// Builds the canonical static document around a resolved root.
+    fn document_from(&self, mut root: Value) -> Result<String, String> {
+        hud_control::bind_selectors(&mut root);
         let namespace = self
             .screen
             .split_once('.')
@@ -171,12 +211,21 @@ impl Surface {
         Ok(Value::Object(document).to_string())
     }
     /// Collects capability-routed actions from the fully validated static tree.
-    fn walk(&self) -> Result<Vec<String>, String> {
-        let root = self.resolved_root()?;
-        preview::node(&root, &self.previews)?;
+    fn walk(&self, role: SurfaceRole) -> Result<Vec<String>, String> {
+        self.walk_root(&self.resolved_root()?, role)
+    }
+
+    /// [`Self::walk`] over an already resolved root.
+    fn walk_root(&self, root: &Value, role: SurfaceRole) -> Result<Vec<String>, String> {
         let mut count = 0;
         let mut actions = Vec::new();
-        node(&root, 0, &mut count, &mut actions, false, false)?;
+        node(root, 0, &mut count, &mut actions, false, false)?;
+        if role == SurfaceRole::Hud && renders(root, hud_control::RENDERER) {
+            return Err("HUD surfaces cannot embed HUD controls".into());
+        }
+        if role == SurfaceRole::Hud && renders(root, backdrop::GLASS_RENDERER) {
+            return Err("HUD surfaces cannot sample the world backdrop".into());
+        }
         if self.collections.len() > 4 {
             return Err("surface has too many collections".into());
         }
@@ -216,7 +265,7 @@ impl Surface {
             }
             grids.insert(name.clone(), collection.grid(name, "unused.template"));
         }
-        let mut placeholders = root;
+        let mut placeholders = root.clone();
         collection::replace(&mut placeholders, &mut grids, false)?;
         if !grids.is_empty() {
             return Err("surface collection is missing its placeholder".into());
@@ -224,11 +273,54 @@ impl Surface {
         Ok(actions)
     }
 
+    /// A surface rooted at `control`, a local definition of this document, carrying only the
+    /// collections placed under it. It is checked as a HUD root is; bindings stay with `self`.
+    pub fn embedded(&self, control: &str) -> Result<Surface, String> {
+        self.embedded_document(control).map(|(surface, _)| surface)
+    }
+
+    /// [`Self::embedded`] and its canonical static document, resolving the control once.
+    pub fn embedded_document(&self, control: &str) -> Result<(Surface, String), String> {
+        if !hud_control::control_name(control) {
+            return Err("embedded HUD control name is invalid".into());
+        }
+        let namespace = self
+            .screen
+            .split_once('.')
+            .ok_or("surface screen must be qualified")?
+            .0;
+        let mut embedded = Surface {
+            screen: format!("{namespace}.{control}"),
+            document: self.document.clone(),
+            bindings: BTreeMap::new(),
+            transitions: BTreeMap::new(),
+            collections: BTreeMap::new(),
+        };
+        let root = embedded.resolved_root()?;
+        let mut placed = std::collections::BTreeSet::new();
+        placeholders(&root, &mut placed);
+        embedded.collections = self
+            .collections
+            .iter()
+            .filter(|(name, _)| placed.contains(name.as_str()))
+            .map(|(name, collection)| (name.clone(), collection.clone()))
+            .collect();
+        let actions = embedded.walk_root(&root, SurfaceRole::Hud)?;
+        if !actions.is_empty() {
+            return Err("HUD surfaces cannot declare input actions".into());
+        }
+        let document = embedded.document_from(root)?;
+        Ok((embedded, document))
+    }
+
     /// Compares immutable route artwork and data, excluding filtered order and reveal requests.
     pub fn same_definition(&self, other: &Self) -> bool {
+        self.document == other.document && self.same_screen_and_collections(other)
+    }
+
+    /// [`Self::same_definition`] apart from the document's definitions.
+    pub fn same_screen_and_collections(&self, other: &Self) -> bool {
         self.screen == other.screen
-            && self.document == other.document
-            && self.previews == other.previews
             && self.collections.len() == other.collections.len()
             && self.collections.iter().all(|(name, collection)| {
                 other.collections.get(name).is_some_and(|other| {
@@ -239,6 +331,18 @@ impl Surface {
     }
     /// Resolves only static local templates before validating the emitted tree.
     fn resolved_root(&self) -> Result<Value, String> {
+        self.resolved().map(|(root, _)| root)
+    }
+
+    /// [`Self::resolved_root`] and the document's parsed top-level members.
+    fn resolved(&self) -> Result<(Value, serde_json::Map<String, Value>), String> {
+        let object = self.static_definitions()?;
+        Ok((self.resolve_static()?, object))
+    }
+
+    /// Checks the authored document before anything resolves it: its bytes, screen, local
+    /// definitions, inheritance graph and expansion bound. Returns its parsed members.
+    fn static_definitions(&self) -> Result<serde_json::Map<String, Value>, String> {
         if self.document.len() > MAX_SURFACE_BYTES {
             return Err("surface document exceeds byte limit".into());
         }
@@ -253,9 +357,9 @@ impl Surface {
         }
         let document: Value = serde_json::from_str(&self.document)
             .map_err(|error| format!("invalid surface JSON: {error}"))?;
-        let object = document
-            .as_object()
-            .ok_or("surface document must be an object")?;
+        let Value::Object(object) = document else {
+            return Err("surface document must be an object".into());
+        };
         if object.get("namespace").and_then(Value::as_str) != Some(namespace) {
             return Err("surface document must contain its own namespace".into());
         }
@@ -279,26 +383,22 @@ impl Surface {
             authored(body, namespace, 0, &mut authored_nodes, &mut references)?;
             graph.insert(key.clone(), references);
         }
+        let references = |key: &str| graph.get(key).map(Vec::as_slice);
         for key in graph.keys() {
             acyclic(
                 key,
-                &graph,
+                &references,
                 &mut Vec::new(),
                 &mut std::collections::BTreeSet::new(),
             )?;
         }
         bound_expansion(name, namespace, &definitions)?;
-        let files = br#"{"ui_defs":["ui/extension_surface.json"]}"#;
-        let catalog = json_ui::Catalog::from_files([
-            ("ui/_global_variables.json", &b"{}"[..]),
-            ("ui/_ui_defs.json", &files[..]),
-            ("ui/extension_surface.json", self.document.as_bytes()),
-        ])
-        .map_err(|error| error.to_string())?
-        .with_paint_transforms();
-        if !catalog.diagnostics().is_empty() {
-            return Err(catalog.diagnostics().join("; "));
-        }
+        Ok(object)
+    }
+
+    /// Resolves a document [`Self::static_definitions`] admitted and checks the emitted tree.
+    fn resolve_static(&self) -> Result<Value, String> {
+        let catalog = catalog(&self.document)?;
         let resolved = json_ui::resolve_with_limits(
             &catalog,
             &self.screen,
@@ -321,9 +421,55 @@ impl Surface {
     }
 }
 
-/// A finite binding number within the surface value bound.
-fn bounded(number: &f64) -> bool {
-    number.is_finite() && number.abs() <= 1_000_000.0
+/// Loads a surface document into a private catalog with paint transforms, rejecting any
+/// load diagnostic.
+fn catalog(document: &str) -> Result<json_ui::Catalog, String> {
+    let files = br#"{"ui_defs":["ui/extension_surface.json"]}"#;
+    let catalog = json_ui::Catalog::from_files([
+        ("ui/_global_variables.json", &b"{}"[..]),
+        ("ui/_ui_defs.json", &files[..]),
+        ("ui/extension_surface.json", document.as_bytes()),
+    ])
+    .map_err(|error| error.to_string())?
+    .with_paint_transforms();
+    if catalog.diagnostics().is_empty() {
+        Ok(catalog)
+    } else {
+        Err(catalog.diagnostics().join("; "))
+    }
+}
+
+/// Adds every collection placeholder name under `value`.
+fn placeholders(value: &Value, names: &mut std::collections::BTreeSet<String>) {
+    if let Some(name) = value.get("cinnabar_collection").and_then(Value::as_str) {
+        names.insert(name.to_owned());
+    }
+    for child in value
+        .get("controls")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+    {
+        for body in child.values() {
+            placeholders(body, names);
+        }
+    }
+}
+
+/// Whether `root` or any descendant draws through the custom `renderer`.
+fn renders(root: &Value, renderer: &str) -> bool {
+    root.get("renderer").and_then(Value::as_str) == Some(renderer)
+        || root
+            .get("controls")
+            .and_then(Value::as_array)
+            .is_some_and(|children| {
+                children.iter().any(|child| {
+                    child
+                        .as_object()
+                        .is_some_and(|child| child.values().any(|body| renders(body, renderer)))
+                })
+            })
 }
 
 /// Matches the names accepted by a local scalar data source.
@@ -440,8 +586,8 @@ fn node(
                         | "cinnabar_vector_icon"
                         | "cinnabar_vector_path"
                         | "gradient_renderer"
-                        | preview::RENDERER
-                        | hud_card::RENDERER
+                        | ITEM_RENDERER
+                        | hud_control::RENDERER
                 )
             })
     {
@@ -450,8 +596,8 @@ fn node(
     if object.get("renderer").and_then(Value::as_str) == Some(backdrop::GLASS_RENDERER) {
         backdrop::validate_glass(object)?;
     }
-    if object.get("renderer").and_then(Value::as_str) == Some(hud_card::RENDERER) {
-        hud_card::validate(object)?;
+    if object.get("renderer").and_then(Value::as_str) == Some(hud_control::RENDERER) {
+        hud_control::validate(object)?;
     }
     if object.get("renderer").and_then(Value::as_str) == Some(json_ui::rounded::RENDERER) {
         shadow::validate(object)?;

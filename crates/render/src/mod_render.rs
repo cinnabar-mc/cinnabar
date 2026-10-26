@@ -4,6 +4,7 @@
 
 use render_scene::ModRenderScene;
 
+mod buffers;
 mod passes;
 #[cfg(test)]
 pub(crate) use passes::PassGpu;
@@ -60,4 +61,4 @@ fn install(app: &mut App) {
     composition::install(app.sub_app_mut(RenderApp));
 }
 
-use mod_render::{block_highlights, position_box};
+use mod_render::block_highlights;

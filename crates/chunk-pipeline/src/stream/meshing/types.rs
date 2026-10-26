@@ -1,4 +1,5 @@
 use super::super::*;
+use super::overlays::OverlayHosts;
 
 pub(in crate::stream) struct MeshSnapshot {
     pub(in crate::stream) rendering: ::meshing::MeshRenderSettings,
@@ -11,6 +12,8 @@ pub(in crate::stream) struct MeshSnapshot {
     /// Java meshing for shader packs ([`WorldStream::set_java_meshing`]): every leaf cutout,
     /// and no water faces toward these sorted water-filled network values.
     pub(in crate::stream) java_meshing: Option<Arc<[u32]>>,
+    /// The sub-chunk's overlay hosts, whose block-state overlays the mesh draws.
+    pub(in crate::stream) overlays: OverlayHosts,
 }
 
 pub(in crate::stream) type BiomeNeighbourhood =
@@ -99,6 +102,7 @@ impl MeshSnapshot {
         network_id_mode: NetworkIdMode,
         biome: &PackedBiomeRecord,
     ) -> ChunkMesh {
+        let overlays = self.overlays.resolve(&self.center);
         ::meshing::mesh_sub_chunk_in_neighbourhood_with_options(
             &classifier,
             runtime_assets,
@@ -110,6 +114,7 @@ impl MeshSnapshot {
                 split_tinted_faces: biome.uniform_tint_index().is_none(),
                 cutout_leaves: self.java_meshing.is_some(),
                 water_filled: self.java_meshing.as_deref().unwrap_or_default(),
+                overlays: &overlays,
             },
         )
     }

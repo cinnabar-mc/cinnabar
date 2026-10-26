@@ -85,7 +85,7 @@ pub fn refresh_hud_frame(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     perspective: semantic_input::PerspectiveMode,
     now_millis: u64,
 ) {
@@ -93,7 +93,7 @@ pub fn refresh_hud_frame(
         player_runtime,
         runtime,
         presentation,
-        stream,
+        world,
         perspective,
         now_millis,
         ItemIconFrames::default(),

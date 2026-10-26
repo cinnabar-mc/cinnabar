@@ -194,7 +194,10 @@ fn nearer_plates_attenuate_farther_text_in_every_sneak_combination() {
 /// Builds and styles a scene with the same lift scale used for sorting its planes.
 fn scaled_scene(anchors: &[NametagAnchor], scale: f32) -> NametagScene {
     let font = ui_engine::test_support::fixture_font();
-    let style = serde_json::from_value(serde_json::json!({"scale": scale})).unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        scale,
+        ..Default::default()
+    };
     let mut scene = build_nametag_scene(
         anchors,
         Some(&style),

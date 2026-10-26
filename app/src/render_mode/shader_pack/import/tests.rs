@@ -3,6 +3,14 @@ use crate::render_mode::shader_pack::ShaderPackDirs;
 use launcher::menu::{MenuAction, MenuScreen, settings_sections::SettingSection};
 use std::path::Path;
 
+#[test]
+fn an_unused_import_host_allocates_no_result_queue() {
+    let pick: Pick = Arc::new(|_| Ok(Vec::new()));
+    let (host, allocations) = test_alloc::measure(|| ShaderPackImports::new(pick));
+    std::hint::black_box(host);
+    assert_eq!(allocations, test_alloc::Allocations::default());
+}
+
 /// The render-mode config with its pack folder at `packs`.
 fn config(packs: &Path) -> RenderModeConfig {
     RenderModeConfig {
@@ -34,6 +42,10 @@ fn app_picking(packs: &Path, section: SettingSection, pick: Pick) -> App {
         .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
         .insert_resource(config(packs))
         .insert_resource(menu);
+    app.configure_sets(
+        Update,
+        super::super::ShaderPackUiSystems.run_if(super::super::work_pending),
+    );
     configure_with(&mut app, pick);
     app
 }
@@ -110,7 +122,7 @@ fn a_picked_zip_is_copied_in_listed_and_toasted_with_a_bounded_picker() {
         Arc::new(move |filter: &Filter| {
             assert_eq!(filter.extensions, shaderpack::PACK_ARCHIVE_EXTENSIONS);
             assert_eq!(filter.max_bytes, Some(shaderpack::MAX_ARCHIVE_BYTES as u64));
-            Ok(vec![picked.clone()])
+            Ok(vec![picked.clone().into()])
         }),
     );
     press_import(&mut app);
@@ -164,13 +176,13 @@ fn a_failed_pick_toasts_the_error_without_installing_a_pack() {
 
 #[test]
 fn a_cancelled_or_failed_pick_accepts_the_next_press() {
-    for answer in [Ok(Vec::new()), Err("no picker".to_owned())] {
+    for answer in [Ok(()), Err("no picker".to_owned())] {
         let root = tempfile::tempdir().unwrap();
         let packs = root.path().join("shaderpacks");
         let mut app = app_picking(
             &packs,
             SettingSection::Shaders,
-            Arc::new(move |_: &Filter| answer.clone()),
+            Arc::new(move |_: &Filter| answer.clone().map(|()| Vec::new())),
         );
         press_import(&mut app);
         assert!(importing(&app));

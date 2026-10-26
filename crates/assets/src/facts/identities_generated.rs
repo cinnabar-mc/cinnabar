@@ -65,12 +65,16 @@ pub enum VanillaItem {
     Compass,
     Crossbow,
     EmptyMap,
+    FireCharge,
+    NameTag,
     RecoveryCompass,
+    Shears,
     Shield,
     SlimeBall,
     Snowball,
     SplashPotion,
     Spyglass,
+    WaterBucket,
 }
 impl VanillaItem {
     /// Resolves this native asset request without a runtime name table.
@@ -82,12 +86,16 @@ impl VanillaItem {
             Self::Compass => "minecraft:compass",
             Self::Crossbow => "minecraft:crossbow",
             Self::EmptyMap => "minecraft:empty_map",
+            Self::FireCharge => "minecraft:fire_charge",
+            Self::NameTag => "minecraft:name_tag",
             Self::RecoveryCompass => "minecraft:recovery_compass",
+            Self::Shears => "minecraft:shears",
             Self::Shield => "minecraft:shield",
             Self::SlimeBall => "minecraft:slime_ball",
             Self::Snowball => "minecraft:snowball",
             Self::SplashPotion => "minecraft:splash_potion",
             Self::Spyglass => "minecraft:spyglass",
+            Self::WaterBucket => "minecraft:water_bucket",
         }
     }
 }

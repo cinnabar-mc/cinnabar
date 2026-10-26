@@ -9,6 +9,8 @@ pub(crate) enum TouchUtilityView {
     Menu,
     PlayerList,
     DebugOverlay,
+    /// Sample mod-registered buttons beside the built-in controls, one held.
+    ModButtons,
 }
 
 /// Touchscreen settings and actual editor interactions at the standard capture viewport.
@@ -26,6 +28,13 @@ pub(super) const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::TouchUtilities(TouchUtilityView::DebugOverlay),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mod-buttons",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::ModButtons),
     },
     #[cfg(feature = "test-support")]
     State {

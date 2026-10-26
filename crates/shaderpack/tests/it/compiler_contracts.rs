@@ -867,6 +867,32 @@ fn boolean_storage_assignments_keep_boolean_values_and_boundaries() {
 }
 
 #[test]
+fn software_fused_dot_preserves_overloads_constants_and_helper_names() {
+    let source = "#version 450
+out vec4 color;
+const float k = dot(vec2(1.0), vec2(2.0));
+float iris_dot_fma(float x) { return x; }
+float iris_dot_left(float x) { return x; }
+float dot(vec2 x) { return x.x; }
+void main() {
+    vec4 p = gl_FragCoord;
+    color = vec4(dot(p.xy, p.xy), dot(p.xyz, p.xyz), dot(p, p),
+                 dot(p.xy) + iris_dot_fma(k) + iris_dot_left(k));
+}";
+    for software_fused_dot in [false, true] {
+        let translated = ShaderPack::new(PackSource::from_files([
+            ("composite.vsh", VERTEX),
+            ("composite.fsh", source),
+        ]))
+        .translate(&TranslateConfig {
+            software_fused_dot,
+            ..Default::default()
+        });
+        reflection(program(&translated, "composite"));
+    }
+}
+
+#[test]
 fn dot_calls_preserve_required_constant_contexts() {
     success(
         VERTEX,

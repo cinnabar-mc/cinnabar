@@ -43,6 +43,7 @@ impl UiRuntime {
     ) {
         if session != self.session_id()
             || self
+                .session
                 .pending_totem_snapshots
                 .back()
                 .is_some_and(|(last, _)| *last >= sequence)
@@ -52,12 +53,14 @@ impl UiRuntime {
         self.drain_inventory_prefix(player, Some(sequence));
         let metadata = self.equipped_totem_metadata(player);
         // The admitted world FIFO bounds how many activations can await publication.
-        self.pending_totem_snapshots.push_back((sequence, metadata));
+        self.session
+            .pending_totem_snapshots
+            .push_back((sequence, metadata));
     }
 
     /// Advances the retained camera effect on bounded client time, including under menus.
     pub fn advance_item_activation(&mut self, now_millis: u64) {
-        let clock = &mut self.activation_clock;
+        let clock = &mut self.session.activation_clock;
         let delta = clock
             .last_frame_millis
             .map_or(0, |last| now_millis.saturating_sub(last));
@@ -70,12 +73,12 @@ impl UiRuntime {
         clock.elapsed_millis = clock
             .elapsed_millis
             .saturating_add(delta.min(simulation_clock::MAX_FRAME_ELAPSED.as_millis() as u64));
-        if let Some(activation) = self.item_activation.as_mut() {
+        if let Some(activation) = self.session.item_activation.as_mut() {
             activation.elapsed_millis = clock
                 .elapsed_millis
                 .saturating_sub(activation.started_clock_millis);
             if activation.progress().is_none() {
-                self.item_activation = None;
+                self.session.item_activation = None;
             }
         }
     }
@@ -91,10 +94,11 @@ impl UiRuntime {
     ) -> Result<(), UiRuntimeError> {
         self.validate_identity(session, sequence, now_millis, None)?;
         let retained = self
+            .session
             .pending_totem_snapshots
             .iter()
             .position(|(pending, _)| *pending == sequence)
-            .and_then(|index| self.pending_totem_snapshots.remove(index));
+            .and_then(|index| self.session.pending_totem_snapshots.remove(index));
         let metadata = if let Some((_, metadata)) = retained {
             metadata
         } else {
@@ -102,20 +106,21 @@ impl UiRuntime {
             self.equipped_totem_metadata(player)
         };
         self.advance_item_activation(now_millis);
-        let started_clock_millis =
-            self.activation_clock.elapsed_millis / MILLIS_PER_SERVER_TICK * MILLIS_PER_SERVER_TICK;
+        let started_clock_millis = self.session.activation_clock.elapsed_millis
+            / MILLIS_PER_SERVER_TICK
+            * MILLIS_PER_SERVER_TICK;
         let random = std::collections::hash_map::RandomState::new().hash_one((session, sequence));
         // The camera renderer truncates each sampled offset toward zero.
         let offsets = [random as u32, (random >> 32) as u32].map(sampled_offset);
-        self.item_activation = metadata.map(|metadata| ItemActivation {
+        self.session.item_activation = metadata.map(|metadata| ItemActivation {
             identifier: Arc::from(TOTEM_IDENTIFIER),
             metadata,
-            elapsed_millis: self.activation_clock.elapsed_millis - started_clock_millis,
+            elapsed_millis: self.session.activation_clock.elapsed_millis - started_clock_millis,
             started_clock_millis,
             offsets,
         });
-        self.last_fifo_sequence = Some(sequence);
-        self.last_local_millis = Some(now_millis);
+        self.session.last_fifo_sequence = Some(sequence);
+        self.session.last_local_millis = Some(now_millis);
         Ok(())
     }
 

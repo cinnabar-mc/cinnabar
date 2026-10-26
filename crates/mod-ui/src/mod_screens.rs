@@ -51,6 +51,19 @@ pub(super) struct ModScreens {
 }
 
 impl ModScreens {
+    /// Creates fresh screen views using the package's art and current container layout.
+    fn new(art: TemplateArt, layout: Option<ScreenLayout>) -> Self {
+        Self {
+            art,
+            overlay: TemplateScreen::default(),
+            view: TemplateScreen::default(),
+            focus_applied: 0,
+            pending_edits: ModalEdits::default(),
+            icon_keys: BTreeSet::new(),
+            layout,
+        }
+    }
+
     /// Forgets the last build's drawing: a build that draws no container screen leaves the mod
     /// with no layout and nothing drawn.
     fn begin_frame(&mut self) {
@@ -86,6 +99,13 @@ impl ModScreens {
 }
 
 impl ModUi {
+    /// Rebuilds package screen views from committed data after their guest is replaced.
+    pub fn reset_mod_screens(&mut self) {
+        if let Some(screens) = self.mod_screens.take() {
+            self.mod_screens = Some(ModScreens::new(screens.art, screens.layout));
+        }
+    }
+
     /// Follows the player mod's committed screens; `None` (no mod, or a quarantined one)
     /// removes them and drops their catalog and textures. `page` is the first dynamic page
     /// reserved to their atlas.
@@ -107,15 +127,10 @@ impl ModUi {
                     layout.view = None;
                     layout
                 });
-            *slot = Some(ModScreens {
-                art: TemplateArt::new(input.id, input.files, page, ui_engine::pages::MOD_UI_PAGES),
-                overlay: TemplateScreen::default(),
-                view: TemplateScreen::default(),
-                focus_applied: 0,
-                pending_edits: ModalEdits::default(),
-                icon_keys: BTreeSet::new(),
+            *slot = Some(ModScreens::new(
+                TemplateArt::new(input.id, input.files, page, ui_engine::pages::MOD_UI_PAGES),
                 layout,
-            });
+            ));
         }
         let screens = slot.as_mut().expect("mod screens installed");
         screens.overlay.follow(input.overlay, input.data);
