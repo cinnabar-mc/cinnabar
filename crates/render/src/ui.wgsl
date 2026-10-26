@@ -265,15 +265,18 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     // Sampled and node alpha remain unchanged.
     var model_rgb = mix(sample.rgb * straight_color.rgb, entity_overlay.rgb, entity_overlay.a);
     let color_mask = (input.style_flags & STYLE_COLOR_MASK) != 0u;
-    if color_mask {
+    let alpha_weighted_tint = color_mask || (input.style_flags & STYLE_TERRAIN_MIPS) != 0u;
+    if alpha_weighted_tint {
         model_rgb = mix(mix(sample.rgb, sample.rgb * straight_color.rgb, sample.a),
             entity_overlay.rgb, entity_overlay.a);
+    }
+    if color_mask {
         sample.a = 1.0;
     }
     if direct {
         sample = vec4<f32>(srgb_to_linear(sample.rgb), sample.a);
         straight_color = vec4<f32>(srgb_to_linear(straight_color.rgb), straight_color.a);
-        if color_mask {
+        if alpha_weighted_tint {
             model_rgb = srgb_to_linear(model_rgb);
         } else {
             model_rgb = mix(sample.rgb * straight_color.rgb,

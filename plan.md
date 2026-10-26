@@ -107,6 +107,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   native visual comparison and runtime replacement-pack acceptance remain open.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
+  Inventory terrain previews weight face tint by source opacity while retaining partial
+  coverage. Matched-background and complete replacement-pack acceptance remain open.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
   against native output while preserving packed storage and the shared quad contract.
   Terrain particles use the dimension biome fallback until their column is published;
