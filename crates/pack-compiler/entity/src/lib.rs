@@ -26,7 +26,7 @@ pub use entity::{
     compile_equipment_textures_for_assets_with_priorities, compile_equipment_textures_with,
     compile_item_attack_timings, compile_item_foods, compile_item_use_durations,
     compile_item_use_profiles, compile_molang_expression, compile_vanilla_entity_refs,
-    decode_equipment_raster, missing_harness_bindings, select_entity_geometry,
+    decode_equipment_raster, missing_equipment_bindings, select_entity_geometry,
 };
 pub use icon::{
     CompiledIconCarrier, IconCompileReport, compile_icon_assets, compile_icon_assets_with_blocks,

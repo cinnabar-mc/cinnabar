@@ -1,4 +1,4 @@
-//! Original fixtures for resource-only changes to completed startup body definitions.
+//! Original fixtures for resource-only changes to completed startup equipment definitions.
 use super::*;
 use serde_json::json;
 
@@ -206,4 +206,116 @@ fn resource_only_harness_override_preserves_authored_startup_conditions_and_pack
                 .any(|binding| binding.item_condition.is_some())
         );
     }
+}
+
+#[test]
+fn controller_only_override_collects_completed_copper_owner_bindings() {
+    let root = tempfile::tempdir().unwrap();
+    let facts = assets::facts::ItemFacts::builtin().unwrap();
+    let item = &facts
+        .payload()
+        .records
+        .iter()
+        .find(|record| {
+            record.fact.tier == Some(assets::facts::ItemTier::Copper)
+                && record.fact.armour_slot == Some(assets::item::armour::ItemArmourSlot::Head)
+        })
+        .unwrap()
+        .identifier;
+    let mut geometry: Value = serde_json::from_slice(&model(1)).unwrap();
+    geometry["minecraft:geometry"][0]["description"]["identifier"] =
+        json!("geometry.player.armor.helmet");
+    write(
+        root.path(),
+        "models/entity/helmet.json",
+        &serde_json::to_vec(&geometry).unwrap(),
+    );
+    write(
+        root.path(),
+        "textures/models/armor/copper_1.png",
+        &pixels(40),
+    );
+    write(root.path(), "textures/fixture.png", &pixels(20));
+    write(
+        root.path(),
+        "render_controllers/equipment.json",
+        &controller(true),
+    );
+    for (identifier, geometry, owner) in [
+        ("fixture:helmet", "geometry.humanoid.armor.helmet", false),
+        (
+            "fixture:helmet.player",
+            "geometry.player.armor.helmet",
+            true,
+        ),
+    ] {
+        let mut document = json!({"format_version":"1.10.0","minecraft:attachable":{"description":{
+            "identifier":identifier,"materials":{"default":"armor"},
+            "geometry":{"default":geometry},"textures":{"default":"textures/fixture"},
+            "render_controllers":["controller.render.harness"]
+        }}});
+        if owner {
+            document["minecraft:attachable"]["description"]["item"] =
+                json!({"fixture:helmet":"query.owner_identifier == 'minecraft:player'"});
+        }
+        write(
+            root.path(),
+            &format!("attachables/{}.json", identifier.replace(':', "/")),
+            &serde_json::to_vec(&document).unwrap(),
+        );
+    }
+    let vanilla = pack_entity_compiler::compile_vanilla_entity_refs(root.path()).unwrap();
+    let replacement = controller(false);
+    let unrelated = json!({"format_version":"1.10.0","minecraft:attachable":{"description":{
+        "identifier":"fixture:server_helmet","item":{"fixture:helmet":"1"},
+        "materials":{"default":"armor"},"geometry":{"default":"geometry.fixture.helmet"},
+        "textures":{"default":"textures/fixture"},"render_controllers":["controller.render.harness"]
+    }}})
+    .to_string()
+    .into_bytes();
+    geometry["minecraft:geometry"][0]["description"]["identifier"] =
+        json!("geometry.fixture.helmet");
+    let custom_geometry = serde_json::to_vec(&geometry).unwrap();
+    for override_other_item in [false, true] {
+        let mut entries = vec![(
+            "render_controllers/replacement.json",
+            replacement.as_slice(),
+        )];
+        if override_other_item {
+            entries.push(("attachables/server.json", unrelated.as_slice()));
+            entries.push(("models/entity/server.json", custom_geometry.as_slice()));
+        }
+        let view = LayeredPackView::new(crate::test_support::stack(&entries));
+        let compiled = pack_entity_compiler::compile_actor_pack(collect_files(
+            &view,
+            Some(&vanilla),
+            Some(root.path()),
+        ))
+        .unwrap()
+        .unwrap();
+        let copper = compiled
+            .equipment_bindings
+            .iter()
+            .filter(|binding| binding.identifier == *item)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            copper.len(),
+            2,
+            "resource-only changes must retain both copper owner paths"
+        );
+        assert!(copper.iter().any(|binding| binding.attachable.is_some()
+            && binding.geometry.resolution == assets::EntityDependencyResolution::Catalog));
+        assert!(
+            copper
+                .iter()
+                .all(|binding| binding.geometry.identifier.as_ref() != "geometry.fixture.helmet"),
+            "an override for another item must not become a copper template"
+        );
+    }
+    let empty = LayeredPackView::new(crate::test_support::stack(&[]));
+    assert!(
+        !collect_files(&empty, Some(&vanilla), Some(root.path()))
+            .iter()
+            .any(|(path, _)| path.starts_with("attachables/"))
+    );
 }
