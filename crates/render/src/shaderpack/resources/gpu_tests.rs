@@ -1,9 +1,9 @@
 use super::*;
 
-/// Requests a device for resource fixtures, skipping only an absent adapter.
+/// Requests full shader-pack limits without optional filtering features; skips unsupported adapters.
 #[allow(
     clippy::print_stderr,
-    reason = "names the absent GPU fixture when tests skip"
+    reason = "names the missing or unsupported GPU fixture when tests skip"
 )]
 fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -15,8 +15,15 @@ fn gpu() -> Option<GpuContext> {
         }
         Err(error) => panic!("resource fixture adapter: {error}"),
     };
+    if let Err(reason) = crate::shaderpack::kernels::validate_device(&adapter.limits()) {
+        eprintln!(
+            "skipping shader pack resource fixtures: unsupported GPU adapter fixture: {reason}"
+        );
+        return None;
+    }
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("shader pack resource fixture"),
+        required_limits: adapter.limits(),
         ..Default::default()
     }))
     .expect("resource fixture device");

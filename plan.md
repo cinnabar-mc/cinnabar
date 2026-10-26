@@ -1409,7 +1409,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
 - Experimental Java shader packs (Iris/OptiFine format) are built into every client channel.
-  Shaders start Off.
+  Shaders start Off. Terrain expansion currently needs nine compute storage buffers:
+  six packed-chunk sources plus three job, vertex-output and atlas-remap buffers.
+  Shader packs cannot load on adapters limited to eight; reducing that requirement remains open.
   Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack
