@@ -26,17 +26,35 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-/// Static overlay textures whose colour came from a pack texture set, by texture reference.
+/// Static overlay textures whose colour came from a pack texture set, by texture reference,
+/// and the references in the order they were recorded.
 #[derive(Default)]
-pub(super) struct PbrCandidates(BTreeMap<u32, (String, Option<[u8; 3]>)>);
+pub(super) struct PbrCandidates {
+    sets: BTreeMap<u32, (String, Option<[u8; 3]>)>,
+    recorded: Vec<u32>,
+}
 
 impl PbrCandidates {
     /// Records the overlay texture `texture` as the colour of the texture set at `path`.
     pub(super) fn record(&mut self, texture: TextureRef, path: &str, tint: Option<[u8; 3]>) {
-        if DECODE_SERVER_SURFACES {
-            self.0
-                .entry(texture.raw())
-                .or_insert_with(|| (path.to_owned(), tint));
+        if DECODE_SERVER_SURFACES
+            && let std::collections::btree_map::Entry::Vacant(entry) =
+                self.sets.entry(texture.raw())
+        {
+            entry.insert((path.to_owned(), tint));
+            self.recorded.push(texture.raw());
+        }
+    }
+
+    /// How many textures have been recorded, for [`Self::rollback`].
+    pub(super) fn checkpoint(&self) -> usize {
+        self.recorded.len()
+    }
+
+    /// Forgets the textures recorded after `checkpoint`, whose slots a rollback released.
+    pub(super) fn rollback(&mut self, checkpoint: usize) {
+        for texture in self.recorded.drain(checkpoint.min(self.recorded.len())..) {
+            self.sets.remove(&texture);
         }
     }
 }
@@ -45,7 +63,7 @@ impl Builder<'_> {
     /// Decodes the recorded texture sets' surfaces into the overlay's sparse Enhanced pages,
     /// in texture-reference order, until the terrain byte budget is spent.
     pub(super) fn build_server_surfaces(&mut self, view: &LayeredPackView) {
-        let candidates = std::mem::take(&mut self.pbr.0);
+        let candidates = std::mem::take(&mut self.pbr).sets;
         let mut pages = PbrPages::default();
         let mut references = BTreeMap::new();
         let budget = self.surface_budget();
