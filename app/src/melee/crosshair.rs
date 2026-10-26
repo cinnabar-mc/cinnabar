@@ -276,6 +276,7 @@ fn resolve_frame(
         )
     };
     let mut obstruction_origin = frame.origin.clone();
+    let mut assisted_actor = false;
     let actor = match frame.assisted {
         Some(target) => match target.kind {
             TargetKind::Actor(identity) => eligible(identity)
@@ -285,6 +286,7 @@ fn resolve_frame(
                         && target.within_pick_range(ray.origin(), actor_reach as f32)
                 })
                 .map(|_| {
+                    assisted_actor = true;
                     obstruction_origin.assist_direction(target.point - ray.origin());
                     ActorHit {
                         runtime_id: identity.runtime_id,
@@ -328,7 +330,7 @@ fn resolve_frame(
     // Hover, attack and interaction share one target: the pick ray finds actors along the
     // whole pick range, but only a hit within the game-mode cap becomes the targeted actor.
     let mut crosshair = classify(actor, block_distance, attack_reach);
-    if let Some(position) = frame.pick_position {
+    if !assisted_actor && let Some(position) = frame.pick_position {
         crosshair = gameplay::melee::trim_actor_pick(crosshair, position, actor_reach);
     }
     let hover = match crosshair {
