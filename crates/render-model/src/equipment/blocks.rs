@@ -15,6 +15,7 @@ const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
 #[cfg(test)]
 mod tests;
 
+mod bamboo_gates;
 mod buttons;
 mod fences;
 mod gates;
@@ -121,10 +122,12 @@ pub fn collect_held(
                 == Some(assets::ModelFamily::Gate)
                 && assets::registry::pinned_block_identity(visual)
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
-                && assets::facts::block_render_fact(&key.identifier).kind
-                    != assets::facts::BlockRenderKind::BambooGate
             {
-                HeldDisplay::Gate(visual)
+                HeldDisplay::Gate(
+                    visual,
+                    assets::facts::block_render_fact(&key.identifier).kind
+                        == assets::facts::BlockRenderKind::BambooGate,
+                )
             } else if flat {
                 HeldDisplay::Sprite
             } else {
@@ -146,7 +149,7 @@ enum HeldDisplay {
     CenteredBlock(u32),
     Fence(u32, bool),
     Wall(u32),
-    Gate(u32),
+    Gate(u32, bool),
     Sprite,
 }
 
@@ -190,7 +193,8 @@ fn collect_shapes(
             Some(HeldDisplay::CenteredBlock(shown)) => centered_carried_model(world, shown),
             Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
             Some(HeldDisplay::Wall(shown)) => walls::model(world, shown),
-            Some(HeldDisplay::Gate(shown)) => gates::model(world, shown),
+            Some(HeldDisplay::Gate(shown, false)) => gates::model(world, shown),
+            Some(HeldDisplay::Gate(shown, true)) => bamboo_gates::model(world, shown),
             _ => None,
         }
         .or_else(|| {
@@ -218,7 +222,7 @@ fn collect_shapes(
                     | HeldDisplay::CenteredBlock(_)
                     | HeldDisplay::Fence(..)
                     | HeldDisplay::Wall(_)
-                    | HeldDisplay::Gate(_),
+                    | HeldDisplay::Gate(..),
                 ) => return None,
                 None if display.is_some()
                     && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>

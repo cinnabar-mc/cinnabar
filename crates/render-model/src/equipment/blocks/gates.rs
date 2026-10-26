@@ -7,28 +7,7 @@ pub(super) fn model(
     world: &RuntimeAssets,
     visual: u32,
 ) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
-    let block = world.resolve(NetworkIdMode::Sequential, visual);
-    if block.kind() != VisualKind::Model
-        || block.support() != VisualSupport::Exact
-        || block.animation().is_some()
-    {
-        return None;
-    }
-    let template = block.model_template()?;
-    let flags = world.model_templates().get(template as usize)?.flags;
-    if flags & (assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z)
-        == 0
-    {
-        return None;
-    }
-    let mut quads = assets::gui_item::block_item_quads(
-        block.kind(),
-        BlockFace::ALL.map(|face| block.face(face).material_id()),
-        Some(template),
-        world.model_templates(),
-        world.model_quads(),
-    )
-    .ok()?;
+    let mut quads = carried_quads(world, visual)?;
     let (bottom, top) = quads
         .iter()
         .flat_map(|q| q.corners)
@@ -70,4 +49,33 @@ pub(super) fn model(
         });
     }
     template_quads(&quads)
+}
+
+/// Retains active carried gate geometry and material regions for artwork placement.
+pub(super) fn carried_quads(
+    world: &RuntimeAssets,
+    visual: u32,
+) -> Option<Vec<assets::gui_item::GuiBlockQuad>> {
+    let block = world.resolve(NetworkIdMode::Sequential, visual);
+    if block.kind() != VisualKind::Model
+        || block.support() != VisualSupport::Exact
+        || block.animation().is_some()
+    {
+        return None;
+    }
+    let template = block.model_template()?;
+    let flags = world.model_templates().get(template as usize)?.flags;
+    if flags & (assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_X | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z)
+        == 0
+    {
+        return None;
+    }
+    assets::gui_item::block_item_quads(
+        block.kind(),
+        BlockFace::ALL.map(|face| block.face(face).material_id()),
+        Some(template),
+        world.model_templates(),
+        world.model_quads(),
+    )
+    .ok()
 }
