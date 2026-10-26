@@ -11,15 +11,18 @@ use server_experience::{
     screen::Files,
     world_material::{WorldBlend, WorldDepth, WorldMaterialSpec},
 };
+#[cfg(test)]
+use std::sync::{Mutex, PoisonError};
 use std::{
     io::Cursor,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc,
         atomic::{AtomicU64, Ordering},
     },
 };
 
-/// One unit of admission work.
+/// One unit of admission work a test runs by hand.
+#[cfg(test)]
 pub(super) type Job = Box<dyn FnOnce() + Send>;
 
 /// Where admission work runs.
@@ -36,41 +39,69 @@ pub(super) enum Executor {
     Held(Arc<Mutex<Vec<Job>>>),
 }
 
-impl Executor {
-    /// Runs `job` here or hands it on; `done` counts it when it finishes.
-    fn run(&self, job: impl FnOnce() + Send + 'static, done: &Arc<AtomicU64>) {
-        let done = Arc::clone(done);
-        let job = move || {
-            job();
-            done.fetch_add(1, Ordering::Release);
-        };
+/// A running job's result, taken once it finishes. Dropping a pool job's handle cancels it.
+pub(super) enum Pending<T> {
+    Task(bevy::tasks::Task<T>),
+    #[cfg(test)]
+    Slot(Arc<Mutex<Option<T>>>),
+}
+
+impl<T> Pending<T> {
+    /// Takes the result if the job finished.
+    fn take(&mut self) -> Option<T> {
         match self {
-            Executor::Pool => bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default)
-                .spawn(async move { job() })
-                .detach(),
+            Pending::Task(task) => bevy::tasks::futures::check_ready(task),
             #[cfg(test)]
-            Executor::Inline => job(),
-            #[cfg(test)]
-            Executor::Held(held) => held
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(Box::new(job)),
+            Pending::Slot(slot) => slot.lock().unwrap_or_else(PoisonError::into_inner).take(),
         }
     }
 }
 
-/// A result a job fills in once.
-type Slot<T> = Arc<OnceLock<T>>;
+impl Executor {
+    /// Starts `job`; `done` counts it when it finishes.
+    fn spawn<T: Send + 'static>(
+        &self,
+        job: impl FnOnce() -> T + Send + 'static,
+        done: &Arc<AtomicU64>,
+    ) -> Pending<T> {
+        let done = Arc::clone(done);
+        let job = move || {
+            let result = job();
+            done.fetch_add(1, Ordering::Release);
+            result
+        };
+        match self {
+            Executor::Pool => Pending::Task(
+                bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default)
+                    .spawn(async move { job() }),
+            ),
+            #[cfg(test)]
+            Executor::Inline => Pending::Slot(Arc::new(Mutex::new(Some(job())))),
+            #[cfg(test)]
+            Executor::Held(held) => {
+                let slot = Arc::new(Mutex::new(None));
+                let filled = Arc::clone(&slot);
+                held.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(Box::new(move || {
+                        *filled.lock().unwrap_or_else(PoisonError::into_inner) = Some(job());
+                    }));
+                Pending::Slot(slot)
+            }
+        }
+    }
+}
 
 /// What admitting a declaration has produced so far.
 pub(super) enum Outcome {
+    /// Not measured yet; its bundle runs one admission job at a time.
+    Unmeasured,
     /// Validating its shader and reading its textures' sizes.
-    Measuring(Slot<Result<Measured, String>>),
-    /// A valid shader whose charge did not fit its bundle's remaining shares when last tried.
-    /// It holds no decoded texels.
+    Measuring(Pending<Result<Measured, String>>),
+    /// A valid shader that is not drawn. It holds no decoded texels.
     Waiting(Measured),
     /// Decoding its textures, its charge reserved.
-    Decoding(Measured, Slot<Result<Arc<[Texture]>, String>>),
+    Decoding(Measured, Pending<Result<Arc<[Texture]>, String>>),
     /// Drawable, with its decoded textures.
     Ready(Published),
     /// Refused for this reason until its program changes.
@@ -95,9 +126,11 @@ pub(super) struct Charge {
 pub(super) type Pipelines = (u128, Blend, Depth);
 
 /// How fitting a material against its bundle's shares went.
-pub(super) enum Fit<'a> {
-    Drawable(&'a Published, Charge),
-    /// Still being measured or decoded; not a failure.
+pub(super) enum Fit {
+    Drawable(Published, Charge),
+    /// Its charge fits and its textures await decoding.
+    Decode(Charge),
+    /// Being decoded, with this charge reserved, or not measured yet; not a failure.
     Pending(Charge),
     Refused(String),
 }
@@ -106,39 +139,78 @@ pub(super) enum Fit<'a> {
 pub(super) struct Cached {
     pub spec: WorldMaterialSpec,
     /// Numbers this admission attempt, so a failure is reported once per attempt; it is also
-    /// the material's key.
+    /// the material's key, and a newer attempt's job replaces an older one's.
     pub attempt: u64,
     pub outcome: Outcome,
 }
 
 impl Cached {
-    /// Starts admitting `spec` as attempt `attempt`: its shader is validated and its textures'
-    /// headers read by `executor`, so the frame never waits for either.
-    pub(super) fn admit(
-        spec: &WorldMaterialSpec,
-        attempt: u64,
-        files: &Arc<Files>,
-        executor: &Executor,
-        done: &Arc<AtomicU64>,
-    ) -> Self {
-        let slot: Slot<Result<Measured, String>> = Arc::default();
-        let (result, source, textures, files) = (
-            Arc::clone(&slot),
-            spec.source.clone(),
-            spec.textures.clone(),
-            Arc::clone(files),
-        );
-        executor.run(
-            move || {
-                let _ = result.set(measure(&source, &textures, &files));
-            },
-            done,
-        );
+    /// A new admission attempt of `spec`, not measured yet.
+    pub(super) fn new(spec: &WorldMaterialSpec, attempt: u64) -> Self {
         Self {
             spec: spec.clone(),
             attempt,
-            outcome: Outcome::Measuring(slot),
+            outcome: Outcome::Unmeasured,
         }
+    }
+
+    /// Whether a job of this attempt is running.
+    pub(super) fn running(&self) -> bool {
+        matches!(self.outcome, Outcome::Measuring(_) | Outcome::Decoding(..))
+    }
+
+    /// Whether its shader and texture sizes are known, or it was refused.
+    pub(super) fn measured(&self) -> bool {
+        !matches!(self.outcome, Outcome::Unmeasured | Outcome::Measuring(_))
+    }
+
+    /// Whether it still needs measuring.
+    pub(super) fn unmeasured(&self) -> bool {
+        matches!(self.outcome, Outcome::Unmeasured)
+    }
+
+    /// Starts validating its shader and reading its textures' headers on `executor`, so the
+    /// frame never waits for either.
+    pub(super) fn measure(
+        &mut self,
+        files: &Arc<Files>,
+        executor: &Executor,
+        done: &Arc<AtomicU64>,
+    ) {
+        let (source, textures, files) = (
+            self.spec.source.clone(),
+            self.spec.textures.clone(),
+            Arc::clone(files),
+        );
+        self.outcome =
+            Outcome::Measuring(executor.spawn(move || measure(&source, &textures, &files), done));
+        self.settle();
+    }
+
+    /// Starts decoding its textures once [`Self::fit`] said they fit.
+    pub(super) fn decode(
+        &mut self,
+        files: &Arc<Files>,
+        executor: &Executor,
+        done: &Arc<AtomicU64>,
+    ) {
+        let Outcome::Waiting(measured) = &self.outcome else {
+            return;
+        };
+        let (textures, files) = (self.spec.textures.clone(), Arc::clone(files));
+        let job = executor.spawn(move || decode_all(&textures, &files).map(Arc::from), done);
+        self.outcome = Outcome::Decoding(measured.clone(), job);
+        self.settle();
+    }
+
+    /// Cancels its running job: dropping the handle stops a pool job, and the attempt goes back
+    /// to the step that job was taking.
+    pub(super) fn cancel(&mut self) {
+        self.outcome = match std::mem::replace(&mut self.outcome, Outcome::Unmeasured) {
+            Outcome::Measuring(_) => Outcome::Unmeasured,
+            Outcome::Decoding(measured, _) => Outcome::Waiting(measured),
+            other => other,
+        };
     }
 
     /// The identity of the pipelines this material compiles, once measured.
@@ -147,7 +219,7 @@ impl Cached {
         let material = match &self.outcome {
             Outcome::Waiting(measured) | Outcome::Decoding(measured, _) => &measured.material,
             Outcome::Ready(published) => &published.material,
-            Outcome::Measuring(_) | Outcome::Refused(_) => return None,
+            Outcome::Unmeasured | Outcome::Measuring(_) | Outcome::Refused(_) => return None,
         };
         Some((
             material.program(),
@@ -157,21 +229,13 @@ impl Cached {
     }
 
     /// Charges the material against the `gpu` and `memory` bytes its bundle has left, where
-    /// `pipeline` is what its pipelines cost (nothing when the bundle already compiled them),
-    /// and starts decoding its textures once the charge fits. A material that no longer fits
-    /// gives up its decoded textures, so the host never holds texels its shares do not cover.
-    pub(super) fn fit(
-        &mut self,
-        gpu: u64,
-        memory: u64,
-        pipeline: u64,
-        files: &Arc<Files>,
-        executor: &Executor,
-        done: &Arc<AtomicU64>,
-    ) -> Fit<'_> {
+    /// `pipeline` is what its pipelines and bind group cost. A material that no longer fits
+    /// gives up its decoded textures and any decode in flight, so the host never holds texels
+    /// its shares do not cover.
+    pub(super) fn fit(&mut self, gpu: u64, memory: u64, pipeline: u64) -> Fit {
         self.settle();
         let measured = match &self.outcome {
-            Outcome::Measuring(_) => {
+            Outcome::Unmeasured | Outcome::Measuring(_) => {
                 return Fit::Pending(Charge { gpu: 0, memory: 0 });
             }
             Outcome::Refused(reason) => return Fit::Refused(reason.clone()),
@@ -196,46 +260,30 @@ impl Cached {
             self.outcome = Outcome::Waiting(measured);
             return Fit::Refused(reason.into());
         }
-        if let Outcome::Waiting(measured) = &self.outcome {
-            let slot: Slot<Result<Arc<[Texture]>, String>> = Arc::default();
-            let (result, textures, files) = (
-                Arc::clone(&slot),
-                self.spec.textures.clone(),
-                Arc::clone(files),
-            );
-            executor.run(
-                move || {
-                    let _ = result.set(decode_all(&textures, &files).map(Arc::from));
-                },
-                done,
-            );
-            self.outcome = Outcome::Decoding(measured.clone(), slot);
-            self.settle();
-        }
         match &self.outcome {
-            Outcome::Ready(published) => Fit::Drawable(published, charge),
-            Outcome::Refused(reason) => Fit::Refused(reason.clone()),
+            Outcome::Ready(published) => Fit::Drawable(published.clone(), charge),
+            Outcome::Waiting(_) => Fit::Decode(charge),
             _ => Fit::Pending(charge),
         }
     }
 
     /// Takes any finished job's result.
-    fn settle(&mut self) {
-        let next = match &self.outcome {
-            Outcome::Measuring(slot) => match slot.get() {
-                Some(Ok(measured)) => Outcome::Waiting(measured.clone()),
-                Some(Err(reason)) => Outcome::Refused(reason.clone()),
+    pub(super) fn settle(&mut self) {
+        let next = match &mut self.outcome {
+            Outcome::Measuring(job) => match job.take() {
+                Some(Ok(measured)) => Outcome::Waiting(measured),
+                Some(Err(reason)) => Outcome::Refused(reason),
                 None => return,
             },
-            Outcome::Decoding(measured, slot) => match slot.get() {
+            Outcome::Decoding(measured, job) => match job.take() {
                 Some(Ok(textures)) => Outcome::Ready(Published {
                     key: self.attempt,
                     material: Arc::clone(&measured.material),
-                    textures: Arc::clone(textures),
+                    textures,
                     depth: depth(self.spec.depth),
                     blend: blend(self.spec.blend),
                 }),
-                Some(Err(reason)) => Outcome::Refused(reason.clone()),
+                Some(Err(reason)) => Outcome::Refused(reason),
                 None => return,
             },
             _ => return,

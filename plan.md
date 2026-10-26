@@ -148,10 +148,13 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   side), `PIPELINE_CHARGE_BYTES` (256 KiB per distinct set of pipelines) and
   `BIND_GROUP_CHARGE_BYTES` (4 KiB per drawn material), estimates rather than measured driver
   costs, the 63 block slots the six-bit quad
-  tag carries (`MAX_BLOCK_SLOTS`; 255 for entities) and the 64 compile failures one session
+  tag carries (`MAX_BLOCK_SLOTS`) and the 255 slots in all that the eight-bit actor word carries
+  (`MAX_ENTITY_SLOTS`), `PROCESS_PIPELINE_BYTES` (one bundle's largest GPU grant, 128 MiB, for
+  every set of pipelines the process keeps, past which a program new to the process is
+  refused) and the 64 compile failures one session
   reports (`MAX_WORLD_MATERIAL_FAILURES`). Composed modules and their pipelines stay
   registered for the process because Bevy cannot drop a pipeline; a session charges the ones
-  its bundles compiled, but distinct programs from many sessions still accumulate.
+  its bundles compiled, and the process-wide budget bounds them across sessions.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no
