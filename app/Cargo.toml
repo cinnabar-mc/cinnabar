@@ -108,6 +108,7 @@ json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
 oreui = { path = "../crates/oreui" }
 mod-ui = { path = "../crates/mod-ui" }
+mod-api = { path = "../crates/mod-api" }
 particles = { path = "../crates/particles" }
 resource-pack = { path = "../crates/resource-pack" }
 sim = { path = "../crates/sim" }
@@ -126,7 +127,6 @@ bootstrap-ui = { path = "../crates/bootstrap-ui" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
-mod-api = { path = "../crates/mod-api" }
 mod-render = { path = "../crates/mod-render" }
 tracing-tracy = { version = "=0.12.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 tracing-chrome = { version = "=0.7.2", optional = true }
