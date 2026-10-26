@@ -228,8 +228,9 @@ impl MeleeRuntime {
         self.queue.pending() || held
     }
 
-    /// The original input boundary of the first waiting press when capture was active.
-    pub fn pending_capture_frame(&self) -> Option<[u64; 2]> {
+    /// Expires old presses before returning the next waiting press's captured input boundary.
+    pub fn pending_capture_frame(&mut self, now_millis: u64) -> Option<[u64; 2]> {
+        self.defer(now_millis);
         self.queue.first_pending()?.capture_frame
     }
 

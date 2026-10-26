@@ -212,16 +212,33 @@ fn captured_press_keeps_its_original_input_boundary_through_retries() {
     let mut runtime = super::super::MeleeRuntime::default();
     assert!(runtime.observe_input_with_capture(true, true, Some([1, 10])));
     assert!(runtime.observe_input_with_capture(false, true, Some([1, 11])));
-    assert_eq!(runtime.pending_capture_frame(), Some([1, 10]));
+    assert_eq!(runtime.pending_capture_frame(0), Some([1, 10]));
     assert!(runtime.observe_input_with_capture(true, true, Some([1, 12])));
     runtime.resolve(
         Crosshair::Miss,
         &super::super::tests::press(protocol::PlayerInputMode::Mouse),
         &mut super::super::SwingTracker::default(),
     );
-    assert_eq!(runtime.pending_capture_frame(), Some([1, 12]));
+    assert_eq!(runtime.pending_capture_frame(0), Some([1, 12]));
     runtime.cancel();
-    assert_eq!(runtime.pending_capture_frame(), None);
+    assert_eq!(runtime.pending_capture_frame(0), None);
     assert!(runtime.observe_input(true, true));
-    assert_eq!(runtime.pending_capture_frame(), None);
+    assert_eq!(runtime.pending_capture_frame(0), None);
+}
+
+#[test]
+fn capture_identity_follows_the_press_remaining_after_expiration() {
+    let mut runtime = super::super::MeleeRuntime::default();
+    runtime.observe_input_with_capture(true, true, Some([1, 10]));
+    runtime.defer(0);
+    runtime.observe_input_with_capture(true, true, Some([1, 12]));
+    runtime.defer(1);
+    let now = crate::interaction_authority::MAX_PENDING_INTERACTION_MILLIS + 1;
+    assert_eq!(runtime.pending_capture_frame(now), Some([1, 12]));
+    runtime.resolve(
+        Crosshair::Miss,
+        &super::super::tests::press(protocol::PlayerInputMode::Mouse),
+        &mut super::super::SwingTracker::default(),
+    );
+    assert_eq!(runtime.pending_capture_frame(now), None);
 }

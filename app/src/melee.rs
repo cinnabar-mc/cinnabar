@@ -203,9 +203,6 @@ pub(crate) fn prepare_melee(
         runtime.defer(now_millis);
         return;
     };
-    if let Some(state) = picked.capture.as_mut() {
-        state.press_frame = runtime.pending_capture_frame().unwrap_or_default();
-    }
     picked.crosshair = runtime.observe_attack_target(
         picked.crosshair,
         item_timing.is_some_and(|timing| timing.piercing_weapon),
@@ -368,6 +365,16 @@ fn maintain_attacks(
         !ordered.maintenance_pending(&context.input)
             && !crate::ordered_interactions::release_pending(&item_use, &movement)
     });
+    let capture = target
+        .attack
+        .and_then(|pick| pick.capture)
+        .map(|mut state| {
+            runtime.synchronize(movement.interaction_authority_identity());
+            state.press_frame = runtime
+                .pending_capture_frame(now_millis)
+                .unwrap_or_default();
+            state
+        });
     let admitted = gameplay::melee::admit_attack_frame(
         &mut runtime,
         &mut mining,
@@ -384,10 +391,7 @@ fn maintain_attacks(
         },
         gameplay::melee::AttackEffects {
             send: |packets| {
-                network.send_inventory_packets(crosshair::capture_packets(
-                    packets,
-                    target.attack.and_then(|pick| pick.capture),
-                ))
+                network.send_inventory_packets(crosshair::capture_packets(packets, capture))
             },
             swing_duration: |tick| swing_duration(effects.mining_tick(tick, completed_tick).0),
             request_id: |slot, damage| {
