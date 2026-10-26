@@ -54,18 +54,43 @@ pub(super) fn missing_bindings(
         }) else {
             continue;
         };
-        let mut document = template.clone();
-        let description = &mut document["minecraft:attachable"]["description"];
-        description["identifier"] = Value::String(record.identifier.to_string());
-        description["textures"]["default"] = Value::String(texture);
-        missing.push((
-            format!(
-                "attachables/_cinnabar/{}.json",
-                record.identifier.replace(':', "/")
-            )
-            .into(),
-            document,
-        ));
+        let Some(source_item) =
+            template["minecraft:attachable"]["description"]["identifier"].as_str()
+        else {
+            continue;
+        };
+        let owners = authored.iter().filter(|document| {
+            let description = &document["minecraft:attachable"]["description"];
+            description["textures"]["default"].is_string()
+                && description["item"]
+                    .as_object()
+                    .is_some_and(|items| items.len() == 1 && items.contains_key(source_item))
+        });
+        for (index, template) in std::iter::once(template).chain(owners).enumerate() {
+            let identifier = if index == 0 {
+                record.identifier.to_string()
+            } else {
+                format!("{}.owner_{index}", record.identifier)
+            };
+            let mut document = template.clone();
+            let description = &mut document["minecraft:attachable"]["description"];
+            description["identifier"] = Value::String(identifier.clone());
+            description["textures"]["default"] = Value::String(texture.clone());
+            if let Some(items) = description.get_mut("item").and_then(Value::as_object_mut) {
+                let condition = items
+                    .remove(source_item)
+                    .expect("the template owns this item");
+                items.insert(record.identifier.to_string(), condition);
+            }
+            missing.push((
+                format!(
+                    "attachables/_cinnabar/{}.json",
+                    identifier.replace(':', "/")
+                )
+                .into(),
+                document,
+            ));
+        }
     }
     Ok(missing)
 }
@@ -122,6 +147,31 @@ mod tests {
         }
         assert!(missing_bindings(|_| false, &templates).unwrap().is_empty());
         assert!(missing_bindings(|_| true, &[]).unwrap().is_empty());
+        let source_item = templates[0]["minecraft:attachable"]["description"]["identifier"]
+            .as_str()
+            .unwrap();
+        let condition = "query.owner_identifier == 'minecraft:player'";
+        let mut owner = templates[0].clone();
+        let description = &mut owner["minecraft:attachable"]["description"];
+        description["identifier"] = Value::String(format!("{source_item}.player"));
+        description["item"] = serde_json::json!({(source_item):condition});
+        description["scripts"]["animate"] = serde_json::json!(["offset"]);
+        description["animations"] = serde_json::json!({"offset":"animation.fixture.offset"});
+        let mut variants = templates.clone();
+        variants.push(owner);
+        let generated_variants = missing_bindings(|_| true, &variants).unwrap();
+        assert_eq!(generated_variants.len(), pieces.len() + 1);
+        let owner = generated_variants
+            .iter()
+            .map(|(_, document)| &document["minecraft:attachable"]["description"])
+            .find(|description| description.get("item").is_some())
+            .unwrap();
+        assert_eq!(
+            owner["item"],
+            serde_json::json!({(pieces[0].identifier.as_ref()):condition})
+        );
+        assert_eq!(owner["scripts"]["animate"], serde_json::json!(["offset"]));
+        assert_eq!(owner["animations"]["offset"], "animation.fixture.offset");
         let mut malformed = templates.clone();
         for document in &mut malformed {
             document["minecraft:attachable"]["description"]["textures"] =

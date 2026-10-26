@@ -32,8 +32,23 @@ fn omitted_copper_armour_compiles_into_drawable_equipment() {
             serde_json::json!({
                 "format_version":"1.8.0","minecraft:attachable":{"description":{
                     "identifier":format!("fixture:{piece}"),"materials":{"default":"armor"},
-                    "geometry":{"default":geometry},"textures":{"default":"textures/fixture"},
+                    "geometry":{"default":format!("geometry.humanoid.armor.{piece}")},
+                    "textures":{"default":"textures/fixture"},
                     "render_controllers":[CONTROLLER]
+                }}
+            }),
+        );
+        write(
+            dir.path(),
+            &format!("attachables/{piece}.player.json"),
+            serde_json::json!({
+                "format_version":"1.10.0","minecraft:attachable":{"description":{
+                    "identifier":format!("fixture:{piece}.player"),
+                    "item":{(format!("fixture:{piece}")):"query.owner_identifier == 'minecraft:player'"},
+                    "materials":{"default":"armor"},"geometry":{"default":geometry},
+                    "textures":{"default":"textures/fixture"},"render_controllers":[CONTROLLER],
+                    "scripts":{"animate":["offset"]},
+                    "animations":{"offset":"animation.fixture.offset"}
                 }}
             }),
         );
@@ -52,8 +67,8 @@ fn omitted_copper_armour_compiles_into_drawable_equipment() {
         let binding = compiled
             .equipment_bindings
             .iter()
-            .find(|binding| binding.identifier == record.identifier)
-            .expect("present copper artwork needs a worn equipment binding");
+            .find(|binding| binding.identifier == record.identifier && binding.attachable.is_some())
+            .expect("copper armour needs its player-specific equipment binding");
         assert!(matches!(
             binding.category,
             assets::EquipmentCategory::Armor { .. }
@@ -66,6 +81,13 @@ fn omitted_copper_armour_compiles_into_drawable_equipment() {
             binding.texture.resolution,
             assets::EntityDependencyResolution::Catalog
         );
+        assert!(compiled.assets.rig_bindings.iter().any(|rig| {
+            compiled.assets.symbols[rig.entity_symbol as usize]
+                .identifier
+                .as_ref()
+                == binding.attachable_identifier()
+                && rig.item_condition.is_some()
+        }));
     }
 }
 
