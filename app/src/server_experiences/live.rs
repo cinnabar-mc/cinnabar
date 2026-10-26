@@ -64,6 +64,9 @@ struct Instance<H> {
     pending_drawing_context: mod_host::presentation::Context,
     /// The helper's latest held references, independent of snapshot transfer progress.
     drawing_references: Vec<mod_render::retained::EntityKey>,
+    /// Counts changes to its world material declarations: each transaction carrying world
+    /// commands, and the stop that clears them.
+    world_revision: u64,
 }
 
 impl<H: Worker> Instance<H> {
@@ -133,6 +136,9 @@ impl<H> Instance<H> {
         self.pending = None;
         self.waiting_for = None;
         self.queue.clear();
+        if self.contributions.world != Default::default() {
+            self.world_revision += 1;
+        }
         self.contributions = Contributions::default();
         self.presentation.clear();
         self.drawing_references.clear();
@@ -141,6 +147,12 @@ impl<H> Instance<H> {
         budget.quarantine(&self.owner);
         self.stopped = Some(why);
     }
+}
+
+/// A runtime identity no other runtime in this process has had.
+fn next_world_run() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// What the trusted status says of a client part stopped after `MAX_GUEST_STRIKES` failures.
@@ -159,6 +171,9 @@ pub(super) struct Live<H = Helper> {
     /// Scene and frame revisions `screens` was built from.
     screens_built: Option<(u64, u64)>,
     scene_revision: u64,
+    /// Unique to this runtime in the process, so a presenter tells a new session from a
+    /// change in this one.
+    world_run: u64,
     instances: BTreeMap<String, Instance<H>>,
     /// The last dispatched recipient, so the next slice starts with its successor.
     last_recipient: Option<String>,
@@ -278,6 +293,7 @@ impl<H: Worker> Live<H> {
                 drawing_context: Default::default(),
                 pending_drawing_context: Default::default(),
                 drawing_references: Vec::new(),
+                world_revision: 0,
             };
             if let Err(error) = admission {
                 let failure = CallFailure::startup(&instance.owner.bundle, &error);
@@ -297,6 +313,7 @@ impl<H: Worker> Live<H> {
             screens: Vec::new(),
             screens_built: None,
             scene_revision,
+            world_run: next_world_run(),
             instances,
             last_recipient: None,
             executable: executable.to_owned(),
@@ -579,9 +596,13 @@ impl<H: Worker> Live<H> {
         Some(&self.screens)
     }
 
-    /// Changes whenever any client part's retained contributions may have changed.
-    pub(super) fn contribution_revision(&self) -> u64 {
-        self.scene_revision
+    /// This runtime's identity and a revision that changes whenever any client part's world
+    /// material declarations may have changed, and only then.
+    pub(super) fn world_contribution(&self) -> (u64, u64) {
+        let revision = self.instances.values().fold(0_u64, |sum, instance| {
+            sum.wrapping_add(instance.world_revision)
+        });
+        (self.world_run, revision)
     }
 
     /// Each running client part's world material declarations, in bundle order, with its share

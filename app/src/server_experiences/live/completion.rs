@@ -365,6 +365,14 @@ impl<H> Instance<H> {
         );
         self.contributions
             .apply(&transaction, &self.owner, self.epoch, &self.capabilities)?;
+        if transaction.commands.iter().any(|command| {
+            matches!(
+                command,
+                Command::WorldMaterial { .. } | Command::WorldBinding { .. }
+            )
+        }) {
+            self.world_revision += 1;
+        }
         if transaction.epoch == epoch && Some(self.pending_drawing_context.fence()) == fence {
             self.accept_references(references, &valid)?;
             if let Some(presentation) = presentation {
