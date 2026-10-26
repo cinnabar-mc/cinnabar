@@ -318,7 +318,9 @@ Requires the camera grant and a current frame; commits only after frame returns.
 set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
 ```
 
-Bounded local actor attack range; none restores ordinary game-mode rules.
+Requires interaction authority; a non-none range also requires a current gameplay frame.
+Can only shorten actor pick and attack reach within the current mode and input limits;
+none restores ordinary game-mode rules. A grant does not permit extended reach.
 
 <a id="pulse-attack"></a>
 
