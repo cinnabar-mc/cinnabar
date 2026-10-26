@@ -771,3 +771,33 @@ fn ordinary_controls_ignore_grid_template_properties() {
     harness.paint(&mut ui, false);
     assert!(!harness.painted().is_empty());
 }
+
+/// Removing the last item resolver repaints even when its scalar still equals icon index 0.
+#[test]
+fn replacing_the_last_item_with_its_index_removes_cached_artwork() {
+    let mut ui = ModUi::default();
+    let mut harness = Harness::new();
+    harness.icon = Some(IconRef {
+        page: 0,
+        uv: [0, 0, 16, 16],
+        glint: false,
+        color_mask: None,
+    });
+    publish(&mut ui, &[(OWNER, 1, &surface(bindings()))]);
+    harness.paint(&mut ui, false);
+    let has_icon = |harness: &Harness| {
+        harness
+            .nodes
+            .iter()
+            .any(|node| matches!(node.visual(), ui::UiVisual::Sprite { .. }))
+    };
+    assert!(has_icon(&harness), "the initial item must paint");
+    let mut changed = bindings();
+    changed["#helmet"] = json!(0);
+    publish(&mut ui, &[(OWNER, 2, &surface(changed))]);
+    harness.paint(&mut ui, false);
+    assert!(
+        !has_icon(&harness),
+        "the obsolete item artwork must disappear"
+    );
+}
