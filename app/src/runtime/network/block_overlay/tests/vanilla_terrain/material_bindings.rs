@@ -280,3 +280,113 @@ fn a_template_override_that_does_not_copy_its_span_is_rejected() {
     overlay.model_templates[head as usize].flags = assets::MODEL_TEMPLATE_FLAG_TORCH;
     assert!(base.with_block_overlay(2, &overlay).is_err());
 }
+
+#[test]
+fn a_cutout_binding_keeps_cauldron_water_blended_and_the_overlay_valid() {
+    let water = assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_CAULDRON_WATER;
+    let cutout = json!({"material": {"defines": ["ALPHA_TEST"], "states": ["DisableCulling"]}});
+    let model = |flags| super::exclusions::model_with(VisualKind::Model, &[(0, 2)], &[1], 0, flags);
+    let plain = compile(&model_binding(cutout.clone()), &model(0), &keys());
+    let base = model(water);
+    let compiled = compile(&model_binding(cutout), &base, &keys());
+    assert_eq!(
+        compiled.gaps.approximated_materials,
+        plain.gaps.approximated_materials + 1,
+        "the kept water material counts as approximated"
+    );
+    let runtime = base
+        .with_block_overlay(2, &compiled.overlay)
+        .expect("the pack's overlay stays valid");
+    let bound = runtime.resolve(NetworkIdMode::Sequential, 0);
+    let template = bound.model_template().unwrap();
+    assert_ne!(
+        template,
+        base.resolve(NetworkIdMode::Sequential, 0)
+            .model_template()
+            .unwrap()
+    );
+    let quads = template_quads(&runtime, template);
+    assert_eq!(quads.len(), 2);
+    for quad in quads {
+        let material = runtime.material(quad.material);
+        assert_eq!(material.flags, water, "the water keeps its base flags");
+        assert_eq!(material.glow_mask, assets::NO_MASK);
+        assert_eq!(
+            quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED,
+            0,
+            "and its sidedness"
+        );
+    }
+}
+
+#[test]
+fn a_vanilla_model_whose_later_quad_fails_admits_none_of_its_materials() {
+    let record = first_record();
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"example:glass": {"material": {"states": ["Blending"]}}},
+        "bindings": [{"block": record.name.as_ref(), "material": "example:glass"}]
+    });
+    let base = super::exclusions::model_with(VisualKind::Model, &[(0, 2)], &[1, 2], 0, 0);
+    // The second quad's material names a terrain key the stack does not define.
+    let keys = keys();
+    let terrain = keys
+        .terrain_entries()
+        .map(|(key, value)| (key.into(), value.clone()))
+        .collect::<Vec<_>>();
+    let materials = keys
+        .material_sources()
+        .map(|(id, source)| {
+            let mut source = source.clone();
+            if id == 2 {
+                source.key = "absent".into();
+            }
+            (id, source)
+        })
+        .collect::<Vec<_>>();
+    let blocks = keys.block_sources().to_vec();
+    let keys = keys.with_sources(terrain, materials, blocks);
+    let compiled = compile(&bound_stack(&document), &base, &keys);
+    assert!(
+        compiled.overlay.template_overrides.is_empty(),
+        "the second quad has no terrain art"
+    );
+    assert!(
+        compiled.overlay.materials[1..]
+            .iter()
+            .all(|material| material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND == 0),
+        "the first quad's bound copy is released"
+    );
+}
+
+#[test]
+fn a_blend_binding_on_a_two_sided_cutout_keeps_the_binding() {
+    let two_sided = assets::MATERIAL_FLAG_ALPHA_CUTOUT | assets::MATERIAL_FLAG_TWO_SIDED;
+    let glass = json!({"material": {"states": ["Blending", "DisableCulling"]}});
+    let model = |flags| super::exclusions::model_with(VisualKind::Model, &[(0, 2)], &[1], 0, flags);
+    let plain = compile(&model_binding(glass.clone()), &model(0), &keys());
+    let base = model(two_sided);
+    let compiled = compile(&model_binding(glass), &base, &keys());
+    assert_eq!(
+        compiled.gaps.approximated_materials,
+        plain.gaps.approximated_materials
+    );
+    let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
+    let template = runtime
+        .resolve(NetworkIdMode::Sequential, 0)
+        .model_template()
+        .unwrap();
+    for quad in template_quads(&runtime, template) {
+        let flags = runtime.material(quad.material).flags;
+        assert_eq!(
+            flags & (assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT),
+            assets::MATERIAL_FLAG_ALPHA_BLEND
+        );
+        assert_eq!(flags & assets::MATERIAL_FLAG_TWO_SIDED, 0);
+        assert_ne!(
+            quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED,
+            0,
+            "the blended quad is two-sided"
+        );
+    }
+}

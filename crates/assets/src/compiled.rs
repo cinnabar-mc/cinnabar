@@ -191,7 +191,8 @@ pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
 const _: () = assert!(MATERIAL_FLAGS_MASK | MATERIAL_FLAGS_RESERVED == u32::MAX);
 const _: () = assert!(MATERIAL_FLAGS_MASK & MATERIAL_FLAGS_RESERVED == 0);
 
-pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
+/// Whether `flags` is a combination the carrier, overlay and shaders accept.
+pub const fn material_flags_are_valid(flags: u32) -> bool {
     flags & MATERIAL_FLAGS_RESERVED == 0
         && (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
         && (flags & crate::stem::MATERIAL_FLAG == 0
