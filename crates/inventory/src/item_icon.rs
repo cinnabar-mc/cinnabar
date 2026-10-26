@@ -4,6 +4,15 @@
 use assets::item_use::LONG_WEAPON_USE_TICKS;
 use assets::item_use::{ItemProjectileRole, ItemUseAnimation};
 
+/// Exhausted elytra use their broken artwork when only one durability point remains.
+pub fn elytra_icon_variant(damage: Option<u32>, maximum: Option<u32>) -> u32 {
+    u32::from(
+        damage
+            .zip(maximum)
+            .is_some_and(|(damage, maximum)| maximum > 0 && damage >= maximum - 1),
+    )
+}
+
 /// The main-hand bow frame follows draw power while its use counter remains nonzero.
 /// Other items keep frame zero; crossbows use their separate projectile-aware rule.
 pub fn ranged_animation_frame(
@@ -49,6 +58,23 @@ pub fn crossbow_animation_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elytra_artwork_changes_at_the_last_durability_point() {
+        let maximum =
+            assets::item::durability::builtin_item_durability(assets::facts::ELYTRA_IDENTIFIER)
+                .maximum()
+                .unwrap();
+        for damage in [0, 1, maximum - 2] {
+            assert_eq!(elytra_icon_variant(Some(damage), Some(maximum)), 0);
+        }
+        for damage in [maximum - 1, maximum, u32::MAX] {
+            assert_eq!(elytra_icon_variant(Some(damage), Some(maximum)), 1);
+        }
+        assert_eq!(elytra_icon_variant(None, Some(maximum)), 0);
+        assert_eq!(elytra_icon_variant(Some(maximum), None), 0);
+        assert_eq!(elytra_icon_variant(Some(0), Some(0)), 0);
+    }
 
     #[test]
     fn admitted_bow_frame_does_not_depend_on_display_identity() {

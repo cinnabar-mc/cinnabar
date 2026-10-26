@@ -27,6 +27,8 @@ pub const LEGACY_ITEM_ALIASES: &[(&str, &str)] = &[(
 
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
+/// Canonical identity whose carried artwork distinguishes exhausted wings.
+pub const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
 /// Read-only book identity retained outside the pinned retail census.
 pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 /// Powered, detector and activator rail items with flat carried artwork.

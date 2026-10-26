@@ -63,6 +63,7 @@ pub use model_variant::{BlockModelVariant, ChestKind, CopperAge, LegacyBlockAlia
 
 mod identities_generated;
 pub use identities_generated::{VanillaBlock, VanillaEntity, VanillaItem};
+pub use item::ELYTRA_IDENTIFIER;
 pub mod presentation;
 
 mod presentation_generated;

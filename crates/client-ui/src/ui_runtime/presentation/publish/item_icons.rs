@@ -3,6 +3,9 @@
 
 use {super::*, ui::IconRef};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub struct ItemIconFrames(pub [Option<u32>; protocol::HOTBAR_SLOT_COUNT as usize]);
 
@@ -22,17 +25,24 @@ pub(super) fn stack_icon(
     animation_frame: Option<u32>,
 ) -> Option<IconRef> {
     let identifier = item.identifier.as_deref()?;
-    let (icon_identifier, variant) = presentation
-        .dial_icon_key(identifier, stack.metadata)
-        .unwrap_or_else(|| {
-            UiPresentationRuntime::item_icon_key(
-                identifier,
-                stack.metadata,
-                item.use_animation,
-                item.charged_projectile_role,
-                animation_frame,
-            )
-        });
+    let (icon_identifier, variant) = if identifier == assets::facts::ELYTRA_IDENTIFIER {
+        (
+            identifier,
+            inventory::elytra_icon_variant(item.damage, item.durability.maximum()),
+        )
+    } else {
+        presentation
+            .dial_icon_key(identifier, stack.metadata)
+            .unwrap_or_else(|| {
+                UiPresentationRuntime::item_icon_key(
+                    identifier,
+                    stack.metadata,
+                    item.use_animation,
+                    item.charged_projectile_role,
+                    animation_frame,
+                )
+            })
+    };
     let icon = runtime
         .stack_facts(stack)
         .custom_color
