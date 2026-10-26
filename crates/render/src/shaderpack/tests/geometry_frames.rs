@@ -278,7 +278,9 @@ fn pack_final_replaces_only_its_camera_viewport() {
         true,
     );
     for (y, row) in bytes
-        .chunks_exact(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize)
+        .as_chunks::<{ wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize }>()
+        .0
+        .iter()
         .enumerate()
     {
         for (x, pixel) in row[..SIZE[0] as usize * 4]
