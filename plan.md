@@ -505,7 +505,8 @@ and rendered qualification remain incomplete.
   controllers) still reject the rig: native file load order is unverified.
   Local player leg cycles in both animation modes consume completed physics movement
   and interpolate with its frame fraction, independently of remote actor ticks.
-  Running-jump rendered qualification remains incomplete.
+  Linux captures cover third-person running jumps in both modes; other platforms
+  and matched native qualification remain open.
   Shulkers publish their peek and attach-face variables and keep a zero body yaw;
   attach-position snapping, peek-dependent collision bounds and a rendered comparison
   against the vanilla client remain incomplete.
