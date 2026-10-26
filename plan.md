@@ -1588,7 +1588,9 @@ reference hardware, frame/hitch, streaming, join and capture budgets. Capture th
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
 
-Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
+Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
+compression to and from disk, so storing or loading one stages no encoded copy of its
+artwork pixels. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
 Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
 their admission metadata and file hashes. Decoded and compiled session outputs are freed

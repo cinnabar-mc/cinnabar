@@ -461,15 +461,104 @@ fn compressed_entity_entry_roundtrip_preserves_every_encoded_byte() {
         super::super::compile_encoded(&view, None, None, None, true, &|| false).unwrap();
     let pack = pack.unwrap();
     let files = view.dependencies().unwrap().snapshot();
-    let original = super::encode_entry(&files, Some(&pack), blob.as_deref()).unwrap();
-    disk.store(&[8; 32], &original);
+    super::store_entry(&disk, &[8; 32], &files, Some(&pack), blob.as_deref());
     let fresh = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 20);
-    let loaded = fresh.load(&[8; 32]).unwrap();
-    assert_eq!(loaded, original);
-    let (decoded, restored) = super::decode_entry(&loaded).unwrap();
+    let (decoded, restored) = super::load_entry(&fresh, &[8; 32]).unwrap();
     assert_eq!(restored, files);
     assert_eq!(
         decoded.unwrap().encode(blob.as_deref().unwrap()).unwrap(),
         pack.encode(blob.as_deref().unwrap()).unwrap()
+    );
+}
+
+/// Artwork of `count` square textures of `side` texels with incompressible pixels.
+fn noisy_textures(count: u32, side: u16) -> Vec<assets::ActorTexture> {
+    use sha2::Digest;
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..count)
+        .map(|source| {
+            let rgba8: std::sync::Arc<[u8]> = (0..usize::from(side) * usize::from(side) * 4)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    (state >> 32) as u8
+                })
+                .collect();
+            assets::ActorTexture {
+                source,
+                width: side,
+                height: side,
+                pixel_sha256: sha2::Sha256::digest(&rgba8).into(),
+                rgba8,
+            }
+        })
+        .collect()
+}
+
+// A join's disk entry streams a large pack's pixels through compression instead of staging
+// encoded copies, and a later launch reads them straight into the decoded pack: storing
+// allocates a small fraction of the pixels and loading about one copy of them.
+#[test]
+fn disk_entries_stream_large_artwork_without_staging_copies() {
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let disk = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 30);
+    let stack = entity_stack();
+    let (compiled, blob) = super::super::compile_encoded(
+        &resource_pack::LayeredPackView::tracked(stack.clone()),
+        None,
+        None,
+        None,
+        true,
+        &|| false,
+    )
+    .unwrap();
+    let large = Arc::new(assets::SessionEntityPack {
+        textures: noisy_textures(8, 512).into(),
+        ..(*compiled.unwrap()).clone()
+    });
+    let pixels: usize = large
+        .textures
+        .iter()
+        .map(|texture| texture.rgba8.len())
+        .sum();
+    let (stored, store) = test_alloc::measure(|| {
+        super::EntityCache::default().get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack.clone()),
+            Some(&disk),
+            &|| false,
+            |_, _, _, _, _, _| Some((Some(Arc::clone(&large)), blob.clone())),
+        )
+    });
+    assert!(stored.flatten().is_some());
+    assert!(
+        store.bytes < pixels / 4,
+        "storing {pixels} pixel bytes allocated {} bytes",
+        store.bytes
+    );
+    let (loaded, load) = test_alloc::measure(|| {
+        super::EntityCache::default().get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack.clone()),
+            Some(&disk),
+            &|| false,
+            |_, _, _, _, _, _| panic!("the stored entry is read back"),
+        )
+    });
+    let loaded = loaded.flatten().expect("the stored pack");
+    assert!(
+        loaded
+            .textures
+            .iter()
+            .zip(large.textures.iter())
+            .all(|(loaded, stored)| loaded.rgba8 == stored.rgba8),
+        "every pixel reads back"
+    );
+    assert!(
+        load.bytes < pixels + pixels / 4,
+        "loading {pixels} pixel bytes allocated {} bytes",
+        load.bytes
     );
 }
