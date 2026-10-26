@@ -47,6 +47,29 @@ impl Raster {
         let color = output.create_view(&Default::default());
         let depth = target(&self.gpu, true).create_view(&Default::default());
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        if let Some(rect) = damage
+            .and_then(|rect| crate::render_bounds::scissor(rect, [output.width(), output.height()]))
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("UI damage parity clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &color,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.clear);
+            pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+            pass.draw(0..3, 0..1);
+        }
         let mut start = 0;
         let mut lifetime = super::super::model_depth::ModelDepthLifetime::default();
         while let Some(first) = input.batches.get(start) {
@@ -103,15 +126,6 @@ impl Raster {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if initial
-                && let Some(rect) = damage.and_then(|rect| {
-                    crate::render_bounds::scissor(rect, [output.width(), output.height()])
-                })
-            {
-                pass.set_pipeline(&self.clear);
-                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
-                pass.draw(0..3, 0..1);
-            }
             pass.set_vertex_buffer(0, vertices.slice(..));
             pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.set_bind_group(0, &self.binding, &[]);
