@@ -9,6 +9,7 @@ pub(super) struct UiModels {
     poses: Arc<[UiModelPose]>,
     bones: Vec<UiModelBone>,
     scratch: Vec<UiModelBone>,
+    resident: bool,
 }
 
 impl UiModels {
@@ -29,6 +30,7 @@ impl UiModels {
             poses: Arc::from([]),
             bones: Vec::new(),
             scratch: Vec::new(),
+            resident: false,
         }
     }
 
@@ -40,7 +42,7 @@ impl UiModels {
         uploads: &crate::upload_staging::FrameUploads<'_>,
         profile: Option<&super::profile::UiProfile>,
     ) -> Result<bool, UiRenderRejectReason> {
-        if Arc::ptr_eq(&self.poses, poses) {
+        if self.resident && Arc::ptr_eq(&self.poses, poses) {
             return Ok(false);
         }
         self.scratch.clear();
@@ -68,11 +70,12 @@ impl UiModels {
         let target = replacement
             .as_ref()
             .map_or(&self.buffer, |(buffer, _)| buffer);
-        let changed = super::uploads::changed_range(&self.bones, &self.scratch, fresh);
+        let changed =
+            super::uploads::changed_range(&self.bones, &self.scratch, fresh || !self.resident);
         if !changed.is_empty() {
             let bytes = bytemuck::cast_slice(&self.scratch[changed.clone()]);
             let size = bytes.len() as u64;
-            crate::gpu_allocation::checked(
+            let written = crate::gpu_allocation::checked(
                 &uploads.device,
                 "UI model palette upload",
                 size,
@@ -83,8 +86,12 @@ impl UiModels {
                         bytes,
                     );
                 },
-            )
-            .ok_or(UiRenderRejectReason::GeometryAllocationFailed { bytes: size })?;
+            );
+            if written.is_none() {
+                // A failed in-place write may have changed a prefix of the resident palette.
+                self.resident &= fresh;
+                return Err(UiRenderRejectReason::GeometryAllocationFailed { bytes: size });
+            }
             if let Some(profile) = profile {
                 profile.record_upload(super::profile::UploadKind::Geometry, bytes.len() as u64);
             }
@@ -95,6 +102,7 @@ impl UiModels {
         }
         std::mem::swap(&mut self.bones, &mut self.scratch);
         self.poses = Arc::clone(poses);
+        self.resident = true;
         Ok(fresh)
     }
 

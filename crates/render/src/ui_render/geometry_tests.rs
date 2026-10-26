@@ -278,3 +278,45 @@ fn model_palette_oom_retries_without_committing_or_replacing_resident_bindings()
         }
     }
 }
+
+/// An interrupted in-place write must rewrite all bones, even when the next pose restores old data.
+#[test]
+fn failed_model_palette_upload_repairs_restored_and_partly_changed_poses() {
+    for restore_original in [false, true] {
+        let mut world = ordered_command_tests::binding_world();
+        let mut original = model_input();
+        let bone = original.models[0].bones[0];
+        Arc::make_mut(&mut original.models)[0].bones = Arc::from([bone; 2]);
+        publish(&mut world, original.clone());
+        world.run_system_once(prepare_ui_resources).unwrap();
+        let mut changed = original.clone();
+        changed.revision = 2;
+        Arc::make_mut(&mut Arc::make_mut(&mut changed.models)[0].bones)[0].screen[3][0] = 5.;
+        publish(&mut world, changed);
+        let failure = crate::gpu_allocation::inject(|label, _| label == "UI model palette upload");
+        world.run_system_once(prepare_ui_resources).unwrap();
+        assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
+        drop(failure);
+        let mut repaired = original;
+        repaired.revision = 3;
+        if !restore_original {
+            Arc::make_mut(&mut Arc::make_mut(&mut repaired.models)[0].bones)[1].screen[3][1] = 7.;
+        }
+        publish(&mut world, repaired);
+        let uploaded = Rc::new(Cell::new(0));
+        let observed = Rc::clone(&uploaded);
+        let witness = crate::gpu_allocation::inject(move |label, bytes| {
+            if label == "UI model palette upload" {
+                observed.set(bytes);
+            }
+            false
+        });
+        world.run_system_once(prepare_ui_resources).unwrap();
+        assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(3));
+        assert_eq!(
+            uploaded.get(),
+            (2 * size_of::<render_model::UiModelBone>()) as u64
+        );
+        drop(witness);
+    }
+}

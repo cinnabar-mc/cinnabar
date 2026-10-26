@@ -42,11 +42,17 @@ fn presentation() -> UiPresentationRuntime {
 
 /// An original two-bone player with an animated attachment and a portable HUD layout.
 fn fixture() -> (UiPresentationRuntime, chunk_pipeline::WorldStream) {
+    fixture_with_sprinting(false)
+}
+
+/// Adds an authored body animation so sprint samples exercise moving player bones as well as wings.
+fn fixture_with_sprinting(sprinting: bool) -> (UiPresentationRuntime, chunk_pipeline::WorldStream) {
     let mut presentation = presentation();
-    let catalog = tests::player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
+    let animation = br#"{"format_version":"1.8.0","animations":{"animation.test.motion":{"loop":true,"bones":{"head":{"rotation":["query.is_sprinting * math.sin(query.life_time * 360) * 20",0,0]}}}}}"#;
+    let catalog = tests::player_catalog_with_animation(br#"{"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},
         "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[16,16]}]},
-        {"name":"head","parent":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec());
+        {"name":"head","parent":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec(), sprinting.then_some(animation.as_slice()));
     let stream = tests::player_stream(Arc::clone(&catalog), catalog);
     presentation.gui_models.enabled = true;
     presentation.set_player_preview_skin(None, Default::default());
@@ -147,6 +153,70 @@ fn animated_paper_doll_retains_vertices_without_cpu_projection() {
     assert!(Arc::ptr_eq(&previous.textures, &next.textures));
 }
 
+/// Sprinting advances the authored body and wing poses while sharing every static draw buffer.
+#[test]
+fn sprinting_paper_doll_updates_bones_without_rebuilding_geometry() {
+    let (mut presentation, mut stream) = fixture_with_sprinting(true);
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    let mut feed = cape_tests::feed();
+    feed.sprinting = true;
+    feed.velocity[2] = 0.28;
+    let mut previous: Option<UiRenderInput> = None;
+    for step in 1..5 {
+        feed.position[2] += feed.velocity[2];
+        stream.sync_local_player_pose(&feed);
+        stream.advance_actor_interpolation_ticks(1);
+        super::super::super::player_preview::geometry::take_body_projection_work();
+        let next = frame(
+            &mut presentation,
+            &stream,
+            &player,
+            &runtime,
+            step as f32 / 20.,
+        );
+        assert_eq!(
+            super::super::super::player_preview::geometry::take_body_projection_work(),
+            0
+        );
+        if let Some(previous) = previous {
+            assert!(next.shares_draw_buffers(&previous));
+            assert_ne!(
+                next.models[0].bones[1], previous.models[0].bones[1],
+                "the authored head must move while sprinting"
+            );
+        }
+        previous = Some(next);
+    }
+}
+
+/// An equal-sized replacement may reference more bones without invalidating the UI publication.
+#[test]
+fn paper_doll_replacement_validates_its_vertices_with_the_new_palette() {
+    let (mut presentation, two_bones) = fixture();
+    presentation.set_preview_cosmetics(&[]);
+    let one_bone = tests::player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},
+        "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[16,16]},
+        {"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec());
+    let one_bone = tests::player_stream(Arc::clone(&one_bone), one_bone);
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    let previous = frame(&mut presentation, &one_bone, &player, &runtime, 0.);
+    let next = frame(&mut presentation, &two_bones, &player, &runtime, 0.);
+    assert_eq!(previous.vertices.len(), next.vertices.len());
+    assert_eq!(previous.indices, next.indices);
+    assert_eq!(previous.batches, next.batches);
+    assert!(next.models[0].bones.len() > previous.models[0].bones.len());
+    next.validate().unwrap();
+}
+
 /// The palette path must preserve the pixels of the original CPU projection at every sampled pose.
 #[test]
 fn animated_paper_doll_matches_cpu_reference_pixels() {
@@ -216,12 +286,16 @@ fn hud_cosmetic_publication_cost() {
         eprintln!("missing-fixture: opt-in HUD motion benchmark; set CINNABAR_HUD_MOTION_BENCH=1");
         return;
     }
-    for (name, visible, wings) in [
-        ("hidden", false, false),
-        ("plain", true, false),
-        ("wings", true, true),
+    for (name, visible, wings, sprinting) in [
+        ("hidden", false, false, false),
+        ("plain", true, false, false),
+        ("wings", true, true, false),
+        ("wings-sprinting", true, true, true),
     ] {
-        let (mut presentation, stream) = fixture();
+        let (mut presentation, mut stream) = fixture_with_sprinting(sprinting);
+        let mut feed = cape_tests::feed();
+        feed.sprinting = true;
+        feed.velocity[2] = 0.28;
         presentation.hud_frame.paper_doll_visible = visible;
         let equipped = [hats::fixture::dragon_wings()];
         presentation.set_preview_cosmetics(if wings { &equipped } else { &[] });
@@ -240,6 +314,11 @@ fn hud_cosmetic_publication_cost() {
         let mut allocations = 0;
         let mut uploads = 0;
         for step in 0..700 {
+            if sprinting {
+                feed.position[2] += feed.velocity[2];
+                stream.sync_local_player_pose(&feed);
+                stream.advance_actor_interpolation_ticks(1);
+            }
             let previous = scene.input.clone();
             let started = std::time::Instant::now();
             let ((captured, built, published), allocated) = test_alloc::count(|| {
@@ -345,13 +424,10 @@ fn animated_paper_doll_publication_reuses_header() {
     assert_ne!(scene.revision, held.revision);
 }
 
-/// A rejected hand candidate must leave the admitted mesh and its allocations resident.
-#[test]
-fn hud_held_fallback_reuses_the_admitted_mesh() {
+/// Builds an original opaque sprite that exercises both held-item placements.
+fn held_sprite() -> super::super::super::player_preview::PreviewHeldModel {
     use super::super::super::player_preview::{PreviewHeldModel, PreviewHeldPlacement};
-    let (mut presentation, stream) = fixture();
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
-    let held = PreviewHeldModel {
+    PreviewHeldModel {
         source: ui::IconRef {
             color_mask: None,
             page: 0,
@@ -365,7 +441,15 @@ fn hud_held_fallback_reuses_the_admitted_mesh() {
             hand_equipped: false,
         }; 2],
         hand_pivots: [[0.; 3]; 2],
-    };
+    }
+}
+
+/// A rejected hand candidate must leave the admitted mesh and its allocations resident.
+#[test]
+fn hud_held_fallback_reuses_the_admitted_mesh() {
+    let (mut presentation, stream) = fixture();
+    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    let held = held_sprite();
     let sample = || {
         presentation
             .hud_player_mesh([Some(held.clone()), Some(held.clone())], |_, mask, _, _| {
@@ -471,4 +555,39 @@ fn hud_model_cache_keeps_the_presentation_send_and_sync() {
     /// Checks the resource boundary without constructing a thread or renderer.
     fn resource<T: Send + Sync>() {}
     resource::<UiPresentationRuntime>();
+}
+
+/// Hurt and fire overlays affect the actor while held-item materials keep their own colors.
+#[test]
+fn hud_actor_overlay_preserves_held_item_colors() {
+    let (mut presentation, stream) = fixture();
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
+    for overlay in [[1., 0., 0., 0.25], [0.8, 0.3, 0., 0.7]] {
+        presentation.gui_models.live_player.overlay_color = overlay;
+        let held = [Some(held_sprite()), Some(held_sprite())];
+        let mesh = presentation
+            .hud_player_mesh(held.clone(), |_, _, _, _| true)
+            .unwrap();
+        let actual = presentation
+            .gui_models
+            .hud_model
+            .lock()
+            .unwrap()
+            .reference_vertices(&mesh);
+        let expected = presentation
+            .project_gui_player_mesh(
+                &presentation
+                    .gui_player_sources(super::super::super::player_preview::PreviewView::Hud)
+                    .unwrap(),
+                held,
+                super::super::super::player_preview::PreviewView::Hud,
+            )
+            .unwrap();
+        assert_eq!(actual.len(), expected.vertices().len());
+        assert!(actual.iter().any(|vertex| vertex.overlay_color == overlay));
+        assert!(actual.iter().any(|vertex| vertex.overlay_color == [0.; 4]));
+        for (actual, expected) in actual.iter().zip(expected.vertices()) {
+            assert_eq!(actual.overlay_color, expected.overlay_color);
+        }
+    }
 }

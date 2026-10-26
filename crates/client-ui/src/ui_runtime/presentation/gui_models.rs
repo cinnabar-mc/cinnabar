@@ -933,11 +933,11 @@ impl UiPresentationRuntime {
                 continue;
             };
             let vertices = if let Some(_live) = live {
-                #[cfg(not(test))]
+                #[cfg(not(any(test, feature = "test-support")))]
                 {
                     &[][..]
                 }
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 {
                     _live.hat_vertices.get(&hat).map_or(&[][..], Vec::as_slice)
                 }

@@ -78,7 +78,7 @@ fn catalog_with_cape(scale: Option<[f32; 3]>) -> Arc<assets::RuntimeEntityAssets
 }
 
 /// Supplies a caped local player using the ordinary prediction-to-animation feed.
-fn feed() -> client_world::LocalPlayerFeed {
+pub(super) fn feed() -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
         game_mode: None,
         prefer_client_skin: false,
@@ -346,12 +346,6 @@ fn hud_palette_preserves_cape_projection_and_lighting() {
             let mesh = presentation
                 .hud_player_mesh([None, None], |_, _, _, _| true)
                 .unwrap();
-            let actual = presentation
-                .gui_models
-                .hud_model
-                .lock()
-                .unwrap()
-                .reference_vertices(&mesh);
             let expected = presentation
                 .project_gui_player_mesh(
                     &presentation
@@ -361,26 +355,57 @@ fn hud_palette_preserves_cape_projection_and_lighting() {
                     super::super::super::player_preview::PreviewView::Hud,
                 )
                 .unwrap();
-            assert_eq!(actual.len(), expected.vertices().len());
-            for (actual, expected) in actual.iter().zip(expected.vertices()) {
-                assert!(
-                    actual
-                        .position
-                        .iter()
-                        .zip(expected.position)
-                        .all(|(a, b)| (*a - b).abs() < 1e-5),
-                    "cape position changed for {scale:?}"
-                );
-                // Collapsed triangles have no pixel coverage; their degenerate normals are immaterial.
-                if scale[0] != 0. {
-                    assert!(
-                        (actual.model_light - expected.model_light).abs() < 1e-4,
-                        "cape lighting changed for {scale:?}: {} vs {}",
-                        actual.model_light,
-                        expected.model_light
-                    );
-                }
-            }
+            assert_eq!(
+                raster_mesh(&presentation, mesh),
+                raster_mesh(&presentation, expected),
+                "cape pixels changed for scale {scale:?}, step {step}"
+            );
         }
     }
+}
+
+/// Compares visible coverage and lighting without requiring collapsed triangles to be removed.
+fn raster_mesh(presentation: &UiPresentationRuntime, mesh: Arc<ui::UiMesh>) -> image::RgbaImage {
+    use crate::ui_runtime::render_adapter::{UiRenderViewport, adapt_ui_draw_list_with_models};
+    let pages = mesh
+        .batches()
+        .iter()
+        .map(|batch| batch.texture_page)
+        .max()
+        .unwrap() as usize
+        + 1;
+    let white = render_model::UiTexturePage::owned([64; 2], vec![255; 64 * 64 * 4].into()).unwrap();
+    let textures =
+        Arc::new(render_model::UiTextureCatalog::new(vec![white; pages], pages).unwrap());
+    let bounds = super::super::super::rect(0., 0., 192., 224.).unwrap();
+    let nodes = [
+        ui::UiNode::new(ui::UiNodeId::new(1), None, bounds).with_visual(ui::UiVisual::Mesh(mesh))
+    ];
+    let draw = ui::RetainedDraw::build(
+        &nodes,
+        bounds,
+        ui::UiScale::default(),
+        ui::SafeArea::ZERO,
+        ui::TextEffects::default(),
+    )
+    .unwrap();
+    let models =
+        presentation
+            .gui_models
+            .hud_model
+            .lock()
+            .unwrap()
+            .poses(&draw, &nodes, 1., [192, 224]);
+    let input = adapt_ui_draw_list_with_models(
+        draw.draw_list(),
+        textures,
+        UiRenderViewport {
+            physical_size: [192, 224],
+            dpi_scale: ui::DpiScale::new(1.).unwrap(),
+            safe_area: ui::SafeArea::ZERO,
+        },
+        models,
+    )
+    .unwrap();
+    super::super::super::forms::snapshot::rasterize(&input)
 }

@@ -2,7 +2,7 @@
 
 use super::super::UiPresentationRuntime;
 use glam::{Affine3A, Quat, Vec3, Vec4};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use render_model::ActorVertex;
 use render_model::{ActorRigGeometry, EntityRigId, RenderBoneTransform};
 
@@ -71,7 +71,7 @@ pub(super) struct LivePlayer {
     pub(super) vertices: Vec<ActorVertex>,
     #[cfg(test)]
     pub(super) cape_vertices: Vec<ActorVertex>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) hat_vertices: std::collections::HashMap<cosmetics::Item, Vec<ActorVertex>>,
     hat_pose: std::collections::HashMap<cosmetics::Item, render_model::hats::HatPoseCache>,
     pub(super) hat_motion: std::collections::HashMap<cosmetics::Item, render_model::hats::Motion>,

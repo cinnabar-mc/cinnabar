@@ -33,16 +33,34 @@ fn player_catalog(size: u32) -> Arc<assets::RuntimeEntityAssets> {
     player_catalog_geometry(geometry.into_bytes())
 }
 
+/// Compiles a portable player with no authored motion.
 pub(super) fn player_catalog_geometry(geometry: Vec<u8>) -> Arc<assets::RuntimeEntityAssets> {
+    player_catalog_with_animation(geometry, None)
+}
+
+/// Compiles original geometry with an optional animation driven by the local-player feed.
+pub(super) fn player_catalog_with_animation(
+    geometry: Vec<u8>,
+    animation: Option<&[u8]>,
+) -> Arc<assets::RuntimeEntityAssets> {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","materials":{"default":"entity"},"textures":{"default":"textures/entity/test_player"},"geometry":{"default":"geometry.test_player"},"render_controllers":["controller.render.test_player"]}}}"#;
     let render = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test_player":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
-    let compiled = pack_entity_compiler::compile_entity_pack(vec![
+    let mut files = vec![
         ("entity/player.json".into(), entity.to_vec()),
         ("models/entity/player.geo.json".into(), geometry),
         ("render_controllers/player.json".into(), render.to_vec()),
-    ])
-    .unwrap()
-    .expect("original fixture compiles");
+    ];
+    if let Some(animation) = animation {
+        let mut entity: serde_json::Value = serde_json::from_slice(entity).unwrap();
+        let description = &mut entity["minecraft:client_entity"]["description"];
+        description["animations"] = serde_json::json!({"motion":"animation.test.motion"});
+        description["scripts"] = serde_json::json!({"animate":["motion"]});
+        files[0].1 = serde_json::to_vec(&entity).unwrap();
+        files.push(("animations/player.json".into(), animation.to_vec()));
+    }
+    let compiled = pack_entity_compiler::compile_entity_pack(files)
+        .unwrap()
+        .expect("original fixture compiles");
     assert_eq!(compiled.assets.rig_bindings.len(), 1, "player rig compiles");
     Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.assets).unwrap())
 }

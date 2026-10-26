@@ -784,7 +784,7 @@ impl UiPresentationRuntime {
                 std::iter::once(light * Mat3::from(frame.matrix3)),
                 model.source,
                 None,
-                live.overlay_color,
+                [0.; 4],
             )?;
             let index = cache.cursor - 1;
             cache.sources[index].hand = Some(hand);

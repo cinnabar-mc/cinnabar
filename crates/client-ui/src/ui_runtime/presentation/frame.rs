@@ -540,8 +540,10 @@ fn redraw_changed(
             .map_err(UiPresentationError::Adapter)?,
         )
     } else {
+        let mut posed = previous.clone();
+        posed.models = Arc::clone(&model_poses);
         let patched = render_adapter::patch_ui_vertices(
-            previous,
+            &posed,
             last.draw.draw_list(),
             &update.vertices,
             render_viewport.dpi_scale,
