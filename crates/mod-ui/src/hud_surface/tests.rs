@@ -737,9 +737,15 @@ fn hud_collection_art_matches_panel_renderer_inputs() {
             render(&document.catalog, &part.spec.reference, part.data())
         })
         .collect();
-    assert!(expected.iter().all(|data| json_ui::vector_path::parse(data).is_some()));
     assert!(
-        actual.iter().map(json_ui::vector_path::parse)
+        expected
+            .iter()
+            .all(|data| json_ui::vector_path::parse(data).is_some())
+    );
+    assert!(
+        actual
+            .iter()
+            .map(json_ui::vector_path::parse)
             .eq(expected.iter().map(json_ui::vector_path::parse)),
         "HUD and panel must supply the same vector artwork"
     );
