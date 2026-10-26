@@ -248,19 +248,11 @@ impl ModHosts {
         elements: ui::mod_hud::ElementStates,
         label_metrics: Option<std::sync::Arc<mod_ui::LabelMetrics>>,
     ) {
-        let changed = match (&self.label_metrics, &label_metrics) {
-            (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
-            (None, None) => false,
-            _ => true,
-        };
-        if changed {
-            self.label_metrics = label_metrics;
-        }
+        self.label_metrics = label_metrics;
+        let measure = self.label_metrics.clone().map(label_widths);
         for host in &mut self.hosts {
             host.observe_hud(viewport, elements);
-            if changed {
-                host.set_text_measure(self.label_metrics.clone().map(label_widths));
-            }
+            host.set_text_measure(measure.clone());
         }
     }
 

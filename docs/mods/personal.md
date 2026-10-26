@@ -263,3 +263,8 @@ cannot share a registration with gameplay/package mod authority. Grant changes
 revoke current authority; reload selects the next session's source. Optional
 `CINNABAR_PACKET_MOD_WASI=1` adds clocks, randomness and captured output, never
 files or network. See [packet WIT](../../crates/mod-api/wit/extension.wit) for callbacks.
+
+Native-frame guests must be rebuilt with the current SDK, including guests using
+only the legacy `frame` callback. The version-one JSON payload now includes look,
+movement and elapsed-time fields; older strict decoders reject these added fields
+even though the version number is unchanged.

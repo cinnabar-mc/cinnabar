@@ -147,3 +147,15 @@ fn text_measurement_uses_the_installed_label_metrics() {
     host.frame(false).unwrap();
     assert!(host.is_active());
 }
+
+#[test]
+fn reload_preserves_installed_text_metrics() {
+    let (dir, mut host) = load("", "call $measure-sans", true);
+    host.set_text_measure(Some(Arc::new(Metrics)));
+    host.frame(false).unwrap();
+    let path = dir.path().join("hud_surface.wat");
+    std::fs::write(&path, source("", "call $measure-sans nop", false)).unwrap();
+    assert!(host.reload_if_changed().unwrap());
+    host.frame(false).unwrap();
+    assert!(host.is_active(), "the replacement still measures text");
+}

@@ -180,7 +180,12 @@ impl NativeFrames {
     /// Packet and timed callbacks may change guest policy; older observations cannot outlive them.
     pub(super) fn fence_guest_state(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.pending = None;
+        if let Some(frame) = state.pending.take().and_then(|input| input.frame) {
+            self.carry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .add(Increments::of(&frame));
+        }
         if let Some(output) = self.output.load_full() {
             output.rotation_taken.store(true, Ordering::Release);
         }
@@ -565,6 +570,49 @@ mod tests {
         mailbox.exchange(None);
         mailbox.exchange(Some(with([0.3, 0.3], 0.3)));
         assert_eq!(delivered(&mailbox), ([0.0; 2], 0.0), "input loss resets");
+    }
+
+    #[test]
+    fn guest_fences_preserve_queued_increments_once_and_resets_discard_them() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        mailbox.take_input().unwrap();
+        let increment = Frame {
+            look_delta: [0.125, -0.25],
+            elapsed: 0.03125,
+            ..frame()
+        };
+        for _ in 0..2 {
+            mailbox.exchange(Some(increment.clone()));
+            mailbox.fence_guest_state();
+            mailbox.fence_guest_state();
+            assert!(mailbox.take_input().is_none());
+        }
+        mailbox.exchange(Some(increment.clone()));
+        let delivered = mailbox.take_input().unwrap().frame.unwrap();
+        assert_eq!(delivered.look_delta, [0.375, -0.75]);
+        assert_eq!(delivered.elapsed, 0.09375);
+        mailbox.exchange(Some(increment.clone()));
+        let delivered = mailbox.take_input().unwrap().frame.unwrap();
+        assert_eq!(delivered.look_delta, increment.look_delta);
+        assert_eq!(delivered.elapsed, increment.elapsed);
+
+        for reset in [
+            None,
+            Some(Frame {
+                dimension: 42,
+                ..frame()
+            }),
+        ] {
+            mailbox.exchange(Some(increment.clone()));
+            mailbox.fence_guest_state();
+            mailbox.exchange(reset);
+            mailbox.exchange(Some(increment.clone()));
+            let delivered = mailbox.take_input().unwrap().frame.unwrap();
+            assert_eq!(delivered.look_delta, [0.0; 2]);
+            assert_eq!(delivered.elapsed, 0.0);
+        }
     }
 
     #[test]

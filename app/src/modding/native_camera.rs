@@ -33,6 +33,8 @@ pub(super) struct NativeCamera {
     /// Total look applied to presented views, as yaw and pitch radians.
     applied: [f64; 2],
     sent: VecDeque<Sent>,
+    /// The active result keeps its baseline even after newer submissions evict its history.
+    active: Option<Sent>,
     /// The presented heading last written to the look carrier, which look input then turns.
     carrier: Option<Carrier>,
 }
@@ -113,16 +115,21 @@ impl NativeCamera {
             .and_then(|effects| Some((effects, effects.view?)))
             .map(|(effects, pose)| {
                 let sent = self
-                    .sent
-                    .iter()
-                    .rev()
-                    .find(|sent| sent.sequence == source)
-                    .copied()
-                    .unwrap_or(Sent {
-                        sequence: source,
-                        time: now,
-                        applied: self.applied,
+                    .active
+                    .filter(|sent| sent.sequence == source)
+                    .unwrap_or_else(|| {
+                        self.sent
+                            .iter()
+                            .rev()
+                            .find(|sent| sent.sequence == source)
+                            .copied()
+                            .unwrap_or(Sent {
+                                sequence: source,
+                                time: now,
+                                applied: self.applied,
+                            })
                     });
+                self.active = Some(sent);
                 let residual = if effects.capture_look {
                     [
                         (self.applied[0] - sent.applied[0]) as f32,
@@ -146,6 +153,9 @@ impl NativeCamera {
                     pitch,
                 )
             });
+        if presented.is_none() {
+            self.active = None;
+        }
         self.carrier = None;
         let Some(view) = view else {
             camera.set_presented_view(None);
@@ -211,6 +221,7 @@ mod tests {
         }
     }
 
+    /// Retains a detached view with optional host look capture.
     fn effects(pose: ViewPose, capture_look: bool) -> Effects {
         Effects {
             view: Some(pose),
@@ -394,6 +405,51 @@ mod tests {
             "a stalled mod cannot carry the camera away"
         );
         assert!(!camera.captures_look());
+        assert_eq!(view.rotation(), LocalViewPose::default().rotation());
+    }
+
+    /// A retained callback keeps its look and time origin when newer submissions fill history.
+    #[test]
+    fn retained_result_keeps_look_and_velocity_after_sent_history_eviction() {
+        let mut camera = CameraSettingsAuthority::default();
+        let mut view = LocalViewPose::default();
+        let mut state = NativeCamera::default();
+        let pose = ViewPose {
+            position: [10.0, 70.0, 0.0],
+            yaw: 0.25,
+            pitch: 0.0,
+            velocity: [4.0, 0.0, 0.0],
+        };
+        let retained = effects(pose, true);
+        state.prepare(Some(&view), 0.0, Some(frame()));
+        state.exchanged(Some(1), 1.0);
+        state.apply(&mut camera, Some(&mut view), false, Some(&retained), 1, 1.0);
+        for sequence in 2..=130 {
+            let elapsed = (sequence - 1) as f64 * 0.002;
+            let now = 1.0 + elapsed;
+            look(&mut view, 0.001, 0.0005);
+            state.prepare(Some(&view), 0.002, Some(frame()));
+            state.exchanged(Some(sequence), now);
+            state.apply(&mut camera, Some(&mut view), false, Some(&retained), 1, now);
+            let presented = camera.presented_view().unwrap();
+            let (yaw, pitch, _) = presented.rotation.to_euler(EulerRot::YXZ);
+            assert!((yaw - (pose.yaw + (sequence - 1) as f32 * 0.001)).abs() < 1e-5);
+            assert!((pitch - (sequence - 1) as f32 * 0.0005).abs() < 1e-5);
+            let ahead = elapsed.min(MAX_EXTRAPOLATION_SECONDS) as f32;
+            assert!((presented.position.x - (pose.position[0] + 4.0 * ahead)).abs() < 1e-5);
+        }
+        let replacement = effects(ViewPose { yaw: 0.75, ..pose }, true);
+        state.apply(
+            &mut camera,
+            Some(&mut view),
+            false,
+            Some(&replacement),
+            130,
+            1.26,
+        );
+        let presented = camera.presented_view().unwrap();
+        assert!((presented.rotation.to_euler(EulerRot::YXZ).0 - 0.75).abs() < 1e-5);
+        assert!((presented.position.x - 10.008).abs() < 1e-5);
         assert_eq!(view.rotation(), LocalViewPose::default().rotation());
     }
 

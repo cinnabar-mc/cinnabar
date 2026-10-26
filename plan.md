@@ -1343,7 +1343,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   displayed-frame pacing and complete rendering acceptance. Packet extensions now
   present guest-computed detached views, extrapolated by velocity between callbacks,
   with exactly reported look capture, movement capture and view tilt through the
-  shared camera owners; interactive flight, perspective release, teleport and tilt
+  shared camera owners. Offline regressions cover queued look and time across packet
+  callbacks, retained camera baselines beyond the submission history, and text metrics
+  across guest replacement and reload; interactive flight, perspective release, teleport and tilt
   acceptance remain unverified in a displayed client. Panel previews now
   select owner-scoped HUD cards, including preview-only cards, and share retained
   gameplay artwork. Optional measured fitting sizes and aligns their painted bounds

@@ -172,6 +172,7 @@ impl Instance {
         )?;
         candidate.callback_budget = budget;
         candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();
+        candidate.set_text_measure(self.store.data().hud.text.clone());
         Ok(candidate)
     }
 

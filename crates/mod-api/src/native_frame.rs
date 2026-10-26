@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 /// JSON contract version, independent of the packet relay's existing WIT version.
+/// Version 1 includes look and movement input and elapsed time. Rebuild older native-frame
+/// guests with the current SDK, including guests using only the legacy `frame` callback:
+/// their strict decoders reject the added fields despite the unchanged version number.
 pub const VERSION: u32 = 1;
 /// A host can supply input-owned player frames and accept local camera deltas.
 pub const CAMERA_PLAYERS: u32 = 1;
