@@ -384,6 +384,10 @@ pub struct WorldStream {
     world_material_outstanding: HashMap<SubChunkKey, u64>,
     /// Counts outstanding sections done, so a held caller retries only after progress.
     world_material_progress: u64,
+    /// Mesh rounds (polls) so far, and the round past which the outstanding change counts as
+    /// done whatever its sections' state.
+    mesh_rounds: u64,
+    world_material_deadline: u64,
     seasonal_foliage: seasonal_foliage::SeasonalFoliage,
     /// Dimension at the newest admitted wire position; commits may still lag behind it.
     ingress_dimension: i32,

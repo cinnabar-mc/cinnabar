@@ -151,7 +151,8 @@ impl WorldStream {
     /// Tags the blocks in `tags` (network value, one more than the world material slot;
     /// sorted, values unique) for their world material passes, and returns the sections it
     /// remeshes, or `None` until every resident section the previous change forced has
-    /// published that revision or a newer one, or unloaded, so at most one change is outstanding and alternating changes converge at meshing speed.
+    /// published that revision or a newer one, or unloaded, or [`WORLD_MATERIAL_HOLD_ROUNDS`]
+    /// mesh rounds passed, so at most one change is outstanding and alternating changes converge at meshing speed.
     /// Binding, unbinding or revoking a material remeshes only the sections whose palettes hold
     /// a value whose tag changed: their queued results are withdrawn and a job in flight
     /// finishes and is refused as stale, so those blocks draw with their Bedrock materials
@@ -204,6 +205,7 @@ impl WorldStream {
                 self.world_material_outstanding.insert(*key, revision);
             }
         }
+        self.world_material_deadline = self.mesh_rounds + WORLD_MATERIAL_HOLD_ROUNDS;
         self.retain_mesh_changes(|change| {
             !matches!(change, WorldMeshChange::Upsert { key, .. } if affected.contains(key))
         });
@@ -224,6 +226,19 @@ impl WorldStream {
         self.world_materials
             .iter()
             .fold(0, |slots, (_, tag)| slots | 1_u64 << (tag - 1))
+    }
+
+    /// Counts one mesh round, and lets the outstanding world material change go once it has
+    /// waited [`WORLD_MATERIAL_HOLD_ROUNDS`]: a section that never publishes cannot hold every
+    /// later change, and the slots of the tags it was meshed with stay carried meanwhile.
+    pub(in crate::stream) fn count_mesh_round(&mut self) {
+        self.mesh_rounds += 1;
+        if !self.world_material_outstanding.is_empty()
+            && self.mesh_rounds >= self.world_material_deadline
+        {
+            self.world_material_outstanding.clear();
+            self.world_material_progress += 1;
+        }
     }
 
     /// Marks `key`'s outstanding world material remesh done once `revision` reaches what the
@@ -261,6 +276,10 @@ impl WorldStream {
         self.java_meshing.as_deref()
     }
 }
+
+/// Provisional: mesh rounds a world material change waits for its sections to publish before
+/// the next change may apply anyway, about ten seconds of polls at 60 frames a second.
+pub(in crate::stream) const WORLD_MATERIAL_HOLD_ROUNDS: u64 = 600;
 
 /// Sorted network values whose tag differs between `old` and `new`, both sorted by value.
 fn changed_tag_values(old: &[(u32, u8)], new: &[(u32, u8)]) -> Vec<u32> {
