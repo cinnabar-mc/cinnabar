@@ -22,6 +22,7 @@ use {client_presentation::camera::AutoFly, client_state::DrivenInput};
 
 #[cfg(any(windows, test))]
 mod native;
+#[cfg(any(windows, test))]
 mod raw_mouse;
 
 /// Installs focus tracking without opening or calling into a native window.
