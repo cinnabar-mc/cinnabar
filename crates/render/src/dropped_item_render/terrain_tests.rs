@@ -197,6 +197,7 @@ fn current_frame_item_appearance_queues_without_prior_gpu_draws() {
         Arc::from([]),
         &[instance()],
         &[],
+        &[],
         1.0,
     );
     settle_publication_noop_frame(&mut app);
@@ -378,6 +379,7 @@ fn terrain_and_ordinary_items_share_the_gpu_instance_capacity() {
         1,
         Arc::from([]),
         &vec![instance(); MAX_DROPPED_ITEM_INSTANCES],
+        &[],
         &[],
         1.0,
     );
