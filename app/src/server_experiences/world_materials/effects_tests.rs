@@ -144,8 +144,14 @@ fn every_effect_publishes_with_its_permissions_and_its_cells() {
     assert_eq!((computes[0].cells, computes[0].params[0]), (128, 1.0));
     let material = &presenter.set().block("example:glass").unwrap().1.material;
     assert!(material.features.displace && material.features.cells);
+}
+
+#[test]
+fn a_material_declaring_an_effect_never_granted_is_refused() {
+    let world = glass_world();
     // A bundle never granted the passes permission publishes no compute, and the material
-    // that reads its cells draws without them or its extra passes.
+    // declaring an outline, a bloom, particles and cells is refused rather than drawn without
+    // them.
     let mut alone = WorldMaterialPresenter::inline();
     let no_passes = BTreeSet::from([
         Permission::RenderWorldMaterial,
@@ -154,7 +160,19 @@ fn every_effect_publishes_with_its_permissions_and_its_cells() {
     ]);
     present(&mut alone, &world, &no_passes, &BTreeSet::new());
     assert!(alone.set().computes.is_empty());
-    let effects = glass(&alone);
+    assert!(alone.set().block("example:glass").is_none());
+    assert!(
+        alone
+            .diagnostics()
+            .any(|line| line.contains("world material effect denied")),
+        "{:?}",
+        alone.diagnostics().collect::<Vec<_>>()
+    );
+    // Withdrawing a granted permission instead drops its effects and keeps drawing.
+    let mut withdrawn = WorldMaterialPresenter::inline();
+    let passes = BTreeSet::from([Permission::RenderWorldMaterialPasses]);
+    present(&mut withdrawn, &world, &every_permission(), &passes);
+    let effects = glass(&withdrawn);
     assert_eq!(
         (effects.cells, effects.outline_pixels, effects.particles),
         (None, None, None)
