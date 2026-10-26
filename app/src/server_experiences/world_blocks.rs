@@ -17,7 +17,7 @@ type Resolved = ((u64, u64, u64), Arc<[(u32, u8)]>);
 pub(super) fn tag_world_material_blocks(
     scene: Option<Res<WorldMaterialScene>>,
     mut client_world: ResMut<ClientWorld>,
-    mut resolved: Local<Option<Resolved>>,
+    (mut resolved, mut held): (Local<Option<Resolved>>, Local<Option<u64>>),
     queue: Option<ResMut<ChunkRenderQueue>>,
 ) {
     let Some(stream) = client_world.stream.as_ref() else {
@@ -43,13 +43,19 @@ pub(super) fn tag_world_material_blocks(
     if Arc::ptr_eq(stream.world_material_tags(), &tags) {
         return;
     }
+    // A held change retries only once the stream reports progress on the outstanding one.
+    if *held == Some(stream.world_material_progress()) {
+        return;
+    }
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
     // While the previous change still remeshes, this one waits for a later frame.
     let Some(withdrawn) = stream.set_world_materials(tags, web_time::Instant::now()) else {
+        *held = Some(stream.world_material_progress());
         return;
     };
+    *held = None;
     if let Some(mut queue) = queue {
         queue.withdraw_uploads(withdrawn);
     }

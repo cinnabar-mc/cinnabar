@@ -150,8 +150,8 @@ impl WorldStream {
 
     /// Tags the blocks in `tags` (network value, one more than the world material slot;
     /// sorted, values unique) for their world material passes, and returns the sections it
-    /// remeshes, or `None` while the previous change's resident sections are still dirty, so at
-    /// most one change is outstanding and alternating changes converge at meshing speed.
+    /// remeshes, or `None` until every resident section the previous change forced has
+    /// published that revision or a newer one, or unloaded, so at most one change is outstanding and alternating changes converge at meshing speed.
     /// Binding, unbinding or revoking a material remeshes only the sections whose palettes hold
     /// a value whose tag changed: their queued results are withdrawn and a job in flight
     /// finishes and is refused as stale, so those blocks draw with their Bedrock materials
@@ -170,11 +170,7 @@ impl WorldStream {
             self.world_materials = tags;
             return Some(Vec::new());
         }
-        let mut outstanding = std::mem::take(&mut self.world_material_outstanding);
-        outstanding
-            .retain(|key| self.resident.contains(key) && self.revisions.dirty(*key).is_some());
-        if !outstanding.is_empty() {
-            self.world_material_outstanding = outstanding;
+        if !self.world_material_outstanding.is_empty() {
             return None;
         }
         self.world_materials = tags;
@@ -203,17 +199,39 @@ impl WorldStream {
             })
             .collect();
         for key in &affected {
-            self.mark_forced_dirty_keeping_job(*key, now);
+            let revision = self.mark_forced_dirty_keeping_job(*key, now);
+            if self.resident.contains(key) {
+                self.world_material_outstanding.insert(*key, revision);
+            }
         }
         self.retain_mesh_changes(|change| {
             !matches!(change, WorldMeshChange::Upsert { key, .. } if affected.contains(key))
         });
-        self.world_material_outstanding = affected
-            .iter()
-            .copied()
-            .filter(|key| self.resident.contains(key))
-            .collect();
         Some(affected.into_iter().collect())
+    }
+
+    /// Counts the sections of the outstanding world material change that are done, so a
+    /// caller whose change [`Self::set_world_materials`] held retries only after progress.
+    #[must_use]
+    pub fn world_material_progress(&self) -> u64 {
+        self.world_material_progress
+    }
+
+    /// Marks `key`'s outstanding world material remesh done once `revision` reaches what the
+    /// change forced, or unconditionally when `revision` is `None` because `key` unloaded.
+    pub(in crate::stream) fn settle_world_material(
+        &mut self,
+        key: SubChunkKey,
+        revision: Option<u64>,
+    ) {
+        if self
+            .world_material_outstanding
+            .get(&key)
+            .is_some_and(|forced| revision.is_none_or(|revision| revision >= *forced))
+        {
+            self.world_material_outstanding.remove(&key);
+            self.world_material_progress += 1;
+        }
     }
 
     /// The world material tags meshing applies, as the caller last set them.
