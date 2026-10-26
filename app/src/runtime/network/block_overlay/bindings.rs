@@ -31,7 +31,8 @@ struct Binding {
 pub(super) struct StateMasks(Vec<(Option<Box<str>>, pack_entity_compiler::BlockMaskPaths)>);
 
 impl StateMasks {
-    /// The masks the last matching binding gives material instance `name`.
+    /// The masks the last binding matching material instance `name` gives it, the one whose
+    /// render method it draws with; none when that binding names no mask.
     pub(super) fn for_instance(&self, name: &str) -> Option<&pack_entity_compiler::BlockMaskPaths> {
         self.0
             .iter()
@@ -42,6 +43,7 @@ impl StateMasks {
                     .is_none_or(|pattern| assets::entity_render_pattern_matches(pattern, name))
             })
             .map(|(_, masks)| masks)
+            .filter(|masks| masks.glow.is_some() || masks.emissive.is_some())
     }
 }
 
@@ -76,7 +78,8 @@ impl MaterialBindings {
         Self { bindings }
     }
 
-    /// The masks of the bindings matching `block` in the state with `values`.
+    /// The masks of every binding matching `block` in the state with `values`, so the last
+    /// match decides an instance's masks as it decides its render method.
     pub(super) fn state_masks(
         &self,
         block: &CustomBlock,
@@ -86,8 +89,7 @@ impl MaterialBindings {
             self.bindings
                 .iter()
                 .filter(|binding| {
-                    (binding.masks.glow.is_some() || binding.masks.emissive.is_some())
-                        && binding.block.as_ref() == block.name.as_ref()
+                    binding.block.as_ref() == block.name.as_ref()
                         && states_match(binding, block, values)
                 })
                 .map(|binding| (binding.instance.clone(), binding.masks.clone()))

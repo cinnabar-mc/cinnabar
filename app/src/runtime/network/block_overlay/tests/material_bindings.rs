@@ -146,3 +146,41 @@ fn block_bindings_give_matching_faces_their_glow_mask() {
         "other states keep the unmasked material"
     );
 }
+
+/// The generator compiled with `bindings` as its Cinnabar material bindings.
+fn compiled_generator(bindings: Value) -> super::super::CompiledBlockOverlay {
+    let blocks = CustomBlocks {
+        blocks: vec![generator()].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    compile_block_overlay(&bound_view(bindings), &blocks, false, None).unwrap()
+}
+
+#[test]
+fn the_last_matching_binding_decides_both_method_and_masks() {
+    let document = |order: [&str; 2]| {
+        json!({
+            "format_version": "1.0.0",
+            "materials": {
+                "example:lamp": {"textures": {"glow_mask": "gen_glow"}},
+                "example:glass": {"material": {"states": ["Blending", "DisableCulling"]}}
+            },
+            "bindings": order.map(|material| json!({"block": "test:generator", "material": material}))
+        })
+    };
+    let glass_last = compiled_generator(document(["example:lamp", "example:glass"]));
+    for material in &glass_last.overlay.materials[1..] {
+        assert_ne!(material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND, 0);
+        assert_eq!(
+            material.glow_mask,
+            assets::NO_MASK,
+            "the glass names no mask"
+        );
+    }
+    let lamp_last = compiled_generator(document(["example:glass", "example:lamp"]));
+    for material in &lamp_last.overlay.materials[1..] {
+        assert_eq!(material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND, 0);
+        assert_ne!(material.glow_mask, assets::NO_MASK);
+    }
+}
