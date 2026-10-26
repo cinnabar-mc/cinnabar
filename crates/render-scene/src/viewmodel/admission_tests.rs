@@ -487,6 +487,7 @@ fn reverse_z_projection_is_private_aspect_correct_and_world_fov_independent() {
 fn fallback_input() -> render_model::UiRenderInput {
     use render_model::*;
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: test_token().viewport,
         safe_area: [0; 4],

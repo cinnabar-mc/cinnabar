@@ -67,7 +67,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
         .to_vec();
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let rest = presentation.gui_models.live_player.vertices.clone();
     let geometry = presentation
         .gui_models
@@ -78,7 +78,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
         .vertices
         .as_ptr();
     let emote = cosmetics::test_support::playback_emote();
-    presentation.capture_hud_player_with_emote(
+    presentation.capture_hud_player_with_emote_reference(
         Some(stream.authority().local_player_ui()),
         false,
         Some((emote, 0.0)),
@@ -93,7 +93,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
             .iter()
             .all(Option::is_some)
     );
-    presentation.capture_hud_player_with_emote(
+    presentation.capture_hud_player_with_emote_reference(
         Some(stream.authority().local_player_ui()),
         false,
         Some((emote, emote.duration_seconds() / 4.0)),
@@ -117,13 +117,13 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
             .unwrap(),
         native
     );
-    presentation.capture_hud_player_with_emote(
+    presentation.capture_hud_player_with_emote_reference(
         Some(stream.authority().local_player_ui()),
         false,
         Some((emote, emote.duration_seconds())),
     );
     assert_eq!(presentation.gui_models.live_player.vertices, first);
-    presentation.capture_hud_player_with_emote(
+    presentation.capture_hud_player_with_emote_reference(
         Some(stream.authority().local_player_ui()),
         false,
         None,
@@ -190,7 +190,8 @@ fn hud_uses_the_session_player_geometry_and_refreshes_between_catalogs() {
         let rig = stream.authority().actor_rig(1).expect("pack player rig");
         assert_eq!(rig.rig.0, assets::PACK_RIG_ID_BASE);
         assert!(rig.skin_geometry.is_none());
-        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+        presentation
+            .capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
         let live = &presentation.gui_models.live_player;
         assert!(
             !live.vertices.is_empty(),
@@ -235,18 +236,19 @@ fn hud_fire_follows_authoritative_burning_metadata_and_clears_after_session_end(
                 )),
             )
             .unwrap();
-        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+        presentation
+            .capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
         assert_eq!(
             presentation.gui_models.live_player.fire_size.is_some(),
             burning
         );
     }
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), true);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), true);
     assert_eq!(
         presentation.gui_models.live_player.outer_y,
         super::super::super::player_preview::HUD_SWIM_OFFSET
     );
-    presentation.capture_hud_player(None, false);
+    presentation.capture_hud_player_reference(None, false);
     assert!(presentation.gui_models.live_player.fire_size.is_none());
     assert_eq!(presentation.gui_models.live_player.outer_y, 0.0);
 }
@@ -277,38 +279,38 @@ fn hud_fire_color_uses_completed_actor_ticks_and_fades_after_extinguishing() {
             .unwrap();
     };
     set_fire(&mut stream, 2, 1);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert_eq!(
         presentation.gui_models.live_player.overlay_color,
         [0.8, 0.3, 0.0, 0.0]
     );
     stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert_eq!(
         presentation.gui_models.live_player.overlay_color,
         [0.8, 0.15, 0.0, 0.7]
     );
     let steady = presentation.gui_models.live_player.overlay_color;
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert_eq!(
         presentation.gui_models.live_player.overlay_color, steady,
         "render frames do not advance on_fire_time"
     );
     stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert!((presentation.gui_models.live_player.overlay_color[1] - 0.3).abs() < 1e-6);
     set_fire(&mut stream, 3, 0);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert!(presentation.gui_models.live_player.fire_size.is_none());
     assert_eq!(
         presentation.gui_models.live_player.overlay_color,
         [0.8, 0.3, 0.0, 0.7]
     );
     stream.advance_actor_interpolation_ticks(2);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert!((presentation.gui_models.live_player.overlay_color[3] - 0.4536).abs() < 1e-6);
     stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS - 2);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert_eq!(presentation.gui_models.live_player.overlay_color, [0.0; 4]);
     set_fire(&mut stream, 4, 1);
     stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS);
@@ -322,7 +324,7 @@ fn hud_fire_color_uses_completed_actor_ticks_and_fades_after_extinguishing() {
             })),
         )
         .unwrap();
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert_eq!(
         presentation.gui_models.live_player.overlay_color,
         [1.0, 0.0, 0.0, 0.25]
@@ -338,7 +340,7 @@ fn hud_cosmetic_uses_the_shared_head_pose_wind_angle_and_removal() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_preview_cosmetics(&[render_model::hats::fixture::bunny()]);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let upright = presentation.gui_models.live_player.hat_vertices
         [&render_model::hats::fixture::bunny()]
         .clone();
@@ -350,7 +352,7 @@ fn hud_cosmetic_uses_the_shared_head_pose_wind_angle_and_removal() {
             ..Default::default()
         },
     )]);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let folded =
         &presentation.gui_models.live_player.hat_vertices[&render_model::hats::fixture::bunny()];
     assert_eq!(upright.len(), folded.len());
@@ -361,7 +363,7 @@ fn hud_cosmetic_uses_the_shared_head_pose_wind_angle_and_removal() {
             .any(|(old, new)| old.position != new.position)
     );
     presentation.set_preview_cosmetics(&[]);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert!(presentation.gui_models.live_player.hat_vertices.is_empty());
 }
 
@@ -377,7 +379,7 @@ fn hud_wings_follow_shared_time_without_moving_the_equipped_hat() {
     let wings = render_model::hats::fixture::dragon_wings();
     let hat = render_model::hats::fixture::devil_horns();
     presentation.set_preview_cosmetics(&[hat, wings]);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let first = presentation.gui_models.live_player.hat_vertices.clone();
     for seconds in [0.7, 2.1] {
         presentation.set_cosmetic_motion(&[(
@@ -387,7 +389,8 @@ fn hud_wings_follow_shared_time_without_moving_the_equipped_hat() {
                 ..Default::default()
             },
         )]);
-        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+        presentation
+            .capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
         let current = &presentation.gui_models.live_player.hat_vertices;
         assert_eq!(first[&hat], current[&hat]);
         assert!(!current[&wings].is_empty());
@@ -399,7 +402,7 @@ fn hud_wings_follow_shared_time_without_moving_the_equipped_hat() {
         );
     }
     presentation.set_preview_cosmetics(&[hat]);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert!(
         !presentation
             .gui_models
@@ -423,16 +426,16 @@ fn hud_cosmetic_emitters_share_the_player_frame_and_clear_with_its_owner() {
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let item = render_model::hats::fixture::glowing_crown();
     presentation.set_preview_cosmetics(&[item]);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let first = presentation.gui_models.live_player.emitters[0].2;
     assert_eq!(presentation.gui_models.live_player.emitters.len(), 1);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), true);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), true);
     let swimming = presentation.gui_models.live_player.emitters[0].2;
     let expected = super::super::super::player_preview::HUD_SWIM_OFFSET
         / super::super::super::player_preview::PLAYER_MODEL_SCALE;
     assert!((swimming.position[1] - first.position[1] - expected).abs() < 1e-5);
     assert_eq!(swimming.basis, first.basis);
-    presentation.capture_hud_player(None, false);
+    presentation.capture_hud_player_reference(None, false);
     assert!(presentation.gui_models.live_player.emitters.is_empty());
     assert!(presentation.gui_models.live_player.emitter_owner.is_none());
 }
@@ -458,7 +461,11 @@ fn cosmetic_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
         presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
     });
     assert_eq!(allocations, 0);
-    assert!(!presentation.gui_models.live_player.hat_vertices[&item].is_empty());
+    assert!(
+        presentation.gui_models.live_player.hats[&item]
+            .geometry
+            .is_some()
+    );
     let (_, allocations) = test_alloc::count(|| {
         presentation.set_cosmetic_motion(&[(
             item,

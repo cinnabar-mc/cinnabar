@@ -542,7 +542,7 @@ pub(super) fn prepare_ui_bind_group(
             stats.retained_gpu_bytes = super::resources::retained_gpu_bytes(
                 gpu.vertex_capacity,
                 gpu.index_capacity,
-                gpu.textures.bytes + gpu.item_glint.bytes,
+                gpu.textures.bytes + gpu.item_glint.bytes + gpu.models.bytes(),
             );
         });
     }
@@ -553,6 +553,7 @@ pub(super) fn prepare_ui_bind_group(
         linear_sampler,
         item_glint,
         textures,
+        models,
         ..
     } = &mut *gpu;
     let (viewport, sampler, linear_sampler) = (&*viewport, &*sampler, &*linear_sampler);
@@ -592,6 +593,10 @@ pub(super) fn prepare_ui_bind_group(
                 BindGroupEntry {
                     binding: 6,
                     resource: BindingResource::Sampler(glint_sampler),
+                },
+                BindGroupEntry {
+                    binding: 7,
+                    resource: models.buffer.as_entire_binding(),
                 },
             ],
         ));

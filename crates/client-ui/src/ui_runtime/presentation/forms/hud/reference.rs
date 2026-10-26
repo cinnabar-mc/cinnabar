@@ -126,9 +126,7 @@ pub(super) fn hud_model(
                 .hud()
                 .air()
                 .is_some_and(|air| air.current() < air.maximum()),
-        paper_doll: frame.paper_doll_visible
-            && mode_allows_hotbar
-            && settings.value(SettingId::HidePaperdoll) == 0,
+        paper_doll: frame.paper_doll_requested(player_runtime.facts.player_game_mode(), settings),
         effects_visible: runtime
             .gameplay_hud()
             .effects()

@@ -35,7 +35,7 @@ fn hud_doll_keeps_its_live_pose_while_the_inventory_shows_its_own_doll() {
         glint: false,
     };
     presentation.player_preview_icon = Some(preview);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     // The HUD paints its doll first; the inventory's live renderer paints after it.
     presentation.hud_preview_view = PreviewView::Hud;
     presentation.player_preview_view = PreviewView::Live {
@@ -57,7 +57,8 @@ fn hud_doll_keeps_its_live_pose_while_the_inventory_shows_its_own_doll() {
         ui::TextEffects::default(),
         0..1,
     );
-    let [UiVisual::Mesh(hud), UiVisual::Mesh(inventory)] = [nodes[0].visual(), nodes[1].visual()]
+    let (UiVisual::TintedMesh { mesh: hud, .. }, UiVisual::Mesh(inventory)) =
+        (nodes[0].visual(), nodes[1].visual())
     else {
         panic!("both dolls draw model geometry");
     };
@@ -70,11 +71,32 @@ fn hud_doll_keeps_its_live_pose_while_the_inventory_shows_its_own_doll() {
             )
             .unwrap()
     };
-    assert_eq!(
-        hud.vertices(),
-        expected(PreviewView::Hud).vertices(),
-        "the HUD doll keeps the actor's animated HUD pose"
-    );
+    let projected = presentation
+        .gui_models
+        .hud_model
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .reference_vertices(hud);
+    let expected_hud = expected(PreviewView::Hud);
+    assert_eq!(projected.len(), expected_hud.vertices().len());
+    for (actual, expected) in projected.iter().zip(expected_hud.vertices()) {
+        assert!(
+            actual
+                .position
+                .iter()
+                .zip(expected.position)
+                .all(|(a, b)| (*a - b).abs() < 1e-5),
+            "the HUD must retain its live pose beside the inventory"
+        );
+        assert!(
+            actual
+                .uv
+                .iter()
+                .zip(expected.uv)
+                .all(|(a, b)| (*a - b).abs() < 1e-4)
+        );
+        assert!((actual.model_light - expected.model_light).abs() < 1e-5);
+    }
     assert_eq!(
         inventory.vertices(),
         expected(presentation.player_preview_view).vertices(),

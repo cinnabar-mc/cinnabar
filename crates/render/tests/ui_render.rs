@@ -854,6 +854,7 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
     ]
     .into();
     UiRenderInput {
+        models: Default::default(),
         revision,
         viewport_size: [64, 64],
         safe_area: [0, 0, 0, 0],

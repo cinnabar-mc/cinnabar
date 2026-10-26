@@ -11,6 +11,7 @@ use ui::{
 
 use super::scene_stack::Scene;
 use super::{UiRuntime, render_adapter::UiRenderViewport};
+#[cfg(test)]
 use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 
 mod accessors;
