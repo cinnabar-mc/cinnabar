@@ -15,6 +15,8 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct GameData {
     pub world: WorldBootstrap,
+    /// Initial local-player pitch and yaw in degrees, as supplied by the server.
+    pub player_rotation: [f32; 2],
     pub environment: WorldEnvironmentBootstrap,
     pub settings: StartupSettings,
     pub items: StartupItems,
@@ -68,6 +70,7 @@ impl GameData {
         let movement = &start_game.movement_settings;
         Self {
             world: WorldBootstrap::from_start_game(start_game),
+            player_rotation: start_game.rotation.to_array(),
             environment: WorldEnvironmentBootstrap::from_start_game(start_game),
             settings: StartupSettings {
                 base_game_version: start_game
@@ -203,6 +206,16 @@ mod tests {
             GameData::from_wire(&start_game, &ItemRegistry::default()).level_identity,
             None
         );
+    }
+
+    #[test]
+    fn startup_retains_the_server_player_rotation() {
+        let start_game = StartGame {
+            rotation: [27.5, -123.0].into(),
+            ..Default::default()
+        };
+        let data = GameData::from_wire(&start_game, &ItemRegistry::default());
+        assert_eq!(data.player_rotation, [27.5, -123.0]);
     }
 
     #[test]
