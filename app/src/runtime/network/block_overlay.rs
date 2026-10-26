@@ -219,8 +219,8 @@ pub(super) fn compile_block_overlay_with_textures(
                 let physics = block.physics_for_state(index as u32);
                 visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
-                bindings.apply(block, Some(&state.values), &mut visual.components);
-                builder.state_masks = bindings.state_masks(block, Some(&state.values));
+                builder.state_masks =
+                    bindings.apply(block, Some(&state.values), &mut visual.components);
                 builder.push_state(
                     &visual,
                     &geometries,
@@ -240,8 +240,7 @@ pub(super) fn compile_block_overlay_with_textures(
             let physics = block.physics_for_state(state);
             visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
-            bindings.apply(block, values.as_deref(), &mut visual.components);
-            builder.state_masks = bindings.state_masks(block, values.as_deref());
+            builder.state_masks = bindings.apply(block, values.as_deref(), &mut visual.components);
             builder.push_state(
                 &visual,
                 &geometries,
