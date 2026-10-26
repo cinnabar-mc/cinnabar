@@ -578,28 +578,53 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     {
         return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
     }
-    Some(
-        quads
-            .iter()
-            .map(|quad| {
-                model_quad_face(*quad, rotation).map_or_else(
-                    || lighting_at(inputs.sample(block)),
-                    |face| {
-                        bake_quad_with(
-                            inputs,
-                            block,
-                            face,
-                            quad.positions.map(|position| {
-                                crate::overlays::turn_model_position(position, rotation)
-                            }),
-                            true,
-                            emitting_block,
-                        )
-                    },
-                )
-            })
-            .collect(),
-    )
+    let mut lighting: Vec<_> = quads
+        .iter()
+        .map(|quad| {
+            model_quad_face(*quad, rotation).map_or_else(
+                || lighting_at(inputs.sample(block)),
+                |face| {
+                    bake_quad_with(
+                        inputs,
+                        block,
+                        face,
+                        quad.positions.map(|position| {
+                            crate::overlays::turn_model_position(position, rotation)
+                        }),
+                        true,
+                        emitting_block,
+                    )
+                },
+            )
+        })
+        .collect();
+    if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+        inherit_bamboo_leaf_lighting(quads, &mut lighting);
+    }
+    Some(lighting)
+}
+
+/// Native tessellation draws bamboo leaves straight after the stem without setting a new
+/// vertex light, so every leaf vertex repeats the stem's final vertex: the top, +Z corner of
+/// [`assets::bamboo::LEAF_SHADE_FACE`]. Templates without that stem face keep their bake.
+fn inherit_bamboo_leaf_lighting(quads: &[ModelQuad], lighting: &mut [PackedQuadLighting]) {
+    let stem = assets::bamboo::LEAF_SHADE_FACE as usize;
+    let (Some(face), Some(&baked)) = (quads.get(stem), lighting.get(stem)) else {
+        return;
+    };
+    let Some(corner) = (0..4).max_by_key(|&corner| {
+        let [_, y, z] = face.positions[corner];
+        (y, z)
+    }) else {
+        return;
+    };
+    let inherited = PackedQuadLighting::new([baked.samples()[corner]; 4]);
+    for leaf in lighting
+        .iter_mut()
+        .skip(assets::bamboo::FIRST_LEAF_QUAD as usize)
+    {
+        *leaf = inherited;
+    }
 }
 
 /// Nether portals take vanilla's flat lighting path: boundary-adjacent light, own light

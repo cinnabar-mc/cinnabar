@@ -657,14 +657,18 @@ fn an_unencodable_packet_does_not_lose_its_batch() {
             time: wire::ZigZag32(time),
         })
     };
-    // The manifest bounds a LevelChunk at 64 sub-chunks, so the encoder refuses 65.
-    let refused = Packet::new(bedrock_protocol_1_26_51::packets::LevelChunk {
-        sub_chunks_count: wire::VarUInt(65),
-        ..Default::default()
-    });
+    let refused = unencodable_packet();
     assert_eq!(
         batch_frame(&[time(1), refused.clone(), time(2)]),
         batch_frame(&[time(1), time(2)])
     );
     assert_eq!(batch_frame(&[refused]), None);
+}
+
+/// Supplies a packet beyond the generated encoder's sub-chunk limit for batch-failure tests.
+pub(crate) fn unencodable_packet() -> Packet {
+    Packet::new(bedrock_protocol_1_26_51::packets::LevelChunk {
+        sub_chunks_count: wire::VarUInt(65),
+        ..Default::default()
+    })
 }

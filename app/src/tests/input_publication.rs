@@ -37,6 +37,7 @@ fn packet() -> protocol::Packet {
             yaw: 90.0,
             head_yaw: 90.0,
             camera_orientation: [1.0, 0.0, 0.0],
+            interact_rotation: [0.0, 90.0],
             flags: protocol::PlayerInputFlags::NONE,
             input_mode: protocol::PlayerInputMode::Mouse,
             vehicle: None,

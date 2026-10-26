@@ -66,11 +66,11 @@ packet and byte limits. No second Minecraft login runs on the local connection.
 
 ## Fidelity and report interpretation
 
-The helper reads two capture formats and tells them apart by the v2 magic.
+The helper reads legacy raw captures and versioned captures, identified by their magic.
 
 - **v1** (`raw.bin`) repeats little-endian `u32 packet_id`, `u32 body_length`, then
   the body. It has no timestamps, directions or subclient fields.
-- **v2** (`.cnbrcap`) is what the client writes with `CINNABAR_PACKET_CAPTURE` (see
+- **v2/v3** (`.cnbrcap`) is what the client writes with `CINNABAR_PACKET_CAPTURE` (see
   `docs/agents/live-testing.md`). After the magic `CNBRCAP2`, a `u16` format version,
   the `i32` protocol version and the `u64` start time in Unix milliseconds, each record
   is a `u8` kind, `u32` packet ID, `u64` microseconds since the start, `u32` body length
@@ -79,7 +79,18 @@ The helper reads two capture formats and tells them apart by the v2 magic.
   ends a capture its 512 MiB limit cut short. Markers carry packet ID 0. The client
   records clientbound packets when its session reads their batch from the core, from the
   handed-off startup on, and never records login, handshake or resource-pack offer
-  packets.
+  packets. Version 3 prefixes each packet body with its `u64` session packet-tap sequence.
+  Its kind 4 records contain the associated packet sequence followed by numeric pick state:
+  pick, press and transaction input identities (generation/sequence pairs), target runtime ID,
+  last applied target movement packet sequence, applied world-frontier packet sequence,
+  remote actor tick, optional render alpha, camera eye/direction, optional inflated pick box,
+  previous/current simulation feet, hit point, remaining interpolation steps and presence flags.
+  The exact fixed-width layout is owned by `protocol::capture::PickState`. Replay skips picks.
+  Zero packet sequences mean unavailable; v2 packets have no sequence. The alpha describes
+  rendering and does not translate the recorded simulation box. Assisted points are flagged
+  and have no clipped box. Empty mouseover reports use target zero and no box.
+  Relay replacements omit pick diagnostics when identical input packet bytes carry different
+  frozen states, because the surviving producer cannot be identified.
 
 Serverbound records are counted and ignored. The report's `capture` section gives the
 `format`, `serverbound_records_ignored`, `dropped_packets` from gap records and whether

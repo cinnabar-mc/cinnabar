@@ -49,7 +49,6 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                         .received
                         .remove(self.blob_scan.cursor)
                         .expect("scanned packet");
-                    self.delivered = packet.trace_position;
                     self.observe(&packet);
                     return Ok(Some(Inbound::Packet(packet)));
                 }

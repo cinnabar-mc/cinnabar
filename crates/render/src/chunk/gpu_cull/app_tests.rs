@@ -37,6 +37,7 @@ pub(super) fn render_plugin_with_storage_limit(
     let noop = backends == wgpu::Backends::NOOP;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
+        flags: wgpu::InstanceFlags::from_env_or_default(),
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions {
                 enable: noop,

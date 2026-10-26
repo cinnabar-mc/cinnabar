@@ -78,7 +78,7 @@ fn catalog_with_cape(scale: Option<[f32; 3]>) -> Arc<assets::RuntimeEntityAssets
 }
 
 /// Supplies a caped local player using the ordinary prediction-to-animation feed.
-fn feed() -> client_world::LocalPlayerFeed {
+pub(super) fn feed() -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
         game_mode: None,
         prefer_client_skin: false,
@@ -100,6 +100,7 @@ fn feed() -> client_world::LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,
@@ -173,7 +174,7 @@ fn hud_cape_follows_motion_and_keeps_animating_with_unchanged_pixels() {
     let mut feed = feed();
     stream.sync_local_player_pose(&feed);
     stream.advance_actor_interpolation_ticks(1);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let resting = cape_points(&presentation);
     let texture = presentation.gui_models.skin.as_ref().unwrap().identity();
     for (speed, sprinting, sneaking) in [
@@ -188,7 +189,8 @@ fn hud_cape_follows_motion_and_keeps_animating_with_unchanged_pixels() {
         feed.sneaking = sneaking;
         stream.sync_local_player_pose(&feed);
         stream.advance_actor_interpolation_ticks(1);
-        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+        presentation
+            .capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
         assert_ne!(
             cape_points(&presentation),
             resting,
@@ -201,13 +203,13 @@ fn hud_cape_follows_motion_and_keeps_animating_with_unchanged_pixels() {
     }
     let moving = cape_points(&presentation);
     stream.advance_actor_interpolation_ticks(1);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     assert_ne!(
         cape_points(&presentation),
         moving,
         "stationary authored sway must remain live"
     );
-    presentation.capture_hud_player(None, false);
+    presentation.capture_hud_player_reference(None, false);
     let mesh = presentation.gui_player_mesh().unwrap();
     assert!(mesh.batches().iter().all(|batch| batch.texture_page != 100));
 }
@@ -217,9 +219,9 @@ fn hud_cape_and_torso_share_the_swimming_translation_once() {
     let catalog = catalog();
     let stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
     let mut presentation = presentation(&catalog);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let standing = cape_points(&presentation);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), true);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), true);
     let swimming = cape_points(&presentation);
     let expected = -super::super::super::player_preview::HUD_SWIM_OFFSET
         * super::super::super::player_preview::PREVIEW_PIXELS_PER_BLOCK
@@ -237,7 +239,8 @@ fn missing_or_hidden_cape_keeps_the_hud_body_visible() {
         let mut stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
         stream.advance_actor_interpolation_ticks(1);
         let mut presentation = presentation(&catalog);
-        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+        presentation
+            .capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
         let mesh = presentation
             .gui_player_mesh()
             .expect("a missing or hidden cape must not hide the player's body");
@@ -255,7 +258,7 @@ fn flattened_cape_keeps_its_visible_faces_and_hud_body() {
     let mut stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
     stream.advance_actor_interpolation_ticks(1);
     let mut presentation = presentation(&catalog);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let mesh = presentation
         .gui_player_mesh()
         .expect("collapsed cape faces must not hide the body or the remaining cape faces");
@@ -268,7 +271,7 @@ fn worn_wings_suppress_the_hud_cape_until_the_chest_slot_is_cleared() {
     let catalog = catalog();
     let stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
     let mut presentation = presentation(&catalog);
-    presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
     let visible = cape_points(&presentation);
     let reference = |identifier: &str| assets::EquipmentReference {
         identifier: identifier.into(),
@@ -307,4 +310,103 @@ fn worn_wings_suppress_the_hud_cape_until_the_chest_slot_is_cleared() {
     assert!(mesh.batches().iter().all(|batch| batch.texture_page != 100));
     presentation.set_player_preview_gear([None; 4], None);
     assert_eq!(cape_points(&presentation), visible);
+}
+
+/// Repeated cape samples must keep the already prepared pose allocation.
+#[test]
+fn animated_hud_cape_reuses_pose_storage() {
+    let catalog = catalog();
+    let stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
+    let mut presentation = presentation(&catalog);
+    for _ in 0..3 {
+        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    }
+    let (_, allocations) = test_alloc::count(|| {
+        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    });
+    assert_eq!(allocations, 0, "cape sampling allocated another pose");
+}
+
+/// Palette normals preserve animated cape lighting, including reflected and flattened scales.
+#[test]
+fn hud_palette_preserves_cape_projection_and_lighting() {
+    for scale in [[1.; 3], [0., 1., 1.], [-1., 2., 0.5]] {
+        let catalog = catalog_with_cape(Some(scale));
+        let mut stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
+        let mut presentation = presentation(&catalog);
+        let mut feed = feed();
+        feed.sprinting = true;
+        feed.velocity[2] = 0.2;
+        for step in 0..3 {
+            feed.position[2] += 0.2;
+            feed.sneaking = step == 2;
+            stream.sync_local_player_pose(&feed);
+            stream.advance_actor_interpolation_ticks(1);
+            presentation
+                .capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
+            let mesh = presentation
+                .hud_player_mesh([None, None], |_, _, _, _| true)
+                .unwrap();
+            let expected = presentation
+                .project_gui_player_mesh(
+                    &presentation
+                        .gui_player_sources(super::super::super::player_preview::PreviewView::Hud)
+                        .unwrap(),
+                    [None, None],
+                    super::super::super::player_preview::PreviewView::Hud,
+                )
+                .unwrap();
+            assert_eq!(
+                raster_mesh(&presentation, mesh),
+                raster_mesh(&presentation, expected),
+                "cape pixels changed for scale {scale:?}, step {step}"
+            );
+        }
+    }
+}
+
+/// Compares visible coverage and lighting without requiring collapsed triangles to be removed.
+fn raster_mesh(presentation: &UiPresentationRuntime, mesh: Arc<ui::UiMesh>) -> image::RgbaImage {
+    use crate::ui_runtime::render_adapter::{UiRenderViewport, adapt_ui_draw_list_with_models};
+    let pages = mesh
+        .batches()
+        .iter()
+        .map(|batch| batch.texture_page)
+        .max()
+        .unwrap() as usize
+        + 1;
+    let white = render_model::UiTexturePage::owned([64; 2], vec![255; 64 * 64 * 4].into()).unwrap();
+    let textures =
+        Arc::new(render_model::UiTextureCatalog::new(vec![white; pages], pages).unwrap());
+    let bounds = super::super::super::rect(0., 0., 192., 224.).unwrap();
+    let nodes = [
+        ui::UiNode::new(ui::UiNodeId::new(1), None, bounds).with_visual(ui::UiVisual::Mesh(mesh))
+    ];
+    let draw = ui::RetainedDraw::build(
+        &nodes,
+        bounds,
+        ui::UiScale::default(),
+        ui::SafeArea::ZERO,
+        ui::TextEffects::default(),
+    )
+    .unwrap();
+    let models =
+        presentation
+            .gui_models
+            .hud_model
+            .lock()
+            .unwrap()
+            .poses(&draw, &nodes, 1., [192, 224]);
+    let input = adapt_ui_draw_list_with_models(
+        draw.draw_list(),
+        textures,
+        UiRenderViewport {
+            physical_size: [192, 224],
+            dpi_scale: ui::DpiScale::new(1.).unwrap(),
+            safe_area: ui::SafeArea::ZERO,
+        },
+        models,
+    )
+    .unwrap();
+    super::super::super::forms::snapshot::rasterize(&input)
 }

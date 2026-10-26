@@ -136,7 +136,12 @@ impl ActorStore {
         actor.teleported = movement.teleported;
         actor.player_mode = movement.player_mode;
         actor.source_tick = movement.source_tick;
+        let dismounted =
+            (movement.player_mode == Some(MovePlayerMode::Teleport)).then_some(actor.unique_id);
         self.effect_members.collidable.update(actor);
+        if let Some(unique_id) = dismounted {
+            self.unlink(unique_id);
+        }
         if movement.teleported {
             self.animation.mark_reset(movement.runtime_id);
             if let Some(lifetime) = self.lifetime(movement.runtime_id) {

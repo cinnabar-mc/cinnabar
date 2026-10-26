@@ -87,6 +87,7 @@ fn beam_snapshot(model: BeaconModel) -> UiRenderInput {
     )
     .unwrap();
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [256, 256],
         safe_area: [0; 4],

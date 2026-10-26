@@ -71,19 +71,18 @@ impl BlobCacheResolver {
         }
     }
 
-    /// Attributes items accepted from now on to the core frame and slot `origin`.
-    pub(crate) fn trace_origin(&mut self, origin: (u64, u32)) {
+    /// Retains the packet's trace position and capture sequence with each accepted item.
+    pub(crate) fn trace_origin(&mut self, origin: crate::packet_tap::PacketOrigin) {
         self.trace_origins
             .get_or_insert_with(Default::default)
             .current = origin;
     }
 
-    /// The traced origin of the item [`Self::pop_ready_ingress`] returned last; `(0, 0)` for a
-    /// recovery the resolver produced itself or when not tracing.
-    pub(crate) fn popped_trace_origin(&self) -> (u64, u32) {
+    /// The last ready item's packet origin; zero fields mean client-generated or untraced work.
+    pub(crate) fn popped_trace_origin(&self) -> crate::packet_tap::PacketOrigin {
         self.trace_origins
             .as_ref()
-            .map_or((0, 0), |origins| origins.popped)
+            .map_or(Default::default(), |origins| origins.popped)
     }
 
     /// Notes `sequence`'s traced origin as its item leaves the resolver.

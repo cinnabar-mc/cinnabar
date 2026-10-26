@@ -219,6 +219,8 @@ pub struct UiRenderInput {
     pub indices: Arc<[u32]>,
     pub batches: Arc<[UiRenderBatch]>,
     pub textures: Arc<UiRenderTextureArray>,
+    /// Poses change independently of retained model vertices, indices, materials and textures.
+    pub models: Arc<[crate::UiModelPose]>,
 }
 
 impl UiRenderInput {
@@ -265,6 +267,71 @@ impl UiRenderInput {
         // Texture catalogs have private fields and checked constructors; no
         // raster hashing or immutable byte traversal occurs during publication.
         validate_batches(self)?;
+        self.validate_models()?;
+        Ok(())
+    }
+
+    /// Checks only changed palettes when the immutable geometry and texture addresses are shared.
+    pub fn validate_update(&self, previous: &Self) -> Result<(), UiRenderRejectReason> {
+        if self.shares_draw_buffers(previous)
+            && self.models.len() == previous.models.len()
+            && self
+                .models
+                .iter()
+                .zip(previous.models.iter())
+                .all(|(next, old)| next.scope == old.scope && next.bones.len() == old.bones.len())
+        {
+            self.validate_palettes()
+        } else {
+            self.validate()
+        }
+    }
+
+    /// Whether geometry, texture addresses and viewport share a previously admitted publication.
+    pub fn shares_draw_buffers(&self, previous: &Self) -> bool {
+        self.viewport_size == previous.viewport_size
+            && self.safe_area == previous.safe_area
+            && Arc::ptr_eq(&self.vertices, &previous.vertices)
+            && Arc::ptr_eq(&self.indices, &previous.indices)
+            && Arc::ptr_eq(&self.batches, &previous.batches)
+            && Arc::ptr_eq(&self.textures, &previous.textures)
+    }
+
+    /// Requires a finite, addressable palette for each retained model control.
+    fn validate_models(&self) -> Result<(), UiRenderRejectReason> {
+        self.validate_palettes()?;
+        for batch in self.batches.iter() {
+            let pose = batch
+                .isolated_depth_scope
+                .and_then(|scope| self.models.iter().find(|model| model.scope == scope));
+            for &index in &self.indices
+                [batch.first_index as usize..(batch.first_index + batch.index_count) as usize]
+            {
+                let vertex = &self.vertices[index as usize];
+                if vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX != 0
+                    && (vertex.clip_w < 1.0
+                        || vertex.clip_w.fract() != 0.0
+                        || pose.is_none_or(|pose| vertex.clip_w > pose.bones.len() as f32))
+                {
+                    return Err(UiRenderRejectReason::InvalidModelPose);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks finite bone data without walking the immutable vertex stream again.
+    fn validate_palettes(&self) -> Result<(), UiRenderRejectReason> {
+        for (index, model) in self.models.iter().enumerate() {
+            if model.bones.is_empty()
+                || self.models[..index]
+                    .iter()
+                    .any(|earlier| earlier.scope == model.scope)
+                || model.bones.iter().any(|bone| !bone.is_finite())
+            {
+                return Err(UiRenderRejectReason::InvalidModelPose);
+            }
+        }
         Ok(())
     }
 
@@ -277,6 +344,7 @@ impl UiRenderInput {
             && Arc::ptr_eq(&self.indices, &other.indices)
             && Arc::ptr_eq(&self.batches, &other.batches)
             && Arc::ptr_eq(&self.textures, &other.textures)
+            && Arc::ptr_eq(&self.models, &other.models)
     }
 }
 
@@ -300,6 +368,7 @@ pub enum UiRenderRejectReason {
     UnsupportedDepthWrite { batch: usize },
     UnsupportedWorldProjection { batch: usize },
     InvalidIsolatedDepthScope { batch: usize },
+    InvalidModelPose,
     InvalidTextureExtent,
     TextureByteLengthInvalid { actual: usize, expected: usize },
     TextureByteLimitExceeded { actual: usize, limit: usize },
@@ -335,6 +404,7 @@ pub struct UiRenderScene {
     pub input: Option<Arc<UiRenderInput>>,
     rejected_since_publish: bool,
     admitted_static_identity: Option<[u8; 32]>,
+    publications: crate::ui_publication_pool::UiPublicationPool,
 }
 
 impl UiRenderScene {
@@ -353,32 +423,39 @@ impl UiRenderScene {
             return Ok(());
         }
         let revision = input.revision;
-        let result = input.validate().and_then(|()| {
-            if revision < self.revision
-                || (self.rejected_since_publish && revision == self.revision)
-            {
-                Err(UiRenderRejectReason::StaleRevision {
-                    current: self.revision,
-                    rejected: revision,
-                })
-            } else if revision == self.revision
-                && self
-                    .input
-                    .as_deref()
-                    .is_some_and(|current| current != &input)
-            {
-                Err(UiRenderRejectReason::RevisionConflict { revision })
-            } else if self
-                .admitted_static_identity
-                .is_some_and(|identity| identity != input.textures.static_identity())
-            {
-                Err(UiRenderRejectReason::TextureIdentityConflict {
-                    identity: input.textures.identity(),
-                })
-            } else {
-                Ok(())
-            }
-        });
+        let result = self
+            .input
+            .as_deref()
+            .map_or_else(
+                || input.validate(),
+                |previous| input.validate_update(previous),
+            )
+            .and_then(|()| {
+                if revision < self.revision
+                    || (self.rejected_since_publish && revision == self.revision)
+                {
+                    Err(UiRenderRejectReason::StaleRevision {
+                        current: self.revision,
+                        rejected: revision,
+                    })
+                } else if revision == self.revision
+                    && self
+                        .input
+                        .as_deref()
+                        .is_some_and(|current| current != &input)
+                {
+                    Err(UiRenderRejectReason::RevisionConflict { revision })
+                } else if self
+                    .admitted_static_identity
+                    .is_some_and(|identity| identity != input.textures.static_identity())
+                {
+                    Err(UiRenderRejectReason::TextureIdentityConflict {
+                        identity: input.textures.identity(),
+                    })
+                } else {
+                    Ok(())
+                }
+            });
         if let Err(reason) = result {
             self.input = None;
             self.rejected_since_publish = true;
@@ -400,7 +477,7 @@ impl UiRenderScene {
         self.revision = revision;
         self.admitted_static_identity = Some(input.textures.static_identity());
         self.rejected_since_publish = false;
-        self.input = Some(Arc::new(input));
+        self.input = Some(self.publications.publish(self.input.take(), input));
         stats.update(|snapshot| {
             snapshot.rejected_revision = None;
             snapshot.rejected_reason = None;

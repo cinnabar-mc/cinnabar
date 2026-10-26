@@ -293,9 +293,11 @@ pub(crate) fn prepare_ui_runtime(
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
     presentation.observe_paper_doll(now_millis, doll_state);
     // The HUD doll keeps animating under an open screen, beside that screen's own doll.
-    let hud_doll = presentation.hud_frame_mut().paper_doll_visible
+    let hud_doll = presentation
+        .hud_frame_mut()
+        .paper_doll_requested(player_runtime.facts.player_game_mode(), &settings)
         && settings.value(SettingId::HideHud) == 0
-        && settings.value(SettingId::HidePaperdoll) == 0
+        && presentation.loading_stage().is_none()
         && !menu_visible;
     let emote_preview = runtime
         .emotes()

@@ -162,7 +162,9 @@ pub(crate) fn press(
             local_runtime_id: press.local_runtime_id,
         },
         gameplay::melee::AttackEffects {
-            send: |packets| network.send_inventory_packets(packets),
+            send: |packets| {
+                network.send_inventory_packets(crosshair::capture_packets(packets, picked.capture))
+            },
             swing_duration: |tick| swing_duration(effects.mining_tick(tick, completed).0),
             request_id: |slot, damage| {
                 player

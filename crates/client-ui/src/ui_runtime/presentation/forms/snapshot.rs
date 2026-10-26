@@ -90,8 +90,16 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
         let indices = &input.indices
             [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
         for triangle in indices.as_chunks::<3>().0 {
-            let corners: [UiRenderVertex; 3] =
-                std::array::from_fn(|corner| input.vertices[triangle[corner] as usize]);
+            let pose = batch
+                .isolated_depth_scope
+                .and_then(|scope| input.models.iter().find(|pose| pose.scope == scope));
+            let corners: [UiRenderVertex; 3] = std::array::from_fn(|corner| {
+                render_model::project_ui_model_vertex(
+                    input.vertices[triangle[corner] as usize],
+                    pose,
+                )
+                .expect("validated model palette")
+            });
             let [du, dv] = offset(triangle[0] as usize);
             fill(
                 &mut image,
@@ -351,6 +359,7 @@ mod tests {
                     ..vertex(position[0], position[1])
                 });
             rasterize(&UiRenderInput {
+                models: Default::default(),
                 revision: 1,
                 viewport_size: [2, 2],
                 safe_area: [0; 4],
@@ -395,6 +404,7 @@ mod tests {
                     ..vertex(position[0], position[1])
                 });
             rasterize(&UiRenderInput {
+                models: Default::default(),
                 revision: 1,
                 viewport_size: [3, 1],
                 safe_area: [0; 4],

@@ -155,6 +155,8 @@ pub struct PlayerAuthInputSnapshot {
     pub yaw: f32,
     pub head_yaw: f32,
     pub camera_orientation: [f32; 3],
+    /// Pitch and yaw of the interaction ray, independent of actor and head facing.
+    pub interact_rotation: [f32; 2],
     pub flags: PlayerInputFlags,
     pub input_mode: PlayerInputMode,
     /// The vehicle the client predicts. The wire then carries its position and delta in
@@ -225,6 +227,7 @@ pub fn player_auth_input_with_mining_request(
         .chain(snapshot.raw_move_vector)
         .chain([snapshot.pitch, snapshot.yaw, snapshot.head_yaw])
         .chain(snapshot.camera_orientation)
+        .chain(snapshot.interact_rotation)
         .chain(snapshot.vehicle.iter().flat_map(|vehicle| {
             vehicle
                 .position
@@ -288,7 +291,7 @@ pub fn player_auth_input_with_mining_request(
         // was zigzag while the authority was an unsigned varint; that
         // workaround is obsolete and the named variant is now correct.
         new_interaction_model: NewInteractionModel::Crosshair,
-        interact_rotation: [snapshot.pitch, snapshot.yaw].into(),
+        interact_rotation: snapshot.interact_rotation.into(),
         client_tick: PlayerInputTick(tick),
         pos_delta: snapshot
             .vehicle

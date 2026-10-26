@@ -11,6 +11,7 @@ use render_scene::{UiGlintSettings, UiRenderSceneResource, UiRenderStatsResource
 fn retained_world() -> World {
     let mut world = ordered_command_tests::binding_world();
     let input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [1920, 1080],
         safe_area: [0; 4],
@@ -179,7 +180,7 @@ fn item_glint_rebinds_retained_ui_without_uploading_geometry() {
         resources::retained_gpu_bytes(
             world.resource::<UiGpu>().vertex_capacity,
             world.resource::<UiGpu>().index_capacity,
-            world.resource::<UiGpu>().textures.bytes + 8
+            world.resource::<UiGpu>().textures.bytes + 8 + world.resource::<UiGpu>().models.bytes()
         )
     );
     world.resource_mut::<render_scene::UiItemGlintTexture>().0 = None;

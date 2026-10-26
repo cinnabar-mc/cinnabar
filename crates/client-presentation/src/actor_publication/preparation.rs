@@ -67,8 +67,7 @@ impl ActorFrameState {
         self.step
     }
 
-    /// This frame's actor clock step once remote motion is predicted, before actor
-    /// preparation consumes it.
+    /// This frame's staged actor clock step, before actor preparation consumes it.
     pub fn motion_step(&self) -> Option<crate::actor_clock::ActorFrameStep> {
         self.motion_step
     }
@@ -84,7 +83,7 @@ impl ActorFrameState {
     }
 }
 
-/// Predicts remote poses from the supplied interval, independently of local physics.
+/// Stages remote motion from the supplied interval, independently of local physics.
 /// Live actor publication later consumes the same step.
 pub fn advance_actor_motion(
     state: &mut ActorFrameState,
