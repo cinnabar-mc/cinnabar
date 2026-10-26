@@ -142,11 +142,11 @@ fn failures_skip_the_material_with_one_diagnostic_and_ending_the_runtime_restore
     // A GPU share too small for the texture and pipeline charge draws nothing.
     let mut tight = WorldMaterialPresenter::default();
     tight.rebuild([bundle(&held, &textures, PIPELINE_CHARGE_BYTES)]);
-    assert!(tight.set().materials.is_empty());
+    assert!(tight.set().published().next().is_none());
     assert!(tight.diagnostics().any(|line| line.contains("GPU limit")));
     // Revocation: no declarations publish an empty set.
     assert!(presenter.rebuild(std::iter::empty()));
-    assert!(presenter.set().materials.is_empty() && presenter.set().entities.is_empty());
+    assert!(presenter.set().published().next().is_none() && presenter.set().entities.is_empty());
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn materials_charge_the_signed_memory_limit_and_retired_pipelines_stay_charged()
         memory_bytes: 64,
         ..bundle(&held, &textures, u64::MAX)
     }]);
-    assert!(presenter.set().materials.is_empty());
+    assert!(presenter.set().published().next().is_none());
     assert!(
         presenter
             .diagnostics()
@@ -176,7 +176,7 @@ fn materials_charge_the_signed_memory_limit_and_retired_pipelines_stay_charged()
         );
         let held = world(&[(1, spec(&source, &[]))], &[]);
         churn.rebuild([bundle(&held, &textures, budget)]);
-        published += churn.set().materials.len();
+        published += churn.set().published().count();
     }
     assert_eq!(published, 3, "the fourth compile exceeds the GPU limit");
     assert!(churn.diagnostics().any(|line| line.contains("GPU limit")));
@@ -191,7 +191,7 @@ fn a_native_compile_failure_is_reported_once_and_keeps_the_material_out_of_the_w
     );
     let mut presenter = WorldMaterialPresenter::default();
     presenter.rebuild([bundle(&held, &textures, u64::MAX)]);
-    let key = presenter.set().materials[0].key;
+    let key = presenter.set().published().next().unwrap().key;
     for _ in 0..3 {
         presenter.note_compile_failures(|failed| failed == key);
     }
@@ -258,7 +258,7 @@ fn no_count_caps_a_bundle_but_a_block_past_the_tag_width_is_reported() {
     assert!(presenter.rebuild([bundle(&held, &textures, u64::MAX)]));
     let set = presenter.set();
     assert_eq!(
-        set.materials.len(),
+        set.published().count(),
         count as usize,
         "every material is published"
     );
@@ -299,7 +299,7 @@ fn replacing_or_removing_a_material_the_budget_rejected_charges_no_retired_pipel
         &[entity(1, 1), entity(2, 2)],
     );
     presenter.rebuild([bundle(&held, &textures, budget)]);
-    assert_eq!(presenter.set().materials.len(), 1);
+    assert_eq!(presenter.set().published().count(), 1);
     // Replace the rejected second material and add a third the budget also rejects.
     let held = world(
         &[
@@ -310,7 +310,7 @@ fn replacing_or_removing_a_material_the_budget_rejected_charges_no_retired_pipel
         &[entity(1, 1), entity(2, 2), entity(3, 3)],
     );
     presenter.rebuild([bundle(&held, &textures, budget)]);
-    assert_eq!(presenter.set().materials.len(), 1);
+    assert_eq!(presenter.set().published().count(), 1);
     // Remove the first and third: only the first was ever drawn, so only it stays charged and
     // the replacement fits in what is left.
     let held = world(&[(2, spec(&source(3), &[]))], &[entity(2, 2)]);
@@ -321,6 +321,16 @@ fn replacing_or_removing_a_material_the_budget_rejected_charges_no_retired_pipel
         "{:?}",
         presenter.diagnostics().collect::<Vec<_>>()
     );
+}
+
+/// A distinct plain material per `round`, so each is its own program.
+fn distinct(round: u32) -> WorldMaterialSpec {
+    spec(
+        &format!(
+            "fn shade(input: WorldMaterialInput) -> Surface {{ return Surface(vec3<f32>({round}.0), 1.0, vec3<f32>(0.0)); }}"
+        ),
+        &[],
+    )
 }
 
 #[test]
@@ -343,7 +353,7 @@ fn textures_that_do_not_fit_the_shares_are_never_decoded_or_held() {
         memory_bytes: memory,
         ..bundle(&held, &textures, u64::MAX)
     }]);
-    assert_eq!(presenter.set().materials.len(), 2);
+    assert_eq!(presenter.set().published().count(), 2);
     assert!(
         presenter.held_texels() <= memory,
         "the host holds {} decoded bytes against a share of {memory}",
@@ -353,13 +363,56 @@ fn textures_that_do_not_fit_the_shares_are_never_decoded_or_held() {
     let gpu = 2 * (texels + PIPELINE_CHARGE_BYTES);
     let mut presenter = WorldMaterialPresenter::default();
     presenter.rebuild([bundle(&held, &textures, gpu)]);
-    assert_eq!(presenter.set().materials.len(), 2);
+    assert_eq!(presenter.set().published().count(), 2);
     assert_eq!(presenter.held_texels(), 2 * texels);
     // A share that shrinks below a drawn material releases its decoded texels.
     presenter.rebuild([BundleWorld {
         memory_bytes: 64,
         ..bundle(&held, &textures, gpu)
     }]);
-    assert!(presenter.set().materials.is_empty());
+    assert!(presenter.set().published().next().is_none());
     assert_eq!(presenter.held_texels(), 0);
+}
+
+/// `world` declared by the bundle `name` with unbounded shares and no textures.
+fn named<'a>(name: &'a str, world: &'a WorldMaterials) -> BundleWorld<'a> {
+    BundleWorld {
+        bundle: name,
+        ..bundle(world, &[], u64::MAX)
+    }
+}
+
+#[test]
+fn slots_stay_with_their_bundle_so_stale_tags_never_draw_another_bundles_shader() {
+    let lamp =
+        |id, name: &str, material| (id, WorldTarget::Block(format!("example:{name}")), material);
+    let first = world(&[(1, distinct(1))], &[lamp(0, "first", 1)]);
+    let second = world(&[(1, distinct(2))], &[lamp(0, "second", 1)]);
+    let mut presenter = WorldMaterialPresenter::default();
+    presenter.rebuild([named("a.bundle", &first), named("b.bundle", &second)]);
+    let (a_slot, _) = presenter.set().block("example:first").unwrap();
+    let (b_slot, b_material) = presenter.set().block("example:second").unwrap();
+    let b_key = b_material.key;
+    // The first bundle stops; its meshes keep their tag until they remesh.
+    presenter.rebuild([named("b.bundle", &second)]);
+    let set = presenter.set();
+    assert_eq!(
+        set.block("example:second").map(|(slot, _)| slot),
+        Some(b_slot)
+    );
+    assert!(
+        set.materials[usize::from(a_slot)].is_none(),
+        "the stopped bundle's slot draws nothing"
+    );
+    // A new material of the second bundle takes a slot of its own, not the stopped one's.
+    let more = world(
+        &[(1, distinct(2)), (2, distinct(3))],
+        &[lamp(0, "second", 1), lamp(1, "third", 2)],
+    );
+    presenter.rebuild([named("b.bundle", &more)]);
+    let set = presenter.set();
+    let (third, _) = set.block("example:third").unwrap();
+    assert_ne!(third, a_slot);
+    assert_eq!(set.block("example:second").unwrap().1.key, b_key);
+    assert!(set.materials[usize::from(a_slot)].is_none());
 }

@@ -136,6 +136,12 @@ impl Cached {
     }
 }
 
+/// One slot's owner for the session and the material drawing in it now.
+struct Slot {
+    bundle: String,
+    material: Option<u32>,
+}
+
 #[derive(Default)]
 pub(super) struct WorldMaterialPresenter {
     cache: BTreeMap<(String, u32), Cached>,
@@ -148,6 +154,10 @@ pub(super) struct WorldMaterialPresenter {
     /// GPU bytes of each bundle's replaced or removed materials: the renderer cannot destroy
     /// a compiled pipeline, so they stay charged for the session.
     retired: BTreeMap<String, u64>,
+    /// Slots by index. A slot belongs to the bundle that first drew in it for the session and
+    /// only that bundle's materials reuse it, so a mesh still carrying a stale tag never draws
+    /// with another bundle's shader.
+    slots: Vec<Slot>,
 }
 
 impl WorldMaterialPresenter {
@@ -162,19 +172,17 @@ impl WorldMaterialPresenter {
     }
 
     /// Rebuilds the set from every bundle's declarations; returns whether it changed. An
-    /// unchanged program keeps its compiled material and key.
+    /// unchanged program keeps its compiled material, key and slot.
     pub(super) fn rebuild<'a>(
         &mut self,
         bundles: impl IntoIterator<Item = BundleWorld<'a>>,
     ) -> bool {
-        let mut materials = Vec::new();
-        let mut entities = BTreeMap::new();
-        let mut blocks = BTreeMap::new();
+        let bundles: Vec<BundleWorld<'a>> = bundles.into_iter().collect();
+        let mut drawn: BTreeMap<(String, u32), Published> = BTreeMap::new();
         let mut live = BTreeSet::new();
-        for bundle in bundles {
+        for bundle in &bundles {
             let mut used = 0_u64;
             let mut memory = bundle.memory_bytes;
-            let mut slots = BTreeMap::new();
             for (&id, spec) in &bundle.world.materials {
                 let key = (bundle.bundle.to_owned(), id);
                 live.insert(key.clone());
@@ -210,20 +218,27 @@ impl WorldMaterialPresenter {
                     .saturating_sub(used);
                 match cached.fit(gpu, memory, bundle.textures) {
                     Ok((published, charge)) => {
-                        if let Ok(slot) = u16::try_from(materials.len()) {
-                            used += charge.gpu;
-                            memory -= charge.memory;
-                            materials.push(published.clone());
-                            slots.insert(id, slot);
-                            cached.published = true;
-                        }
+                        used += charge.gpu;
+                        memory -= charge.memory;
+                        drawn.insert(key.clone(), published.clone());
+                        cached.published = true;
                     }
                     Err(reason) => self.report(bundle.bundle, id, cached.attempt, &reason),
                 }
                 self.cache.insert(key, cached);
             }
+        }
+        let slots = self.assign_slots(&drawn);
+        let mut materials: Vec<Option<Published>> = vec![None; self.slots.len()];
+        for (key, published) in drawn {
+            materials[usize::from(slots[&key])] = Some(published);
+        }
+        let mut entities = BTreeMap::new();
+        let mut blocks = BTreeMap::new();
+        for bundle in &bundles {
             for binding in bundle.world.bindings.values() {
-                let Some(&slot) = slots.get(&binding.material) else {
+                let key = (bundle.bundle.to_owned(), binding.material);
+                let Some(&slot) = slots.get(&key) else {
                     continue;
                 };
                 let (map, identifier, reachable) = match &binding.target {
@@ -240,10 +255,7 @@ impl WorldMaterialPresenter {
                 };
                 // Only the tag width limits which material a target can draw with.
                 if !reachable {
-                    let attempt = self
-                        .cache
-                        .get(&(bundle.bundle.to_owned(), binding.material))
-                        .map_or(0, |cached| cached.attempt);
+                    let attempt = self.cache.get(&key).map_or(0, |cached| cached.attempt);
                     self.report(
                         bundle.bundle,
                         binding.material,
@@ -280,6 +292,48 @@ impl WorldMaterialPresenter {
             blocks,
         });
         true
+    }
+
+    /// Gives each drawn material a slot: the one it drew in last, else a free slot its bundle
+    /// owns, else a new one. Slots past `u16` are left out.
+    fn assign_slots(
+        &mut self,
+        drawn: &BTreeMap<(String, u32), Published>,
+    ) -> BTreeMap<(String, u32), u16> {
+        let mut assigned = BTreeMap::new();
+        for (index, slot) in self.slots.iter_mut().enumerate() {
+            let held = slot
+                .material
+                .map(|id| (slot.bundle.clone(), id))
+                .filter(|key| drawn.contains_key(key));
+            slot.material = held.as_ref().map(|(_, id)| *id);
+            if let (Some(key), Ok(index)) = (held, u16::try_from(index)) {
+                assigned.insert(key, index);
+            }
+        }
+        for (bundle, id) in drawn.keys() {
+            if assigned.contains_key(&(bundle.clone(), *id)) {
+                continue;
+            }
+            let free = self
+                .slots
+                .iter()
+                .position(|slot| slot.material.is_none() && slot.bundle == *bundle);
+            let index = match free {
+                Some(index) => index,
+                None if u16::try_from(self.slots.len()).is_ok() => {
+                    self.slots.push(Slot {
+                        bundle: bundle.clone(),
+                        material: None,
+                    });
+                    self.slots.len() - 1
+                }
+                None => continue,
+            };
+            self.slots[index].material = Some(*id);
+            assigned.insert((bundle.clone(), *id), index as u16);
+        }
+        assigned
     }
 
     /// Reports, once each, the published materials whose native pipelines `failed` to compile;

@@ -87,7 +87,7 @@ fn a_stopped_client_part_revokes_its_world_materials_in_one_publication() {
     assert!(present(&live, &mut presenter));
     let revoked = presenter.set();
     // One publication removes the material and both bindings together.
-    assert!(revoked.materials.is_empty());
+    assert!(revoked.published().next().is_none());
     assert!(revoked.entities.is_empty() && revoked.blocks.is_empty());
     assert!(revoked.revision > bound.revision);
 }
