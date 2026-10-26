@@ -85,6 +85,7 @@ pub(super) fn apply(
         session_generation,
         identity,
         world: bootstrap,
+        player_rotation,
         environment,
         custom_blocks,
         inventory,
@@ -255,6 +256,10 @@ pub(super) fn apply(
         view,
         avatar,
     );
+    view.set_rotation(crate::runtime::telemetry::bedrock_camera_rotation(
+        player_rotation[1],
+        player_rotation[0],
+    ));
     if let Err(fault) = (gameplay::movement::bootstrap::StartGamePhysics {
         session_generation: clock.session_generation(),
         position: resolved.position,

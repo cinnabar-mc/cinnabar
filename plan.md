@@ -372,6 +372,7 @@ A fresh jump press ends a glide after its first ten ticks unless the player has
 Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
 input push, on live ticks and correction replay. Whether that push reads the glide
 flag before or after the same tick's stop check is unverified.
+Initial session pitch and yaw reach the local view before its first movement input.
 Interaction rotation retains picked aim independently of body, head and camera input.
 Active assistance publishes its target direction, or body facing when no target is found,
 to the matching unsent tick. Ordinary crosshair input uses the direction lookup table.
