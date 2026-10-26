@@ -6,7 +6,7 @@
 mod admission;
 mod slots;
 
-use admission::{Cached, Executor, Fit, Pipelines};
+use admission::{Cached, Executor, Fit, Orphan, Pipelines};
 use mod_render::world_material::publication::{
     self, Published, WorldMaterialParams, WorldMaterialSet,
 };
@@ -15,7 +15,7 @@ use server_experience::{
     world_material::{WorldMaterials, WorldTarget},
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -29,10 +29,14 @@ pub(super) const PIPELINE_CHARGE_BYTES: u64 = 256 * 1024;
 /// Provisional: GPU bytes charged for each drawn material's uniform and bind group, on top of
 /// its textures.
 pub(super) const BIND_GROUP_CHARGE_BYTES: u64 = 4 * 1024;
-/// Provisional: GPU bytes the process's retained pipelines may charge across every session,
-/// one bundle's largest signed GPU share. Bevy cannot drop a compiled pipeline, so once it is
-/// full a program new to the process is refused while those already compiled keep drawing.
-pub(super) const PROCESS_PIPELINE_BYTES: u64 = server_experience::policy::MAX_GPU_BYTES;
+/// Provisional: GPU bytes of retained pipelines one pinned server's programs may charge across
+/// every session, one bundle's largest signed GPU share. Bevy cannot drop a compiled pipeline,
+/// so once a server's share is full a program new to the process is refused for that server
+/// while those already compiled keep drawing, and other servers keep their own share.
+pub(super) const SERVER_PIPELINE_BYTES: u64 = server_experience::policy::MAX_GPU_BYTES;
+/// Provisional: GPU bytes of retained pipelines every server's programs may charge together,
+/// four servers' shares.
+pub(super) const PROCESS_PIPELINE_BYTES: u64 = 4 * SERVER_PIPELINE_BYTES;
 /// Failure descriptions kept for the session's diagnostics, newest last.
 pub(super) const MAX_DIAGNOSTICS: usize = 16;
 
@@ -63,8 +67,14 @@ pub(super) struct WorldMaterialPresenter {
     /// The pipelines each bundle drew with this session. Bevy keeps every compiled pipeline,
     /// so each distinct set stays charged to the bundle's GPU share until the session ends.
     compiled: BTreeMap<String, HashSet<Pipelines>>,
-    /// Every set of pipelines the process compiled, across sessions.
-    retained: HashSet<Pipelines>,
+    /// Every set of pipelines the process compiled, across sessions, with the pinned server key
+    /// whose program compiled it first.
+    retained: HashMap<Pipelines, String>,
+    /// The pinned key of the server whose session this is.
+    server: String,
+    /// Superseded admission jobs still running, by bundle, across sessions: a bundle starts
+    /// nothing new until its own have returned, and their charges stay reserved meanwhile.
+    orphans: Vec<(String, Orphan)>,
     slots: slots::Slots,
     /// What the render world last observed of the block slots meshes carry.
     carried: slots::Carried,
@@ -102,7 +112,9 @@ impl WorldMaterialPresenter {
             reported: BTreeSet::new(),
             diagnostics: VecDeque::new(),
             compiled: BTreeMap::new(),
-            retained: HashSet::new(),
+            retained: HashMap::new(),
+            server: String::new(),
+            orphans: Vec::new(),
             slots: slots::Slots::default(),
             carried: slots::Carried::default(),
             reclaimable: 0,
@@ -158,6 +170,10 @@ impl WorldMaterialPresenter {
         if run != self.run {
             changed = self.end_session();
             self.run = run;
+            self.server = live
+                .as_deref()
+                .map(|live| live.server_key().to_owned())
+                .unwrap_or_default();
         }
         // A slot that became reclaimable may go to a material that found none.
         let reclaimable = self.slots.reclaimable(carried);
@@ -187,7 +203,10 @@ impl WorldMaterialPresenter {
     /// slot stays reserved for its owner until no mesh carries its tag, and keys and revisions
     /// keep counting, so a renderer never mistakes a new session's material for an old one.
     pub(super) fn end_session(&mut self) -> bool {
-        self.cache.clear();
+        for ((bundle, _), mut cached) in std::mem::take(&mut self.cache) {
+            cached.cancel();
+            self.adopt_orphans(&bundle, &mut cached);
+        }
         self.reported.clear();
         self.diagnostics.clear();
         self.compiled.clear();
@@ -243,7 +262,18 @@ impl WorldMaterialPresenter {
         for bundle in &bundles {
             self.admit(bundle, &mut drawn, &mut values, &mut live, &mut claimed);
         }
-        self.cache.retain(|key, _| live.contains(key));
+        let removed: Vec<(String, u32)> = self
+            .cache
+            .keys()
+            .filter(|key| !live.contains(*key))
+            .cloned()
+            .collect();
+        for key in removed {
+            if let Some(mut cached) = self.cache.remove(&key) {
+                cached.cancel();
+                self.adopt_orphans(&key.0, &mut cached);
+            }
+        }
         // Attempts no longer cached cannot recur, so their reports go with them.
         let cache = &self.cache;
         self.reported.retain(|(bundle, id, attempt, _)| {
@@ -278,9 +308,10 @@ impl WorldMaterialPresenter {
 
     /// Admits `bundle`'s declarations against its shares, adding what draws to `drawn` and its
     /// parameters to `values` and every declaration to `live`. One admission job runs per
-    /// bundle, and a newer attempt's job replaces an older one's; nothing new draws until all
-    /// of the bundle's materials are measured; and a set of pipelines new to the process waits
-    /// for room in the process's pipeline budget, which `claimed` reserves across bundles.
+    /// bundle at a time, superseded ones included until they return, oldest attempt first;
+    /// nothing new draws until all of the bundle's materials are measured; and a set of
+    /// pipelines new to the process waits for room in its server's share and the process's
+    /// ceiling, which `claimed` reserves across bundles.
     fn admit(
         &mut self,
         bundle: &BundleWorld<'_>,
@@ -300,7 +331,11 @@ impl WorldMaterialPresenter {
                     }
                     cached
                 }
-                _ => {
+                previous => {
+                    if let Some(mut previous) = previous {
+                        previous.cancel();
+                        self.adopt_orphans(bundle.bundle, &mut previous);
+                    }
                     self.next_key += 1;
                     Cached::new(spec, self.next_key)
                 }
@@ -311,49 +346,71 @@ impl WorldMaterialPresenter {
         for (_, cached) in &mut entries {
             cached.settle();
         }
-        let mut job = entries.iter().position(|(_, cached)| cached.running());
-        // The newest unmeasured attempt measures next; work that finishes at once lets the
-        // next one start.
-        while let Some(newest) = (0..entries.len())
-            .filter(|&index| entries[index].1.unmeasured())
-            .max_by_key(|&index| entries[index].1.attempt)
-            && job.is_none_or(|running| entries[running].1.attempt < entries[newest].1.attempt)
+        self.orphans.retain(|(_, orphan)| orphan.alive());
+        let orphaned = self
+            .orphans
+            .iter()
+            .filter(|(owner, _)| owner == bundle.bundle)
+            .fold((0_u64, 0_u64), |(gpu, memory), (_, orphan)| {
+                (gpu + orphan.charge.gpu, memory + orphan.charge.memory)
+            });
+        // One job runs per bundle, counting superseded ones until they return; with none
+        // running the oldest unmeasured attempt measures next, so churning one material never
+        // starves another, and work that finishes at once lets the next one start.
+        let mut busy = self.orphans.iter().any(|(owner, _)| owner == bundle.bundle)
+            || entries.iter().any(|(_, cached)| cached.running());
+        while !busy
+            && let Some(oldest) = (0..entries.len())
+                .filter(|&index| entries[index].1.unmeasured())
+                .min_by_key(|&index| entries[index].1.attempt)
         {
-            if let Some(running) = job {
-                entries[running].1.cancel();
-            }
-            entries[newest]
+            entries[oldest]
                 .1
                 .measure(bundle.files, &self.executor, &self.done);
-            job = entries[newest].1.running().then_some(newest);
+            busy = entries[oldest].1.running();
         }
         let measured = entries.iter().all(|(_, cached)| cached.measured());
         let mut compiled = self.compiled.remove(bundle.bundle).unwrap_or_default();
         // Every set of pipelines the bundle compiled this session stays charged.
         let mut gpu = bundle
             .gpu_bytes
-            .saturating_sub(compiled.len() as u64 * PIPELINE_CHARGE_BYTES);
-        let mut memory = bundle.memory_bytes;
+            .saturating_sub(compiled.len() as u64 * PIPELINE_CHARGE_BYTES)
+            .saturating_sub(orphaned.0);
+        let mut memory = bundle.memory_bytes.saturating_sub(orphaned.1);
         let mut reserved = HashSet::new();
         let mut newly = HashSet::new();
-        for index in 0..entries.len() {
-            let (id, attempt) = (entries[index].0, entries[index].1.attempt);
-            let identity = entries[index].1.pipelines();
+        for (id, cached) in &mut entries {
+            let (id, attempt) = (*id, cached.attempt);
+            let identity = cached.pipelines();
             let shared = identity.is_some_and(|identity| {
                 compiled.contains(&identity) || reserved.contains(&identity)
             });
             // A program the bundle already compiled costs only its bind group.
             let pipeline = BIND_GROUP_CHARGE_BYTES + if shared { 0 } else { PIPELINE_CHARGE_BYTES };
-            let mut fit = entries[index].1.fit(gpu, memory, pipeline);
+            let mut fit = cached.fit(gpu, memory, pipeline);
             if let (Fit::Decode(_) | Fit::Drawable(..), Some(identity)) = (&fit, identity)
-                && !self.retained.contains(&identity)
+                && !self.retained.contains_key(&identity)
                 && !claimed.contains(&identity)
             {
-                let held = (self.retained.len() + claimed.len()) as u64 + 1;
-                if held.saturating_mul(PIPELINE_CHARGE_BYTES) > PROCESS_PIPELINE_BYTES {
-                    entries[index].1.cancel();
-                    fit =
-                        Fit::Refused("the client's world material pipeline memory is full".into());
+                let mine = self
+                    .retained
+                    .values()
+                    .filter(|server| **server == self.server)
+                    .count();
+                let charge =
+                    |count: usize| (count as u64 + 1).saturating_mul(PIPELINE_CHARGE_BYTES);
+                let refusal = if charge(mine + claimed.len()) > SERVER_PIPELINE_BYTES {
+                    Some(
+                        "this server's share of the client's world material pipeline memory is full",
+                    )
+                } else if charge(self.retained.len() + claimed.len()) > PROCESS_PIPELINE_BYTES {
+                    Some("the client's world material pipeline memory is full")
+                } else {
+                    None
+                };
+                if let Some(reason) = refusal {
+                    cached.cancel();
+                    fit = Fit::Refused(reason.into());
                 } else {
                     claimed.insert(identity);
                 }
@@ -363,35 +420,30 @@ impl WorldMaterialPresenter {
                 if !measured {
                     continue;
                 }
-                let free = job
-                    .is_none_or(|running| running == index || entries[running].1.attempt < attempt);
-                if !free {
+                if busy {
                     // Its charge stays reserved while the bundle's one job runs.
                     gpu -= charge.gpu;
                     memory -= charge.memory;
                     reserved.extend(identity);
                     continue;
                 }
-                if let Some(running) = job.filter(|running| *running != index) {
-                    entries[running].1.cancel();
-                }
-                entries[index]
-                    .1
-                    .decode(bundle.files, &self.executor, &self.done);
-                job = entries[index].1.running().then_some(index);
-                fit = entries[index].1.fit(gpu, memory, pipeline);
+                cached.decode(bundle.files, &self.executor, &self.done);
+                busy = cached.running();
+                fit = cached.fit(gpu, memory, pipeline);
             }
             match fit {
                 Fit::Drawable(published, charge) => {
                     gpu -= charge.gpu;
                     memory -= charge.memory;
-                    values.insert(published.key, params(&entries[index].1.spec.params));
+                    values.insert(published.key, params(&cached.spec.params));
                     drawn.insert((bundle.bundle.to_owned(), id), published);
                     reserved.extend(identity);
                     newly.extend(identity);
                     if let Some(identity) = identity {
                         claimed.remove(&identity);
-                        self.retained.insert(identity);
+                        self.retained
+                            .entry(identity)
+                            .or_insert_with(|| self.server.clone());
                     }
                 }
                 Fit::Pending(charge) | Fit::Decode(charge) => {
@@ -406,8 +458,18 @@ impl WorldMaterialPresenter {
         }
         compiled.extend(newly);
         self.compiled.insert(bundle.bundle.to_owned(), compiled);
-        for (id, cached) in entries {
+        for (id, mut cached) in entries {
+            self.adopt_orphans(bundle.bundle, &mut cached);
             self.cache.insert((bundle.bundle.to_owned(), id), cached);
+        }
+    }
+
+    /// Takes `cached`'s abandoned jobs that still run as `bundle`'s orphans.
+    fn adopt_orphans(&mut self, bundle: &str, cached: &mut Cached) {
+        for orphan in cached.orphans() {
+            if orphan.alive() {
+                self.orphans.push((bundle.to_owned(), orphan));
+            }
         }
     }
 

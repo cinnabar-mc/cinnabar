@@ -612,13 +612,15 @@ fn run_jobs(held: &Arc<std::sync::Mutex<Vec<admission::Job>>>, last: Option<usiz
 }
 
 #[test]
-fn one_admission_job_runs_per_bundle_and_the_newest_attempt_wins() {
+fn one_admission_job_runs_per_bundle_and_churn_never_starves_an_older_material() {
     let jobs = Arc::default();
     let mut presenter = held(&jobs);
     let three = world(&[(1, distinct(1)), (2, distinct(2)), (3, distinct(3))], &[]);
     presenter.rebuild([named("example.bundle", &three)]);
     assert_eq!(presenter.jobs(), 1, "three new materials, one job");
-    // A guest replacing its program every callback keeps one job, the newest attempt's.
+    let oldest = presenter.cache[&("example.bundle".to_owned(), 1)].attempt;
+    // A guest replacing material 3's program every callback starts no job of its own while
+    // the oldest one runs.
     for round in 4..12 {
         let replaced = world(
             &[(1, distinct(1)), (2, distinct(2)), (3, distinct(round))],
@@ -626,16 +628,69 @@ fn one_admission_job_runs_per_bundle_and_the_newest_attempt_wins() {
         );
         presenter.rebuild([named("example.bundle", &replaced)]);
         assert_eq!(presenter.jobs(), 1);
+        assert_eq!(jobs.lock().unwrap().len(), 1, "nothing more was spawned");
         let running = presenter
             .cache
             .values()
             .find(|cached| cached.running())
             .unwrap();
-        assert_eq!(
-            running.attempt, presenter.next_key,
-            "the newest attempt runs"
-        );
+        assert_eq!(running.attempt, oldest, "the oldest attempt runs");
     }
+    // Once it returns, the next oldest measures, not the churning one.
+    run_jobs(&jobs, None);
+    let churned = world(
+        &[(1, distinct(1)), (2, distinct(2)), (3, distinct(99))],
+        &[],
+    );
+    presenter.rebuild([named("example.bundle", &churned)]);
+    let running = presenter
+        .cache
+        .iter()
+        .find(|(_, cached)| cached.running())
+        .map(|((_, id), _)| *id);
+    assert_eq!(running, Some(2));
+}
+
+#[test]
+fn a_superseded_job_keeps_its_bundle_busy_until_it_returns_and_stops_early() {
+    let jobs = Arc::default();
+    let mut presenter = held(&jobs);
+    let textures = files(vec![("textures/glow.png".to_owned(), png(4, 2))]);
+    let first = world(&[(1, spec(PLAIN, &["textures/glow.png"]))], &[]);
+    presenter.rebuild([bundle(&first, &textures, u64::MAX)]);
+    run_jobs(&jobs, None);
+    // Its decode is running when the guest replaces the material.
+    presenter.rebuild([bundle(&first, &textures, u64::MAX)]);
+    assert_eq!(presenter.jobs(), 1);
+    let replaced = world(&[(1, distinct(5))], &[]);
+    presenter.rebuild([bundle(&replaced, &textures, u64::MAX)]);
+    assert_eq!(
+        presenter.jobs(),
+        0,
+        "the replacement waits for the superseded job"
+    );
+    assert_eq!(jobs.lock().unwrap().len(), 1, "and nothing new was spawned");
+    assert_eq!(presenter.orphans.len(), 1);
+    // The superseded decode returns at once, seeing its cancel flag.
+    run_jobs(&jobs, None);
+    presenter.rebuild([bundle(&replaced, &textures, u64::MAX)]);
+    assert!(presenter.orphans.is_empty());
+    assert_eq!(presenter.jobs(), 1, "now the replacement measures");
+}
+
+#[test]
+fn a_cancelled_decode_stops_before_its_next_texture() {
+    let textures = files(vec![("textures/glow.png".to_owned(), png(4, 2))]);
+    let paths = vec!["textures/glow.png".to_owned(); 2];
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    assert_eq!(
+        admission::decode_all(&paths, &textures, &cancel)
+            .unwrap()
+            .len(),
+        2
+    );
+    cancel.store(true, Ordering::Release);
+    assert!(admission::decode_all(&paths, &textures, &cancel).is_err());
 }
 
 #[test]
@@ -662,23 +717,30 @@ fn a_bundle_admits_nothing_new_until_every_material_is_measured() {
 }
 
 #[test]
-fn programs_new_to_the_process_wait_once_its_pipeline_budget_is_full() {
-    let room = (PROCESS_PIPELINE_BYTES / PIPELINE_CHARGE_BYTES) as u32;
+fn one_server_filling_its_pipeline_share_leaves_other_servers_theirs() {
+    let room = (SERVER_PIPELINE_BYTES / PIPELINE_CHARGE_BYTES) as u32;
     let many: Vec<(u32, WorldMaterialSpec)> = (0..=room).map(|id| (id, distinct(id))).collect();
     let held = world(&many, &[]);
     let mut presenter = WorldMaterialPresenter::inline();
+    presenter.server = "first".into();
     presenter.rebuild([named("example.bundle", &held)]);
     // Unbound materials still draw; their parameters count them past the slot table.
     assert_eq!(presenter.params().values.len(), room as usize);
     assert!(
         presenter
             .diagnostics()
-            .any(|line| line.contains("pipeline memory is full"))
+            .any(|line| line.contains("this server's share"))
     );
-    // A later session still draws the programs the process compiled, but no new one.
+    // A later session of the same server still draws what it compiled, but no new program.
     presenter.end_session();
     presenter.run = 2;
     let later = world(&[(1, distinct(1)), (2, distinct(room + 1))], &[]);
     presenter.rebuild([named("example.bundle", &later)]);
     assert_eq!(presenter.params().values.len(), 1);
+    // Another server compiles its own.
+    presenter.end_session();
+    presenter.run = 3;
+    presenter.server = "second".into();
+    presenter.rebuild([named("example.bundle", &later)]);
+    assert_eq!(presenter.params().values.len(), 2);
 }
