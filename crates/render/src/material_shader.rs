@@ -167,6 +167,8 @@ pub(crate) fn source(source: &str) -> String {
         .replace("MODEL_RANDOM_OFFSET_FLAG", &format!("{}u", meshing::MODEL_REF_FLAG_RANDOM_OFFSET))
         .replace("MODEL_BAMBOO_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_BAMBOO))
         .replace("BAMBOO_STEM_SIDE_QUAD_MASK", &format!("{}u", assets::bamboo::STEM_SIDE_QUAD_MASK))
+        .replace("BAMBOO_FIRST_LEAF_QUAD", &format!("{}u", assets::bamboo::FIRST_LEAF_QUAD))
+        .replace("BAMBOO_LEAF_SHADE_FACE", &format!("{}u", assets::bamboo::LEAF_SHADE_FACE.model_quad_face_id()))
         .replace("BAMBOO_POSITIVE_X_LEAF_QUAD", &format!("{}u", assets::bamboo::POSITIVE_X_LEAF_QUAD))
         .replace("BAMBOO_POSITIVE_Z_LEAF_QUAD", &format!("{}u", assets::bamboo::POSITIVE_Z_LEAF_QUAD))
         .replace("// BAMBOO_CONSTANTS", &format!(
