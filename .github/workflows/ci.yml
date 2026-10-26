@@ -266,8 +266,8 @@ jobs:
       && (needs.changes.outputs.full == 'true'
         || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ${{ matrix.os }}
-    # Cold Windows builds need time to finish the tests, documentation and lint checks.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 150 || 90 }}
+    # Cold macOS and Windows builds need time to finish the tests, documentation and lint checks.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 90 || 150 }}
     env:
       TESTS: ${{ needs.changes.outputs.full == 'true' && 'all()' || needs.preflight.outputs.tests }}
     strategy:
