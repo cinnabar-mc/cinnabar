@@ -1142,8 +1142,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   while constraining the storage budget. Proprietary Adreno Vulkan drivers use direct terrain
   draws after indirect draws produced empty frames on Adreno 619 and 750. Both devices pass the
   coverage, occlusion and reupload fixtures with this fallback; PowerVR GE8320 also passes.
-  Mali-G57, Mali-G78 and Mali-G715 fixture pipeline compilation still crashes without completed
-  frames.
+  Mali-G57, Mali-G78, Mali-G715 and PowerVR DXT fixture pipeline compilation failed before
+  completed frames. Shader translation now separates logical Function/Private allocations from
+  host buffer layouts and preserves either advertised image-robustness feature. Composed terrain
+  programs validate for Vulkan 1.1 and 1.3 with bounds checks enabled, and host terrain pixels
+  remain unchanged; physical-device validation of these compiler fixes remains open.
   Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
   with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
   CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
