@@ -46,6 +46,7 @@ pub(crate) struct MeleeTarget {
     )>,
     pub(crate) attack: Option<crosshair::ResolvedTarget>,
     pub(crate) hover: Option<(u64, gameplay::entity_hover::HoverSnapshot)>,
+    pub(crate) hover_capture: Option<protocol::capture::PickState>,
 }
 
 impl MeleeTarget {
@@ -55,6 +56,22 @@ impl MeleeTarget {
         position: simulation_clock::identity::PositionAuthorityGeneration,
     ) -> bool {
         self.frames.has_current(position)
+    }
+}
+
+/// Retains completed actor boxes with this frame's ray for the next frame's interactions.
+pub(crate) fn complete_melee_actor_frame(
+    world: Res<ClientWorld>,
+    movement: Res<MovementTicker>,
+    network: Res<NetworkHandle<PackApplication>>,
+    mut target: ResMut<MeleeTarget>,
+) {
+    if target.has_published_inputs(movement.position_authority_identity().1)
+        && let Some(stream) = world.stream.as_ref()
+    {
+        target
+            .frames
+            .complete_actor_frame(stream, network.pick_trace().map(AsRef::as_ref));
     }
 }
 
@@ -77,8 +94,15 @@ pub(crate) struct MeleeContext<'w, 's> {
     pub(crate) physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
 }
 
+/// Locally predicted sounds an attack frame voices: mining break cues and actor attacks.
+#[derive(SystemParam)]
+pub(crate) struct LocalCues<'w> {
+    block: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
+    attack: bevy::prelude::MessageWriter<'w, client_audio::audio::predicted::LocalAttackCue>,
+}
+
 /// Publishes frame inputs and resolves presses through the single published-frame pick.
-/// Open screens and spectator mode cancel the press.
+/// Open screens, spectator mode and an item in use cancel the press.
 pub(crate) fn prepare_melee(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: MeleeContext,
@@ -86,6 +110,7 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
+    item_use: Res<client_interaction::item_use::ItemUseRuntime>,
 ) {
     let ordered = context
         .input
@@ -103,6 +128,7 @@ pub(crate) fn prepare_melee(
     }
     target.attack = None;
     target.hover = None;
+    target.hover_capture = None;
     target
         .frames
         .publish(&context, movement.position_authority_identity().1);
@@ -118,6 +144,7 @@ pub(crate) fn prepare_melee(
         let first_tick = movement
             .completed_tick()
             .saturating_sub((context.effects.recent_tick_count() as u64).saturating_sub(1));
+        target.hover_capture = picked.capture;
         target.hover = Some((
             first_tick,
             gameplay::entity_hover::HoverSnapshot {
@@ -151,6 +178,7 @@ pub(crate) fn prepare_melee(
     if let Err(reason) = press_admission(
         focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),
+        item_use.vetoes_attack(&player_runtime, context.client_world.stream.as_ref()),
     ) {
         drop(reason);
         runtime.cancel();
@@ -168,7 +196,14 @@ pub(crate) fn prepare_melee(
         }
         return;
     }
-    let pending = runtime.observe_input(attack.pressed, attack.held);
+    let pending = runtime.observe_input_with_capture(
+        attack.pressed,
+        attack.held,
+        context
+            .network
+            .pick_trace()
+            .map(|_| crosshair::capture_identity(&context)),
+    );
     // A position-authority change is resolving; the press waits for it.
     if !movement.accepts_block_interactions() {
         drop("position_authority_pending");
@@ -215,7 +250,7 @@ fn maintain_attacks(
     ),
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
-    mut cues: bevy::prelude::MessageWriter<client_audio::audio::LocalBlockCue>,
+    mut cues: LocalCues,
 ) {
     let (mut runtime, mut mining, mut swings, item_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -247,6 +282,13 @@ fn maintain_attacks(
             picked.crosshair,
             PressContext {
                 refused_destroy: None,
+                actor_life: match picked.crosshair {
+                    gameplay::melee::Crosshair::Actor(hit) => stream
+                        .authority()
+                        .actor(hit.runtime_id)
+                        .map(|actor| actor.life().life),
+                    _ => None,
+                },
                 tick: sample.tick,
                 player_position: sample.position,
                 input_mode: protocol_input_mode(input.input_mode),
@@ -278,7 +320,10 @@ fn maintain_attacks(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let input = context.input.snapshot();
     let active = gameplay::survival_mining::mining_active(caps, focused, input.is_some());
+    // An item in use ignores a held Attack as it ignores a press, so no held mining starts or
+    // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
+        && !item_use.vetoes_attack(&player, context.client_world.stream.as_ref())
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,
@@ -336,6 +381,16 @@ fn maintain_attacks(
         !ordered.maintenance_pending(&context.input)
             && !crate::ordered_interactions::release_pending(&item_use, &movement)
     });
+    let capture = target
+        .attack
+        .and_then(|pick| pick.capture)
+        .map(|mut state| {
+            runtime.synchronize(movement.interaction_authority_identity());
+            state.press_frame = runtime
+                .pending_capture_frame(now_millis)
+                .unwrap_or_default();
+            state
+        });
     let admitted = gameplay::melee::admit_attack_frame(
         &mut runtime,
         &mut mining,
@@ -351,7 +406,9 @@ fn maintain_attacks(
             local_runtime_id,
         },
         gameplay::melee::AttackEffects {
-            send: |packets| network.send_inventory_packets(packets),
+            send: |packets| {
+                network.send_inventory_packets(crosshair::capture_packets(packets, capture))
+            },
             swing_duration: |tick| swing_duration(effects.mining_tick(tick, completed_tick).0),
             request_id: |slot, damage| {
                 player
@@ -369,12 +426,15 @@ fn maintain_attacks(
     for request in admitted.cancelled_mining_requests {
         player.inventory.ledger_mut().cancel_mining_request(request);
     }
+    if let Some(hit) = admitted.actor_attack {
+        cues.attack.write(attack_cue(&context, hit.runtime_id));
+    }
     for cue in mining.take_break_cues() {
         let gameplay::survival_mining::BlockBreakCue::Break {
             position,
             block_runtime_id,
         } = cue;
-        cues.write(client_audio::audio::LocalBlockCue::Break {
+        cues.block.write(client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
         });
@@ -388,6 +448,36 @@ fn maintain_attacks(
             &mut movement,
             tick,
         );
+    }
+}
+
+/// The local attack sound for an actor attack sent this frame, chosen from the player's
+/// latest completed tick. Without local physics the player counts as standing.
+pub(crate) fn attack_cue(
+    context: &MeleeContext,
+    target_runtime_id: u64,
+) -> client_audio::audio::predicted::LocalAttackCue {
+    let target_is_mob = context
+        .client_world
+        .stream
+        .as_ref()
+        .and_then(|stream| stream.authority().actor(target_runtime_id))
+        .is_none_or(|actor| match actor.kind {
+            protocol::ActorKind::Player { .. } => true,
+            protocol::ActorKind::Entity { .. } => gameplay::melee::is_mob(&actor.entity_fact),
+        });
+    let physics = context.physics.as_deref();
+    let state = physics.and_then(|physics| physics.state());
+    let attacker = gameplay::melee::AttackerState {
+        effects: context.effects.melee_effects(),
+        fall_distance: state.map_or(0.0, |state| state.fall_distance()),
+        on_ground: state.is_none_or(|state| state.on_ground),
+        on_climbable: state.is_some_and(|state| state.on_climbable_block()),
+        in_water: physics.is_some_and(|physics| physics.in_water()),
+        riding: physics.is_some_and(|physics| physics.mode() == sim::MovementMode::Riding),
+    };
+    client_audio::audio::predicted::LocalAttackCue {
+        event: gameplay::melee::attack_sound(attacker, target_is_mob).event(),
     }
 }
 

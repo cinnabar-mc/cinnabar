@@ -25,7 +25,8 @@ fn settings_snapshot_seeds_the_guest_without_rereading_the_companion() {
     assert_eq!(std::fs::read(companion).unwrap(), [0xff]);
 }
 
-fn settings_guest(init: &str, frame: &str) -> String {
+/// Builds a guest that saves the supplied preferences during init and frame callbacks.
+pub(super) fn settings_guest(init: &str, frame: &str) -> String {
     let source = include_str!("../../../mod-api/wit/extension.wit");
     let package = source
         .lines()

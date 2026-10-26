@@ -3,6 +3,7 @@ mod armour_tests;
 mod bodies;
 #[cfg(test)]
 mod cape_tests;
+pub(crate) mod carried_blocks;
 mod cloth_contacts;
 mod commit;
 mod companions;
@@ -79,6 +80,15 @@ pub struct ActorFrameInput {
     pub remote_emotes: Vec<RemoteEmote>,
 }
 
+impl ActorFrameInput {
+    /// Applies the local visibility preference before attachments and ground effects are sampled.
+    fn apply_cosmetic_visibility(&mut self, show_other_players: bool) {
+        if !show_other_players {
+            self.remote_hats.clear();
+        }
+    }
+}
+
 /// Render-only remote playback bound to one spawned actor, preventing runtime-ID reuse.
 #[derive(Clone, Copy, Debug)]
 pub struct RemoteEmote {
@@ -107,14 +117,10 @@ pub struct ActorPresentationState<'w, 's> {
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
-/// Optional validated cosmetic tint of already active native actor damage overlays.
+/// Mod colours for native actor damage overlays and mod-chosen per-actor overlay tints.
 #[derive(Resource, Default)]
 pub struct ActorPresentationStyle {
-    pub hurt_color: Option<[f32; 4]>,
-    pub hurt_armor_color: Option<[f32; 4]>,
-    /// Native admitted ray target; never a guest-provided actor identity.
-    pub attackable_actor: Option<u64>,
-    pub attackable_color: Option<[f32; 4]>,
+    pub presentation: std::sync::Arc<ui::mod_presentation::Presentation>,
 }
 
 /// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
@@ -160,7 +166,7 @@ pub fn prepare_actor_render_frame(
     mut params: ActorFramePublication,
 ) {
     let state = &mut *params.state;
-    let Some(input) = state.input.take() else {
+    let Some(mut input) = state.input.take() else {
         if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
             placements.0.clear();
         }
@@ -169,6 +175,13 @@ pub fn prepare_actor_render_frame(
         }
         return;
     };
+    input.apply_cosmetic_visibility(
+        params
+            .presentation
+            .settings
+            .feel()
+            .show_other_player_cosmetics,
+    );
     let step = state
         .step
         .expect("actor preparation precedes final rendering");
@@ -193,9 +206,6 @@ pub fn prepare_actor_render_frame(
         view.camera_rotation(),
     );
     let stream = client_world.stream.as_deref();
-    if let Some(wearers) = params.ground_effects.as_deref_mut() {
-        wearers.capture(&input, stream);
-    }
     let authoritative_subject_eye = authoritative_local_actor_eye(
         input.predicted_eye,
         stream.map(|stream| stream.resolved_server_position().position),
@@ -274,40 +284,6 @@ pub fn prepare_actor_render_frame(
         &mut new_geometries,
     );
     let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
-    if !local_visible
-        && state.hat_state.has_local_cloth()
-        && let (Some(body), Some(stream)) = (local.as_ref(), stream)
-        && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
-    {
-        let rig = emote_geometry::skin_layer_snapshot(
-            rig,
-            bodies.local_emote_pose.as_ref(),
-            java::posed(&bodies.java_posed, bodies.local_runtime_id)
-                .map(|posed| posed.skin_layers.as_slice()),
-            bodies
-                .native_body_sampled
-                .then(|| state.java_hand.native_pose.skin_layers())
-                .flatten(),
-        );
-        let contacts = cloth_contacts::hidden(
-            &body.submission,
-            &rig,
-            (stream, &input.local_equipment, state.combat_visuals),
-            (
-                &params.scene,
-                &mut new_geometries,
-                params.equipment.as_deref_mut(),
-            ),
-            (step.partial_tick, params.time.delta_secs()),
-        );
-        state.hat_state.advance_hidden_local(
-            &body.submission,
-            rig.bone_names,
-            rig.attachments,
-            step.partial_tick,
-            Some(&contacts),
-        );
-    }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
     // Remote bodies passed frame-model admission before bounded skin registration.
     let hidden_companion_body = (!local_visible && !coverage_local)
@@ -382,6 +358,9 @@ pub fn prepare_actor_render_frame(
         },
     );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
+    if let Some(wearers) = params.ground_effects.as_deref_mut() {
+        wearers.capture(&input, stream, &batch, local_visible);
+    }
     if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
         state
             .hat_state
@@ -432,6 +411,9 @@ pub fn prepare_actor_render_frame(
         fishing_line_anchors.retain(|known| known.runtime_id != anchor.runtime_id);
         fishing_line_anchors.push(anchor);
     }
+    let carried_blocks = stream.map_or_else(Vec::new, |stream| {
+        carried_blocks::carried_blocks_for(&batch, stream)
+    });
     drop(preparation);
     register_geometries(
         &mut params.hand_builder.0,
@@ -483,6 +465,11 @@ pub fn prepare_actor_render_frame(
         crate::dropped_items::DroppedItemFrame {
             partial_tick: step.partial_tick,
             fishing_line_anchors: &fishing_line_anchors,
+            carried_blocks: &carried_blocks,
+            prepared_blocks: params
+                .equipment
+                .as_deref()
+                .map(EquipmentRuntime::prepared_block_items),
         },
         (
             artwork.item_glint.clone(),
@@ -520,6 +507,9 @@ mod culling_capacity_tests;
 
 #[cfg(test)]
 mod xp_orb_tests;
+
+#[cfg(test)]
+mod vehicle_motion_tests;
 
 #[cfg(test)]
 mod billboard_frame_tests;

@@ -45,7 +45,7 @@ pub(super) fn stack_icon(
 pub(super) struct ItemResolver<'a> {
     pub runtime: &'a UiRuntime,
     pub presentation: &'a UiPresentationRuntime,
-    pub authority: Option<&'a client_world::WorldAuthority>,
+    pub authority: Option<client_world::ui_read::InventoryUi<'a>>,
 }
 
 impl ItemResolver<'_> {

@@ -73,6 +73,7 @@ pub fn compile_block_entity_assets(
         .map(|role| role.path())
         .chain([
             assets::CRYSTAL_BEAM_TEXTURE,
+            assets::LOYALTY_ROPE_TEXTURE,
             assets::block_entity_geometry::CONDUIT_TEXTURE.0,
             assets::block_entity_geometry::POT_BASE_TEXTURE.0,
             assets::block_entity_geometry::POT_SIDE_TEXTURE.0,
@@ -537,6 +538,16 @@ mod tests {
         let pack = tempfile::tempdir().unwrap();
         let name = assets::CRYSTAL_BEAM_TEXTURE;
         write_png(&pack.path().join(format!("{name}.png")), 16, 16, 50);
+        let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
+        let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
+        assert!(runtime.placement(name).is_some());
+    }
+
+    #[test]
+    fn loyalty_rope_texture_is_packed_for_returning_tridents() {
+        let pack = tempfile::tempdir().unwrap();
+        let name = assets::LOYALTY_ROPE_TEXTURE;
+        write_png(&pack.path().join(format!("{name}.png")), 7, 1, 50);
         let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
         let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
         assert!(runtime.placement(name).is_some());

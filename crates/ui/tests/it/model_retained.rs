@@ -662,3 +662,55 @@ fn a_later_shrink_keeps_an_earlier_growth_within_the_final_budget() {
     assert_eq!(retained.draw_list().indices, expected.indices);
     assert_eq!(retained.draw_list().batches, expected.batches);
 }
+
+/// A GPU model's tint is uniform data and must leave all retained geometry untouched.
+#[test]
+fn changing_gpu_model_tint_emits_no_vertices() {
+    let source = mesh(0.0);
+    let skinned = Arc::new(
+        UiMesh::skinned(
+            source.vertices().into(),
+            source.indices().into(),
+            source.batches().into(),
+        )
+        .unwrap(),
+    );
+    let bounds = rect(0., 0., 64., 64.);
+    let mut last = [
+        UiNode::new(id(1), None, bounds).with_visual(UiVisual::TintedMesh {
+            mesh: Arc::clone(&skinned),
+            color: [255; 4],
+        }),
+    ];
+    let mut retained = RetainedDraw::build(
+        &last,
+        bounds,
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let original = retained.draw_list().clone();
+    for alpha in [180, 90, 0, 255] {
+        let next = [
+            UiNode::new(id(1), None, bounds).with_visual(UiVisual::TintedMesh {
+                mesh: Arc::clone(&skinned),
+                color: [255, 255, 255, alpha],
+            }),
+        ];
+        let update = retained
+            .update(
+                &mut last,
+                &next,
+                bounds,
+                UiScale::default(),
+                SafeArea::ZERO,
+                TextEffects::default(),
+            )
+            .unwrap();
+        assert_eq!(update.emitted, 0);
+        assert!(update.vertices.is_empty());
+        assert!(!update.rebuilt);
+        assert_eq!(*retained.draw_list(), original);
+    }
+}

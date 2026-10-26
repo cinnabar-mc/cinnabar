@@ -179,7 +179,7 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
@@ -298,7 +298,7 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );

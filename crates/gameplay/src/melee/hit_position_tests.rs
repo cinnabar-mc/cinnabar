@@ -121,6 +121,88 @@ fn assert_packets(hit: ActorHit, min: [f32; 3], max: [f32; 3]) {
     );
 }
 
+#[test]
+fn pending_remote_ticks_do_not_advance_sent_hit_positions() {
+    let mut world = target(
+        ActorKind::Player {
+            uuid: [1; 16],
+            username: "target".into(),
+        },
+        Some([0.6, 1.8]),
+        1.0,
+        0,
+    );
+    // A sprinting player receives three ticks of movement in one absolute update.
+    world
+        .mark_chunk_loaded(world::ChunkKey::new(0, 0, 1))
+        .unwrap();
+    world
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Move(protocol::ActorMoveEvent {
+                dimension: 0,
+                runtime_id: 1,
+                position: [
+                    Some(10.84),
+                    Some(64.0 + protocol::PLAYER_NETWORK_OFFSET),
+                    Some(20.0),
+                ],
+                position_origin: protocol::ActorPositionOrigin::NetworkOffset,
+                pitch: None,
+                yaw: None,
+                head_yaw: None,
+                on_ground: Some(false),
+                teleported: false,
+                force_local_move: false,
+                player_mode: None,
+                source_tick: None,
+                interpolation: Default::default(),
+            })),
+            Some(2),
+        )
+        .unwrap();
+    assert_eq!(world.actor(1).unwrap().position, [10.0, 64.0, 20.0]);
+    assert_eq!(world.actor(1).unwrap().interpolation_ticks_remaining, 3);
+    for _ in 0..3 {
+        let actor = world.actor(1).unwrap();
+        let radius = actor.entity_fact.pick_radius;
+        let (min, max) = actor.hit_boxes().next().unwrap();
+        let min = min.map(|value| value - radius);
+        let max = max.map(|value| value + radius);
+        // Stage the upcoming frame step, then send interactions before its next input.
+        let completed_motion = world.pick_motion(actor);
+        world.predict_remote_actor_motion(1);
+        assert_eq!(
+            world.pick_motion(world.actor(1).unwrap()),
+            completed_motion,
+            "pick diagnostics must describe the same completed step as the interaction boxes"
+        );
+        let hit = pick_actor_by(
+            world.remote_actors(),
+            |actor| world.pick_hit_boxes(actor),
+            None,
+            [12.0, 64.9, 20.0],
+            [-1.0, 0.0, 0.0],
+            3.0,
+        )
+        .unwrap();
+        assert_packets(hit, min, max);
+        assert!((hit.point[0] - max[0]).abs() < 1e-5);
+        assert!(
+            pick_actor_by(
+                world.remote_actors(),
+                |actor| world.pick_hit_boxes(actor),
+                None,
+                [max[0] + 0.01, 64.9, 22.0],
+                [0.0, 0.0, -1.0],
+                3.0,
+            )
+            .is_none(),
+            "the next interpolation step must not make a target pickable early"
+        );
+        world.advance_actor_interpolation_frame(1);
+    }
+}
+
 /// Checks entry and inside-origin packets against independently supplied body dimensions.
 fn check_box(world: &WorldAuthority, feet: [f32; 3], size: [f32; 2]) {
     let actor = world.actor(1).unwrap();
@@ -205,7 +287,7 @@ fn hit_position_packets_cover_player_poses_and_moving_simulation_boxes() {
             .unwrap();
         world.predict_remote_actor_motion(1);
         let expected = [10.3, 64.2, 20.3];
-        check_box(&world, expected, [0.6, height]);
+        check_box(&world, [10.0, 64.0, 20.0], [0.6, height]);
         assert_eq!(world.actor(1).unwrap().position, [10.0, 64.0, 20.0]);
         world.advance_actor_interpolation_frame(1);
         check_box(&world, expected, [0.6, height]);
@@ -389,7 +471,7 @@ fn hit_position_packets_follow_the_mounted_simulation_box() {
         .unwrap();
     world.predict_remote_actor_motion(1);
     let feet = [13.0, 66.0 - protocol::PLAYER_NETWORK_OFFSET, 20.0];
-    check_box(&world, feet, [0.6, 1.8]);
+    check_box(&world, [10.0, 64.0, 20.0], [0.6, 1.8]);
     world.advance_actor_interpolation_frame(1);
     check_box(&world, feet, [0.6, 1.8]);
 }

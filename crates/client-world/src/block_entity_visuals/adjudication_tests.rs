@@ -453,3 +453,21 @@ fn barrel_backing_rejects_models_without_full_cube_geometry() {
         ));
     }
 }
+
+#[test]
+fn overlay_hosts_route_as_terrain_drawn_whatever_their_block() {
+    let mut host = world::NbtCompound::default();
+    host.insert("name", world::NbtValue::String("probe:bus".into()));
+    let mut root = world::NbtCompound::default();
+    root.insert("id", world::NbtValue::String("CinnabarOverlays".into()));
+    root.insert("host", world::NbtValue::Compound(host));
+    let nbt = world::BlockEntityNbt::decode_prefix(&root.encode_root().unwrap())
+        .unwrap()
+        .0;
+    for kind in [VisualKind::Cube, VisualKind::Model] {
+        assert!(matches!(
+            adjudicate_block_entity_visual(&nbt, backing("minecraft:stone", kind)),
+            BlockEntityVisualRoute::ExistingBlockState { .. }
+        ));
+    }
+}

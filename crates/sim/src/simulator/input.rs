@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{MovementEffects, MovementMode, SimulationError, VerticalPhysics};
+use super::{MovementEffects, MovementMode, SimulationError, SneakProfile, VerticalPhysics};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -14,6 +14,12 @@ pub struct MovementInput {
     /// Bypasses terrain clipping while preserving the selected travel physics.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_clip: bool,
+    /// Independent pose flags request a compact body even when flight owns travel.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub horizontal_pose: bool,
+    /// The swim-or-crawl flag after this tick's pose producers have run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swim_pose_active: Option<bool>,
     pub strafe: f64,
     pub forward: f64,
     pub yaw_degrees: f64,
@@ -21,6 +27,9 @@ pub struct MovementInput {
     pub jump_pressed: bool,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// Level sneaking dimensions, retained with each tick for deterministic replay.
+    #[serde(default, skip_serializing_if = "SneakProfile::is_current")]
+    pub sneak_profile: SneakProfile,
     /// Tick-captured authority that disables travel without discarding device input.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub immobile: bool,
@@ -80,6 +89,14 @@ pub struct MovementInput {
     /// Swift Sneak level on the leggings, captured for this tick and replay.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub swift_sneak: u8,
+    /// The input mode's request to descend through a climbable block, as
+    /// vanilla's descent action reads it; `None` uses `sneaking`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descent_request: Option<bool>,
+    /// Snow-standing capability (leather boots): powder snow climbs like a
+    /// ladder and counts as a block-climber ascending and descending block.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_stand_on_snow: bool,
     /// Ability vertical flight speed (per-tick acceleration scale); `None` selects 1.0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vertical_fly_speed: Option<f64>,
@@ -91,6 +108,10 @@ pub struct MovementInput {
     pub fly_speed: Option<f64>,
     #[serde(default, skip_serializing_if = "VerticalPhysics::is_default")]
     pub vertical_physics: VerticalPhysics,
+    /// An Instabuild glider is holding jump after the glide's first ten ticks,
+    /// so the glide input pushes it upward before this tick's travel.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub glide_ascent: bool,
 }
 
 impl MovementInput {

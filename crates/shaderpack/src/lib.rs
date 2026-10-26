@@ -38,6 +38,7 @@ mod discover;
 mod environment;
 mod expr;
 mod flips;
+mod geometry;
 mod ids;
 mod install;
 mod java_sky;
@@ -72,6 +73,9 @@ pub use discover::{DiscoveredPack, PACK_ARCHIVE_EXTENSIONS, discover_packs};
 pub use environment::{Environment, GpuVendor, HostOs};
 pub use expr::{BinaryOp, Expr, ExprError, UnaryOp};
 pub use flips::{FlipPass, pass_flips};
+pub use geometry::{
+    GEOMETRY_BINDINGS, GEOMETRY_GROUP, GeometryEmulation, GeometryField, geometry_vertex_compute,
+};
 pub use ids::{BlockIdMap, IdMaps, NamedIdMap, RenderLayer, UNMAPPED_BLOCK_ID};
 pub use install::{DropOutcome, add_dropped_packs};
 pub use java_sky::{BiomeColors, FogMedium, SkyFogColors, SkyFogInputs, sky_fog, sunrise_color};

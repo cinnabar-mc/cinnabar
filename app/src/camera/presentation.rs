@@ -52,6 +52,7 @@ pub(crate) fn collect_death_fov_inputs(
 pub(crate) fn apply_actor_damage_camera_rotation(
     settings: Res<CameraSettingsAuthority>,
     hand: ResMut<FirstPersonHandMotion>,
+    shake: ResMut<client_presentation::camera::actor_effects::PresentedDamageShake>,
     legacy: Option<Res<client_presentation::camera::legacy::LegacyCameraMotion>>,
     server: Res<ServerCameraView>,
     world: Option<Res<ClientWorld>>,
@@ -62,6 +63,7 @@ pub(crate) fn apply_actor_damage_camera_rotation(
     client_presentation::camera::actor_effects::apply_actor_damage_camera_rotation(
         settings,
         hand,
+        shake,
         legacy,
         server,
         world.as_deref().map(

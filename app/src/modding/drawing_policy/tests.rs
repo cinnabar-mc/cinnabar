@@ -104,9 +104,122 @@ fn material_only_snapshots_publish_their_live_owner() {
     assert!(frame.live_owners.is_empty());
 }
 
-/// Builds a world stream with an independently allocated actor session.
-fn stream() -> WorldStream {
-    WorldStream::new(WorldBootstrap {
+/// Supplies a block-anchored contributor bound to the specified native session.
+fn anchored_resources(
+    connection: u64,
+    position: [i32; 3],
+) -> std::sync::Arc<mod_render::retained::Resources> {
+    let mut store = Store::default();
+    store.bind_session(connection, 0);
+    let geometry = store
+        .create_geometry(GeometrySpec::Polyline {
+            vertices: [[0.; 3], [1., 0., 0.]]
+                .map(|position| Vertex {
+                    position,
+                    color: [1.; 4],
+                    uv: [0.; 2],
+                    data: [0.; 4],
+                })
+                .to_vec(),
+            closed: false,
+        })
+        .unwrap();
+    store
+        .create(
+            Instance {
+                geometry,
+                material: None,
+                params: mod_api::materials::Preset::default().0,
+                anchor: Anchor::Block {
+                    dimension: 0,
+                    position,
+                },
+                transform: Default::default(),
+                tint: [1.; 4],
+                depth: Default::default(),
+                blend: Default::default(),
+                width: 1.,
+                width_mode: mod_render::retained::WidthMode::World,
+                join: mod_render::retained::Join::Bevel,
+                cap: mod_render::retained::Cap::Butt,
+            },
+            DrawingPermissions::ALL,
+        )
+        .unwrap();
+    store.commit();
+    std::sync::Arc::clone(store.snapshot())
+}
+
+#[test]
+fn server_only_anchors_disappear_on_unload_and_session_change() {
+    let mut authority = client_world::WorldAuthority::new(
+        bootstrap(),
+        std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
+        None,
+        [0.; 3],
+        None,
+    );
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    authority.mark_sub_chunk_loaded(key).unwrap();
+    let server = anchored_resources(authority.actor_session_id(), [0; 3]);
+    let mut frame = DrawingFrame::default();
+    rebuild_frame([&server], Some(&authority), &mut frame);
+    assert_eq!(frame.loaded_blocks, [[0; 3]].into());
+    let instance = server.instances.values().next().unwrap();
+    let camera = bevy::prelude::GlobalTransform::IDENTITY;
+    assert!(render_scene::mod_scene::retained::resolve(instance, &frame, &camera).is_some());
+
+    authority.detach_chunks(&[key.chunk()].into());
+    rebuild_frame([&server], Some(&authority), &mut frame);
+    assert!(frame.loaded_blocks.is_empty());
+    assert!(render_scene::mod_scene::retained::resolve(instance, &frame, &camera).is_none());
+
+    authority.mark_sub_chunk_loaded(key).unwrap();
+    rebuild_frame([&server], Some(&authority), &mut frame);
+    assert_eq!(frame.loaded_blocks.len(), 1);
+    let mut replacement = client_world::WorldAuthority::new(
+        bootstrap(),
+        std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
+        None,
+        [0.; 3],
+        None,
+    );
+    replacement.mark_sub_chunk_loaded(key).unwrap();
+    rebuild_frame([&server], Some(&replacement), &mut frame);
+    assert!(frame.loaded_blocks.is_empty());
+    assert!(frame.live_owners.is_empty());
+    assert_eq!(frame.connection, replacement.actor_session_id());
+
+    rebuild_frame([&server], None, &mut frame);
+    assert_eq!(frame, DrawingFrame::default());
+}
+
+#[test]
+fn frame_rebuild_keeps_all_current_contributors_and_removes_only_retired_work() {
+    let mut authority = client_world::WorldAuthority::new(
+        bootstrap(),
+        std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
+        None,
+        [0.; 3],
+        None,
+    );
+    authority
+        .mark_sub_chunk_loaded(SubChunkKey::new(0, 0, 0, 0))
+        .unwrap();
+    let personal = anchored_resources(authority.actor_session_id(), [0; 3]);
+    let server = anchored_resources(authority.actor_session_id(), [1; 3]);
+    let mut frame = DrawingFrame::default();
+    rebuild_frame([&personal, &server], Some(&authority), &mut frame);
+    assert_eq!(frame.loaded_blocks, [[0; 3], [1; 3]].into());
+    assert_eq!(frame.live_owners.len(), 2);
+    rebuild_frame([&server], Some(&authority), &mut frame);
+    assert_eq!(frame.loaded_blocks, [[1; 3]].into());
+    assert_eq!(frame.live_owners.len(), 1);
+}
+
+/// Supplies the native world bootstrap shared by stream and availability fixtures.
+fn bootstrap() -> WorldBootstrap {
+    WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -114,7 +227,12 @@ fn stream() -> WorldStream {
         world_spawn_position: [0; 3],
         air_network_id: 0,
         block_network_ids_are_hashes: false,
-    })
+    }
+}
+
+/// Builds a world stream with an independently allocated actor session.
+fn stream() -> WorldStream {
+    WorldStream::new(bootstrap())
 }
 
 #[test]
@@ -144,7 +262,6 @@ fn drawing_fence_tracks_actor_incarnations_without_server_negotiation() {
     {
         let gameplay = state.get_mut(&mut world).unwrap();
         bind(&mut hosts, &gameplay);
-        publish_frame(&hosts, &gameplay, &mut frame);
     }
     assert_eq!(
         hosts.host(0).drawing_session().unwrap().connection,
@@ -156,6 +273,15 @@ fn drawing_fence_tracks_actor_incarnations_without_server_negotiation() {
     );
     assert_eq!(hosts.host(0).grants(), &ModGrants::default());
 
+    rebuild_frame(
+        [],
+        world
+            .resource::<crate::runtime::world::ClientWorld>()
+            .stream
+            .as_ref()
+            .map(|s| s.authority()),
+        &mut frame,
+    );
     assert_eq!(frame.connection, actor_session);
 
     let replacement = self::stream();
@@ -167,11 +293,19 @@ fn drawing_fence_tracks_actor_incarnations_without_server_negotiation() {
     {
         let gameplay = state.get_mut(&mut world).unwrap();
         bind(&mut hosts, &gameplay);
-        publish_frame(&hosts, &gameplay, &mut frame);
     }
     assert_eq!(
         hosts.host(0).drawing_session().unwrap().connection,
         replacement_session
+    );
+    rebuild_frame(
+        [],
+        world
+            .resource::<crate::runtime::world::ClientWorld>()
+            .stream
+            .as_ref()
+            .map(|s| s.authority()),
+        &mut frame,
     );
     assert_eq!(frame.connection, replacement_session);
     assert_ne!(actor_session, replacement_session);
@@ -182,12 +316,79 @@ fn drawing_fence_tracks_actor_incarnations_without_server_negotiation() {
     {
         let gameplay = state.get_mut(&mut world).unwrap();
         bind(&mut hosts, &gameplay);
-        publish_frame(&hosts, &gameplay, &mut frame);
     }
     assert_eq!(hosts.host(0).drawing_session().unwrap().connection, 0);
     assert_eq!(
         hosts.host(0).drawing_session().unwrap().permissions,
         DrawingPermissions::default()
     );
+    rebuild_frame([], None, &mut frame);
     assert_eq!(frame.connection, 0);
+}
+
+#[test]
+fn dimension_loading_gap_keeps_the_guest_under_the_same_actor_authority() {
+    let bytes = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let directory = tempfile::tempdir().unwrap();
+    let stream = stream();
+    let session = DrawingSession {
+        connection: stream.authority().actor_session_id(),
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    let host = ModHost::prepare_snapshot_in_session(
+        &directory.path().join("guest.wasm"),
+        bytes,
+        ModGrants {
+            render: true,
+            ..Default::default()
+        },
+        None,
+        Some(session),
+    )
+    .unwrap();
+    let mut hosts = ModHosts::new(host, vec![]);
+    let mut world = World::new();
+    world.insert_resource(crate::runtime::world::ClientWorld {
+        stream: Some(stream),
+        ..Default::default()
+    });
+    let mut state = SystemState::<super::super::gameplay::GameplayContext>::new(&mut world);
+    assert!(!bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .dimension_transfer
+        .begin(
+            1,
+            1,
+            protocol::ChangeDimensionEvent {
+                dimension: 1,
+                ..Default::default()
+            },
+            1,
+            true,
+            std::time::Duration::ZERO,
+        );
+    assert!(bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    assert!(hosts.host(0).is_active());
+    assert!(!hosts.host(0).needs_drawing_restart());
+    assert_eq!(hosts.host(0).drawing_session(), Some(session));
+    assert!(!hosts.host(0).grants().render);
+    assert!(!bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .dimension_transfer = Default::default();
+    assert!(bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    assert!(hosts.host(0).is_active());
+    assert!(hosts.host(0).grants().render);
+    assert!(!hosts.host(0).needs_drawing_restart());
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .stream = Some(self::stream());
+    assert!(bind(&mut hosts, &state.get_mut(&mut world).unwrap()));
+    assert!(hosts.host(0).is_revoked());
 }

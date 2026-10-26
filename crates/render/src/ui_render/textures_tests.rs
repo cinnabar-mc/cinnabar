@@ -242,6 +242,7 @@ fn ui_model_resize_replaces_only_changed_buckets_and_rebinds_them() {
     assert_eq!(base.static_identity(), resized.static_identity());
     let mut world = super::super::ordered_command_tests::binding_world();
     let input = |revision, catalog| UiRenderInput {
+        models: Default::default(),
         revision,
         viewport_size: [64; 2],
         safe_area: [0; 4],
@@ -619,6 +620,7 @@ fn resize_releases_superseded_buckets_before_retrying_under_budget() {
 fn texture_scene(catalog: UiTextureCatalog) -> super::super::UiRenderInput {
     use render_model::{UiRenderBatch, UiRenderVertex, UiScissor};
     super::super::UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [64; 2],
         safe_area: [0; 4],

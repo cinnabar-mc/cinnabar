@@ -51,8 +51,7 @@ impl ModPanel {
                     .map(|size| size.map(f64::from))
                     .unwrap_or(self.viewport);
                 if let Some(override_extent) = override_extent {
-                    let override_extent =
-                        override_extent.resolve(&self.panel.surface.as_ref()?.bindings)?;
+                    let override_extent = override_extent.resolve(&self.panel.surface.bindings)?;
                     extent = [override_extent; 2];
                 }
                 if action.starts_with("mod.drag:") {

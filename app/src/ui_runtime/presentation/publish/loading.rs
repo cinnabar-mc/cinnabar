@@ -111,7 +111,7 @@ pub(super) fn prepare_loading(
             world_entry_held: {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    runtime.experiences.holds_world_entry()
+                    runtime.session.experiences.holds_world_entry()
                 }
                 #[cfg(target_arch = "wasm32")]
                 {

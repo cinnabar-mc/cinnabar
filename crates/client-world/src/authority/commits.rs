@@ -152,8 +152,10 @@ impl WorldAuthority {
                         && status.kind == protocol::ActorStatusKind::SpawnAlive);
                 let player_list_changed =
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
+                let local_removal = matches!(&event, ActorEvent::Remove(remove)
+                    if remove.unique_id == self.local_player_unique_id && remove.dimension == self.current_dimension);
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
-                if let ActorEvent::Attributes(update) = &event
+                let local_attributes = if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
                 {
@@ -162,52 +164,11 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
-                    let movement = update
-                        .attributes
-                        .iter()
-                        .rev()
-                        .filter(|attribute| {
-                            attribute.name.as_ref() == Attribute::Movement.wire_name()
-                        })
-                        .find_map(MovementSpeedAttribute::from_attribute);
-                    let liquid = |name: &str| {
-                        update
-                            .attributes
-                            .iter()
-                            .rev()
-                            .find(|attribute| attribute.name.as_ref() == name)
-                            .map(|attribute| f64::from(attribute.current))
-                    };
-                    let underwater = liquid(Attribute::UnderwaterMovement.wire_name());
-                    let lava = liquid(Attribute::LavaMovement.wire_name());
-                    let air_drag_modifier = update
-                        .attributes
-                        .iter()
-                        .rev()
-                        .find(|attribute| {
-                            attribute.name.as_ref() == Attribute::AirDragModifier.wire_name()
-                        })
-                        .map(|attribute| attribute.current)
-                        .filter(|current| current.is_finite());
-                    if let Some(attribute) = movement {
-                        self.local_movement_speed = Some(attribute.current);
-                    }
-                    if movement.is_some()
-                        || underwater.is_some()
-                        || lava.is_some()
-                        || air_drag_modifier.is_some()
-                    {
-                        self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
-                            sequence,
-                            dimension: update.dimension,
-                            movement,
-                            underwater,
-                            lava,
-                            air_drag_modifier,
-                            tick: update.tick,
-                        });
-                    }
-                }
+                    Some((update.tick, Arc::clone(&update.attributes)))
+                } else {
+                    None
+                };
+                let mut local_metadata = None;
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -217,14 +178,7 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         metadata: Arc::clone(&update.metadata),
                     });
-                    if let Some(flags) = crate::MovementFlagUpdate::from_metadata(&update.metadata)
-                    {
-                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
-                            sequence,
-                            tick: update.tick,
-                            flags,
-                        });
-                    }
+                    local_metadata = Some((update.tick, Arc::clone(&update.metadata)));
                 }
                 let local_hurt = matches!(
                     &event,
@@ -257,39 +211,82 @@ impl WorldAuthority {
                     {
                         Some((status.runtime_id, super::ActorCombatKind::Death))
                     }
-                    _ => None,
-                };
-                let totem = match &event {
                     ActorEvent::Status(status)
                         if status.kind == protocol::ActorStatusKind::TotemActivate =>
                     {
-                        Some((status.runtime_id, true))
+                        Some((status.runtime_id, super::ActorCombatKind::Totem))
                     }
+                    _ => None,
+                };
+                // A death notice, or attributes that leave the actor dead, end its current life.
+                let death = match &event {
                     ActorEvent::Status(status)
                         if status.kind == protocol::ActorStatusKind::Death =>
                     {
-                        Some((status.runtime_id, false))
+                        Some(status.runtime_id)
                     }
-                    _ => None,
-                };
-                let attributes_runtime = match &event {
                     ActorEvent::Attributes(update) => Some(update.runtime_id),
                     _ => None,
                 };
-                let result = self.actors.apply(self.actor_session_id, sequence, event);
+                let target_resident = self.player_move_target_resident(&event);
+                let result = self.actors.apply_with_player_move_terrain(
+                    self.actor_session_id,
+                    sequence,
+                    event,
+                    target_resident,
+                );
                 if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some(runtime_id) = attributes_runtime
+                    && let Some(runtime_id) = death
                     && self
                         .actors
                         .get(runtime_id)
                         .is_some_and(|actor| actor.status.dead)
                 {
-                    self.observe_totem_status(runtime_id, false);
+                    self.actors.note_death(runtime_id, sequence);
                 }
-                if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some((runtime_id, activated)) = totem
+                if local_removal
+                    && matches!(
+                        result,
+                        crate::actor_store::ActorApplyResult::Removed
+                            | crate::actor_store::ActorApplyResult::MissingActor
+                    )
                 {
-                    self.observe_totem_status(runtime_id, activated);
+                    self.actors.replace_local_actor_lifetime(sequence);
+                }
+                self.publish_local_actor_replacement(sequence);
+
+                let data_admitted = matches!(
+                    result,
+                    crate::actor_store::ActorApplyResult::Updated
+                        | crate::actor_store::ActorApplyResult::MissingActor
+                        | crate::actor_store::ActorApplyResult::CapacityRejected
+                );
+                if data_admitted && let Some((tick, attributes)) = local_attributes {
+                    self.publish_local_attribute_update(sequence, tick, &attributes);
+                }
+                if data_admitted && let Some((tick, metadata)) = local_metadata {
+                    let actor = self.actors.actor_authority(self.local_player_runtime_id);
+                    let flags = actor.and_then(|actor| {
+                        crate::MovementFlagUpdate::from_admitted_metadata(&metadata, actor)
+                    });
+                    let dimensions =
+                        actor
+                            .map(|actor| actor.explicit_dimensions)
+                            .filter(|dimensions| {
+                                [dimensions.width, dimensions.height]
+                                    .into_iter()
+                                    .flatten()
+                                    .any(|write| write.sequence == sequence)
+                            });
+                    if flags.is_some() || dimensions.is_some() {
+                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
+                            sequence,
+                            tick,
+                            flags: flags.unwrap_or_default(),
+                            replacement: false,
+                            dimensions,
+                        });
+                    }
                 }
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some((runtime_id, kind)) = combat
@@ -465,7 +462,8 @@ impl WorldAuthority {
                             self.publish_local_life(sequence, [health == 0]);
                         }
                         if health <= 0 {
-                            self.observe_totem_status(self.local_player_runtime_id, false);
+                            self.actors
+                                .note_death(self.local_player_runtime_id, sequence);
                         }
                         UiEvent::Hud(protocol::HudEvent::Health { health })
                     }
@@ -484,10 +482,24 @@ impl WorldAuthority {
                         if actor_unique_id != self.local_player_unique_id {
                             return Ok(());
                         }
+                        self.push_local_game_mode(sequence, event.update);
+                        UiEvent::GameMode(event)
+                    }
+                    UiEvent::GameMode(event) => {
+                        self.push_local_game_mode(sequence, event.update);
                         UiEvent::GameMode(event)
                     }
                     UiEvent::DefaultGameMode(event) => {
                         self.actors.apply_world_game_mode(event.update);
+                        // A player following the default takes its new mode.
+                        if self.local_mode_follows_default
+                            && let protocol::GameModeUpdate::Explicit(mode) = event.update
+                        {
+                            self.push_committed_control(CommittedControlEvent::LocalGameMode {
+                                sequence,
+                                spectator: mode == protocol::PlayerGameMode::Spectator,
+                            });
+                        }
                         UiEvent::DefaultGameMode(event)
                     }
                     event => event,
@@ -543,6 +555,30 @@ impl WorldAuthority {
         }
         Ok(())
     }
+    /// Orders a local game-mode update with the controls it may supersede.
+    /// Only the native spectator mode, explicit or through the world default,
+    /// counts; legacy viewer modes are not spectators.
+    fn push_local_game_mode(&mut self, sequence: u64, update: protocol::GameModeUpdate) {
+        match update {
+            protocol::GameModeUpdate::WorldDefault => self.local_mode_follows_default = true,
+            protocol::GameModeUpdate::Explicit(_) | protocol::GameModeUpdate::LegacyViewer => {
+                self.local_mode_follows_default = false;
+            }
+            protocol::GameModeUpdate::Unknown(_) => {}
+        }
+        let spectator = match update {
+            protocol::GameModeUpdate::Explicit(mode) => mode == protocol::PlayerGameMode::Spectator,
+            protocol::GameModeUpdate::WorldDefault => {
+                self.actors.world_default_game_mode() == Some(protocol::PlayerGameMode::Spectator)
+            }
+            protocol::GameModeUpdate::LegacyViewer | protocol::GameModeUpdate::Unknown(_) => false,
+        };
+        self.push_committed_control(CommittedControlEvent::LocalGameMode {
+            sequence,
+            spectator,
+        });
+    }
+
     /// Retains a committed control within its admission-backed queue bound.
     pub fn push_committed_control(&mut self, event: CommittedControlEvent) {
         assert!(

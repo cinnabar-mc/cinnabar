@@ -30,6 +30,7 @@ pub(crate) struct AimActivation {
     camera: Option<Arc<str>>,
     settings: Option<CameraAimAssistPresetSettings>,
     supported: Option<bool>,
+    perspective: Option<PerspectiveMode>,
 }
 
 /// The published ray and server policies share one ordered frame boundary.
@@ -53,6 +54,7 @@ pub(crate) fn publish_assisted_interaction(
     mut frame: ResMut<AimAssistFrame>,
     mut interaction: ResMut<InteractionOriginSnapshot>,
     mut activation: Local<AimActivation>,
+    mut movement: ResMut<client_interaction::movement::MovementTicker>,
 ) {
     let identity = context.world.stream.as_ref().map(|stream| {
         (
@@ -75,7 +77,18 @@ pub(crate) fn publish_assisted_interaction(
     let Some(stream) = context.world.stream.as_ref() else {
         return;
     };
-    activation.publish(&context, &state, identity);
+    activation.publish(
+        &context.camera,
+        context.camera_settings.perspective(),
+        &state,
+        identity,
+        |packet| {
+            context
+                .network
+                .send_settings_packet(context.clock.session_generation(), packet)
+                .is_ok()
+        },
+    );
     let Some(ray) = interaction.outbound_ray() else {
         return;
     };
@@ -101,6 +114,14 @@ pub(crate) fn publish_assisted_interaction(
             |id| context.collisions.block_identifier(mode, id),
             |id| context.collisions.block_tags(mode, id),
         );
+        if state.settings().is_some() {
+            movement.publish_interaction_aim(
+                tick,
+                frame
+                    .interaction_direction()
+                    .map(|direction| direction.to_array()),
+            );
+        }
     }
     if frame.skipped_queries != previous_queries
         && (previous_queries == 0 || previous_queries / 64 != frame.skipped_queries / 64)
@@ -119,20 +140,24 @@ impl AimActivation {
     /// Camera activation requests policy from the server, which owns the resulting settings.
     fn publish(
         &mut self,
-        context: &AimContext<'_>,
+        view: &ServerCameraView,
+        perspective: PerspectiveMode,
         state: &ServerAimAssist,
         identity: Option<(u64, i32)>,
+        send: impl FnOnce(protocol::Packet) -> bool,
     ) {
-        let camera = context.camera.active_preset_name();
-        let settings = context.camera.active_aim_assist();
-        let supported = context.camera.active_base_preset_name().map_or_else(
-            || context.camera_settings.perspective() != PerspectiveMode::FirstPerson,
+        let camera = view.active_preset_name();
+        let settings = view.active_aim_assist();
+        let supported = view.active_base_preset_name().map_or_else(
+            || perspective != PerspectiveMode::FirstPerson,
             |base| base != "minecraft:first_person",
         );
+        let perspective = camera.is_none().then_some(perspective);
         if self.identity == identity
             && self.camera.as_deref() == camera
             && self.settings.as_ref() == settings
             && self.supported == Some(supported)
+            && self.perspective == perspective
         {
             return;
         }
@@ -151,15 +176,12 @@ impl AimActivation {
             supported,
             clear,
         );
-        if context
-            .network
-            .send_settings_packet(context.clock.session_generation(), packet)
-            .is_ok()
-        {
+        if send(packet) {
             self.identity = identity;
             self.camera = camera.map(Arc::from);
             self.settings = settings.cloned();
             self.supported = Some(supported);
+            self.perspective = perspective;
         }
     }
 }
@@ -183,5 +205,7 @@ fn aim_world<'a>(
     )
 }
 
+#[cfg(test)]
+mod activation_tests;
 #[cfg(test)]
 mod pick_tests;

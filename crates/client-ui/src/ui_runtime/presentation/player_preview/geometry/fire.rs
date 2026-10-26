@@ -35,7 +35,8 @@ impl PreviewFire {
     }
 }
 
-pub(super) fn append(
+/// Appends authored flame faces in the preview projection frame.
+pub(in crate::ui_runtime::presentation) fn append(
     vertices: &mut Vec<UiMeshVertex>,
     batches: &mut Vec<UiMeshBatch>,
     fire: PreviewFire,

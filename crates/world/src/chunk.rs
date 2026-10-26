@@ -175,6 +175,34 @@ impl Chunk {
             .map(|(&key, value)| (key, Arc::clone(value)))
     }
 
+    /// The block entities of this column inside the sub-chunk `key`, found by one key range per
+    /// x column rather than by visiting the column's every block entity.
+    pub fn sub_chunk_block_entities(
+        &self,
+        key: SubChunkKey,
+    ) -> impl Iterator<Item = (BlockEntityKey, &Arc<BlockEntityNbt>)> + '_ {
+        let side = crate::SUB_CHUNK_SIDE as i32;
+        // Each block coordinate fits an i32, so a sub-chunk whose span does not holds nothing.
+        let span = |axis: i32| {
+            let low = axis.checked_mul(side)?;
+            Some((low, low.checked_add(side - 1)?))
+        };
+        let columns = span(key.x).zip(span(key.y));
+        columns
+            .into_iter()
+            .flat_map(move |((west, east), (bottom, top))| {
+                (west..=east).flat_map(move |x| {
+                    self.block_entities
+                        .range(
+                            BlockEntityKey::new(key.dimension, x, bottom, i32::MIN)
+                                ..=BlockEntityKey::new(key.dimension, x, top, i32::MAX),
+                        )
+                        .filter(move |(entity, _)| entity.sub_chunk() == key)
+                        .map(|(&entity, nbt)| (entity, nbt))
+                })
+            })
+    }
+
     /// Retains the immutable block entity index; any edit replaces it or detaches its weak
     /// references, so a held `Weak` shows whether the column's block entities changed.
     pub fn shared_block_entities(&self) -> Arc<BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>> {

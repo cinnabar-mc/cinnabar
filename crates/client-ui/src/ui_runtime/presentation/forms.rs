@@ -37,6 +37,7 @@ pub(super) mod menu_caret;
 pub mod menu_latency;
 mod menu_title;
 pub mod menus;
+pub mod mob_effect_screen;
 mod mod_surfaces;
 pub mod model;
 pub mod npc;
@@ -138,6 +139,7 @@ pub(super) struct ScreenStates {
     /// The open chat's cached screen.
     chat: ui_screens::chat_screen::ChatScreen,
     emote: ui_screens::emote_screen::EmoteScreen,
+    mob_effects: ui_screens::mob_effect_screen::MobEffectScreen,
     /// The bed screen's hits and pointer.
     bed: oreui::BedScreen,
     /// The data-driven form's hits, pointer and scroll, and the form instance they belong to.
@@ -251,6 +253,17 @@ impl UiPresentationRuntime {
             prepared,
             texture_sources::downloads(),
             texture_sources::image_work(),
+        )
+    }
+
+    /// [`Self::enable_json_ui`] decoding every image on the calling thread, so a single paint
+    /// holds all of them instead of deferring past the host's frame budget.
+    #[cfg(all(not(target_arch = "wasm32"), any(test, feature = "test-support")))]
+    pub fn enable_json_ui_inline(&mut self, assets: Arc<RuntimeUiAssets>) -> Result<(), String> {
+        self.enable_prepared_json_ui_with_sources(
+            PreparedJsonUi::new(assets)?,
+            texture_sources::downloads(),
+            ui_engine::sources::ImageWork::inline(),
         )
     }
 
@@ -786,6 +799,7 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         ui_screens::sign_editor::SIGN_SCREEN,
         ui_screens::emote_screen::EMOTE_SCREEN,
         ui_screens::emote_screen::EMOTE_EQUIP_POPUP,
+        ui_screens::mob_effect_screen::MOB_EFFECT_SCREEN,
         ui_screens::npc::NPC_SCREEN,
         ui_screens::toast_screen::TOAST_SCREEN,
         ui_screens::credits_screen::CREDITS_SCREEN,

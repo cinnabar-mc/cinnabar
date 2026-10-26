@@ -12,6 +12,8 @@ pub struct Request<'a> {
     pub target: &'a Path,
     pub keys: &'a TrustedKeys,
     pub check: Check<'a>,
+    /// An explicit channel switch may replace only the build the user agreed to leave.
+    pub switch_from: Option<&'a update_manifest::build::Build>,
     pub now: OffsetDateTime,
 }
 
@@ -31,6 +33,7 @@ pub fn after_exit(
             target,
             keys,
             check,
+            switch_from,
             now,
         } = request;
         let root = stage_dir.parent().context("missing update directory")?;
@@ -48,12 +51,16 @@ pub fn after_exit(
             },
             now,
         )?;
-        if !update_manifest::select::newer_build(
+        let order = update_manifest::select::compare_builds(
             &selected.manifest.version,
             selected.manifest.build_number,
             check.current,
             check.current_build,
-        )? {
+        )?;
+        let consent_matches = switch_from.is_some_and(|build| {
+            build.version == check.current && build.number == check.current_build
+        });
+        if order.is_eq() || (order.is_lt() && !consent_matches) {
             start(target)?;
             started = true;
             return Ok(());

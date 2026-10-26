@@ -22,8 +22,6 @@ pub mod actor_effects;
 pub mod antialiasing;
 mod bob;
 mod controls;
-mod detached;
-pub use detached::DetachedView;
 #[cfg(test)]
 mod death_view_tests;
 mod easing;
@@ -47,6 +45,7 @@ mod settings;
 mod shake;
 #[cfg(test)]
 mod spawn_tests;
+mod vehicle_look;
 
 pub use bob::{ViewEffect, WalkBobState, walk_bob_effect};
 pub use controls::{
@@ -67,8 +66,10 @@ pub use rig::{
 };
 pub use server_view::{ActorView, ServerCameraSkips, ServerCameraView, ViewContext};
 pub use settings::{
-    CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, next_perspective,
+    CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, PresentedView,
+    ViewTilt, next_perspective,
 };
+pub use vehicle_look::{VehicleLookFollow, predicted_heading};
 
 pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
 /// Radius declared by the pinned `minecraft:camera_orbit` vanilla presets.
@@ -189,6 +190,7 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<ScreenOverlays>()
             .init_resource::<ScreenEffectFacts>()
             .init_resource::<FirstPersonHandMotion>()
+            .init_resource::<actor_effects::PresentedDamageShake>()
             .init_resource::<LocalViewPose>()
             .init_resource::<CameraPose>()
             .init_resource::<InteractionOriginSnapshot>()

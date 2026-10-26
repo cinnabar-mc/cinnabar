@@ -9,6 +9,7 @@ pub(super) struct HeldInput {
     sneaking: bool,
     sprinting: bool,
     mode: sim::MovementMode,
+    pose_flags: Option<super::PoseFlags>,
 }
 
 impl From<&PhysicsMovementSample> for HeldInput {
@@ -18,6 +19,7 @@ impl From<&PhysicsMovementSample> for HeldInput {
             sneaking: sample.processed.sneaking,
             sprinting: sample.processed.sprinting,
             mode: sample.processed.mode,
+            pose_flags: sample.processed.pose_flags,
         }
     }
 }
@@ -37,7 +39,9 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
     if sample.processed.spin_started {
         flags |= PlayerInputFlags::START_SPIN_ATTACK;
     }
-    if !sample.processed.spinning && (previous.spinning || sample.processed.spin_started) {
+    // Server flag changes are not actions: compare with the state they left.
+    let previous_spinning = sample.input.server_spinning.unwrap_or(previous.spinning);
+    if !sample.processed.spinning && (previous_spinning || sample.processed.spin_started) {
         flags |= PlayerInputFlags::STOP_SPIN_ATTACK;
     }
 
@@ -71,6 +75,10 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         .with_mask(PlayerInputFlags::SNEAKING, sample.input.sneak_down)
         .with_mask(PlayerInputFlags::SNEAK_DOWN, sample.input.sneak_down)
         .with_mask(PlayerInputFlags::WANT_DOWN, sample.input.sneak_down)
+        .with_mask(
+            PlayerInputFlags::SNEAK_TOGGLE_DOWN,
+            sample.input.sneak_toggle_down,
+        )
         .with_mask(PlayerInputFlags::SNEAK_CURRENT_RAW, sample.input.sneak.held)
         .with_mask(
             PlayerInputFlags::SNEAK_PRESSED_RAW,
@@ -82,13 +90,8 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         )
         .with_mask(PlayerInputFlags::SPRINT_DOWN, sample.input.sprint_down)
         .with_mask(PlayerInputFlags::SPRINTING, sample.input.sprint_down);
-    // Older queued inputs still need the local transition even if metadata agrees with this tick.
-    let sneak_changed = sample.processed.sneaking != previous.sneaking
-        || sample
-            .input
-            .server_sneaking
-            .is_some_and(|sneaking| sneaking != sample.processed.sneaking);
-    if sneak_changed {
+    let previous_sneaking = sample.input.server_sneaking.unwrap_or(previous.sneaking);
+    if sample.processed.sneaking != previous_sneaking {
         flags |= if sample.processed.sneaking {
             PlayerInputFlags::START_SNEAKING
         } else {
@@ -117,6 +120,16 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
     use sim::MovementMode::{Crawling, Flying, Gliding, Swimming};
     let mut flags = PlayerInputFlags::NONE;
     let current = sample.processed.mode;
+    let previous_mode = sample.input.server_mode.unwrap_or(previous.mode);
+    let current_poses = sample
+        .processed
+        .pose_flags
+        .unwrap_or_else(|| super::PoseFlags::from_mode(current));
+    let previous_poses = sample
+        .input
+        .server_pose_flags
+        .or(previous.pose_flags)
+        .unwrap_or_else(|| super::PoseFlags::from_mode(previous_mode));
     for (mode, start, stop) in [
         (
             Swimming,
@@ -134,7 +147,7 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
             PlayerInputFlags::STOP_CRAWLING,
         ),
     ] {
-        match (current == mode, previous.mode == mode) {
+        match (current_poses.has(mode), previous_poses.has(mode)) {
             (true, false) => flags |= start,
             (false, true) => flags |= stop,
             _ => {}

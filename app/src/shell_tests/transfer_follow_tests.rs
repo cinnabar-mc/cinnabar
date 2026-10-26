@@ -322,6 +322,7 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
     );
 }
 
+/// A failed replacement retires the old session and keeps retry and dismissal in the launcher.
 fn failed_automatic_replacement(
     player_runtime: &mut client_state::PlayerRuntime,
     from_settings: bool,
@@ -396,7 +397,7 @@ fn failed_automatic_replacement(
 
     let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
     assert!(menu.is_visible());
-    assert_eq!(menu.view().screen, MenuScreen::Home);
+    assert_eq!(menu.view().screen, MenuScreen::Play);
     assert!(
         menu.view()
             .disconnect_message
@@ -417,8 +418,9 @@ fn failed_automatic_replacement(
         menu.take_join_intent().unwrap().address,
         "transfer.example.net:19132"
     );
-    menu.show_home();
     menu.show_join_failure("Could not start transfer.example.net".into());
+    menu.activate(MenuAction::AddBack);
+    assert_eq!(menu.view().screen, MenuScreen::Play);
     menu.activate(MenuAction::AddBack);
     assert_eq!(menu.view().screen, MenuScreen::Home);
 }

@@ -51,6 +51,14 @@ pub enum BlockRenderKind {
     LitFurnace,
     /// Horizontal face-directional cube that turns every face toward its direction.
     FacingCube,
+    /// Observer cube whose authored faces and UVs turn with its facing.
+    Observer,
+    /// Dispenser or dropper cube whose front slot follows its facing.
+    Dispenser,
+    /// Crafter cube whose authored faces and UVs turn with its orientation.
+    Crafter,
+    /// Piston body whose top, bottom and side slots follow its head.
+    PistonBase,
     CommandBlock,
     Composter,
     Cauldron,
@@ -192,6 +200,15 @@ pub struct BlockRenderRoute {
 }
 
 impl BlockRenderKind {
+    /// Unit cubes drawn on the transparent-cube path; the registry gives them no cube family.
+    pub const fn is_translucent_cube(self) -> bool {
+        use BlockRenderKind as R;
+        matches!(
+            self,
+            R::Ice | R::FrostedIce | R::Slime | R::Honey | R::TintedGlass | R::PowderSnow
+        )
+    }
+
     /// Gives each dedicated shape one route policy, independent of its identifier.
     pub const fn route(self) -> BlockRenderRoute {
         use BlockRenderKind as R;
@@ -218,7 +235,9 @@ impl BlockRenderKind {
             | R::CoralWallFan
             | R::LilyPad => (true, true, false, true),
             R::Crystal => (true, true, false, true),
-            R::CommandBlock => (true, false, false, true),
+            R::CommandBlock | R::Observer | R::Dispenser | R::Crafter | R::PistonBase => {
+                (true, false, false, true)
+            }
             R::EndPortalFrame | R::Lantern => (true, true, true, true),
             R::FlowerPot | R::Azalea | R::Bamboo => (false, false, true, false),
             R::StainedGlass

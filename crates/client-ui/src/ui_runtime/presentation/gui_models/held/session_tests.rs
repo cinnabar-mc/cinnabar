@@ -318,13 +318,13 @@ fn preview_session_thumbnail_does_not_replace_block_or_authored_held_geometry() 
         glint: true,
     };
     let model = block(source, [[0.0; 3]; 2]);
-    presentation.gui_models.sources.held.insert(
-        ItemVisualKey {
-            identifier: ITEM.into(),
-            metadata: 0,
-        },
-        HeldModel::ready(model),
-    );
+    presentation
+        .gui_models
+        .sources
+        .held
+        .entry(ITEM.into())
+        .or_default()
+        .insert(0, HeldModel::ready(model));
     presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
     let base = presentation.gui_player_mesh().unwrap();
     install(&mut presentation, vec![sword(0, [220, 80, 12])]);
@@ -692,6 +692,19 @@ fn custom_content_preview_uses_authored_mesh_and_matching_sheet() {
         .unwrap();
     assert_eq!(layers, assets::BlockFace::ALL.len());
     assert_eq!(layers, dropped.texture_layers());
+    let before = test_alloc::thread_allocations();
+    let measured = presentation
+        .session_block_cost(ITEM, 0, held.source)
+        .unwrap();
+    assert_eq!(
+        test_alloc::thread_allocations(),
+        before,
+        "cost measurement borrows geometry and pixels"
+    );
+    assert_eq!(
+        Some(measured),
+        render_model::dropped_item::ItemModelCost::from_model(&dropped)
+    );
     assert!(
         held.placements
             .iter()

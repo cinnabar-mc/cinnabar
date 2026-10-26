@@ -54,7 +54,7 @@ fn custom_wearable_protection_reaches_the_rendered_hud() {
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let mut runtime = UiRuntime::new(1);
-    runtime.hud.set_stats(
+    runtime.session.hud.set_stats(
         BoundedStat::new(20, 20),
         BoundedStat::new(20, 20),
         BoundedStat::new(20, 20),
@@ -114,7 +114,7 @@ fn custom_wearable_protection_reaches_the_rendered_hud() {
         &player,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         Default::default(),

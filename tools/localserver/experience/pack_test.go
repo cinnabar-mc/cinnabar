@@ -74,6 +74,8 @@ func visualExperience(dir, id string, controller bool) (Loaded, error) {
 		ID:          id + ":drive",
 		DisplayName: "Drive",
 		Mining:      Mining{Breakable: &Breakable{Hardness: 1}},
+		Drops:       DropsItself,
+		Item:        ItemListed,
 		States: []StateDef{
 			{Name: id + ":slot_0", Values: StateValues{Bool: true}},
 			{Name: id + ":slot_1", Values: StateValues{Bool: true}},
@@ -95,6 +97,8 @@ func visualExperience(dir, id string, controller bool) (Loaded, error) {
 			ID:          id + ":controller",
 			DisplayName: "Controller",
 			Mining:      Mining{Breakable: &Breakable{Hardness: 1}},
+			Drops:       DropsItself,
+			Item:        ItemListed,
 			States:      []StateDef{{Name: state, Values: StateValues{Choices: &[]string{"offline", "online"}}}},
 			Visual:      &Visual{Geometry: &offline, Materials: side},
 			Permutations: []Permutation{{

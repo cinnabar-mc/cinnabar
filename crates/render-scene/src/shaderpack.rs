@@ -1,7 +1,7 @@
 //! Main-world state of the experimental Java shader-pack render mode: which pack the player
 //! selected, how loading went, the per-camera opt-in, and the game state packs read through
-//! their standard uniforms. The renderer behind it compiles only with the `shaderpacks`
-//! feature; without it these types stay unused.
+//! their standard uniforms. Every client build includes the renderer; pack-specific work
+//! waits until a pack is selected.
 
 use std::{
     collections::HashMap,
@@ -43,6 +43,10 @@ pub struct ShaderPackSettledRevision(pub u64);
 /// An executable compiler host on platforms where the client is a shared library.
 #[derive(Resource, Clone, Debug)]
 pub struct ShaderPackCompilerExecutable(pub PathBuf);
+
+/// Diagnostics for programs skipped in a ready pack; empty for a fully supported pack.
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShaderPackWarnings(pub String);
 
 /// Load state of the requested pack, written by the render host.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]

@@ -226,7 +226,7 @@ pub fn advance_presentation_state(
         hand.hurt = java.death_roll(alpha)
             * Mat4::from_quat(Quat::IDENTITY.slerp(
                 Quat::from_mat4(&java_hurt_roll(hurt.progress())),
-                settings.hurt_camera_style().intensity(),
+                settings.hurt_shake_intensity(),
             ));
         if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Modern {
             return;
@@ -245,12 +245,8 @@ pub fn advance_presentation_state(
     };
     let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
     hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
-        Quat::from_mat4(&if settings.hurt_camera_style().old_tilt() {
-            java_hurt_roll(hurt.progress())
-        } else {
-            hurt.view_matrix(yaw)
-        }),
-        settings.hurt_camera_style().intensity(),
+        Quat::from_mat4(&hurt.view_matrix(yaw)),
+        settings.hurt_shake_intensity(),
     ));
 }
 

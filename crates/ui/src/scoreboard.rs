@@ -217,6 +217,14 @@ pub struct ScoreboardStore {
 }
 
 impl ScoreboardStore {
+    /// Starts an empty scoreboard publication with a newer revision.
+    pub fn next_session(&self) -> Self {
+        Self {
+            revision: self.revision.saturating_add(1),
+            ..Self::default()
+        }
+    }
+
     pub fn clear(&mut self) {
         let revision = self.revision.saturating_add(1);
         *self = Self::default();

@@ -11,6 +11,7 @@ use bevy::render::{
 
 #[test]
 fn unsupported_presentation_keeps_the_native_target() {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -23,7 +24,14 @@ fn unsupported_presentation_keeps_the_native_target() {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&default())).unwrap();
-    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&default())).unwrap();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+    .unwrap();
     let gpu = GpuContext {
         device,
         queue,

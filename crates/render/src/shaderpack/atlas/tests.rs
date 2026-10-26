@@ -890,11 +890,13 @@ fn switching_off_stops_a_running_atlas_build() {
     let mut seen = Vec::new();
     wait_for(&stages, &mut seen, Stage::Pixels);
     world.run_system_once(release_shaderpack_atlas).unwrap();
+    assert!(super::super::scheduling::render_work_pending(&world));
     release.send(()).unwrap();
     test_time::eventually("the cancelled build to return", || {
         world.run_system_once(release_shaderpack_atlas).unwrap();
         world.resource::<AtlasBuild>().retiring.is_none()
     });
+    assert!(!super::super::scheduling::render_work_pending(&world));
     seen.extend(stages.try_iter());
     assert_eq!(seen, [Stage::Sources, Stage::Plan, Stage::Pixels]);
     assert!(!world.contains_resource::<ShaderpackAtlas>());

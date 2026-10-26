@@ -456,3 +456,226 @@ async fn relay_replacements_survive_cancelled_outbound_flushes() {
         "only the accepted replacement is recorded"
     );
 }
+
+/// A capture tap exercises the real sender without a disk writer or account state.
+struct PickCaptureTap {
+    trace: std::sync::Arc<crate::capture::PickTrace>,
+    capture: Mutex<crate::capture::CaptureWriter<Vec<u8>>>,
+    sequence: std::sync::atomic::AtomicU64,
+}
+
+impl PickCaptureTap {
+    /// Starts a numeric-only in-memory capture using the current protocol and format.
+    fn new() -> Self {
+        Self {
+            trace: std::sync::Arc::default(),
+            capture: Mutex::new(
+                crate::capture::CaptureWriter::new(
+                    Vec::new(),
+                    crate::capture::CaptureHeader {
+                        protocol_version: crate::PROTOCOL_VERSION,
+                        started_unix_ms: 0,
+                    },
+                )
+                .unwrap(),
+            ),
+            sequence: std::sync::atomic::AtomicU64::new(1),
+        }
+    }
+
+    /// Records a packet and optional pick under the same deterministic sequence and timestamp.
+    fn record_pick(
+        &self,
+        direction: crate::packet_tap::PacketDirection,
+        packet_id: u32,
+        body: crate::packet_tap::PacketBody<'_>,
+        state: Option<crate::capture::PickState>,
+    ) -> crate::packet_tap::PacketRecordId {
+        let sequence = self
+            .sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let packet = crate::capture::CaptureRecord::Packet {
+            sequence,
+            direction,
+            packet_id,
+            elapsed_us: 0,
+            body: Bytes::copy_from_slice(body.as_slice()),
+        };
+        let pick = state.map(|state| crate::capture::CaptureRecord::Pick {
+            packet_sequence: sequence,
+            elapsed_us: 0,
+            state,
+        });
+        self.capture
+            .lock()
+            .unwrap()
+            .write_pair(&packet, pick.as_ref())
+            .unwrap();
+        crate::packet_tap::PacketRecordId(sequence)
+    }
+}
+
+impl crate::packet_tap::PacketTap for PickCaptureTap {
+    fn record(
+        &self,
+        direction: crate::packet_tap::PacketDirection,
+        packet_id: u32,
+        body: crate::packet_tap::PacketBody<'_>,
+    ) -> crate::packet_tap::PacketRecordId {
+        self.record_pick(direction, packet_id, body, None)
+    }
+    fn record_with_pick(
+        &self,
+        direction: crate::packet_tap::PacketDirection,
+        packet_id: u32,
+        body: crate::packet_tap::PacketBody<'_>,
+        state: crate::capture::PickState,
+    ) -> crate::packet_tap::PacketRecordId {
+        self.record_pick(direction, packet_id, body, Some(state))
+    }
+    fn pick_trace(&self) -> Option<std::sync::Arc<crate::capture::PickTrace>> {
+        Some(self.trace.clone())
+    }
+    fn reject(
+        &self,
+        _: crate::packet_tap::PacketRecordId,
+        _: u32,
+        _: crate::packet_tap::PacketOutcome,
+        _: crate::packet_tap::PacketBody<'_>,
+    ) {
+    }
+    fn reject_batch(&self, _: usize) {}
+}
+
+#[tokio::test]
+async fn sent_attacks_and_mouseovers_keep_their_matching_frozen_picks_once() {
+    let (mut session, mut peer, writer) = session();
+    let tap = std::sync::Arc::new(PickCaptureTap::new());
+    session.transport = session.transport.with_tap(Some(tap.clone()));
+    let mut outbound = session.outbound().unwrap();
+    let state = crate::capture::PickState {
+        target: 42,
+        hit: [0.0, 1.0, -2.0],
+        pick_frame: [1, 10],
+        press_frame: [1, 11],
+        transaction_frame: [1, 12],
+        ..Default::default()
+    };
+    let attack = captured_attack(state);
+    let mut hover = crate::entity_hover_packet(Some((state.target, state.hit)));
+    hover.capture_pick(state);
+    let mut writer = std::pin::pin!(writer);
+    {
+        let mut send = std::pin::pin!(outbound.send_batch(
+            vec![
+                crate::session_transport::tests::unencodable_packet(),
+                attack,
+                ordinary(),
+                hover
+            ],
+            None
+        ));
+        assert!(poll_once(send.as_mut()).is_pending());
+        assert!(poll_once(writer.as_mut()).is_pending());
+        assert!(matches!(poll_once(send.as_mut()), Poll::Ready(Ok(()))));
+    }
+    outbound.send_batch(Vec::new(), None).await.unwrap();
+    let decoded = decode(read_frame(&mut peer).await);
+    assert!(crate::is_actor_attack(&decoded[0]));
+    assert_eq!(decoded.len(), 3);
+    drop(outbound);
+    drop(session);
+    let capture = std::sync::Arc::try_unwrap(tap)
+        .ok()
+        .unwrap()
+        .capture
+        .into_inner()
+        .unwrap()
+        .into_inner();
+    let file = crate::capture::read_capture(Bytes::from(capture)).unwrap();
+    assert!(matches!(&file.records[..], [
+        crate::capture::CaptureRecord::Packet { sequence: 1, .. },
+        crate::capture::CaptureRecord::Pick { packet_sequence: 1, state: first, .. },
+        crate::capture::CaptureRecord::Packet { sequence: 2, .. },
+        crate::capture::CaptureRecord::Packet { sequence: 3, .. },
+        crate::capture::CaptureRecord::Pick { packet_sequence: 3, state: last, .. },
+    ] if *first == state && *last == state));
+}
+
+/// Builds a real actor transaction with capture metadata outside its wire payload.
+fn captured_attack(state: crate::capture::PickState) -> Packet {
+    let stack = crate::NetworkItemStack::empty();
+    let mut packet = crate::use_actor_packet(crate::ActorUseRequest {
+        actor_runtime_id: state.target,
+        action: crate::ActorUseAction::Attack,
+        selected_slot: 0,
+        selected_item: crate::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+            .unwrap(),
+        player_position: state.eye,
+        hit_position: state.hit,
+    })
+    .unwrap();
+    packet.capture_pick(state);
+    packet
+}
+
+#[test]
+fn relay_replacements_do_not_guess_between_identical_packet_producers() {
+    let first = crate::capture::PickState {
+        target: 42,
+        press_frame: [1, 10],
+        ..Default::default()
+    };
+    let second = crate::capture::PickState {
+        press_frame: [1, 11],
+        ..first
+    };
+    for (replaced, second_state) in [
+        (false, Some(second)),
+        (true, Some(second)),
+        (false, None),
+        (true, None),
+    ] {
+        let tap = PickCaptureTap::new();
+        let mut other = captured_attack(second);
+        if second_state.is_none() {
+            other.pick = None;
+        }
+        let packets = [captured_attack(first), other];
+        let original = crate::session_transport::batch_frame(&packets).unwrap();
+        let picks = wire::Frames::new(original.slice(1..), usize::MAX)
+            .zip([Some(first), second_state])
+            .map(|(entry, state)| crate::packet_tap::PickEntry {
+                frame: entry.unwrap().frame().clone(),
+                state,
+            })
+            .collect::<Vec<_>>();
+        let output = if replaced {
+            crate::session_transport::batch_frame(&packets[1..]).unwrap()
+        } else {
+            original
+        };
+        crate::packet_tap::record_serverbound_picks(&tap, &output, &picks, replaced);
+        let bytes = tap.capture.into_inner().unwrap().into_inner();
+        let file = crate::capture::read_capture(Bytes::from(bytes)).unwrap();
+        let states = file
+            .records
+            .iter()
+            .filter_map(|record| match record {
+                crate::capture::CaptureRecord::Pick { state, .. } => Some(*state),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if replaced {
+            assert!(states.is_empty());
+            assert_eq!(file.records.len(), 1);
+        } else {
+            let expected = [Some(first), second_state]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            assert_eq!(states, expected);
+            assert_eq!(file.records.len(), 2 + expected.len());
+        }
+    }
+}

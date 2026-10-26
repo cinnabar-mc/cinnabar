@@ -139,7 +139,6 @@ impl SurfaceCollection {
                 return Err("surface collection item has too many fields".into());
             }
             let values = Surface {
-                previews: Default::default(),
                 collections: Default::default(),
                 screen: String::new(),
                 document: String::new(),
@@ -147,6 +146,13 @@ impl SurfaceCollection {
                 transitions: Default::default(),
             };
             values.validate_bindings()?;
+            if item
+                .values
+                .values()
+                .any(|value| value.item().is_some() || value.projection().is_some())
+            {
+                return Err("surface collection items bind plain values only".into());
+            }
             if item.values.keys().any(|key| {
                 !key.starts_with("#item_") || key.starts_with("#item_art_") || key == "#item_exists"
             }) || item
@@ -381,7 +387,6 @@ mod tests {
                     bindings: Default::default(),
                     transitions: Default::default(),
                     collections: Default::default(),
-                    previews: Default::default(),
                 },
                 columns: 4,
                 viewport: [452., 289.],

@@ -210,6 +210,13 @@ impl RetainedDraw {
         &self.list
     }
 
+    /// Returns a caller node's retained frame-space bounds after layout.
+    pub fn node_bounds(&self, index: usize) -> Option<UiRect> {
+        self.positions
+            .get(index)
+            .map(|position| self.placed[*position].bounds)
+    }
+
     /// Re-emits changed nodes when shape and frame inputs match, updating `last`. Text with `§k`
     /// glyphs is emitted again on every call, since `effects` re-rolls it. On `None` the caller
     /// must discard this cache and build afresh.
@@ -241,7 +248,7 @@ impl RetainedDraw {
         let changed = nodes
             .iter()
             .zip(last.iter())
-            .position(|(new, old)| new != old);
+            .position(|(new, old)| !same_emission(new, old));
         let rerolled = nodes.iter().any(obfuscated);
         // An unchanged frame without `§k` text allocates nothing.
         if changed.is_none() && !rerolled {
@@ -252,7 +259,7 @@ impl RetainedDraw {
         let mut dirty = vec![false; self.placed.len()];
         let mut moved = false;
         for (index, (new, old)) in nodes.iter().zip(last.iter_mut()).enumerate().skip(first) {
-            if new == old {
+            if same_emission(new, old) {
                 continue;
             }
             if matches!(new.visual, UiVisual::Mesh(_) | UiVisual::TintedMesh { .. })
@@ -469,6 +476,24 @@ fn same_shape(new: &UiNode, old: &UiNode) -> bool {
         && new.clip_children == old.clip_children
         && new.viewport_clip == old.viewport_clip
         && new.world_projection == old.world_projection
+}
+
+/// A model's uniform tint changes its palette while leaving its emitted vertex stream intact.
+fn same_emission(new: &UiNode, old: &UiNode) -> bool {
+    if new == old {
+        return true;
+    }
+    let (UiVisual::TintedMesh { mesh: new_mesh, .. }, UiVisual::TintedMesh { mesh: old_mesh, .. }) =
+        (&new.visual, &old.visual)
+    else {
+        return false;
+    };
+    if !new_mesh.is_skinned() || !old_mesh.is_skinned() || new_mesh != old_mesh {
+        return false;
+    }
+    let mut geometry = old.clone();
+    geometry.visual = new.visual.clone();
+    *new == geometry
 }
 
 /// Whether the node draws `§k` text, whose glyphs [`TextEffects`] re-rolls on every emission.

@@ -78,7 +78,14 @@ fn shared_fingerprint_keeps_content_in_the_cache_identity() {
 }
 
 /// Admits each archive named in `CINNABAR_JOIN_PACKS` (colon-separated, top of the stack first).
-fn join_stack(paths: &std::ffi::OsStr) -> Arc<resource_pack::ValidatedPackStack> {
+pub(super) fn join_stack(paths: &std::ffi::OsStr) -> Arc<resource_pack::ValidatedPackStack> {
+    let stack = resource_pack::validate_handoff(join_handoff(paths));
+    assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
+    stack
+}
+
+/// The unencrypted handoff of each archive named in `paths`, top of the stack first.
+pub(super) fn join_handoff(paths: &std::ffi::OsStr) -> protocol::ResourcePackHandoff {
     let archives = std::env::split_paths(paths)
         .map(|path| {
             let bytes = std::fs::read(&path).unwrap();
@@ -103,14 +110,11 @@ fn join_stack(paths: &std::ffi::OsStr) -> Arc<resource_pack::ValidatedPackStack>
             )
         })
         .collect();
-    let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(archives));
-    assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
-    stack
+    protocol::ResourcePackHandoff::from_archives(archives)
 }
 
 /// Icon keys a server registry would send: every item texture the stack names.
-fn join_icon_keys(view: &LayeredPackView) -> Vec<(Arc<str>, Arc<str>)> {
+pub(super) fn join_icon_keys(view: &LayeredPackView) -> Vec<(Arc<str>, Arc<str>)> {
     let root = view
         .read("textures/item_texture.json")
         .and_then(|bytes| parse_pack_json(&bytes));
@@ -124,7 +128,7 @@ fn join_icon_keys(view: &LayeredPackView) -> Vec<(Arc<str>, Arc<str>)> {
 
 /// Installs the carrier tables a session compile reads, as startup does, from the compiled
 /// carriers in `CINNABAR_JOIN_CARRIERS` and the vanilla layer in `CINNABAR_JOIN_VANILLA_PACK`.
-fn install_join_carriers() {
+pub(super) fn install_join_carriers() {
     if let Some(compiled) = std::env::var_os("CINNABAR_JOIN_CARRIERS") {
         let path = std::path::Path::new(&compiled).join(
             std::path::Path::new(assets::carriers::startup::DEFAULT_ASSET_PATH)
@@ -164,7 +168,7 @@ fn install_join_carriers() {
 }
 
 /// The archives `CINNABAR_JOIN_PACKS` names, or `None` after naming the missing fixture.
-fn join_fixture(test: &str) -> Option<std::ffi::OsString> {
+pub(super) fn join_fixture(test: &str) -> Option<std::ffi::OsString> {
     let paths = std::env::var_os("CINNABAR_JOIN_PACKS");
     if paths.is_none() {
         eprintln!(

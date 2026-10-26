@@ -1,11 +1,22 @@
 use super::*;
 use protocol_ids::Attribute;
+mod removal;
 mod spawn;
 
 mod equipment;
 mod interpolation;
+mod movement;
 
 impl ActorStore {
+    /// Allocates a nonzero render lifetime without changing authority arrival ordering.
+    pub(super) fn allocate_render_revision(&mut self) -> NonZeroU64 {
+        self.render_spawn_revision = self
+            .render_spawn_revision
+            .checked_add(1)
+            .expect("actor render lifetime counter exhausted");
+        NonZeroU64::new(self.render_spawn_revision).expect("render lifetimes start at one")
+    }
+
     pub(crate) fn set_server_animation_compiler(
         &mut self,
         compiler: actor_animation::ServerAnimationCompiler,
@@ -100,6 +111,8 @@ impl ActorStore {
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
+            vehicle_riders: FastHashMap::new(),
+            tick_links: Default::default(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -108,7 +121,13 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            local_unique_id: None,
+            air_block_network_id: None,
+            local_vehicle: Default::default(),
             pending_local_health: None,
+            pending_local_actor: None,
+            local_actor_revision: 0,
+            render_spawn_revision: 0,
             local_server_swings: Vec::new(),
             pending_local_damage: None,
             local_health_skips: 0,
@@ -152,6 +171,17 @@ impl ActorStore {
     /// Arm swings the server sent for the local player since the last call.
     pub(crate) fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         std::mem::take(&mut self.local_server_swings)
+    }
+
+    /// Names the local player before its actor exists, so riding links treat it as a player
+    /// already present, as vanilla's local player always is.
+    pub(crate) fn set_local_unique_id(&mut self, unique_id: i64) {
+        self.local_unique_id = Some(unique_id);
+    }
+
+    /// Records how this session's block metadata encodes air.
+    pub(crate) fn set_air_block_network_id(&mut self, network_id: Option<u32>) {
+        self.air_block_network_id = network_id;
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
@@ -205,6 +235,7 @@ impl ActorStore {
         if runtime_id == 0 {
             return;
         }
+        self.local_unique_id = Some(unique_id);
         self.local_view_dirty |= self.local_first_person != feed.first_person;
         self.local_first_person = feed.first_person;
         self.local_view_bobbing = feed.view_bobbing;
@@ -231,7 +262,11 @@ impl ActorStore {
         self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
         let revision = self.synthetic_local_revision.max(1);
         let (uuid, username) = self.resolve_local_identity(unique_id, feed);
+        // A seat that locks rotation draws the body at the facing the caller sampled for this
+        // frame rather than easing between ticked headings.
+        let locked_facing = self.rider_view_lock(unique_id, 1.0).map(|_| feed.yaw);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.status.predicted_render_yaw = locked_facing;
             if let Some(mode) = feed.game_mode {
                 let mode = Some(protocol::GameModeUpdate::Explicit(mode));
                 self.local_view_dirty |= actor.player_game_mode != mode;
@@ -267,8 +302,19 @@ impl ActorStore {
             self.effect_members.collidable.update(actor);
             return;
         }
-        let mut actor =
-            ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
+        let mut actor = ActorSnapshot::local_player(
+            unique_id,
+            runtime_id,
+            (
+                self.local_actor_revision,
+                revision,
+                self.allocate_render_revision(),
+            ),
+            uuid,
+            username,
+            feed,
+            self.pending_local_actor.take(),
+        );
         actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.effect_members.update(&mut actor);
@@ -366,11 +412,13 @@ impl ActorStore {
         self.player_game_mode_skips = 0;
         self.world_default_game_mode = None;
         self.actors.clear();
+        self.pending_local_actor = None;
+        self.local_actor_revision = 0;
         self.seat_bindings.clear();
         self.seat_bases.clear();
         self.effect_members = Default::default();
         self.unique_to_runtime.clear();
-        self.rider_to_ridden.clear();
+        self.clear_links();
         self.players.clear();
         self.unlisted_players.clear();
         self.synthetic_local_uuid = None;
@@ -417,10 +465,11 @@ impl ActorStore {
             })
             .or_else(|| self.pending_local_damage.take());
         self.actors.clear();
+        self.replace_local_actor_lifetime(sequence);
         self.seat_bindings.clear();
         self.effect_members = Default::default();
         self.unique_to_runtime.clear();
-        self.rider_to_ridden.clear();
+        self.clear_links();
         // The real player list survives a dimension change, but the synthetic local profile is
         // tied to the cleared actor and is re-inserted on the next pose feed.
         if let Some(uuid) = self.synthetic_local_uuid.take() {
@@ -440,11 +489,23 @@ impl ActorStore {
         self.synchronized_audio.clear();
         ActorApplyResult::Reset
     }
+    /// Applies an event when the caller has no terrain admission constraint.
     pub(crate) fn apply(
         &mut self,
         session_id: u64,
         sequence: u64,
         event: ActorEvent,
+    ) -> ActorApplyResult {
+        self.apply_with_player_move_terrain(session_id, sequence, event, true)
+    }
+
+    /// Applies an event with the Normal MovePlayer target's current terrain residency.
+    pub(crate) fn apply_with_player_move_terrain(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: ActorEvent,
+        player_target_resident: bool,
     ) -> ActorApplyResult {
         let guard = self.guard(session_id, sequence);
         if guard != ActorApplyResult::Updated {
@@ -473,137 +534,18 @@ impl ActorStore {
                 }
                 result
             }
-            ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
+            ActorEvent::Remove(remove) => self.remove_unique(sequence, remove.unique_id),
             ActorEvent::Move(movement) => {
-                // The local player's pose is client-fed each tick; server movement
-                // (authoritative reconciliation) must not fight that feed.
-                if self.remote_state_excluded_runtime_id == Some(movement.runtime_id) {
-                    return ActorApplyResult::MissingActor;
-                }
-                let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
-                    return ActorApplyResult::MissingActor;
-                };
-                let Some(duration) =
-                    super::movement_interpolation::duration(movement.interpolation)
-                else {
-                    let previous = self.ignored_movement_components;
-                    self.ignored_movement_components = previous.saturating_add(1);
-                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        tracing::warn!(
-                            "ignored unsupported actor movement duration (total {})",
-                            self.ignored_movement_components
-                        );
-                    }
-                    return ActorApplyResult::Updated;
-                };
-                let previous_received = actor.last_received_pose();
-                let mut received = previous_received;
-                let network_position_offset =
-                    if movement.position_origin == ActorPositionOrigin::NetworkOffset {
-                        actor.network_position_offset()
-                    } else {
-                        0.0
-                    };
-                let mut ignored = 0_u64;
-                let mut merge = |target: &mut f32, source: Option<f32>| {
-                    if let Some(value) = source {
-                        if value.is_finite() {
-                            *target = value;
-                        } else {
-                            ignored += 1;
-                        }
-                    }
-                };
-                for (axis, (target, source)) in received
-                    .position
-                    .iter_mut()
-                    .zip(movement.position)
-                    .enumerate()
-                {
-                    merge(
-                        target,
-                        source.map(|value| {
-                            if axis == 1 {
-                                value - network_position_offset
-                            } else {
-                                value
-                            }
-                        }),
-                    );
-                }
-                if movement.position[1].is_some_and(f32::is_finite) {
-                    received.y_origin =
-                        if movement.position_origin == ActorPositionOrigin::NetworkOffset {
-                            PoseYOrigin {
-                                native_y: movement.position[1],
-                                ..PoseYOrigin::NETWORK
-                            }
-                        } else {
-                            PoseYOrigin::default()
-                        };
-                }
-                merge(&mut received.pitch, movement.pitch);
-                merge(&mut received.yaw, movement.yaw);
-                merge(&mut received.head_yaw, movement.head_yaw);
-                if ignored > 0 {
-                    let previous = self.ignored_movement_components;
-                    self.ignored_movement_components = previous.saturating_add(ignored);
-                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        tracing::warn!(
-                            "ignored non-finite actor movement components: {}",
-                            self.ignored_movement_components
-                        );
-                    }
-                }
-                if let Some(value) = movement.on_ground {
-                    actor.on_ground = Some(value);
-                }
-                let tick_seconds = simulation_clock::TICK_DURATION.as_secs_f32();
-                let elapsed_seconds = movement
-                    .source_tick
-                    .zip(actor.source_tick)
-                    .and_then(|(current, previous)| current.checked_sub(previous))
-                    .filter(|ticks| *ticks > 0)
-                    .map_or(tick_seconds, |ticks| ticks as f32 * tick_seconds);
-                let derived_velocity = if movement.teleported {
-                    [0.0; 3]
-                } else {
-                    std::array::from_fn(|axis| {
-                        (received.position[axis] - previous_received.position[axis])
-                            / elapsed_seconds
-                    })
-                };
-                // A rotation-only move carries no displacement to derive from.
-                if movement.position.iter().any(Option::is_some) {
-                    actor.velocity = if derived_velocity.iter().all(|value| value.is_finite()) {
-                        derived_velocity
-                    } else {
-                        [0.0; 3]
-                    };
-                }
-                actor.start_movement_interpolation(
-                    received,
-                    duration,
-                    movement.interpolation.force_completion,
-                    movement.teleported,
-                );
-                actor.movement_revision = sequence;
-                actor.teleported = movement.teleported;
-                actor.player_mode = movement.player_mode;
-                actor.source_tick = movement.source_tick;
-                self.effect_members.collidable.update(actor);
-                if movement.teleported {
-                    self.animation.mark_reset(movement.runtime_id);
-                    if let Some(lifetime) = self.lifetime(movement.runtime_id) {
-                        self.actions.reset_on_teleport(lifetime);
-                    }
-                }
-                ActorApplyResult::Updated
+                self.apply_movement(sequence, movement, player_target_resident)
             }
             ActorEvent::Metadata(update) => {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     if self.remote_state_excluded_runtime_id == Some(update.runtime_id) {
                         self.merge_pending_local_death(&update.metadata);
+                        self.update_unspawned_local_actor(update.runtime_id, |actor, budget| {
+                            actor.apply_metadata(&update.metadata, sequence, budget);
+                            actor.apply_properties(&update.properties);
+                        });
                     }
                     return ActorApplyResult::MissingActor;
                 };
@@ -612,8 +554,9 @@ impl ActorStore {
                         std::mem::discriminant(previous) != std::mem::discriminant(&metadata.value)
                     })
                 });
-                let rejected = actor.apply_metadata(&update.metadata, &mut self.hitbox_budget)
-                    | actor.apply_properties(&update.properties);
+                let rejected =
+                    actor.apply_metadata(&update.metadata, sequence, &mut self.hitbox_budget)
+                        | actor.apply_properties(&update.properties);
                 self.effect_members.update(actor);
                 if incompatible {
                     self.animation.mark_reset(update.runtime_id);
@@ -627,6 +570,10 @@ impl ActorStore {
             ActorEvent::Attributes(update) => {
                 self.retain_unspawned_local_health(update.runtime_id, &update.attributes);
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
+                    self.update_unspawned_local_actor(update.runtime_id, |actor, _| {
+                        actor.apply_attributes(&update.attributes);
+                        actor.sync_status_from_health();
+                    });
                     return ActorApplyResult::MissingActor;
                 };
                 let rejected = actor.apply_attributes(&update.attributes);
@@ -744,7 +691,7 @@ impl ActorStore {
                 yaw: Some(movement.yaw),
                 head_yaw: Some(movement.head_yaw),
                 on_ground: Some(movement.on_ground),
-                teleported: movement.teleported || movement.mode == protocol::MovePlayerMode::Reset,
+                teleported: movement.teleported,
                 force_local_move: false,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),
@@ -762,60 +709,6 @@ impl ActorStore {
         self.latest_sequence = sequence;
         ActorApplyResult::Updated
     }
-    fn remove_unique(&mut self, unique_id: i64) -> ActorApplyResult {
-        let Some(runtime_id) = self.unique_to_runtime.remove(&unique_id) else {
-            self.remove_links_for(unique_id);
-            return ActorApplyResult::MissingActor;
-        };
-        self.seat_bindings.remove(&runtime_id);
-        if let Some(actor) = self.actors.remove(&runtime_id) {
-            self.effect_members.remove(runtime_id);
-            self.synchronized_audio.remove_runtime(runtime_id);
-            let lifetime = self.lifetime_for(&actor);
-            self.items.remove(lifetime);
-            self.actions.remove(lifetime);
-        }
-        self.remove_links_for(unique_id);
-        self.animation.remove_runtime(runtime_id);
-        self.prune_unlisted_players();
-        ActorApplyResult::Removed
-    }
-
-    fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
-        Self::apply_link_to(&mut self.rider_to_ridden, self.max_actor_links, event)
-    }
-
-    fn apply_link_to(
-        rider_to_ridden: &mut FastHashMap<i64, i64>,
-        max_actor_links: usize,
-        event: ActorLinkEvent,
-    ) -> ActorApplyResult {
-        match event.link_type {
-            ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
-            ActorLinkType::Remove => {
-                if rider_to_ridden.get(&event.rider_unique_id) == Some(&event.ridden_unique_id) {
-                    rider_to_ridden.remove(&event.rider_unique_id);
-                }
-                ActorApplyResult::Updated
-            }
-            ActorLinkType::Rider | ActorLinkType::Passenger => {
-                if !rider_to_ridden.contains_key(&event.rider_unique_id)
-                    && rider_to_ridden.len() >= max_actor_links
-                {
-                    return ActorApplyResult::CapacityRejected;
-                }
-                rider_to_ridden.insert(event.rider_unique_id, event.ridden_unique_id);
-                ActorApplyResult::Updated
-            }
-        }
-    }
-
-    fn remove_links_for(&mut self, unique_id: i64) {
-        self.rider_to_ridden.remove(&unique_id);
-        self.rider_to_ridden
-            .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
-    }
-
     /// Layers a session's server-pack entity catalog over the vanilla one.
     pub(crate) fn set_pack_entities(
         &mut self,

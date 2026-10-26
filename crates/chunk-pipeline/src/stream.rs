@@ -351,9 +351,8 @@ use model::{
     SubChunkRecovery, queue_wait, split_block_update,
 };
 
-pub use block_cracks::{
-    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
-};
+pub use block_cracks::MAX_ACTIVE_BLOCK_CRACKS;
+use client_world::{ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus};
 pub use model::{
     CohortProgress, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
     SubChunkRequestBatch, ViewCohortStatus, WorldMeshChange, WorldStreamFatalError,
@@ -439,14 +438,16 @@ pub struct WorldStream {
     polling: bool,
     /// The poll's one heavy commit allowed past its deadline is still unspent.
     poll_heavy_guarantee: bool,
+    /// An interrupted poll still owes its bounded worker pass before the next intake pass.
+    worker_service_due: bool,
     /// Set while a between-frames service owns the stream; a raised flag ends its work early.
     service_yield: Option<Arc<AtomicBool>>,
     /// Lent to a between-frames service every frame: retention evictions wait for the next poll,
     /// which the service reaches first, and frame polls leave heavy work to a service that had
-    /// a full allocation's window.
+    /// already polled for a full allocation.
     between_frames_service: bool,
-    /// How long the service last held the stream, which bounds what it could take over.
-    service_window: Duration,
+    /// Polling time credited by a loan that advanced commits, excluding idle waits.
+    service_poll_time: Duration,
     /// A deferred retention re-evaluation awaits the next poll.
     retention_due: bool,
     /// Last column visited by the current retention change.
@@ -455,6 +456,9 @@ pub struct WorldStream {
     maintenance_items: u64,
     /// Maximum elapsed time of a maintenance item, commit or worker-result acceptance.
     service_item_max: Duration,
+    /// Injects reclaim or allocation changes after a completed service item in poll tests.
+    #[cfg(test)]
+    after_service_item: Option<fn(&mut WorldStream, &'static str)>,
     /// One maintenance item may progress past the active allocation's deadline.
     maintenance_guarantee: bool,
     /// This frame poll leaves chunk-data commits to the service.

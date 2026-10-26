@@ -23,11 +23,13 @@ impl UiRuntime {
     ) -> Option<InventoryController> {
         let context = context(player)?;
         Some(
-            self.screen
+            self.session
+                .screen
                 .inventory
                 .filter(|controller| {
                     controller.context == context
                         && self
+                            .session
                             .screen
                             .observes_window(player.inventory.ledger().storage_generation())
                 })
@@ -43,10 +45,10 @@ impl UiRuntime {
 
     /// Captures preferences at screen admission without touching pointer or station input state.
     pub(super) fn initialize_inventory_controller(&mut self, player: &player_state::PlayerState) {
-        if self.screen.inventory.is_none()
+        if self.session.screen.inventory.is_none()
             && let Some(controller) = self.inventory_controller(player)
         {
-            self.screen.set_inventory_controller(controller);
+            self.session.screen.set_inventory_controller(controller);
         }
     }
 
@@ -68,6 +70,7 @@ impl UiRuntime {
         if save {
             let packet = protocol::inventory_options_packet(next.options);
             let pending = self
+                .session
                 .client_packets
                 .iter()
                 .rev()
@@ -79,7 +82,7 @@ impl UiRuntime {
             }
             player.inventory.set_inventory_options(next.options);
         }
-        self.screen.set_inventory_controller(next);
+        self.session.screen.set_inventory_controller(next);
         Ok(0)
     }
 
@@ -95,7 +98,7 @@ impl UiRuntime {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         if previous.options.left_tab == selected {
             if selected == InventoryTab::Search {
-                self.screen.search_focused = true;
+                self.session.screen.search_focused = true;
             }
             return Ok(0);
         }
@@ -105,7 +108,7 @@ impl UiRuntime {
             controller.options.left_tab = selected
         });
         if result.is_ok() {
-            self.screen.select_tab(tab);
+            self.session.screen.select_tab(tab);
         }
         result
     }
@@ -135,7 +138,7 @@ impl UiRuntime {
         let result =
             self.change_inventory_options(player, true, |controller| controller.set_layout(layout));
         if result.is_ok() && layout == InventoryLayout::InventoryOnly {
-            self.screen.search_focused = false;
+            self.session.screen.search_focused = false;
         }
         result
     }

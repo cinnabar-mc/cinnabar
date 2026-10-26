@@ -155,13 +155,10 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
 }
 
 #[test]
-fn shaders_tab_is_visible_only_in_shader_pack_builds() {
+fn shaders_tab_is_visible() {
     let shaders = SettingSection::Shaders.definition();
-    assert_eq!(shaders.tab_title.is_some(), super::SHADER_PACK_BINDINGS);
-    assert_eq!(
-        SETTINGS_TABS.iter().any(|(name, _)| *name == shaders.name),
-        super::SHADER_PACK_BINDINGS
-    );
+    assert!(shaders.tab_title.is_some());
+    assert!(SETTINGS_TABS.iter().any(|(name, _)| *name == shaders.name));
     let position = |section: SettingSection| {
         SECTION_DEFINITIONS
             .iter()
@@ -450,18 +447,55 @@ fn retired_chat_typeface_is_ignored_without_losing_font_size() {
     }
 }
 
-/// Iris's reload key defaults to R and remaps like other client controls, in builds that
-/// compile shader packs; other builds offer no row for it.
+/// Vanilla lists Mob Effects in keyboard Controls under its own language key, defaulting to Z.
 #[test]
-fn reload_shaders_defaults_to_r_and_remaps_only_in_shader_pack_builds() {
+fn mob_effects_defaults_to_z_under_its_vanilla_name() {
+    let z = semantic_input::PhysicalControl::KeyboardUsage(0x1d);
+    let mut options = SettingsOptions::default();
+    assert_eq!(BindingId::MobEffects.name(), "key.mobEffects");
+    assert_eq!(super::custom_key_label(BindingId::MobEffects.name()), None);
+    assert_eq!(options.named_key_control(BindingId::MobEffects), Some(z));
+    let row = BindingId::MobEffects
+        .row(false)
+        .expect("keyboard Controls row");
+    let tab = semantic_input::PhysicalControl::KeyboardUsage(0x2b);
+    assert!(options.remap(row, tab));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(reloaded.named_key_control(BindingId::MobEffects), Some(tab));
+}
+
+/// Vanilla lists Menu Cancel in keyboard Controls under its own language key, defaulting to the
+/// Back mouse button, and a remap or unbind persists.
+#[test]
+fn menu_cancel_defaults_to_mouse_back_under_its_vanilla_name() {
+    let back = semantic_input::PhysicalControl::MouseButton(4);
+    let mut options = SettingsOptions::default();
+    assert_eq!(BindingId::MenuCancel.name(), "key.menuCancel");
+    assert_eq!(super::custom_key_label(BindingId::MenuCancel.name()), None);
+    assert_eq!(options.named_key_control(BindingId::MenuCancel), Some(back));
+    let row = BindingId::MenuCancel
+        .row(false)
+        .expect("keyboard Controls row");
+    let forward = semantic_input::PhysicalControl::MouseButton(5);
+    assert!(options.remap(row, forward));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(
+        reloaded.named_key_control(BindingId::MenuCancel),
+        Some(forward)
+    );
+    assert!(options.unbind_key(row));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(reloaded.named_key_control(BindingId::MenuCancel), None);
+}
+
+/// Iris's reload key defaults to R and remaps like other client controls.
+#[test]
+fn reload_shaders_defaults_to_r_and_remaps() {
     let r = semantic_input::PhysicalControl::KeyboardUsage(0x15);
     let mut options = SettingsOptions::default();
-    let row = BindingId::ReloadShaders.row(false);
-    assert_eq!(row.is_some(), super::SHADER_PACK_BINDINGS);
-    let Some(row) = row else {
-        assert_eq!(options.named_key_control(BindingId::ReloadShaders), None);
-        return;
-    };
+    let row = BindingId::ReloadShaders
+        .row(false)
+        .expect("reload shaders keyboard row");
     assert_eq!(
         super::custom_key_label(BindingId::ReloadShaders.name()),
         Some("Reload Shaders")

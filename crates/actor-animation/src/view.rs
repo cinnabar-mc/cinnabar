@@ -51,6 +51,10 @@ impl ActorAnimationView {
             return false;
         }
         let (low, high) = bounds.at(feet, scale);
+        // Keep the pose live for camera-containing boxes admitted by the render culler.
+        if (0..3).all(|axis| low[axis] <= self.camera[axis] && self.camera[axis] <= high[axis]) {
+            return true;
+        }
         self.planes.iter().all(|plane| {
             let corner: [f32; 3] = std::array::from_fn(|axis| {
                 if plane[axis] >= 0.0 {
@@ -108,6 +112,7 @@ mod tests {
         assert!(!wall().admits([11.6, 0.0, 0.0], 1.0, true, bounds));
         let above = ActorAnimationView {
             planes: [[0.0, 1.0, 0.0, -3.0]; 6],
+            camera: [0.0, -1.0, 0.0],
             ..wall()
         };
         assert!(!above.admits([0.0; 3], 1.0, true, Default::default()));

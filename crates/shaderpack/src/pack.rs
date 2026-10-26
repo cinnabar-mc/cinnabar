@@ -1,6 +1,6 @@
 //! A loaded shader pack, its configuration metadata and whole-pack translation.
 
-use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
+use crate::buffers::{BufferDirectives, BufferFormat};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
 use crate::flips::{program_releases, samples_released_override};
@@ -13,7 +13,6 @@ use crate::options::{
 use crate::programs::{ProgramGroup, ProgramSource, enumerate_programs};
 use crate::properties::ShaderProperties;
 use crate::reflect::output_buffer;
-use crate::reflection::SamplerClass;
 use crate::source::{PackError, PackSource};
 use crate::transform::SamplerClasses;
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
@@ -38,6 +37,9 @@ pub struct TranslateConfig {
     /// satisfies (such as `= false`) are translated with `options` as they are. For tooling
     /// and coverage runs.
     pub force_disabled: bool,
+    /// Emulate fused dot accumulation when the backend cannot guarantee binary32 FMA.
+    #[serde(default)]
+    pub software_fused_dot: bool,
 }
 
 impl Default for TranslateConfig {
@@ -47,6 +49,7 @@ impl Default for TranslateConfig {
             environment: Environment::default(),
             options: OptionValues::new(),
             force_disabled: false,
+            software_fused_dot: false,
         }
     }
 }
@@ -202,8 +205,14 @@ impl ShaderPack {
                 if cancelled() {
                     return None;
                 }
-                let translated =
-                    self.translate_one(program, config, &properties, &profile_disabled, 0);
+                let translated = self.translate_one(
+                    program,
+                    config,
+                    &properties,
+                    &profile_disabled,
+                    0,
+                    &cancelled,
+                );
                 let mut done = completed.lock().unwrap_or_else(|error| error.into_inner());
                 *done += 1;
                 progress(*done, programs.len());
@@ -230,6 +239,7 @@ impl ShaderPack {
                         &properties,
                         &profile_disabled,
                         releases[i],
+                        &cancelled,
                     );
                     (i, translated)
                 })
@@ -291,6 +301,7 @@ impl ShaderPack {
         properties: &ShaderProperties,
         profile_disabled: &[String],
         released: u32,
+        cancelled: &(impl Fn() -> bool + Sync),
     ) -> ProgramTranslation {
         let defines = self.defines(&config.environment, &config.options);
         let rule = properties.program_rule(&program.folder, &program.name);
@@ -314,6 +325,7 @@ impl ShaderPack {
                     stages: vec![],
                     diagnostics: vec![],
                     reflection: None,
+                    geometry: None,
                     draw_buffers: vec![0],
                     consts: vec![],
                     released_overrides: 0,
@@ -348,33 +360,36 @@ impl ShaderPack {
             .collect();
         // Custom images clamp and filter linearly; custom textures follow their `.mcmeta`
         // for samplers of their shape, a stage's own binding winning over `texture.noise`.
-        let mut sampler_classes: SamplerClasses = properties
-            .images
-            .iter()
-            .map(|i| {
-                (
-                    (canonical_sampler_name(&i.sampler), None),
-                    SamplerClass::ClampLinear,
-                )
-            })
-            .collect();
+        let mut sampler_classes = SamplerClasses::default();
+        for image in &properties.images {
+            sampler_classes
+                .images
+                .insert(image.sampler.clone(), image.sampler_binding_name());
+        }
         for noise in [true, false] {
             for t in &properties.custom_textures {
                 if t.applies_to(program.group)
                     && (t.stage == "noise") == noise
                     && !t.released_by(released)
                 {
-                    sampler_classes.insert(
-                        (
-                            canonical_sampler_name(t.uniform()),
-                            Some(t.source.dimension()),
-                        ),
-                        t.sampler_class(&self.source),
-                    );
+                    let dimension = t.source.dimension();
+                    let class = t.sampler_class(&self.source);
+                    if t.is_unit_override() {
+                        sampler_classes
+                            .units
+                            .insert((t.binding_name(), dimension), class);
+                    } else {
+                        sampler_classes.named.insert(
+                            (t.uniform().to_string(), dimension),
+                            (t.binding_name(), class),
+                        );
+                    }
                 }
             }
         }
         let cx = Context {
+            software_fused_dot: config.software_fused_dot,
+            cancelled,
             source: &self.source,
             options: &self.options,
             values: &values,

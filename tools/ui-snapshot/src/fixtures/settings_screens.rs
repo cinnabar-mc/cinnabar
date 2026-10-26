@@ -146,7 +146,7 @@ pub(super) const PAGE_STATES: &[State] = &[
     },
     State {
         name: "settings-video-page",
-        size: [1280, 2600],
+        size: [1280, 4600],
         gui_scale: GUI_SCALE,
         fixture: || settings_page(SettingSection::Video, false),
     },

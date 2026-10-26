@@ -21,16 +21,11 @@ pub(in crate::modding) fn refresh_presentation(world: &mut World) {
         presentation
             .mod_ui_mut()
             .set_mod_panel_open(runtime.hosts.host(owner).panel_open());
-        let _ = presentation
-            .mod_ui_mut()
-            .set_mod_hud_sources(runtime.hud_sources());
-        let hud = runtime.hosts.merged_hud();
-        let _ = presentation.set_shared_mod_hud(hud);
-        let crosshair = runtime
-            .hosts
-            .crosshair_owner()
-            .and_then(|index| runtime.hosts.host(index).crosshair());
-        let _ = presentation.mod_ui_mut().set_mod_crosshair(crosshair);
+        let hidden = runtime.hosts.hidden_hud_elements();
+        let mod_ui = presentation.mod_ui_mut();
+        mod_ui.set_hud_surfaces(runtime.hud_surfaces());
+        mod_ui.set_hidden_hud_elements(hidden);
+        presentation.set_mod_presentation(runtime.hosts.merged_presentation());
         let _ = presentation
             .mod_ui_mut()
             .set_mod_label(runtime.hosts.merged_label());
@@ -50,7 +45,7 @@ pub(super) fn clear_presentation(world: &mut World) {
         physics.set_jump_pulse_scope(None);
     }
     if let Some(mut policy) = world.get_resource_mut::<crate::item_use::ModItemUsePolicy>() {
-        policy.scope = None;
+        policy.pulse = false;
     }
     if let Some(mut scene) = world.get_resource_mut::<render_scene::ModRenderScene>() {
         scene.clear();
@@ -63,19 +58,21 @@ pub(super) fn clear_presentation(world: &mut World) {
     {
         camera.set_rig(None);
         camera.set_preserve_teleport_rotation(false);
-        camera.set_detached_view(None);
+        camera.set_presented_view(None);
         camera.set_view_scale(1.0, 1.0);
-        camera.set_hurt_camera_style(None);
+        camera.set_view_tilt(None);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
         presentation.set_mod_menu_branding(None);
         presentation.mod_ui_mut().clear_mod_panels();
-        let _ = presentation
+        presentation
             .mod_ui_mut()
-            .set_mod_hud_sources(std::iter::empty());
+            .set_hud_surfaces(std::iter::empty());
+        presentation
+            .mod_ui_mut()
+            .set_hidden_hud_elements(Default::default());
         let _ = presentation.mod_ui_mut().set_mod_label(None);
-        let _ = presentation.set_mod_hud(None);
-        let _ = presentation.mod_ui_mut().set_mod_crosshair(None);
+        presentation.set_mod_presentation(Default::default());
         if let Err(error) = presentation.set_mod_panel_font(None) {
             bevy::log::warn!("Personal-panel font could not be released: {error}");
         }

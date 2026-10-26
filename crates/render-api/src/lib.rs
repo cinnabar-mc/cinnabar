@@ -6,7 +6,6 @@
 mod actor_lighting;
 pub mod far_terrain;
 mod frame_rate_limit;
-mod hurt_camera;
 mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
@@ -29,7 +28,6 @@ pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,
 };
 pub use frame_rate_limit::FrameRateLimit;
-pub use hurt_camera::{HurtCameraStyle, MAX_HURT_CAMERA_INTENSITY};
 pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
@@ -71,3 +69,6 @@ pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
 
 /// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
+
+/// Selects a retained model vertex whose position and normal use a GPU bone palette.
+pub const UI_STYLE_MODEL_VERTEX: u32 = 1 << 17;

@@ -18,7 +18,11 @@ fn replacement_and_default_text_opacity_preserve_native_coverage() {
         records: vec![glyph, remote],
         ..Default::default()
     };
-    let style: ui::mod_hud::NametagStyle = serde_json::from_value(serde_json::json!({"opacity":0.5,"own_text_color":[1.,0.,0.,1.],"replace_own_text_color":true})).unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        opacity: 0.5,
+        own_text_color: Some([1., 0., 0., 1.]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, Some(glyph.runtime_id));
     assert_eq!(scene.records[0].color, [1., 0., 0., 0.0625]);
     assert_eq!(scene.records[1].color, [0., 1., 0., 0.0625]);
@@ -47,11 +51,11 @@ fn faded_sneak_and_through_wall_glyphs_keep_their_atlas_coverage() {
             label.sneaking = sneaking;
             label.text_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
             let mut scene = scene(&[label]);
-            let style = serde_json::from_value(serde_json::json!({
-                "opacity": opacity,
-                "text_color": [1.0, 1.0, 1.0, 0.25],
-            }))
-            .unwrap();
+            let style = ui::mod_presentation::NametagStyle {
+                opacity,
+                text_color: Some([1.0, 1.0, 1.0, 0.25]),
+                ..Default::default()
+            };
             style_scene(&mut scene, &style, None);
             for record in scene.records.iter().filter(|record| record.text != 0) {
                 let native_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
@@ -86,11 +90,10 @@ fn coincident_labels_use_runtime_identity_for_own_text_colour() {
     let mut remote = own.clone();
     remote.runtime_id = 12;
     let mut scene = scene(&[remote, own]);
-    let style = serde_json::from_value(serde_json::json!({
-        "own_text_color": [1.0, 0.0, 0.0, 1.0],
-        "replace_own_text_color": true,
-    }))
-    .unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        own_text_color: Some([1.0, 0.0, 0.0, 1.0]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, Some(11));
     for record in scene.records.iter().filter(|record| record.text != 0) {
         assert_eq!(

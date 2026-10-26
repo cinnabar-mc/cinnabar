@@ -34,7 +34,7 @@ fn offline_server_hud_publication_cost() {
             let index = sample as u64;
             let now = index * 8;
             if changing {
-                runtime.hud.set_actionbar(
+                runtime.session.hud.set_actionbar(
                     Arc::from(format!("Online: {} | Ping: {}ms", index % 7, index % 13)),
                     index + 100,
                     now,
@@ -194,7 +194,7 @@ fn lobby_ui_publication_cost() {
             view_depth: 4.0 + index as f32,
             camera_forward_y: 0.0,
             cinnabar_badge: false,
-            counter: None,
+            annotation: None,
         })
         .collect();
     let mut scene = render_model::UiRenderScene::default();

@@ -159,6 +159,22 @@ pub trait PacketTap: Send + Sync {
         body: PacketBody<'_>,
     ) -> PacketRecordId;
 
+    /// Capture-only state; absent for observers that do not write full captures.
+    fn pick_trace(&self) -> Option<std::sync::Arc<crate::capture::PickTrace>> {
+        None
+    }
+
+    /// Records a packet and its numeric pick as one capture admission.
+    fn record_with_pick(
+        &self,
+        direction: PacketDirection,
+        packet_id: u32,
+        body: PacketBody<'_>,
+        _state: crate::capture::PickState,
+    ) -> PacketRecordId {
+        self.record(direction, packet_id, body)
+    }
+
     /// Reports that ingress skipped or failed the clientbound packet `record`; `body` is the
     /// same bytes [`PacketTap::record`] saw. At most one report follows each record.
     fn reject(
@@ -209,6 +225,13 @@ impl fmt::Display for PacketName {
     }
 }
 
+/// Numeric provenance carried only while a packet or decoded cache item is retained.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct PacketOrigin {
+    pub(crate) trace: (u64, u32),
+    pub(crate) capture_sequence: u64,
+}
+
 /// Reports each packet of an encoded Batch frame, `[kind][length][header][body]...`, to `tap`
 /// as serverbound. Reads only lengths and headers; bodies stay views of `frame`.
 pub(crate) fn record_serverbound(tap: &dyn PacketTap, frame: &Bytes) {
@@ -250,3 +273,52 @@ fn read_varuint32(bytes: &[u8]) -> Option<(u32, usize)> {
 
 #[cfg(test)]
 mod tests;
+
+/// One original encoded entry and its optional numeric pick, retained through relay preparation.
+#[derive(Clone)]
+pub(crate) struct PickEntry {
+    pub(crate) frame: Bytes,
+    pub(crate) state: Option<crate::capture::PickState>,
+}
+
+/// Records final relay output and attaches picks only to unchanged original packet entries.
+pub(crate) fn record_serverbound_picks(
+    tap: &dyn PacketTap,
+    frame: &Bytes,
+    picks: &[PickEntry],
+    replaced: bool,
+) {
+    let mut used = vec![false; picks.len()];
+    for entry in bedrock_protocol_1_26_51::wire::Frames::new(frame.slice(1..), usize::MAX).flatten()
+    {
+        let original = picks
+            .iter()
+            .enumerate()
+            .find(|(index, original)| !used[*index] && original.frame == entry.frame())
+            .filter(|(_, original)| {
+                !replaced
+                    || !picks
+                        .iter()
+                        .any(|other| other.frame == original.frame && other.state != original.state)
+            });
+        let state = original.and_then(|(index, original)| {
+            used[index] = true;
+            original.state
+        });
+        let body = entry.body();
+        if let Some(state) = state {
+            tap.record_with_pick(
+                PacketDirection::Serverbound,
+                entry.header().id,
+                PacketBody::whole(&body),
+                state,
+            );
+        } else {
+            tap.record(
+                PacketDirection::Serverbound,
+                entry.header().id,
+                PacketBody::whole(&body),
+            );
+        }
+    }
+}

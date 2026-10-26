@@ -1,4 +1,4 @@
 {
   "type": "load_failed",
-  "reason": "server.wasm: SHA-256 does not match experience.toml"
+  "reason": "server.wasm: SHA-256 does not match files.toml"
 }

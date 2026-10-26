@@ -17,9 +17,7 @@ POWERSHELL ?= powershell
 
 NO_VSYNC ?= 0
 TRACY ?= 0
-SHADERPACKS ?= 0
-SHADERPACK_FEATURES = $(if $(filter 1,$(SHADERPACKS)),--features shaderpacks)
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(SHADERPACK_FEATURES)
+CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT
@@ -60,7 +58,7 @@ PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2193.bin
 CINNABAR_CLOUDS_PNG ?=
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
 ASSET_COMPILER_BINARY = assetc
-ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin $(ASSET_COMPILER_BINARY) $(SHADERPACK_FEATURES) --
+ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin $(ASSET_COMPILER_BINARY) --
 VANILLA_ASSET_FETCH = $(ASSETC) vanilla-pack --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --accept-eula
 # One in-process parallel pass over the carrier table; carriers whose fingerprint is unchanged are skipped.
 ASSETS_PREPARE = $(ASSETC) prepare --accept-eula $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)")
@@ -81,7 +79,6 @@ help:
 	@echo make local-server    - Build the dragonfly local-world server and experience-runtime beside the core binary
 	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
-	@echo make play SHADERPACKS=1 - Run with the experimental Java shader-pack renderer
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
 	@echo make jsonui-editor   - Build the static JSON-UI editor site into JSONUI_EDITOR_OUT
 	@echo make figma-plugin    - Build the Figma to JSON-UI plugin into tools/figma-plugin/dist
@@ -185,13 +182,11 @@ PKG_CORE_LDFLAGS = -s -w
 CORE_STAMP = $$(CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" bash packaging/common/core-ldflags.sh)
 # Optional diagnostics for the release Rust build, such as --timings.
 PACKAGE_CARGO_FLAGS ?=
-# Optional features selected by release channel metadata, shared by the client and compiler.
-PACKAGE_CARGO_FEATURES ?=
 # The runtime table owns Rust package/bin pairs; Go integrations retain their module-specific builds.
 PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, $$1}' packaging/common/runtime-binaries.txt)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(if $(strip $(PACKAGE_CARGO_FEATURES)),--features "$(PACKAGE_CARGO_FEATURES)") $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin $(ASSET_COMPILER_BINARY)
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin $(ASSET_COMPILER_BINARY)
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

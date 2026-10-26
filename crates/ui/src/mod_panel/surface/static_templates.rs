@@ -159,26 +159,27 @@ pub(super) fn authored(
     }
     Ok(())
 }
-/// Rejects missing definitions, cycles and long chains before inheritance flattening.
-pub(super) fn acyclic(
-    key: &str,
-    graph: &BTreeMap<String, Vec<String>>,
-    path: &mut Vec<String>,
-    done: &mut BTreeSet<String>,
+/// Rejects missing definitions, cycles and long chains before inheritance flattening; `graph`
+/// returns a definition's inheritance edges, or none when it is missing.
+pub(super) fn acyclic<'a>(
+    key: &'a str,
+    graph: &impl Fn(&str) -> Option<&'a [String]>,
+    path: &mut Vec<&'a str>,
+    done: &mut BTreeSet<&'a str>,
 ) -> Result<(), String> {
     if done.contains(key) {
         return Ok(());
     }
-    if path.iter().any(|entry| entry == key) || path.len() > 32 {
+    if path.contains(&key) || path.len() > 32 {
         return Err("surface template cycle or excessive inheritance depth".into());
     }
-    let references = graph.get(key).ok_or("surface local template is missing")?;
-    path.push(key.to_owned());
+    let references = graph(key).ok_or("surface local template is missing")?;
+    path.push(key);
     for reference in references {
         acyclic(reference, graph, path, done)?;
     }
     path.pop();
-    done.insert(key.to_owned());
+    done.insert(key);
     Ok(())
 }
 /// Caps replicated property payloads before the resolver clones inherited values.
@@ -195,10 +196,15 @@ pub(super) fn bound_expansion(
         .max()
         .unwrap_or(0)
         .saturating_mul(2);
+    let lookup = |name: &str| {
+        definitions
+            .get(name)
+            .map(|(body, base)| (*body, base.as_deref()))
+    };
     definition_bytes(
         root,
         namespace,
-        definitions,
+        &lookup,
         parameter_bytes,
         &mut BTreeMap::new(),
     )?;
@@ -206,13 +212,13 @@ pub(super) fn bound_expansion(
 }
 const MAX_EXPANDED_PROPERTY_BYTES: usize = super::MAX_SURFACE_BYTES * 16;
 /// Finds the largest literal parameter, including parameters on inline instances.
-fn largest_parameter(value: &Value) -> usize {
+pub(super) fn largest_parameter(value: &Value) -> usize {
     match value {
         Value::Object(object) => object
             .iter()
             .map(|(key, value)| {
                 if key.starts_with('$') {
-                    value.to_string().len()
+                    serialized_len(value)
                 } else {
                     largest_parameter(value)
                 }
@@ -223,10 +229,27 @@ fn largest_parameter(value: &Value) -> usize {
         _ => 0,
     }
 }
+/// The length of `value`'s compact JSON text, without building it.
+fn serialized_len(value: &Value) -> usize {
+    /// Counts the bytes written to it.
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, value).expect("counting writes cannot fail");
+    counter.0
+}
 /// Counts literal bytes and a conservative bound for every substituted operand.
 fn property_bytes(value: &Value, parameter_bytes: usize) -> usize {
     match value {
-        Value::String(text) => value.to_string().len().saturating_add(
+        Value::String(text) => serialized_len(value).saturating_add(
             text.bytes()
                 .filter(|byte| *byte == b'$')
                 .count()
@@ -248,7 +271,7 @@ fn property_bytes(value: &Value, parameter_bytes: usize) -> usize {
                 })
                 .sum::<usize>()
         }
-        _ => value.to_string().len(),
+        _ => serialized_len(value),
     }
 }
 /// Rejects replicated payloads as soon as a subtree exceeds the budget.
@@ -261,21 +284,20 @@ fn bounded_add(left: usize, right: usize) -> Result<usize, String> {
     }
 }
 /// Memoizes each immutable template's upper bound before counting repeated instances.
-fn definition_bytes(
+/// `definitions` returns a local definition's body and base; `cache` holds the bounds already
+/// known under `parameter_bytes`, and gains every bound computed here.
+pub(super) fn definition_bytes<'a>(
     name: &str,
     namespace: &str,
-    definitions: &BTreeMap<String, (&Value, Option<String>)>,
+    definitions: &impl Fn(&str) -> Option<(&'a Value, Option<&'a str>)>,
     parameter_bytes: usize,
     cache: &mut BTreeMap<String, usize>,
 ) -> Result<usize, String> {
     if let Some(bytes) = cache.get(name) {
         return Ok(*bytes);
     }
-    let (body, base) = definitions
-        .get(name)
-        .ok_or("surface local template is missing")?;
+    let (body, base) = definitions(name).ok_or("surface local template is missing")?;
     let inherited = base
-        .as_ref()
         .map(|base| definition_bytes(base, namespace, definitions, parameter_bytes, cache))
         .transpose()?
         .unwrap_or(0);
@@ -287,10 +309,10 @@ fn definition_bytes(
     Ok(bytes)
 }
 /// Includes inherited children conservatively even when an inline override replaces them.
-fn control_bytes(
+fn control_bytes<'a>(
     value: &Value,
     namespace: &str,
-    definitions: &BTreeMap<String, (&Value, Option<String>)>,
+    definitions: &impl Fn(&str) -> Option<(&'a Value, Option<&'a str>)>,
     parameter_bytes: usize,
     cache: &mut BTreeMap<String, usize>,
 ) -> Result<usize, String> {
@@ -369,7 +391,6 @@ mod tests {
     fn surface(document: Value) -> Surface {
         Surface {
             collections: Default::default(),
-            previews: Default::default(),
             transitions: Default::default(),
             screen: "local.root".into(),
             document: document.to_string(),

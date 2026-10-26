@@ -68,6 +68,7 @@ pub mod texture;
 pub mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
+pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
@@ -108,9 +109,9 @@ pub use biome::{
 pub use biome_noise::{ClientRandom, GRASS_PERMUTATION_SIZE, grass_noise_permutation};
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
-    BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE, MAX_BLOCK_ENTITY_ATLAS_SIDE,
-    MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS, RuntimeBlockEntityAssets,
-    block_entity_route, encode_block_entity_catalog,
+    BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE, LOYALTY_ROPE_TEXTURE,
+    MAX_BLOCK_ENTITY_ATLAS_SIDE, MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
+    RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
 };
 pub use block_names::{legacy_resource_pack_block_alias, vanilla_skull_type};
 pub use compiled::{
@@ -128,10 +129,8 @@ pub use compiled::{
     MAX_CARRIER_TEXTURE_PAGES, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, TEXTURE_LAYER_MASK,
     material_leaf_ao_exponent,
 };
-pub use effects::{
-    EFFECT_DESCRIPTORS, EffectDescriptor, effect_descriptor, effect_descriptor_by_identifier,
-    effect_registry_version,
-};
+pub use effects::{EFFECT_DESCRIPTORS, EffectDescriptor};
+pub use effects::{effect_descriptor, effect_descriptor_by_identifier, effect_registry_version};
 pub use entity::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
     CompiledEntityAssets, CompiledMolangExpression, ELYTRA_GEOMETRY_IDENTIFIER,
@@ -145,9 +144,9 @@ pub use entity::{
     EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator,
     EntityGeometryLocatorBinding, EntityGeometryScalar, EntityGeometryTextureMesh,
     EntityGeometryUv, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
-    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
+    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     LEGACY_ENTITY_GEOMETRY_PATH, MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS,
     MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES,
     MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_CONTROLLER_ANIMATIONS,
@@ -166,7 +165,7 @@ pub use entity::{
     MOLANG_QUERY_MANIFEST_VERSION, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangProgram,
     MolangQuery, MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler,
-    MolangQueryOutput, MolangQuerySupport, MolangSymbol, MolangSymbolKind,
+    MolangQueryOutput, MolangQuerySampling, MolangQuerySupport, MolangSymbol, MolangSymbolKind,
     PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE, RuntimeEntityAssets, bind_molang_queries,
     encode_entity_blob, entity_render_pattern_matches, interactions, item_use, molang_call,
     molang_program_stack, placement, seats as entity_seats, validate_entity_geometry_inheritance,

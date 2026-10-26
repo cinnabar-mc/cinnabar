@@ -3,14 +3,14 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 
 impl WorldAuthority {
     /// Reads the target's component proof without predicting unknown native interactions.
-    pub fn offered_throwable_use(
+    pub fn offered_use(
         &self,
         runtime_id: u64,
-        item: &protocol::VerifiedNetworkItemStack,
+        equipment: &crate::UseEquipment,
     ) -> assets::entity::offered_use::OfferedUse {
         self.actor(runtime_id).map_or(
             assets::entity::offered_use::OfferedUse::Unresolved,
-            |actor| self.actors.offered_throwable_use(actor, item),
+            |actor| self.actors.offered_use(actor, equipment),
         )
     }
 
@@ -102,6 +102,11 @@ impl WorldAuthority {
     ) -> Option<crate::item::CanonicalItemStack> {
         self.actors.canonical_item_stack(stack)
     }
+
+    /// Resolves a named block-entity stack with the same visual rules as actor equipment.
+    pub fn named_item_visual(&self, identifier: &str, metadata: u32) -> assets::ItemVisualRoute {
+        self.actors.named_item_visual(identifier, metadata)
+    }
     /// Reads intrinsic shine admitted for the current numeric item identity.
     pub fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
         self.actors.item_glint(network_id)
@@ -136,8 +141,17 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
-    /// Predicts remote actors `ticks` ahead for [`Self::pick_hit_boxes`], leaving the live
-    /// actors to [`Self::advance_actor_interpolation_frame`].
+    /// Returns completed previous/current feet and interpolation steps for interaction diagnostics.
+    pub fn pick_motion(&self, actor: &ActorSnapshot) -> ([f32; 3], [f32; 3], u32) {
+        (
+            actor.previous_pose.position,
+            actor.position,
+            actor.interpolation_ticks_remaining,
+        )
+    }
+
+    /// Predicts remote motion for vehicle and collision queries, leaving interaction boxes
+    /// at the completed simulation pose until [`Self::advance_actor_interpolation_frame`].
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.actors.predict_remote_motion(ticks);
     }
@@ -230,11 +244,15 @@ impl WorldAuthority {
     /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
     /// third-person body and first-person hand read a driven rig instead of a static fallback.
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
+        let missing = self.actors.get(self.local_player_runtime_id).is_none();
         self.actors.sync_local_player(
             self.local_player_runtime_id,
             self.local_player_unique_id,
             feed,
         );
+        if missing && let Some(actor) = self.actors.get(self.local_player_runtime_id) {
+            self.publish_local_actor_replacement(actor.spawn_revision);
+        }
     }
 
     /// Replaces the local appearance while preserving the server's roster identity.
@@ -256,7 +274,7 @@ impl WorldAuthority {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
-    /// Binds the local Java torso to the current simulation; `None` restores actor-clock motion.
+    /// Binds local torso and legs to the current simulation; `None` restores actor-clock motion.
     pub fn set_local_motion_authority(
         &mut self,
         authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
@@ -264,7 +282,7 @@ impl WorldAuthority {
         self.actors
             .set_local_motion_authority(self.local_player_runtime_id, authority);
     }
-    /// Applies completed local torso samples without advancing other actor motion or clocks.
+    /// Applies completed local torso and leg samples without advancing other actor clocks.
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (SessionGeneration, PositionAuthorityGeneration),
@@ -297,6 +315,12 @@ impl WorldAuthority {
         self.actors.lifetime(runtime_id)
     }
 
+    /// Publishes StartGame's binding of the local player's mode to the world
+    /// default, which later default changes then reach.
+    pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
+        self.local_mode_follows_default = follows;
+    }
+
     /// Publishes the session's level mode before remote players are admitted.
     pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
         self.actors.apply_world_game_mode(mode);
@@ -311,9 +335,64 @@ impl WorldAuthority {
     pub fn local_player_unique_id(&self) -> i64 {
         self.local_player_unique_id
     }
+    /// Whether the local player is selected to control its current vehicle.
+    pub fn local_vehicle_controlled(&self) -> bool {
+        self.actors
+            .rider_controls_vehicle(self.local_player_unique_id)
+    }
     /// Seat feet position and body yaw of the local player on its mount, when placed.
     pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.actors.rider_seat_pose(self.local_player_unique_id)
+    }
+    /// Feet and body yaw the local player's seat gives it on its vehicle, were the vehicle's
+    /// feet at `vehicle_feet` facing `vehicle_yaw`.
+    pub fn local_rider_seat_on(
+        &self,
+        vehicle_feet: [f32; 3],
+        vehicle_yaw: f32,
+    ) -> Option<([f32; 3], f32)> {
+        self.actors
+            .rider_seat_on(self.local_player_unique_id, vehicle_feet, vehicle_yaw)
+    }
+    /// How the local player's seat holds its view, with the vehicle's yaw `alpha` of the way
+    /// through the current tick; `None` when the seat does not lock rotation.
+    pub fn local_seat_view_lock(&self, alpha: f32) -> Option<crate::SeatViewLock> {
+        self.actors
+            .rider_view_lock(self.local_player_unique_id, alpha)
+    }
+    /// The vehicle the local player rides from its controlling seat, which it steers.
+    pub fn local_controlled_vehicle(&self) -> Option<&ActorSnapshot> {
+        let vehicle = self.actors.ridden_unique_id(self.local_player_unique_id)?;
+        self.local_vehicle_controlled()
+            .then(|| self.actors.snapshot_by_unique(vehicle))
+            .flatten()
+    }
+    /// Commits a server correction of the vehicle the local player steers, naming that
+    /// vehicle. Without one nothing is predicted, so the correction is dropped.
+    pub fn commit_vehicle_correction(
+        &mut self,
+        sequence: u64,
+        correction: protocol::PlayerMovementCorrectionEvent,
+    ) {
+        let Some(vehicle_runtime_id) = self.local_controlled_vehicle().map(|v| v.runtime_id) else {
+            return;
+        };
+        let vehicle_revision = self.local_vehicle_revision();
+        self.push_committed_control(CommittedControlEvent::VehicleMovementCorrection {
+            sequence,
+            correction,
+            vehicle_runtime_id,
+            vehicle_revision,
+        });
+    }
+    /// Drives the predicted pose of the boat the local player steers; feeds for any other
+    /// actor, or `None`, change nothing.
+    pub fn sync_local_vehicle_pose(&mut self, feed: Option<crate::LocalVehicleFeed>) {
+        self.actors.sync_local_vehicle(feed);
+    }
+    /// Counts server changes to the predicted vehicle that prediction restarts from.
+    pub const fn local_vehicle_revision(&self) -> crate::VehicleRevision {
+        self.actors.local_vehicle_revision()
     }
     /// Borrows the current actor with this persistent unique ID.
     pub fn actor_by_unique_id(&self, unique_id: i64) -> Option<&ActorSnapshot> {
@@ -357,6 +436,10 @@ impl WorldAuthority {
     /// Dying dragon body centers and ray parameters at the supplied frame fraction.
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
+    }
+    /// Loyalty ropes from thrown tridents to their present owners at the frame fraction.
+    pub fn loyalty_ropes(&self, partial_tick: f32) -> Vec<crate::LoyaltyRopeView> {
+        self.actors.loyalty_ropes(partial_tick)
     }
     /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
@@ -544,12 +627,9 @@ impl WorldAuthority {
             .actors()
             .filter(move |actor| actor.runtime_id != local)
     }
-    /// The actor's interaction boxes where this frame's due ticks put it, for picks.
+    /// Interaction boxes at the completed simulation pose, before any pending actor ticks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {
-        match self.actors.pick_pose(actor.runtime_id) {
-            Some(pose) => actor.hit_boxes_at_pose(pose),
-            None => actor.hit_boxes(),
-        }
+        actor.hit_boxes()
     }
     /// Counts retained actors in this session.
     pub fn actor_count(&self) -> usize {
