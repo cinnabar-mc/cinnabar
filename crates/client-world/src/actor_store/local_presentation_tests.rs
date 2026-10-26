@@ -136,10 +136,9 @@ fn local_swim_pose_follows_predicted_swimming_not_body_fluid_contact() {
     feed.sprinting = true;
     feed.swimming = true;
     for in_water in [true, false, true, false] {
-        store
-            .actors
-            .get_mut(&1)
-            .map(|actor| actor.status.fluid = Some((in_water, false)));
+        if let Some(actor) = store.actors.get_mut(&1) {
+            actor.status.fluid = Some((in_water, false));
+        }
         store.sync_local_player(1, -100, &feed);
         assert!(
             store.get(1).unwrap().flag(ActorFlag::Swimming.wire_value()),
