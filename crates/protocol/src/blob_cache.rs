@@ -508,15 +508,15 @@ pub struct BlobCacheResolver {
     ready_accounted_bytes: usize,
     /// Sum of `columns.len()` across `pending` and `ready`, the recovery slots they reserve.
     retained_column_slots: usize,
-    trace_origins: Option<TraceOrigins>, // kept only while the latency trace runs
+    trace_origins: Option<TraceOrigins>, // optional latency and capture provenance
 }
 
-/// The core frame and slot that produced each retained item, for the latency trace.
+/// Numeric packet provenance for retained resolver items, released as each item leaves.
 #[derive(Debug, Default)]
 struct TraceOrigins {
-    current: (u64, u32),
-    by_sequence: HashMap<u64, (u64, u32)>,
-    popped: (u64, u32),
+    current: crate::packet_tap::PacketOrigin,
+    by_sequence: HashMap<u64, crate::packet_tap::PacketOrigin>,
+    popped: crate::packet_tap::PacketOrigin,
 }
 
 fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {

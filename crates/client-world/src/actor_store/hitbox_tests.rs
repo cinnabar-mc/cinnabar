@@ -329,3 +329,46 @@ fn well_formed_non_compound_hitboxes_are_skipped() {
     let store = store_with(0.0, vec![compound(root.encode_root().unwrap())]);
     assert_boxes_near(&boxes(&store), &collision);
 }
+
+#[test]
+fn pick_capture_retains_previous_and_predicted_motion_without_frame_allocations() {
+    let mut store = store_with(0.0, vec![hitbox_compound(&[RAISED])]);
+    store.apply(1, 2, super::tests::network_move(8, 70.0, false));
+    store.predict_remote_motion(1);
+    assert_eq!(store.pick_ahead(8).unwrap().capture_previous_position, None);
+    store.set_pick_capture(true);
+    let before = store.get(8).unwrap().position;
+    // Reuse the prediction buffer warmed by the uncaptured frame above.
+    let (_, allocations) = test_alloc::count(|| store.predict_remote_motion(2));
+    assert_eq!(allocations, 0);
+    let (previous, current, remaining) = store.capture_pick_motion_state(store.get(8).unwrap());
+    assert_ne!(previous, before);
+    assert_ne!(previous, current);
+    assert_eq!(remaining, 1);
+    store.advance_interpolation_frame(2);
+    let actor = store.get(8).unwrap();
+    assert_eq!(previous, actor.previous_pose.position);
+    assert_eq!(current, actor.position);
+    store.predict_remote_motion(0);
+    assert_eq!(
+        store.capture_pick_motion_state(store.get(8).unwrap()),
+        (previous, current, remaining)
+    );
+}
+
+#[test]
+fn finished_capture_stops_retaining_pick_motion() {
+    let mut store = store_with(0.0, vec![hitbox_compound(&[RAISED])]);
+    store.set_pick_capture(true);
+    store.predict_remote_motion(1);
+    assert!(
+        store
+            .pick_ahead(8)
+            .unwrap()
+            .capture_previous_position
+            .is_some()
+    );
+    store.set_pick_capture(false);
+    store.predict_remote_motion(1);
+    assert_eq!(store.pick_ahead(8).unwrap().capture_previous_position, None);
+}
