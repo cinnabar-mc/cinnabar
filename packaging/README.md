@@ -8,7 +8,9 @@ window opens or its process crashes) asks consent, downloads the pinned `bedrock
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
 carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). `prepared.json`
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current
-pack archive is kept so carrier-only updates need no download. Status: `logs/first-run-status.json`;
+pack archive and extracted resource versions are kept so carrier-only updates skip downloading
+and unpacking cached resources, even when the archive was removed. Extracted caches are bound to
+the pinned archive's SHA-256, independently of the Cinnabar version. Status: `logs/first-run-status.json`;
 details: `logs/first-run.log`. Every launch logs to `logs/client.log`, including stderr and panics
 whether or not a terminal is attached. Each launch archives the previous session as
 `client-<UTC yyyymmdd-hhmmss>.log` (and `first-run.log` likewise); a session past 8 MiB continues

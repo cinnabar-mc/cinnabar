@@ -13,7 +13,10 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow, WindowEvent},
 };
 use client_shell::{
-    menu::MenuRuntime,
+    menu::{
+        MenuRuntime,
+        settings_options::control_bindings::{menu_cancel_key, menu_cancel_mouse},
+    },
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
 use client_ui::ui_runtime::{
@@ -163,7 +166,7 @@ pub(crate) fn drive_data_driven_input(
         presentation.scroll_data_driven(pointer, -lines);
     }
 
-    if mouse.just_pressed(MouseButton::Back) {
+    if menu_cancel_mouse(menu.as_deref(), &mouse).is_some() {
         runtime.data_driven_action(DataDrivenAction::Dismiss);
     }
     // Each button edge hits where the cursor was when it arrived.
@@ -176,7 +179,8 @@ pub(crate) fn drive_data_driven_input(
         match input {
             FormInput::Cursor(point) => at = Some(point),
             FormInput::Key(key_code, text, repeat) => {
-                type_key(&mut runtime, key_code, text.as_deref(), repeat);
+                let cancel = menu_cancel_key(menu.as_deref(), key_code);
+                type_key(&mut runtime, key_code, text.as_deref(), repeat, cancel);
             }
             FormInput::Pointer(down) => {
                 let hit = at
@@ -268,14 +272,23 @@ impl FormInput {
 }
 
 /// One key press: Escape and Enter end text entry, Escape closes an open option list or else
-/// dismisses the form, and the focused text field takes typed text and Backspace. A held Escape
-/// or Enter acts once; its repeats are ignored, while typing and Backspace repeat.
+/// dismisses the form, and the focused text field takes typed text and Backspace. A Menu Cancel
+/// key (`cancel`) acts as Escape unless a text field is taking typed keys. A held Escape or Enter
+/// acts once; its repeats are ignored, while typing and Backspace repeat.
 fn type_key(
     runtime: &mut client_ui::ui_runtime::UiRuntime,
     key_code: KeyCode,
     text: Option<&str>,
     repeat: bool,
+    cancel: bool,
 ) {
+    let focused = runtime.data_driven_focus_items();
+    let editing = focused.editing.is_some();
+    let key_code = if cancel && !editing {
+        KeyCode::Escape
+    } else {
+        key_code
+    };
     if repeat
         && matches!(
             key_code,
@@ -284,8 +297,6 @@ fn type_key(
     {
         return;
     }
-    let focused = runtime.data_driven_focus_items();
-    let editing = focused.editing.is_some();
     match key_code {
         KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if editing => {
             runtime.data_driven_action(DataDrivenAction::Blur);
@@ -417,11 +428,14 @@ mod tests {
         }
         // Layout entry 6 is the fixture's text field.
         runtime.data_driven_action(DataDrivenAction::Activate(6));
-        type_key(&mut runtime, KeyCode::Escape, None, false);
+        // A key bound to Menu Cancel types while the text field owns typed keys.
+        type_key(&mut runtime, KeyCode::KeyX, Some("x"), false, true);
+        assert!(runtime.data_driven_focus_items().editing.is_some());
+        type_key(&mut runtime, KeyCode::Escape, None, false, false);
         assert_eq!(runtime.data_driven_focus_items().editing, None);
-        type_key(&mut runtime, KeyCode::Escape, None, true);
+        type_key(&mut runtime, KeyCode::Escape, None, true, false);
         assert!(runtime.data_driven_ui().active().is_some());
-        type_key(&mut runtime, KeyCode::Escape, None, false);
+        type_key(&mut runtime, KeyCode::Escape, None, false, false);
         assert!(runtime.data_driven_ui().active().is_none());
         // The closing frame keeps its input from the screens that update after the form.
         assert!(runtime.data_driven_ui().owns_input());

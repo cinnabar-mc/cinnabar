@@ -73,6 +73,7 @@ impl RuntimeAssets {
             overlay_page_layer_counts: Box::new([]),
             biomes,
             provenance,
+            retextured_visuals: Box::new([]),
             missing: AtomicU64::new(0),
         };
         // Prepare numeric block-entity routes before the carrier reaches the live world.

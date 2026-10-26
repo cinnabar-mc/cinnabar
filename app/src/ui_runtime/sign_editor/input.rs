@@ -108,7 +108,13 @@ pub(crate) fn drive_sign_editor(
     let mut finish = runtime.sign_editor_mut().take_finish_request();
     let mut explicit_finish = false;
     if input_available {
-        if mouse.just_pressed(MouseButton::Back) {
+        // The editor takes every typed key, so only a mouse Menu Cancel finishes it here.
+        if client_shell::menu::settings_options::control_bindings::menu_cancel_mouse(
+            menu.as_deref(),
+            &mouse,
+        )
+        .is_some()
+        {
             finish = true;
             explicit_finish = true;
         }

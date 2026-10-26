@@ -155,6 +155,8 @@ pub struct RuntimeAssets {
     overlay_page_layer_counts: Box<[usize]>,
     biomes: CompiledBiomeAssets,
     provenance: BlobProvenance,
+    /// Sorted base visual ids whose face art a session overlay changed.
+    retextured_visuals: Box<[u32]>,
     missing: AtomicU64,
 }
 
@@ -205,6 +207,7 @@ impl RuntimeAssets {
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
             carrier_identity: None,
+            retextured_visuals: Box::new([]),
             missing: AtomicU64::new(0),
         }
     }
@@ -494,6 +497,13 @@ impl RuntimeAssets {
     #[must_use]
     pub const fn biome_assets(&self) -> &CompiledBiomeAssets {
         &self.biomes
+    }
+
+    /// Whether a session overlay changed this base visual's face art, so art prepared from the
+    /// startup carrier, such as carried cube sheets, no longer matches its terrain.
+    #[must_use]
+    pub fn is_retextured(&self, visual: crate::BlockVisualId) -> bool {
+        self.retextured_visuals.binary_search(&visual.0).is_ok()
     }
 
     /// Returns the validated carrier identity; synthetic and composed assets have none.

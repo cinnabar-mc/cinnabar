@@ -18,7 +18,12 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use client_shell::{
-    menu::MenuRuntime,
+    menu::{
+        MenuRuntime,
+        settings_options::control_bindings::{
+            menu_cancel_key, menu_cancel_mouse, menu_cancel_pressed,
+        },
+    },
     physical_input::{keyboard_key, scroll_unit},
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
@@ -189,6 +194,10 @@ pub(crate) fn drive_server_form_input(
         .cloned();
     if input_available && let Some(frame) = engine_frame {
         let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
+        let key_presses: Vec<_> = keyboard
+            .read()
+            .filter(|input| input.state == ButtonState::Pressed)
+            .collect();
         let input = engine_input::EngineInput {
             touch: pointer_source.as_ref().is_some_and(|source| source.0),
             pointer_edges,
@@ -201,9 +210,12 @@ pub(crate) fn drive_server_form_input(
                 .read()
                 .map(|event| (event.y, scroll_unit(event.unit)))
                 .collect(),
-            typed: keyboard
-                .read()
-                .filter(|input| input.state == ButtonState::Pressed)
+            menu_cancel: key_presses
+                .iter()
+                .find(|input| menu_cancel_key(menu.as_deref(), input.key_code))
+                .map(|input| keyboard_key(input.key_code)),
+            typed: key_presses
+                .iter()
                 .map(|input| {
                     (
                         keyboard_key(input.key_code),
@@ -216,11 +228,10 @@ pub(crate) fn drive_server_form_input(
                         .into_iter()
                         .map(|(key, text)| (key, text, false)),
                 )
-                .chain(mouse.just_pressed(MouseButton::Back).then_some((
-                    KeyboardKey::Escape,
-                    None,
-                    false,
-                )))
+                .chain(
+                    menu_cancel_mouse(menu.as_deref(), &mouse)
+                        .map(|_| (KeyboardKey::Escape, None, false)),
+                )
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
             animator: presentation.form_animator(),
@@ -253,7 +264,8 @@ pub(crate) fn drive_server_form_input(
                 .server_forms_mut()
                 .scroll_rows((-pixels).clamp(-4096.0, 4096.0) as i32);
         }
-        let action = if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Back)
+        let action = if keys.just_pressed(KeyCode::Escape)
+            || menu_cancel_pressed(menu.as_deref(), &keys, &mouse, false)
         {
             Some((identity, LocalFormAction::Dismiss))
         } else if keys.just_pressed(KeyCode::Enter)

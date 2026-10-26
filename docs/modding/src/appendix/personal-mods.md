@@ -79,9 +79,12 @@ assuming an import succeeded. Shared values and ceilings live in
 [host limits](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-host/src/lib.rs).
 
 `gameplay.set-attack-reach` requires `interaction`; a non-`none` request also
-requires a current gameplay frame. It can shorten actor pick and attack reach
-within the current mode and input limits. Accepted requests cannot extend vanilla
-reach, and the grant does not lift that restriction. `none` restores normal rules.
+requires a current gameplay frame. It sets the local actor pick and attack distance
+up to `MAX_ENTITY_REACH_BLOCKS`. `none` restores the current mode and input profile.
+The override preserves attack eligibility and block obstruction checks, leaves
+mining and block-use reach alone, and does not change the server's attack validation.
+The existing generic `interaction` grant covers this request; individual mod
+features do not get separate grants.
 
 ## HUD surfaces
 

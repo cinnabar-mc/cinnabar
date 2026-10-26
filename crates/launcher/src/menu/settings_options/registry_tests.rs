@@ -464,6 +464,30 @@ fn mob_effects_defaults_to_z_under_its_vanilla_name() {
     assert_eq!(reloaded.named_key_control(BindingId::MobEffects), Some(tab));
 }
 
+/// Vanilla lists Menu Cancel in keyboard Controls under its own language key, defaulting to the
+/// Back mouse button, and a remap or unbind persists.
+#[test]
+fn menu_cancel_defaults_to_mouse_back_under_its_vanilla_name() {
+    let back = semantic_input::PhysicalControl::MouseButton(4);
+    let mut options = SettingsOptions::default();
+    assert_eq!(BindingId::MenuCancel.name(), "key.menuCancel");
+    assert_eq!(super::custom_key_label(BindingId::MenuCancel.name()), None);
+    assert_eq!(options.named_key_control(BindingId::MenuCancel), Some(back));
+    let row = BindingId::MenuCancel
+        .row(false)
+        .expect("keyboard Controls row");
+    let forward = semantic_input::PhysicalControl::MouseButton(5);
+    assert!(options.remap(row, forward));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(
+        reloaded.named_key_control(BindingId::MenuCancel),
+        Some(forward)
+    );
+    assert!(options.unbind_key(row));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(reloaded.named_key_control(BindingId::MenuCancel), None);
+}
+
 /// Iris's reload key defaults to R and remaps like other client controls.
 #[test]
 fn reload_shaders_defaults_to_r_and_remaps() {
