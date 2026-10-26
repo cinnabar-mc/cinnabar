@@ -72,7 +72,7 @@ struct State {
     world: WorldMaterials,
     /// How to undo this callback's staged declarations, newest last: rolling them back leaves
     /// what the last committed transaction left, which the client holds too.
-    world_undo: Vec<world_material::Undo>,
+    world_undo: Vec<server_experience::world_material::WorldUndo>,
     /// World material validations this callback has spent.
     world_compiles: u32,
 }

@@ -3,14 +3,8 @@
 
 use super::{Command, Result, State, cinnabar::server_experience::world_material as wit};
 use server_experience::world_material::{
-    WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget,
+    WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget, WorldUndo,
 };
-
-/// The previous value of one staged declaration, which restores it.
-pub(super) enum Undo {
-    Material(u32, Option<WorldMaterialSpec>),
-    Binding(u32, Option<WorldBinding>),
-}
 
 impl State {
     /// Applies `command`'s world declaration in place, checked against the bundle's memory,
@@ -22,11 +16,11 @@ impl State {
             Command::WorldMaterial { id, material } => self
                 .world
                 .set_material_within(*id, material.as_ref(), memory)
-                .map(|previous| Undo::Material(*id, previous)),
+                .map(|previous| WorldUndo::Material(*id, previous)),
             Command::WorldBinding { id, binding } => self
                 .world
                 .set_binding_within(*id, binding.as_ref(), memory)
-                .map(|previous| Undo::Binding(*id, previous)),
+                .map(|previous| WorldUndo::Binding(*id, previous)),
             _ => return Ok(()),
         };
         self.world_undo
@@ -35,18 +29,9 @@ impl State {
     }
 
     /// Undoes the declarations staged since the last committed transaction, newest first.
-    /// Each restores a state the declarations were in before, so none can be refused.
     pub(super) fn roll_back_world(&mut self) {
         while let Some(undo) = self.world_undo.pop() {
-            let restored = match undo {
-                Undo::Material(id, previous) => {
-                    self.world.set_material(id, previous.as_ref()).map(drop)
-                }
-                Undo::Binding(id, previous) => {
-                    self.world.set_binding(id, previous.as_ref()).map(drop)
-                }
-            };
-            debug_assert!(restored.is_ok(), "an undo restores a held state");
+            self.world.undo(undo);
         }
     }
 

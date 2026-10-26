@@ -1,5 +1,6 @@
 //! Host-owned declarative transactions and aggregate reservations.
 
+use crate::world_material::WorldUndo;
 use crate::{
     manifest::{Permission, Scope, identifier, plain_text},
     policy::*,
@@ -341,58 +342,85 @@ impl Contributions {
             serde_json::to_vec(transaction)?.len() <= MAX_HOST_OUTPUT,
             "transaction too large"
         );
-        let mut candidate = self.clone();
-        for command in &transaction.commands {
-            capabilities.validate(command)?;
-            match command {
-                Command::Widget { id, text } => {
-                    if text.is_empty() {
-                        candidate.widgets.remove(id);
-                    } else {
-                        candidate.widgets.insert(id.clone(), text.clone());
+        // Only the parts a command touches are copied, and world declarations change in place
+        // with an undo log, so a transaction costs what it changes.
+        let mut widgets = None;
+        let mut modal = None;
+        let mut scene = None;
+        let mut undo = Vec::new();
+        let mut checked = || -> Result<()> {
+            for command in &transaction.commands {
+                capabilities.validate(command)?;
+                match command {
+                    Command::Widget { id, text } => {
+                        let widgets = widgets.get_or_insert_with(|| self.widgets.clone());
+                        if text.is_empty() {
+                            widgets.remove(id);
+                        } else {
+                            widgets.insert(id.clone(), text.clone());
+                        }
                     }
-                }
-                Command::Screen { template } => candidate.modal.open(template.clone()),
-                Command::Collection { name, rows } => {
-                    candidate.modal.set_collection(name.clone(), rows.clone());
-                }
-                Command::Value { name, value } => {
-                    candidate.modal.set_value(name.clone(), value.clone());
-                }
-                Command::Text { control, text } => {
-                    candidate.modal.set_text(control.clone(), text.clone());
-                }
-                Command::Scene { id, object } => {
-                    if let Some(object) = object {
-                        candidate.scene.insert(*id, object.clone());
-                    } else {
-                        candidate.scene.remove(id);
+                    Command::Screen { template } => modal
+                        .get_or_insert_with(|| self.modal.clone())
+                        .open(template.clone()),
+                    Command::Collection { name, rows } => modal
+                        .get_or_insert_with(|| self.modal.clone())
+                        .set_collection(name.clone(), rows.clone()),
+                    Command::Value { name, value } => modal
+                        .get_or_insert_with(|| self.modal.clone())
+                        .set_value(name.clone(), value.clone()),
+                    Command::Text { control, text } => modal
+                        .get_or_insert_with(|| self.modal.clone())
+                        .set_text(control.clone(), text.clone()),
+                    Command::Scene { id, object } => {
+                        let scene = scene.get_or_insert_with(|| self.scene.clone());
+                        if let Some(object) = object {
+                            scene.insert(*id, object.clone());
+                        } else {
+                            scene.remove(id);
+                        }
                     }
+                    Command::WorldMaterial { id, material } => {
+                        let previous = self.world.set_material(*id, material.as_ref())?;
+                        undo.push(WorldUndo::Material(*id, previous));
+                    }
+                    Command::WorldBinding { id, binding } => {
+                        let previous = self.world.set_binding(*id, binding.as_ref())?;
+                        undo.push(WorldUndo::Binding(*id, previous));
+                    }
+                    Command::Send { .. } | Command::Media { .. } => {}
                 }
-                Command::WorldMaterial { id, material } => {
-                    candidate.world.set_material(*id, material.as_ref())?;
-                }
-                Command::WorldBinding { id, binding } => {
-                    candidate.world.set_binding(*id, binding.as_ref())?;
-                }
-                Command::Send { .. } | Command::Media { .. } => {}
             }
+            self.world.check(capabilities.scope.memory_bytes)?;
+            ensure!(
+                widgets.as_ref().unwrap_or(&self.widgets).len() <= MAX_WIDGETS,
+                "widget budget exceeded"
+            );
+            modal.as_ref().unwrap_or(&self.modal).check()?;
+            scene_budget(scene.as_ref().unwrap_or(&self.scene), 0, 0)?;
+            Ok(())
+        };
+        if let Err(error) = checked() {
+            while let Some(undo) = undo.pop() {
+                self.world.undo(undo);
+            }
+            return Err(error);
         }
-        candidate.world.check(capabilities.scope.memory_bytes)?;
-        ensure!(
-            candidate.widgets.len() <= MAX_WIDGETS,
-            "widget budget exceeded"
-        );
-        candidate.modal.check()?;
-        candidate.check_scene_budget(0, 0)?;
-        *self = candidate;
+        if let Some(widgets) = widgets {
+            self.widgets = widgets;
+        }
+        if let Some(modal) = modal {
+            self.modal = modal;
+        }
+        if let Some(scene) = scene {
+            self.scene = scene;
+        }
         Ok(())
     }
 
     /// Checks legacy scene costs together with the caller's active drawing placements.
     pub fn check_scene_budget(&self, drawing_draws: usize, drawing_triangles: u64) -> Result<()> {
-        self.remaining_scene_triangles(drawing_draws, drawing_triangles)
-            .map(|_| ())
+        scene_budget(&self.scene, drawing_draws, drawing_triangles).map(|_| ())
     }
 
     /// Checks synchronous scene work and returns the allowance left for asynchronous meshes.
@@ -401,27 +429,37 @@ impl Contributions {
         drawing_draws: usize,
         drawing_triangles: u64,
     ) -> Result<u64> {
-        ensure!(
-            self.scene.len().saturating_add(drawing_draws) <= MAX_DRAWS as usize,
-            "draw budget exceeded"
-        );
-        let mut triangles = drawing_triangles;
-        let mut particles = 0u64;
-        for object in self.scene.values() {
-            match object {
-                SceneObject::Quad { .. } => triangles = triangles.saturating_add(2),
-                SceneObject::Mesh {
-                    triangles: count, ..
-                } => triangles = triangles.saturating_add(u64::from(*count)),
-                SceneObject::Particles { count, .. } => particles += u64::from(*count),
-            }
-        }
-        ensure!(
-            triangles <= u64::from(MAX_TRIANGLES) && particles <= u64::from(MAX_PARTICLES),
-            "scene budget exceeded"
-        );
-        Ok(u64::from(MAX_TRIANGLES) - triangles)
+        scene_budget(&self.scene, drawing_draws, drawing_triangles)
     }
+}
+
+/// Checks `scene`'s legacy costs together with the caller's active drawing placements and
+/// returns the triangle allowance left for asynchronous meshes.
+fn scene_budget(
+    scene: &BTreeMap<u32, SceneObject>,
+    drawing_draws: usize,
+    drawing_triangles: u64,
+) -> Result<u64> {
+    ensure!(
+        scene.len().saturating_add(drawing_draws) <= MAX_DRAWS as usize,
+        "draw budget exceeded"
+    );
+    let mut triangles = drawing_triangles;
+    let mut particles = 0u64;
+    for object in scene.values() {
+        match object {
+            SceneObject::Quad { .. } => triangles = triangles.saturating_add(2),
+            SceneObject::Mesh {
+                triangles: count, ..
+            } => triangles = triangles.saturating_add(u64::from(*count)),
+            SceneObject::Particles { count, .. } => particles += u64::from(*count),
+        }
+    }
+    ensure!(
+        triangles <= u64::from(MAX_TRIANGLES) && particles <= u64::from(MAX_PARTICLES),
+        "scene budget exceeded"
+    );
+    Ok(u64::from(MAX_TRIANGLES) - triangles)
 }
 
 #[derive(Default)]

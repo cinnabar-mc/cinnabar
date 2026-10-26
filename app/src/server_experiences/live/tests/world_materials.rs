@@ -303,3 +303,43 @@ fn the_retained_declarations_and_decoded_textures_share_one_memory_ledger() {
             .any(|line| line.contains("memory limit"))
     );
 }
+
+#[test]
+fn a_refused_transaction_undoes_its_world_changes_made_in_place() {
+    let mut live = bound();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    let held = instance.contributions.world.clone();
+    let transaction = Transaction {
+        owner: instance.owner.clone(),
+        epoch: live.epoch,
+        commands: vec![
+            redeclare(9),
+            Command::WorldBinding {
+                id: 0,
+                binding: None,
+            },
+            Command::WorldBinding {
+                id: 7,
+                binding: Some(WorldBinding {
+                    target: WorldTarget::Entity("minecraft:player".into()),
+                    material: 1,
+                }),
+            },
+        ],
+    };
+    assert!(
+        instance
+            .contributions
+            .apply(
+                &transaction,
+                &instance.owner,
+                live.epoch,
+                &instance.capabilities
+            )
+            .is_err()
+    );
+    assert_eq!(
+        instance.contributions.world, held,
+        "the material and the unbinding applied before the refusal are undone"
+    );
+}
