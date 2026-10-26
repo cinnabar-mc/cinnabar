@@ -91,13 +91,14 @@ pub fn collect_held(
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
             {
                 HeldDisplay::PressurePlate(visual)
-            } else if assets::registry::pinned_block_model_family(visual)
-                == Some(assets::ModelFamily::Slab)
-                && !flat
+            } else if matches!(
+                assets::registry::pinned_block_model_family(visual),
+                Some(assets::ModelFamily::Slab | assets::ModelFamily::Carpet)
+            ) && !flat
                 && assets::registry::pinned_block_identity(visual)
                     .is_some_and(|(name, _)| name == key.identifier.as_ref())
             {
-                HeldDisplay::Slab(visual)
+                HeldDisplay::CenteredBlock(visual)
             } else if assets::registry::pinned_block_model_family(visual)
                 == Some(assets::ModelFamily::Fence)
                 && assets::registry::pinned_block_identity(visual)
@@ -126,7 +127,7 @@ enum HeldDisplay {
     Trapdoor(u32),
     Button(u32),
     PressurePlate(u32),
-    Slab(u32),
+    CenteredBlock(u32),
     Fence(u32, bool),
     Sprite,
 }
@@ -168,7 +169,7 @@ fn collect_shapes(
             Some(HeldDisplay::Trapdoor(shown)) => trapdoors::model(world, shown),
             Some(HeldDisplay::Button(shown)) => buttons::model(world, shown),
             Some(HeldDisplay::PressurePlate(shown)) => pressure_plates::model(world, shown),
-            Some(HeldDisplay::Slab(shown)) => slab_model(world, shown),
+            Some(HeldDisplay::CenteredBlock(shown)) => centered_carried_model(world, shown),
             Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
             _ => None,
         }
@@ -194,7 +195,7 @@ fn collect_shapes(
                     | HeldDisplay::Trapdoor(_)
                     | HeldDisplay::Button(_)
                     | HeldDisplay::PressurePlate(_)
-                    | HeldDisplay::Slab(_)
+                    | HeldDisplay::CenteredBlock(_)
                     | HeldDisplay::Fence(..),
                 ) => return None,
                 None if display.is_some()
@@ -347,8 +348,8 @@ fn template_model(
     template_quads(&quads)
 }
 
-/// Centers the carried slab between its caps while retaining full-height double slabs.
-fn slab_model(
+/// Centers admitted carried panels between their caps, retaining full-height double slabs.
+fn centered_carried_model(
     world: &RuntimeAssets,
     visual: u32,
 ) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
