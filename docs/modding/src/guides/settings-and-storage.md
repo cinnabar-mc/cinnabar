@@ -1,6 +1,6 @@
 # Settings and storage
 
-A mod has exactly one place to persist data: the `settings` interface, backed by a companion file that belongs to your component. There is no filesystem access, and no other storage.
+A personal mod has exactly one place to persist data: the `settings` interface, backed by a companion file that belongs to your component. There is no filesystem access, and no other storage.
 
 ```rust
 use mod_api::bindings::cinnabar::extension::settings;

@@ -1,6 +1,6 @@
 # Introduction
 
-Cinnabar mods are WebAssembly components. A mod runs inside the client, in a sandbox with no filesystem, network or operating-system access of its own, and talks to the client through a capability API defined in WebAssembly Interface Types (WIT). The host only gives a mod the capabilities the player has granted it, and every call is bounded: a mod that tries to do too much in one callback is stopped rather than allowed to stall the game.
+Personal Cinnabar mods are WebAssembly components. A personal mod runs inside the client, in a sandbox with no filesystem, network or operating-system access of its own, and talks to the client through a capability API defined in WebAssembly Interface Types (WIT). The host only gives a mod the capabilities the player has granted it, and every call is bounded: a mod that tries to do too much in one callback is stopped rather than allowed to stall the game.
 
 ## What mods can do
 
