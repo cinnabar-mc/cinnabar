@@ -455,7 +455,8 @@ Sneaking box height, pose fit and crouch eye follow StartGame's base game versio
 Near-contact collision fixes do not establish complete collision-engine parity.
 Remote player presentation interpolates received positions along straight segments,
 which can cross a block corner between clear endpoints. Teleports discard that
-segment immediately. Behavioral coverage of these cases does not establish
+segment immediately. A remote player teleport also releases the old riding link before
+the next seat update. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
 
 The anchor probe after teleports and replayed corrections reads the mover's contextual

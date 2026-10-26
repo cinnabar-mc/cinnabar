@@ -175,7 +175,7 @@ impl super::ActorStore {
     }
 
     /// Unlinks a rider from its vehicle, keeping both indexes in step.
-    fn unlink(&mut self, rider: i64) {
+    pub(super) fn unlink(&mut self, rider: i64) {
         let Some(vehicle) = self.rider_to_ridden.remove(&rider) else {
             return;
         };
