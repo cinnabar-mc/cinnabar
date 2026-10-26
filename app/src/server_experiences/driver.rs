@@ -540,6 +540,7 @@ fn present_world_materials(
         Option<Res<render_scene::world_material::WorldMaterialFailures>>,
         Option<Res<render_scene::world_material::WorldMaterialCarried>>,
     ),
+    client_world: Option<Res<crate::runtime::world::ClientWorld>>,
 ) {
     let service = &mut *service;
     if let Some(failures) = failures.as_deref() {
@@ -548,9 +549,16 @@ fn present_world_materials(
             .note_compile_failures(|key| failures.failed(key));
     }
     let run = service.world.run();
+    // A slot the stream's applied tags still name stays carried: meshes built from them may
+    // carry it however few resident meshes do now.
+    let table = client_world
+        .as_deref()
+        .and_then(|world| world.stream.as_ref())
+        .map_or(0, chunk_pipeline::WorldStream::world_material_slots);
     let carried = carried
         .as_deref()
         .map_or((0, u64::MAX), |carried| carried.get());
+    let carried = (carried.0, carried.1 | table);
     if !service.world.follow(service.live.as_mut(), carried) {
         return;
     }

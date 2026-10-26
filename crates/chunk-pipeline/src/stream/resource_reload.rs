@@ -217,6 +217,15 @@ impl WorldStream {
         self.world_material_progress
     }
 
+    /// The world material slots the applied tags name, one bit each: meshes built from now on
+    /// may carry any of them, so none may be handed to another owner.
+    #[must_use]
+    pub fn world_material_slots(&self) -> u64 {
+        self.world_materials
+            .iter()
+            .fold(0, |slots, (_, tag)| slots | 1_u64 << (tag - 1))
+    }
+
     /// Marks `key`'s outstanding world material remesh done once `revision` reaches what the
     /// change forced, or unconditionally when `revision` is `None` because `key` unloaded.
     pub(in crate::stream) fn settle_world_material(
