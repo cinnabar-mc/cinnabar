@@ -128,13 +128,19 @@ impl WorldMaterialPresenter {
                 );
                 continue;
             }
+            let Ok(slot) = u16::try_from(computes.len()) else {
+                self.report(
+                    bundle.bundle,
+                    id,
+                    attempt,
+                    "compute past the session's compute slots",
+                );
+                continue;
+            };
             if let Some(reason) = self.claim(identity, claimed) {
                 self.report(bundle.bundle, id, attempt, reason);
                 continue;
             }
-            let Ok(slot) = u16::try_from(computes.len()) else {
-                continue;
-            };
             *gpu -= charge;
             *memory -= host_bytes;
             claimed.remove(&identity);
