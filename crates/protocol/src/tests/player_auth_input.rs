@@ -17,6 +17,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [-32.0, 87.0],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING
@@ -72,8 +73,7 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
         ),
         (0.25, -0.5, -0.75)
     );
-    assert_eq!(input.interact_rotation.x, input.player_rotation.x);
-    assert_eq!(input.interact_rotation.y, input.player_rotation.y);
+    assert_eq!(input.interact_rotation.to_array(), [-32.0, 87.0]);
     assert_eq!(input.input_mode, InputMode::Mouse);
     assert_eq!(input.play_mode, ClientPlayMode::Normal);
     // The protocol-1001 Unknown(-1) workaround is gone: gophertunnel writes
@@ -254,6 +254,10 @@ fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     let mut invalid_rotation = snapshot();
     invalid_rotation.yaw = f32::INFINITY;
     assert!(player_auth_input(invalid_rotation).is_err());
+
+    let mut invalid_interaction = snapshot();
+    invalid_interaction.interact_rotation[0] = f32::NAN;
+    assert!(player_auth_input(invalid_interaction).is_err());
 
     let mut invalid_raw_carrier = snapshot();
     invalid_raw_carrier.raw_move_vector[0] = f32::NAN;

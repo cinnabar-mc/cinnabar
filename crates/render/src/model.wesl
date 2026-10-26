@@ -367,10 +367,24 @@ fn model_light_sample(quad: ModelQuad, corner: u32) -> u32 {
     return select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
 }
 
+/// Unit normal of a model-carrier face id; zero for faceless quads.
+fn model_face_normal(face: u32) -> vec3<f32> {
+    let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
+    return normals[face & 7u];
+}
+
 /// The quad's authored shading normal, turned with the model.
 fn model_quad_normal(quad: ModelQuad) -> vec3<f32> {
-    let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
-    return rotate_model_turn(normals[quad.quad_flags & 7u] + vec3(0.5), quad.rotation) - vec3(0.5);
+    return rotate_model_turn(model_face_normal(quad.quad_flags) + vec3(0.5), quad.rotation) - vec3(0.5);
+}
+
+/// Normal whose face coefficient shades the quad. Bamboo leaves keep the vertex colour
+/// left by the stem face native tessellation draws last.
+fn model_shade_normal(quad: ModelQuad, normal: vec3<f32>) -> vec3<f32> {
+    if (quad.is_bamboo && quad.quad_index >= BAMBOO_FIRST_LEAF_QUAD) {
+        return model_face_normal(BAMBOO_LEAF_SHADE_FACE);
+    }
+    return normal;
 }
 
 fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
@@ -411,7 +425,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
-    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    let dimming = material_face_shade(model_shade_normal(quad, out.normal), (light_sample & 2048u) != 0u, material.flags);
     let terrain_shade = select(ao * dimming, pad_shade, is_lily_pad);
     out.lighting = light_colour(light_sample) * terrain_shade;
     @if(ENHANCED)

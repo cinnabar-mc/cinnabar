@@ -22,6 +22,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
         yaw: 20.25,
         head_yaw: 30.75,
         camera_orientation: [0.25, -0.5, -0.75],
+        interact_rotation: [10.5, 20.25],
         flags: PlayerInputFlags::UP
             | PlayerInputFlags::LEFT
             | PlayerInputFlags::JUMPING

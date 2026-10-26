@@ -1,5 +1,96 @@
 use super::*;
 
+#[test]
+fn omitted_copper_armour_compiles_into_drawable_equipment() {
+    let dir = sample();
+    let facts = assets::facts::ItemFacts::builtin().unwrap();
+    let pieces: Vec<_> = facts
+        .payload()
+        .records
+        .iter()
+        .filter(|record| {
+            record.fact.tier == Some(assets::facts::ItemTier::Copper)
+                && record.fact.armour_slot.is_some()
+        })
+        .collect();
+    for record in &pieces {
+        let piece = record.identifier.strip_prefix("minecraft:copper_").unwrap();
+        let geometry = format!("geometry.player.armor.{piece}");
+        write(
+            dir.path(),
+            &format!("models/entity/{piece}.geo.json"),
+            serde_json::json!({
+                "format_version":"1.12.0","minecraft:geometry":[{
+                    "description":{"identifier":geometry,"texture_width":8,"texture_height":8},
+                    "bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]
+                }]
+            }),
+        );
+        write(
+            dir.path(),
+            &format!("attachables/{piece}.json"),
+            serde_json::json!({
+                "format_version":"1.8.0","minecraft:attachable":{"description":{
+                    "identifier":format!("fixture:{piece}"),"materials":{"default":"armor"},
+                    "geometry":{"default":format!("geometry.humanoid.armor.{piece}")},
+                    "textures":{"default":"textures/fixture"},
+                    "render_controllers":[CONTROLLER]
+                }}
+            }),
+        );
+        write(
+            dir.path(),
+            &format!("attachables/{piece}.player.json"),
+            serde_json::json!({
+                "format_version":"1.10.0","minecraft:attachable":{"description":{
+                    "identifier":format!("fixture:{piece}.player"),
+                    "item":{(format!("fixture:{piece}")):"query.owner_identifier == 'minecraft:player'"},
+                    "materials":{"default":"armor"},"geometry":{"default":geometry},
+                    "textures":{"default":"textures/fixture"},"render_controllers":[CONTROLLER],
+                    "scripts":{"animate":["offset"]},
+                    "animations":{"offset":"animation.fixture.offset"}
+                }}
+            }),
+        );
+    }
+    for layer in [1, 2] {
+        let texture = dir
+            .path()
+            .join(format!("textures/models/armor/copper_{layer}.png"));
+        fs::create_dir_all(texture.parent().unwrap()).unwrap();
+        fs::write(texture, b"original fixture raster").unwrap();
+    }
+    let compiled =
+        compile_entity_assets_with_report(dir.path(), assets::VANILLA_SOURCE_MANIFEST.as_bytes())
+            .unwrap();
+    for record in pieces {
+        let binding = compiled
+            .equipment_bindings
+            .iter()
+            .find(|binding| binding.identifier == record.identifier && binding.attachable.is_some())
+            .expect("copper armour needs its player-specific equipment binding");
+        assert!(matches!(
+            binding.category,
+            assets::EquipmentCategory::Armor { .. }
+        ));
+        assert_eq!(
+            binding.geometry.resolution,
+            assets::EntityDependencyResolution::Catalog
+        );
+        assert_eq!(
+            binding.texture.resolution,
+            assets::EntityDependencyResolution::Catalog
+        );
+        assert!(compiled.assets.rig_bindings.iter().any(|rig| {
+            compiled.assets.symbols[rig.entity_symbol as usize]
+                .identifier
+                .as_ref()
+                == binding.attachable_identifier()
+                && rig.item_condition.is_some()
+        }));
+    }
+}
+
 /// Writes a small original source document under a temporary pack root.
 fn write(root: &Path, path: &str, value: Value) {
     let target = root.join(path);
