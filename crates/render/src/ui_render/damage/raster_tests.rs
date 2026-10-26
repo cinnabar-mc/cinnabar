@@ -889,6 +889,7 @@ fn skinned_ui_model_matches_projected_gpu_pixels() {
         raster.draw(next, &expected, None);
         assert_eq!(raster.pixels(&before), raster.pixels(&expected));
     }
+    raster.draw(&animated, &before, None);
     let mut moved_bone = bone;
     moved_bone.screen[3][0] += 5.;
     let mut moved = animated.clone();
