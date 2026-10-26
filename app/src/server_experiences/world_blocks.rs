@@ -11,8 +11,9 @@ type Resolved = ((u64, u64, u64), Arc<[(u32, u8)]>);
 /// Resolves every bound block identifier to its network values and tags them with one more
 /// than their material slot. The stream remeshes only the sections holding a block whose tag
 /// changed, and their uploads still queued go too, so no mesh tagged before the change reaches
-/// the renderer after it and binding, unbinding and revocation show without a reconnect. An
-/// unchanged frame costs a key comparison and a pointer comparison.
+/// the renderer after it and binding, unbinding and revocation show without a reconnect. A
+/// change waits while the previous one still remeshes. An unchanged frame costs a key
+/// comparison and a pointer comparison.
 pub(super) fn tag_world_material_blocks(
     scene: Option<Res<WorldMaterialScene>>,
     mut client_world: ResMut<ClientWorld>,
@@ -45,7 +46,10 @@ pub(super) fn tag_world_material_blocks(
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
-    let withdrawn = stream.set_world_materials(tags, web_time::Instant::now());
+    // While the previous change still remeshes, this one waits for a later frame.
+    let Some(withdrawn) = stream.set_world_materials(tags, web_time::Instant::now()) else {
+        return;
+    };
     if let Some(mut queue) = queue {
         queue.withdraw_uploads(withdrawn);
     }

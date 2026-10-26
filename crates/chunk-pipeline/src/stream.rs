@@ -378,6 +378,9 @@ pub struct WorldStream {
     /// Sorted network values of blocks a programmable world material shades, with one more
     /// than its slot; see [`WorldStream::set_world_materials`].
     world_materials: Arc<[(u32, u8)]>,
+    /// The resident sections the last world material change remeshes; a new change waits
+    /// until none of them is still dirty.
+    world_material_outstanding: HashSet<SubChunkKey>,
     seasonal_foliage: seasonal_foliage::SeasonalFoliage,
     /// Dimension at the newest admitted wire position; commits may still lag behind it.
     ingress_dimension: i32,
