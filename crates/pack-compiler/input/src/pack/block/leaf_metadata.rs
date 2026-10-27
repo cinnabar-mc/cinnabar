@@ -2,9 +2,8 @@
 
 use super::{BlockTextureMap, Value};
 use assets::{
-    AssetError, BlockFace, MATERIAL_FLAG_ISOTROPIC, MATERIAL_LEAF_AO_EXPONENT_MAX,
-    MATERIAL_LEAF_AO_EXPONENT_SCALE, MATERIAL_LEAF_AO_EXPONENT_SHIFT, RegistryRecord,
-    legacy_resource_pack_block_alias, material_leaf_ao_exponent,
+    AssetError, BlockFace, MATERIAL_FLAG_ISOTROPIC, RegistryRecord,
+    legacy_resource_pack_block_alias,
 };
 
 impl BlockTextureMap {
@@ -27,10 +26,13 @@ impl BlockTextureMap {
         })
     }
 
-    pub fn leaf_world_face_flags(
+    /// World leaf face flags and the f32 bits of an authored `ambient_occlusion_exponent`.
+    /// Bedrock stores the authored float unchanged, so any finite number is kept; a missing
+    /// exponent is `None` and keeps the material's own.
+    pub fn leaf_world_metadata(
         &self,
         record: &RegistryRecord,
-    ) -> Result<[u32; BlockFace::ALL.len()], AssetError> {
+    ) -> Result<([u32; BlockFace::ALL.len()], Option<u32>), AssetError> {
         let name = record
             .name
             .strip_prefix("minecraft:")
@@ -40,41 +42,28 @@ impl BlockTextureMap {
             .get(name)
             .or_else(|| self.entries.get(legacy_resource_pack_block_alias(name)?));
         let Some(entry) = entry else {
-            return Ok([0; BlockFace::ALL.len()]);
+            return Ok(([0; BlockFace::ALL.len()], None));
         };
         let exponent = match entry.extra.get("ambient_occlusion_exponent") {
-            None | Some(Value::Null) => 0,
-            Some(value) => encode_exponent(value).ok_or_else(|| AssetError::InvalidCompiledAssets {
-                detail: format!(
-                    "unsupported world leaf ambient_occlusion_exponent for {}: carrier requires a positive exact hundredth within its bounded field",
-                    record.name
-                )
-                .into(),
-            })?,
+            None | Some(Value::Null) => None,
+            Some(value) => Some(exponent_bits(value).ok_or_else(|| {
+                AssetError::InvalidCompiledAssets {
+                    detail: format!(
+                        "world leaf ambient_occlusion_exponent for {} is not a finite number",
+                        record.name
+                    )
+                    .into(),
+                }
+            })?),
         };
-        Ok(self
-            .isotropic_face_flags(record)
-            .map(|flags| exponent | flags))
+        Ok((self.isotropic_face_flags(record), exponent))
     }
 }
 
-fn encode_exponent(value: &Value) -> Option<u32> {
-    // Current native block-graphics parse stores the f32 directly.
-    // Admit only values our compact carrier represents exactly; do not round
-    // custom exponents or alias authored zero to the omitted default of one.
+/// The f32 bits of a finite authored exponent, unrounded.
+fn exponent_bits(value: &Value) -> Option<u32> {
     let value = value.as_f64()? as f32;
-    if !value.is_finite() || value <= 0.0 {
-        return None;
-    }
-    let encoded = (value * MATERIAL_LEAF_AO_EXPONENT_SCALE as f32).round() as u32;
-    if encoded == 0
-        || encoded > MATERIAL_LEAF_AO_EXPONENT_MAX
-        || material_leaf_ao_exponent(encoded << MATERIAL_LEAF_AO_EXPONENT_SHIFT).to_bits()
-            != value.to_bits()
-    {
-        return None;
-    }
-    Some(encoded << MATERIAL_LEAF_AO_EXPONENT_SHIFT)
+    value.is_finite().then_some(value.to_bits())
 }
 
 fn is_isotropic(value: Option<&Value>, face: BlockFace) -> bool {
@@ -143,23 +132,14 @@ mod tests {
     }
 
     #[test]
-    fn exponent_encoding_is_exact_bounded_and_does_not_alias_authored_zero() {
-        for value in [0.01, 0.8, 1.0, 2.55] {
-            let flags = encode_exponent(&serde_json::json!(value)).unwrap();
+    fn exponents_keep_every_finite_authored_float() {
+        for value in [0.0_f32, 0.01, 0.333, 2.56, 9.99, 10.0, 37.5, -0.8] {
             assert_eq!(
-                assets::material_leaf_ao_exponent(flags).to_bits(),
-                (value as f32).to_bits()
+                exponent_bits(&serde_json::json!(value)),
+                Some(value.to_bits()),
+                "{value}"
             );
         }
-        assert_eq!(assets::material_leaf_ao_exponent(0), 1.0);
-        for value in [
-            serde_json::json!(0),
-            serde_json::json!(-0.8),
-            serde_json::json!(0.805),
-            serde_json::json!(2.56),
-            serde_json::json!("0.8"),
-        ] {
-            assert_eq!(encode_exponent(&value), None, "{value}");
-        }
+        assert_eq!(exponent_bits(&serde_json::json!("0.8")), None);
     }
 }

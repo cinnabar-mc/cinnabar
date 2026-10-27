@@ -1,12 +1,12 @@
 use super::*;
 
 #[test]
-fn a_custom_sheep_raster_rounds_its_alpha_instead_of_claiming_the_dye_mask() {
-    assert_eq!(probe_alpha(3, "sheep"), (1, 0));
+fn any_raster_drawn_with_a_colour_mask_material_keeps_its_mask_alpha() {
+    assert_eq!(probe_alpha(3, "sheep"), (1, 3));
 }
 
 #[test]
-fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha() {
+fn vanilla_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha() {
     let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").map(std::path::PathBuf::from)
     else {
         eprintln!("skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT is not set");
@@ -64,15 +64,15 @@ fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha
         );
     }
     let mut masks = 0;
-    for (index, texture) in catalog.textures().iter().enumerate() {
+    for texture in catalog.textures() {
         let source = &entities.sources[texture.source as usize];
-        let native = assets::native_actor_texture_uses_color_mask(source);
-        assert_eq!(catalog.texture_uses_color_mask(index), native);
-        if !native || !source.path.starts_with("textures/entity/sheep/") {
+        if !matches!(
+            source.path.as_ref(),
+            "textures/entity/sheep/sheep.tga" | "textures/entity/sheep/sheep_baby.tga"
+        ) {
             continue;
         }
         masks += 1;
-        assert!(catalog.texture_uses_color_mask(index));
         let raster = image::open(root.join(source.path.as_ref()))
             .unwrap()
             .into_rgba8()
@@ -92,6 +92,6 @@ fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha
     }
     assert_eq!(
         masks, 2,
-        "both adult and baby rasters are independently witnessed"
+        "both adult and baby rasters keep their mask alpha"
     );
 }

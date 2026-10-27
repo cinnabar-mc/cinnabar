@@ -403,6 +403,7 @@ fn item_use_durations_accept_commented_food_definitions() {
 #[test]
 fn equipment_dye_follows_authored_material_defines_instead_of_its_name() {
     let document = serde_json::json!({"materials": {
+        "version": "1.0.0",
         "cloth_tint:entity": {"+defines": ["USE_COLOR_MASK"]},
         "renamed:cloth_tint": {},
         "leather_decoy:entity": {},
@@ -415,7 +416,12 @@ fn equipment_dye_follows_authored_material_defines_instead_of_its_name() {
     }});
     let material_text = document.to_string();
     let mut payloads = payloads(&[("materials/test.material", &material_text)]);
-    for declaration in document["materials"].as_object().unwrap().keys() {
+    for declaration in document["materials"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|key| *key != "version")
+    {
         let material = declaration.split(':').next().unwrap();
         let attachable = serde_json::json!({"format_version": "1.10.0", "minecraft:attachable": {"description": {
             "identifier": format!("custom:{material}"),

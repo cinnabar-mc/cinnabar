@@ -134,7 +134,7 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["env-compat", "block-transform", "protocol-ids"]
+allowed_dependencies = ["env-compat", "block-transform", "protocol-ids", "render-api"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu", "diagnostics", "pack-runtime", "render", "render-model"]
 forbidden_transitive_dependencies = ["protocol", "tokio", "bevy", "bevy_*", "wgpu"]
 test_support_features = ["test-support"]
@@ -190,7 +190,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
-allowed_dependencies = ["pack-json", "assets"]
+allowed_dependencies = ["pack-json", "assets", "protocol-ids"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -1685,7 +1685,7 @@ literal = "_sword"
 reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
 
 [[identifier_literal_exceptions]]
-path = "app/src/runtime/network/block_overlay.rs"
+path = "app/src/runtime/network/block_overlay/materials.rs"
 literal = "water"
 reason = "Material tint_method schema value; this selects a tint channel, not a block identity."
 
@@ -2254,3 +2254,8 @@ forbidden_dependencies = ["bevy", "wgpu"]
 path = "tools/mod-docs/src/types.rs"
 literal = "string"
 reason = "WIT primitive type vocabulary in the API documentation renderer."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/texture_set.rs"
+literal = "color"
+reason = "Layer key of the Bedrock texture_set.json schema, not a block or item identifier."

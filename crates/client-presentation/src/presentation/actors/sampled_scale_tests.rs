@@ -229,8 +229,11 @@ fn always_depth_materials_bypass_terrain_occlusion_but_keep_view_culling() {
         }));
         let mut layers = rig.render.to_vec();
         assert!(!layers.is_empty(), "the fixture selects a material layer");
-        layers[0].material_state = Some(assets::EntityRenderMaterialState {
-            depth_always: true,
+        layers[0].render_state = Some(render_api::render_state::RenderState {
+            depth: render_api::render_state::DepthState {
+                compare: Some(render_api::render_state::CompareFunction::Always),
+                ..Default::default()
+            },
             ..Default::default()
         });
         let always = ActorRigSnapshot {
@@ -265,9 +268,11 @@ fn frame_selected_always_depth_layers_survive_terrain_occlusion() {
         max_distance: 100.0,
     });
     let through_wall = |layers: &[actor_animation::RenderTextureLayer]| {
-        layers
-            .iter()
-            .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+        layers.iter().any(|layer| {
+            layer
+                .render_state
+                .is_some_and(|raster| raster.ignores_stored_depth())
+        })
     };
     let mut probe = world.actor_render_frame(0.5);
     assert!(
@@ -622,8 +627,11 @@ fn camera_inside_remote_player_keeps_scale_and_layer_preparation() {
     );
     assert!(sampled.get());
     let mut layers = rig.render.to_vec();
-    layers[0].material_state = Some(assets::EntityRenderMaterialState {
-        depth_always: true,
+    layers[0].render_state = Some(render_api::render_state::RenderState {
+        depth: render_api::render_state::DepthState {
+            compare: Some(render_api::render_state::CompareFunction::Always),
+            ..Default::default()
+        },
         ..Default::default()
     });
     let layered = ActorRigSnapshot {
