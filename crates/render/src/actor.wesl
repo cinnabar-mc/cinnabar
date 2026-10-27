@@ -4,6 +4,8 @@ import render::glint::glint_layer_uvs;
 import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array_region};
+@if(WORLD_MATERIAL)
+import render::lighting::{world_atmosphere, world_fog_amount};
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -174,8 +176,10 @@ fn actor_vertex(
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     out.material = instance_words[instance_base + 27u];
     if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
-    let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
-    out.skin_info.z = select(0xffffffffu, instance_index, has_glint);
+    let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || (out.material & ACTOR_GLINT_DEFINE_FLAG) != 0u || word_f32(instance_base + 35u) != 0.0;
+    // Cinnabar material masks name layers of the draw's page; MAX names none.
+    let has_masks = instance_words[instance_base + 37u] != 0xffffffffu || instance_words[instance_base + 38u] != 0xffffffffu;
+    out.skin_info.z = select(0xffffffffu, instance_index, has_glint || has_masks);
     out.material_parameters.x = instance_words[instance_base + 28u];
     let light_color_multiplier = word_f32(instance_base + 29u);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
@@ -305,7 +309,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let uv_dy = dpdy(uv);
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
-    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
+    let color_mask_material = (input.material & (ACTOR_MATERIAL_COLOR_MASK_FLAG | ACTOR_COLOR_MASK_MATERIAL_FLAG)) != 0u;
     let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
@@ -367,21 +371,76 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
         }
     }
     if (multitexture_material) {
-        // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
-        // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
         let tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
-        let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
-        color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
+        let multiplier = select(vec3(1.0), unpack4x8unorm(input.tint).rgb, input.tint != 0u);
+        // The shipped actor programs (ActorTint, Actor and ActorMultiTexture
+        // material.bin, Opaque pass) compose the second and third textures as below.
+        if ((input.material & ACTOR_TEXTURE_TINT_FLAG) != 0u) {
+            // MULTIPLICATIVE_TINT: the tinted second texture lies over the base by its alpha.
+            color = vec4(mix(color.rgb, tex1.rgb * multiplier, tex1.a), color.a);
+        } else if ((input.material & ACTOR_TEXTURE_MASK_FLAG) != 0u) {
+            // MASKED_MULTITEXTURE: the second texture replaces the base, alpha included, where
+            // it is opaque or black; elsewhere the base shows.
+            if ((tex1.r + tex1.g + tex1.b) * (1.0 - tex1.a) <= 0.0) { color = tex1; }
+        } else {
+            // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
+            // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
+            let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
+            color = vec4(mix(color.rgb, tex1.rgb, tex1.a), color.a);
+            if ((input.material & ACTOR_COLOR_SECOND_TEXTURE_FLAG) != 0u) {
+                // COLOR_SECOND_TEXTURE: a visible third texture replaces the mix, dyed by the
+                // change colour by its own alpha.
+                if (tex2.a > ACTOR_FP_EPSILON) { color = vec4(mix(tex2.rgb, tex2.rgb * multiplier, tex2.a), color.a); }
+            } else {
+                color = vec4(mix(color.rgb, tex2.rgb, tex2.a), color.a);
+            }
+        }
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.material_parameters.y != 0u);
-    let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
-    var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
+    // Cinnabar masks: glow adds after lighting; emissive draws masked texels unlit.
+    var glow = vec3(0.0);
+    var unlit = 0.0;
+    if (input.skin_info.z != 0xffffffffu) {
+        let base = input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS;
+        let strength = word_f32(base + 39u);
+        let glow_layer = instance_words[base + 37u];
+        let emissive_layer = instance_words[base + 38u];
+        if (glow_layer != 0xffffffffu) {
+            let mask = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(glow_layer), uv_dx, uv_dy));
+            glow = mask.rgb * mask.a * strength;
+        }
+        if (emissive_layer != 0xffffffffu) {
+            unlit = clamp(textureSampleGrad(skins, skin_sampler, uv, i32(emissive_layer), uv_dx, uv_dy).a * strength, 0.0, 1.0);
+        }
+    }
+    // A programmable world material replaces the Bedrock colour before the host lights, fogs
+    // and blends it as an ordinary material; its emission adds after lighting like a glow mask.
+    @if(WORLD_MATERIAL)
+    {
+        let fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
+        let world_surface = world_material_resolve(WorldMaterialInput(
+            uv, input.world_position, color, vec4(native_lighting, 1.0),
+            vec4(fog_gamma, world_fog_amount(input.world_position, view.world_position)),
+            overlay, world_material_phase()));
+        @if(WORLD_MATERIAL_CUTOUT)
+        if (world_surface.coverage < 0.5) { discard; }
+        color = vec4(world_surface.color, world_surface.coverage);
+        @if(WORLD_MATERIAL_OPAQUE || WORLD_MATERIAL_CUTOUT)
+        { color.a = 1.0; }
+        glow += world_surface.emission;
+    }
+    let lighting = mix(select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive), vec3(1.0), unlit);
+    var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting + glow;
     var legacy_foil = vec3(0.0);
     var legacy_alpha = color.a;
-    if (input.skin_info.z != 0xffffffffu) {
+    // A `GLINT` material adds the glint as the shipped ActorGlint program composes it (the
+    // Opaque pass): two layers of the glint texture summed, tinted and lit, squared and added
+    // before fog with the alpha unchanged. The colour, rotation, scroll and scale the CPU sets
+    // are unknown, so the client's actor glint supplies them.
+    if (input.skin_info.z != 0xffffffffu && (material == ACTOR_MATERIAL_GLINT || (input.material & ACTOR_GLINT_DEFINE_FLAG) != 0u || word_f32(input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS + 35u) != 0.0)) {
         let base = input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS;
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
         let strength = word_f32(base + 32u);
@@ -408,9 +467,14 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     @if(!ALPHA_TO_COVERAGE)
     let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position) + legacy_foil, legacy_alpha);
     @if(ACTOR_GAMMA_BLEND)
-    return fogged_gamma;
+    let output = fogged_gamma;
     @if(!ACTOR_GAMMA_BLEND)
-    return tint_to_linear(fogged_gamma);
+    let output = tint_to_linear(fogged_gamma);
+    // Premultiplied and additive world material classes blend with a source factor of one.
+    @if(WORLD_MATERIAL_PREMULTIPLY)
+    return vec4(output.rgb * output.a, output.a);
+    @if(!WORLD_MATERIAL_PREMULTIPLY)
+    return output;
 }
 
 @fragment

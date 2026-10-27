@@ -185,6 +185,7 @@ fn stale_and_partially_invalid_transactions_never_publish() {
         channels: Vec::new(),
         actions: BTreeSet::new(),
         max_message_bytes: policy::MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     };
     let transaction = runtime::Transaction {
         owner: owner.clone(),
@@ -317,6 +318,7 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
             channels: vec![channel.clone()],
             actions: BTreeSet::new(),
             max_message_bytes: grant.wire.limits.max_message_bytes,
+            namespace: None,
         },
     )]);
     let mut ingress = wire::Ingress::new(0);
@@ -476,6 +478,7 @@ fn modal_texts_are_bounded_and_sequenced() {
         channels: Vec::new(),
         actions: BTreeSet::new(),
         max_message_bytes: policy::MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     };
     let text = |control: &str, text: &str| runtime::Command::Text {
         control: control.into(),

@@ -11,6 +11,7 @@ pub(in crate::runtime::network) fn compile_block_item_overlay(
     max_layers: u32,
     base: Option<&assets::RuntimeAssets>,
     shared: Option<&SharedTextures>,
+    fancy_graphics: bool,
 ) -> Option<(CompiledBlockOverlay, CustomBlocks)> {
     if !blocks
         .blocks
@@ -69,6 +70,7 @@ pub(in crate::runtime::network) fn compile_block_item_overlay(
         max_layers,
         base,
         shared,
+        fancy_graphics,
     )?;
     Some((compiled, definitions))
 }

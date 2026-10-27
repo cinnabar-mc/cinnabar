@@ -32,8 +32,11 @@ fn render_projectile_states() {
         .iter()
         .map(|binding| binding.geometry_candidate)
         .collect::<Vec<_>>();
-    let pages = render_model::ActorArtworkPages::default()
-        .with_pack_artwork(catalog.textures(), catalog.bindings());
+    let pages = render_model::ActorArtworkPages::default().with_pack_artwork(
+        catalog.textures(),
+        catalog.bindings(),
+        &Default::default(),
+    );
     std::fs::create_dir_all(&out).unwrap();
     for (name, identifier, pitch, yaw) in [
         ("arrow_flight", "minecraft:arrow", -20.0, 60.0),

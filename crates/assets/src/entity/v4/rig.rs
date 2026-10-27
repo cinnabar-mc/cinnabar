@@ -160,10 +160,17 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
     Ok(())
 }
 
+/// Whether `expression` yields 0 or 1: it ends in a comparison or logical test, or folded to
+/// one of those constants.
 fn is_boolean_expression(compiled: &CompiledEntityAssets, expression: u32) -> bool {
     let Some(expression) = compiled.molang_expressions.get(expression as usize) else {
         return false;
     };
+    if expression.op_count == 1
+        && let Some(MolangOp::Push(value)) = compiled.molang_ops.get(expression.first_op as usize)
+    {
+        return value.get() == 0.0 || value.get() == 1.0;
+    }
     let last = expression
         .first_op
         .checked_add(u32::from(expression.op_count))
