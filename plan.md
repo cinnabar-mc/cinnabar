@@ -1463,21 +1463,23 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   pointer and wheel) have host and adapter regression coverage. The tilt's sign
   follows the native damage shake. Populated-world and displayed-frame acceptance
   remain pending.
-- Native extension UI and HUD APIs (retained modules, profile fields, text plates,
-  compass markers and bounded camera overrides) still need
+- Native extension UI and HUD APIs (JSON-UI surfaces, text metrics,
+  projected values and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance. Packet extensions now
   present guest-computed detached views, extrapolated by velocity between callbacks,
   with exactly reported look capture, movement capture and view tilt through the
   shared camera owners. Offline regressions cover queued look and time across packet
   callbacks, retained camera baselines beyond the submission history, and text metrics
   across guest replacement and reload; interactive flight, perspective release, teleport and tilt
-  acceptance remain unverified in a displayed client. Panel previews now
-  select owner-scoped HUD cards, including preview-only cards, and share retained
-  gameplay artwork. Optional measured fitting sizes and aligns their painted bounds
-  within tiles and sheet stages, retaining each visible instance's multiplier.
+  acceptance remain unverified in a displayed client. Panel previews
+  select named controls from the same mod's HUD surfaces and share retained gameplay
+  artwork. Optional measured fitting sizes and aligns their painted bounds within
+  tiles and sheet stages, retaining each visible instance's multiplier.
   Focused rendering and cache regressions cover visible previews;
   populated-world and displayed-frame acceptance remain pending.
-  Personal panels and HUD editor surfaces can bind the host local player's name
+  Personal panels can bind the host local player's name.
+  Personal HUD editing belongs to the first-party mod; the host retains the shared
+  geometry, snapping, history and chrome backend for the built-in touch-controls editor.
 - Mods draw their HUDs as JSON-UI surfaces over gameplay: independent top-level controls
   are painted and cached on their own; roots with layered descendants or collection grids stay together
   to preserve paint order. Item and projected values resolve on the host,

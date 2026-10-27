@@ -437,6 +437,11 @@ retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
 | Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
+Personal HUD editing belongs to the first-party mod. The host retains generic HUD
+surfaces, bounds, bindings and element visibility, plus the touch-controls editor
+backend. Touch editor placement, history and factory reflow have offline regression
+coverage; this cleanup closes no live HUD acceptance gate.
+
 Attack-category cooldown shading has owning timer and hotbar-publication regressions
 for admission rollback, shared categories and expiry. A local spear jab reproduces
 the missing overlay against the official client; broader HUD parity remains open.

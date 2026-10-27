@@ -3,9 +3,6 @@ use super::*;
 impl ModUi {
     /// Releases pointer capture while preserving the panel and its editor draft.
     pub fn cancel_mod_panel_pointer_input(&mut self) {
-        if let Some(editor) = self.mod_hud_editor.as_mut() {
-            editor.cancel_pointer_input();
-        }
         if let Some(panel) = self.mod_panel.as_mut() {
             panel.cancel_pointer_input();
         }

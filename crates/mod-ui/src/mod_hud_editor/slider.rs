@@ -185,23 +185,4 @@ impl HudEditor {
             self.data_dirty = true;
         }
     }
-
-    /// Mirrors every guest slider's fill; returns whether any fill changed.
-    pub(super) fn sync_control_fills(&mut self, controls: &[Control]) -> bool {
-        let fills = controls
-            .iter()
-            .enumerate()
-            .filter_map(|(index, control)| match control {
-                Control::Slider {
-                    value, min, max, ..
-                } => Some((index, f64::from((value - min) / (max - min)).clamp(0., 1.))),
-                _ => None,
-            });
-        if fills.clone().eq(self.control_fills.iter().copied()) {
-            return false;
-        }
-        self.control_fills.clear();
-        self.control_fills.extend(fills);
-        true
-    }
 }
