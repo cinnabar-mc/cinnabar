@@ -31,6 +31,7 @@ enum SlotView<'a> {
 pub(crate) struct MolangVariables {
     pub(super) frame: Option<Box<frame::ScratchState>>,
     buffers: storage::Storage,
+    spares: storage::Spares,
     random: u64,
     random_draws: u64,
     publication_random: Option<(u64, u64)>,
@@ -42,7 +43,8 @@ impl Clone for MolangVariables {
     fn clone(&self) -> Self {
         let mut copy = Self {
             frame: None,
-            buffers: storage::Storage::lease(),
+            buffers: self.spares.lease(),
+            spares: storage::Spares::default(),
             ..Self::default()
         };
         copy.clone_from(self);
@@ -53,6 +55,7 @@ impl Clone for MolangVariables {
     fn clone_from(&mut self, source: &Self) {
         self.frame = None;
         self.buffers.copy_from(&source.buffers);
+        self.spares.clone_from(&source.spares);
         self.random = source.random;
         self.random_draws = source.random_draws;
         self.publication_random = source.publication_random;
@@ -62,7 +65,7 @@ impl Clone for MolangVariables {
 
 impl Drop for MolangVariables {
     fn drop(&mut self) {
-        std::mem::take(&mut self.buffers).recycle();
+        self.spares.recycle(std::mem::take(&mut self.buffers));
     }
 }
 
@@ -108,7 +111,8 @@ impl MolangVariables {
     pub(super) fn fresh(layout: &VariableLayout, seed: u64) -> Self {
         let mut variables = Self {
             frame: None,
-            buffers: storage::Storage::lease(),
+            buffers: storage::Storage::default(),
+            spares: storage::Spares::default(),
             random: seed | 1,
             ..Self::default()
         };

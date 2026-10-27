@@ -124,3 +124,53 @@ fn copying_a_changed_layout_clears_old_slots_and_preserves_string_ownership() {
         Some(MolangValue::ActorReference(42))
     );
 }
+
+#[test]
+fn completed_batches_return_storage_to_their_source_across_threads() {
+    const OWNERS: usize = 8;
+    let layout = VariableLayout {
+        variable_count: 1_024,
+        temp_count: 512,
+        ..Default::default()
+    };
+    let sources: Vec<_> = (0..OWNERS)
+        .map(|owner| {
+            let mut values = layout.fresh(7);
+            values.set(Some(0), owner as f32);
+            values.set_string(Some(1), "retained");
+            values
+        })
+        .collect();
+    std::thread::scope(|scope| {
+        let (request, requests) = std::sync::mpsc::sync_channel::<Vec<MolangVariables>>(0);
+        let (result, results) = std::sync::mpsc::sync_channel(0);
+        let sources = &sources;
+        scope.spawn(move || {
+            for _ in 0..3 {
+                let mut copies = requests.recv().unwrap();
+                let (_, allocated) = test_alloc::measure(|| {
+                    for source in sources {
+                        copies.push(source.clone());
+                    }
+                });
+                result.send((copies, allocated)).unwrap();
+            }
+        });
+        let mut spare = Vec::with_capacity(OWNERS);
+        for round in 0..3 {
+            request.send(spare).unwrap();
+            let (mut copies, allocated) = results.recv().unwrap();
+            if round > 0 {
+                assert_eq!(allocated, test_alloc::Allocations::default());
+            }
+            for (owner, copy) in copies.iter_mut().enumerate() {
+                assert_eq!(copy.get(Some(0)), Some(owner as f32));
+                assert_eq!(copy.variable(1), sources[owner].variable(1));
+                copy.set(Some(0), -1.0);
+                assert_eq!(sources[owner].get(Some(0)), Some(owner as f32));
+            }
+            copies.clear();
+            spare = copies;
+        }
+    });
+}

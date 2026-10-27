@@ -1,16 +1,52 @@
 //! Reusable slot arrays for independent transactional variable copies.
 
 use super::{Arc, Slot};
-use std::cell::RefCell;
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 /// Cleared spare sets bound retained memory; a cache miss always allocates valid storage.
 const SPARE_SETS: usize = 4;
 
-thread_local! {
-    static SPARES: RefCell<Vec<Storage>> = const { RefCell::new(Vec::new()) };
+/// Copies share their source's cache, including when evaluation and retirement use different threads.
+#[derive(Clone, Default)]
+pub(super) struct Spares(OnceLock<Arc<Mutex<[Option<Storage>; SPARE_SETS]>>>);
+
+impl std::fmt::Debug for Spares {
+    /// Cache contents are not authored state and must not affect state diagnostics.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Spares")
+    }
 }
 
-/// Owned arrays have no destructor, so returning them cannot recurse during thread teardown.
+impl Spares {
+    /// Takes cleared arrays from this snapshot family without limiting content admission.
+    pub fn lease(&self) -> Storage {
+        self.0
+            .get_or_init(|| Arc::new(Mutex::new([const { None }; SPARE_SETS])))
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+            .find_map(Option::take)
+            .unwrap_or_default()
+    }
+
+    /// Returns retired arrays to their source family after releasing all string ownership.
+    pub fn recycle(&self, mut storage: Storage) {
+        let Some(spares) = self.0.get() else {
+            return;
+        };
+        if storage.values.capacity() == 0 && storage.temps.capacity() == 0 {
+            return;
+        }
+        storage.clear();
+        storage.writes.clear();
+        let mut spares = spares.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(spare) = spares.iter_mut().find(|spare| spare.is_none()) {
+            *spare = Some(storage);
+        }
+    }
+}
+
+/// Owned arrays have no destructor and never retain their cache, so recycling cannot form a cycle.
 #[derive(Debug, Default)]
 pub(super) struct Storage {
     pub values: Vec<Slot>,
@@ -26,20 +62,6 @@ pub(super) struct Storage {
 }
 
 impl Storage {
-    /// Takes an empty spare without imposing a limit on authored layouts.
-    pub fn lease() -> Self {
-        SPARES
-            .try_with(|spares| {
-                spares
-                    .try_borrow_mut()
-                    .ok()
-                    .and_then(|mut spares| spares.pop())
-            })
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    }
-
     /// Marks one valid assignment in the combined variable and temporary slot space.
     pub fn assign(&mut self, slot: usize) {
         let word = slot / u64::BITS as usize;
@@ -86,22 +108,6 @@ impl Storage {
         self.strings.clone_from(&source.strings);
         self.free_strings.clone_from(&source.free_strings);
         self.writes.clone_from(&source.writes);
-    }
-
-    /// Returns cleared arrays when there is spare capacity in this thread's cache.
-    pub fn recycle(mut self) {
-        if self.values.capacity() == 0 && self.temps.capacity() == 0 {
-            return;
-        }
-        self.clear();
-        self.writes.clear();
-        let _ = SPARES.try_with(|spares| {
-            if let Ok(mut spares) = spares.try_borrow_mut()
-                && spares.len() < SPARE_SETS
-            {
-                spares.push(self);
-            }
-        });
     }
 }
 
