@@ -87,6 +87,14 @@ impl LocalPhysicsController {
             // an earlier render frame and still held, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             input.jumping = physical_jump_held || self.jump_pulse_pending;
+            // A Normal-mode MovePlayer ease steps before travel; rendering eases from the
+            // position this tick started at.
+            let movement_lerp = self.movement_lerp;
+            let lerp_entry = movement_lerp.map(|lerp| {
+                let entry = (state.position, state.velocity);
+                self.movement_lerp = lerp.step(state);
+                entry
+            });
             let grounded_before_tick = state.on_ground;
             let jump_repeated = !input.immobile
                 && input.jumping
@@ -182,18 +190,17 @@ impl LocalPhysicsController {
                 self.vehicle.reset();
                 None
             };
-            // A queued server impulse replaces this tick's starting velocity,
-            // mirroring how Bedrock applies knockback as an absolute velocity.
-            // The overlay is retained after application so a correction
-            // rewind covering its tick re-applies it deterministically;
-            // capacity bounds evict the oldest entries.
-            let next_tick = state.tick.saturating_add(1);
-            for overlay in self
-                .server_motions
-                .iter()
-                .filter(|overlay| overlay.tick == next_tick)
-            {
-                state.velocity = overlay.velocity;
+            // Interpolation already cleared this tick's velocity. Retain stamped impulses
+            // for replay, where they enter before that same interpolation step.
+            if movement_lerp.is_none() {
+                let next_tick = state.tick.saturating_add(1);
+                for overlay in self
+                    .server_motions
+                    .iter()
+                    .filter(|overlay| overlay.tick == next_tick)
+                {
+                    state.velocity = overlay.velocity;
+                }
             }
             let before = riding::before_seat(state.position, seated, self.vehicle.continued());
             // The liquid probe uses the prior tick's pose-adjusted eye anchor.
@@ -279,6 +286,7 @@ impl LocalPhysicsController {
                         jump_repeated,
                         ride_delta: seated.map(|seated| seated.delta),
                         actor_position: self.actor_position_pending.take(),
+                        movement_lerp,
                         input,
                         modes: self.modes,
                         environment: result.environment,
@@ -289,7 +297,7 @@ impl LocalPhysicsController {
                     controller.sync_state = self.sync_state;
                     self.controller_history.push_back(controller);
                     effects.commit_successful_tick();
-                    self.previous_position = before;
+                    self.previous_position = lerp_entry.map_or(before, |(position, _)| position);
                     self.visual_correction.tick();
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
@@ -401,6 +409,11 @@ impl LocalPhysicsController {
                     }
                     self.modes = previous_modes;
                     state.position = riding::unseated(state.position, seated, &self.vehicle);
+                    if let Some((position, velocity)) = lerp_entry {
+                        state.set_position(position);
+                        state.velocity = velocity;
+                        self.movement_lerp = movement_lerp;
+                    }
                     self.vehicle.discard_pending();
                     let retryable_collision_blocked = matches!(
                         &error,
