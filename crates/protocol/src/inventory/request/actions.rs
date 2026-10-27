@@ -52,7 +52,7 @@ pub struct StackRequestSlot {
     pub container: StackRequestContainer,
     pub slot: u8,
     /// A positive server id, `0` for an empty cell, or a negative odd request
-    /// id naming a prior prediction (including empty cells) or created output.
+    /// id naming a prediction (including a preceding action in this request) or created output.
     pub stack_network_id: i32,
 }
 
@@ -151,6 +151,42 @@ pub enum StackRequestAction {
         results: Arc<[CraftResult]>,
         crafts: u8,
     },
+}
+
+impl StackRequestAction {
+    /// Explicit cells a transfer, swap, drop or destroy changes before the next action.
+    /// Crafting consumption and generated outputs follow their separate recipe contracts.
+    pub fn updated_slots(&self) -> impl Iterator<Item = StackRequestSlot> {
+        let (first, second) = match self {
+            Self::Take {
+                source,
+                destination,
+                ..
+            }
+            | Self::Place {
+                source,
+                destination,
+                ..
+            }
+            | Self::Swap {
+                source,
+                destination,
+            } => (Some(*source), Some(*destination)),
+            Self::Drop { source, .. } | Self::Destroy { source, .. } => (Some(*source), None),
+            Self::Consume { .. }
+            | Self::Create { .. }
+            | Self::BeaconPayment { .. }
+            | Self::MineBlock { .. }
+            | Self::CraftRecipe { .. }
+            | Self::AutoCraft { .. }
+            | Self::CraftCreative { .. }
+            | Self::CraftRecipeOptional { .. }
+            | Self::Grindstone { .. }
+            | Self::Loom { .. }
+            | Self::CraftResultsDeprecated { .. } => (None, None),
+        };
+        first.into_iter().chain(second)
+    }
 }
 
 /// Largest count one stack-request action moves: the codec's bound, which a test pins to the
@@ -350,7 +386,7 @@ fn item_descriptor(descriptor: &StackItemDescriptor) -> ItemDescriptor {
 }
 
 /// Encodes one slot with the container name and wire index vanilla uses.
-fn slot(slot: StackRequestSlot) -> Result<StackRequestSlotInfo, InventoryPacketError> {
+pub(super) fn slot(slot: StackRequestSlot) -> Result<StackRequestSlotInfo, InventoryPacketError> {
     use StackRequestContainer as C;
     let invalid = InventoryPacketError::InvalidStackRequestSlot {
         container: slot.container,

@@ -15,6 +15,35 @@ mod storage_tests;
 
 mod world_drop;
 
+#[test]
+fn gathered_stacks_can_be_dropped_before_the_server_reply() {
+    let mut ledger = open_ledger(&[
+        (0, stack(6, 10, 2)),
+        (1, stack(6, 11, 3)),
+        (2, stack(6, 12, 4)),
+    ]);
+    let pickup = ledger.begin_click(0).unwrap();
+    let gather = ledger.begin_gather().unwrap();
+    let actions = &ledger.newest_request().unwrap().actions;
+    assert_eq!(actions.len(), 2);
+    for (index, action) in actions.iter().enumerate() {
+        let StackRequestAction::Take { destination, .. } = action else {
+            panic!("expected gathered items");
+        };
+        assert_eq!(
+            destination.stack_network_id,
+            if index == 0 { pickup } else { gather }
+        );
+    }
+    ledger.begin_drop(DropSource::Cursor, Some(1)).unwrap();
+    let Some(StackRequestAction::Drop { source, amount, .. }) = ledger.newest_action() else {
+        panic!("expected a cursor drop");
+    };
+    assert_eq!((source.stack_network_id, amount), (gather, 1));
+    assert_eq!(ledger.cursor_stack().unwrap().count, 8);
+    assert_eq!(ledger.pending_batch().unwrap().unwrap().1, 3);
+}
+
 /// Reads the reserved wire identity of a drop still awaiting transport.
 fn drop_legacy_id(ledger: &PlayerInventoryLedger, request_id: i32) -> i32 {
     ledger
