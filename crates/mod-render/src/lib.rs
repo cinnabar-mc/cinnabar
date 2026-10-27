@@ -14,6 +14,7 @@ pub mod masks;
 pub mod material;
 pub mod retained;
 pub mod shader;
+pub mod world_material;
 
 use mod_api::{
     MAX_PASS_PARAMS, MAX_PRIMITIVE_COORDINATE, MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_BEAMS,

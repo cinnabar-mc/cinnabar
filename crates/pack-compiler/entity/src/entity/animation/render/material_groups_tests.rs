@@ -12,9 +12,14 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
     .unwrap();
     let controller = controller.as_object().unwrap();
     let groups = resolve(
+        ("minecraft:test", "controller.render.test"),
         description.as_object().unwrap(),
         controller,
         &MaterialStates::default(),
+        (
+            &mut MaterialTable::default(),
+            &mut super::super::materials::provenance::MaterialProvenance::default(),
+        ),
         &[geometry],
         [0],
         &mut None,
@@ -35,6 +40,7 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
                 visibility.push(EntityRenderVisibility {
                     pattern: pattern.to_ascii_lowercase().into(),
                     condition,
+                    hide_only: false,
                 });
             }
         }
@@ -57,6 +63,7 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
             candidates: &mut Vec::new(),
             visibility: &mut visibility,
             geometries: &mut Vec::new(),
+            skipped_draws: &mut 0,
         },
         &mut molang,
     )
@@ -75,9 +82,11 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
 /// Reads expected raster words from the compiler material resolver.
 fn material_word(name: &str) -> u32 {
     let rules = assets::facts::pack::rules();
-    rules
-        .raster(name)
-        .word(MaterialStates::default().resolve(name))
+    rules.raster(name).word(
+        MaterialStates::default()
+            .resolve(name, &mut MaterialTable::default())
+            .map(|(state, _)| state),
+    )
 }
 
 /// Resolves the raster words that actually draw one named bone for a fixture query value.
@@ -93,11 +102,21 @@ fn drawn(fixture: &(assets::EntityRenderData, MolangCompiler), bone: &str, value
         .iter()
         .filter(|layer| layer.condition.is_none_or(|index| read(index) != 0.0))
         .filter(|layer| {
-            data.visibility[layer.first_visibility as usize
+            // Later rules override earlier ones; a hide-only rule can only hide.
+            let mut hidden = false;
+            for rule in &data.visibility[layer.first_visibility as usize
                 ..layer.first_visibility as usize + usize::from(layer.visibility_count)]
-                .iter()
-                .rfind(|rule| entity_render_pattern_matches(&rule.pattern, bone))
-                .is_none_or(|rule| read(rule.condition) != 0.0)
+            {
+                if entity_render_pattern_matches(&rule.pattern, bone) {
+                    let visible = read(rule.condition) != 0.0;
+                    hidden = if rule.hide_only {
+                        hidden || !visible
+                    } else {
+                        !visible
+                    };
+                }
+            }
+            !hidden
         })
         .map(|layer| {
             let Some(mut selected) = layer.material_selection else {
@@ -105,7 +124,9 @@ fn drawn(fixture: &(assets::EntityRenderData, MolangCompiler), bone: &str, value
             };
             loop {
                 selected = match &data.material_selections[selected as usize] {
-                    Node::Raster { material, state } => return material.word(*state),
+                    Node::Raster {
+                        material, state, ..
+                    } => return material.word(*state),
                     Node::Branch { condition, yes, no } => {
                         if read(*condition) != 0.0 {
                             *yes
@@ -140,6 +161,19 @@ fn material_arrays_select_one_raster_with_wrapped_and_clamped_indices() {
     ] {
         assert_eq!(drawn(&fixture, "root", index), [expected]);
         assert_eq!(drawn(&fixture, "eye", index), [expected]);
+    }
+}
+
+#[test]
+fn a_whole_model_condition_that_does_not_compile_reads_zero() {
+    let fixture = compile(json!({
+        "materials": [{"*": "query.not_a_query ? Material.blend : Material.solid"}]
+    }));
+    for value in [0.0, 1.0] {
+        assert_eq!(
+            drawn(&fixture, "root", value),
+            [material_word("entity_alphatest")]
+        );
     }
 }
 
@@ -213,9 +247,14 @@ fn static_single_material_needs_no_literal_bone_mask() {
     }))
     .unwrap();
     let groups = resolve(
+        ("minecraft:test", "controller.render.test"),
         description.as_object().unwrap(),
         controller.as_object_mut().unwrap(),
         &MaterialStates::default(),
+        (
+            &mut MaterialTable::default(),
+            &mut super::super::materials::provenance::MaterialProvenance::default(),
+        ),
         &[geometry],
         [0],
         &mut None,

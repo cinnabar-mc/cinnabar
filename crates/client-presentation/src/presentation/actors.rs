@@ -147,9 +147,11 @@ pub fn rig_may_be_visible(
     !occluded(low, high)
         || frame.map_or_else(
             || {
-                rig.render
-                    .iter()
-                    .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+                rig.render.iter().any(|layer| {
+                    layer
+                        .render_state
+                        .is_some_and(|raster| raster.ignores_stored_depth())
+                })
             },
             |frame| frame.has_always_depth_material(rig.actor.runtime_id),
         )

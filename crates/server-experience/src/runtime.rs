@@ -75,6 +75,16 @@ pub enum Command {
         operation: MediaOperation,
         position_ms: u64,
     },
+    /// Declares or replaces world material `id`; `None` removes it.
+    WorldMaterial {
+        id: u32,
+        material: Option<crate::world_material::WorldMaterialSpec>,
+    },
+    /// Binds a namespace target to a held world material; `None` removes binding `id`.
+    WorldBinding {
+        id: u32,
+        binding: Option<crate::world_material::WorldBinding>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -120,6 +130,7 @@ pub struct Contributions {
     pub widgets: BTreeMap<String, String>,
     pub modal: screen::Modal,
     pub scene: BTreeMap<u32, SceneObject>,
+    pub world: crate::world_material::WorldMaterials,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -135,6 +146,9 @@ pub struct Capabilities {
     /// `max_message_bytes`. A send over it is refused when it is made, since the wire could not
     /// carry it.
     pub max_message_bytes: u32,
+    /// The manifest's signed `namespace`, the only identifiers world material bindings name.
+    #[serde(default)]
+    pub namespace: Option<String>,
 }
 
 impl Capabilities {
@@ -156,8 +170,19 @@ impl Capabilities {
                 | Permission::Items
                 | Permission::EntityObserve
                 | Permission::RenderThroughWalls
-                | Permission::RenderMaterial => false,
+                | Permission::RenderMaterial
+                | Permission::RenderWorldMaterial
+                | Permission::RenderWorldMaterialOverride => false,
             })
+    }
+
+    /// What this guest's world material declarations may name.
+    pub fn world_authority(&self) -> crate::world_material::WorldAuthority<'_> {
+        crate::world_material::WorldAuthority {
+            permissions: &self.scope.permissions,
+            namespace: self.namespace.as_deref(),
+            assets: &self.assets,
+        }
     }
 
     /// Whether a modal control may deliver `action` to this guest: declared in the manifest and
@@ -278,6 +303,18 @@ impl Capabilities {
                 ensure!(self.assets.contains(id), "unowned media descriptor");
                 Permission::Media
             }
+            Command::WorldMaterial { material, .. } => {
+                if let Some(material) = material {
+                    self.world_authority().validate_material(material)?;
+                }
+                Permission::RenderWorldMaterial
+            }
+            Command::WorldBinding { binding, .. } => {
+                if let Some(binding) = binding {
+                    self.world_authority().validate_binding(binding)?;
+                }
+                Permission::RenderWorldMaterial
+            }
         };
         ensure!(
             self.scope.permissions.contains(&permission),
@@ -332,9 +369,16 @@ impl Contributions {
                         candidate.scene.remove(id);
                     }
                 }
+                Command::WorldMaterial { id, material } => {
+                    candidate.world.set_material(*id, material.as_ref())?;
+                }
+                Command::WorldBinding { id, binding } => {
+                    candidate.world.set_binding(*id, binding.as_ref())?;
+                }
                 Command::Send { .. } | Command::Media { .. } => {}
             }
         }
+        candidate.world.check(capabilities.scope.memory_bytes)?;
         ensure!(
             candidate.widgets.len() <= MAX_WIDGETS,
             "widget budget exceeded"

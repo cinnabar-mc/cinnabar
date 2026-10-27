@@ -1,4 +1,4 @@
-package cinnabar:server-experience@1.5.0;
+package cinnabar:server-experience@1.6.0;
 
 /// Host-owned JSON-UI widgets and the bundle's signed modal screens.
 /// Player mods import this interface's types; its functions are available only to client parts.
@@ -94,4 +94,39 @@ interface media {
     enum operation { prepare, play, pause, seek, stop }
     /// Requests playback state or a seek position in milliseconds for an authorized media ID.
     control: func(id: string, op: operation, position-ms: u64) -> result<_, string>;
+}
+
+/// Programmable world materials for the bundle's own entities and blocks, under the
+/// `render_world_material` permission. A material is a WGSL `shade` function the host
+/// validates and composes into its entity and terrain pipelines; the host owns depth, blend,
+/// pass order and visibility, and applies Bedrock lighting and fog to the surface it returns.
+/// Bindings name only identifiers in the manifest's signed `namespace`.
+@since(version = 1.6.0)
+interface world-material {
+    /// `always` draws through other geometry and also needs `render_through_walls`.
+    enum depth { test, always }
+    /// The host blend class, which also selects the pass the material draws in.
+    enum blend { opaque, cutout, premultiplied, additive }
+    record material-spec {
+        /// Defines `fn shade(input: WorldMaterialInput) -> Surface`; no resources, globals,
+        /// loops or entry points.
+        source: string,
+        /// Signed bundle PNGs under `textures/`, at most four, read by `texture(index, uv)`.
+        textures: list<string>,
+        /// At most sixteen finite numbers, read by `param(input, index)`.
+        params: list<f32>,
+        depth: depth,
+        blend: blend,
+    }
+    /// What a binding restyles: an entity type or a block, by namespaced identifier.
+    variant target { entity(string), block(string) }
+    /// Validates and declares material `id`, replacing any material of that id; its bindings
+    /// follow the replacement. Each call counts against the per-callback compile budget.
+    set-material: func(id: u32, spec: material-spec) -> result<_, string>;
+    /// Removes material `id`; refused while a binding names it.
+    remove-material: func(id: u32) -> result<_, string>;
+    /// Draws `target` with material `material`, replacing binding `id`.
+    bind: func(id: u32, target: target, material: u32) -> result<_, string>;
+    /// Removes binding `id`; the target draws with its Bedrock material again.
+    unbind: func(id: u32) -> result<_, string>;
 }

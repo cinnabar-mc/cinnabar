@@ -32,6 +32,22 @@ fn archive_files_with_permissions(
     })
 }
 
+/// [`archive_files_with_permissions`] with a signed world-material `namespace`.
+fn signed_archive(
+    assets: &[(&str, &[u8])],
+    extra: bool,
+    method: CompressionMethod,
+    permissions: BTreeSet<manifest::Permission>,
+    component: Option<&str>,
+    namespace: Option<&str>,
+) -> (Vec<u8>, manifest::Offer) {
+    archive_with(assets, extra, method, |manifest| {
+        manifest.permissions = permissions;
+        manifest.component = component.map(str::to_owned);
+        manifest.namespace = namespace.map(str::to_owned);
+    })
+}
+
 /// Signs a manifest that indexes `assets`, changed by `edit`, into an archive offered with the
 /// permissions the manifest declares.
 fn archive_with(
@@ -58,6 +74,7 @@ fn archive_with(
             .filter(|path| crate::screen::template_root(path).is_some())
             .map(str::to_owned)
             .collect(),
+        namespace: None,
         files: assets
             .iter()
             .map(|(path, content)| manifest::ContentFile {
@@ -589,4 +606,32 @@ fn media_bundles_keep_their_textures_for_posters() {
         assert!(bundle.file("ui/terminal.json").is_none());
         assert_eq!(bundle.file("textures/poster.png").is_some(), kept);
     }
+}
+
+#[test]
+fn world_materials_need_a_signed_unreserved_namespace() {
+    let world = BTreeSet::from([manifest::Permission::RenderWorldMaterial]);
+    let read = |namespace: Option<&str>| {
+        let (bytes, deployment) = signed_archive(
+            &[("poster.txt", b"poster")],
+            false,
+            CompressionMethod::Stored,
+            world.clone(),
+            None,
+            namespace,
+        );
+        bundle::VerifiedBundle::read(
+            &bytes,
+            &deployment.packages[0],
+            &deployment.scope,
+            policy::MAX_EXPANDED_BYTES,
+        )
+    };
+    assert!(read(Some("example")).is_ok());
+    assert!(
+        read(None).is_err(),
+        "render_world_material without a namespace"
+    );
+    assert!(read(Some("minecraft")).is_err(), "a reserved namespace");
+    assert!(read(Some("Bad:Name")).is_err(), "a malformed namespace");
 }
