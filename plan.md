@@ -219,8 +219,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   Animated layer arrays are reused only after readers release them; geometry and retained
   frame regression checks do not replace native visual qualification.
   Spawner preparation retains candidate, position, player and display scratch storage while
-  preserving scan order, visibility priority and tick advancement. Native visual and hardware
-  frame qualification remain open.
+  preserving scan order, visibility priority and tick advancement. World changes retain base
+  catalog analysis while replacing display lifetimes and server-pack bindings. Native visual
+  and hardware frame qualification remain open.
   Shulker lids still need animated collision bounds and standing-on-open-lid acceptance;
   accepting server actor displacement alone does not complete this behavior.
   Local actor displacement also needs matched interpolation-timing acceptance.

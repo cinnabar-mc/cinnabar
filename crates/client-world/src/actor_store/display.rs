@@ -24,6 +24,11 @@ impl DisplayActorStore {
         let session = crate::authority::allocate_actor_session_id();
         let mut store = ActorStore::with_capacity(session, dimension, MAX_DISPLAY_ACTORS, 0);
         store.animation = actor_animation::ActorAnimationStore::with_assets(assets);
+        Self::with_store(store)
+    }
+
+    /// Starts display bookkeeping for an independent actor namespace.
+    fn with_store(store: ActorStore) -> Self {
         Self {
             store,
             positions: BTreeMap::new(),
@@ -32,6 +37,14 @@ impl DisplayActorStore {
             sequence: 0,
             next_runtime: 0,
         }
+    }
+
+    /// Retires displays and pack bindings while retaining base catalog analysis and item rules.
+    pub fn restart(self, dimension: i32) -> Self {
+        Self::with_store(
+            self.store
+                .restart_display(crate::authority::allocate_actor_session_id(), dimension),
+        )
     }
 
     /// Rebinds the same displayed lifetimes when the active pack changes.

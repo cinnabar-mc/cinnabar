@@ -57,8 +57,19 @@ impl ActorAnimationStore {
     }
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
+        let layout = Arc::new(assets.as_ref().map(VariableLayout::new).unwrap_or_default());
+        Self::with_catalog(assets, layout)
+    }
+
+    /// Starts independent actor state using this base catalog's existing immutable analysis.
+    pub fn restart(self) -> Self {
+        Self::with_catalog(self.assets, self.layout)
+    }
+
+    /// Creates fresh mutable state without repeating the supplied catalog's analysis.
+    fn with_catalog(assets: Option<Arc<RuntimeEntityAssets>>, layout: Arc<VariableLayout>) -> Self {
         let mut store = Self {
-            layout: Arc::new(assets.as_ref().map(VariableLayout::new).unwrap_or_default()),
+            layout,
             assets,
             pack: None,
             server_compiler: None,

@@ -63,3 +63,57 @@ fn warmed_candidate_preparation_reuses_storage_and_preserves_scan_order() {
     scratch.prepare_candidates(requests.iter().copied(), |_| false, |_| unreachable!());
     assert!(scratch.candidates.is_empty());
 }
+
+/// Changing worlds must not repeat catalog-sized preparation for the same entity assets.
+#[test]
+fn world_change_reuses_spawner_catalog_preparation() {
+    for variables in [16, 2048] {
+        let initialize = (0..variables)
+            .map(|index| format!("variable.fixture_{index} = 0;"))
+            .collect::<String>();
+        let (pool, _, _) = fixture_with_scripts(serde_json::json!({
+            "initialize": [initialize],
+        }));
+        let source = Arc::clone(&pool.source);
+        let session = (pool.session.0 + 1, pool.session.1 + 1);
+        let (_, allocations) =
+            test_alloc::measure(|| Pool::replacement(Some(pool), source, session));
+        assert!(
+            allocations.calls <= 64 && allocations.bytes <= 64 * 1024,
+            "world change repeated preparation for {variables} variables: {allocations:?}"
+        );
+    }
+}
+
+/// Reusing a catalog must leave both the old namespace and its server pack behind.
+#[test]
+fn world_change_retires_display_lifetimes_and_pack_bindings() {
+    let (mut previous, _, _) = fixture();
+    let (other, _, _) = fixture_with_identifier(serde_json::json!({}), "1", "custom:other");
+    previous
+        .actors
+        .set_pack(Some((Arc::clone(&other.source), vec![0])));
+    let position = [1, 2, 3];
+    let runtime = previous.actors.resolve(position, "custom:other").unwrap();
+    previous.actors.advance(3);
+    let old_session = previous.actors.session_id();
+    let source = Arc::clone(&previous.source);
+    let session = (previous.session.0 + 1, previous.session.1 + 1);
+    let mut next = Pool::replacement(Some(previous), source, session);
+    assert_ne!(next.actors.session_id(), old_session);
+    assert!(next.actors.actor(runtime).is_none());
+    assert!(next.actors.resolve(position, "custom:other").is_none());
+    assert!(next.actors.resolve(position, "custom:display").is_some());
+}
+
+/// Replacing the asset allocation must prepare the new catalog instead of retaining old rigs.
+#[test]
+fn world_change_uses_replacement_entity_assets() {
+    let (previous, _, _) = fixture();
+    let (other, _, _) = fixture_with_identifier(serde_json::json!({}), "1", "custom:other");
+    let source = Arc::clone(&other.source);
+    let session = (previous.session.0 + 1, previous.session.1 + 1);
+    let mut next = Pool::replacement(Some(previous), source, session);
+    assert!(next.actors.resolve([0; 3], "custom:display").is_none());
+    assert!(next.actors.resolve([0; 3], "custom:other").is_some());
+}

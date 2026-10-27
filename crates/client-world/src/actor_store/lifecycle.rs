@@ -60,6 +60,7 @@ impl ActorStore {
             max_players,
             max_player_skin_bytes,
             actor_animation::ActorAnimationStore::diagnostic(),
+            crate::item::ItemStateStore::diagnostic(),
         )
     }
     pub(crate) fn new_with_entity_assets(
@@ -76,6 +77,7 @@ impl ActorStore {
             actor_animation::ActorAnimationStore::with_assets(std::sync::Arc::clone(
                 &entity_assets,
             )),
+            crate::item::ItemStateStore::diagnostic(),
         );
         store.entity_assets = Some(std::sync::Arc::clone(&entity_assets));
         store.items =
@@ -90,6 +92,7 @@ impl ActorStore {
         max_players: usize,
         max_player_skin_bytes: usize,
         animation: actor_animation::ActorAnimationStore,
+        items: crate::item::ItemStateStore,
     ) -> Self {
         Self {
             session_id,
@@ -118,7 +121,7 @@ impl ActorStore {
             unlisted_players: HashMap::new(),
             animation,
             ready_appearances: Default::default(),
-            items: crate::item::ItemStateStore::diagnostic(),
+            items,
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             local_unique_id: None,
@@ -166,6 +169,29 @@ impl ActorStore {
             particle_effects: Default::default(),
             synchronized_audio: Default::default(),
         }
+    }
+
+    /// Restarts client-owned displays without rebuilding their unchanged catalog or item registry.
+    pub(super) fn restart_display(self, session_id: u64, dimension: i32) -> Self {
+        let Self {
+            max_actors,
+            max_players,
+            max_player_skin_bytes,
+            animation,
+            mut items,
+            ..
+        } = self;
+        items.clear_actor_state();
+        drop(items.take_notices());
+        Self::with_limits_and_animation(
+            session_id,
+            dimension,
+            max_actors,
+            max_players,
+            max_player_skin_bytes,
+            animation.restart(),
+            items,
+        )
     }
 
     /// Arm swings the server sent for the local player since the last call.
