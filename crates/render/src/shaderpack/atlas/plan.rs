@@ -2,8 +2,8 @@
 
 use super::pack::{PackedAtlas, SpriteRect, pack_sprites};
 use super::{
-    ATLAS_HEADER_SLOTS, JAVA_MIPMAP_LEVELS, STATIC_SPRITE_SLOTS, animation_sprite_slot,
-    opaque_sprite_slot, static_sprite_slot,
+    ATLAS_HEADER_SLOTS, JAVA_MIPMAP_LEVELS, STATIC_SPRITE_SLOTS, WORLD_MATERIAL_SPRITES,
+    animation_sprite_slot, opaque_sprite_slot, static_sprite_slot, world_material_sprite_slot,
 };
 use assets::{Animation, Material, TextureArray, TextureRef};
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,7 +43,7 @@ impl<'a> AuthoredPbr<'a> {
         mer_pages: [&'a TextureArray; 2],
         words: &[u32],
     ) -> Self {
-        use render_scene::EnhancedTextureAssets;
+        use assets::texture::EnhancedTextureAssets;
 
         let (carrier, overrides) =
             words.split_at(words.len().min(EnhancedTextureAssets::REFERENCE_BASE_WORDS));
@@ -87,6 +87,9 @@ pub(crate) struct AtlasInputs<'a> {
     pub animation_frames: &'a [TextureRef],
     pub layout: &'a dyn Fn(TextureRef) -> LayerLayout,
     pub authored: Option<AuthoredPbr<'a>>,
+    /// World material sprites to place, at most [`WORLD_MATERIAL_SPRITES`]; their remap slots
+    /// are reserved either way, and slots without a sprite stay empty.
+    pub world_sprites: u32,
 }
 
 impl AtlasInputs<'_> {
@@ -144,6 +147,9 @@ pub(crate) struct AtlasPlan {
     pub frames: Option<PackedAtlas>,
     pub frame_contents: Vec<SpriteContent>,
     pub animations: Vec<Option<AnimationLayout>>,
+    /// The sprite of each world material slot, by slot; its remap entry stays empty until the
+    /// sprite is first rendered.
+    pub world_sprites: Vec<SpriteRect>,
     pub mip_levels: u32,
     /// Every sprite is stored at `1 / 2^scale` of its source resolution (at least one texel).
     pub scale: u32,
@@ -216,6 +222,13 @@ fn requests(inputs: &AtlasInputs<'_>) -> Requests {
                 reference,
                 opaque: true,
             },
+        ));
+    }
+    for slot in 0..inputs.world_sprites.min(WORLD_MATERIAL_SPRITES) {
+        atlas.push((
+            world_material_sprite_slot(slot),
+            assets::TILE_SIZE,
+            SpriteContent::Missing,
         ));
     }
     let mut frame_keys = BTreeMap::new();
@@ -318,6 +331,7 @@ fn place(
     let mip_levels = (JAVA_MIPMAP_LEVELS + 1).min(smallest.ilog2() + 1);
     let slots = ATLAS_HEADER_SLOTS
         + 2 * STATIC_SPRITE_SLOTS
+        + WORLD_MATERIAL_SPRITES
         + u32::try_from(inputs.animations.len()).ok()?;
     let mut rect_of = vec![None; slots as usize];
     for (&(key, _, _), &rect) in requests.atlas.iter().zip(&atlas.rects) {
@@ -340,6 +354,11 @@ fn place(
             rect_of[(slot + STATIC_SPRITE_SLOTS) as usize].unwrap_or(rect),
         );
     }
+    let world_sprites = (0..inputs.world_sprites.min(WORLD_MATERIAL_SPRITES))
+        .map(|slot| {
+            rect_of[world_material_sprite_slot(slot) as usize].expect("world sprites are packed")
+        })
+        .collect();
     let animations = requests
         .animations
         .iter()
@@ -380,6 +399,7 @@ fn place(
             .map(|&(_, _, content)| content)
             .collect(),
         animations,
+        world_sprites,
         mip_levels,
         scale,
         remap,

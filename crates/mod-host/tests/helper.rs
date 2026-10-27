@@ -74,6 +74,7 @@ fn capabilities() -> Capabilities {
         channels: Vec::new(),
         actions: BTreeSet::new(),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     }
 }
 

@@ -137,6 +137,7 @@ fn modal_commands_need_the_permission_and_an_indexed_template() {
         channels: Vec::new(),
         actions: BTreeSet::new(),
         max_message_bytes: crate::policy::MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     };
     let open = |template: &str| Command::Screen {
         template: Some(template.to_owned()),

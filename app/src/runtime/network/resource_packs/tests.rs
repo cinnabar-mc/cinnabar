@@ -486,7 +486,7 @@ fn texture_sets_supply_color_layers() {
         ("textures/blocks/a_color.png", &png),
         (
             "textures/blocks/b.texture_set.json",
-            br#"{"minecraft:texture_set":{"color":[10,20,30]}}"#,
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[10,20,30,255]}}"#,
         ),
     ]);
     let image = pack_runtime::pack_textures::decode_pack_texture(&view, "textures/blocks/a")
@@ -561,6 +561,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
             &blocks,
             false,
             super::overlay_texture_layer_limit(),
+            true,
             || {
                 compiles += 1;
                 None
@@ -574,6 +575,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
         &blocks,
         true,
         super::overlay_texture_layer_limit(),
+        true,
         || {
             compiles += 1;
             None
@@ -586,6 +588,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
         &blocks,
         true,
         super::overlay_texture_layer_limit() + 1,
+        true,
         || {
             compiles += 1;
             None
@@ -632,6 +635,7 @@ fn reapplied_stack_reuses_blocks_identical_to_a_fresh_compile() {
             &blocks,
             false,
             limit,
+            true,
             || {
                 compiles += 1;
                 super::compile_block_overlay(&view, &blocks, false, Some(&keys), limit, None)
@@ -852,7 +856,7 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
     let base = assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap();
     let view = files_pack(&[(
         "textures/entity/chest/normal.texture_set.json",
-        br#"{"minecraft:texture_set":{"color":[200,100,50]}}"#,
+        br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[200,100,50,255]}}"#,
     )]);
     let view = resource_pack::LayeredPackView::tracked(view.shared_stack());
     let changed = super::super::block_entity_art::prepare_over(
@@ -865,7 +869,7 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
     let inputs = view.dependencies().unwrap().snapshot();
     assert!(inputs.iter().any(|input| matches!(input,
         resource_pack::PackDependency::File { path, .. }
-            if path == "textures/entity/chest/normal.png"
+            if path == "textures/entity/chest/normal.texture_set.json"
     )));
     let empty = files_pack(&[]);
     let restored = super::super::block_entity_art::prepare_over(
@@ -910,6 +914,7 @@ fn the_overlay_cache_does_not_keep_compiled_blocks_alive() {
         &blocks,
         false,
         limit,
+        true,
         || {
             super::compile_block_overlay(&view, &blocks, false, Some(&keys), limit, None)
                 .map(Arc::new)

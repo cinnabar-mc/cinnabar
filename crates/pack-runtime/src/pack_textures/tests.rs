@@ -149,11 +149,11 @@ fn resolved_images_keep_the_filename_selected_after_decode_and_texture_set_fallb
         ("textures/shared.png", &png),
         (
             "textures/alias.texture_set.json",
-            br#"{"minecraft:texture_set":{"color":"shared"}}"#,
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"shared"}}"#,
         ),
         (
             "textures/solid.texture_set.json",
-            br#"{"minecraft:texture_set":{"color":[1,2,3,255]}}"#,
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[1,2,3,255]}}"#,
         ),
     ]));
     let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
@@ -182,7 +182,7 @@ fn indexed_alias_candidates_preserve_precedence_without_reading_image_payloads()
         ("textures/shared.tga", b"metadata only"),
         (
             "textures/alias.texture_set.json",
-            br#"{"minecraft:texture_set":{"color":"shared"}}"#,
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"shared"}}"#,
         ),
     ]);
     let view = LayeredPackView::tracked(stack);
@@ -227,4 +227,86 @@ fn extensionless_texture_decodes_tga_ahead_of_darker_png() {
     let explicit =
         resolve_pack_texture_with_policy(&view, "textures/grass.png", policy, false).unwrap();
     assert_eq!(&explicit.texture.rgba8[..4], &[110, 110, 110, 255]);
+}
+
+#[test]
+fn invalid_texture_sets_fall_back_to_the_plain_image_and_valid_sets_win() {
+    let red = {
+        let mut bytes = Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
+            .write_to(&mut bytes, ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    };
+    let view = LayeredPackView::new(crate::test_support::stack(&[
+        ("textures/plain.png", &red),
+        (
+            "textures/plain.texture_set.json",
+            br#"{"minecraft:texture_set":{"color":[1,2,3,255]}}"#,
+        ),
+        ("textures/set.png", &red),
+        (
+            "textures/set.texture_set.json",
+            br##"{"format_version":"1.16.100","minecraft:texture_set":{"color":"#80102030"}}"##,
+        ),
+    ]));
+    let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
+    let plain = resolve_pack_texture_with_policy(&view, "textures/plain", policy, false).unwrap();
+    assert_eq!(plain.image_path, "textures/plain.png", "no format_version");
+    let set = resolve_pack_texture_with_policy(&view, "textures/set", policy, false).unwrap();
+    assert_eq!(&set.texture.rgba8[..], &[0x10, 0x20, 0x30, 0x80]);
+}
+
+#[test]
+fn the_highest_layer_holding_either_form_decides_between_image_and_texture_set() {
+    let red = {
+        let mut bytes = Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
+            .write_to(&mut bytes, ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    };
+    let set: &[u8] =
+        br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[1,2,3,255]}}"#;
+    /// One view whose `higher` pack takes precedence over its `lower` pack.
+    fn layered(lower: &[(&str, &[u8])], higher: &[(&str, &[u8])]) -> LayeredPackView {
+        let lower = crate::test_support::stack(lower);
+        let higher = crate::test_support::stack(higher);
+        LayeredPackView::new(std::sync::Arc::new(
+            resource_pack::ValidatedPackStack::compose(&lower, &higher).unwrap(),
+        ))
+    }
+    let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
+    let image_above = layered(
+        &[("textures/blocks/stone.texture_set.json", set)],
+        &[("textures/blocks/stone.png", red.as_slice())],
+    );
+    let resolved =
+        resolve_pack_texture_with_policy(&image_above, "textures/blocks/stone", policy, false)
+            .unwrap();
+    assert_eq!(resolved.image_path, "textures/blocks/stone.png");
+    assert_eq!(&resolved.texture.rgba8[..], &[255, 0, 0, 255]);
+    assert_eq!(
+        indexed_image_candidate(&image_above, "textures/blocks/stone").as_deref(),
+        Some("textures/blocks/stone.png")
+    );
+    let set_above = layered(
+        &[("textures/blocks/stone.png", red.as_slice())],
+        &[("textures/blocks/stone.texture_set.json", set)],
+    );
+    let resolved =
+        resolve_pack_texture_with_policy(&set_above, "textures/blocks/stone", policy, false)
+            .unwrap();
+    assert_eq!(&resolved.texture.rgba8[..], &[1, 2, 3, 255]);
+    let same_layer = layered(
+        &[],
+        &[
+            ("textures/blocks/stone.png", red.as_slice()),
+            ("textures/blocks/stone.texture_set.json", set),
+        ],
+    );
+    let resolved =
+        resolve_pack_texture_with_policy(&same_layer, "textures/blocks/stone", policy, false)
+            .unwrap();
+    assert_eq!(&resolved.texture.rgba8[..], &[1, 2, 3, 255]);
 }

@@ -19,6 +19,7 @@ pub(crate) mod pipeline;
 pub(crate) mod publication_test_support;
 pub(crate) mod shaderpack_source;
 mod skins;
+pub(crate) mod world_materials;
 use crate::gpu_allocation;
 use artwork::{GpuArtwork, draw_spans};
 use phase::{DrawActorCommands, DrawTransparentActorCommands, queue_actors};
@@ -137,6 +138,7 @@ fn install_actor_render(app: &mut App) {
         .resource::<render_scene::ActorPipelineReadiness>()
         .clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
+    crate::world_material::install(app);
     load_rig_shader(app);
     load_internal_asset!(
         app,
@@ -166,6 +168,7 @@ fn install_actor_render(app: &mut App) {
             (
                 prepare_actor_resources
                     .in_set(RenderSystems::Queue)
+                    .after(prepare_actor_pipelines)
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_actors
@@ -191,7 +194,6 @@ pub(crate) struct ActorGpu {
     artwork: GpuArtwork,
     player_material: Buffer,
     neutral_material: Buffer,
-    color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     mask_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
@@ -224,6 +226,8 @@ pub(crate) struct ActorGpu {
     skin_revision: u64,
     view_buffer_id: Option<BufferId>,
     manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
+    /// The world draws the prepared instances switched to their world material.
+    world_ready: WorldReady,
 }
 
 /// Whether every player-page instance samples a resident skin slot.
@@ -283,13 +287,6 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
             bytemuck::cast_slice(&[1u32, 0, 0, 0]),
             BufferUsages::UNIFORM,
         )?,
-        color_mask_material: gpu_allocation::buffer_with_data(
-            render_device,
-            render_queue,
-            "native actor color-mask material",
-            bytemuck::cast_slice(&[0u32, 1, 0, 0]),
-            BufferUsages::UNIFORM,
-        )?,
         multitexture_material: gpu_allocation::buffer_with_data(
             render_device,
             render_queue,
@@ -344,6 +341,7 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
         skin_revision: u64::MAX,
         view_buffer_id: None,
         manifest: std::sync::Arc::from([]),
+        world_ready: WorldReady::new(),
     })
 }
 
@@ -356,9 +354,18 @@ fn prepare_actor_resources(
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
     raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    pipeline: Option<Res<ActorPipeline>>,
 ) {
     // Preparation can replace any part of the queued identity, even before queue runs.
     gpu.queued_draw = None;
+    // A world material that became ready, or stopped being drawable, prepares the frame again.
+    let world_ready = pipeline
+        .as_deref()
+        .map_or_else(WorldReady::new, |pipeline| pipeline.world_ready.clone());
+    if gpu.world_ready != world_ready {
+        gpu.world_ready = world_ready;
+        gpu.frame_generation = u64::MAX;
+    }
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     gpu.artwork.set_raw_views(raw_views);
     gpu.skins.set_raw_views(raw_views);
@@ -452,7 +459,13 @@ fn prepare_actor_resources(
         }
         let prepared = structurally_valid
             .then(|| {
-                let instances = dissolve::instances(&rig.instances, &rig.manifest);
+                let instances = world_materials::switched(
+                    &rig.instances,
+                    &rig.world_draws,
+                    &rig.rasters,
+                    &gpu.world_ready,
+                );
+                let instances = dissolve::instances(&instances, &rig.manifest, &rig.rasters);
                 gpu.bones.prepare(rig, instances)
             })
             .flatten();
@@ -514,6 +527,7 @@ fn prepare_actor_resources(
                 &frame.instance_pages,
                 &prepared.instances,
                 &rig.geometry_spans,
+                &rig.rasters,
                 prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
             gpu.mask_spans.clear();
@@ -536,8 +550,10 @@ fn prepare_actor_resources(
             }
             {
                 gpu.pack_depth_dependency = prepared.instances.iter().any(|instance| {
-                    crate::actor::material::state(instance.material)
-                        .is_some_and(|state| state.depth_equal && !state.depth_always)
+                    crate::actor::material::instance_raster(&frame.rig.rasters, instance)
+                        .depth
+                        .compare
+                        == Some(render_api::render_state::CompareFunction::Equal)
                 });
             }
             gpu.manifest = prepared.manifest;
@@ -706,8 +722,6 @@ pub(crate) fn prepare_actor_bind_group(
                                 binding: 8,
                                 resource: if page.multitexture {
                                     gpu.multitexture_material.as_entire_binding()
-                                } else if page.color_mask {
-                                    gpu.color_mask_material.as_entire_binding()
                                 } else {
                                     gpu.neutral_material.as_entire_binding()
                                 },

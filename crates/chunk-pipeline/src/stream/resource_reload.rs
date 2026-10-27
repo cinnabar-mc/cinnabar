@@ -148,9 +148,120 @@ impl WorldStream {
         self.mesh_policy_changed(now);
     }
 
+    /// Requests world material tags for the blocks in `tags` (network value, one more than the
+    /// world material slot; sorted, values unique). The next poll applies the latest request in
+    /// one round, so changes made between polls coalesce. Binding, unbinding or revoking a
+    /// material remeshes only the sections holding a block whose tag changed, so those blocks
+    /// draw with their Bedrock materials again without a reconnect; other work is kept.
+    pub fn set_world_materials(&mut self, tags: Arc<[(u32, u8)]>, _now: Instant) {
+        debug_assert!(tags.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        if *self.world_materials == *tags {
+            // Adopting an equal request keeps the caller's pointer comparison cheap.
+            self.world_materials = tags;
+            self.pending_world_materials = None;
+        } else {
+            self.pending_world_materials = Some(tags);
+        }
+    }
+
+    /// The latest requested world material tags, applied or not.
+    #[must_use]
+    pub fn requested_world_materials(&self) -> &Arc<[(u32, u8)]> {
+        self.pending_world_materials
+            .as_ref()
+            .unwrap_or(&self.world_materials)
+    }
+
+    /// The world material tags meshing applies ([`Self::set_world_materials`]).
+    #[must_use]
+    pub fn world_materials(&self) -> &[(u32, u8)] {
+        &self.world_materials
+    }
+
+    /// Applies the pending world material request: every section whose palette holds a value
+    /// whose tag changed remeshes, its queued or in-flight result withdrawn; every other
+    /// section's meshes and work are kept, since their output does not depend on the change.
+    pub(in crate::stream) fn apply_world_materials(&mut self, now: Instant) {
+        let Some(tags) = self.pending_world_materials.take() else {
+            return;
+        };
+        let changed = changed_tag_values(&self.world_materials, &tags);
+        self.world_materials = tags;
+        if changed.is_empty() {
+            return;
+        }
+        let terrain = self.authority.terrain();
+        let affected: HashSet<SubChunkKey> = self
+            .resident
+            .iter()
+            .chain(self.mesh_jobs.pending.keys())
+            .chain(self.mesh_jobs.in_flight.keys())
+            .chain(
+                self.staged_mesh_completions
+                    .iter()
+                    .map(|completion| &completion.key),
+            )
+            .copied()
+            .filter(|key| {
+                terrain.sub_chunk(*key).is_some_and(|section| {
+                    section.storages().iter().any(|storage| {
+                        storage
+                            .palette()
+                            .values()
+                            .iter()
+                            .any(|value| changed.binary_search(value).is_ok())
+                    })
+                })
+            })
+            .collect();
+        for key in &affected {
+            self.mark_forced_dirty_exact(*key, now);
+            self.mesh_jobs.in_flight.remove(key);
+            self.urgent_mesh_in_flight.remove(key);
+        }
+        self.retain_mesh_changes(|change| {
+            !matches!(change, WorldMeshChange::Upsert { key, .. } if affected.contains(key))
+        });
+    }
+
     /// The water-filled network values of Java meshing ([`Self::set_java_meshing`]), if on.
     #[must_use]
     pub fn java_meshing(&self) -> Option<&[u32]> {
         self.java_meshing.as_deref()
     }
+}
+
+/// Sorted network values whose tag differs between `old` and `new`, both sorted by value.
+fn changed_tag_values(old: &[(u32, u8)], new: &[(u32, u8)]) -> Vec<u32> {
+    let mut changed = Vec::new();
+    let (mut old, mut new) = (old.iter().peekable(), new.iter().peekable());
+    loop {
+        match (old.peek(), new.peek()) {
+            (None, None) => break,
+            (Some(&&(value, _)), None) => {
+                changed.push(value);
+                old.next();
+            }
+            (None, Some(&&(value, _))) => {
+                changed.push(value);
+                new.next();
+            }
+            (Some(&&(a, tag_a)), Some(&&(b, tag_b))) => {
+                if a < b {
+                    changed.push(a);
+                    old.next();
+                } else if b < a {
+                    changed.push(b);
+                    new.next();
+                } else {
+                    if tag_a != tag_b {
+                        changed.push(a);
+                    }
+                    old.next();
+                    new.next();
+                }
+            }
+        }
+    }
+    changed
 }
