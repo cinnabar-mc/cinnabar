@@ -9,7 +9,7 @@ use render_scene::{
 };
 
 /// World views shared by opaque and transparent chunk queues.
-type ChunkViewQuery = (
+pub(in crate::chunk) type ChunkViewQuery = (
     Entity,
     Read<MainEntity>,
     Read<ExtractedView>,
@@ -575,7 +575,12 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     model_runtime: Res<TransparentModelSortRuntime>,
     texture_assets: Res<ChunkTextureAssets>,
     visible: Res<VisibleTransparentChunks>,
-    mut mixed: ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
+    (mut mixed, mut world_sections, mut interleaved, mut interleaving): (
+        ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
+        ResMut<super::world_materials::WorldTerrainSections>,
+        ResMut<super::world_materials::InterleavedTerrain>,
+        Local<Vec<Entity>>,
+    ),
     (arena, mut unsorted, mut merged, pack): (
         Res<ChunkGpuArena>,
         Local<UnsortedWaterDiagnostics>,
@@ -586,6 +591,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
 ) {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
     mixed.begin_frame();
+    interleaved.begin_frame();
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::TransparentQueue));
@@ -603,7 +609,11 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
     let record_draw = draw_functions.id::<DrawTransparentLiquidDirectCommands>();
     let mixed_draw = draw_functions.id::<DrawMixedTerrainCommands>();
-    for (view_entity, main_entity, view, _, msaa, enhanced, extracted_camera) in &views {
+    let interleaved_draw =
+        draw_functions.id::<super::world_materials::DrawInterleavedTerrainCommands>();
+    for (view_entity, main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
+        &views
+    {
         if runtime.view_entity != Some(view_entity)
             || pack.replaces(view_entity, |drawn| drawn.terrain)
         {
@@ -612,6 +622,11 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         let Some(phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
+        // Sections with bound translucent blocks draw all their translucent faces merged.
+        let bound = world_sections.take_translucent(view_entity);
+        // Sections whose world materials are not ready draw their bound translucent model faces
+        // as Bedrock, in their ordinary translucent order.
+        let bedrock = world_sections.take_bedrock(view_entity);
         let key = ChunkPipelineKey {
             msaa: *msaa,
             hdr: extracted_camera.hdr,
@@ -624,11 +639,82 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         else {
             continue;
         };
+        // Until that pipeline compiles they keep the ordinary one, which leaves those faces out.
+        let bedrock_pipeline = (!bedrock.is_empty())
+            .then(|| {
+                pipeline
+                    .world_bedrock_translucent
+                    .specialize(&pipeline_cache, key)
+                    .ok()
+            })
+            .flatten()
+            .filter(|id| pipeline_cache.get_render_pipeline(*id).is_some());
+        let pipeline_for = |entity: Entity| match bedrock_pipeline {
+            Some(id) if bedrock.contains(&entity) => id,
+            _ => pipeline_id,
+        };
         debug_assert_eq!(visible.view(), Some(view_entity));
+        // A section with bound translucent blocks draws all its translucent faces in one
+        // merged item, in place of its water and models.
+        interleaving.clear();
+        if !bound.is_empty() {
+            for (entity, main) in visible_entities
+                .get::<ChunkRenderInstance>()
+                .into_iter()
+                .flat_map(|class| class.iter_visible())
+                .map(|(entity, main)| (*entity, *main))
+            {
+                let Some(&slots) = bound.get(&entity) else {
+                    continue;
+                };
+                let (Ok(instance), Ok(allocation)) =
+                    (instances.get(entity), allocations.get(entity))
+                else {
+                    continue;
+                };
+                let Some(index) = interleaved.plan(
+                    view_entity,
+                    view.world_from_view.translation(),
+                    entity,
+                    slots,
+                    instance,
+                    allocation,
+                    &model_runtime,
+                    &texture_assets,
+                    pipeline_id,
+                ) else {
+                    continue;
+                };
+                crate::transparent_phase::add(
+                    phase,
+                    Transparent3d {
+                        sorting_info:
+                            bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                        entity: (entity, main),
+                        pipeline: pipeline_id,
+                        draw_function: interleaved_draw,
+                        distance: transparent_model_phase_distance(&rangefinder, allocation.key),
+                        batch_range: 0..1,
+                        extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                            range: index..index + 1,
+                            batch_set_index: None,
+                        },
+                        indexed: true,
+                    },
+                );
+                interleaving.push(entity);
+            }
+            interleaving.sort_unstable();
+        }
         let models = visible.models();
-        // Whether each model draws inside its water group's mixed order instead of alone.
+        // Whether each model draws inside its water group's mixed order, or its section's
+        // merged item, instead of alone.
         merged.clear();
-        merged.resize(models.len(), false);
+        merged.extend(
+            models
+                .iter()
+                .map(|model| interleaving.binary_search(&model.entity).is_ok()),
+        );
         // Displaced water can overlap itself even when flat, so such views sort all of it.
         let direct_order_independent = !view_displaces_water(enhanced.is_some());
         let snapshot = runtime.state.committed();
@@ -646,6 +732,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             order_independent,
         } in each_visible_key(visible.water(), &arena.transparent_liquids)
         {
+            if interleaving.binary_search(&entity).is_ok() {
+                continue;
+            }
             let direct = direct_order_independent && order_independent;
             // Water that needs an order draws the committed snapshot's group for it; the
             // frustum only chooses which of the groups appear.
@@ -693,7 +782,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     &texture_assets,
                     committed,
                     group,
-                    pipeline_id,
+                    pipeline_for(entity),
                 )
             {
                 merged[model_index] = true;
@@ -703,7 +792,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                         sorting_info:
                             bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
                         entity: (entity, main),
-                        pipeline: pipeline_id,
+                        pipeline: pipeline_for(entity),
                         draw_function: mixed_draw,
                         distance: transparent_model_phase_distance(&rangefinder, group.key),
                         batch_range: 0..1,
@@ -752,7 +841,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     sorting_info:
                         bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
                     entity: (entity, main),
-                    pipeline: pipeline_id,
+                    pipeline: pipeline_for(entity),
                     draw_function: transparent_model_draw,
                     distance: transparent_model_phase_distance(&rangefinder, model_key),
                     batch_range: 0..1,

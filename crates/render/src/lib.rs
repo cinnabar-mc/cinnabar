@@ -140,6 +140,7 @@ pub use particle_render::ParticleRenderPlugin;
 pub use viewmodel_render::ViewmodelRenderPlugin;
 
 mod weather_render;
+mod world_material;
 
 use meshing::{
     PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,

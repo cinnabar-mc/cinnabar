@@ -121,7 +121,7 @@ fn inspect_executed_frame(world: &mut World) {
         .spans
         .iter()
         .copied()
-        .filter(|span| has_opaque && !super::super::phase::sorted(span.material))
+        .filter(|span| has_opaque && !super::super::phase::sorted(span.material, &span.raster))
         .collect::<Vec<_>>();
     if !opaque.is_empty() {
         commands.push(opaque);
@@ -216,15 +216,16 @@ fn frame(blended: &[bool]) -> ActorRenderFrame {
     frame.rig.frame_generation = 1;
     frame.rig.geometry_revision = 1;
     frame.rig.maximum_vertex_count = 3;
+    let material = |blend| crate::actor::test_material::TestMaterial {
+        blend,
+        ..Default::default()
+    };
+    frame.rig.rasters = Arc::from([false, true].map(|blend| material(blend).raster()));
     frame.rig.instances = blended
         .iter()
         .map(|&blend| render_model::ActorGpuInstance {
-            material: assets::EntityRenderMaterial::Default.word(Some(
-                assets::EntityRenderMaterialState {
-                    blend,
-                    ..Default::default()
-                },
-            )),
+            material: material(blend).word(assets::EntityRenderMaterial::Default),
+            raster: u32::from(blend),
             ..Default::default()
         })
         .collect::<Vec<_>>()
@@ -273,12 +274,44 @@ fn frame(blended: &[bool]) -> ActorRenderFrame {
         width: 16,
         height: 16,
         layers: 1,
-        color_mask: false,
         multitexture: false,
         rgba8: vec![255; 1024].into(),
     }]);
     frame.artwork = Arc::new(artwork);
     frame
+}
+
+/// Gives instance `index` the material word and raster state, reusing a matching raster entry.
+fn assign(
+    frame: &mut ActorRenderFrame,
+    index: usize,
+    material: u32,
+    raster: render_api::render_state::RenderState,
+) {
+    let mut rasters = frame.rig.rasters.to_vec();
+    let slot = rasters
+        .iter()
+        .position(|existing| *existing == raster)
+        .unwrap_or_else(|| {
+            rasters.push(raster);
+            rasters.len() - 1
+        });
+    let instance = &mut Arc::make_mut(&mut frame.rig.instances)[index];
+    instance.material = material;
+    instance.raster = slot as u32;
+    frame.rig.rasters = rasters.into();
+}
+
+/// A dissolve depth mask that ignores stored depth.
+fn always_depth_mask() -> (u32, render_api::render_state::RenderState) {
+    let always = crate::actor::test_material::TestMaterial {
+        depth_always: true,
+        ..Default::default()
+    };
+    (
+        always.word(assets::EntityRenderMaterial::DissolveDepth),
+        always.raster(),
+    )
 }
 
 #[test]
@@ -439,14 +472,16 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
     use bevy::render::render_phase::SortedPhaseItem;
     let mut app = render_app();
     let world = app.sub_app_mut(RenderApp).world_mut();
+    let unauthored = assets::entity::material::UNAUTHORED_RENDER_STATE;
     let mut frame = frame(&[false; 2]);
-    let instances = Arc::make_mut(&mut frame.rig.instances);
-    instances[0].material =
-        assets::EntityRenderMaterial::DissolveDepth.word(Some(assets::EntityRenderMaterialState {
-            depth_always: true,
-            ..Default::default()
-        }));
-    instances[1].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let (mask, mask_raster) = always_depth_mask();
+    assign(&mut frame, 0, mask, mask_raster);
+    assign(
+        &mut frame,
+        1,
+        assets::EntityRenderMaterial::DissolveColor as u32,
+        unauthored,
+    );
     let manifest = Arc::make_mut(&mut frame.rig.manifest);
     manifest[1].identity = ActorRenderIdentity {
         layer: u8::MAX,
@@ -482,16 +517,18 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
 fn an_ordinary_actors_dissolve_color_is_not_promoted_by_another_actors_mask() {
     let mut app = render_app();
     let world = app.sub_app_mut(RenderApp).world_mut();
+    let unauthored = assets::entity::material::UNAUTHORED_RENDER_STATE;
     let mut frame = frame(&[false; 4]);
-    let instances = Arc::make_mut(&mut frame.rig.instances);
-    instances[0].material =
-        assets::EntityRenderMaterial::DissolveDepth.word(Some(assets::EntityRenderMaterialState {
-            depth_always: true,
-            ..Default::default()
-        }));
-    instances[1].material = assets::EntityRenderMaterial::DissolveColor as u32;
-    instances[2].material = assets::EntityRenderMaterial::DissolveDepth as u32;
-    instances[3].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let (mask, mask_raster) = always_depth_mask();
+    assign(&mut frame, 0, mask, mask_raster);
+    for (index, kind) in [
+        (1, assets::EntityRenderMaterial::DissolveColor),
+        (2, assets::EntityRenderMaterial::DissolveDepth),
+        (3, assets::EntityRenderMaterial::DissolveColor),
+    ] {
+        assign(&mut frame, index, kind as u32, unauthored);
+    }
+    let rasters = Arc::clone(&frame.rig.rasters);
     let manifest = Arc::make_mut(&mut frame.rig.manifest);
     manifest[1].identity = ActorRenderIdentity {
         layer: u8::MAX,
@@ -504,10 +541,22 @@ fn an_ordinary_actors_dissolve_color_is_not_promoted_by_another_actors_mask() {
     world.insert_resource(frame);
     world.run_schedule(Render);
     let gpu = world.resource::<ActorGpu>();
-    assert!(super::super::phase::sorted(gpu.instances[0].material));
-    assert!(super::super::phase::sorted(gpu.instances[1].material));
-    assert!(!super::super::phase::sorted(gpu.instances[2].material));
-    assert!(!super::super::phase::sorted(gpu.instances[3].material));
+    assert!(super::super::phase::sorted(
+        gpu.instances[0].material,
+        &crate::actor::material::instance_raster(&rasters, &gpu.instances[0])
+    ));
+    assert!(super::super::phase::sorted(
+        gpu.instances[1].material,
+        &crate::actor::material::instance_raster(&rasters, &gpu.instances[1])
+    ));
+    assert!(!super::super::phase::sorted(
+        gpu.instances[2].material,
+        &crate::actor::material::instance_raster(&rasters, &gpu.instances[2])
+    ));
+    assert!(!super::super::phase::sorted(
+        gpu.instances[3].material,
+        &crate::actor::material::instance_raster(&rasters, &gpu.instances[3])
+    ));
 }
 
 #[test]
@@ -515,13 +564,14 @@ fn a_depth_writing_blend_cannot_split_a_sorted_dissolve_pair() {
     let mut app = render_app();
     let world = app.sub_app_mut(RenderApp).world_mut();
     let mut frame = frame(&[false, true, false]);
-    let instances = Arc::make_mut(&mut frame.rig.instances);
-    instances[0].material =
-        assets::EntityRenderMaterial::DissolveDepth.word(Some(assets::EntityRenderMaterialState {
-            depth_always: true,
-            ..Default::default()
-        }));
-    instances[2].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let (mask, mask_raster) = always_depth_mask();
+    assign(&mut frame, 0, mask, mask_raster);
+    assign(
+        &mut frame,
+        2,
+        assets::EntityRenderMaterial::DissolveColor as u32,
+        assets::entity::material::UNAUTHORED_RENDER_STATE,
+    );
     let manifest = Arc::make_mut(&mut frame.rig.manifest);
     manifest[2].identity = ActorRenderIdentity {
         layer: u8::MAX,

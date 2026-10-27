@@ -151,8 +151,8 @@ pub(in crate::chunk) fn validate_local_model_streams(
             let Some(draw_ref) = model_draw_refs.get(draw_index).copied() else {
                 return false;
             };
-            let draw_words = draw_ref.words();
-            if draw_words != [model_ref_index, quad_index]
+            // A world material tag rides in the quad word; the quad itself must match.
+            if [draw_ref.model_ref_index(), draw_ref.quad_index()] != [model_ref_index, quad_index]
                 || quad_index >= 32
                 || lighting_base
                     .checked_add(quad_index as usize)
@@ -252,7 +252,7 @@ pub(in crate::chunk) fn validate_partitioned_model_streams(
             let Some(draw_ref) = draw_refs.get(*draw_index).copied() else {
                 return false;
             };
-            if draw_ref.words() != [model_ref_index, quad_index]
+            if [draw_ref.model_ref_index(), draw_ref.quad_index()] != [model_ref_index, quad_index]
                 || lighting_base
                     .checked_add(quad_index as usize)
                     .is_none_or(|index| index >= model_lighting.len())

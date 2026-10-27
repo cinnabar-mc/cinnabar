@@ -30,6 +30,7 @@ fn cube_instance(x: i32, one_quad: bool) -> ChunkRenderInstance {
         token: None,
         publication_permit: None,
         origin: chunk_origin(key),
+        world_materials: false,
     }
 }
 

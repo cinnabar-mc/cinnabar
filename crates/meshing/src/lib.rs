@@ -25,6 +25,8 @@ mod publication;
 mod render_settings;
 pub use render_settings::MeshRenderSettings;
 mod types;
+mod world_materials;
+pub use world_materials::WorldMaterialBlock;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;
 

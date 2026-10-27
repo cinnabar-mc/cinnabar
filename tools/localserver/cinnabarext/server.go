@@ -35,6 +35,15 @@ const offerLifetimeSecs = MaxOfferLifetimeSecs - 60*60
 // It covers a 1280x720 RGBA surface with headroom for retained geometry.
 const MediaGPUBytes = 16 << 20
 
+// WorldMaterialGPUBytes is the GPU memory an offer adds when a bundle may declare world
+// materials: room for their textures and the pipelines the client charges each one.
+const WorldMaterialGPUBytes = 32 << 20
+
+// WorldMaterialEffectsGPUBytes is the GPU memory an offer adds when a bundle may read the
+// scene or draw extra passes: the client's shared scene (16 MiB) and effects-pass (16 MiB)
+// charges; the extra pipelines and compute cells share the world material memory.
+const WorldMaterialEffectsGPUBytes = 32 << 20
+
 // nonceBytes is the size of the Accept's server challenge and session, as the client checks them.
 const nonceBytes = 32
 
@@ -204,6 +213,13 @@ func (s *Server) newOffer(cfg Config) (Offer, error) {
 	}
 	if offer.Scope.Permissions.Has(PermissionScene) || offer.Scope.Permissions.Has(PermissionMedia) || offer.Scope.Permissions.Has(PermissionWorldDraw) || offer.Scope.Permissions.Has(PermissionRenderPost) || offer.Scope.Permissions.Has(PermissionEntityHighlight) {
 		offer.Scope.GPUBytes = MediaGPUBytes
+	}
+	// The client splits the GPU limit evenly between the offer's bundles.
+	if offer.Scope.Permissions.Has(PermissionRenderWorldMaterial) {
+		offer.Scope.GPUBytes = min(MaxGPUBytes, offer.Scope.GPUBytes+uint64(len(cfg.Bundles))*WorldMaterialGPUBytes)
+	}
+	if offer.Scope.Permissions.Has(PermissionRenderWorldMaterialScene) || offer.Scope.Permissions.Has(PermissionRenderWorldMaterialPasses) {
+		offer.Scope.GPUBytes = min(MaxGPUBytes, offer.Scope.GPUBytes+uint64(len(cfg.Bundles))*WorldMaterialEffectsGPUBytes)
 	}
 	if total > MaxExpandedBytes {
 		return Offer{}, fmt.Errorf("bundles of %d bytes together, over the client's %d", total, MaxExpandedBytes)

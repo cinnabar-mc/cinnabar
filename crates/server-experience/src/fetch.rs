@@ -55,6 +55,19 @@ pub fn approved_url(text: &str, origins: &BTreeSet<String>) -> Result<Url> {
     Ok(url)
 }
 
+/// An approved URL the client may actually contact: [`approved_url`], and not on a reserved
+/// `.invalid` host (RFC 6761). Offers may name such origins for bundles the client already holds,
+/// and the consent text leaves them out, so every request is refused here before any DNS lookup
+/// or connection.
+pub fn contactable_url(text: &str, origins: &BTreeSet<String>) -> Result<Url> {
+    let url = approved_url(text, origins)?;
+    ensure!(
+        !crate::manifest::reserved_origin(&url.origin().ascii_serialization()),
+        "reserved .invalid host is never contacted"
+    );
+    Ok(url)
+}
+
 /// Conservatively denies special-use networks, including mapped IPv4 addresses.
 pub fn public_address(ip: IpAddr) -> bool {
     match ip {
@@ -94,7 +107,7 @@ pub async fn fetch(
         expected_bytes > 0 && expected_bytes <= crate::policy::MAX_BUNDLE_BYTES,
         "fetch size denied"
     );
-    let url = approved_url(text, origins)?;
+    let url = contactable_url(text, origins)?;
     let host = url
         .host_str()
         .ok_or_else(|| anyhow::anyhow!("missing host"))?;
@@ -198,5 +211,23 @@ mod tests {
         assert!(address_allowed("::1".parse().unwrap(), true));
         assert!(!address_allowed(private, true));
         assert!(address_allowed("1.1.1.1".parse().unwrap(), false));
+    }
+
+    #[tokio::test]
+    async fn media_on_a_reserved_invalid_host_is_refused_before_any_lookup() {
+        let origins = BTreeSet::from(["https://media.cxb.invalid".to_owned()]);
+        let url = "https://media.cxb.invalid/clip.webm";
+        assert!(approved_url(url, &origins).is_ok());
+        assert!(contactable_url(url, &origins).is_err());
+        // The refusal comes from the reserved-host check, not from a failed DNS answer.
+        let error = fetch(url, &origins, 16, Some((0, 15, 64)))
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("reserved .invalid host"),
+            "{error}"
+        );
+        let public = BTreeSet::from(["https://media.example.com".to_owned()]);
+        assert!(contactable_url("https://media.example.com/clip.webm", &public).is_ok());
     }
 }

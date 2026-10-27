@@ -28,6 +28,7 @@ fn section(tint: ChunkBiomeTintIdentity) -> (ChunkRenderInstance, GpuChunkAlloca
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
+        world_materials: false,
     };
     let allocation = GpuChunkAllocation {
         cube_layout: instance.cube_layout,

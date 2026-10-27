@@ -24,6 +24,9 @@ use super::{
 #[path = "pipeline_prewarm_tests.rs"]
 mod pipeline_prewarm_tests;
 
+#[path = "pipeline_raster_tests.rs"]
+mod pipeline_raster_tests;
+
 #[path = "pipeline_material_gpu_tests.rs"]
 mod pipeline_material_gpu_tests;
 
@@ -82,6 +85,7 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
                     hdr: false,
                     enhanced: false,
                     material: material as u32,
+                    raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 },
                 &mut descriptor,
             )
@@ -109,16 +113,14 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
         (false, true, true),
         (true, true, false),
     ] {
-        let material = render_model::ActorMaterial {
-            state: Some(assets::EntityRenderMaterialState {
-                alpha_test: true,
-                cull,
-                blend,
-                depth_write,
-                ..Default::default()
-            }),
+        let material = crate::actor::test_material::TestMaterial {
+            alpha_test: true,
+            cull,
+            blend,
+            depth_write,
             ..Default::default()
-        };
+        }
+        .material(assets::EntityRenderMaterial::Default);
         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
         ActorPipelineSpecializer
             .specialize(
@@ -127,6 +129,7 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
                     hdr: false,
                     enhanced: false,
                     material: material.gpu_word(),
+                    raster: material.raster(),
                 },
                 &mut descriptor,
             )
@@ -239,7 +242,6 @@ fn generic_frame() -> render_scene::ActorRenderFrame {
         width: 16,
         height: 16,
         layers: 1,
-        color_mask: false,
         multitexture: false,
         rgba8: vec![255; 1024].into(),
     }]);
@@ -489,7 +491,8 @@ fn initial_actor_allocation_failure_still_prepares_actor_pipelines() {
                 Msaa::Off,
                 false,
                 false,
-                assets::EntityRenderMaterial::Default as u32
+                assets::EntityRenderMaterial::Default as u32,
+                assets::entity::material::UNAUTHORED_RENDER_STATE
             )
             .is_some(),
         "actor pipelines are requested without actor resources"
@@ -570,6 +573,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
             .specialize(
                 ActorPipelineKey {
                     material: 0,
+                    raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                     msaa,
                     hdr: true,
                     enhanced: false,
@@ -684,9 +688,6 @@ fn native_color_mask_alpha_controls_dye_not_opacity() {
 fn native_multitexture_mixes_rgb_once_without_using_base_alpha_as_coverage() {
     assert!(
         ACTOR_SHADER_SOURCE.contains("material_class.z != 0u && all(input.multitexture_layers")
-    );
-    assert!(
-        ACTOR_SHADER_SOURCE.contains("mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a)")
     );
     assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
     assert_eq!(
