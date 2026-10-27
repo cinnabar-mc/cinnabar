@@ -689,14 +689,10 @@ fn retained_passes_refuse_fallback_colour_while_the_msaa_scene_is_unavailable() 
     for encoded in [false, true] {
         let target = world.get::<ViewTarget>(view).unwrap();
         let attachment = retained_color_attachment(&world, view, target, encoded).unwrap();
-        assert_eq!(
-            attachment.view.id(),
-            world
-                .get::<SceneTarget>(view)
-                .unwrap()
-                .color_view(encoded)
-                .id()
-        );
+        assert!(std::ptr::eq(
+            attachment.view,
+            &**world.get::<SceneTarget>(view).unwrap().color_view(encoded)
+        ));
     }
     world
         .entity_mut(view)
@@ -716,8 +712,8 @@ fn retained_passes_refuse_fallback_colour_while_the_msaa_scene_is_unavailable() 
     world.entity_mut(view).remove::<SceneTargetUnavailable>();
     let target = world.get::<ViewTarget>(view).unwrap();
     let attachment = retained_color_attachment(&world, view, target, false).unwrap();
-    assert_eq!(
-        attachment.view.id(),
-        target.get_color_attachment().view.id()
-    );
+    assert!(std::ptr::eq(
+        attachment.view,
+        target.get_color_attachment().view
+    ));
 }
