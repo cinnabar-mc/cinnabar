@@ -34,7 +34,7 @@ impl Descriptor {
     /// Checks the complete signed chunk index and declared decoder allocation budget.
     pub fn validate(&self, origins: &BTreeSet<String>) -> Result<()> {
         self.validate_profile()?;
-        crate::fetch::approved_url(&self.url, origins)?;
+        crate::fetch::contactable_url(&self.url, origins)?;
         Ok(())
     }
 

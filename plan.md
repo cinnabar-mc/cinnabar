@@ -103,6 +103,88 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 
 ### Terrain, materials and biome acceptance
 
+- [ ] Close server-pack block and entity material parity. The behavior baseline, native
+  evidence and confirmed gaps are tracked in the
+  [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
+  is `implemented` with a named test. The entity material declaration, definition and name
+  bounds are unverified implementation limits; past them a material draws without one.
+  is `implemented` with a named test.
+  is `implemented` with a named test. The Graphics Mode video option (Fancy by default) selects
+  server packs' entity material list, `materials/fancy.json` or `materials/sad.json`; a change
+  applies from the next pack application, not to the packs already loaded.
+- [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+  block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
+  bindings take none: the schema rejects one, and the client binds unconditionally and counts the
+  ignored condition in its aggregate entity material diagnostics.
+- [ ] Stencil state stays partial: entity materials carry the complete stencil fields, but scene
+  depth (Bevy's `CORE_3D_DEPTH_FORMAT`) has no stencil aspect, so stencil tests and writes are not
+  rendered. The stencil rows close only with a stencil-capable scene depth target.
+- [x] Material robustness covers malformed or removed packs, back-to-back generations and
+  adapters that cannot represent a material. Device loss is an app-wide gap tracked under
+  acceptance and release qualification, not a material one.
+- [x] Offline material previews are not planned. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline; the developer-control snapshot's `materials` section explains
+  a live session's choices, and the actor fragment's readback tests in
+  `crates/render/tests/it/actor_colour.rs` pin define-driven draws.
+- [ ] Programmable world materials for server Experiences (`render_world_material`, guest
+  `shade` fragments bound to the bundle's own entities and blocks) are developer-only: production
+  Experience execution stays fail-closed until the restricted-helper launch gate. The signed
+  manifest's `namespace` (API 2) limits bindings to that namespace; binding other namespaces,
+  vanilla included, needs the separate `render_world_material_override` (API 3), denied by
+  default, with its own consent line. The consent
+  line reads "Change how this server's own mobs and blocks look (up to N MB GPU memory)". The
+  `world-material` import (`server-experience@1.4.0`, now 1.5.0)
+  declares materials and bindings; bound entities and cube blocks draw with them under
+  host-owned depth, blend and pass, charged to the signed memory and GPU limits, and revocation
+  restores Bedrock in one publication. Cube and model blocks are both tagged, and translucent
+  classes merge face by face into their section's ordinary translucent order (water and
+  translucent models) with ordinary terrain's face metric. Shader-pack terrain samples a bound
+  block from an atlas sprite the guest renders each frame (albedo plus LabPBR emission), which
+  the pack lights as any block. Incomplete: the sprite is one per material, rendered with a
+  flat face, fixed view and white base, so position-, view- and neighbour-dependent effects and
+  Bedrock tint are flattened; Enhanced terrain draws bound blocks as Bedrock; and only offline
+  raster acceptance exists, with no in-game capture of a bound entity or block. Provisional
+  host limits, none checked against a native equivalent: `MAX_TEXTURE_EXTENT` (1024 texels a
+  side), `PIPELINE_CHARGE_BYTES` (256 KiB per distinct set of pipelines) and
+  `BIND_GROUP_CHARGE_BYTES` (4 KiB per drawn material), estimates rather than measured driver
+  costs, the 63 block slots the six-bit quad
+  tag carries (`MAX_BLOCK_SLOTS`) and the 255 slots in all that the eight-bit actor word carries
+  (`MAX_ENTITY_SLOTS`), `SERVER_PIPELINE_BYTES` (one bundle's largest GPU grant, 128 MiB, for
+  the pipelines one pinned server's programs leave in the process, past which a program new to
+  the process is refused for that server), `PROCESS_PIPELINE_BYTES` (four servers' shares,
+  the ceiling for all of them), the 64 compile failures one session
+  reports (`MAX_WORLD_MATERIAL_FAILURES`) and the 600 mesh rounds a block binding change waits
+  for the previous one to remesh before applying anyway (`WORLD_MATERIAL_HOLD_ROUNDS`). Composed modules and their pipelines stay
+  registered for the process because Bevy cannot drop a pipeline; a session charges the ones
+  its bundles compiled, and the per-server shares and process ceiling bound them across
+  sessions. Known gap: once four pinned servers have filled the ceiling in one run, every later
+  server's new programs are refused until the client restarts. The follow-up is pipeline
+  eviction in the cinnabar-mc/bevy fork, so the pipelines of servers no longer connected can be
+  freed.
+- [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
+  `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
+  (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no
+  such capture with the `-material-showcase` local-server fixture exists yet. A non-reference
+  headless run of that fixture qualifies nothing: the
+  host was swapping throughout, with multi-second main-thread stalls, and chunk request to
+  render-ready latency is not logged. M3 Pro, low-end and Windows/macOS native witnesses remain
+  unqualified. CI assertions cover
+  the deterministic part: unchanged reloads create no pipelines, compiles or uploads, and one
+  material change rebuilds only its dependents once.
+- [ ] World material effects (`world-material-effects`, `server-experience@1.5.0`, API 4): vertex
+  displacement (`render_world_material_vertex`), scene read (`render_world_material_scene`) and
+  extra passes and compute (`render_world_material_passes`), each its own provisional consent
+  line, denied by default (a `CINNABAR_DEV_WORLD_MATERIAL_*` variable opts the developer client
+  in), developer-only and charged to the bundle's limits; withdrawing one drops its effects in
+  one publication. Implemented: the contract, validation of each effect's functions and ranges,
+  publication, charges and withdrawal (developer-control `experience_permission`), and vertex
+  displacement on bound entities and cube and model blocks with grown culling bounds, and scene
+  read for blended entity and block materials from a per-view copy of the opaque colour and
+  linear depth, and compute cells stepped once a frame before anything draws (at most 2^20 cell
+  updates a frame across bundles; computes past that wait) that materials read, and bloom and
+  screen-space outlines from an effects pass over the bound targets. Incomplete: particles are
+  not drawn yet, there is no in-game withdrawal control, and every range and charge is
+  provisional.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
@@ -1719,6 +1801,9 @@ remain incomplete.
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
 frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
 screens with a free cursor still receive every raw report.
+- [ ] GPU device loss is an app-wide gap: the renderer has no device-loss path or test seam, so no
+  subsystem recovers a lost device. Pipelines, bind groups and uploaded textures, materials and
+  Enhanced maps included, are lost with it.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

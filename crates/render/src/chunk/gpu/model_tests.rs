@@ -348,6 +348,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
+        world_materials: false,
     };
     let allocation = GpuChunkAllocation {
         cube_layout: CubeQuadLayout::default(),
@@ -425,6 +426,7 @@ fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
         token: None,
         publication_permit: None,
         origin: [16, 32, 48],
+        world_materials: false,
     };
     let allocation = GpuChunkAllocation {
         cube_layout: CubeQuadLayout::default(),
@@ -566,4 +568,20 @@ fn same_key_render_replacement_preserves_urgent_priority() {
         .try_remove_inner(key, ChunkUploadPriority::new(0.0), None)
         .unwrap();
     assert!(queue.removals[&key].priority.is_urgent());
+}
+
+#[test]
+fn world_material_tags_on_model_draws_still_validate_and_survive_absolutization() {
+    let (refs, lighting, mut draws, templates) = owned_model_stream_fixture();
+    for draw in &mut draws {
+        *draw = draw.with_world_material(3);
+    }
+    assert!(validate_local_model_streams(
+        &refs, &lighting, &draws, &templates
+    ));
+    let mut words = draws.iter().map(|draw| draw.words()).collect::<Vec<_>>();
+    absolutize_model_draw_refs(&mut words, 8).unwrap();
+    let rebuilt = PackedModelDrawRef::new(words[1][0], words[1][1]);
+    assert_eq!(rebuilt.world_material(), 3);
+    assert_eq!(rebuilt.quad_index(), 2);
 }

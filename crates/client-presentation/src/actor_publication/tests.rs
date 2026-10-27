@@ -601,6 +601,7 @@ fn equipment_pack_fixture() -> (
         textures: Arc::from([]),
         bindings: Arc::from([]),
         equipment: Some(Arc::new(catalog)),
+        material_report: None,
     };
     let startup = render_model::ActorArtworkPages::default().with_actor_glint(
         render_model::EquipmentRaster {
@@ -978,6 +979,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment: None,
+        material_report: None,
     });
     let sprite = assets::IconSprite {
         width: 16,

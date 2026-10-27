@@ -120,6 +120,8 @@ pub(crate) use coverage::TerrainCoverage;
 use render_scene::chunk::texture_reload::ChunkTextureReload;
 pub(crate) mod transparent;
 mod visibility;
+pub(crate) mod world_materials;
+pub(crate) use world_materials::draw_effects as world_effects_draw;
 
 use constants::{
     BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_BINDINGS_SHADER_HANDLE, CHUNK_ORIGIN_BYTES,

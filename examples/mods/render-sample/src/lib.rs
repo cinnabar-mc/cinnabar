@@ -10,7 +10,6 @@ use mod_api::bindings::{
 };
 use std::cell::Cell;
 
-const EYE_HEIGHT: f32 = 1.62;
 const VIGNETTE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> {
     let edge = length(uv - vec2<f32>(0.5)) * 1.41;
     return scene(uv) * (1.0 - param(0u) * smoothstep(0.5, 1.0, edge));
@@ -59,7 +58,7 @@ impl Guest for RenderSample {
         let ring = Decal {
             center: Vector3 {
                 x: frame.eye.x,
-                y: frame.eye.y - EYE_HEIGHT,
+                y: frame.eye.y - mod_api::view::STANDING_PLAYER_EYE_HEIGHT,
                 z: frame.eye.z,
             },
             radius: 3.0,

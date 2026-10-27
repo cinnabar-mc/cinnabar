@@ -165,7 +165,9 @@ pub(crate) fn upload_atlas(
     let remap = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("shader-pack atlas remap"),
         contents: bytemuck::cast_slice(&plan.remap),
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
     });
     Some(UploadedAtlas {
         atlas,

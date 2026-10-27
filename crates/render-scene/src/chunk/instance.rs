@@ -26,6 +26,9 @@ pub struct ChunkRenderInstance {
     pub token: Option<ChunkUploadToken>,
     pub publication_permit: Option<PublicationPermitSlot>,
     pub origin: [i32; 3],
+    /// Whether any cube quad or model draw carries a world material tag, so the section culls
+    /// with bounds grown by the farthest a world material's effects reach.
+    pub world_materials: bool,
 }
 
 impl ChunkRenderInstance {
@@ -41,6 +44,11 @@ impl ChunkRenderInstance {
         self.cube_layout = mesh.cube_layout();
         let (cubes, cube_light, models, model_light, draws, transparent, liquids, liquid_light) =
             mesh.into_streams();
+        self.world_materials = cubes.iter().any(|quad| quad.world_material() != 0)
+            || draws
+                .iter()
+                .chain(transparent.iter())
+                .any(|draw| draw.world_material() != 0);
         self.cube_quads = cubes.into();
         self.cube_lighting = cube_light.into();
         self.model_refs = models.into();
