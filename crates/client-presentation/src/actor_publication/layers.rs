@@ -220,7 +220,7 @@ pub(super) fn attach(
                 }?;
                 equipment
                     .as_deref_mut()?
-                    .shield_raster(item, artwork, location?)
+                    .shield_raster(item, artwork, location?, draw.input.rig)
             },
         )
     {

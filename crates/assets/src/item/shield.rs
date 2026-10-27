@@ -24,6 +24,7 @@ pub fn pattern_path(code: &str) -> String {
 
 /// Composes every layer within the output pixel budget admitted by its consumer.
 /// Texture sampling uses normalized coordinates, preserving custom pack dimensions.
+/// Mask alpha blends colors; the patterned material outputs opaque texels.
 pub fn compose<'a, 'p>(
     shield: &'a EquipmentTexture,
     base: u8,
@@ -144,6 +145,14 @@ mod tests {
         assert!(usize::from(result.width) * usize::from(result.height) <= 1024);
         assert_eq!(&result.rgba8[..3], banner::color_rgb(15));
         assert!(compose(&shield, 15, [], 0, |_| Some(&tall)).is_none());
+    }
+
+    #[test]
+    fn patterned_material_outputs_opaque_texels_even_outside_the_cloth_mask() {
+        let shield = raster("fixture:shield", &[[10, 20, 30, 0], [40, 50, 60, 128]]);
+        let mask = raster("base", &[[0; 4]; 2]);
+        let result = compose(&shield, 15, [], usize::MAX, |_| Some(&mask)).unwrap();
+        assert_eq!(result.rgba8.as_ref(), &[10, 20, 30, 255, 40, 50, 60, 255]);
     }
 
     #[test]
