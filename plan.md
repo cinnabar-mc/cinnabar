@@ -215,6 +215,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   semantics, complete native galleries and Windows resource correspondence remain incomplete.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
+  Spawner preparation retains candidate, position, player and display scratch storage while
+  preserving scan order, visibility priority and tick advancement. Native visual and hardware
+  frame qualification remain open.
   Shulker lids still need animated collision bounds and standing-on-open-lid acceptance;
   accepting server actor displacement alone does not complete this behavior.
   Local actor displacement also needs matched interpolation-timing acceptance.

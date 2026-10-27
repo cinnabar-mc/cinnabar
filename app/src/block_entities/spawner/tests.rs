@@ -1,5 +1,6 @@
 use super::*;
 
+mod preparation;
 mod rescan;
 
 /// Builds an authored display with two controller layers and an explicit pack texture.
@@ -105,6 +106,7 @@ fn fixture_with_identifier(
         poses: Default::default(),
         layers: Default::default(),
         listing: None,
+        scratch: PreparationScratch::default(),
     };
     (pool, stream, artwork)
 }
@@ -123,7 +125,7 @@ fn draw(
         stream,
         artwork,
         0.5,
-        vec![(runtime, position, Default::default())],
+        &[(runtime, position, Default::default())],
     )
 }
 
@@ -143,13 +145,13 @@ fn regression_retired_display_poses_release_their_bone_allocations() {
     .unwrap();
     let bones = Arc::downgrade(&presentation.submission.input.current_bones);
     drop(presentation);
-    pool.actors.retain(&BTreeSet::new());
+    pool.actors.retain(|_| false);
     assert!(
         bones.upgrade().is_some(),
         "recently drawn poses remain cached"
     );
     for _ in 0..256 {
-        display_batch(&mut pool, &stream, &artwork, 0.5, Vec::new());
+        display_batch(&mut pool, &stream, &artwork, 0.5, &[]);
     }
     assert!(
         bones.upgrade().is_none(),

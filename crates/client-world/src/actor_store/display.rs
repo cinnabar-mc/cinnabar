@@ -154,13 +154,13 @@ impl DisplayActorStore {
         }
     }
 
-    /// Retires displays whose blocks are no longer admitted for this frame.
-    pub fn retain(&mut self, positions: &std::collections::BTreeSet<[i32; 3]>) {
+    /// Retires rejected displays, testing `keep` once per stored position in position order.
+    pub fn retain(&mut self, mut keep: impl FnMut([i32; 3]) -> bool) {
         let removed = self
             .positions
             .keys()
-            .filter(|position| !positions.contains(*position))
             .copied()
+            .filter(|position| !keep(*position))
             .collect::<Vec<_>>();
         for position in removed {
             self.remove(position);
