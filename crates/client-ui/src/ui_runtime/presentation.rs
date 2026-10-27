@@ -139,6 +139,8 @@ pub struct UiPresentationRuntime {
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.
     assembly_nodes: Vec<UiNode>,
+    /// Immutable geometry reuses storage only after all render readers release it.
+    vertex_buffers: render_model::FrameBuffers<render_model::UiRenderVertex>,
     retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,

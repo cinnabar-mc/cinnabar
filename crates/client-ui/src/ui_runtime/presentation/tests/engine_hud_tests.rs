@@ -811,14 +811,12 @@ fn titles_and_chat_carry_their_fades() {
     assert_eq!(presentation.hud_fade(chat, 9.0), 1.0);
     assert!(presentation.hud_fade(chat, 10.5) < 1.0);
     assert_eq!(presentation.hud_fade(chat, 11.0), 0.0);
-    // A re-sent title starts a fresh title control while preserving the chat fade.
-    let passes = presentation.hud_passes();
+    // A re-sent title restarts its fade while preserving the chat fade.
     runtime
         .session
         .hud
         .set_title(Arc::from("Victory"), 3, 2_000);
     build(&player_runtime, &mut presentation, &runtime, 2_100);
-    assert_eq!(presentation.hud_passes(), passes + 1);
     let title = text(presentation.hud_draw_nodes(), "Victory").unwrap();
     assert!((presentation.hud_fade(title, 2.25) - 0.5).abs() < 1e-3);
     let chat = text(presentation.hud_draw_nodes(), "gg").unwrap();

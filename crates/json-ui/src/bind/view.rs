@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::apply::BagScope;
 use super::native;
 use super::spec::{Kind, Source, ViewScope};
-use super::{Binder, Node};
+use super::{Binder, Node, Src};
 use crate::predicate::{self, Scalar};
 
 /// Changed-value notifications followed in one refresh, as the client's bag
@@ -21,12 +21,66 @@ const EXPANSION_ROUNDS: usize = 8;
 
 type Path = Vec<usize>;
 
-/// Reuses path storage without retaining source relationships across tree changes.
+/// Reuses resolved view sources while the exact ordered template tree stays unchanged.
 #[derive(Clone, Debug, Default)]
 pub(super) struct ViewWork {
     list: Vec<(Path, usize)>,
     path: Path,
     sources: Vec<ViewSource>,
+    shape: Vec<ViewNode>,
+    source_count: usize,
+}
+
+/// One immutable source and its position in the ordered expanded tree.
+#[derive(Clone)]
+struct ViewNode {
+    src: Src,
+    key: u64,
+    children: usize,
+}
+
+impl std::fmt::Debug for ViewNode {
+    /// Reports source identity without dumping its entire owning template tree.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ViewNode")
+            .field("name", &self.src.name())
+            .field("key", &self.key)
+            .field("children", &self.children)
+            .finish()
+    }
+}
+
+/// Records the exact current tree in reusable storage and reports any identity or order change.
+fn refresh_shape(node: &Node, shape: &mut Vec<ViewNode>, next: &mut usize) -> bool {
+    let src = node.track.source(&node.src);
+    let mut changed = match shape.get_mut(*next) {
+        Some(previous)
+            if previous.key == node.key
+                && previous.children == node.children.len()
+                && previous.src.same(src) =>
+        {
+            false
+        }
+        Some(previous) => {
+            previous.src.clone_from(src);
+            previous.key = node.key;
+            previous.children = node.children.len();
+            true
+        }
+        None => {
+            shape.push(ViewNode {
+                src: src.clone(),
+                key: node.key,
+                children: node.children.len(),
+            });
+            true
+        }
+    };
+    *next += 1;
+    for child in &node.children {
+        changed |= refresh_shape(child, shape, next);
+    }
+    changed
 }
 
 #[derive(Clone, Debug, Default)]
@@ -225,14 +279,30 @@ impl Binder<'_> {
         if list.is_empty() {
             return (missed, true);
         }
-        let names = SourceNames::new(root, list);
-        work.sources.resize_with(used, ViewSource::default);
-        for ((path, index), source) in list.iter().zip(&mut work.sources) {
-            let resolved = self.source_of(root, &names, path, *index, &mut source.path);
-            source.found = resolved.is_ok();
-            if let Err(name) = resolved {
-                missed.push(name);
+        let mut shape_nodes = 0;
+        let changed = refresh_shape(root, &mut work.shape, &mut shape_nodes);
+        let sources_stand =
+            !changed && shape_nodes == work.shape.len() && used == work.source_count;
+        work.shape.truncate(shape_nodes);
+        if sources_stand {
+            for ((path, index), source) in list.iter().zip(&work.sources) {
+                if !source.found
+                    && let Kind::View { control, .. } = &node_at(root, path).bindings[*index].kind
+                {
+                    missed.push(control.clone());
+                }
             }
+        } else {
+            let names = SourceNames::new(root, list);
+            work.sources.resize_with(used, ViewSource::default);
+            for ((path, index), source) in list.iter().zip(&mut work.sources) {
+                let resolved = self.source_of(root, &names, path, *index, &mut source.path);
+                source.found = resolved.is_ok();
+                if let Err(name) = resolved {
+                    missed.push(name);
+                }
+            }
+            work.source_count = used;
         }
         let sources = &work.sources;
         self.notify_creation_inputs(root, list, sources);

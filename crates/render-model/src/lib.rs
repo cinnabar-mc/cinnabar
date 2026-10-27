@@ -10,7 +10,9 @@ mod entity_shadow;
 pub mod equipment;
 mod font_atlas;
 pub mod font_shading;
+mod frame_buffers;
 mod frame_latency;
+pub use frame_buffers::FrameBuffers;
 mod frame_pacing;
 pub mod hats;
 pub use font_atlas::{

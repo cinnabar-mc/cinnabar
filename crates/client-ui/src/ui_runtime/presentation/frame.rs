@@ -391,7 +391,7 @@ impl UiPresentationRuntime {
             // `§k` text re-rolls its glyphs every frame; the retained draw re-emits only it.
             let redrawn = redraw_changed(
                 self.last_frame.as_mut(),
-                self.last_input.as_ref(),
+                (self.last_input.as_ref(), &mut self.vertex_buffers),
                 &self.textures,
                 &nodes,
                 frame,
@@ -439,6 +439,7 @@ impl UiPresentationRuntime {
                 Arc::clone(&self.textures),
                 render_viewport,
                 models,
+                &mut self.vertex_buffers,
             )
             .map_err(UiPresentationError::Adapter)?;
             self.last_frame = Some(BuiltFrame {
@@ -494,7 +495,10 @@ enum Redrawn {
 /// the last frame's tree shape and viewport; `None` asks for a full build.
 fn redraw_changed(
     last: Option<&mut BuiltFrame>,
-    previous: Option<&UiRenderInput>,
+    (previous, buffers): (
+        Option<&UiRenderInput>,
+        &mut render_model::FrameBuffers<render_model::UiRenderVertex>,
+    ),
     textures: &Arc<UiRenderTextureArray>,
     nodes: &[UiNode],
     frame: ([u32; 2], f32, SafeArea),
@@ -536,6 +540,7 @@ fn redraw_changed(
                 Arc::clone(textures),
                 render_viewport,
                 model_poses,
+                buffers,
             )
             .map_err(UiPresentationError::Adapter)?,
         )
@@ -547,6 +552,7 @@ fn redraw_changed(
             last.draw.draw_list(),
             &update.vertices,
             render_viewport.dpi_scale,
+            buffers,
         )
         .map_err(UiPresentationError::Adapter)?;
         if previous.textures.as_ref() != textures.as_ref() || previous.models != model_poses {

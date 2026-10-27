@@ -173,6 +173,11 @@ pub(super) struct Prior {
 }
 
 impl Track {
+    /// The immutable template before binding patched a grid's layout properties.
+    pub(super) fn source<'a>(&'a self, current: &'a Src) -> &'a Src {
+        self.origin.as_ref().unwrap_or(current)
+    }
+
     /// Whether the subtree stands as the last bind left it.
     pub(super) fn quiet(&self) -> bool {
         !self.fresh && !self.touched && !self.dirty
@@ -325,7 +330,7 @@ impl Binder<'_> {
         !self.published_dirty.contains_key(&previous.key)
             && (track.stable || track.prepared)
             && !track.below.meets(changes)
-            && track.origin.as_ref().unwrap_or(&previous.src).same(src)
+            && track.source(&previous.src).same(src)
             && previous.scope.same(scope)
             // A factory's creations are hoisted to its parent, which rebuilds them.
             && !track.hoisted
@@ -591,7 +596,7 @@ fn settled(node: &Node, binder: &Binder<'_>) -> bool {
 impl Binder<'_> {
     /// Proves that a new control's next regular bindings leave its retained state unchanged.
     fn initially_settled(&self, node: &Node) -> bool {
-        let src = node.track.origin.as_ref().unwrap_or(&node.src);
+        let src = node.track.source(&node.src);
         // These owners can overwrite creation output before regular bindings run.
         if !node.scope.values.is_empty()
             || self.data.controls.contains_key(src.name())

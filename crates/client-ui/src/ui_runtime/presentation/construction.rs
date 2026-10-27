@@ -67,6 +67,7 @@ impl UiPresentationRuntime {
             last_input: None,
             last_frame: None,
             assembly_nodes: Vec::new(),
+            vertex_buffers: Default::default(),
             retained_menu: None,
             #[cfg(test)]
             tree_builds: 0,

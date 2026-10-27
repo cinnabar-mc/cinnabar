@@ -947,7 +947,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   change, and hardware frame captures of drag splits remain open.
   Inventory preparation retains unchanged bindings and measurements across late display inputs.
   The first visible frame starts animations and defers scroll feedback to the following frame.
-  Binding refreshes reuse path storage, and UI draw updates retain replacement geometry buffers.
+  Binding refreshes reuse paths and named sources while template identity and order stay fixed.
+  Unchanged bound output keeps its laid-out draw nodes. Draw updates retain replacement buffers,
+  and immutable vertex arrays reuse storage only after every reader releases them.
   First-open and repeated-open hardware timing and combined-screen acceptance remain open.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,

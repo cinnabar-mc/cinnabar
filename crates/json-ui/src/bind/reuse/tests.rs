@@ -1,5 +1,7 @@
 //! Incremental binds rebuild only the subtrees that read a changed key.
 
+mod view_sources;
+
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -269,63 +271,6 @@ fn refreshing_text_does_not_copy_binding_declarations() {
     assert!(
         allocations < 128,
         "text refresh allocated {allocations} times"
-    );
-}
-
-#[test]
-fn refreshing_one_caption_reuses_view_path_storage() {
-    let mut children = vec![control(
-        "caption",
-        "label",
-        json!({"text":"#text", "bindings":[{
-            "binding_name":"#caption", "binding_name_override":"#text"
-        }]}),
-        vec![],
-    )];
-    children.extend((0..512).map(|index| {
-        control(
-            &format!("fixed{index}"),
-            "label",
-            json!({"text":"#text", "property_bag":{"#fixed":"200"}, "bindings":[{
-                "binding_type":"view", "source_property_name":"#fixed",
-                "target_property_name":"#text"
-            }]}),
-            vec![],
-        )
-    }));
-    let root = Arc::new(control("root", "panel", json!({}), children));
-    let mut data = DataSource::new();
-    data.set_global("#caption", Scalar::Text("first".into()));
-    let mut state = BindState::new();
-    let data = Arc::new(data);
-    let mut bound = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state);
-    let mut measures = crate::MeasureCache::default();
-    crate::rebind(
-        &root,
-        &data,
-        &EmptyLibrary,
-        &mut state,
-        &mut bound,
-        &mut measures,
-    );
-    let mut next = (*data).clone();
-    next.set_global("#caption", Scalar::Text("second".into()));
-    let next = Arc::new(next);
-    let (_, allocations) = test_alloc::count(|| {
-        crate::rebind(
-            &root,
-            &next,
-            &EmptyLibrary,
-            &mut state,
-            &mut bound,
-            &mut measures,
-        );
-    });
-    let cold = crate::bind_incremental(&root, &next, &EmptyLibrary, &mut BindState::new());
-    assert_eq!(captions(&bound), captions(&cold));
-    assert!(
-        allocations < 128,
-        "view refresh allocated {allocations} times"
     );
 }
 

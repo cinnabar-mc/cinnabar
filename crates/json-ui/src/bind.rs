@@ -151,6 +151,7 @@ pub fn bind_incremental(
 
 /// [`bind_incremental`] applied in place onto `bound`, the tree this state's last
 /// incremental bind produced, keeping `measures` for unchanged controls.
+/// Returns whether the bound properties or control tree changed.
 pub fn rebind(
     root: &Arc<ResolvedControl>,
     data: &Arc<DataSource>,
@@ -158,11 +159,16 @@ pub fn rebind(
     state: &mut BindState,
     bound: &mut ResolvedControl,
     measures: &mut crate::MeasureCache,
-) {
+) -> bool {
     bind_with(root, data, lib, state, true);
     state.data = Some(Arc::clone(data));
     if let Some(node) = state.tree.as_deref_mut() {
-        measures.apply_patch(bound, reuse::patch(node, &data.components));
+        let patch = reuse::patch(node, &data.components);
+        let changed = !matches!(patch, reuse::Patch::Same);
+        measures.apply_patch(bound, patch);
+        changed
+    } else {
+        false
     }
 }
 
