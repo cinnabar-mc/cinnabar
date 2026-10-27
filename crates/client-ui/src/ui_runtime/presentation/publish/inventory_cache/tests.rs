@@ -380,3 +380,59 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
         assert_eq!(output_visible, visible, "sequence {sequence}");
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pending_inventory_preparation_keeps_projected_names_available() {
+    let mut player = player_state::PlayerState::new(1);
+    let runtime = crate::test_support::inventory_session(&mut player);
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: ContainerIdentity::window(0),
+            slots: Arc::from([NetworkItemStack {
+                network_id: ITEM_ID,
+                count: 1,
+                ..NetworkItemStack::empty()
+            }]),
+            storage_item: NetworkItemStack::empty(),
+        }));
+    let mut presentation = crate::test_support::mini_engine_presentation();
+    let mut stream = stream();
+    assert!(stream.seed_item_registry(registry("fixture:one")));
+    let mut cache = InventoryCache::default();
+    let update = cache.capture(
+        &player,
+        &ItemResolver {
+            runtime: &runtime,
+            presentation: &presentation,
+            authority: Some(stream.authority().inventory_ui()),
+        },
+        &ItemIconFrames::default(),
+    );
+    assert_eq!(update.item_names.unwrap()[&(ITEM_ID, 0)].as_ref(), "One");
+    presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [320, 240],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert!(presentation.engine_inventory_preparation_pending());
+    let update = cache.capture(
+        &player,
+        &ItemResolver {
+            runtime: &runtime,
+            presentation: &presentation,
+            authority: Some(stream.authority().inventory_ui()),
+        },
+        &ItemIconFrames::default(),
+    );
+    assert!(
+        update.item_names.is_none(),
+        "pending preparation must retain the unchanged name projection"
+    );
+}

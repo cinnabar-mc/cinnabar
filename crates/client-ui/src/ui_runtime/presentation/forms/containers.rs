@@ -410,12 +410,13 @@ impl UiPresentationRuntime {
         let Some(engine) = self.engine.as_deref() else {
             return false;
         };
-        self.screens.containers.needs_inventory_preparation(
-            engine,
-            &ContainerAuthority::new(player, runtime),
-            self.inventory_preparation_revision
-                .load(std::sync::atomic::Ordering::Relaxed),
-        )
+        self.screens.containers.inventory_preparation_pending()
+            || self.screens.containers.needs_inventory_preparation(
+                engine,
+                &ContainerAuthority::new(player, runtime),
+                self.inventory_preparation_revision
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
     }
 
     /// Prepares or paints `layout`; only a visible paint publishes frame geometry.

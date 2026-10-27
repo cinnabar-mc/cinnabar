@@ -83,7 +83,6 @@ impl ContainerScreen {
     }
 
     /// Whether a closed inventory still owns unfinished preparation work.
-    #[cfg(any(test, feature = "test-support"))]
     pub fn inventory_preparation_pending(&self) -> bool {
         self.preparing.is_some()
     }
