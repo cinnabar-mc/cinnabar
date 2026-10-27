@@ -3,7 +3,7 @@ use std::{collections::HashSet, str};
 use crate::AssetError;
 
 mod identity;
-pub use identity::pinned_block_identity;
+pub use identity::{pinned_block_identity, pinned_block_sequential_id};
 
 mod schema;
 use crate::facts::{self, family_routing};

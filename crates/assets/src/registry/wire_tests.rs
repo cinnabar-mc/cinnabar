@@ -245,6 +245,30 @@ fn pinned_identity_projection_borrows_exact_text_with_one_allocation() {
     assert_eq!(crate::pinned_block_identity(u32::MAX), None);
 }
 
+#[test]
+fn pinned_name_lookup_reuses_the_index_and_returns_the_first_matching_state() {
+    let records = read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let mut first_states = std::collections::BTreeMap::new();
+    for record in records.iter() {
+        first_states
+            .entry(record.name.as_ref())
+            .or_insert(record.sequential_id);
+    }
+    // Warm the process index before measuring repeated lookups, including missing names.
+    let _ = crate::pinned_block_identity(0);
+    let (_, allocations) = test_alloc::count(|| {
+        for (name, first) in first_states {
+            assert_eq!(crate::pinned_block_sequential_id(name), Some(first));
+        }
+        assert_eq!(crate::pinned_block_sequential_id("missing:block"), None);
+    });
+    assert_eq!(allocations, 0);
+}
+
 /// Finds text extents through the same framing reader without assuming fixed payload offsets.
 fn first_identity_text_offsets(bytes: &[u8]) -> (usize, usize) {
     let mut reader = Reader::new(bytes);

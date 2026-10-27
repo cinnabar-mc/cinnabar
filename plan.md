@@ -1714,6 +1714,9 @@ allocate exactly their source layer count. Skin slots
 keep geometric capacity. Each artwork slot retains its own unchanged texture and bindings.
 Worker rig-plan preparation and measured cold arrival latency remain open acceptance work.
 Hardware join and frame acceptance still needs the full capture matrix below.
+Camera fire binding and diagnostic block names share the borrowed pinned identity
+index instead of decoding block facts during frame publication. Empty diagnostic
+snapshots do not prepare identities.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
