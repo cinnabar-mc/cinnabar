@@ -103,6 +103,39 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 
 ### Terrain, materials and biome acceptance
 
+- [ ] Close server-pack block and entity material parity. The behavior baseline, native
+  evidence and confirmed gaps are tracked in the
+  [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
+  is `implemented` with a named test. The entity material declaration, definition and name
+  bounds are unverified implementation limits; past them a material draws without one.
+  is `implemented` with a named test.
+- [ ] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+  block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
+  binding conditions are deferred: they would need per-frame evaluation of each bound bone's
+  condition beside the render controller's visibility rules, which adds per-frame cost.
+- [ ] Material robustness under device loss is untested: the renderer has no device-loss path or
+  test seam, so recovery of material pipelines, bind groups and Enhanced maps after a lost device
+  is a gap. Malformed or removed packs, back-to-back generations and adapters that cannot represent
+  a material are covered by tests.
+- [ ] Offline material previews are deferred. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline, so it cannot show how a define-driven entity material or a
+  bound custom block draws. Until an offline GPU scene tool exists, the actor fragment's readback
+  tests in `crates/render/tests/it/actor_colour.rs` pin those draws, and the developer-control
+  snapshot's `materials` section explains a live session's choices.
+- [ ] Programmable world materials for server Experiences (a `render_world_material` permission
+  binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
+  guests have no drawing interface yet, and production Experience execution stays fail-closed
+  until the restricted-helper launch gate.
+- [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
+  `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
+  (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no
+  such capture with the `-material-showcase` local-server fixture exists yet. A non-reference
+  headless run of that fixture qualifies nothing: the
+  host was swapping throughout, with multi-second main-thread stalls, and chunk request to
+  render-ready latency is not logged. M3 Pro, low-end and Windows/macOS native witnesses remain
+  unqualified. CI assertions cover
+  the deterministic part: unchanged reloads create no pipelines, compiles or uploads, and one
+  material change rebuilds only its dependents once.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;

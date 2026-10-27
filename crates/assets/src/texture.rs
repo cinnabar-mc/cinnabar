@@ -2,9 +2,11 @@ use std::collections::BTreeSet;
 
 use crate::AssetError;
 
+mod enhanced;
 pub mod flipbook;
 mod legacy_terrain;
 pub mod policy;
+pub use enhanced::EnhancedTextureAssets;
 pub use legacy_terrain::{
     build_legacy_terrain_mip_chain, legacy_terrain_mip, rebuild_legacy_terrain_mips,
 };

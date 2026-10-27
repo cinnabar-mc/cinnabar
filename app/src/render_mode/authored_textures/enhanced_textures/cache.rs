@@ -11,7 +11,8 @@ use assets::texture::{TextureArray, TextureMip};
 use pack_compiler::pbr::PbrPack;
 use sha2::{Digest, Sha256};
 
-use super::{LOW_PBR_TILE_SIZE, Source};
+use super::Source;
+use pack_compiler::pbr::LOW_PBR_TILE_SIZE;
 
 const CACHE_PATH: &str = ".local/enhanced-pbr.cache";
 // Includes unclamped signed normal filtering and opacity-weighted resizing.
@@ -29,8 +30,8 @@ pub(super) struct Payload {
 
 impl Payload {
     /// Validates cached references before exposing the decoded pages.
-    pub(super) fn into_assets(self) -> Option<render_scene::EnhancedTextureAssets> {
-        render_scene::EnhancedTextureAssets::new(
+    pub(super) fn into_assets(self) -> Option<assets::texture::EnhancedTextureAssets> {
+        assets::texture::EnhancedTextureAssets::new(
             self.color,
             self.normal,
             self.material,
@@ -166,7 +167,7 @@ fn word(input: &mut impl Read) -> Option<u32> {
 /// Requires the same complete, bounded mip chain for cache reads and writes.
 fn array_header_is_valid(layers: u32, side: u32, levels: u32) -> bool {
     layers > 0
-        && layers <= super::MAX_AUTHORED_LAYERS
+        && layers <= pack_compiler::pbr::MAX_AUTHORED_LAYERS
         && side.is_power_of_two()
         && side <= assets::texture::PBR_TILE_SIZE
         && levels == side.ilog2() + 1
@@ -422,7 +423,7 @@ mod tests {
             color: std::array::from_fn(|page| array(16 + page as u8)),
             normal: std::array::from_fn(|page| array(64 + page as u8)),
             material: std::array::from_fn(|page| array(128 + page as u8)),
-            references: render_scene::EnhancedTextureAssets::material_references(
+            references: assets::texture::EnhancedTextureAssets::material_references(
                 std::collections::BTreeMap::from([((1, 0), assets::texture::PBR_REF_COLOR)]),
             ),
         }
@@ -500,7 +501,7 @@ mod tests {
             color: [array.clone(), array.clone()],
             normal: [array.clone(), array.clone()],
             material: [array.clone(), array],
-            references: render_scene::EnhancedTextureAssets::material_references(
+            references: assets::texture::EnhancedTextureAssets::material_references(
                 std::collections::BTreeMap::from([
                     ((1, 0), assets::texture::PBR_REF_COLOR),
                     ((2, 0), assets::texture::PBR_REF_COLOR | 1),

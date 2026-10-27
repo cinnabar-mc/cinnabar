@@ -22,6 +22,7 @@ sha2.workspace = true
 
 [dev-dependencies]
 pack-compiler = { path = ".." }
+regex = "1"
 tempfile = "3"
 
 [lints]

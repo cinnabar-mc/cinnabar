@@ -1,0 +1,103 @@
+//! Counted entity material behaviour of one compiled server pack, reported once per pack
+//! generation. Entity compilation fills these counts; reports and diagnostics read them.
+
+/// Counted list entries the client loads nothing from or reads only in part.
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize,
+)]
+pub struct MaterialListReport {
+    /// Entries carrying `tag`, which Bedrock logs as no longer supported and ignores.
+    pub ignored_tags: u32,
+    /// Entries whose `path` is absent, empty, not a string or too long to copy.
+    pub empty_paths: u32,
+    /// Entries naming a file an earlier entry already loaded; the earlier entry's defines win.
+    pub repeated_paths: u32,
+    /// List copies that are not JSON.
+    pub unparsable_lists: u32,
+}
+
+impl MaterialListReport {
+    /// Adds `other`'s counts to these.
+    pub fn add(&mut self, other: Self) {
+        self.ignored_tags += other.ignored_tags;
+        self.empty_paths += other.empty_paths;
+        self.repeated_paths += other.repeated_paths;
+        self.unparsable_lists += other.unparsable_lists;
+    }
+}
+
+/// One compiled pack's entity material counts.
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize,
+)]
+pub struct EntityMaterialDiagnostics {
+    /// Distinct state names no Bedrock state matches. Bedrock asserts on them; the client
+    /// ignores them.
+    pub unknown_states: u32,
+    /// Distinct define names Bedrock gives no actor flag. It ignores them without a log, and so
+    /// does the client.
+    pub unknown_defines: u32,
+    /// `samplerStates` entries whose `samplerIndex` is 8 or more, skipped as Bedrock skips them.
+    pub skipped_samplers: u32,
+    /// Declared materials that do not resolve: a parent missing from their file, a parent
+    /// cycle, or a malformed state or define list.
+    pub failed_materials: u32,
+    /// Resolved materials whose program has no actor material type; they draw as plain `Actor`.
+    pub unassignable_programs: u32,
+    /// Resolved materials with stencil, polygon-offset or depth-bias state the client carries
+    /// without rendering.
+    pub unsupported_materials: u32,
+    /// Resolved materials drawn approximately: actor defines the client carries without
+    /// drawing, or the `pattern` type drawn as `entity`.
+    pub approximated_materials: u32,
+    /// Material draws dropped because their render controller supplies too few textures.
+    pub skipped_draws: u32,
+    /// `materials/*.material` files no list entry named, loaded in place of the vanilla lists.
+    pub unlisted_files: u32,
+    /// List entries the client read in part or loaded nothing from.
+    pub list: MaterialListReport,
+    /// `cinnabar/material-bindings.json` documents ignored whole because they are invalid.
+    pub invalid_extension_documents: u32,
+    /// Entity bindings no compiled entity and render controller match.
+    pub unmatched_extension_bindings: u32,
+    /// Mask textures of entity-bound extension materials that name no loaded raster.
+    pub unresolved_extension_textures: u32,
+}
+
+impl EntityMaterialDiagnostics {
+    /// Whether any count is non-zero.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Where one client-entity material an actor draws came from, and how it draws.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EntityMaterialProvenance {
+    /// The material name a client-entity definition or Cinnabar binding names.
+    pub name: Box<str>,
+    /// The carrier material-table index the actor draws with.
+    pub definition: u32,
+    /// The pack-relative file declaring it, `cinnabar/material-bindings.json` for an extension
+    /// material, or `client base` for a base the client declares itself.
+    pub source: Box<str>,
+    /// The material, then each parent it derives from; a client-declared base ends the chain.
+    pub chain: Box<[Box<str>]>,
+    /// `skinning` when the draw uses the material's skinning variant, else `base`.
+    pub variant: Box<str>,
+    /// Actor defines the client draws.
+    pub applied_defines: Box<[Box<str>]>,
+    /// Defines the client carries without drawing.
+    pub carried_defines: Box<[Box<str>]>,
+    /// Why the draw is approximate or falls back, when it is.
+    pub reason: Option<Box<str>>,
+}
+
+/// One compiled pack's entity material counts and per-material provenance.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EntityMaterialReport {
+    pub diagnostics: EntityMaterialDiagnostics,
+    /// Materials actors draw, sorted by name.
+    pub materials: Box<[EntityMaterialProvenance]>,
+}

@@ -122,6 +122,11 @@ fn artwork_only_layers_do_not_create_attachable_rigs() {
     assert!(pack.equipment.as_ref().unwrap().bindings().is_empty());
     let encoded = pack.encode(&pack.assets.encode().unwrap()).unwrap();
     let restored = SessionEntityPack::decode(&encoded).unwrap();
+    assert!(pack.material_report.is_some());
+    assert_eq!(
+        restored.material_report, pack.material_report,
+        "a cache-restored pack reports its compile's counts"
+    );
     assert!(restored.assets.rig_bindings().is_empty());
     assert!(restored.assets.symbols().is_empty());
     let artwork = restored.equipment.unwrap();
@@ -224,4 +229,94 @@ fn an_entity_pack_added_to_a_packless_session_recompiles_entities() {
     )]);
     let previous = resource_pack::PackAdmission::Validated(packless);
     assert!(crate::reload_diff::Changes::between(&added, Some((&previous, &reads))).entities);
+}
+
+/// A one-entity stack drawing `material` from the given `materials/entity.material` text.
+fn material_stack(material: &[u8]) -> Arc<resource_pack::ValidatedPackStack> {
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([90, 90, 90, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+        "identifier":"example:moth","materials":{"default":"example:glow"},
+        "textures":{"default":"textures/entity/moth"},"geometry":{"default":"geometry.moth"},
+        "render_controllers":["controller.render.moth"]}}}"#;
+    let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.moth","texture_width":16,"texture_height":16},
+        "bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[4,4,4],"uv":[0,0]}]}]}]}"#;
+    let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.moth":{
+        "geometry":"Geometry.default","materials":[{"*":"Material.default"}],
+        "textures":["Texture.default"]}}}"#;
+    crate::test_support::stack(&[
+        ("entity/moth.entity.json", entity),
+        ("models/entity/moth.geo.json", geometry),
+        ("render_controllers/moth.json", controller),
+        ("materials/entity.material", material),
+        ("textures/entity/moth.png", png.get_ref()),
+    ])
+}
+
+/// The defines the session pack's `example:glow` draws, if the pack draws it.
+fn drawn_defines(pack: &SessionEntityPack) -> Option<Vec<String>> {
+    pack.material_report
+        .as_ref()?
+        .materials
+        .iter()
+        .find(|material| material.name.as_ref() == "example:glow")
+        .map(|material| {
+            material
+                .applied_defines
+                .iter()
+                .chain(material.carried_defines.iter())
+                .map(ToString::to_string)
+                .collect()
+        })
+}
+
+#[test]
+fn a_malformed_material_file_and_its_removal_leave_no_stale_material() {
+    let (catalog, cache) = (base_catalog(), EntityCache::default());
+    let valid = |define: &str| {
+        format!(
+            r#"{{"materials":{{"version":"1.0.0","example:glow:entity_alphatest":{{"+defines":["{define}"]}}}}}}"#
+        )
+    };
+    let (first, _) = resolve(&cache, &material_stack(valid("FIRST").as_bytes()), &catalog);
+    assert!(
+        drawn_defines(&first.unwrap())
+            .unwrap()
+            .contains(&"FIRST".to_owned())
+    );
+    // A malformed file mid-session is skipped; the entity still compiles without it.
+    let (malformed, _) = resolve(&cache, &material_stack(b"{ not json"), &catalog);
+    let malformed = malformed.expect("a malformed material file never drops the pack");
+    assert!(
+        drawn_defines(&malformed).is_none_or(|defines| !defines.contains(&"FIRST".to_owned())),
+        "the earlier generation's material does not survive"
+    );
+    // Removing the pack leaves nothing behind.
+    let (removed, _) = resolve(&cache, &crate::test_support::stack(&[]), &catalog);
+    assert!(removed.is_none_or(|pack| {
+        pack.material_report
+            .as_ref()
+            .is_none_or(|report| report.materials.is_empty())
+    }));
+}
+
+#[test]
+fn back_to_back_generations_publish_the_latest_materials() {
+    let (catalog, cache) = (base_catalog(), EntityCache::default());
+    let mut last = None;
+    for define in ["ONE", "TWO", "THREE", "FOUR"] {
+        let material = format!(
+            r#"{{"materials":{{"version":"1.0.0","example:glow:entity_alphatest":{{"+defines":["{define}"]}}}}}}"#
+        );
+        let (pack, _) = resolve(&cache, &material_stack(material.as_bytes()), &catalog);
+        last = pack;
+    }
+    let defines = drawn_defines(&last.unwrap()).unwrap();
+    assert!(defines.contains(&"FOUR".to_owned()));
+    for stale in ["ONE", "TWO", "THREE"] {
+        assert!(!defines.contains(&stale.to_owned()), "{stale} survived");
+    }
 }
