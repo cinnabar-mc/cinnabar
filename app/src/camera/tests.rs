@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-#[cfg(any(feature = "developer-control", feature = "acceptance"))]
-use bevy::{anti_alias::fxaa::Fxaa, core_pipeline::tonemapping::Tonemapping};
 use bevy::{
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
@@ -19,7 +17,7 @@ use world::ChunkKey;
 use {
     crate::camera::{self, FlyCameraPlugin},
     client_presentation::camera::{
-        AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, PITCH_LIMIT,
+        AutoFly, CameraSettingsAuthority, CameraSettingsError, PITCH_LIMIT,
     },
 };
 use {crate::game_frame::configure_client_frame_schedule, client_state::ClientFrameSet};
@@ -28,6 +26,11 @@ use {
         collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
     },
     client_state::SemanticInputSnapshot,
+};
+#[cfg(any(feature = "developer-control", feature = "acceptance"))]
+use {
+    bevy::{anti_alias::fxaa::Fxaa, core_pipeline::tonemapping::Tonemapping},
+    client_presentation::camera::FlyCamera,
 };
 
 mod cursor_changes;
