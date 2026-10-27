@@ -359,6 +359,19 @@ impl UiPresentationRuntime {
         self.sync_server_ui_pages();
     }
 
+    /// Starts container lifetimes afresh and releases the old trees away from the frame.
+    pub(super) fn reset_container_screens(&mut self) {
+        let retired = std::mem::take(&mut self.screens.containers);
+        self.projections.container = None;
+        self.projections.previous_container = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = std::thread::Builder::new()
+            .name("container-cleanup".into())
+            .spawn(move || drop(retired));
+        #[cfg(target_arch = "wasm32")]
+        drop(retired);
+    }
+
     /// Draws oversized server textures from their server-page downscale again.
     #[cfg(test)]
     pub fn drop_full_res_art(&mut self) {

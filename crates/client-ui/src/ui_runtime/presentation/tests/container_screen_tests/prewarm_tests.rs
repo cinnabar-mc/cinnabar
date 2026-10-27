@@ -80,7 +80,7 @@ fn populate(runtime: &mut UiRuntime, player: &mut player_state::PlayerState) {
     runtime
         .enqueue_inventory_event(
             player,
-            1,
+            runtime.session_id(),
             1,
             InventoryEvent::Content(InventoryContentEvent {
                 container: ContainerIdentity::window(0),
@@ -586,4 +586,51 @@ fn pending_source_changes_reuse_static_measurements_at_first_open() {
         initial_placed,
         warm.engine_container_placed()
     );
+}
+
+#[test]
+fn rejoining_prepares_a_fresh_inventory_lifetime_before_open() {
+    let mut definition = once_name_screen();
+    definition["inventory_screen"]["controls"]
+        .as_array_mut()
+        .unwrap()
+        .extend(fixed_labels());
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    populate(&mut runtime, &mut player);
+    warm.hud_frame_mut()
+        .item_names
+        .insert((1, 0), Arc::from("200"));
+    draw(&mut warm, &runtime, &player, 0);
+    runtime.toggle_inventory(&mut player, None);
+    draw(&mut warm, &runtime, &player, 1);
+    runtime.toggle_inventory(&mut player, None);
+
+    let pack = runtime.server_ui().cloned();
+    runtime.begin_session(2);
+    player = player_state::PlayerState::new(runtime.session_id());
+    runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player, runtime.session_id(), 42)
+        .unwrap();
+    runtime.set_server_ui(pack);
+    populate(&mut runtime, &mut player);
+    for presentation in [&mut warm, &mut cold] {
+        presentation
+            .hud_frame_mut()
+            .item_names
+            .insert((1, 0), Arc::from("00"));
+        draw(presentation, &runtime, &player, 2);
+    }
+    let placed = warm.engine_container_placed();
+    let bound = warm.engine_inventory_rebuilt();
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw(&mut cold, &runtime, &player, 3);
+    let opened = draw(&mut warm, &runtime, &player, 3);
+    assert_eq!(
+        opened.vertices, expected.vertices,
+        "a new session reads fresh once bindings"
+    );
+    assert!(warm.engine_container_placed() - placed < 32);
+    assert!(warm.engine_inventory_rebuilt() - bound < 16);
 }

@@ -1716,6 +1716,8 @@ Worker rig-plan preparation and measured cold arrival latency remain open accept
 Hardware join and frame acceptance still needs the full capture matrix below.
 Original-image readiness retains HUD and inventory measurements when dimensions
 stay the same. Metadata changes still invalidate their layouts and preparation.
+Changing sessions resets container lifetimes so closed-inventory preparation can
+run again before the first rejoin open.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
