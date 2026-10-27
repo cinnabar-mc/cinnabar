@@ -182,15 +182,17 @@ fn crack_packets_use_the_event_block_before_and_after_terrain_arrives() {
                 system
                     .atlas()
                     .pixels()
-                    .chunks_exact(4)
-                    .any(|color| color == BLOCK_COLOR)
+                    .as_chunks::<4>()
+                    .0
+                    .contains(&BLOCK_COLOR)
             );
             assert!(
                 !system
                     .atlas()
                     .pixels()
-                    .chunks_exact(4)
-                    .any(|color| color == OTHER_COLOR)
+                    .as_chunks::<4>()
+                    .0
+                    .contains(&OTHER_COLOR)
             );
             if !hashes {
                 assert_eq!(
