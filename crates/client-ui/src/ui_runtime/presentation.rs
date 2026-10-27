@@ -160,6 +160,8 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Inventory projections retained across HUD publications.
     inventory_cache: Option<Box<publish::inventory_cache::InventoryCache>>,
+    /// External projection changes that invalidate closed-inventory preparation.
+    inventory_preparation_revision: std::sync::atomic::AtomicU64,
     /// Semantic HUD content retained before binding construction.
     hud_cache: forms::hud::SemanticHud,
     /// What the presentation's renderers drew the engine HUD and its crosshair overlay from.

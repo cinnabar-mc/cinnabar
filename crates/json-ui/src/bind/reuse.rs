@@ -109,12 +109,11 @@ impl Changes {
     }
 
     /// Whether any of `names`, read as screen-controller globals, may have changed.
-    pub(super) fn globals<'a>(&self, names: impl Iterator<Item = &'a str>) -> bool {
-        let mut reads = Reads::default();
-        for name in names {
-            reads.add(Data::Global, name, None);
-        }
-        reads.meets(self)
+    pub(super) fn globals<'a>(&self, mut names: impl Iterator<Item = &'a str>) -> bool {
+        names.any(|name| {
+            let hash = data_hash(Data::Global, name, None);
+            self.0.contains(&hash)
+        })
     }
 }
 
@@ -136,6 +135,8 @@ pub(super) struct Track {
     stable: bool,
     /// Built this bind.
     pub(super) fresh: bool,
+    /// An unchanged preparation result may stand once before fixed-point reuse is proven.
+    prepared: bool,
     /// Changed after building this bind (a view write or a deferred expansion).
     pub(super) touched: bool,
     /// Something in the subtree was built or changed this bind.
@@ -321,7 +322,7 @@ impl Binder<'_> {
             return false;
         };
         let track = &previous.track;
-        track.stable
+        (track.stable || track.prepared)
             && !track.below.meets(changes)
             && track.origin.as_ref().unwrap_or(&previous.src).same(src)
             && previous.scope.same(scope)
@@ -331,7 +332,10 @@ impl Binder<'_> {
     }
 
     /// Move `previous` over unchanged, as rebuilding it would leave it.
-    pub(super) fn reuse(&mut self, previous: Node) -> Node {
+    pub(super) fn reuse(&mut self, mut previous: Node) -> Node {
+        if previous.track.prepared {
+            finish_preparation(&mut previous);
+        }
         self.created += previous.track.count;
         self.state.scroll_observed |= previous.track.scroll;
         previous
@@ -473,6 +477,39 @@ impl Binder<'_> {
             }
         }
         reads
+    }
+}
+
+/// Restarts changed input owners and their descendants while retaining unaffected bindings.
+pub(super) fn restart(node: &mut Node, changes: Option<&Changes>, inherited: bool) -> bool {
+    // Named sources may resolve differently after expansion, so restart those observers too.
+    let affected = inherited
+        || changes.is_none_or(|changes| node.track.reads.meets(changes))
+        || node.bindings.iter().any(
+            |binding| matches!(&binding.kind, Kind::View { scope, .. } if *scope != ViewScope::Own),
+        );
+    let reset = affected && node.retained;
+    let mut changed = affected;
+    for child in &mut node.children {
+        changed |= restart(child, changes, affected);
+    }
+    if reset {
+        node.retained = false;
+        node.memory = Retained::default();
+    }
+    if changed {
+        node.track.stable = false;
+        node.track.settled = false;
+    }
+    node.track.prepared = !changed;
+    changed
+}
+
+/// Consumes preparation reuse throughout a subtree, leaving its normal settling state intact.
+fn finish_preparation(node: &mut Node) {
+    node.track.prepared = false;
+    for child in &mut node.children {
+        finish_preparation(child);
     }
 }
 

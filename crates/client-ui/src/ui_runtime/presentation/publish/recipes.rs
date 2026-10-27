@@ -47,9 +47,10 @@ pub(super) fn recipe_entries(
                 session_icons: presentation.session_icon_generation(),
                 dials: presentation.dial_frames(),
             };
-            window_icons.book_entries =
-                presentation::forms::recipe_book_icons(player_runtime, runtime, sources, icon)
-                    .to_vec();
+            let icons =
+                presentation::forms::recipe_book_icons(player_runtime, runtime, sources, icon);
+            window_icons.book_entries.resize(icons.len(), None);
+            window_icons.book_entries.copy_from_slice(&icons);
         }
     }
 }

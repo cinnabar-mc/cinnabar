@@ -3,6 +3,19 @@ use super::*;
 use crate::ui_runtime::presentation::forms::ServerUiPack;
 use serde_json::json;
 
+const FIXED_LABELS: usize = 512;
+
+/// Produces a large static branch whose first bind must run during preparation.
+fn fixed_labels() -> Vec<serde_json::Value> {
+    (0..FIXED_LABELS)
+        .map(|index| {
+            json!({format!("fixed_{index}"): {
+                "type":"label", "size":[12,12], "text":"200"
+            }})
+        })
+        .collect()
+}
+
 /// Installs an original inventory definition over the in-memory engine carrier.
 fn inventory_fixture(
     definition: serde_json::Value,
@@ -128,6 +141,156 @@ fn prewarmed_once_binding_reads_the_name_at_first_open() {
     assert_eq!(
         refreshed.vertices, opened.vertices,
         "the real open must retain its once binding"
+    );
+}
+
+#[test]
+fn first_inventory_open_reuses_prepared_static_bindings() {
+    let mut definition = once_name_screen();
+    let controls = definition["inventory_screen"]["controls"]
+        .as_array_mut()
+        .unwrap();
+    controls.extend(fixed_labels());
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    populate(&mut runtime, &mut player);
+    draw(&mut warm, &runtime, &player, 0);
+    let prepared = warm.engine_container_placed();
+    let prepared_bindings = warm.engine_inventory_rebuilt();
+    assert!(prepared >= FIXED_LABELS);
+
+    runtime.toggle_inventory(&mut player, None);
+    for presentation in [&mut warm, &mut cold] {
+        presentation
+            .hud_frame_mut()
+            .item_names
+            .insert((1, 0), Arc::from("00"));
+    }
+    let expected = draw(&mut cold, &runtime, &player, 100);
+    let opened = draw(&mut warm, &runtime, &player, 100);
+    assert_eq!(opened.vertices, expected.vertices);
+    let rebuilt = warm.engine_inventory_rebuilt() - prepared_bindings;
+    assert!(
+        rebuilt < 16,
+        "first open rebuilt {rebuilt} prepared controls"
+    );
+    let placed = warm.engine_container_placed() - prepared;
+    assert!(placed < 32, "first open placed {placed} prepared controls");
+}
+
+#[test]
+fn late_inventory_inputs_prepare_newly_visible_controls_before_first_open() {
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":[{"creative":{
+            "type":"panel", "size":["100%","100%"],
+            "bindings":[{"binding_name":"#is_creative_mode",
+                "binding_name_override":"#visible"}],
+            "controls":fixed_labels()
+        }}]
+    }});
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    draw(&mut warm, &runtime, &player, 0);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    draw(&mut warm, &runtime, &player, 50);
+    let prepared_bindings = warm.engine_inventory_rebuilt();
+    assert!(warm.engine_container_frame().is_none());
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw(&mut cold, &runtime, &player, 100);
+    let opened = draw(&mut warm, &runtime, &player, 100);
+    assert_eq!(opened.vertices, expected.vertices);
+    let rebuilt = warm.engine_inventory_rebuilt() - prepared_bindings;
+    assert!(rebuilt < 16, "first open rebuilt {rebuilt} late controls");
+}
+
+#[test]
+fn prepared_scroll_feedback_keeps_unchanged_binding_lifetimes() {
+    let mut labels = fixed_labels();
+    for label in &mut labels {
+        let label = label.as_object_mut().unwrap().values_mut().next().unwrap();
+        label["bindings"] = json!([{
+            "binding_name":"#is_creative_mode", "binding_name_override":"#remembered",
+            "binding_condition":"once"
+        }]);
+    }
+    labels.push(json!({"scroll":{
+        "type":"scroll_view", "size":[100,100],
+        "scroll_content":"content", "scroll_view_port":"viewport",
+        "scrollbar_track":"track", "scrollbar_box":"box",
+        "scroll_box_and_track_panel":"bars",
+        "controls":[{"viewport":{
+            "type":"panel", "size":[100,100], "controls":[{"content":{
+                "type":"panel", "size":[100,300]
+            }}]
+        }},{"bars":{
+            "type":"panel", "size":[8,100], "controls":[
+                {"track":{"type":"panel", "size":[8,100]}},
+                {"box":{"type":"scrollbar_box", "size":[8,10], "draggable":"vertical"}}
+            ]
+        }}]
+    }}));
+    labels.push(json!({"reader":{
+        "type":"label", "size":[12,12], "text":"200",
+        "bindings":[{"binding_type":"view", "source_control_name":"scroll",
+            "source_property_name":"#scrolled_to_end", "target_property_name":"#at_end"}]
+    }}));
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":labels
+    }});
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    draw(&mut warm, &runtime, &player, 0);
+    let prepared = warm.engine_inventory_rebuilt();
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw(&mut cold, &runtime, &player, 100);
+    let opened = draw(&mut warm, &runtime, &player, 100);
+    assert_eq!(opened.vertices, expected.vertices);
+    let rebuilt = warm.engine_inventory_rebuilt() - prepared;
+    assert!(
+        rebuilt < 16,
+        "scroll feedback rebuilt {rebuilt} prepared controls"
+    );
+}
+
+#[test]
+fn late_inventory_contents_prepare_newly_visible_controls_before_first_open() {
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":[{"slot":{
+            "type":"panel", "size":[100,100], "collection_name":"hotbar_items",
+            "controls":[{"occupied":{
+                "type":"panel", "size":[100,100], "collection_index":0,
+                "bindings":[
+                    {"binding_type":"collection", "binding_collection_name":"hotbar_items",
+                        "binding_name":"#hover_text", "binding_name_override":"#caption"},
+                    {"binding_type":"view", "source_property_name":"(#caption = '200')",
+                        "target_property_name":"#visible"}
+                ],
+                "controls":fixed_labels()
+            }}]
+        }}]
+    }});
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    draw(&mut warm, &runtime, &player, 0);
+    populate(&mut runtime, &mut player);
+    for presentation in [&mut warm, &mut cold] {
+        presentation
+            .hud_frame_mut()
+            .item_names
+            .insert((1, 0), Arc::from("200"));
+    }
+    draw(&mut warm, &runtime, &player, 50);
+    let prepared = warm.engine_inventory_rebuilt();
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw(&mut cold, &runtime, &player, 100);
+    let opened = draw(&mut warm, &runtime, &player, 100);
+    assert_eq!(opened.vertices, expected.vertices);
+    let rebuilt = warm.engine_inventory_rebuilt() - prepared;
+    assert!(
+        rebuilt < 16,
+        "late contents rebuilt {rebuilt} prepared controls"
     );
 }
 

@@ -163,6 +163,197 @@ fn captions(control: &ResolvedControl) -> Vec<String> {
 }
 
 #[test]
+fn restarting_prepared_bindings_refreshes_lifetimes_and_reuses_static_controls() {
+    let mut children = (0..512)
+        .map(|index| {
+            control(
+                &format!("fixed_{index}"),
+                "panel",
+                json!({"bindings":[{
+                    "binding_name":"#fixed", "binding_condition":"once"
+                }]}),
+                vec![],
+            )
+        })
+        .collect::<Vec<_>>();
+    for condition in ["once", "visibility_changed"] {
+        children.push(control(
+            condition,
+            "label",
+            json!({"text":"literal", "bindings":[{
+                "binding_name":"#caption", "binding_name_override":"#text",
+                "binding_condition":condition
+            }]}),
+            vec![],
+        ));
+    }
+    let root = Arc::new(control("root", "panel", json!({}), children));
+    for caption in [Some("opened"), None] {
+        let mut prepared = DataSource::new();
+        prepared.set_global("#fixed", Scalar::Num(1.0));
+        prepared.set_global("#caption", Scalar::Text("prepared".into()));
+        let mut state = BindState::new();
+        let mut bound =
+            crate::bind_incremental(&root, &Arc::new(prepared), &EmptyLibrary, &mut state);
+        let mut data = DataSource::new();
+        data.set_global("#fixed", Scalar::Num(1.0));
+        if let Some(caption) = caption {
+            data.set_global("#caption", Scalar::Text(caption.into()));
+        }
+        let data = Arc::new(data);
+        state.restart(&data);
+        crate::rebind(
+            &root,
+            &data,
+            &EmptyLibrary,
+            &mut state,
+            &mut bound,
+            &mut crate::MeasureCache::default(),
+        );
+        let cold = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut BindState::new());
+        assert_eq!(captions(&bound), captions(&cold));
+        assert!(state.rebuilt() < 8, "rebuilt {} controls", state.rebuilt());
+
+        let mut next = DataSource::new();
+        next.set_global("#fixed", Scalar::Num(1.0));
+        next.set_global("#caption", Scalar::Text("later".into()));
+        let next = Arc::new(next);
+        crate::rebind(
+            &root,
+            &next,
+            &EmptyLibrary,
+            &mut state,
+            &mut bound,
+            &mut crate::MeasureCache::default(),
+        );
+        assert_eq!(
+            captions(&bound),
+            captions(&cold),
+            "live schedules must resume"
+        );
+    }
+}
+
+#[test]
+fn refreshing_text_does_not_copy_binding_declarations() {
+    let mut bindings = (0..64)
+        .map(|_| json!({"binding_name":"#fixed", "binding_condition":"once"}))
+        .collect::<Vec<_>>();
+    bindings.push(json!({"binding_name":"#caption", "binding_name_override":"#text"}));
+    let root = Arc::new(control(
+        "caption",
+        "label",
+        json!({"text":"#text", "bindings":bindings}),
+        vec![],
+    ));
+    let mut data = DataSource::new();
+    data.set_global("#fixed", Scalar::Num(1.0));
+    data.set_global("#caption", Scalar::Text("first".into()));
+    let mut state = BindState::new();
+    let mut bound =
+        crate::bind_incremental(&root, &Arc::new(data.clone()), &EmptyLibrary, &mut state);
+    data.set_global("#caption", Scalar::Text("second".into()));
+    let data = Arc::new(data);
+    let mut measures = crate::MeasureCache::default();
+    let (_, allocations) = test_alloc::count(|| {
+        crate::rebind(
+            &root,
+            &data,
+            &EmptyLibrary,
+            &mut state,
+            &mut bound,
+            &mut measures,
+        );
+    });
+    assert_eq!(captions(&bound), ["second"]);
+    assert!(
+        allocations < 128,
+        "text refresh allocated {allocations} times"
+    );
+}
+
+#[test]
+fn refreshing_one_caption_reuses_view_path_storage() {
+    let mut children = vec![control(
+        "caption",
+        "label",
+        json!({"text":"#text", "bindings":[{
+            "binding_name":"#caption", "binding_name_override":"#text"
+        }]}),
+        vec![],
+    )];
+    children.extend((0..512).map(|index| {
+        control(
+            &format!("fixed{index}"),
+            "label",
+            json!({"text":"#text", "property_bag":{"#fixed":"200"}, "bindings":[{
+                "binding_type":"view", "source_property_name":"#fixed",
+                "target_property_name":"#text"
+            }]}),
+            vec![],
+        )
+    }));
+    let root = Arc::new(control("root", "panel", json!({}), children));
+    let mut data = DataSource::new();
+    data.set_global("#caption", Scalar::Text("first".into()));
+    let mut state = BindState::new();
+    let data = Arc::new(data);
+    let mut bound = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state);
+    let mut measures = crate::MeasureCache::default();
+    crate::rebind(
+        &root,
+        &data,
+        &EmptyLibrary,
+        &mut state,
+        &mut bound,
+        &mut measures,
+    );
+    let mut next = (*data).clone();
+    next.set_global("#caption", Scalar::Text("second".into()));
+    let next = Arc::new(next);
+    let (_, allocations) = test_alloc::count(|| {
+        crate::rebind(
+            &root,
+            &next,
+            &EmptyLibrary,
+            &mut state,
+            &mut bound,
+            &mut measures,
+        );
+    });
+    let cold = crate::bind_incremental(&root, &next, &EmptyLibrary, &mut BindState::new());
+    assert_eq!(captions(&bound), captions(&cold));
+    assert!(
+        allocations < 128,
+        "view refresh allocated {allocations} times"
+    );
+}
+
+#[test]
+fn deep_authored_controls_keep_their_bindings_when_inputs_change() {
+    let mut tree = reader("caption", "#caption");
+    for depth in 0..40 {
+        tree = control(&format!("layer{depth}"), "panel", json!({}), vec![tree]);
+    }
+    let root = Arc::new(tree);
+    let mut data = DataSource::new();
+    data.set_global("#caption", Scalar::Text("first".into()));
+    let mut state = BindState::new();
+    let mut bound =
+        crate::bind_incremental(&root, &Arc::new(data.clone()), &EmptyLibrary, &mut state);
+    data.set_global("#caption", Scalar::Text("second".into()));
+    crate::rebind(
+        &root,
+        &Arc::new(data),
+        &EmptyLibrary,
+        &mut state,
+        &mut bound,
+        &mut crate::MeasureCache::default(),
+    );
+    assert_eq!(captions(&bound), ["second"]);
+}
+
+#[test]
 fn scoped_controller_answers_follow_collection_instances_and_refresh() {
     struct Labels(ResolvedControl);
     impl crate::ControlLibrary for Labels {

@@ -5,7 +5,7 @@ use assets::icon::dial::DialKind;
 use inventory::{DialFrames, inventory_ledger::InventoryPresentationSnapshot};
 
 /// Replaced external sources, compared by their owner before capture.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProjectionRefresh {
     pub icons: bool,
     pub durability: bool,

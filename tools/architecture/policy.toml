@@ -228,7 +228,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-
 [[crates]]
 name = "inventory"
 path = "crates/inventory"
-allowed_dependencies = ["simulation-clock", "assets", "protocol", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "assets", "protocol", "protocol-ids", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world", "world"]
 

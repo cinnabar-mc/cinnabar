@@ -82,6 +82,7 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             inventory_cache: Some(Box::default()),
+            inventory_preparation_revision: Default::default(),
             hud_cache: Default::default(),
             hud_renderers: Default::default(),
             mod_hud_bindings: Default::default(),

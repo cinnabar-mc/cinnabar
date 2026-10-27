@@ -945,7 +945,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   layout, so a drag-split step on the creative catalog places only the changed slots; a
   screen whose scroll content fits (bar panel suppressed) still lays out in full on each
   change, and hardware frame captures of drag splits remain open.
-  First-open and repeated-open inventory timing and combined-screen acceptance remain open.
+  Inventory preparation retains unchanged bindings and measurements across late display inputs.
+  The first visible frame starts animations and defers scroll feedback to the following frame.
+  Binding refreshes reuse path storage, and UI draw updates retain replacement geometry buffers.
+  First-open and repeated-open hardware timing and combined-screen acceptance remain open.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.

@@ -134,13 +134,26 @@ fn canonical_registry_arrival_and_replacement_invalidate_without_slot_writes() {
     let unknown = capture(&mut cache, &player, &runtime, &presentation, &stream);
     assert!(unknown.contents.unwrap().inventory_icons.0[0].is_none());
     assert!(unknown.item_names.unwrap().is_empty());
+    let revision = presentation
+        .inventory_preparation_revision
+        .load(std::sync::atomic::Ordering::Relaxed);
     assert!(stream.seed_item_registry(registry("fixture:one")));
     let one = capture(&mut cache, &player, &runtime, &presentation, &stream);
+    let ready_revision = presentation
+        .inventory_preparation_revision
+        .load(std::sync::atomic::Ordering::Relaxed);
+    assert_ne!(ready_revision, revision);
     let one_art = one.contents.unwrap();
     assert!(one_art.inventory_icons.0[0].is_some());
     assert_eq!(one.item_names.unwrap()[&(ITEM_ID, 0)].as_ref(), "One");
     let unchanged = capture(&mut cache, &player, &runtime, &presentation, &stream);
     assert!(unchanged.contents.is_none() && unchanged.decorations.is_none());
+    assert_eq!(
+        presentation
+            .inventory_preparation_revision
+            .load(std::sync::atomic::Ordering::Relaxed),
+        ready_revision
+    );
     assert!(stream.seed_item_registry(registry("fixture:two")));
     let two = capture(&mut cache, &player, &runtime, &presentation, &stream);
     assert_ne!(

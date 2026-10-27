@@ -816,6 +816,10 @@ impl<'a> Binder<'a> {
     /// Keep the tree for the next refresh, and the memory of dropped controls
     /// inside subtrees still hidden.
     fn retain(&mut self, node: Node) {
+        self.state.rebuilt_total = self
+            .state
+            .rebuilt_total
+            .saturating_add(self.state.built.len());
         self.state.generation += 1;
         let generation = self.state.generation;
         let mut leftover = std::mem::take(&mut self.state.controls);
@@ -917,12 +921,12 @@ const IDENTITY_NAMES: [&str; 3] = ["text_box_name", "dropdown_name", "slider_nam
 
 /// Replace `#`-referencing property values with their bag values and carry the
 /// bag's `#names`. An unbound `text` becomes empty rather than the literal
-/// `#name`; a `##` text is literal.
+/// `#name`; a `##` text is literal. Binding declarations stay on the immutable source.
 fn bake_properties(properties: &BTreeMap<String, Value>, own: &Bag) -> BTreeMap<String, Value> {
     let mut out: BTreeMap<String, Value> = properties
         .iter()
         .filter_map(|(key, value)| {
-            if key == crate::resolve::FACTORY_SCOPE {
+            if key == crate::resolve::FACTORY_SCOPE || key == "bindings" {
                 return None;
             }
             let value = match value {

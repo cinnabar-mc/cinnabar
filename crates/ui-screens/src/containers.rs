@@ -31,6 +31,7 @@ const WORKBENCH_CRAFT_SLOT: u8 = 32;
 mod held_stack;
 #[cfg(test)]
 mod held_stack_tests;
+mod preparation;
 pub mod presses;
 use held_stack::held_stack;
 
@@ -134,8 +135,8 @@ pub struct ContainerScreen {
     /// The personal inventory's layout, kept apart so other containers never evict it and opening
     /// it stays cheap after [`ContainerScreen::prewarm_inventory`].
     inventory: Option<ScreenCache>,
-    /// The catalog the inventory was last prewarmed for, so each catalog prewarms once.
-    prewarmed: Option<Arc<json_ui::Catalog>>,
+    /// Sources observed by the last closed-inventory preparation.
+    prewarmed: Option<preparation::InventoryPreparation>,
     /// Screens resolved from the catalog, for cache tests.
     resolves: usize,
     /// Immutable creative rows reused across hover and scroll frames.
@@ -174,7 +175,7 @@ impl ContainerScreen {
         self.render(engine, source, items, input, frame, false)
     }
 
-    /// Prepares layout and textures without retaining bindings or painting the closed screen.
+    /// Prepares layout and textures without starting live bindings or painting the closed screen.
     pub fn prepare(
         &mut self,
         engine: &FormEngine,
@@ -304,12 +305,6 @@ impl ContainerScreen {
             };
             if prepare {
                 let _ = engine.prepare(art, &mut paint_frame, draw);
-                if let Some(cached) = cache {
-                    // Closed-screen data is incomplete. The first paint binds from fresh state,
-                    // even if its data happens to match the prepared layout's inputs.
-                    cached.binding = recipe_book::screen_binding(cached.virtualize_recipe_book);
-                    cached.data = None;
-                }
                 Ok(None)
             } else {
                 engine.draw(art, &mut paint_frame, draw)
@@ -320,7 +315,12 @@ impl ContainerScreen {
             self.resolves += 1;
         }
         match drawn {
-            Ok(Some(drawn)) => Some(drawn),
+            Ok(Some(drawn)) => {
+                if let Some(cached) = cache {
+                    cached.live = true;
+                }
+                Some(drawn)
+            }
             // A screen the engine cannot draw hands containers back to the Java path.
             Ok(None) | Err(_) => {
                 frame.nodes.truncate(rollback.0);
@@ -332,6 +332,7 @@ impl ContainerScreen {
 
     /// Releases texture-dependent measurements and layout while retaining the bound screen.
     pub fn invalidate_textures(&mut self) {
+        self.prewarmed = None;
         for cache in [&mut self.cache, &mut self.inventory].into_iter().flatten() {
             cache.invalidate_textures();
         }
@@ -361,22 +362,46 @@ impl ContainerScreen {
         self.resolves
     }
 
-    /// Whether the personal inventory needs preparation for this catalog. An inventory already
-    /// painted retains its live bindings and needs no prewarm when it closes.
-    pub fn prewarm_inventory(&mut self, engine: &FormEngine) -> bool {
-        let catalog = engine.catalog();
-        if self
-            .prewarmed
+    /// Controls rebuilt over the personal inventory's retained lifetime, for work regressions.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn inventory_rebuilt(&self) -> usize {
+        self.inventory
             .as_ref()
-            .is_some_and(|prewarmed| Arc::ptr_eq(prewarmed, catalog))
-        {
+            .map_or(0, |cache| cache.binding.rebuilt_total())
+    }
+
+    /// Whether the personal inventory needs preparation for these sources. An inventory already
+    /// painted retains its live bindings and needs no prewarm when it closes.
+    pub fn prewarm_inventory(
+        &mut self,
+        engine: &FormEngine,
+        source: &dyn ContainerSource,
+        artwork: u64,
+    ) -> bool {
+        if !self.needs_inventory_preparation(engine, source, artwork) {
             return false;
         }
-        self.prewarmed = Some(Arc::clone(catalog));
+        self.prewarmed = Some(preparation::InventoryPreparation::capture(
+            engine, source, artwork,
+        ));
+        true
+    }
+
+    /// Checks whether closed-screen inputs need artwork and layout preparation.
+    pub fn needs_inventory_preparation(
+        &self,
+        engine: &FormEngine,
+        source: &dyn ContainerSource,
+        artwork: u64,
+    ) -> bool {
         !self
             .inventory
             .as_ref()
-            .is_some_and(|cached| Arc::ptr_eq(&cached.catalog, catalog))
+            .is_some_and(|cached| cached.live && Arc::ptr_eq(&cached.catalog, engine.catalog()))
+            && !self
+                .prewarmed
+                .as_ref()
+                .is_some_and(|prewarmed| prewarmed.matches(engine, source, artwork))
     }
 }
 
@@ -412,7 +437,8 @@ struct ScreenCache {
     laid: Option<(ViewState, json_ui::LayoutCacheKey, Arc<json_ui::FormRender>)>,
     /// The open screen's live bindings across data refreshes.
     binding: json_ui::BindState,
-    virtualize_recipe_book: bool,
+    /// Preparation may refresh only until the first successful visible paint.
+    live: bool,
     factory_inputs: bool,
     /// Grid and factory templates kept across binds, so their unchanged instances stand.
     resolutions: json_ui::ResolveCache,
@@ -489,7 +515,7 @@ impl ScreenCache {
                 measures: json_ui::MeasureCache::default(),
                 laid: None,
                 binding: recipe_book::screen_binding(virtualize_recipe_book),
-                virtualize_recipe_book,
+                live: false,
                 factory_inputs: data.has_factory_inputs(),
                 resolutions: json_ui::ResolveCache::default(),
                 language: text.1,
@@ -510,7 +536,20 @@ impl ScreenCache {
         if text_changed || layout_changed {
             cached.measures = json_ui::MeasureCache::default();
         }
-        if cached.data.as_deref() != Some(data) {
+        let fresh = |(laid_view, laid_layout, _): &(ViewState, json_ui::LayoutCacheKey, _)| {
+            !text_changed && laid_view.scroll == view.scroll && *laid_layout == layout
+        };
+        // The first visible frame uses the prepared initial result. Its pending scroll
+        // feedback applies after painting, just as it does for a freshly opened screen.
+        let prepared = !cached.live
+            && cached.binding.input_matches(data)
+            && cached.laid.as_ref().is_some_and(fresh);
+        if cached.data.as_deref() != Some(data) && !prepared {
+            // Preparation starts no live lifetime. Changed first-open inputs read fresh once
+            // and visibility bindings; equal inputs already have exactly that initial result.
+            if !cached.live {
+                cached.binding.restart(data);
+            }
             let data = Arc::new(data.clone());
             // A refresh rebuilds only the controls it changed and keeps their measurements, so
             // moving one item or switching a tab no longer rebinds and remeasures the screen.
@@ -541,9 +580,6 @@ impl ScreenCache {
         }
         // Hover, press and focus only filter the gated nodes; scroll lays out again. A data
         // change lays out again but splices the subtrees it left unchanged.
-        let fresh = |(laid_view, laid_layout, _): &(ViewState, json_ui::LayoutCacheKey, _)| {
-            !text_changed && laid_view.scroll == view.scroll && *laid_layout == layout
-        };
         if !cached.laid.as_ref().is_some_and(fresh) {
             let tree = cached.bound_tree()?;
             let mut render =

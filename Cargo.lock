@@ -5014,6 +5014,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "simulation-clock",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -5190,6 +5191,7 @@ dependencies = [
  "pack-json",
  "serde",
  "serde_json",
+ "smallvec",
  "test-alloc",
  "thiserror 2.0.18",
 ]

@@ -54,10 +54,16 @@ impl InventoryCache {
         };
         let refresh = next.refresh(self.sources.as_ref());
         self.sources = Some(next);
+        if refresh != ProjectionRefresh::default() {
+            presentation
+                .inventory_preparation_revision
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         self.projections.capture(
             ProjectionInput {
                 ledger: runtime.inventory_ledger(player),
-                inventory_open: runtime.inventory_open(),
+                inventory_open: runtime.inventory_open()
+                    || presentation.inventory_preparation_needed(player, runtime),
                 refresh,
                 animation: ProjectionAnimation {
                     player: frames.0,
