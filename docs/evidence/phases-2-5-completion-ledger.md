@@ -558,6 +558,10 @@ the full cold UI and hardware frame gates remain open.
 Pack publication shares dependency evidence and retires old application
 snapshots off the frame. Clone-work regression coverage does not close the
 resource-pack or hardware performance gates.
+Join workers prepare base entity expression analysis before session publication;
+authoritative and spawner stores share it with independent actor state. Displays
+skip unused item tables, and network stores avoid a discarded initial table. Cold UI,
+pack reload and reference-hardware acceptance remain open.
 
 Cloud preparation skips hidden geometry, prefetches finite windows on workers and
 retains GPU storage. Regression coverage checks admission frames, exact records,

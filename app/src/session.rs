@@ -580,7 +580,8 @@ fn poll_join(
                         .collisions
                         .as_deref()
                         .expect("join admission requires world collision resources"),
-                ),
+                )
+                .with_entity_assets(session.state.client_world.entity_assets.clone()),
             ) {
                 if owned_core {
                     let directory = controller.directory.take();

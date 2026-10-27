@@ -1730,6 +1730,10 @@ Cold inventory updates, pack reload and hardware frame qualification remain open
 Resource-pack application snapshots share immutable dependency records. Reload
 workers copy them when compiling changes, and old publication snapshots retire
 off the frame. Hardware reload and complete join qualification remain open.
+Joins prepare base entity expression analysis on their session worker. Authoritative
+and spawner actor stores share that analysis while keeping separate actor state.
+Display stores skip unused item tables; network stores build their item tables once.
+Cold UI, pack reload and hardware join qualification remain incomplete.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
