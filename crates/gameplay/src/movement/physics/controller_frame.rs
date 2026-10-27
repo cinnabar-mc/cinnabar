@@ -48,6 +48,8 @@ pub(super) struct ControllerFrame {
     pub jump_repeated: bool,
     pub ride_delta: Option<[f32; 3]>,
     pub actor_position: Option<super::actor_move::ActorPositionUpdate>,
+    /// The Normal-mode `MovePlayer` ease this tick started with, which replay steps again.
+    pub movement_lerp: Option<super::movement_lerp::MovementLerp>,
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
@@ -84,6 +86,9 @@ impl ControllerFrame {
         if let Some(position) = self.actor_position {
             position.apply(state);
             anchor_state.note_hard_anchor();
+        }
+        if let Some(lerp) = self.movement_lerp {
+            lerp.step(state);
         }
         input.no_clip = self.intent.no_clip;
         let previous_sprinting = input.sprinting;
