@@ -112,19 +112,18 @@ pub(crate) fn contains(world: &World, entity: Entity, clip: Option<DrawingHandle
     clippy::type_complexity,
     reason = "the view pass borrows Bevy's target and viewport components"
 )]
-pub(super) fn world_draw(
+pub(super) fn world_draw<const TRANSPARENT: bool>(
     world: &World,
     query: ViewQuery<(
         &ViewTarget,
         &ViewDepthStencilTexture,
         &ExtractedCamera,
-        Option<&crate::scene_target::SceneTarget>,
         Option<&bevy::camera::MainPassResolutionOverride>,
     )>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let entity = query.entity();
-    let (target, depth, camera, scene, resolution) = query.into_inner();
+    let (target, depth, camera, resolution) = query.into_inner();
     if !contains(world, entity, None) {
         return Ok(());
     }
@@ -134,32 +133,33 @@ pub(super) fn world_draw(
     else {
         return Ok(());
     };
-    for transparent in [false, true] {
-        let gamma = transparent && !camera.hdr;
-        let colors = [Some(scene.map_or_else(
-            || target.get_color_attachment(),
-            |scene| scene.color_attachment(target, gamma),
-        ))];
-        let mut pass = context.begin_tracked_render_pass(
-            bevy::render::render_resource::RenderPassDescriptor {
-                label: Some("retained terrain"),
-                color_attachments: &colors,
-                depth_stencil_attachment: Some(
-                    depth.get_attachment(bevy::render::render_resource::StoreOp::Store),
-                ),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            },
-        );
-        pass.set_camera_viewport(&viewport);
-        pass.set_scissor_rect(
-            viewport.physical_position.x,
-            viewport.physical_position.y,
-            viewport.physical_size.x,
-            viewport.physical_size.y,
-        );
-        encode(world, entity, None, transparent, &mut pass);
-    }
+    let Some(color) = crate::scene_target::retained_color_attachment(
+        world,
+        entity,
+        target,
+        TRANSPARENT && !camera.hdr,
+    ) else {
+        return Ok(());
+    };
+    let colors = [Some(color)];
+    let mut pass =
+        context.begin_tracked_render_pass(bevy::render::render_resource::RenderPassDescriptor {
+            label: Some("retained terrain"),
+            color_attachments: &colors,
+            depth_stencil_attachment: Some(
+                depth.get_attachment(bevy::render::render_resource::StoreOp::Store),
+            ),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    pass.set_camera_viewport(&viewport);
+    pass.set_scissor_rect(
+        viewport.physical_position.x,
+        viewport.physical_position.y,
+        viewport.physical_size.x,
+        viewport.physical_size.y,
+    );
+    encode(world, entity, None, TRANSPARENT, &mut pass);
     Ok(())
 }

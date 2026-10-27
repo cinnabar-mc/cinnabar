@@ -183,3 +183,106 @@ fn portal_resources_drain_completed_sorts_while_their_grid_is_offscreen() {
     prepare::poll_orders(&mut placements, &mut Vec::new());
     assert!(placements[&key].order_job.is_none());
 }
+
+#[test]
+fn retained_additive_terrain_weights_straight_alpha_only_for_blended_variants() {
+    for clipped in [false, true] {
+        for msaa in [Msaa::Off, Msaa::Sample4] {
+            let key = Key {
+                msaa,
+                hdr: false,
+                clipped,
+                always: false,
+                additive: true,
+                mirrored: false,
+            };
+            for mut descriptor in pipeline::layouts::descriptors::build(false) {
+                let transparent = descriptor.fragment.as_ref().unwrap().targets[0]
+                    .as_ref()
+                    .unwrap()
+                    .blend
+                    .is_some();
+                Specialization.specialize(key, &mut descriptor).unwrap();
+                let blend = descriptor.fragment.unwrap().targets[0]
+                    .as_ref()
+                    .unwrap()
+                    .blend
+                    .unwrap();
+                assert_eq!(blend.color.operation, wgpu::BlendOperation::Add);
+                assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::One);
+                assert_eq!(
+                    blend.color.src_factor,
+                    if transparent {
+                        wgpu::BlendFactor::SrcAlpha
+                    } else {
+                        wgpu::BlendFactor::One
+                    }
+                );
+                assert_eq!(blend.alpha, wgpu::BlendComponent::OVER);
+            }
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+struct Pixel {
+    color: [f32; 3],
+    depth: f32,
+}
+
+/// Models an opaque red grid behind a nearer transparent world surface.
+fn opaque_grid(mut pixel: ResMut<Pixel>) {
+    if 0.6 >= pixel.depth {
+        pixel.color = [1., 0., 0.];
+        pixel.depth = 0.6;
+    }
+}
+
+/// Applies world glass using the terrain pipeline's depth-write contract.
+fn world_glass(mut pixel: ResMut<Pixel>) {
+    let descriptor = &pipeline::layouts::descriptors::build(false)[3];
+    assert_eq!(
+        descriptor
+            .depth_stencil
+            .as_ref()
+            .unwrap()
+            .depth_write_enabled,
+        Some(true)
+    );
+    if 0.8 >= pixel.depth {
+        pixel.color = pixel.color.map(|value| value * 0.5);
+        pixel.color[2] += 0.5;
+        pixel.depth = 0.8;
+    }
+}
+
+/// Models a transparent green grid in front of the world glass.
+fn transparent_grid(mut pixel: ResMut<Pixel>) {
+    if 0.9 >= pixel.depth {
+        pixel.color = pixel.color.map(|value| value * 0.5);
+        pixel.color[1] += 0.5;
+        pixel.depth = 0.9;
+    }
+}
+
+#[test]
+fn retained_opaque_grids_remain_visible_through_world_transparency() {
+    use crate::scene_target::ScenePass;
+    use bevy::core_pipeline::Core3d;
+    let mut world = crate::render_test_support::empty_render_world();
+    world.init_resource::<Pixel>();
+    install_graph(&mut world);
+    world.schedule_scope(Core3d, |_, schedule| {
+        schedule
+            .configure_sets((ScenePass::Opaque, ScenePass::Transparent, ScenePass::Finish).chain());
+        schedule.add_systems((
+            opaque_grid.in_set(BlockPass::Opaque),
+            world_glass.in_set(ScenePass::Transparent),
+            transparent_grid.in_set(BlockPass::Transparent),
+        ));
+    });
+    world.run_schedule(Core3d);
+    let pixel = world.resource::<Pixel>();
+    assert_eq!(pixel.color, [0.25, 0.5, 0.25]);
+    assert_eq!(pixel.depth, 0.9);
+}

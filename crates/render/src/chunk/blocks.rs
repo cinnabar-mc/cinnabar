@@ -60,12 +60,18 @@ impl Specializer<RenderPipeline> for Specialization {
             depth.depth_compare = Some(CompareFunction::Always);
         }
         if key.additive {
-            descriptor.fragment.as_mut().unwrap().targets[0]
+            let target = descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
-                .unwrap()
-                .blend = Some(BlendState {
+                .unwrap();
+            // Blended terrain shaders return straight-alpha colour.
+            let transparent = target.blend.is_some();
+            target.blend = Some(BlendState {
                 color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
+                    src_factor: if transparent {
+                        wgpu::BlendFactor::SrcAlpha
+                    } else {
+                        wgpu::BlendFactor::One
+                    },
                     dst_factor: wgpu::BlendFactor::One,
                     operation: wgpu::BlendOperation::Add,
                 },
@@ -142,7 +148,10 @@ struct Blocks {
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct BlockPass;
+pub(crate) enum BlockPass {
+    Opaque,
+    Transparent,
+}
 
 #[derive(Resource)]
 struct Installed;
@@ -181,14 +190,21 @@ pub(crate) fn install_graph(world: &mut World) {
     }
     let installed = world
         .try_schedule_scope(bevy::core_pipeline::Core3d, |_, schedule| {
-            schedule.add_systems(
-                drawing::world_draw
-                    .in_set(BlockPass)
+            schedule.configure_sets((
+                BlockPass::Opaque
+                    .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
+                    .after(crate::scene_target::ScenePass::Opaque)
+                    .before(crate::scene_target::ScenePass::Transparent),
+                BlockPass::Transparent
                     .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
                     .after(crate::scene_target::ScenePass::Transparent)
                     .before(crate::mod_render::retained::clips::ClipPass)
                     .before(crate::scene_target::ScenePass::Finish),
-            );
+            ));
+            schedule.add_systems((
+                drawing::world_draw::<false>.in_set(BlockPass::Opaque),
+                drawing::world_draw::<true>.in_set(BlockPass::Transparent),
+            ));
         })
         .is_ok();
     if installed {

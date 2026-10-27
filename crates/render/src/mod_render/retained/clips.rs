@@ -392,14 +392,17 @@ fn draw(
     world: &World,
     query: ViewQuery<(
         &ViewTarget,
-        Option<&crate::scene_target::SceneTarget>,
         &bevy::render::camera::ExtractedCamera,
         Option<&bevy::camera::MainPassResolutionOverride>,
     )>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let entity = query.entity();
-    let (target, scene_target, camera, resolution) = query.into_inner();
+    let (target, camera, resolution) = query.into_inner();
+    let Some(color) = crate::scene_target::retained_color_attachment(world, entity, target, false)
+    else {
+        return Ok(());
+    };
     let (Some(gpu), Some(targets), Some(cache), Some(scene), Some(frame), Some(materials)) = (
         world.get_resource::<Gpu>(),
         world.get_resource::<Targets>(),
@@ -468,10 +471,7 @@ fn draw(
             }) {
                 continue;
             }
-            let mut attachment = scene_target.map_or_else(
-                || target.get_color_attachment(),
-                |scene| scene.color_attachment(target, false),
-            );
+            let mut attachment = color.clone();
             attachment.ops.load = LoadOp::Load;
             let colors = [Some(attachment)];
             let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
@@ -545,10 +545,12 @@ fn draw(
             }
             drop(pass);
             if crate::chunk::blocks::drawing::contains(world, entity, Some(clip)) {
-                let colors = [Some(scene_target.map_or_else(
-                    || target.get_color_attachment(),
-                    |scene| scene.color_attachment(target, !camera.hdr),
-                ))];
+                let colors = [crate::scene_target::retained_color_attachment(
+                    world,
+                    entity,
+                    target,
+                    !camera.hdr,
+                )];
                 let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
                     label: Some("clipped transparent terrain"),
                     color_attachments: &colors,
