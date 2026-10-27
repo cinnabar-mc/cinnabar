@@ -219,7 +219,8 @@ impl EntityCache {
 fn disk_key(inputs: &EntityInputs) -> [u8; 32] {
     use crate::compile_cache::{cache_key, part};
     use sha2::Digest;
-    let mut key = cache_key("entities");
+    // Version 2 stores the compile's entity material diagnostics.
+    let mut key = cache_key("entities-v2");
     for (id, version, subpack, content) in &inputs.stack {
         for bytes in [
             id.as_bytes(),

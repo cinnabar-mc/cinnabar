@@ -40,6 +40,10 @@ fn pinned_wolf_states_retain_the_selected_rasters_and_dye_mask_bytes() {
         {
             continue;
         }
+        assert!(
+            layer.material_state.is_some_and(|state| state.color_mask),
+            "the native wolf material uses alpha as dye weight"
+        );
         let first = layer.first_slot as usize;
         for slot in &entities.render.slots[first..first + usize::from(layer.slot_count)] {
             let first = slot.first_candidate as usize;
@@ -72,15 +76,10 @@ fn pinned_wolf_states_retain_the_selected_rasters_and_dye_mask_bytes() {
         );
         indices.push(index as usize);
     }
-    for index in indices {
-        assert!(
-            catalog.texture_uses_color_mask(index),
-            "selected wolf rasters use alpha as dye weight"
-        );
-    }
+    assert!(!indices.is_empty());
 }
 
 #[test]
-fn custom_wolf_rasters_do_not_claim_the_stock_dye_mask_contract() {
-    assert_eq!(probe_alpha(4, "wolf"), (1, 0));
+fn any_raster_drawn_with_the_wolf_material_keeps_its_dye_mask_alpha() {
+    assert_eq!(probe_alpha(4, "wolf"), (1, 4));
 }

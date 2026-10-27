@@ -937,25 +937,15 @@ impl Raster {
         let no_animation = u32::MAX;
         let materials = gpu.words(
             &[
-                0,
-                0,
-                no_animation,
-                0,
-                0,
-                0,
-                1,
-                0,
-                no_animation,
-                0,
-                0,
-                0,
-                1,
-                assets::MATERIAL_FLAG_ALPHA_CUTOUT | assets::MATERIAL_FLAG_TWO_SIDED,
-                no_animation,
-                0,
-                0,
-                0,
-            ],
+                crate::material_records::plain_material(0, 0, no_animation),
+                crate::material_records::plain_material(1, 0, no_animation),
+                crate::material_records::plain_material(
+                    1,
+                    assets::MATERIAL_FLAG_ALPHA_CUTOUT | assets::MATERIAL_FLAG_TWO_SIDED,
+                    no_animation,
+                ),
+            ]
+            .concat(),
             storage,
         );
         let animations = gpu.words(&[0; 8], storage);

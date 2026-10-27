@@ -126,9 +126,11 @@ pub(super) fn attach(
         artwork,
         layer_poses,
     );
-    for body in &mut batch.submissions {
-        if body.material.glint.texture == render_model::GlintTexture::Item {
-            equipment_layers::animate_glint(body, partial_tick, glint_settings);
+    for submission in &mut batch.submissions {
+        if submission.material.state.is_some_and(|state| state.glint) {
+            equipment_layers::animate_material_glint(submission, partial_tick, glint_settings);
+        } else if submission.material.glint.texture == render_model::GlintTexture::Item {
+            equipment_layers::animate_glint(submission, partial_tick, glint_settings);
         }
     }
     if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {

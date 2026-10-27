@@ -155,6 +155,24 @@ fn pack_layer_tint(color: [f32; 4]) -> u32 {
     }
 }
 
+/// The glint of a `GLINT` layer at the actor's completed tick; publication then interpolates
+/// it and applies the glint settings. Other layers keep the placed body's own foil. The draw
+/// adds the client's actor glint; Bedrock's glint constants are unknown.
+fn layer_glint(
+    submission: &ActorRigSubmission,
+    layer: &RenderTextureLayer,
+) -> render_model::ActorGlint {
+    if !layer.material_state.is_some_and(|state| state.glint) {
+        // A native foil set on the placed body survives its controller's layers.
+        return submission.material.glint;
+    }
+    render_model::ActorGlint {
+        time_seconds: submission.input.completed_tick as f32
+            * simulation_clock::TICK_DURATION.as_secs_f32(),
+        ..Default::default()
+    }
+}
+
 /// Resolves one admitted controller layer for both body drawing and equipment styling.
 fn resolve_layer(
     submission: &ActorRigSubmission,
@@ -180,28 +198,38 @@ fn resolve_layer(
             current: cache.convert(&layer.pose)?,
         }),
     };
+    let rig = submission.input.rig;
+    let location = if player_skin {
+        None
+    } else {
+        Some(match layer.multitexture {
+            Some([second, third]) => {
+                artwork.multitexture_location(rig, [layer.source, second, third])?
+            }
+            None => artwork.variant_location(rig, layer.source)?,
+        })
+    };
+    let masks = layer
+        .masks
+        .zip(location)
+        .map_or(render_model::ActorMaterialMasks::NONE, |(masks, base)| {
+            render_model::ActorMaterialMasks::resolve(artwork, rig, base, &masks)
+        });
     Some(ResolvedLayer {
         material: render_model::ActorMaterial {
             color_mask: false,
-            // A native foil set on the placed body survives its controller's layers.
-            glint: submission.material.glint,
+            glint: layer_glint(submission, layer),
             kind: layer.material,
             state: layer.material_state,
+            render_state: layer.render_state,
             suppress_overlay: false,
             dissolve_multiplier: layer.overlay[3],
             light_color_multiplier: layer.light_color_multiplier,
+            masks,
         },
         model,
         ignore_lighting: layer.ignore_lighting,
-        location: if player_skin {
-            None
-        } else {
-            Some(match layer.multitexture {
-                Some([second, third]) => artwork
-                    .multitexture_location(submission.input.rig, [layer.source, second, third])?,
-                None => artwork.variant_location(submission.input.rig, layer.source)?,
-            })
-        },
+        location,
         tint: pack_layer_tint(layer.color),
         overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
         hidden_bones: Arc::clone(&layer.hidden_bones),
@@ -402,11 +430,13 @@ mod tests {
         let original_rig = batch.submissions[0].input.rig;
         let original_skin = batch.skin_layers[0].clone();
         let layer = RenderTextureLayer {
-            material: assets::EntityRenderMaterial::Default,
-            material_state: Some(assets::EntityRenderMaterialState {
-                blend: true,
+            masks: None,
+            render_state: Some(render_api::render_state::RenderState {
+                blend: Some(render_api::render_state::BlendState::ALPHA),
                 ..Default::default()
             }),
+            material: assets::EntityRenderMaterial::Default,
+            material_state: Some(assets::EntityRenderMaterialState::default()),
             source: 0,
             texture_slot: 0,
             multitexture: None,
@@ -434,7 +464,7 @@ mod tests {
         assert_eq!(body.texture_layer, 0);
         assert!(batch.artwork.is_empty());
         assert_eq!(body.tint, pack_layer_tint(layers[0].color));
-        assert!(body.material.state.unwrap().blend);
+        assert!(body.material.raster().blend.is_some());
         assert_eq!(body.input.current_bones[0].translation_scale[3], 1.0);
         assert!(
             body.input.current_bones[1..]
@@ -446,6 +476,8 @@ mod tests {
     #[test]
     fn runtime_skin_overlay_uses_the_first_admitted_layer_and_keeps_later_layers_independent() {
         let layer = RenderTextureLayer {
+            render_state: None,
+            masks: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             source: 0,
