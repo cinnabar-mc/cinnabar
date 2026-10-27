@@ -1,7 +1,6 @@
 //! Continuous scale and guest slider gestures through the real pointer boundary.
 
 use super::*;
-use ui::mod_panel::Event;
 
 /// Paints one hit region for `action` and returns a mapper from fraction to its pointer position.
 fn slider(editor: &mut HudEditor, action: &str) -> impl Fn(f64) -> [f32; 2] + use<> {

@@ -286,7 +286,7 @@ fn card_outlines_follow_hover_and_selection_without_rebuilding() {
         (hit.rect.x + hit.rect.w * 0.5) as f32 * frame.scale + frame.origin[0],
         (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale + frame.origin[1],
     ];
-    &mut *ui.pointer(at, false, false, &mut []);
+    ui.pointer(at, false, false, &mut []);
     paint(&mut ui, &engine, &font, &mut layouts, 2.);
     assert_eq!(color(&ui, 0), style.outline);
     assert_eq!(color(&ui, 1), [0.; 4]);

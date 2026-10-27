@@ -28,8 +28,6 @@ pub mod test_support;
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
-use ui::IconRef;
-
 /// Every mod- and experience-owned surface's state, carried across builds.
 #[derive(Default)]
 pub struct ModUi {
