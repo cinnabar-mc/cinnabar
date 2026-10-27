@@ -105,10 +105,12 @@ fn compile_uv_anim(molang: &mut MolangCompiler, value: Option<&Value>) -> Option
     Some(components)
 }
 
+/// Compiles the render controllers, returning the render payload and the number of material
+/// declarations and definitions left unresolved past their bounds.
 pub(super) fn compile_render(
     input: RenderSources<'_>,
     molang: &mut MolangCompiler,
-) -> Result<EntityRenderData, AssetError> {
+) -> Result<(EntityRenderData, u32), AssetError> {
     let RenderSources {
         root,
         payloads,
@@ -119,6 +121,7 @@ pub(super) fn compile_render(
         rig_geometries,
     } = input;
     let materials = materials::MaterialStates::load(root, payloads, sources)?;
+    let mut material_table = materials::MaterialTable::default();
     let mut definitions = Vec::<(Box<str>, &Value)>::new();
     for source in sources
         .iter()
@@ -277,9 +280,11 @@ pub(super) fn compile_render(
             );
             let rig_first = rig.first_geometry as usize;
             let groups = material_groups::resolve(
+                (&entity.identifier, name),
                 description,
                 definition,
                 &materials,
+                &mut material_table,
                 geometries,
                 rig_geometries[rig_first..rig_first + usize::from(rig.geometry_count)]
                     .iter()
@@ -322,6 +327,8 @@ pub(super) fn compile_render(
             let layer = EntityRenderLayer {
                 material: EntityRenderMaterial::Default,
                 material_state: None,
+                material_definition: None,
+                material_masks: None,
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
@@ -361,14 +368,19 @@ pub(super) fn compile_render(
             )?;
         }
     }
-    Ok(EntityRenderData {
+    let unresolved = materials.unadmitted() + material_table.unresolved();
+    let (definitions, material_masks) = material_table.into_parts();
+    let render = EntityRenderData {
         material_selections: material_selections.into_boxed_slice(),
         layers: layers.into_boxed_slice(),
         slots: slots.into_boxed_slice(),
         candidates: candidates.into_boxed_slice(),
         visibility: visibility.into_boxed_slice(),
         geometries: layer_geometries.into_boxed_slice(),
-    })
+        materials: definitions,
+        material_masks,
+    };
+    Ok((render, unresolved))
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition

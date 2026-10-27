@@ -29,8 +29,8 @@ pub(super) struct Payload {
 
 impl Payload {
     /// Validates cached references before exposing the decoded pages.
-    pub(super) fn into_assets(self) -> Option<render_scene::EnhancedTextureAssets> {
-        render_scene::EnhancedTextureAssets::new(
+    pub(super) fn into_assets(self) -> Option<assets::texture::EnhancedTextureAssets> {
+        assets::texture::EnhancedTextureAssets::new(
             self.color,
             self.normal,
             self.material,
@@ -422,7 +422,7 @@ mod tests {
             color: std::array::from_fn(|page| array(16 + page as u8)),
             normal: std::array::from_fn(|page| array(64 + page as u8)),
             material: std::array::from_fn(|page| array(128 + page as u8)),
-            references: render_scene::EnhancedTextureAssets::material_references(
+            references: assets::texture::EnhancedTextureAssets::material_references(
                 std::collections::BTreeMap::from([((1, 0), assets::texture::PBR_REF_COLOR)]),
             ),
         }
@@ -500,7 +500,7 @@ mod tests {
             color: [array.clone(), array.clone()],
             normal: [array.clone(), array.clone()],
             material: [array.clone(), array],
-            references: render_scene::EnhancedTextureAssets::material_references(
+            references: assets::texture::EnhancedTextureAssets::material_references(
                 std::collections::BTreeMap::from([
                     ((1, 0), assets::texture::PBR_REF_COLOR),
                     ((2, 0), assets::texture::PBR_REF_COLOR | 1),

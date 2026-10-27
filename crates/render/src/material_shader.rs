@@ -161,6 +161,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_BLEND_FLAG", &format!("{}u", assets::EntityRenderMaterialState::BLEND))
         .replace("ACTOR_MATERIAL_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::EMISSIVE))
         .replace("ACTOR_MATERIAL_ONLY_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::ONLY_EMISSIVE))
+        .replace("ACTOR_MATERIAL_COLOR_MASK_FLAG", &format!("{}u", assets::EntityRenderMaterialState::COLOR_MASK))
         .replace("ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG", &format!("{}u", assets::EntityRenderMaterialState::DISABLE_OVERLAY))
         .replace("ACTOR_CHART_COORDINATE_BITS", &format!("{}u", u16::BITS))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))
@@ -213,6 +214,7 @@ pub(crate) fn source(source: &str) -> String {
             "MATERIAL_OVERLAY_MASK_FLAG",
             &format!("{}u", assets::MATERIAL_FLAG_OVERLAY_MASK),
         )
+        .replace("MATERIAL_NO_MASK", &format!("{}u", assets::NO_MASK))
         .replace(
             "MATERIAL_ALPHA_CUTOUT_FLAG",
             &format!("{}u", assets::MATERIAL_FLAG_ALPHA_CUTOUT),
@@ -220,18 +222,6 @@ pub(crate) fn source(source: &str) -> String {
         .replace(
             "MATERIAL_ISOTROPIC_FLAG",
             &format!("{}u", assets::MATERIAL_FLAG_ISOTROPIC),
-        )
-        .replace(
-            "MATERIAL_LEAF_AO_EXPONENT_MASK",
-            &format!("{}u", assets::MATERIAL_LEAF_AO_EXPONENT_MASK),
-        )
-        .replace(
-            "MATERIAL_LEAF_AO_EXPONENT_SHIFT",
-            &format!("{}u", assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT),
-        )
-        .replace(
-            "MATERIAL_LEAF_AO_EXPONENT_SCALE",
-            &format!("{}.0", assets::MATERIAL_LEAF_AO_EXPONENT_SCALE),
         )
         .replace(
             "NATIVE_LEAF_TEXTURE_BINDING_0",

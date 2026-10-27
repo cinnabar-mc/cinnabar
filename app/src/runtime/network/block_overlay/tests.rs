@@ -26,6 +26,7 @@ fn compile_block_overlay(
     )
 }
 
+mod alpha_masked_tint;
 mod block_items;
 mod budget;
 mod builtins;
@@ -36,12 +37,14 @@ mod flipbooks;
 mod hd_textures;
 mod legacy;
 mod lighting;
+mod material_bindings;
 mod mining;
 mod multi_page;
 mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
+mod texture_variations;
 mod vanilla_terrain;
 
 mod vanilla_fallback;
@@ -155,14 +158,9 @@ fn raster_only_replacement_retains_the_base_lily_tint() {
 }
 
 fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
-    Some(Box::new([CustomMaterialInstance {
-        name: "*".into(),
-        texture: texture.into(),
-        render_method: None,
-        tint_method: None,
-        ambient_occlusion: None,
-        face_dimming: None,
-    }]))
+    Some(Box::new([CustomMaterialInstance::with_authored_defaults(
+        "*", texture,
+    )]))
 }
 
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
