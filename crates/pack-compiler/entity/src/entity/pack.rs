@@ -51,6 +51,8 @@ pub struct EntityPackSkips {
     pub over_budget: u32,
     /// Files dropped because the pack failed to compile with them and succeeded without.
     pub isolated: u32,
+    /// Materials past their declaration or definition bounds, drawn as layers without one.
+    pub unresolved_materials: u32,
 }
 
 /// A pack's entity catalog. Symbols a pack shares with vanilla resolve as
@@ -63,17 +65,20 @@ pub struct EntityPackCompilation {
     /// Attachable bindings for the pack's items, geometry and texture resolved within it.
     pub equipment_bindings: Box<[EquipmentBinding]>,
     pub skipped: EntityPackSkips,
+    /// Counted entity material behaviour the client skips, ignores or approximates.
+    pub material_diagnostics: super::EntityMaterialDiagnostics,
     /// Retained source bytes by pack-relative path, for consumers that read rasters.
     pub payloads: BTreeMap<Box<str>, Box<[u8]>>,
 }
 
 /// Whether a pack file feeds the entity catalog: definition JSON, geometry anywhere under
-/// `models/`, and rasters anywhere under `textures/`.
+/// `models/`, rasters anywhere under `textures/`, and the entity material list and files.
 fn in_families(path: &str) -> bool {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     let json = extension == Some("json");
     let raster = matches!(extension, Some("png" | "tga"));
-    let material = path.starts_with("materials/") && extension == Some("material");
+    let material = super::materials::is_material_source(path)
+        || path == super::materials::extension::MATERIAL_BINDINGS_PATH;
     (json
         && [
             "entity/",
@@ -429,7 +434,11 @@ fn compile_selected(
                 assets: compilation.assets,
                 reference_outcomes: compilation.reference_outcomes,
                 equipment_bindings: compilation.equipment_bindings,
-                skipped,
+                skipped: EntityPackSkips {
+                    unresolved_materials: compilation.unresolved_materials,
+                    ..skipped
+                },
+                material_diagnostics: compilation.material_diagnostics,
                 payloads,
             })
         }),

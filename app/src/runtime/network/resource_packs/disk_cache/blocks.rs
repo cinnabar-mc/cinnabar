@@ -28,6 +28,7 @@ pub(in crate::runtime::network) struct BlockOverlay {
     hashes: Vec<Option<u32>>,
     material_overrides: Vec<MaterialOverride>,
     face_overrides: Vec<(u32, [Option<u32>; 6])>,
+    template_overrides: Vec<(u32, u32)>,
     biomes: Option<CompiledBiomeAssets>,
     max_page_layers: u32,
 }

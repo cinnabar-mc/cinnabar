@@ -1,12 +1,12 @@
 use super::*;
 
 #[test]
-fn a_custom_llama_raster_rounds_its_alpha_instead_of_claiming_sampler_weights() {
-    assert_eq!(probe_alpha(3, "llama"), (1, 0));
+fn any_raster_drawn_with_a_multitexture_material_keeps_its_sampler_weights() {
+    assert_eq!(probe_alpha(3, "llama"), (1, 3));
 }
 
 #[test]
-fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
+fn vanilla_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
     let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").map(std::path::PathBuf::from)
     else {
         eprintln!("skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT is not set");
@@ -25,17 +25,34 @@ fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
     let runtime_entities = assets::RuntimeEntityAssets::decode(&entity_bytes).unwrap();
     let compiled = compile_actor_assets(root, MANIFEST).unwrap();
     let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &runtime_entities).unwrap();
-    let used: std::collections::BTreeSet<_> = entities
-        .render
-        .candidates
+    // Sources the llama entities' own layers sample.
+    let render = &entities.render;
+    let used: std::collections::BTreeSet<_> = render
+        .layers
         .iter()
+        .filter(|layer| {
+            let rig = &entities.rig_bindings[layer.rig as usize];
+            matches!(
+                entities.symbols[rig.entity_symbol as usize]
+                    .identifier
+                    .as_ref(),
+                "minecraft:llama" | "minecraft:trader_llama"
+            )
+        })
+        .flat_map(|layer| {
+            let first = layer.first_slot as usize;
+            render.slots[first..first + usize::from(layer.slot_count)].iter()
+        })
+        .flat_map(|slot| {
+            let first = slot.first_candidate as usize;
+            render.candidates[first..first + usize::from(slot.candidate_count)].iter()
+        })
         .map(|candidate| candidate.source as usize)
         .collect();
     let mut witnessed = 0;
     let mut fractional = 0;
     for (source_index, source) in entities.sources.iter().enumerate() {
-        if !used.contains(&source_index) || !assets::native_actor_texture_uses_multitexture(source)
-        {
+        if !used.contains(&source_index) {
             continue;
         }
         let (index, texture) = catalog
@@ -44,8 +61,7 @@ fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
             .enumerate()
             .find(|(_, texture)| texture.source as usize == source_index)
             .expect("every native base, decoration and empty sampler must be admitted");
-        assert!(catalog.texture_uses_multitexture(index));
-        assert!(!catalog.texture_uses_color_mask(index));
+        assert!(catalog.texture_uses_multitexture(index), "{}", source.path);
         let raster = image::open(root.join(source.path.as_ref()))
             .unwrap()
             .into_rgba8()
@@ -67,7 +83,10 @@ fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
     assert!(witnessed > 0 && fractional > 0);
     let mut rigs = 0;
     for (index, rig) in entities.rig_bindings.iter().enumerate() {
-        if !assets::native_actor_uses_multitexture(&runtime_entities, index) {
+        if !entities.render.layers.iter().any(|layer| {
+            layer.rig as usize == index
+                && layer.material_state.is_some_and(|state| state.multitexture)
+        }) {
             continue;
         }
         rigs += 1;

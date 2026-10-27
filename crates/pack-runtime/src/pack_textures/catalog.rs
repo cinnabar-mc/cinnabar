@@ -1,5 +1,7 @@
 //! Texture path selection inside catalog entries.
 
+use pack_compile_input::texture_set::TextureSetLayer;
+
 use super::{Value, normalize_texture_path};
 
 /// A texture entry is a path, an object with `path`, or a variation list whose
@@ -19,28 +21,18 @@ pub(super) fn first_texture_path(value: &Value) -> Option<String> {
 /// Only admitted cached pixels may reuse it; uncached candidates still require normal decoding.
 pub fn indexed_image_candidate(view: &super::LayeredPackView, path: &str) -> Option<String> {
     let path = normalize_texture_path(path);
-    if let Some(image) = indexed_image(view, path) {
-        return Some(image);
-    }
-    let source = format!("{path}.texture_set.json");
-    let bytes = view.read_capped(&source, super::MAX_TEXTURE_SET_BYTES)?;
-    let root = super::parse_pack_json(&bytes)?;
-    match root.get("minecraft:texture_set")?.get("color")? {
-        Value::String(name) => {
-            let name = normalize_texture_path(name);
-            let sibling = path
-                .rsplit_once('/')
-                .map_or_else(|| name.to_owned(), |(dir, _)| format!("{dir}/{name}"));
-            [sibling, name.to_owned()]
-                .into_iter()
-                .filter(|target| target != path)
-                .find_map(|target| indexed_image(view, &target))
-        }
-        Value::Array(channels) if matches!(channels.len(), 3 | 4) => {
-            Some(source.to_ascii_lowercase())
-        }
-        _ => None,
-    }
+    let Some((layer, source, definition)) = super::texture_set_definition(view, path) else {
+        return indexed_image(view, path);
+    };
+    let candidate = match definition.color {
+        TextureSetLayer::Uniform(_) => Some(source.to_ascii_lowercase()),
+        TextureSetLayer::Image(name) => super::texture_set_image_paths(&source, &name)
+            .into_iter()
+            .find(|candidate| layer.file_size(candidate).is_some())
+            .map(|candidate| candidate.to_ascii_lowercase()),
+    };
+    // A set whose color image is missing is discarded, as decoding discards it.
+    candidate.or_else(|| indexed_image(view, path))
 }
 
 /// Uses the decoder's extension order and indexed file sizes without loading pixels.

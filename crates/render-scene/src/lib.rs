@@ -87,10 +87,10 @@ pub use chunk::schedule::ChunkRenderApplySet;
 pub use chunk::texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub use chunk::textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    ChunkTextureBindingIdentity, EnhancedTextureAssets, TextureArrayLimits, TextureLimitError,
-    TextureMipUploadPlan, TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page,
-    greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
-    select_animation_frames, texture_asset_needs_rebuild,
+    ChunkTextureBindingIdentity, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
+    TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page,
+    enhanced_maps_fit_device_limits, greedy_texture_uv, plan_texture_mip_uploads,
+    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
 };
 pub use chunk::transparent_witness::{
     TransparentWitnessEvent, TransparentWitnessEvidence, TransparentWitnessIncompleteEvent,

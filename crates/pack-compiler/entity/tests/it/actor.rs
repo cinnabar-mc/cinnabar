@@ -26,6 +26,8 @@ mod fish;
 mod identity;
 #[path = "actor/light_multiplier.rs"]
 mod light_multiplier;
+#[path = "actor/material_bindings.rs"]
+mod material_bindings;
 #[path = "actor/material_states.rs"]
 mod material_states;
 #[path = "actor/multitexture.rs"]

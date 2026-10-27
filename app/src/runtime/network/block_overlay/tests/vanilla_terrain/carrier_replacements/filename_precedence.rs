@@ -62,6 +62,7 @@ fn builder<'a>(
         max_layers: layers,
         slots: Default::default(),
         materials: Default::default(),
+        state_masks: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     }

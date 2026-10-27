@@ -109,6 +109,7 @@ fn mask_dissolve_prepass_writes_only_private_depth() {
                             hdr: false,
                             enhanced: false,
                             material: assets::EntityRenderMaterial::DissolveDepth as u32,
+                            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                         },
                         depth,
                     },
@@ -210,21 +211,20 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
 fn mask_pipeline_cannot_inherit_an_actors_depth_bypass_or_write_world_depth() {
     for msaa in [Msaa::Off, Msaa::Sample4] {
         for depth in [MaskDepth::Test, MaskDepth::Always] {
-            let material = assets::EntityRenderMaterial::Default.word(Some(
-                assets::EntityRenderMaterialState {
-                    alpha_test: true,
-                    cull: true,
-                    depth_always: true,
-                    depth_write: true,
-                    ..Default::default()
-                },
-            ));
+            let flags = crate::actor::test_material::TestMaterial {
+                alpha_test: true,
+                cull: true,
+                depth_always: true,
+                depth_write: true,
+                ..Default::default()
+            };
             let key = Key {
                 actor: ActorPipelineKey {
                     msaa,
                     hdr: false,
                     enhanced: false,
-                    material,
+                    material: flags.word(assets::EntityRenderMaterial::Default),
+                    raster: flags.raster(),
                 },
                 depth,
             };
@@ -308,15 +308,12 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
         let pixels = actor_raster::raster_material_with_state(
             &gpu,
             &vertices,
-            render_model::ActorMaterial {
-                kind: assets::EntityRenderMaterial::Default,
-                state: Some(assets::EntityRenderMaterialState {
-                    alpha_test: true,
-                    depth_write: true,
-                    ..Default::default()
-                }),
+            crate::actor::test_material::TestMaterial {
+                alpha_test: true,
+                depth_write: true,
                 ..Default::default()
-            },
+            }
+            .material(assets::EntityRenderMaterial::Default),
             false,
             [[255, 255, 255, 0]; 2],
             false,
@@ -347,14 +344,11 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
     let pixels = actor_raster::raster_material_with_state(
         &gpu,
         &vertices,
-        render_model::ActorMaterial {
-            kind: assets::EntityRenderMaterial::Default,
-            state: Some(assets::EntityRenderMaterialState {
-                blend: true,
-                ..Default::default()
-            }),
+        crate::actor::test_material::TestMaterial {
+            blend: true,
             ..Default::default()
-        },
+        }
+        .material(assets::EntityRenderMaterial::Default),
         false,
         [[255, 255, 255, 128]; 2],
         false,

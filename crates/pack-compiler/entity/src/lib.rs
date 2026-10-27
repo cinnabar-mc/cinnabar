@@ -16,13 +16,22 @@ pub use block_entity::{
     BlockEntityCompileReport, BlockEntityTexture, CompiledBlockEntityCarrier,
     compile_block_entity_assets, overlay_block_entity_assets,
 };
+pub use entity::materials::extension::{
+    BlockMaskPaths, MATERIAL_BINDINGS_PATH, ResolvedBlockBinding,
+    block_bindings as block_material_bindings, validate as validate_material_bindings,
+};
+pub use entity::materials::list::{
+    ENTITY_MATERIAL_LIST_PATH, MAX_MATERIAL_LIST_PATH_BYTES, MaterialListEntry, MaterialListReport,
+    material_list_document, resolve_material_lists,
+};
 pub use entity::{
     BlockMolang, BlockStateValue, CompileReferenceOutcome, EntityAssetCompilation,
-    EntityPackCompilation, EntityPackSkips, EquipmentBindingDependencies, FallbackReason,
-    ItemTagMolang, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES, RejectReason,
-    compile_entity_assets, compile_entity_assets_with_behavior_report,
-    compile_entity_assets_with_report, compile_entity_pack, compile_equipment_textures,
-    compile_equipment_textures_for_assets, compile_equipment_textures_for_assets_with,
+    EntityMaterialDiagnostics, EntityPackCompilation, EntityPackSkips,
+    EquipmentBindingDependencies, FallbackReason, ItemTagMolang, MAX_PACK_ENTITY_BYTES,
+    MAX_PACK_ENTITY_SOURCES, RejectReason, compile_entity_assets,
+    compile_entity_assets_with_behavior_report, compile_entity_assets_with_report,
+    compile_entity_pack, compile_equipment_textures, compile_equipment_textures_for_assets,
+    compile_equipment_textures_for_assets_with,
     compile_equipment_textures_for_assets_with_priorities, compile_equipment_textures_with,
     compile_item_attack_timings, compile_item_foods, compile_item_use_durations,
     compile_item_use_profiles, compile_molang_expression, compile_vanilla_entity_refs,
