@@ -1724,6 +1724,9 @@ Original-image readiness retains HUD and inventory measurements when dimensions
 stay the same. Metadata changes still invalidate their layouts and preparation.
 Changing sessions resets container lifetimes so closed-inventory preparation can
 run again before the first rejoin open.
+Screen policy queries resolve inherited root properties without traversing unused
+controls, and cache them for the same catalog and context as rendered screens.
+Cold inventory updates, pack reload and hardware frame qualification remain open.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
