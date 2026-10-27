@@ -179,12 +179,7 @@ fn bind_with(
     state.built.clear();
     state.views_run = 0;
     let mut changes = match &state.data {
-        Some(previous)
-            if incremental
-                && !truncated
-                && state.published.is_empty()
-                && data.components.is_empty() =>
-        {
+        Some(previous) if incremental && !truncated && data.components.is_empty() => {
             reuse::changes(previous, data)
         }
         _ => None,
@@ -193,6 +188,13 @@ fn bind_with(
         if let Some(changes) = &mut changes {
             changes.add_window(grid);
         }
+    }
+    let mut published_dirty = state::KeyMap::default();
+    if changes.is_some()
+        && !state.published.is_empty()
+        && let Some(tree) = state.tree.as_deref()
+    {
+        reuse::mark_published(tree, &state.published, &mut published_dirty);
     }
     let mut pool = state::KeyMap::default();
     if let Some(previous) = state.tree.take() {
@@ -211,6 +213,7 @@ fn bind_with(
         created: 0,
         pool,
         changes,
+        published_dirty,
     };
     let scope = Scope {
         values: Arc::clone(&data.creation_values),
@@ -345,6 +348,8 @@ struct Binder<'a> {
     pool: state::KeyMap<Node>,
     /// What the data changed since the last incremental bind; `None` rebuilds all.
     changes: Option<reuse::Changes>,
+    /// Controls with queued bag writes and their ancestors, which cannot stand unchanged.
+    published_dirty: state::KeyMap<()>,
 }
 
 impl<'a> Binder<'a> {

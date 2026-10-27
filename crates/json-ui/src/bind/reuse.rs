@@ -322,7 +322,8 @@ impl Binder<'_> {
             return false;
         };
         let track = &previous.track;
-        (track.stable || track.prepared)
+        !self.published_dirty.contains_key(&previous.key)
+            && (track.stable || track.prepared)
             && !track.below.meets(changes)
             && track.origin.as_ref().unwrap_or(&previous.src).same(src)
             && previous.scope.same(scope)
@@ -478,6 +479,18 @@ impl Binder<'_> {
         }
         reads
     }
+}
+
+/// Marks queued bag writes' owners and ancestors without expanding every control's read set.
+pub(super) fn mark_published(node: &Node, writes: &KeyMap<Bag>, dirty: &mut KeyMap<()>) -> bool {
+    let mut changed = writes.contains_key(&node.key);
+    for child in &node.children {
+        changed |= mark_published(child, writes, dirty);
+    }
+    if changed {
+        dirty.insert(node.key, ());
+    }
+    changed
 }
 
 /// Restarts changed input owners and their descendants while retaining unaffected bindings.

@@ -354,6 +354,58 @@ fn deep_authored_controls_keep_their_bindings_when_inputs_change() {
 }
 
 #[test]
+fn published_bag_writes_rebind_only_the_owner_and_notify_its_views() {
+    let mut children = vec![
+        control(
+            "source",
+            "panel",
+            json!({"property_bag":{"#counter":"first"}}),
+            vec![],
+        ),
+        control(
+            "reader",
+            "label",
+            json!({"text":"#text", "bindings":[{
+                "binding_type":"view", "source_control_name":"source",
+                "source_property_name":"#counter", "target_property_name":"#text"
+            }]}),
+            vec![],
+        ),
+    ];
+    children.extend(
+        (0..512).map(|index| control(&format!("fixed{index}"), "panel", json!({}), vec![])),
+    );
+    let root = Arc::new(control("root", "panel", json!({}), children));
+    let data = Arc::new(DataSource::new());
+    let mut state = BindState::new();
+    let mut bound = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state);
+    let mut measures = crate::MeasureCache::default();
+    crate::rebind(
+        &root,
+        &data,
+        &EmptyLibrary,
+        &mut state,
+        &mut bound,
+        &mut measures,
+    );
+    state.publish("/root/source", "#counter", Scalar::Text("second".into()));
+    crate::rebind(
+        &root,
+        &data,
+        &EmptyLibrary,
+        &mut state,
+        &mut bound,
+        &mut measures,
+    );
+    assert_eq!(captions(&bound), ["second"]);
+    assert!(
+        state.rebuilt() < 8,
+        "bag feedback rebuilt {} controls",
+        state.rebuilt()
+    );
+}
+
+#[test]
 fn scoped_controller_answers_follow_collection_instances_and_refresh() {
     struct Labels(ResolvedControl);
     impl crate::ControlLibrary for Labels {
