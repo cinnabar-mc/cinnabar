@@ -17,7 +17,9 @@ POWERSHELL ?= powershell
 
 NO_VSYNC ?= 0
 TRACY ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
+# DEVELOPER_CONTROL=1 builds the loopback control endpoint, which `material-fx permission` uses.
+DEVELOPER_CONTROL ?= 0
+CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(if $(filter 1,$(DEVELOPER_CONTROL)),--features developer-control)
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT

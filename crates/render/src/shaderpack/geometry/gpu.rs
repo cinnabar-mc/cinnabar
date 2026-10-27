@@ -83,6 +83,8 @@ struct ExpansionInputs {
     biome_tints: BufferId,
     biome_tint_table: ChunkBiomeTintIdentity,
     atlas_generation: u64,
+    /// Which world material sprites expansion may redirect bound faces to.
+    world_sprites: u64,
     attribute_key: AttributeKey,
     separate_ao: bool,
     old_lighting: bool,
@@ -123,7 +125,7 @@ struct Dispatch {
     jobs: u32,
 }
 
-/// Expansion recorded by [`record_geometry_expansion`].
+/// Expansion recorded by [`record::record_geometry_expansion`].
 #[derive(Default)]
 struct PreparedExpansion {
     dispatches: Vec<Dispatch>,
@@ -485,6 +487,7 @@ pub(crate) struct GeometryInputs<'w> {
     settings: Option<Res<'w, ShaderpackGeometrySettings>>,
     textures: Option<Res<'w, ChunkTextureAssets>>,
     atlas: Option<Res<'w, ShaderpackAtlas>>,
+    world_sprites: Option<Res<'w, crate::shaderpack::atlas::world_sprites::WorldMaterialSprites>>,
     block_ids: Option<Res<'w, ShaderpackBlockIds>>,
     /// The pack's `far`, the client render distance in blocks.
     frame: Option<Res<'w, render_scene::shaderpack::ShaderPackFrameInputs>>,
@@ -602,6 +605,10 @@ pub(crate) fn prepare_shaderpack_geometry(
         biome_tints: buffers.biome_tints.id(),
         biome_tint_table: buffers.tint_identity,
         atlas_generation: atlas.generation,
+        world_sprites: inputs
+            .world_sprites
+            .as_deref()
+            .map_or(0, |sprites| sprites.revision),
         attribute_key,
         separate_ao: settings.separate_ao,
         old_lighting: settings.old_lighting,
@@ -905,55 +912,10 @@ fn expand_params(
     params
 }
 
-/// Records this frame's expansion dispatches ahead of camera passes.
-pub(crate) fn record_geometry_expansion(
-    geometry: Option<ResMut<ShaderpackGeometry>>,
-    pipelines: Option<Res<ExpansionPipelines>>,
-    kernels: Option<Res<super::super::kernels::Kernels>>,
-    timestamps: Option<Res<crate::gpu_timing::GpuTimestamps>>,
-    mut context: RenderContext,
-) {
-    let (Some(mut geometry), Some(pipelines), Some(kernels)) = (geometry, pipelines, kernels)
-    else {
-        return;
-    };
-    let cache = &kernels.cache;
-    let prepared = std::mem::take(&mut geometry.prepared);
-    if prepared.dispatches.is_empty() {
-        return;
-    }
-    crate::gpu_timing::within_stage(
-        timestamps.as_deref(),
-        RuntimeStage::GpuShaderpackExpansion,
-        context.command_encoder(),
-        |encoder| {
-            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("shader-pack terrain expansion"),
-                ..default()
-            });
-            for dispatch in &prepared.dispatches {
-                let Some(pipeline) =
-                    cache.get_compute_pipeline(pipelines.pipelines[dispatch.kind as usize])
-                else {
-                    continue;
-                };
-                let groups = dispatch.jobs.div_ceil(EXPAND_WORKGROUP_SIZE);
-                if groups == 0 {
-                    continue;
-                }
-                let x = groups.min(u16::MAX as u32);
-                pass.set_pipeline(pipeline);
-                pass.set_bind_group(0, &dispatch.sources, &[]);
-                pass.set_bind_group(1, &dispatch.output, &[]);
-                pass.dispatch_workgroups(x, groups.div_ceil(x), 1);
-            }
-        },
-    );
-}
-
 mod camera_lists;
 #[cfg(test)]
 mod fixture;
+pub(crate) mod record;
 /// Requires the atlas and packed tables to represent the selected texture source.
 fn expansion_sources_match(
     selected: &ChunkTextureAssets,

@@ -37,6 +37,8 @@ pub(super) struct ExperienceService {
         ui_screens::container_actions::InventoryCellHit,
         Vec<KeyCode>,
     )>,
+    /// The client parts' world materials as the renderer draws them.
+    world: super::world_materials::WorldMaterialPresenter,
 }
 
 impl ExperienceService {
@@ -79,6 +81,9 @@ pub(crate) fn configure(app: &mut App) {
     let menu = app.world().resource::<MenuRuntime>();
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
+    app.init_resource::<render_scene::world_material::WorldMaterialScene>()
+        .init_resource::<render_scene::world_material::WorldMaterialParamScene>()
+        .init_resource::<WorldMaterialWithdrawals>();
     app.insert_resource(ExperienceService {
         settings_path,
         cache_root,
@@ -90,6 +95,7 @@ pub(crate) fn configure(app: &mut App) {
         live: None,
         items: Default::default(),
         hotbar: None,
+        world: Default::default(),
     })
     .add_systems(
         Update,
@@ -98,6 +104,8 @@ pub(crate) fn configure(app: &mut App) {
             drive.before(client_state::ExperienceInputSet),
             modal_hotbar.before(client_state::ExperienceInputSet),
             present_media.after(client_state::ExperienceInputSet),
+            present_world_materials.after(client_state::ExperienceInputSet),
+            super::world_blocks::tag_world_material_blocks,
         )
             .chain()
             .before(ClientFrameSet::SemanticSample)
@@ -522,6 +530,74 @@ fn present_media(
     }
 }
 
+/// Permissions the user withdrew from the running client parts in this session. Withdrawing
+/// one drops every effect it allows from every material in one publication, without a
+/// reconnect; the declarations are kept, so giving it back restores them. Ending the runtime
+/// clears the set.
+#[derive(bevy::prelude::Resource, Default)]
+pub(crate) struct WorldMaterialWithdrawals {
+    pub(crate) permissions: std::collections::BTreeSet<server_experience::manifest::Permission>,
+}
+
+/// Publishes the client parts' world materials when their world declarations or the withdrawn
+/// permissions change, and their parameters alone when only those change. Ending the runtime
+/// (F9, a stop or a disconnect) ends the presenter's session and publishes an empty set, which
+/// restores every Bedrock material without a reconnect, and forgets the session's compile
+/// failures.
+fn present_world_materials(
+    mut service: ResMut<ExperienceService>,
+    mut withdrawals: ResMut<WorldMaterialWithdrawals>,
+    scene: Option<ResMut<render_scene::world_material::WorldMaterialScene>>,
+    params: Option<ResMut<render_scene::world_material::WorldMaterialParamScene>>,
+    (failures, carried): (
+        Option<Res<render_scene::world_material::WorldMaterialFailures>>,
+        Option<Res<render_scene::world_material::WorldMaterialCarried>>,
+    ),
+    client_world: Option<Res<crate::runtime::world::ClientWorld>>,
+) {
+    let service = &mut *service;
+    if let Some(failures) = failures.as_deref() {
+        service
+            .world
+            .note_compile_failures(|key| failures.failed(key));
+    }
+    if service.live.is_none() && !withdrawals.permissions.is_empty() {
+        withdrawals.permissions.clear();
+    }
+    let run = service.world.run();
+    // A slot the stream's applied tags still name stays carried: meshes built from them may
+    // carry it however few resident meshes do now.
+    let table = client_world
+        .as_deref()
+        .and_then(|world| world.stream.as_ref())
+        .map_or(0, chunk_pipeline::WorldStream::world_material_slots);
+    let carried = carried
+        .as_deref()
+        .map_or((0, u64::MAX), |carried| carried.get());
+    let carried = (carried.0, carried.1 | table);
+    if !service
+        .world
+        .follow(service.live.as_mut(), carried, &withdrawals.permissions)
+    {
+        return;
+    }
+    if service.world.run() != run
+        && let Some(failures) = failures.as_deref()
+    {
+        failures.clear();
+    }
+    if let Some(mut scene) = scene
+        && !std::sync::Arc::ptr_eq(&scene.set, service.world.set())
+    {
+        scene.set = std::sync::Arc::clone(service.world.set());
+    }
+    if let Some(mut params) = params
+        && !std::sync::Arc::ptr_eq(&params.params, service.world.params())
+    {
+        params.params = std::sync::Arc::clone(service.world.params());
+    }
+}
+
 /// Rolls back unsaved in-memory approval as well as revoking its pending handshake.
 fn persist_trust(
     service: &mut ExperienceService,
@@ -612,7 +688,13 @@ fn advance_runtime(
                 "extension send unavailable"
             );
         }
-        extension.session.notice = Some(live.text());
+        let mut notice = live.text();
+        // The newest world material failure; the log holds each one once.
+        if let Some(failure) = service.world.diagnostics().last() {
+            notice.push_str("\nNot drawn: ");
+            notice.push_str(failure);
+        }
+        extension.session.notice = Some(notice);
     }
     Ok(())
 }

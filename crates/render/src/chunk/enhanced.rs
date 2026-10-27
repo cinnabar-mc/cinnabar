@@ -112,7 +112,7 @@ struct CascadeEnvelope<'a> {
 impl<'a> CascadeEnvelope<'a> {
     /// Rotates the shared envelope into `bounds`' light space.
     fn new(bounds: &'a CascadeBounds) -> Self {
-        let aabb = crate::chunk::bounds::aabb(true);
+        let aabb = crate::chunk::bounds::BoundsKind::Models.aabb();
         Self {
             bounds,
             center: Vec3::from(aabb.center),

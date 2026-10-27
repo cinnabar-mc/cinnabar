@@ -779,8 +779,9 @@ fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
             .unwrap();
     let lit = batch.submissions[lit_index].clone();
     let material = lit.material.state.unwrap();
-    assert!(material.emissive && material.alpha_test && material.depth_write);
-    assert!(!material.blend);
+    assert!(material.emissive && material.alpha_test);
+    assert!(lit.material.raster().depth.write);
+    assert!(lit.material.raster().blend.is_none());
     assert_eq!(lit.material.kind, body.material.kind);
     assert!(lit.material.allows_overlay(), "hurt tint still applies");
     assert_eq!(

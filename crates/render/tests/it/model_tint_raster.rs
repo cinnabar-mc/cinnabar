@@ -150,7 +150,7 @@ fn material_words() -> Vec<u32> {
     ];
     (0..CASE_COUNT)
         .flat_map(|index| {
-            [
+            crate::material_records::plain_material(
                 if index % 2 == 0 {
                     0
                 } else {
@@ -162,10 +162,7 @@ fn material_words() -> Vec<u32> {
                 } else {
                     assets::NO_ANIMATION
                 },
-                0,
-                0,
-                0,
-            ]
+            )
         })
         .collect()
 }
@@ -554,7 +551,7 @@ fn fragment(
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
     if (in.visibility.x == 0u) { discard; }
-    if (!front_facing && in.visibility.y == 0u) { discard; }
+    if (!front_facing && (in.visibility.x & MODEL_TWO_SIDED) == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);

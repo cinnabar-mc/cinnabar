@@ -60,6 +60,8 @@ struct RenderCountProbe {
     material_selections: SequenceCount,
     #[serde(default)]
     geometries: SequenceCount,
+    #[serde(default)]
+    materials: SequenceCount,
 }
 
 #[derive(Default)]
@@ -348,6 +350,10 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         ),
         (counts.render.visibility.0, MAX_ENTITY_RENDER_VISIBILITY),
         (counts.render.geometries.0, MAX_ENTITY_RENDER_CANDIDATES),
+        (
+            counts.render.materials.0,
+            super::material::MAX_ENTITY_MATERIAL_DEFINITIONS,
+        ),
         (counts.item_use_profiles.0, MAX_ITEM_VISUALS * 2),
         (counts.item_visuals.0, MAX_ITEM_VISUALS),
         (counts.item_visual_aliases.0, MAX_ITEM_VISUAL_ALIASES),

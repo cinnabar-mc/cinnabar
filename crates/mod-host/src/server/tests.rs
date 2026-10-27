@@ -12,7 +12,7 @@ pub(super) fn drawing_context(epoch: u64) -> crate::presentation::Context {
 }
 
 /// Creates the host import state with worst-case serialized identity and epoch fields.
-fn state() -> State {
+pub(super) fn state() -> State {
     let mut state = State {
         scene: Default::default(),
         scene_revision: mod_render::next_owner(),
@@ -42,6 +42,7 @@ fn state() -> State {
             channels: Vec::new(),
             actions: BTreeSet::new(),
             max_message_bytes: MAX_MESSAGE_BYTES as u32,
+            namespace: None,
         },
         action: None,
         gui: None,
@@ -50,6 +51,9 @@ fn state() -> State {
         calls: 0,
         initializing: false,
         negotiation: None,
+        world: WorldMaterials::default(),
+        world_undo: Vec::new(),
+        world_compiles: 0,
     };
     state.begin_output().unwrap();
     state
@@ -199,6 +203,7 @@ pub(super) fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
         channels: Vec::new(),
         actions: BTreeSet::from(["demo.pick".to_owned()]),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     }
 }
 
@@ -1164,3 +1169,4 @@ mod binding;
 mod guests;
 mod scene;
 mod space;
+mod world_material;

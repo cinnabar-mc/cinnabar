@@ -238,8 +238,11 @@ fn compile(pack: &Path) -> Vanilla {
             .iter()
             .map(|binding| binding.geometry_candidate)
             .collect(),
-        artwork: ActorArtworkPages::default()
-            .with_pack_artwork(catalog.textures(), catalog.bindings()),
+        artwork: ActorArtworkPages::default().with_pack_artwork(
+            catalog.textures(),
+            catalog.bindings(),
+            &Default::default(),
+        ),
         entities,
     }
 }

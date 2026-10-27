@@ -13,6 +13,7 @@ bytemuck = { version = "1", features = ["derive"] }
 mod-api = { path = "../mod-api" }
 naga.workspace = true
 serde = { version = "=1.0.228", features = ["derive", "rc"] }
+sha2.workspace = true
 
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }

@@ -57,6 +57,9 @@ fn builder<'a>(
         terrain_materials: Default::default(),
         vanilla_carried: Vec::new(),
         materials: Default::default(),
+        state_masks: Default::default(),
+        unresolved_masks: Default::default(),
+        pbr: Default::default(),
         visuals: Default::default(),
         gaps: Default::default(),
     }

@@ -15,15 +15,19 @@ struct References {
     terrain: std::collections::BTreeMap<String, String>,
     device: assets::texture::policy::TexturePolicy,
     terrain_policy: assets::texture::policy::TexturePolicy,
+    /// Fancy Graphics selects the material list block bindings resolve their bases through.
+    fancy_graphics: bool,
 }
 
-/// Names every immutable startup input alongside the ordered archives and device policy.
-/// Synthetic carriers have no content identity, so their compiles remain uncached on disk.
+/// Names every immutable startup input alongside the ordered archives, device policy and the
+/// graphics mode the compile reads. Synthetic carriers have no content identity, so their
+/// compiles remain uncached on disk.
 fn visual_key(
     subscriber: &str,
     stack: &resource_pack::ValidatedPackStack,
     inputs: &impl std::fmt::Debug,
     max_layers: u32,
+    fancy_graphics: bool,
 ) -> Option<[u8; 32]> {
     let _ = pack_runtime::compile_cache::current()?;
     let base = match base_world_assets() {
@@ -45,6 +49,7 @@ fn visual_key(
             .collect(),
         device: assets::texture::policy::device_policy(),
         terrain_policy: assets::texture::policy::terrain_texture_policy(),
+        fancy_graphics,
     };
     Some(key(
         subscriber,
@@ -81,11 +86,14 @@ fn key(
         terrain,
         device,
         terrain_policy,
+        fancy_graphics,
     } = references;
     part(
         &mut key,
-        format!("{world:?}{readers:?}{keys:?}{terrain:?}{device:?}{terrain_policy:?}{inputs:?}")
-            .as_bytes(),
+        format!(
+            "{world:?}{readers:?}{keys:?}{terrain:?}{device:?}{terrain_policy:?}{fancy_graphics:?}{inputs:?}"
+        )
+        .as_bytes(),
     );
     part(&mut key, &max_layers.to_le_bytes());
     key.finalize().into()
@@ -97,8 +105,15 @@ pub(super) fn block_key(
     blocks: &protocol::CustomBlocks,
     hashed: bool,
     max_layers: u32,
+    fancy_graphics: bool,
 ) -> Option<[u8; 32]> {
-    visual_key("blocks", stack, &(blocks, hashed), max_layers)
+    visual_key(
+        "blocks",
+        stack,
+        &(blocks, hashed),
+        max_layers,
+        fancy_graphics,
+    )
 }
 
 /// Icons additionally depend on registry mappings and the installed item routes and sprites.
@@ -106,6 +121,7 @@ pub(super) fn icon_key(
     stack: &resource_pack::ValidatedPackStack,
     inputs: &PackInputs,
     max_layers: u32,
+    fancy_graphics: bool,
 ) -> Option<[u8; 32]> {
     let installed = match super::super::item_icons::vanilla::CACHE_IDENTITY.get() {
         Some(identity) => Some((*identity)?),
@@ -127,6 +143,7 @@ pub(super) fn icon_key(
             installed,
         ),
         max_layers,
+        fancy_graphics,
     )
 }
 

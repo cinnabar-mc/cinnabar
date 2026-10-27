@@ -111,6 +111,7 @@ fn invalid_artwork_only_input_does_not_publish_an_empty_layer() {
         b"invalid raster",
     )]));
     let compiled =
-        super::super::compile_encoded(&view, None, None, Some(&base), false, &|| false).unwrap();
+        super::super::compile_encoded(&view, None, None, Some(&base), true, false, &|| false)
+            .unwrap();
     assert!(compiled.0.is_none());
 }
