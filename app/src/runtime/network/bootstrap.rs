@@ -143,7 +143,8 @@ pub(super) fn apply(
         &client_world.runtime_assets,
         collisions,
         &custom_blocks,
-    ) {
+    ) || !registries.matches_actor_assets(client_world.entity_assets.as_ref())
+    {
         client_runtime::session::release_off_frame(registries);
         record_fatal_error(
             &mut fatal_error.0,

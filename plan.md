@@ -1714,6 +1714,9 @@ Hardware join and frame acceptance still needs the full capture matrix below.
 Camera fire binding and diagnostic block names share the borrowed pinned identity
 index instead of decoding block facts during frame publication. Empty diagnostic
 snapshots do not prepare identities.
+Joins prepare base entity expression analysis on their session worker. Authoritative
+and spawner actor stores share that analysis while keeping separate actor state.
+Cold UI, pack reload and hardware join qualification remain incomplete.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release

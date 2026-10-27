@@ -20,7 +20,7 @@ pub struct DisplayActorStore {
 
 impl DisplayActorStore {
     /// Creates the normal actor evaluator with bounded display-only storage.
-    pub fn new(dimension: i32, assets: Arc<assets::RuntimeEntityAssets>) -> Self {
+    pub fn new(dimension: i32, assets: impl Into<actor_animation::ActorAnimationCatalog>) -> Self {
         let session = crate::authority::allocate_actor_session_id();
         let mut store = ActorStore::with_capacity(session, dimension, MAX_DISPLAY_ACTORS, 0);
         store.animation = actor_animation::ActorAnimationStore::with_assets(assets);

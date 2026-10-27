@@ -547,6 +547,9 @@ Ingress uses bounded lookahead and the existing conflict tracker to admit light 
 past stalled terrain. Dependent mutations, dimension changes and transfer barriers stay
 ordered. Latency echoes flush when their movement/control fence clears. Deterministic
 regressions cover these paths; paired hardware join and transfer timings remain open.
+Join workers prepare base entity expression analysis before session publication;
+authoritative and spawner stores share it with independent actor state. Cold UI,
+pack reload and reference-hardware acceptance remain open.
 
 Cloud preparation skips hidden geometry, prefetches finite windows on workers and
 retains GPU storage. Regression coverage checks admission frames, exact records,

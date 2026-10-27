@@ -16,9 +16,7 @@ use ::meshing::{
     FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord,
     chunk_publication_byte_len, mesh_dependency_mask, sample_camera_medium,
 };
-use assets::{
-    LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
-};
+use assets::{LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets};
 #[cfg(test)]
 use client_world::ingestion::vanilla_dimension_range;
 use client_world::ingestion::{

@@ -119,14 +119,15 @@ impl Pool {
     /// Starts fresh display lifetimes, reusing catalog analysis only for the same asset source.
     fn replacement(
         previous: Option<Self>,
-        source: Arc<assets::RuntimeEntityAssets>,
+        catalog: actor_animation::ActorAnimationCatalog,
         session: (u64, i32),
     ) -> Self {
+        let source = Arc::clone(catalog.assets());
         let actors = match previous {
             Some(previous) if Arc::ptr_eq(&previous.source, &source) => {
                 previous.actors.restart(session.1)
             }
-            _ => DisplayActorStore::new(session.1, Arc::clone(&source)),
+            _ => DisplayActorStore::new(session.1, catalog),
         };
         Self {
             actors,
@@ -322,7 +323,10 @@ pub(crate) fn prepare_spawner_actors(
     {
         publisher.0 = Some(Pool::replacement(
             publisher.0.take(),
-            Arc::clone(assets),
+            stream
+                .authority()
+                .actor_animation_catalog()
+                .unwrap_or_else(|| actor_animation::ActorAnimationCatalog::new(Arc::clone(assets))),
             session,
         ));
     }
