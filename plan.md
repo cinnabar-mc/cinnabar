@@ -1714,6 +1714,9 @@ Hardware join and frame acceptance still needs the full capture matrix below.
 Camera fire binding and diagnostic block names share the borrowed pinned identity
 index instead of decoding block facts during frame publication. Empty diagnostic
 snapshots do not prepare identities.
+Resource-pack application snapshots share immutable dependency records. Reload
+workers copy them when compiling changes, and old publication snapshots retire
+off the frame. Hardware reload and complete join qualification remain open.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
