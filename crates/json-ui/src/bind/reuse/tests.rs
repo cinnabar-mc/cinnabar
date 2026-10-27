@@ -355,56 +355,58 @@ fn deep_authored_controls_keep_their_bindings_when_inputs_change() {
 
 #[test]
 fn published_bag_writes_rebind_only_the_owner_and_notify_its_views() {
-    let mut children = vec![
-        control(
-            "source",
-            "panel",
-            json!({"property_bag":{"#counter":"first"}}),
-            vec![],
-        ),
-        control(
-            "reader",
-            "label",
-            json!({"text":"#text", "bindings":[{
-                "binding_type":"view", "source_control_name":"source",
-                "source_property_name":"#counter", "target_property_name":"#text"
-            }]}),
-            vec![],
-        ),
-    ];
-    children.extend((0..512).map(|index| {
+    for condition in ["once", "always", "visible", "visibility_changed"] {
+        let mut children = vec![
+            control(
+                "source",
+                "panel",
+                json!({"property_bag":{"#counter":"first"}}),
+                vec![],
+            ),
+            control(
+                "reader",
+                "label",
+                json!({"text":"#text", "bindings":[{
+                    "binding_type":"view", "source_control_name":"source",
+                    "source_property_name":"#counter", "target_property_name":"#text"
+                }]}),
+                vec![],
+            ),
+        ];
+        children.extend((0..512).map(|index| {
         control(
             &format!("fixed{index}"),
             "label",
             json!({"text":"#text", "property_bag":{"#caption":"kept"}, "bindings":[
-                {"binding_name":"#unread", "binding_condition":"once"},
+                {"binding_name":"#unread", "binding_condition":condition},
                 {"binding_type":"view", "source_property_name":"#caption", "target_property_name":"#text"}
             ]}),
             vec![],
         )
     }));
-    let root = Arc::new(control("root", "panel", json!({}), children));
-    let data = Arc::new(DataSource::new());
-    let mut state = BindState::new();
-    let mut bound = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state);
-    let mut measures = crate::MeasureCache::default();
-    state.publish("/root/source", "#counter", Scalar::Text("second".into()));
-    crate::rebind(
-        &root,
-        &data,
-        &EmptyLibrary,
-        &mut state,
-        &mut bound,
-        &mut measures,
-    );
-    let captions = captions(&bound);
-    assert_eq!(captions[0], "second");
-    assert!(captions[1..].iter().all(|caption| *caption == "kept"));
-    assert!(
-        state.rebuilt() < 8,
-        "bag feedback rebuilt {} controls",
-        state.rebuilt()
-    );
+        let root = Arc::new(control("root", "panel", json!({}), children));
+        let data = Arc::new(DataSource::new());
+        let mut state = BindState::new();
+        let mut bound = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state);
+        let mut measures = crate::MeasureCache::default();
+        state.publish("/root/source", "#counter", Scalar::Text("second".into()));
+        crate::rebind(
+            &root,
+            &data,
+            &EmptyLibrary,
+            &mut state,
+            &mut bound,
+            &mut measures,
+        );
+        let captions = captions(&bound);
+        assert_eq!(captions[0], "second");
+        assert!(captions[1..].iter().all(|caption| *caption == "kept"));
+        assert!(
+            state.rebuilt() < 8,
+            "{condition} bag feedback rebuilt {} controls",
+            state.rebuilt()
+        );
+    }
 }
 
 #[test]

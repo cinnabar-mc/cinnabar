@@ -528,17 +528,17 @@ fn finish_preparation(node: &mut Node) {
 
 /// Settle the bind's bookkeeping bottom-up: counts, reads, fixed points and
 /// what changed. Returns whether the subtree changed.
-pub(super) fn finish(node: &mut Node, data: &DataSource) -> bool {
+pub(super) fn finish(node: &mut Node, binder: &Binder<'_>) -> bool {
     let mut dirty = node.track.fresh || node.track.touched;
     for child in &mut node.children {
-        dirty |= finish(child, data);
+        dirty |= finish(child, binder);
     }
     node.track.dirty = dirty;
     if !dirty {
         return false;
     }
     if node.track.fresh {
-        node.track.settled = settled(node, data);
+        node.track.settled = settled(node, binder);
     } else if node.track.touched {
         node.track.settled = false;
     }
@@ -573,23 +573,12 @@ pub(super) fn finish(node: &mut Node, data: &DataSource) -> bool {
 }
 
 /// Whether an ordinary refresh can leave this control's retained state unchanged.
-fn settled(node: &Node, data: &DataSource) -> bool {
+fn settled(node: &Node, binder: &Binder<'_>) -> bool {
     if !node.retained {
         return true;
     }
     let Some(prior) = node.track.prior.as_deref().filter(|prior| prior.retained) else {
-        // Views settle separately, and consumed once bindings have no next-refresh work.
-        // Creation feeds, direct controller writes, factories and radio groups can still
-        // overwrite the first result on refresh, so they need the ordinary comparison.
-        return node.scope.values.is_empty()
-            && !data.controls.contains_key(node.src.name())
-            && node.src.get().factory.is_none()
-            && node.src.prop("radio_toggle_group") != Some(&Value::Bool(true))
-            && node.bindings.iter().enumerate().all(|(index, binding)| {
-                matches!(binding.kind, Kind::View { .. })
-                    || (binding.condition == super::spec::Condition::Once
-                        && node.memory.once.contains(&index))
-            });
+        return binder.initially_settled(node);
     };
     node.own == prior.own
         && node.native == prior.native
@@ -597,6 +586,46 @@ fn settled(node: &Node, data: &DataSource) -> bool {
         && node.memory.seen == prior.memory.seen
         && node.memory.views == prior.memory.views
         && node.deferred.is_some() == prior.deferred
+}
+
+impl Binder<'_> {
+    /// Proves that a new control's next regular bindings leave its retained state unchanged.
+    fn initially_settled(&self, node: &Node) -> bool {
+        let src = node.track.origin.as_ref().unwrap_or(&node.src);
+        // These owners can overwrite creation output before regular bindings run.
+        if !node.scope.values.is_empty()
+            || self.data.controls.contains_key(src.name())
+            || src.get().factory.is_some()
+            || src.prop("radio_toggle_group") == Some(&Value::Bool(true))
+            || node.native.collection_length.is_some()
+        {
+            return false;
+        }
+        // Views settle separately; consumed once bindings perform no regular work.
+        if node.bindings.iter().enumerate().all(|(index, binding)| {
+            matches!(binding.kind, Kind::View { .. })
+                || (binding.condition == super::spec::Condition::Once
+                    && node.memory.once.contains(&index))
+        }) {
+            return true;
+        }
+        let mut scope = node.scope.clone();
+        self.attach_item(src, &mut scope);
+        let (mut own, mut native, mut memory) =
+            (node.own.clone(), node.native.clone(), node.memory.clone());
+        self.run_bindings(
+            src.get(),
+            &super::declarations::get(src),
+            &scope,
+            &mut own,
+            &mut native,
+            &mut memory,
+        );
+        own == node.own
+            && native == node.native
+            && memory.once == node.memory.once
+            && memory.seen == node.memory.seen
+    }
 }
 
 /// How a refreshed tree differs from the one the last bind produced.
