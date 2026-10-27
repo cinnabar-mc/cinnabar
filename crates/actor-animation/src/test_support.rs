@@ -198,6 +198,8 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
             layers: vec![EntityRenderLayer {
                 material: Default::default(),
                 material_state: None,
+                material_definition: None,
+                material_masks: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
@@ -333,6 +335,7 @@ pub fn initialized_pose_compiled() -> assets::CompiledEntityAssets {
     compiled.render.visibility = vec![EntityRenderVisibility {
         pattern: "rightitem".into(),
         condition: visibility,
+        hide_only: false,
     }]
     .into_boxed_slice();
     compiled.render.layers[0].visibility_count = 1;

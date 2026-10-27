@@ -191,7 +191,6 @@ pub(crate) struct ActorGpu {
     artwork: GpuArtwork,
     player_material: Buffer,
     neutral_material: Buffer,
-    color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     mask_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
@@ -281,13 +280,6 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
             render_queue,
             "neutral binary-alpha material class",
             bytemuck::cast_slice(&[1u32, 0, 0, 0]),
-            BufferUsages::UNIFORM,
-        )?,
-        color_mask_material: gpu_allocation::buffer_with_data(
-            render_device,
-            render_queue,
-            "native actor color-mask material",
-            bytemuck::cast_slice(&[0u32, 1, 0, 0]),
             BufferUsages::UNIFORM,
         )?,
         multitexture_material: gpu_allocation::buffer_with_data(
@@ -452,7 +444,7 @@ fn prepare_actor_resources(
         }
         let prepared = structurally_valid
             .then(|| {
-                let instances = dissolve::instances(&rig.instances, &rig.manifest);
+                let instances = dissolve::instances(&rig.instances, &rig.manifest, &rig.rasters);
                 gpu.bones.prepare(rig, instances)
             })
             .flatten();
@@ -514,6 +506,7 @@ fn prepare_actor_resources(
                 &frame.instance_pages,
                 &prepared.instances,
                 &rig.geometry_spans,
+                &rig.rasters,
                 prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
             gpu.mask_spans.clear();
@@ -536,8 +529,10 @@ fn prepare_actor_resources(
             }
             {
                 gpu.pack_depth_dependency = prepared.instances.iter().any(|instance| {
-                    crate::actor::material::state(instance.material)
-                        .is_some_and(|state| state.depth_equal && !state.depth_always)
+                    crate::actor::material::instance_raster(&frame.rig.rasters, instance)
+                        .depth
+                        .compare
+                        == Some(render_api::render_state::CompareFunction::Equal)
                 });
             }
             gpu.manifest = prepared.manifest;
@@ -706,8 +701,6 @@ pub(crate) fn prepare_actor_bind_group(
                                 binding: 8,
                                 resource: if page.multitexture {
                                     gpu.multitexture_material.as_entire_binding()
-                                } else if page.color_mask {
-                                    gpu.color_mask_material.as_entire_binding()
                                 } else {
                                     gpu.neutral_material.as_entire_binding()
                                 },
