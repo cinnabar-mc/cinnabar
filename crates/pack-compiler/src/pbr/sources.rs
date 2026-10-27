@@ -4,6 +4,7 @@ use std::{
 };
 
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
+use pack_compile_input::texture_set::{TextureSetDefinition, TextureSetLayer, parse_texture_set};
 use serde_json::Value;
 
 use super::{PbrFormat, PbrPack, PbrSurface, PbrTexture, PbrTextureSource, decode};
@@ -113,73 +114,18 @@ fn solid(pixel: [u8; 4]) -> RgbaImage {
     ImageBuffer::from_pixel(1, 1, Rgba(pixel))
 }
 
-/// Requires a finite integral texture-set constant in the byte range.
-fn byte(value: &Value) -> Result<u8, String> {
-    value
-        .as_f64()
-        .filter(|value| {
-            value.is_finite() && *value >= 0.0 && *value <= 255.0 && value.fract() == 0.0
-        })
-        .map(|value| value as u8)
-        .ok_or_else(|| "texture set constants must be integers between 0 and 255".to_owned())
-}
-
-/// Parses supported numeric and hexadecimal texture-set constants.
-fn uniform(value: &Value, channels: usize) -> Result<Option<[u8; 4]>, String> {
-    let mut result = [0, 0, 0, 255];
-    if let Some(values) = value.as_array() {
-        if values.len() != channels {
-            return Err(format!("texture set constant needs {channels} channels"));
-        }
-        for (output, value) in result.iter_mut().zip(values) {
-            *output = byte(value)?;
-        }
-        return Ok(Some(result));
-    }
-    if channels == 1 && value.is_number() {
-        result[0] = byte(value)?;
-        return Ok(Some(result));
-    }
-    if let Some(hex) = value.as_str().and_then(|value| value.strip_prefix('#')) {
-        let encoded_channels = if channels == 4 && hex.len() == 6 {
-            3
-        } else {
-            channels
-        };
-        if hex.len() != encoded_channels * 2 {
-            return Err(format!(
-                "texture set hex constant needs {} digits",
-                channels * 2
-            ));
-        }
-        let packed =
-            u32::from_str_radix(hex, 16).map_err(|_| "invalid texture set hex constant")?;
-        for (index, output) in result.iter_mut().take(encoded_channels).enumerate() {
-            *output = ((packed >> (8 * (encoded_channels - index - 1))) & 255) as u8;
-        }
-        if encoded_channels == 4 {
-            result.rotate_left(1);
-        }
-        return Ok(Some(result));
-    }
-    Ok(None)
-}
-
-/// Resolves a constant or image reference within its defining pack.
+/// Resolves a uniform or image layer within its defining pack.
 fn layer(
     pack: &PbrPack,
     json: &Path,
-    value: &Value,
-    channels: usize,
+    value: &TextureSetLayer,
     allowed: &[u8],
     source: &mut Option<PathBuf>,
 ) -> Result<RgbaImage, String> {
-    if let Some(pixel) = uniform(value, channels)? {
-        return Ok(solid(pixel));
-    }
-    let reference = value
-        .as_str()
-        .ok_or_else(|| "texture set layer must be an image reference or constant".to_owned())?;
+    let reference = match value {
+        TextureSetLayer::Uniform(pixel) => return Ok(solid(*pixel)),
+        TextureSetLayer::Image(reference) => reference.as_ref(),
+    };
     let relative = safe_relative(reference)
         .ok_or_else(|| "texture set image reference escapes its pack".to_owned())?;
     let stem = relative.with_extension("");
@@ -212,21 +158,29 @@ fn read_json(path: &Path) -> Result<Value, String> {
     pack_json::parse_jsonc(&bytes).map_err(|error| error.to_string())
 }
 
-/// Decodes a texture set while rejecting conflicting channel definitions.
+/// Decodes a texture set validated by the shared Bedrock schema.
 fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
-    let json = read_json(path)?;
-    let set = json
-        .get("minecraft:texture_set")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "missing minecraft:texture_set object".to_owned())?;
-    if set.contains_key("normal") && set.contains_key("heightmap") {
-        return Err("texture set defines both normal and heightmap".to_owned());
-    }
-    if set.contains_key("metalness_emissive_roughness")
-        && set.contains_key("metalness_emissive_roughness_subsurface")
-    {
-        return Err("texture set defines both MER and MERS".to_owned());
-    }
+    let set = parse_texture_set(&read_json(path)?)
+        .map_err(|error| format!("texture set is invalid: {error:?}"))?;
+    texture_from_set(
+        &set,
+        pack.color_style,
+        pack.normal_format,
+        &mut |value, channels, source| layer(pack, path, value, channels, source),
+    )
+}
+
+/// One texture-set layer as an image with an allowed channel count, and the file it came from.
+pub type LayerLoader<'a> =
+    dyn FnMut(&TextureSetLayer, &[u8], &mut Option<PathBuf>) -> Result<RgbaImage, String> + 'a;
+
+/// Builds an authored texture from a validated set, reading each layer through `load`.
+pub(super) fn texture_from_set(
+    set: &TextureSetDefinition,
+    color_style: super::PbrColorStyle,
+    normal_format: super::PbrNormalFormat,
+    load: &mut LayerLoader<'_>,
+) -> Result<PbrTexture, String> {
     let mut source = PbrTextureSource {
         color: None,
         normal: None,
@@ -235,57 +189,42 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         native_color_size: [0; 2],
         native_normal_size: [0; 2],
         native_material_size: [0; 2],
-        color_style: pack.color_style,
+        color_style,
     };
-    let color = layer(
-        pack,
-        path,
-        set.get("color")
-            .ok_or_else(|| "texture set has no color".to_owned())?,
-        4,
-        &[3, 4],
-        &mut source.color,
-    )?;
+    let color = load(&set.color, &[3, 4], &mut source.color)?;
     source.native_color_size = [color.width(), color.height()];
     let mut flags = PBR_REF_COLOR;
-    let normal = if let Some(value) = set.get("normal") {
-        if value
-            .as_str()
-            .is_none_or(|reference| reference.starts_with('#'))
-        {
-            return Err("texture set normal must reference an RGB image".to_owned());
-        }
+    let normal = if let Some(reference) = &set.normal {
         flags |= PBR_REF_NORMAL;
         let (normal, normal_flags) = decode::normal(
-            layer(pack, path, value, 3, &[3, 4], &mut source.normal)?,
+            load(
+                &TextureSetLayer::Image(reference.clone()),
+                &[3, 4],
+                &mut source.normal,
+            )?,
             PbrFormat::Legacy,
-            pack.normal_format,
+            normal_format,
         );
         flags |= normal_flags;
         normal
     } else {
         solid([128, 128, 255, 128])
     };
-    let material = if let Some(value) = set.get("metalness_emissive_roughness_subsurface") {
-        let (material, material_flags) = decode::mer(
-            layer(pack, path, value, 4, &[4], &mut source.material)?,
-            true,
-        );
-        flags |= material_flags;
-        material
-    } else if let Some(value) = set.get("metalness_emissive_roughness") {
-        let (material, material_flags) = decode::mer(
-            layer(pack, path, value, 3, &[3, 4], &mut source.material)?,
-            false,
-        );
-        flags |= material_flags;
-        material
-    } else {
-        solid([0, 0, 255, 0])
+    let material = match &set.material {
+        Some(value) => {
+            let subsurface = set.material_has_subsurface;
+            let allowed: &[u8] = if subsurface { &[4] } else { &[3, 4] };
+            let (material, material_flags) =
+                decode::mer(load(value, allowed, &mut source.material)?, subsurface);
+            flags |= material_flags;
+            material
+        }
+        None => solid([0, 0, 255, 0]),
     };
     let height = set
-        .get("heightmap")
-        .map(|value| layer(pack, path, value, 1, &[1], &mut source.height))
+        .heightmap
+        .as_ref()
+        .map(|value| load(value, &[1], &mut source.height))
         .transpose()?;
     source.native_normal_size = [normal.width(), normal.height()];
     source.native_material_size = [material.width(), material.height()];
@@ -301,6 +240,30 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         source,
         terrain_override: false,
     })
+}
+
+/// Decodes size-bounded image bytes with one of the required channel counts.
+pub(super) fn image_bytes(bytes: &[u8], channels: &[u8]) -> Result<RgbaImage, String> {
+    if bytes.len() as u64 > IMAGE_BYTES_LIMIT {
+        return Err("image exceeds authored texture byte limit".to_owned());
+    }
+    let image = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?
+        .decode()
+        .map_err(|error| error.to_string())?;
+    if !channels.contains(&image.color().channel_count()) {
+        return Err(format!(
+            "image has unsupported {}-channel data",
+            image.color().channel_count()
+        ));
+    }
+    Ok(DynamicImage::into_rgba8(image))
+}
+
+/// A uniform layer as a single texel.
+pub(super) fn uniform(pixel: [u8; 4]) -> RgbaImage {
+    solid(pixel)
 }
 
 /// Reads supported frame indices from bounded animation metadata.

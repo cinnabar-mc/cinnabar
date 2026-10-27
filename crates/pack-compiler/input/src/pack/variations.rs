@@ -45,14 +45,12 @@ pub(super) fn extract(value: &mut Value) -> Result<Vec<WeightedPath>, AssetError
             .ok_or_else(|| invalid("variation path is missing"))?;
         validate_texture_path(path)?;
         // Vanilla clamps weights before normalizing them.
-        let weight = if alternative.is_string() {
-            1.0
-        } else {
-            alternative
-                .get("weight")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0) as f32
-        };
+        let weight = alternative
+            .get("weight")
+            .and_then(Value::as_f64)
+            .map_or(assets::material_keys::DEFAULT_TERRAIN_WEIGHT, |weight| {
+                weight as f32
+            });
         paths.push(WeightedPath {
             path: path.into(),
             weight,
@@ -110,13 +108,15 @@ mod tests {
     }
 
     #[test]
-    fn string_and_object_paths_use_their_distinct_native_default_weights() {
+    fn string_and_object_paths_without_a_weight_both_default_to_one() {
+        // Bedrock reads "weight" with a default of 1, then clamps
+        // to 0.05..=1e6 before normalizing.
         let mut value = serde_json::json!({"variations": [
             "textures/a", {"path": "textures/b"}, {"path": "textures/c", "weight": 0}
         ]});
         let paths = extract(&mut value).unwrap();
-        assert!((paths[0].weight - 10.0 / 11.0).abs() < 0.000001);
-        assert!((paths[1].weight - 1.0 / 22.0).abs() < 0.000001);
-        assert_eq!(paths[2].weight, paths[1].weight);
+        assert!((paths[0].weight - 1.0 / 2.05).abs() < 0.000001);
+        assert_eq!(paths[1].weight, paths[0].weight);
+        assert!((paths[2].weight - 0.05 / 2.05).abs() < 0.000001);
     }
 }

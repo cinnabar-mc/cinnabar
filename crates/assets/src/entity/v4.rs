@@ -41,12 +41,14 @@ pub(super) use preflight::payload_counts;
 #[path = "v4/encode.rs"]
 mod encode;
 pub(super) use encode::{encode_compiled, encode_runtime};
+#[path = "v4/material.rs"]
+pub mod material;
 #[path = "v4/render.rs"]
 mod render;
 use render::validate_render_payload;
 pub use render::{
-    ENTITY_ALPHA_TEST_THRESHOLD, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    ENTITY_ALPHA_TEST_THRESHOLD, EntityMaterialMasks, EntityRenderCandidate, EntityRenderData,
+    EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility,
     MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES,
     MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY, entity_render_pattern_matches,

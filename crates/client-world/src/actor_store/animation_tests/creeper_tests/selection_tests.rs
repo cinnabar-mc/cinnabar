@@ -177,6 +177,7 @@ fn swell_assignments_drive_geometry_texture_and_visibility_selection() {
             compiled.render.visibility = vec![assets::EntityRenderVisibility {
                 pattern: "*".into(),
                 condition: 2,
+                hide_only: false,
             }]
             .into_boxed_slice();
             compiled.render.layers[0].visibility_count = 1;

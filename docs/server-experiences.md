@@ -52,6 +52,12 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `world_draw` | Shared retained drawing, immediate primitives and local visual time/weather overrides |
 | `entity_observe`, `entity_highlight` | Current native actor references and masks |
 | `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
+| `render_world_material` | Guest `shade` materials bound to the bundle's own entities and blocks (`world-material`, server-experience 1.6.0); developer client only |
+
+A bundle asking for `render_world_material` signs a manifest `namespace` (API 2): the
+identifier namespace whose entities and blocks its world materials may bind. It holds
+lowercase ASCII letters, digits, `_`, `-` and `.`, at most 64 bytes, and is never
+`minecraft`. API 1 bundles are refused.
 
 Client parts share the personal-mod drawing, render, environment and signed-asset
 imports. Terrain, packet interception and local settings remain personal-mod APIs.
@@ -118,6 +124,47 @@ files across callbacks. A file listed as a template, texture and asset is packag
 once. Source-driven projects retain their generated `shared::assets` declarations.
 The [space client](../examples/experiences/space-client) shows a camera-anchored
 planet with signed textures and a bounded procedural material.
+
+## World materials
+
+`render_world_material` lets a client part restyle its own entities and blocks with guest WGSL.
+It is developer-only: production clients do not implement it, so it stays fail-closed until the
+restricted-helper launch gate. The offer's consent text names it, says it changes how the world
+and entities look, and states the GPU limit (wording provisional).
+
+`world-material.set-material(id, spec)` declares a material: WGSL defining
+`fn shade(input: WorldMaterialInput) -> Surface`, at most four signed PNGs under `textures/`
+(read with `texture(index, uv)`), at most sixteen finite numbers (read with
+`param(input, index)`), a depth (`test`, or `always`, which also needs `render_through_walls`)
+and a blend class (`opaque`, `cutout`, `premultiplied`, `additive`). `shade` receives the UV, world
+position, Bedrock material colour (texture times tint), the light the host applies, the fog colour
+and amount, the actor overlay (zero for blocks) and the animation phase; it returns colour,
+coverage and emission. The host validates it with the drawing-material sandbox (no resources,
+module state, overrides, entry points, loops, recursion or storage writes; bounded expressions and
+texture reads per pixel), in the helper within four compiles per callback and again in the
+client. `bind(id, target, material)` binds `entity(identifier)` or `block(identifier)`, which
+must lie in the manifest's signed `namespace`; one target takes one binding, and a bound material
+cannot be removed. A bundle holds at most eight materials and 64 bindings (provisional).
+
+The host owns depth, blend factors, pass and visibility: a class selects the host's raster, and
+the host applies Bedrock lighting and fog to the returned surface, adding emission after
+lighting. A bound entity's body and render-controller layers draw with the material; equipment,
+capes, hats and players never do. A bound block's cube faces and model quads are tagged in
+meshing and drawn in a world material pass: opaque and cutout classes in the opaque phase,
+premultiplied and additive classes as one sorted translucent item per section and material,
+whose faces draw back to front with the face metric ordinary translucent terrain uses. Until the material's pipelines are ready the block draws with its Bedrock
+material.
+Each material charges its shader source, parameters and decoded textures to the bundle's share of
+the signed memory limit, and its textures and pipelines to its share of the GPU limit; replaced
+materials stay charged because compiled pipelines cannot be destroyed. A material that fails
+validation or native compilation is skipped, reported once in the log and the execution
+indicator, and its targets keep their Bedrock materials. Stopping a client part, F9 or a
+disconnect removes every material and binding in one publication without a reconnect.
+
+Not yet: a section's bound translucent faces draw as their own item and do not interleave with
+its ordinary translucent faces, and Enhanced and shader-pack terrain draw bound blocks as
+Bedrock. Overriding identifiers outside the signed
+namespace, vanilla included, needs a separate permission.
 
 ## Modal screens
 

@@ -72,6 +72,7 @@ fn capabilities(grant: &negotiation::Grant) -> runtime::Capabilities {
         channels: vec![items_channel(grant)],
         actions: BTreeSet::new(),
         max_message_bytes: grant.wire.limits.max_message_bytes,
+        namespace: None,
     }
 }
 

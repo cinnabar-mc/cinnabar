@@ -308,6 +308,7 @@ fn fixtures_pass_the_client_verifiers() {
         channels: manifest.channels.clone(),
         actions: manifest.actions.clone(),
         max_message_bytes: grant.wire.limits.max_message_bytes,
+        namespace: None,
     };
     let to_client: Envelope = canonical("envelope_to_client.json");
     let mut ingress = Ingress::new(0);
@@ -482,6 +483,7 @@ fn go_server_half_passes_the_client_verifiers() {
         channels: bundle.manifest.channels.clone(),
         actions: bundle.manifest.actions.clone(),
         max_message_bytes: wire.limits.max_message_bytes,
+        namespace: None,
     };
     let grant = Grant {
         offer: verified,
