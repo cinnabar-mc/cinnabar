@@ -12,17 +12,28 @@ pub(crate) fn instance_supported(instance: &ActorGpuInstance) -> bool {
     instance.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
         && kind != EntityRenderMaterial::DissolveDepth as u32
         && kind != EntityRenderMaterial::DissolveColor as u32
-        && !crate::actor::material::state(instance.material).is_some_and(|state| {
-            state.emissive
-                || state.depth_always
-                || state.depth_equal
-                || state.disable_alpha_write
-                || state.disable_color_write
-                || state.additive_alpha
-                || !state.depth_write
-        })
+        && !crate::actor::material::state(instance.material).is_some_and(|state| state.emissive)
 }
 
+/// Pack actor draws reproduce back-face or no culling, opaque, alpha or one-one additive
+/// blending, and the default depth test with depth and every channel written. Other authored
+/// raster states stay on the native path.
+pub(crate) fn raster_supported(raster: &render_api::render_state::RenderState) -> bool {
+    use render_api::render_state::{BlendFactor, BlendState, CompareFunction, CullMode};
+    let raster = crate::actor::material::lowered(*raster);
+    raster.cull != CullMode::Front
+        && raster.depth.compare == Some(CompareFunction::LessEqual)
+        && raster.depth.write
+        && [
+            None,
+            Some(BlendState::ALPHA),
+            Some(crate::actor::material::additive(BlendFactor::One)),
+        ]
+        .contains(&raster.blend)
+        && raster.write_color
+        && raster.write_alpha
+        && !raster.alpha_to_coverage
+}
 /// Checks the current frame before native queues can be suppressed.
 pub(crate) fn frame_supported(
     actors: Option<&ActorRenderFrame>,
@@ -36,6 +47,12 @@ pub(crate) fn frame_supported(
             .iter()
             .enumerate()
             .all(|(index, instance)| {
+                if !raster_supported(&crate::actor::material::instance_raster(
+                    &frame.rig.rasters,
+                    instance,
+                )) {
+                    return false;
+                }
                 let page = frame.instance_pages.get(index).copied().unwrap_or(0);
                 (page == 0 || frame.artwork.pages.get(usize::from(page) - 1).is_some())
                     && instance_supported(instance)
@@ -70,17 +87,22 @@ mod tests {
     #[test]
     fn materials_without_depth_writes_keep_the_native_frame() {
         for depth_write in [false, true] {
-            let instance = ActorGpuInstance {
-                material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
-                    blend: true,
-                    depth_write,
-                    ..Default::default()
-                })),
+            let state = crate::actor::test_material::TestMaterial {
+                blend: true,
+                depth_write,
                 ..Default::default()
             };
-            assert_eq!(instance_supported(&instance), depth_write);
+            let instance = ActorGpuInstance {
+                material: state.word(EntityRenderMaterial::Default),
+                ..Default::default()
+            };
+            assert_eq!(
+                instance_supported(&instance) && raster_supported(&state.raster()),
+                depth_write
+            );
             let mut frame = ActorRenderFrame::default();
             frame.rig.instances = std::sync::Arc::from([instance]);
+            frame.rig.rasters = std::sync::Arc::from([state.raster()]);
             assert_eq!(frame_supported(Some(&frame), None, None), depth_write);
         }
     }
@@ -105,10 +127,11 @@ mod tests {
     #[test]
     fn emissive_alpha_materials_keep_native_coverage_and_lighting() {
         let instance = ActorGpuInstance {
-            material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+            material: crate::actor::test_material::TestMaterial {
                 emissive: true,
                 ..Default::default()
-            })),
+            }
+            .word(EntityRenderMaterial::Default),
             ..Default::default()
         };
         assert!(!instance_supported(&instance));
@@ -119,27 +142,28 @@ mod tests {
 
     #[test]
     fn depth_and_channel_write_overrides_keep_native_rendering() {
+        use crate::actor::test_material::TestMaterial;
         for state in [
-            EntityRenderMaterialState {
+            TestMaterial {
                 depth_equal: true,
                 ..Default::default()
             },
-            EntityRenderMaterialState {
+            TestMaterial {
                 disable_alpha_write: true,
                 ..Default::default()
             },
-            EntityRenderMaterialState {
+            TestMaterial {
                 disable_color_write: true,
                 ..Default::default()
             },
         ] {
-            let instance = ActorGpuInstance {
-                material: EntityRenderMaterial::Default.word(Some(state)),
-                ..Default::default()
-            };
-            assert!(!instance_supported(&instance));
+            assert!(!raster_supported(&state.raster()));
             let mut frame = ActorRenderFrame::default();
-            frame.rig.instances = std::sync::Arc::from([instance]);
+            frame.rig.instances = std::sync::Arc::from([ActorGpuInstance {
+                material: state.word(EntityRenderMaterial::Default),
+                ..Default::default()
+            }]);
+            frame.rig.rasters = std::sync::Arc::from([state.raster()]);
             assert!(!frame_supported(Some(&frame), None, None));
         }
     }

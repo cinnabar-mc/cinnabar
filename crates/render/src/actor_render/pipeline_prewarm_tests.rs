@@ -1,7 +1,8 @@
 use bevy::ecs::system::RunSystemOnce;
 use std::collections::HashSet;
 
-use assets::{EntityRenderMaterial, EntityRenderMaterialState};
+use crate::actor::test_material::TestMaterial;
+use assets::EntityRenderMaterial;
 use bevy::{
     prelude::{Msaa, Mut},
     render::{camera::ExtractedCamera, render_resource::PipelineCache},
@@ -26,7 +27,13 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
     let cache = world.resource::<PipelineCache>();
     assert!(
         pipeline
-            .draw_variant(msaa, view.hdr, false, EntityRenderMaterial::Default as u32)
+            .draw_variant(
+                msaa,
+                view.hdr,
+                false,
+                EntityRenderMaterial::Default as u32,
+                assets::entity::material::UNAUTHORED_RENDER_STATE
+            )
             .is_some()
     );
     assert!(
@@ -36,6 +43,7 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
                 hdr: view.hdr,
                 enhanced: false,
                 material: EntityRenderMaterial::Default as u32,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             })
             .is_some()
     );
@@ -61,11 +69,24 @@ fn generated_material_catalog_is_prewarmed_before_entities_arrive() {
         pipeline
             .prewarm(world.resource::<PipelineCache>(), msaa, hdr, false)
             .unwrap();
-        for (name, mut state) in assets::facts::pack::rules().material_states() {
-            state.alpha_test &= !state.blend;
-            let material = assets::facts::pack::rules().raster(name).word(Some(state));
+        for (name, native) in assets::facts::pack::rules().material_states() {
+            let raster = native.definition().render_state();
+            let material = render_model::ActorMaterial {
+                kind: assets::facts::pack::rules().raster(name),
+                state: Some(assets::EntityRenderMaterialState {
+                    alpha_test: native.alpha_test && !native.blend,
+                    emissive: native.emissive,
+                    only_emissive: native.only_emissive,
+                    disable_overlay: native.disable_overlay,
+                }),
+                render_state: Some(raster),
+                ..Default::default()
+            }
+            .gpu_word();
             assert!(
-                pipeline.draw_variant(msaa, hdr, false, material).is_some(),
+                pipeline
+                    .draw_variant(msaa, hdr, false, material, raster)
+                    .is_some(),
                 "{name}"
             );
         }
@@ -82,25 +103,26 @@ fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
         for msaa in [Msaa::Off, Msaa::Sample4] {
             pipeline.prewarm(cache, msaa, false, false).unwrap();
             for bits in 0..256 {
-                let material =
-                    EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
-                        alpha_test: bits & 1 != 0,
-                        cull: bits & 2 != 0,
-                        blend: bits & 4 != 0,
-                        depth_write: bits & 8 != 0,
-                        depth_equal: bits & 16 != 0,
-                        depth_always: bits & 32 != 0,
-                        disable_alpha_write: bits & 64 != 0,
-                        disable_color_write: bits & 128 != 0,
-                        ..Default::default()
-                    }));
+                let state = TestMaterial {
+                    alpha_test: bits & 1 != 0,
+                    cull: bits & 2 != 0,
+                    blend: bits & 4 != 0,
+                    depth_write: bits & 8 != 0,
+                    depth_equal: bits & 16 != 0,
+                    depth_always: bits & 32 != 0,
+                    disable_alpha_write: bits & 64 != 0,
+                    disable_color_write: bits & 128 != 0,
+                    ..Default::default()
+                };
+                let material = state.word(EntityRenderMaterial::Default);
+                let raster = state.raster();
                 assert!(
                     pipeline
-                        .draw_variant(msaa, false, false, material)
+                        .draw_variant(msaa, false, false, material, raster)
                         .is_some(),
                     "{bits}"
                 );
-                if motion::eligible(material) {
+                if motion::eligible(material, &raster) {
                     assert!(
                         pipeline
                             .motion_variant(ActorPipelineKey {
@@ -108,6 +130,7 @@ fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
                                 hdr: false,
                                 enhanced: false,
                                 material,
+                                raster,
                             })
                             .is_some(),
                         "motion {bits}"
@@ -129,16 +152,17 @@ fn late_dissolve_color_keeps_the_paired_depth_contract_with_overrides() {
             .unwrap();
         for cull in [false, true] {
             for depth_write in [false, true] {
-                let material =
-                    EntityRenderMaterial::DissolveColor.word(Some(EntityRenderMaterialState {
-                        depth_equal: true,
-                        cull,
-                        depth_write,
-                        ..Default::default()
-                    })) | crate::actor::material::LATE_DISSOLVE_COLOR;
+                let state = TestMaterial {
+                    depth_equal: true,
+                    cull,
+                    depth_write,
+                    ..Default::default()
+                };
+                let material = state.word(EntityRenderMaterial::DissolveColor)
+                    | crate::actor::material::LATE_DISSOLVE_COLOR;
                 assert!(
                     pipeline
-                        .draw_variant(Msaa::Off, false, false, material)
+                        .draw_variant(Msaa::Off, false, false, material, state.raster())
                         .is_some()
                 );
             }
@@ -162,7 +186,7 @@ fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
                     EntityRenderMaterial::DissolveColor,
                 ] {
                     for bits in 0..32 {
-                        let state = EntityRenderMaterialState {
+                        let state = TestMaterial {
                             cull: bits & 1 != 0,
                             blend: bits & 2 != 0,
                             depth_write: bits & 4 != 0,
@@ -171,18 +195,24 @@ fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
                             depth_always: true,
                             ..Default::default()
                         };
-                        let material = kind.word(Some(state));
+                        let material = state.word(kind);
                         assert!(
-                            pipeline.draw_variant(msaa, hdr, false, material).is_some(),
+                            pipeline
+                                .draw_variant(msaa, hdr, false, material, state.raster())
+                                .is_some(),
                             "always-depth material must have a draw pipeline: {kind:?}, {bits}"
                         );
                         if kind == EntityRenderMaterial::DissolveColor {
-                            let paired = kind.word(Some(EntityRenderMaterialState {
+                            let paired = TestMaterial {
                                 depth_always: false,
                                 ..state
-                            })) | crate::actor::material::LATE_DISSOLVE_COLOR;
+                            };
+                            let word =
+                                paired.word(kind) | crate::actor::material::LATE_DISSOLVE_COLOR;
                             assert!(
-                                pipeline.draw_variant(msaa, hdr, false, paired).is_some(),
+                                pipeline
+                                    .draw_variant(msaa, hdr, false, word, paired.raster())
+                                    .is_some(),
                                 "paired color must retain its depth contract: {bits}"
                             );
                         }
@@ -229,19 +259,22 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                 for blend in [false, true] {
                     for depth_write in [false, true] {
                         for alpha_test in [false, true] {
-                            let material = kind.word(Some(EntityRenderMaterialState {
+                            let state = TestMaterial {
                                 alpha_test,
                                 cull,
                                 blend,
                                 depth_write,
                                 ..Default::default()
-                            }));
-                            if motion::eligible(material) {
+                            };
+                            let material = state.word(kind);
+                            let raster = state.raster();
+                            if motion::eligible(material, &raster) {
                                 let key = ActorPipelineKey {
                                     msaa,
                                     hdr,
                                     enhanced: false,
                                     material,
+                                    raster,
                                 };
                                 assert!(
                                     pipeline.motion_variant(key).is_some(),
@@ -249,7 +282,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                                 );
                             }
                             descriptors.insert(
-                                pipeline.draw_variant(msaa, hdr, false, material).expect(
+                                pipeline.draw_variant(msaa, hdr, false, material, raster).expect(
                                     "authored raster states are requested before an actor exists",
                                 ),
                             );
@@ -267,17 +300,17 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
             for cull in [false, true] {
                 for depth_write in [false, true] {
                     for additive_alpha in [false, true] {
-                        let material = kind.word(Some(EntityRenderMaterialState {
+                        let state = TestMaterial {
                             cull,
                             depth_write,
                             blend: true,
                             additive: true,
                             additive_alpha,
                             ..Default::default()
-                        }));
+                        };
                         descriptors.insert(
                             pipeline
-                                .draw_variant(msaa, hdr, false, material)
+                                .draw_variant(msaa, hdr, false, state.word(kind), state.raster())
                                 .expect("each additive kind is prepared before an actor exists"),
                         );
                     }
@@ -305,20 +338,24 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
         .single(world)
         .unwrap();
     let hdr = view.hdr;
-    let state = EntityRenderMaterialState::default();
-    let normal = EntityRenderMaterial::Default.word(Some(state));
-    let dragon = EntityRenderMaterial::Dragon.word(Some(EntityRenderMaterialState {
+    let state = TestMaterial::default();
+    let raster = state.raster();
+    let normal = state.word(EntityRenderMaterial::Default);
+    let dragon = TestMaterial {
         alpha_test: true,
         ..state
-    }));
-    let emissive = EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+    }
+    .word(EntityRenderMaterial::Dragon);
+    let emissive = TestMaterial {
         emissive: true,
         ..state
-    }));
-    let without_overlay = EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+    }
+    .word(EntityRenderMaterial::Default);
+    let without_overlay = TestMaterial {
         disable_overlay: true,
         ..state
-    }));
+    }
+    .word(EntityRenderMaterial::Default);
     assert_ne!(normal, without_overlay);
     assert_ne!(
         normal, dragon,
@@ -328,18 +365,22 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
         let cache = world.resource::<PipelineCache>();
         pipeline.prewarm(cache, msaa, hdr, false).unwrap();
         assert_eq!(
-            pipeline.draw_variant(msaa, hdr, false, normal).unwrap(),
-            pipeline.draw_variant(msaa, hdr, false, dragon).unwrap(),
+            pipeline
+                .draw_variant(msaa, hdr, false, normal, raster)
+                .unwrap(),
+            pipeline
+                .draw_variant(msaa, hdr, false, dragon, raster)
+                .unwrap(),
             "identical raster contracts share one compiled pipeline",
         );
         assert_eq!(
-            pipeline.draw_variant(msaa, hdr, false, normal),
-            pipeline.draw_variant(msaa, hdr, false, emissive),
+            pipeline.draw_variant(msaa, hdr, false, normal, raster),
+            pipeline.draw_variant(msaa, hdr, false, emissive, raster),
             "emissive shader flags reuse the raster pipeline"
         );
         assert_eq!(
-            pipeline.draw_variant(msaa, hdr, false, normal),
-            pipeline.draw_variant(msaa, hdr, false, without_overlay),
+            pipeline.draw_variant(msaa, hdr, false, normal, raster),
+            pipeline.draw_variant(msaa, hdr, false, without_overlay, raster),
             "overlay admission reuses the raster pipeline"
         );
     });
@@ -369,14 +410,16 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
             for alpha_test in [false, true] {
                 for blend in [false, true] {
                     for emissive in [false, true] {
-                        let material = kind.word(Some(EntityRenderMaterialState {
+                        let state = TestMaterial {
                             alpha_test,
                             blend,
                             emissive,
                             ..Default::default()
-                        }));
+                        };
+                        let material = state.word(kind);
+                        let raster = state.raster();
                         let id = pipeline
-                            .draw_variant(msaa, false, false, material)
+                            .draw_variant(msaa, false, false, material, raster)
                             .expect("coverage variants are ready before actors exist");
                         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
                         ActorPipelineSpecializer
@@ -386,6 +429,7 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                                     hdr: false,
                                     enhanced: false,
                                     material,
+                                    raster,
                                 },
                                 &mut descriptor,
                             )
@@ -410,13 +454,14 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                         );
                         let warmed = crate::queue_review_support::queued_descriptor(&mut cache, id);
                         assert_eq!(warmed.multisample.alpha_to_coverage_enabled, enabled);
-                        if motion::eligible(material) {
+                        if motion::eligible(material, &raster) {
                             let motion_id = pipeline
                                 .motion_variant(ActorPipelineKey {
                                     msaa,
                                     hdr: false,
                                     enhanced: false,
                                     material,
+                                    raster,
                                 })
                                 .expect("motion coverage is prepared before actors exist");
                             let warmed = crate::queue_review_support::queued_descriptor(
@@ -438,4 +483,45 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
             }
         }
     }
+}
+
+#[test]
+fn a_frames_authored_raster_is_requested_and_gates_readiness() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let raster = render_api::render_state::RenderState {
+        cull: render_api::render_state::CullMode::Front,
+        ..Default::default()
+    };
+    let mut frame = render_scene::ActorRenderFrame::default();
+    frame.rig.instances = std::sync::Arc::from([render_model::ActorGpuInstance {
+        material: EntityRenderMaterial::Default as u32,
+        raster: 0,
+        ..Default::default()
+    }]);
+    frame.rig.rasters = std::sync::Arc::from([raster]);
+    world.insert_resource(frame);
+    world
+        .run_system_once(super::super::prepare_actor_pipelines)
+        .unwrap();
+    let (&msaa, view) = world
+        .query::<(&Msaa, &ExtractedCamera)>()
+        .single(world)
+        .unwrap();
+    let pipeline = world.resource::<ActorPipeline>();
+    let authored = pipeline
+        .draw_variant(
+            msaa,
+            view.hdr,
+            false,
+            EntityRenderMaterial::Default as u32,
+            raster,
+        )
+        .expect("the frame's authored raster is requested");
+    assert!(
+        !pipeline.ready_with((msaa, view.hdr, false), |id| id != authored),
+        "readiness waits for the authored pipeline"
+    );
 }

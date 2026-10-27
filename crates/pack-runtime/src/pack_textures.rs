@@ -104,7 +104,10 @@ fn merge_texture_catalog(paths: &mut HashMap<String, String>, bytes: &[u8]) {
     }
 }
 
-use pack_compile_input::texture_path::IMAGE_EXTENSIONS;
+use pack_compile_input::{
+    texture_path::IMAGE_EXTENSIONS,
+    texture_set::{TextureSetDefinition, TextureSetLayer, parse_texture_set},
+};
 const MAX_TEXTURE_SET_BYTES: u64 = 64 * 1024;
 
 /// Removes the whitespace and relative prefix accepted by texture catalogs.
@@ -149,8 +152,8 @@ pub fn resolve_pack_texture_with_policy(
     allow_strip: bool,
 ) -> Option<ResolvedPackTexture> {
     let path = normalize_texture_path(path);
-    decode_image_file(view, path, policy, allow_strip)
-        .or_else(|| decode_texture_set(view, path, policy, allow_strip))
+    decode_texture_set(view, path, policy, allow_strip)
+        .or_else(|| decode_image_file(view, path, policy, allow_strip))
 }
 
 /// Tries the literal image path, then the supported file extensions in precedence order.
@@ -194,43 +197,69 @@ pub fn texture_image_paths(path: &str) -> Vec<String> {
         .collect()
 }
 
-/// A texture set's `color` is a sibling image name or a solid `[r, g, b(, a)]`.
+/// The `texture_set.json` for `path` from the highest layer holding either it or a plain image
+/// of that name, validated, with its owning pack layer. Within one layer the definition wins.
+/// A higher plain image, or a missing or invalid definition, yields `None`, and callers use the
+/// plain image instead.
+pub(crate) fn texture_set_definition<'a>(
+    view: &'a LayeredPackView,
+    path: &str,
+) -> Option<(resource_pack::PackLayer<'a>, String, TextureSetDefinition)> {
+    let source = format!("{}.texture_set.json", path.trim().trim_start_matches("./"));
+    let images = texture_image_paths(path);
+    let layer = view.layers().rev().find(|layer| {
+        layer.file_size(&source).is_some()
+            || images.iter().any(|image| layer.file_size(image).is_some())
+    })?;
+    layer.file_size(&source)?;
+    let bytes = layer
+        .read_file_with_limit(&source, MAX_TEXTURE_SET_BYTES)
+        .ok()??;
+    let definition = parse_texture_set(&parse_pack_json(&bytes)?).ok()?;
+    Some((layer, source, definition))
+}
+
+/// Candidate files of an image a texture set names, relative to the set's own directory.
+pub(crate) fn texture_set_image_paths(source: &str, name: &str) -> Vec<String> {
+    let name = normalize_texture_path(name);
+    let target = source
+        .rsplit_once('/')
+        .map_or_else(|| name.to_owned(), |(dir, _)| format!("{dir}/{name}"));
+    texture_image_paths(&target)
+}
+
+/// Decodes a texture set's `color` layer from the set's own pack.
 fn decode_texture_set(
     view: &LayeredPackView,
     path: &str,
     policy: TexturePolicy,
     allow_strip: bool,
 ) -> Option<ResolvedPackTexture> {
-    let path = path.trim().trim_start_matches("./");
-    let source = format!("{path}.texture_set.json");
-    let bytes = view.read_capped(&source, MAX_TEXTURE_SET_BYTES)?;
-    let root = parse_pack_json(&bytes)?;
-    match root.get("minecraft:texture_set")?.get("color")? {
-        Value::String(name) => {
-            let name = normalize_texture_path(name);
-            let sibling = path
-                .rsplit_once('/')
-                .map_or_else(|| name.to_owned(), |(dir, _)| format!("{dir}/{name}"));
-            [sibling, name.to_owned()]
-                .into_iter()
-                .filter(|target| target != path)
-                .find_map(|target| decode_image_file(view, &target, policy, allow_strip))
-        }
-        Value::Array(channels) if matches!(channels.len(), 3 | 4) => {
-            let mut pixel = [0, 0, 0, 255];
-            for (slot, channel) in pixel.iter_mut().zip(channels) {
-                *slot = channel.as_f64()?.round().clamp(0.0, 255.0) as u8;
-            }
-            Some(ResolvedPackTexture {
-                texture: DecodedTexture {
-                    width: 1,
-                    height: 1,
-                    rgba8: pixel.into(),
-                },
-                image_path: source.to_ascii_lowercase(),
-            })
-        }
-        _ => None,
+    let (layer, source, definition) = texture_set_definition(view, path)?;
+    match definition.color {
+        TextureSetLayer::Uniform(pixel) => Some(ResolvedPackTexture {
+            texture: DecodedTexture {
+                width: 1,
+                height: 1,
+                rgba8: pixel.into(),
+            },
+            image_path: source.to_ascii_lowercase(),
+        }),
+        TextureSetLayer::Image(name) => texture_set_image_paths(&source, &name)
+            .into_iter()
+            .find_map(|candidate| {
+                let extension = candidate.rsplit_once('.')?.1;
+                let (_, format) = IMAGE_EXTENSIONS
+                    .into_iter()
+                    .find(|(known, _)| extension.eq_ignore_ascii_case(known))?;
+                let bytes = layer
+                    .read_file_with_limit(&candidate, MAX_TEXTURE_SOURCE_BYTES as u64)
+                    .ok()??;
+                Some(ResolvedPackTexture {
+                    texture: decode_image_with_policy(&bytes, format, policy, allow_strip)?,
+                    image_path: candidate.to_ascii_lowercase(),
+                })
+            }),
     }
 }
 

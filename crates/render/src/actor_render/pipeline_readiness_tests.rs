@@ -12,13 +12,13 @@ fn multisampled_views_prepare_performance_actor_materials_before_switching() {
     world.init_resource::<render_scene::ActorPipelineReadiness>();
     world.run_system_once(prepare_actor_pipelines).unwrap();
     let pipeline = world.resource::<ActorPipeline>();
-    for material in prewarm_materials() {
+    for (material, raster) in prewarm_materials() {
         assert!(
             pipeline
-                .draw_variant(Msaa::Off, false, false, material)
+                .draw_variant(Msaa::Off, false, false, material, raster)
                 .is_some()
         );
-        if super::super::motion::eligible(material) {
+        if super::super::motion::eligible(material, &raster) {
             assert!(
                 pipeline
                     .motion_variant(ActorPipelineKey {
@@ -26,6 +26,7 @@ fn multisampled_views_prepare_performance_actor_materials_before_switching() {
                         hdr: false,
                         enhanced: false,
                         material,
+                        raster,
                     })
                     .is_some()
             );
@@ -54,15 +55,16 @@ fn readiness_polls_each_raster_contract_once_and_observes_reload() {
         assert!(!pipeline.ready_with(view, |_| panic!("unrequested view has no pipelines")));
         pipeline.prewarm(cache, view.0, view.1, view.2).unwrap();
         let expected: HashSet<_> = prewarm_materials()
-            .flat_map(|material| {
-                let color = pipeline.draw_variant(view.0, view.1, view.2, material);
-                let motion = super::super::motion::eligible(material)
+            .flat_map(|(material, raster)| {
+                let color = pipeline.draw_variant(view.0, view.1, view.2, material, raster);
+                let motion = super::super::motion::eligible(material, &raster)
                     .then(|| {
                         pipeline.motion_variant(ActorPipelineKey {
                             msaa: view.0,
                             hdr: view.1,
                             enhanced: view.2,
                             material,
+                            raster,
                         })
                     })
                     .flatten();

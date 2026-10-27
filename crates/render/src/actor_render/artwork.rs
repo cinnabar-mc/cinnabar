@@ -508,6 +508,7 @@ pub(super) fn draw_spans(
     pages: &[ActorArtworkPageId],
     instances: &[render_model::ActorGpuInstance],
     geometry: &[render_model::ActorRigGeometrySpan],
+    rasters: &[render_api::render_state::RenderState],
     layers: impl IntoIterator<Item = u8>,
 ) {
     spans.clear();
@@ -518,17 +519,20 @@ pub(super) fn draw_spans(
         let vertex_count = geometry
             .get(instance.geometry_id as usize)
             .map_or(0, |span| span.vertex_count);
+        let raster = crate::actor::material::instance_raster(rasters, instance);
         if let Some(span) = spans.last_mut().filter(|span| {
             span.page == page
-                && !super::phase::sorted(instance.material)
+                && !super::phase::sorted(instance.material, &raster)
                 && span.vertex_count == vertex_count
                 && span.material == instance.material
+                && span.raster == raster
                 && last_layer == Some(layer)
         }) {
             span.count += 1;
         } else {
             spans.push(ActorDrawSpan {
                 material: instance.material,
+                raster,
                 page,
                 first: index as u32,
                 count: 1,
@@ -582,13 +586,12 @@ mod tests {
 
     #[test]
     fn always_depth_instances_keep_separate_sort_positions() {
-        let material =
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                depth_always: true,
-                ..Default::default()
-            }));
+        let always = crate::actor::test_material::TestMaterial {
+            depth_always: true,
+            ..Default::default()
+        };
         let instances = [render_model::ActorGpuInstance {
-            material,
+            material: always.word(assets::EntityRenderMaterial::Default),
             ..Default::default()
         }; 2];
         let mut spans = Vec::new();
@@ -600,6 +603,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            &[always.raster()],
             std::iter::repeat(0),
         );
         assert_eq!(
@@ -613,14 +617,14 @@ mod tests {
 
     #[test]
     fn blended_instances_keep_separate_sortable_spans_while_opaque_instances_batch() {
-        let material = |blend| {
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                blend,
-                ..Default::default()
-            }))
+        let material = |blend| crate::actor::test_material::TestMaterial {
+            blend,
+            ..Default::default()
         };
+        let rasters = [false, true].map(|blend| material(blend).raster());
         let instances = [false, false, true, true].map(|blend| render_model::ActorGpuInstance {
-            material: material(blend),
+            material: material(blend).word(assets::EntityRenderMaterial::Default),
+            raster: u32::from(blend),
             ..Default::default()
         });
         let mut spans = Vec::new();
@@ -632,6 +636,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            &rasters,
             std::iter::repeat(0),
         );
         assert_eq!(
@@ -740,6 +745,7 @@ mod tests {
             &instance_pages,
             &frame.instances,
             &frame.geometry_spans,
+            &[],
             frame.manifest.iter().map(|entry| entry.identity.layer),
         );
         assert_eq!(spans.len(), 2);
@@ -766,6 +772,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            &[],
             std::iter::repeat(0),
         );
         assert_eq!(spans.len(), 2);
@@ -806,10 +813,12 @@ mod tests {
                 instance(0),
             ],
             &geometry,
+            &[],
             std::iter::repeat(0),
         );
         let span = |page, first, count, vertex_count| ActorDrawSpan {
             material: 0,
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             page,
             first,
             count,

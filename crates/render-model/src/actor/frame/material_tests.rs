@@ -12,12 +12,10 @@ fn overlay_override_keeps_cpu_gpu_policy_without_authoring_raster_state() {
             None,
             Some(EntityRenderMaterialState {
                 alpha_test: true,
-                cull: false,
                 ..Default::default()
             }),
             Some(EntityRenderMaterialState {
-                blend: true,
-                depth_write: false,
+                emissive: true,
                 disable_overlay: true,
                 ..Default::default()
             }),
@@ -72,6 +70,49 @@ fn overlay_override_keeps_cpu_gpu_policy_without_authoring_raster_state() {
                 ..Default::default()
             }
             .allows_overlay()
+        );
+    }
+}
+
+#[test]
+fn authored_cull_and_blend_bits_follow_the_raster_state() {
+    use render_api::render_state::{BlendState, CullMode, RenderState};
+    for (cull, blend) in [
+        (CullMode::None, None),
+        (CullMode::Back, None),
+        (CullMode::Front, Some(BlendState::ALPHA)),
+        (CullMode::Back, Some(BlendState::ALPHA)),
+    ] {
+        let render_state = Some(RenderState {
+            cull,
+            blend,
+            ..Default::default()
+        });
+        let authored = ActorMaterial {
+            state: Some(EntityRenderMaterialState::default()),
+            render_state,
+            ..Default::default()
+        }
+        .gpu_word();
+        assert_eq!(
+            authored & EntityRenderMaterialState::CULL != 0,
+            cull == CullMode::Back
+        );
+        assert_eq!(
+            authored & EntityRenderMaterialState::BLEND != 0,
+            blend.is_some()
+        );
+        let unauthored = ActorMaterial {
+            render_state,
+            ..Default::default()
+        }
+        .gpu_word();
+        assert_eq!(
+            unauthored
+                & (EntityRenderMaterialState::AUTHORED
+                    | EntityRenderMaterialState::CULL
+                    | EntityRenderMaterialState::BLEND),
+            0
         );
     }
 }

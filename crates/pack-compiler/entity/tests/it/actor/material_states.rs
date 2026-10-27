@@ -1,5 +1,65 @@
 use super::{MANIFEST, pack, write};
+use assets::{
+    EntityRenderData, EntityRenderLayer,
+    entity::material::{
+        EntityMaterialBlendFactor as Factor, EntityMaterialCompare, EntityMaterialState as State,
+    },
+};
 use serde_json::{Value, json};
+
+/// Summarizes a layer's shading features and its definition's raster as the flags these
+/// fixtures assert: cutout, back-face culling, blending, depth writes, emissive weighting,
+/// additive factors, overlay suppression, depth comparisons and channel writes. False optional
+/// flags are omitted.
+pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> Value {
+    let (Some(state), Some(definition)) = (
+        layer.material_state,
+        layer
+            .material_definition
+            .and_then(|index| render.materials.get(index as usize)),
+    ) else {
+        return Value::Null;
+    };
+    let blend = definition.has_state(State::Blending);
+    let additive = blend && definition.blend[1] == Factor::One;
+    let mut summary = json!({
+        "alpha_test": state.alpha_test,
+        "cull": !definition.has_state(State::DisableCulling),
+        "blend": blend,
+        "depth_write": !definition.has_state(State::DisableDepthWrite),
+    });
+    for (key, enabled) in [
+        ("emissive", state.emissive),
+        ("only_emissive", state.only_emissive),
+        ("additive", additive),
+        (
+            "additive_alpha",
+            additive && definition.blend[0] == Factor::SourceAlpha,
+        ),
+        ("disable_overlay", state.disable_overlay),
+        (
+            "depth_always",
+            definition.depth_func == EntityMaterialCompare::Always,
+        ),
+        (
+            "depth_equal",
+            definition.depth_func == EntityMaterialCompare::Equal,
+        ),
+        (
+            "disable_alpha_write",
+            definition.has_state(State::DisableAlphaWrite),
+        ),
+        (
+            "disable_color_write",
+            definition.has_state(State::DisableColorWrite),
+        ),
+    ] {
+        if enabled {
+            summary[key] = true.into();
+        }
+    }
+    summary
+}
 
 /// Compiles and round-trips the material selected by one fixture actor.
 fn state(material: &str, definitions: Option<&Value>) -> Value {
@@ -15,12 +75,12 @@ fn state(material: &str, definitions: Option<&Value>) -> Value {
     assert_eq!(compiled.render.layers.len(), 1);
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let runtime = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
-    serde_json::to_value(runtime.render_data().layers[0]).unwrap()["material_state"].clone()
+    summary(runtime.render_data(), &runtime.render_data().layers[0])
 }
 
 #[test]
 fn actor_overlay_define_is_inherited_added_removed_and_replaced() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_base": {"defines": [], "states": []},
         "fixture_overlay:fixture_base": {"+defines": ["USE_OVERLAY"]},
         "fixture_inherited:fixture_overlay": {},
@@ -50,7 +110,7 @@ fn charged_material_keeps_texture_rgb_and_adds_it_without_actor_overlay() {
         "depth_write":true,"additive":true,"disable_overlay":true});
     assert_eq!(state("charged_creeper", None), expected);
     assert_eq!(state("charged_creeper.skinning", None), expected);
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_cutout:charged_creeper": {"-states": ["Blending"]},
         "fixture_aura:entity_static": {
             "+defines": ["USE_UV_ANIM", "ALPHA_TEST"],
@@ -62,7 +122,7 @@ fn charged_material_keeps_texture_rgb_and_adds_it_without_actor_overlay() {
     assert_eq!(
         state("fixture_cutout", Some(&definitions)),
         json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true,
-            "additive":true,"disable_overlay":true})
+            "disable_overlay":true})
     );
 }
 
@@ -91,7 +151,7 @@ fn spectator_material_blends_and_respects_authored_raster_overrides() {
         state("player_spectator", None),
         json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})
     );
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "player_spectator:entity": {"+states":["DisableDepthWrite"],"+defines":["ALPHA_TEST"]}
     }});
     assert_eq!(
@@ -173,7 +233,7 @@ fn actor_material_states_keep_slime_outer_blended_culled_and_depth_writing() {
 
 #[test]
 fn sulfur_cube_material_aliases_match_authored_parent_states() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_inner:entity_alphatest": {},
         "fixture_outer:entity": {"+states": ["Blending"]},
         "fixture_override:sulfur_cube_outer": {"-states": ["Blending"]}
@@ -199,7 +259,7 @@ fn wind_material_uses_the_native_double_sided_blended_route_without_depth_writes
     assert_eq!(state("breeze_wind", None), expected);
     // Native material inheritance still includes ALPHA_TEST, but Blending selects
     // the separate transparent Actor pass after the inherited declaration is read.
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "version": "1.0.0",
         "fixture_wind:entity_static": {
             "+defines": ["ALPHA_TEST", "USE_UV_ANIM"],
@@ -300,29 +360,17 @@ fn actor_material_rules_partition_bones_without_revealing_hidden_parts_or_hiding
             .layers
             .iter()
             .filter(|layer| visible(&compiled, layer, name))
-            .map(|layer| layer.material_state.unwrap())
+            .map(|layer| summary(&compiled.render, layer))
             .collect();
         match name {
             "root" => assert!(states.is_empty(), "authored visibility stays hidden"),
             "magnifyingGlass" => assert_eq!(
                 states,
-                vec![assets::EntityRenderMaterialState {
-                    alpha_test: false,
-                    cull: true,
-                    blend: true,
-                    depth_write: true,
-                    ..Default::default()
-                }]
+                vec![json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})]
             ),
             _ => assert_eq!(
                 states,
-                vec![assets::EntityRenderMaterialState {
-                    alpha_test: true,
-                    cull: false,
-                    blend: false,
-                    depth_write: true,
-                    ..Default::default()
-                }]
+                vec![json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true})]
             ),
         }
     }
@@ -349,7 +397,7 @@ fn actor_material_rules_use_the_last_match_and_cover_alternate_geometry_bones() 
             .filter(|layer| visible(&compiled, layer, name))
             .collect();
         assert_eq!(layers.len(), 1);
-        assert!(layers[0].material_state.unwrap().blend);
+        assert_eq!(summary(&compiled.render, layers[0])["blend"], true);
         assert_eq!(layers[0].geometry_count, 2);
     }
     let fixture = per_bone_pack(
@@ -361,7 +409,10 @@ fn actor_material_rules_use_the_last_match_and_cover_alternate_geometry_bones() 
     );
     let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
     assert_eq!(compiled.render.layers.len(), 1);
-    assert!(!compiled.render.layers[0].material_state.unwrap().blend);
+    assert_eq!(
+        summary(&compiled.render, &compiled.render.layers[0])["blend"],
+        false
+    );
     assert!(visible(
         &compiled,
         &compiled.render.layers[0],
@@ -478,7 +529,7 @@ fn native_emissive_aliases_preserve_authored_body_and_eye_states() {
 
 #[test]
 fn only_emissive_define_is_inherited_removed_and_replaced() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_eyes:spider_invisible": {},
         "fixture_body:fixture_eyes": {"-defines": ["USE_ONLY_EMISSIVE"]},
         "fixture_replaced:fixture_eyes": {"defines": ["ALPHA_TEST"]},
@@ -500,13 +551,32 @@ fn only_emissive_define_is_inherited_removed_and_replaced() {
 
 #[test]
 fn generated_materials_reach_the_carrier_without_fallback() {
-    for (name, mut expected) in assets::facts::pack::rules().material_states() {
-        expected.alpha_test &= !expected.blend;
-        assert_eq!(
-            state(name, None),
-            serde_json::to_value(expected).unwrap(),
-            "{name}"
-        );
+    for (name, native) in assets::facts::pack::rules().material_states() {
+        let mut expected = json!({
+            "alpha_test": native.alpha_test && !native.blend,
+            "cull": native.cull,
+            "blend": native.blend,
+            "depth_write": native.depth_write,
+        });
+        for (key, enabled) in [
+            ("emissive", native.emissive),
+            ("only_emissive", native.only_emissive),
+            ("additive", native.blend && native.additive),
+            (
+                "additive_alpha",
+                native.blend && native.additive && native.additive_alpha,
+            ),
+            ("disable_overlay", native.disable_overlay),
+            ("depth_always", native.depth_always),
+            ("depth_equal", native.depth_equal && !native.depth_always),
+            ("disable_alpha_write", native.disable_alpha_write),
+            ("disable_color_write", native.disable_color_write),
+        ] {
+            if enabled {
+                expected[key] = true.into();
+            }
+        }
+        assert_eq!(state(name, None), expected, "{name}");
     }
     assert!(state("cushion", None).is_null());
 }
@@ -536,7 +606,7 @@ fn ordinary_aliases_keep_cutouts_and_one_sided_limbs() {
 
 #[test]
 fn depth_and_channel_write_states_inherit_and_reset_independently() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture:entity": {"depthFunc":"Equal", "+states":["DisableAlphaWrite","DisableColorWrite"]},
         "fixture_child:fixture": {},
         "fixture_removed:fixture": {"depthFunc":"LessEqual", "-states":["DisableAlphaWrite","DisableColorWrite"]},

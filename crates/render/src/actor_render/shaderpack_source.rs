@@ -70,6 +70,7 @@ impl RigSource for ShaderpackActors<'_> {
                 visit(RigInstance {
                     index,
                     data,
+                    raster: span.raster,
                     vertex_count: span.vertex_count,
                     texture: LayerTexture {
                         texture,
@@ -158,12 +159,17 @@ mod replacement_tests {
         let manifest = Arc::make_mut(&mut frame.rig.manifest);
         manifest[1].identity.runtime_id = manifest[0].identity.runtime_id;
         manifest[1].identity.layer = render_model::ACTOR_LAYER_BODY + 1;
-        let eye_state = assets::EntityRenderMaterialState {
+        let eye_state = crate::actor::test_material::TestMaterial {
             depth_equal: true,
             ..Default::default()
         };
-        Arc::make_mut(&mut frame.rig.instances)[1].material =
-            assets::EntityRenderMaterial::Default.word(Some(eye_state));
+        frame.rig.rasters = Arc::from([
+            assets::entity::material::UNAUTHORED_RENDER_STATE,
+            eye_state.raster(),
+        ]);
+        let eye = &mut Arc::make_mut(&mut frame.rig.instances)[1];
+        eye.material = eye_state.word(assets::EntityRenderMaterial::Default);
+        eye.raster = 1;
         draw_frame(&mut app, &frame);
         let world = app.sub_app(RenderApp).world();
         let gpu = world.resource::<ActorGpu>();

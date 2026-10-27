@@ -38,9 +38,16 @@ fn native_wind_charge_raster_and_both_projectile_bindings_survive_actor_compilat
             .iter()
             .find(|layer| layer.rig as usize == rig_index)
             .unwrap();
-        let state = layer.material_state.unwrap();
-        assert!(state.blend);
-        assert!(!(state.alpha_test || state.cull || state.depth_write));
+        let summary = super::material_states::summary(runtime_entities.render_data(), layer);
+        assert_eq!(summary["blend"], true);
+        assert_eq!(
+            (
+                &summary["alpha_test"],
+                &summary["cull"],
+                &summary["depth_write"]
+            ),
+            (&false.into(), &false.into(), &false.into())
+        );
         assert!(layer.uv_anim.is_some());
         let texture = &runtime.textures()[binding.texture as usize];
         let source = &entities.sources[texture.source as usize];

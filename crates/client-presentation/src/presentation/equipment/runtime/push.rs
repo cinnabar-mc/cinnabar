@@ -546,9 +546,10 @@ impl EquipmentRuntime {
             };
             presentation.submission.material.state = Some(assets::EntityRenderMaterialState {
                 alpha_test: true,
-                cull: false,
                 ..Default::default()
             });
+            presentation.submission.material.render_state =
+                Some(assets::entity::material::UNAUTHORED_RENDER_STATE);
         }
         if profile == render_api::CombatVisuals::Legacy112
             && from_pack

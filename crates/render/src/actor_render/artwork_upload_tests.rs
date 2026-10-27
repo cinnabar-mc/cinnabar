@@ -247,22 +247,23 @@ fn shaderpack_activation_keeps_pending_fallback_pages_native() {
 
 #[test]
 fn channel_write_and_equal_depth_spans_are_retained_by_native_drawing() {
+    use crate::actor::test_material::TestMaterial;
     use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
     use crate::shaderpack::actors::RigSource;
-    use assets::{EntityRenderMaterial, EntityRenderMaterialState};
+    use assets::EntityRenderMaterial;
     let mut app = fixture();
     app.sub_app_mut(RenderApp)
         .insert_resource(ArtworkRawViews(true));
     for (generation, state) in [
-        EntityRenderMaterialState {
+        TestMaterial {
             depth_equal: true,
             ..Default::default()
         },
-        EntityRenderMaterialState {
+        TestMaterial {
             disable_alpha_write: true,
             ..Default::default()
         },
-        EntityRenderMaterialState {
+        TestMaterial {
             disable_color_write: true,
             ..Default::default()
         },
@@ -271,14 +272,16 @@ fn channel_write_and_equal_depth_spans_are_retained_by_native_drawing() {
     .enumerate()
     {
         let mut frame = publication(generation as u64 + 1, &[55], 1);
-        let material = EntityRenderMaterial::Default.word(Some(state));
+        let material = state.word(EntityRenderMaterial::Default);
+        let raster = state.raster();
+        frame.rig.rasters = Arc::from([raster]);
         Arc::make_mut(&mut frame.rig.instances)[0].material = material;
         draw_frame(&mut app, &frame);
         // The fixture compiles the default pipeline; this assertion draws another contract.
         let world = app.sub_app_mut(RenderApp).world_mut();
         let pipeline = world
             .resource::<ActorPipeline>()
-            .draw_variant(Msaa::Off, false, false, material)
+            .draw_variant(Msaa::Off, false, false, material, raster)
             .expect("admitted material was prewarmed");
         world
             .resource_mut::<PipelineCache>()
