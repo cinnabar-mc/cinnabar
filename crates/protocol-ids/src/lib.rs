@@ -34,7 +34,9 @@ macro_rules! wire_ids {
     };
 }
 
+mod block_render_method;
 mod generated;
+pub use block_render_method::BlockRenderMethod;
 pub use generated::{
     ActorDataKey, ActorFlag, Attribute, CommandArgFlag, CommandArgType, ContainerName, Effect,
     Enchantment, HASHED_AIR_NETWORK_ID, HorseFlag, LevelEvent, PlayerFlag,

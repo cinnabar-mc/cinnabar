@@ -8,6 +8,9 @@
 pub const PARAMS: usize = 16;
 /// Session animation phase is elapsed real seconds divided by this period, modulo one.
 pub const ANIMATION_WRAP_SECONDS: f64 = 4096.0;
+/// Provisional: world material validation attempts per Experience callback, rejected sources
+/// included, so `init` can declare a few materials.
+pub const MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK: u32 = 4;
 
 /// A reusable shared-material definition; combine presets by editing its parameter block.
 #[derive(Clone, Copy, Debug, PartialEq)]

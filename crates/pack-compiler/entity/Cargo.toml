@@ -7,7 +7,7 @@ publish = false
 
 [package.metadata.cinnabar]
 platform-specific = ["windows"]
-reads = ["assets/bedrock-target.json", "assets/vanilla-source.json", "crates/assets/data/*", "crates/protocol/data/retail_items_1_26_50.tsv"]
+reads = ["assets/bedrock-target.json", "assets/vanilla-source.json", "crates/assets/data/*", "crates/protocol/data/retail_items_1_26_50.tsv", "docs/reference/cinnabar-material-bindings-1.0.0.schema.json", "docs/reference/cinnabar-material-sample", "tools/localserver/fixtures/material_showcase.pixels.json"]
 
 [dependencies]
 pack-compile-input = { path = "../input" }
@@ -22,6 +22,7 @@ sha2.workspace = true
 
 [dev-dependencies]
 pack-compiler = { path = ".." }
+regex = "1"
 tempfile = "3"
 
 [lints]

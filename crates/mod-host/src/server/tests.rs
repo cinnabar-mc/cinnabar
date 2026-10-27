@@ -42,6 +42,7 @@ fn state() -> State {
             channels: Vec::new(),
             actions: BTreeSet::new(),
             max_message_bytes: MAX_MESSAGE_BYTES as u32,
+            namespace: None,
         },
         action: None,
         gui: None,
@@ -50,6 +51,9 @@ fn state() -> State {
         calls: 0,
         initializing: false,
         negotiation: None,
+        world: WorldMaterials::default(),
+        world_staged: WorldMaterials::default(),
+        world_compiles: 0,
     };
     state.begin_output().unwrap();
     state
@@ -199,6 +203,7 @@ pub(super) fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
         channels: Vec::new(),
         actions: BTreeSet::from(["demo.pick".to_owned()]),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     }
 }
 
@@ -1158,6 +1163,151 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
         .unwrap()
         .into_transaction();
     assert!(host.drawing_references().is_empty());
+}
+
+#[test]
+fn world_declarations_are_refused_against_retained_state_and_kept_across_commits() {
+    use server_experience::world_material::{
+        WorldBinding, WorldBlend, WorldDepth, WorldMaterialSpec, WorldTarget,
+    };
+    let mut state = state();
+    state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
+    state.capabilities.namespace = Some("example".into());
+    let material = WorldMaterialSpec {
+        source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
+        textures: Vec::new(),
+        params: Vec::new(),
+        depth: WorldDepth::Test,
+        blend: WorldBlend::Opaque,
+    };
+    let bind = |material| Command::WorldBinding {
+        id: 0,
+        binding: Some(WorldBinding {
+            target: WorldTarget::Entity("example:moth".into()),
+            material,
+        }),
+    };
+    assert!(
+        state.stage(bind(1)).unwrap().is_err(),
+        "no such material yet"
+    );
+    state
+        .stage(Command::WorldMaterial {
+            id: 1,
+            material: Some(material),
+        })
+        .unwrap()
+        .unwrap();
+    state.stage(bind(1)).unwrap().unwrap();
+    // Committing keeps the declarations for later callbacks.
+    state.world = state.world_staged.clone();
+    state.begin_output().unwrap();
+    assert!(
+        state
+            .stage(Command::WorldMaterial {
+                id: 1,
+                material: None,
+            })
+            .unwrap()
+            .is_err(),
+        "a bound material cannot be removed"
+    );
+    let outside = Command::WorldBinding {
+        id: 2,
+        binding: Some(WorldBinding {
+            target: WorldTarget::Block("minecraft:stone".into()),
+            material: 1,
+        }),
+    };
+    assert!(state.stage(outside).unwrap().is_err());
+    assert!(
+        state.commands.is_empty(),
+        "refused declarations stage nothing"
+    );
+}
+
+#[test]
+fn hostile_world_shaders_are_refused_when_declared_and_compiles_are_bounded() {
+    use super::cinnabar::server_experience::world_material::{
+        Blend, Depth, Host, MaterialSpec, Target,
+    };
+    let mut state = state();
+    state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
+    state.capabilities.namespace = Some("example".into());
+    let spec = |source: &str, depth| MaterialSpec {
+        source: source.into(),
+        textures: Vec::new(),
+        params: Vec::new(),
+        depth,
+        blend: Blend::Opaque,
+    };
+    let plain = "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }";
+    let storage =
+        format!("@group(1) @binding(0) var<storage, read_write> values: array<f32>; {plain}");
+    assert!(
+        state
+            .set_material(0, spec(&storage, Depth::Test))
+            .unwrap()
+            .is_err(),
+        "a storage write is refused"
+    );
+    assert!(
+        state
+            .set_material(0, spec(plain, Depth::Always))
+            .unwrap()
+            .is_err(),
+        "depth: always needs render_through_walls"
+    );
+    assert!(state.commands.is_empty());
+    for id in 1..mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK {
+        state
+            .set_material(id, spec(plain, Depth::Test))
+            .unwrap()
+            .unwrap();
+    }
+    let over = state.set_material(9, spec(plain, Depth::Test)).unwrap();
+    assert!(over.unwrap_err().contains("compile budget"));
+    state
+        .bind(0, Target::Block("example:lamp".into()), 1)
+        .unwrap()
+        .unwrap();
+    assert!(
+        state
+            .bind(1, Target::Entity("minecraft:player".into()), 1)
+            .unwrap()
+            .is_err()
+    );
+    // A new callback gets a fresh compile budget.
+    state.world = state.world_staged.clone();
+    state.begin_output().unwrap();
+    state
+        .set_material(9, spec(plain, Depth::Test))
+        .unwrap()
+        .unwrap();
+}
+
+#[test]
+fn redeclaring_only_parameters_spends_no_compile() {
+    use super::cinnabar::server_experience::world_material::{Blend, Depth, Host, MaterialSpec};
+    let mut state = state();
+    state.capabilities.scope.permissions = BTreeSet::from([Permission::RenderWorldMaterial]);
+    state.capabilities.namespace = Some("example".into());
+    let spec = |params: Vec<f32>| MaterialSpec {
+        source: "fn shade(input: WorldMaterialInput) -> Surface { return surface(input); }".into(),
+        textures: Vec::new(),
+        params,
+        depth: Depth::Test,
+        blend: Blend::Opaque,
+    };
+    state.set_material(0, spec(vec![0.0])).unwrap().unwrap();
+    // Far more parameter updates than the per-callback compile budget allows compiles.
+    for step in 0..4 * mod_api::materials::MAX_WORLD_MATERIAL_COMPILES_PER_CALLBACK {
+        state
+            .set_material(0, spec(vec![step as f32]))
+            .unwrap()
+            .unwrap();
+    }
+    assert_eq!(state.world_compiles, 1);
 }
 
 mod binding;

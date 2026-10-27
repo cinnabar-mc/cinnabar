@@ -208,8 +208,7 @@ const VERTEX: &str = r#"
     out.uv = vec2(0.5);
     out.current_texture = PAGE_ONE_REFERENCE | (cell % 4u);
     out.next_texture = out.current_texture;
-    out.visibility.x = 1u;
-    out.visibility.y = 1u;
+    out.visibility = model_visibility(MODEL_VISIBLE | MODEL_TWO_SIDED, vec3(0u));
     out.material_flags = select(0u, ALPHA_FLAG, cell >= 4u);
     return out;
 }

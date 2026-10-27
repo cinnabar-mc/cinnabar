@@ -114,6 +114,7 @@ fn compiled_pack(files: Vec<(Box<str>, Vec<u8>)>) -> Option<assets::SessionEntit
             )
             .unwrap(),
         )),
+        material_report: None,
     })
 }
 
@@ -550,6 +551,7 @@ fn mixed_texture_and_material_reload_disables_authored_armour_dye() {
         0
     );
     let materials = serde_json::to_vec(&serde_json::json!({"materials": {
+        "version": "1.0.0",
         "armor_leather": {"defines": []}
     }}))
     .unwrap();

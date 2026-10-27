@@ -14,10 +14,12 @@ pub enum GlintTexture {
 pub const ITEM_GLINT_UV_SCALE: f32 = 0.5;
 
 /// Render-owned profile bit, above the authored material state bits.
-pub const LEGACY_COMBAT_MATERIAL_FLAG: u32 =
-    assets::EntityRenderMaterialState::DISABLE_COLOR_WRITE << 1;
+pub const LEGACY_COMBAT_MATERIAL_FLAG: u32 = assets::EntityRenderMaterialState::COLOR_MASK << 1;
 /// Per-draw dye masking keeps leather separate even when rasters share an artwork page.
 pub const ACTOR_COLOR_MASK_MATERIAL_FLAG: u32 = LEGACY_COMBAT_MATERIAL_FLAG << 1;
+// The renderer's own flags sit between the authored state bits and the define-derived ones.
+const _: () =
+    assert!(ACTOR_COLOR_MASK_MATERIAL_FLAG << 1 == assets::EntityRenderMaterialState::GLINT);
 
 /// Converts legacy raster UV through rotation and then offset.
 pub fn legacy_glint_uv(uv: [f32; 2], offsets: [f32; 2], pass: usize) -> [f32; 2] {

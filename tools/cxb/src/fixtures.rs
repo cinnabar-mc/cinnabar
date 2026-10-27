@@ -490,6 +490,9 @@ fn fragmented_items() -> Result<Vec<Scalar>> {
 
 /// The M0 client part: one counter to the client, its acknowledgement back, and the
 /// terminal's item list and screen.
+/// The signed namespace the fixture manifest carries, so both codecs round-trip the field.
+const FIXTURE_NAMESPACE: &str = "fixture";
+
 fn source() -> Source {
     let counter = |name: &str, direction| Channel {
         id: format!("{PACKAGE}.{name}"),
@@ -514,6 +517,7 @@ fn source() -> Source {
         actions: BTreeSet::new(),
         templates: BTreeSet::from([TEMPLATE_PATH.to_owned()]),
         files: BTreeMap::from([(TEMPLATE_PATH.to_owned(), template.into_bytes())]),
+        namespace: Some(FIXTURE_NAMESPACE.to_owned()),
         ..Source::default()
     }
 }
@@ -589,6 +593,7 @@ fn enums() -> Enums {
             EntityHighlight,
             RenderThroughWalls,
             RenderMaterial,
+            RenderWorldMaterial,
             RenderPost,
         )),
         implemented_permissions: implemented_permissions(),
