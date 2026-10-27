@@ -15,6 +15,7 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
         description.as_object().unwrap(),
         controller,
         &MaterialStates::default(),
+        &mut MaterialTable::default(),
         &[geometry],
         [0],
         &mut None,
@@ -75,9 +76,12 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
 /// Reads expected raster words from the compiler material resolver.
 fn material_word(name: &str) -> u32 {
     let rules = assets::facts::pack::rules();
-    rules
-        .raster(name)
-        .word(MaterialStates::default().resolve(name))
+    rules.raster(name).word(
+        MaterialStates::default()
+            .resolve(name, &mut MaterialTable::default())
+            .unwrap()
+            .map(|(state, _)| state),
+    )
 }
 
 /// Resolves the raster words that actually draw one named bone for a fixture query value.
@@ -105,7 +109,9 @@ fn drawn(fixture: &(assets::EntityRenderData, MolangCompiler), bone: &str, value
             };
             loop {
                 selected = match &data.material_selections[selected as usize] {
-                    Node::Raster { material, state } => return material.word(*state),
+                    Node::Raster {
+                        material, state, ..
+                    } => return material.word(*state),
                     Node::Branch { condition, yes, no } => {
                         if read(*condition) != 0.0 {
                             *yes
@@ -216,6 +222,7 @@ fn static_single_material_needs_no_literal_bone_mask() {
         description.as_object().unwrap(),
         controller.as_object_mut().unwrap(),
         &MaterialStates::default(),
+        &mut MaterialTable::default(),
         &[geometry],
         [0],
         &mut None,

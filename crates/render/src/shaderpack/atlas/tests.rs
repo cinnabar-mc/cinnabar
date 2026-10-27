@@ -465,11 +465,11 @@ fn authored_material_overrides_fill_static_opaque_and_animated_sprites() {
         ((4, reference(0, 5).raw()), authored_ref),
         ((5, reference(0, 3).raw()), authored_ref),
     ]);
-    let enhanced = render_scene::EnhancedTextureAssets::new(
+    let enhanced = assets::texture::EnhancedTextureAssets::new(
         [page(0, 32, 2), page(1, 32, 2)],
         [page(7, 32, 2), page(9, 32, 2)],
         [page(8, 32, 2), page(10, 32, 2)],
-        render_scene::EnhancedTextureAssets::material_references(entries),
+        assets::texture::EnhancedTextureAssets::material_references(entries),
     )
     .unwrap();
     let authored = AuthoredPbr::new(
@@ -535,7 +535,7 @@ fn conflicting_authored_material_overrides_stay_neutral() {
             .enumerate()
             .map(|(id, authored)| ((id as u32, reference(0, 0).raw()), authored))
             .collect();
-        let refs = render_scene::EnhancedTextureAssets::material_references(entries);
+        let refs = assets::texture::EnhancedTextureAssets::material_references(entries);
         let authored = AuthoredPbr::new([&normal, &normal], [&material, &material], &refs);
         let content = plan::SpriteContent::Layer {
             reference: reference(0, 0),
@@ -625,7 +625,7 @@ fn mer_and_unauthored_layers_convert_to_labpbr_equivalents() {
 fn atlas_rebuilds_for_added_replaced_and_removed_authored_maps() {
     let assets = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 1);
     let authored = || {
-        Arc::new(render_scene::EnhancedTextureAssets {
+        Arc::new(assets::texture::EnhancedTextureAssets {
             color_pages: [page(0, 1, 1), page(0, 1, 1)],
             normal_pages: [page(0, 1, 1), page(0, 1, 1)],
             mer_pages: [page(0, 1, 1), page(0, 1, 1)],

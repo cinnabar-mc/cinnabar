@@ -155,14 +155,9 @@ fn raster_only_replacement_retains_the_base_lily_tint() {
 }
 
 fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
-    Some(Box::new([CustomMaterialInstance {
-        name: "*".into(),
-        texture: texture.into(),
-        render_method: None,
-        tint_method: None,
-        ambient_occlusion: None,
-        face_dimming: None,
-    }]))
+    Some(Box::new([CustomMaterialInstance::with_authored_defaults(
+        "*", texture,
+    )]))
 }
 
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {

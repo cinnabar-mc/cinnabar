@@ -33,6 +33,7 @@ test-support = []
 [dependencies]
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 protocol-ids = { path = "../protocol-ids" }
+render-api = { path = "../render-api" }
 env-compat = { path = "../env-compat" }
 block-transform = { path = "../block-transform" }
 bitflags = { version = "2", features = ["serde"] }

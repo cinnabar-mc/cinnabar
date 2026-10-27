@@ -488,10 +488,12 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
             state: None,
+            definition: None,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
+            definition: None,
         },
     ]
     .into();
@@ -515,6 +517,74 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
                 .material,
             expected
         );
+    }
+}
+
+#[test]
+fn selected_material_decides_whether_textures_group_into_one_draw() {
+    use assets::EntityRenderMaterialSelection as Node;
+    let mut compiled = compiled_fixture(180.0);
+    let frame_alpha = compiled
+        .molang_symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
+        .unwrap() as u32;
+    let choice = expression(&mut compiled, &[MolangOp::LoadQuery(frame_alpha)], 1);
+    compiled.render.material_selections = vec![
+        Node::Branch {
+            condition: choice,
+            yes: 1,
+            no: 2,
+        },
+        Node::Raster {
+            material: assets::EntityRenderMaterial::Default,
+            state: None,
+            definition: None,
+        },
+        Node::Raster {
+            material: assets::EntityRenderMaterial::Default,
+            state: Some(assets::EntityRenderMaterialState {
+                multitexture: true,
+                ..Default::default()
+            }),
+            definition: None,
+        },
+    ]
+    .into();
+    // Give the first layer three samplers while keeping every layer's slot and candidate ranges
+    // contiguous, as compiled carriers lay them out.
+    let mut layers = compiled.render.layers.to_vec();
+    let (mut slots, mut candidates) = (Vec::new(), Vec::new());
+    for (index, layer) in layers.iter_mut().enumerate() {
+        let first = layer.first_slot as usize;
+        let mut own = compiled.render.slots[first..first + usize::from(layer.slot_count)].to_vec();
+        if index == 0 {
+            own = vec![own[0]; 3];
+            layer.slot_count = 3;
+            layer.material_state = None;
+            layer.material_selection = Some(0);
+        }
+        layer.first_slot = slots.len() as u32;
+        for mut slot in own {
+            let first = slot.first_candidate as usize;
+            let range = first..first + usize::from(slot.candidate_count);
+            slot.first_candidate = candidates.len() as u32;
+            candidates.extend_from_slice(&compiled.render.candidates[range]);
+            slots.push(slot);
+        }
+    }
+    compiled.render.layers = layers.into();
+    compiled.render.slots = slots.into();
+    compiled.render.candidates = candidates.into();
+    let (store, actors) = fixture_with(compiled, 0.0, Default::default());
+    for (alpha, grouped) in [(0.0, true), (1.0, false)] {
+        let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let layers = store
+            .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+            .unwrap();
+        // Either way one draw: later slots are samplers, read only by a multitexture material.
+        assert_eq!(layers.render.len(), 1, "{alpha}");
+        assert_eq!(layers.render[0].multitexture.is_some(), grouped, "{alpha}");
     }
 }
 
@@ -593,10 +663,12 @@ fn material_decisions_preserve_one_controller_execution_with_script_effects() {
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
             state: None,
+            definition: None,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
+            definition: None,
         },
     ]
     .into();

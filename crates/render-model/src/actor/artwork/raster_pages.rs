@@ -58,7 +58,6 @@ impl ActorArtworkPages {
                 height: raster.height,
                 layers: 1,
                 rgba8: Arc::clone(&raster.rgba8),
-                color_mask: false,
                 multitexture: false,
             };
             hasher.update(page_id.to_le_bytes());
