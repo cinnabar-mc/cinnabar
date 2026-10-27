@@ -384,17 +384,18 @@ pub(super) fn prepare(
                 }
                 let local_camera = matrix.inverse().w_axis.truncate();
                 let direction = -matrix.row(2).truncate().normalize_or_zero();
-                let camera_key = transparent::face_metric::quantized_position_bits(local_camera)
-                    .map(|p| {
-                        [
-                            p[0],
-                            p[1],
-                            p[2],
-                            direction.x.to_bits(),
-                            direction.y.to_bits(),
-                            direction.z.to_bits(),
-                        ]
-                    });
+                let camera_key =
+                    crate::chunk::transparent::face_metric::quantized_position_bits(local_camera)
+                        .map(|p| {
+                            [
+                                p[0],
+                                p[1],
+                                p[2],
+                                direction.x.to_bits(),
+                                direction.y.to_bits(),
+                                direction.z.to_bits(),
+                            ]
+                        });
                 if placement.order_job.is_none()
                     && placement.sort_camera != camera_key
                     && !native.faces.is_empty()

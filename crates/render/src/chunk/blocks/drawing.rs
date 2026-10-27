@@ -11,6 +11,9 @@ pub(crate) fn encode<'w>(
     transparent: bool,
     pass: &mut TrackedRenderPass<'w>,
 ) {
+    if !contains(world, entity, clip) {
+        return;
+    }
     let (Some(blocks), Some(cache), Some(lightmap)) = (
         world.get_resource::<Blocks>(),
         world.get_resource::<PipelineCache>(),
@@ -100,6 +103,12 @@ fn issue(pass: &mut TrackedRenderPass<'_>, args: DrawIndexedIndirectArgs) {
 
 /// Whether this view has active block contents using a particular clip.
 pub(crate) fn contains(world: &World, entity: Entity, clip: Option<DrawingHandle>) -> bool {
+    if world
+        .get_resource::<render_scene::panorama::PanoramaScene>()
+        .is_some_and(|scene| !scene.game_visible())
+    {
+        return false;
+    }
     world.get_resource::<Blocks>().is_some_and(|blocks| {
         blocks.placements.iter().any(|(&(view, _), placement)| {
             view == entity && placement.active && placement.clip == clip
@@ -112,7 +121,7 @@ pub(crate) fn contains(world: &World, entity: Entity, clip: Option<DrawingHandle
     clippy::type_complexity,
     reason = "the view pass borrows Bevy's target and viewport components"
 )]
-pub(super) fn world_draw<const TRANSPARENT: bool>(
+pub(super) fn world_draw(
     world: &World,
     query: ViewQuery<(
         &ViewTarget,
@@ -133,12 +142,8 @@ pub(super) fn world_draw<const TRANSPARENT: bool>(
     else {
         return Ok(());
     };
-    let Some(color) = crate::scene_target::retained_color_attachment(
-        world,
-        entity,
-        target,
-        TRANSPARENT && !camera.hdr,
-    ) else {
+    let Some(color) = crate::scene_target::retained_color_attachment(world, entity, target, false)
+    else {
         return Ok(());
     };
     let colors = [Some(color)];
@@ -160,6 +165,6 @@ pub(super) fn world_draw<const TRANSPARENT: bool>(
         viewport.physical_size.x,
         viewport.physical_size.y,
     );
-    encode(world, entity, None, TRANSPARENT, &mut pass);
+    encode(world, entity, None, false, &mut pass);
     Ok(())
 }

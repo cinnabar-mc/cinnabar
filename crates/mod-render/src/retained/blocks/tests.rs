@@ -183,7 +183,7 @@ fn named_states_and_unknown_states_have_explicit_outcomes() {
 
 #[test]
 fn small_edits_share_unchanged_sections_and_noop_edits_preserve_identity() {
-    let assets = assets();
+    let assets = Arc::new(assets());
     let mut store = super::super::Store::default();
     let id = store
         .create_geometry(super::super::GeometrySpec::Blocks(grid([48, 16, 16])))
@@ -191,6 +191,7 @@ fn small_edits_share_unchanged_sections_and_noop_edits_preserve_identity() {
     store.commit();
     let old = Arc::clone(&store.snapshot().geometry[&id]);
     let request = old.blocks().unwrap();
+    assert!(request.bind_context(&assets, NetworkIdMode::Sequential, Default::default()));
     request.complete(request.mesh(
         &assets,
         NetworkIdMode::Sequential,
@@ -364,4 +365,48 @@ fn readiness_waits_for_gpu_admission_and_late_errors_stay_visible() {
     assert_eq!(request.status(), Some(Ok(())));
     request.fail_render(error(ErrorCode::BudgetExceeded, "test arena"));
     assert_eq!(request.status(), Some(Err(ErrorCode::BudgetExceeded)));
+}
+
+#[test]
+fn retained_partial_edits_keep_the_context_of_reused_sections_before_the_next_prepare() {
+    let assets = Arc::new(assets());
+    let mut store = super::super::Store::default();
+    let id = store
+        .create_geometry(super::super::GeometrySpec::Blocks(grid([32, 1, 1])))
+        .unwrap();
+    store.commit();
+    let old = Arc::clone(&store.snapshot().geometry[&id]);
+    let request = old.blocks().unwrap();
+    let settings = meshing::MeshRenderSettings::default();
+    assert!(request.bind_context(&assets, NetworkIdMode::Sequential, settings));
+    request.complete(request.mesh(&assets, NetworkIdMode::Sequential, |_, _| None, settings));
+    store
+        .update_blocks(
+            id,
+            vec![BlockEdit {
+                position: [0; 3],
+                cell: BlockCell {
+                    block_light: Some(9),
+                    ..request.grid.cells[0]
+                },
+            }],
+            DrawingPermissions::ALL,
+        )
+        .unwrap();
+    store.commit();
+    let edited = store.snapshot().geometry[&id].blocks().unwrap();
+    assert!(edited.bind_context(&assets, NetworkIdMode::Sequential, settings));
+    assert!(!edited.bind_context(
+        &assets,
+        NetworkIdMode::Sequential,
+        meshing::MeshRenderSettings {
+            smooth_lighting: !settings.smooth_lighting,
+            ..settings
+        }
+    ));
+    assert!(!edited.bind_context(
+        &Arc::new(self::assets()),
+        NetworkIdMode::Sequential,
+        settings
+    ));
 }

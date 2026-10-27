@@ -13,6 +13,12 @@ pub(super) struct Face {
 pub(super) struct Order {
     pub _buffer: mod_render::GpuAllocation<Buffer>,
     pub count: u32,
+    pub groups: Vec<Group>,
+}
+
+pub(super) struct Group {
+    pub center: Vec3,
+    pub range: Range<u32>,
 }
 
 /// Computes native face centroids once, after the ordinary uploader has assigned addresses.
@@ -82,7 +88,7 @@ pub(super) fn sort(
     queue: RenderQueue,
     ledger: &mod_render::GpuLedger,
 ) -> Option<Order> {
-    let refs = references(&native.faces, camera, direction);
+    let (refs, groups) = references(&native.faces, camera, direction);
     let count = refs.len() as u32;
     let bytes = refs.len().max(1) * std::mem::size_of::<[u32; 2]>();
     let buffer = ledger.allocate(bytes as u64, || {
@@ -101,11 +107,12 @@ pub(super) fn sort(
     Some(Order {
         _buffer: buffer,
         count,
+        groups,
     })
 }
 
 /// Orders sections by view depth and delegates their mixed face order to ordinary terrain.
-fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> Vec<[u32; 2]> {
+fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> (Vec<[u32; 2]>, Vec<Group>) {
     let mut groups = BTreeMap::<SubChunkKey, Vec<MixedFace>>::new();
     for (index, face) in faces.iter().enumerate() {
         groups.entry(face.key).or_default().push(MixedFace {
@@ -126,15 +133,21 @@ fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> Vec<[u32; 2]> {
             .then_with(|| left.cmp(right))
     });
     let mut refs = Vec::with_capacity(faces.len());
+    let mut ranges = Vec::with_capacity(groups.len());
     for (key, mut group) in groups {
+        let start = refs.len() as u32;
         sort_faces(key, camera, &mut group);
         refs.extend(
             group
                 .into_iter()
                 .map(|face| faces[face.index as usize].reference),
         );
+        ranges.push(Group {
+            center: Vec3::from_array(chunk_origin(key).map(|v| v as f32)) + Vec3::splat(8.),
+            range: start..refs.len() as u32,
+        });
     }
-    refs
+    (refs, ranges)
 }
 
 #[cfg(test)]
@@ -157,7 +170,7 @@ mod tests {
             face(0, MixedStream::Model, 1),
         ];
         assert_eq!(
-            references(&faces, Vec3::ZERO, Vec3::NEG_Z),
+            references(&faces, Vec3::ZERO, Vec3::NEG_Z).0,
             [1, 2, 4, 3].map(|id| [id, 0])
         );
     }

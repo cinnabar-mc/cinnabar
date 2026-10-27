@@ -121,8 +121,8 @@ fn portal_resources_enforce_combined_bundle_triangles_after_worker_completion() 
     );
 }
 
-#[test]
-fn portal_resources_drain_completed_sorts_while_their_grid_is_offscreen() {
+/// Supplies an admitted placement on the validated NOOP device without game carriers.
+pub(super) fn placement_fixture() -> (App, (Entity, DrawingHandle), Placement) {
     let (mut app, _) = crate::queue_review_support::app();
     let (store, grid, id, _) = grid_scene();
     let device = app.world().resource::<RenderDevice>().clone();
@@ -155,31 +155,40 @@ fn portal_resources_drain_completed_sorts_while_their_grid_is_offscreen() {
         .world()
         .resource::<PipelineCache>()
         .queue_render_pipeline(default());
+    let view = {
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<Entity, bevy::prelude::With<ExtractedView>>();
+        query.single(world).unwrap()
+    };
+    let placement = Placement {
+        uniform,
+        matrix: Mat4::IDENTITY,
+        projection: Mat4::IDENTITY,
+        viewport: bevy::math::UVec4::ZERO,
+        exposure: 1.,
+        binding: None,
+        opaque_binding: None,
+        identity: None,
+        native,
+        order: None,
+        order_job: None,
+        sort_camera: None,
+        pipelines: [pipeline; 5],
+        clip: None,
+        active: false,
+        _charge: ledger.allocate(0, || Some(())).unwrap(),
+    };
+    (app, (view, id), placement)
+}
+
+#[test]
+fn portal_resources_drain_completed_sorts_while_their_grid_is_offscreen() {
+    let (_, key, mut placement) = placement_fixture();
     let pool = AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let job = pool.spawn(async { None });
     test_time::eventually("completed offscreen block sort", || job.is_finished());
-    let key = (app.world_mut().spawn_empty().id(), id);
-    let mut placements = BTreeMap::from([(
-        key,
-        Placement {
-            uniform,
-            matrix: Mat4::IDENTITY,
-            projection: Mat4::IDENTITY,
-            viewport: bevy::math::UVec4::ZERO,
-            exposure: 1.,
-            binding: None,
-            opaque_binding: None,
-            identity: None,
-            native,
-            order: None,
-            order_job: Some(job),
-            sort_camera: None,
-            pipelines: [pipeline; 5],
-            clip: None,
-            active: false,
-            _charge: ledger.allocate(0, || Some(())).unwrap(),
-        },
-    )]);
+    placement.order_job = Some(job);
+    let mut placements = BTreeMap::from([(key, placement)]);
     prepare::poll_orders(&mut placements, &mut Vec::new());
     assert!(placements[&key].order_job.is_none());
 }
@@ -256,15 +265,6 @@ fn world_glass(mut pixel: ResMut<Pixel>) {
     }
 }
 
-/// Models a transparent green grid in front of the world glass.
-fn transparent_grid(mut pixel: ResMut<Pixel>) {
-    if 0.9 >= pixel.depth {
-        pixel.color = pixel.color.map(|value| value * 0.5);
-        pixel.color[1] += 0.5;
-        pixel.depth = 0.9;
-    }
-}
-
 #[test]
 fn retained_opaque_grids_remain_visible_through_world_transparency() {
     use crate::scene_target::ScenePass;
@@ -276,13 +276,31 @@ fn retained_opaque_grids_remain_visible_through_world_transparency() {
         schedule
             .configure_sets((ScenePass::Opaque, ScenePass::Transparent, ScenePass::Finish).chain());
         schedule.add_systems((
-            opaque_grid.in_set(BlockPass::Opaque),
+            opaque_grid.in_set(BlockPass),
             world_glass.in_set(ScenePass::Transparent),
-            transparent_grid.in_set(BlockPass::Transparent),
         ));
     });
     world.run_schedule(Core3d);
     let pixel = world.resource::<Pixel>();
-    assert_eq!(pixel.color, [0.25, 0.5, 0.25]);
-    assert_eq!(pixel.depth, 0.9);
+    assert_eq!(pixel.color, [0.5, 0., 0.5]);
+    assert_eq!(pixel.depth, 0.8);
+}
+
+#[test]
+fn retained_blocks_follow_gameplay_visibility_even_with_active_placements() {
+    let (mut app, (view, id), mut placement) = placement_fixture();
+    placement.active = true;
+    app.world_mut().insert_resource(Blocks {
+        placements: BTreeMap::from([((view, id), placement)]),
+        ..default()
+    });
+    assert!(drawing::contains(app.world(), view, None));
+    let mut panorama = render_scene::panorama::PanoramaScene::default();
+    panorama.set_game_visible(false);
+    app.world_mut().insert_resource(panorama);
+    assert!(!drawing::contains(app.world(), view, None));
+    app.world_mut()
+        .resource_mut::<render_scene::panorama::PanoramaScene>()
+        .set_game_visible(true);
+    assert!(drawing::contains(app.world(), view, None));
 }

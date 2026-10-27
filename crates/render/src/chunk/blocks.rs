@@ -17,6 +17,7 @@ mod prepare;
 mod sorting;
 #[cfg(test)]
 mod tests;
+pub(in crate::chunk) mod transparent;
 use sorting::{Face, Order};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, SpecializerKey)]
@@ -139,19 +140,17 @@ struct Placement {
 }
 
 #[derive(Resource, Default)]
-struct Blocks {
+pub(in crate::chunk) struct Blocks {
     native: BTreeMap<DrawingHandle, Arc<Native>>,
     pending: BTreeMap<DrawingHandle, Pending>,
     placements: BTreeMap<(Entity, DrawingHandle), Placement>,
     ledgers: HashMap<u64, mod_render::GpuLedger>,
     sort_cursor: Option<(Entity, DrawingHandle)>,
+    draws: Vec<transparent::Draw>,
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum BlockPass {
-    Opaque,
-    Transparent,
-}
+pub(crate) struct BlockPass;
 
 #[derive(Resource)]
 struct Installed;
@@ -171,10 +170,13 @@ pub(crate) fn install(app: &mut App) {
     render
         .insert_resource(Installed)
         .init_resource::<Blocks>()
+        .add_render_command::<Transparent3d, transparent::DrawCommands>()
         .add_systems(RenderStartup, bevy::render::init_gpu_resource::<Pipelines>)
         .add_systems(
             Render,
-            prepare::prepare.in_set(RenderSystems::PrepareBindGroups),
+            (prepare::prepare, transparent::queue)
+                .chain()
+                .in_set(RenderSystems::PrepareBindGroups),
         );
     install_graph(render.world_mut());
 }
@@ -190,21 +192,13 @@ pub(crate) fn install_graph(world: &mut World) {
     }
     let installed = world
         .try_schedule_scope(bevy::core_pipeline::Core3d, |_, schedule| {
-            schedule.configure_sets((
-                BlockPass::Opaque
+            schedule.configure_sets(
+                BlockPass
                     .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
                     .after(crate::scene_target::ScenePass::Opaque)
                     .before(crate::scene_target::ScenePass::Transparent),
-                BlockPass::Transparent
-                    .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
-                    .after(crate::scene_target::ScenePass::Transparent)
-                    .before(crate::mod_render::retained::clips::ClipPass)
-                    .before(crate::scene_target::ScenePass::Finish),
-            ));
-            schedule.add_systems((
-                drawing::world_draw::<false>.in_set(BlockPass::Opaque),
-                drawing::world_draw::<true>.in_set(BlockPass::Transparent),
-            ));
+            );
+            schedule.add_systems(drawing::world_draw.in_set(BlockPass));
         })
         .is_ok();
     if installed {

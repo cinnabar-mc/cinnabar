@@ -62,6 +62,7 @@ pub struct BlockMesh {
 }
 
 /// Retains the registry and meshing settings to which packed material addresses belong.
+#[derive(Clone)]
 struct MeshContext {
     assets: Arc<RuntimeAssets>,
     mode: NetworkIdMode,
@@ -494,7 +495,10 @@ impl super::Store {
         let mut geometry = grid.admit()?;
         let request =
             Arc::get_mut(geometry.blocks.as_mut().expect("block geometry")).expect("new request");
-        if block.render_error().is_none() {
+        if block.render_error().is_none()
+            && let Some(context) = block.context.get()
+        {
+            let _ = request.context.set(context.clone());
             request.dirty = previous.as_ref().map(|_| dirty);
             request.previous = previous;
         }
