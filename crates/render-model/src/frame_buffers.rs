@@ -7,20 +7,21 @@ const CACHED_BUFFERS: usize = 4;
 
 /// Producer-owned scratch for immutable frame arrays, including vertex publications.
 #[derive(Debug)]
-pub struct FrameBuffers<T> {
+pub struct FrameBuffers<T, const CAPACITY: usize = CACHED_BUFFERS> {
     retired: Vec<Arc<[T]>>,
 }
 
-impl<T> Default for FrameBuffers<T> {
-    /// Starts without allocating storage before its first publication.
+impl<T, const CAPACITY: usize> Default for FrameBuffers<T, CAPACITY> {
+    /// Starts without allocating storage; `CAPACITY` must be positive.
     fn default() -> Self {
+        assert!(CAPACITY > 0, "frame storage needs a positive cache budget");
         Self {
             retired: Vec::new(),
         }
     }
 }
 
-impl<T: Copy + bytemuck::Zeroable> FrameBuffers<T> {
+impl<T: Copy + bytemuck::Zeroable, const CAPACITY: usize> FrameBuffers<T, CAPACITY> {
     /// Fills an exclusive array and publishes it immutably. `fill` must write every element;
     /// an error publishes nothing and leaves all existing readers unchanged.
     pub fn write<E>(
@@ -33,7 +34,7 @@ impl<T: Copy + bytemuck::Zeroable> FrameBuffers<T> {
             .iter_mut()
             .position(|buffer| buffer.len() == len && Arc::get_mut(buffer).is_some());
         let index = index.unwrap_or_else(|| {
-            if self.retired.len() == CACHED_BUFFERS {
+            if self.retired.len() == CAPACITY {
                 self.retired.remove(0);
             }
             self.retired.push(vec![T::zeroed(); len].into());
