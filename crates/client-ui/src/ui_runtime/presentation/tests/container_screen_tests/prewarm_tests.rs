@@ -460,7 +460,12 @@ fn image_residency_keeps_prepared_inventory_measurements() {
     engine
         .textures
         .set_atlas(ui_engine::atlas::ServerAtlas::new(&files, None, 1), 1);
-    presentation.screens.containers.invalidate_textures();
+    let head = render_model::UiTexturePage::owned([4, 2], vec![255; 32].into()).unwrap();
+    engine
+        .textures
+        .atlas_mut()
+        .set_local_player_head(Some(&head));
+    presentation.poll_server_ui_images();
     draw(&mut presentation, &runtime, &player, 1);
     let placed = presentation.engine_container_placed();
     let metadata = presentation
@@ -491,7 +496,7 @@ fn image_residency_keeps_prepared_inventory_measurements() {
     );
     assert!(!presentation.engine_inventory_preparation_pending());
 
-    let head = render_model::UiTexturePage::owned([4, 2], vec![255; 32].into()).unwrap();
+    let head = render_model::UiTexturePage::owned([8, 2], vec![255; 64].into()).unwrap();
     presentation
         .engine
         .as_mut()
