@@ -88,6 +88,7 @@ pub(super) fn retextured_visuals(
         .enumerate()
         .filter(|(_, (before, after))| {
             before.faces != after.faces
+                || before.model_template != after.model_template
                 || before.faces.iter().any(|&face| changed(face))
                 || (before.model_template != crate::NO_MODEL_TEMPLATE
                     && model_changed(before.model_template))

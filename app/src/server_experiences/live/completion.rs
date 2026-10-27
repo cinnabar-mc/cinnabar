@@ -363,8 +363,14 @@ impl<H> Instance<H> {
                 .any(|command| matches!(command, Command::Scene { .. })),
             "legacy objects require a presentation snapshot"
         );
+        let world = world_change(&self.contributions.world, &transaction.commands);
         self.contributions
             .apply(&transaction, &self.owner, self.epoch, &self.capabilities)?;
+        match world {
+            WorldChange::None => {}
+            WorldChange::Params(ids) => self.world_params.extend(ids),
+            WorldChange::Structural => self.world_revision += 1,
+        }
         if transaction.epoch == epoch && Some(self.pending_drawing_context.fence()) == fence {
             self.accept_references(references, &valid)?;
             if let Some(presentation) = presentation {
@@ -380,5 +386,45 @@ impl<H> Instance<H> {
         }
         modal::note_opened(self, &transaction, modal_order);
         Ok(transaction.commands)
+    }
+}
+
+/// How a transaction changes a client part's world material declarations.
+enum WorldChange {
+    None,
+    /// Only these materials' parameters.
+    Params(Vec<u32>),
+    /// Anything else: a new program, a removal or a binding.
+    Structural,
+}
+
+/// Classifies `commands` against the declarations `world` holds before they apply.
+fn world_change(
+    world: &server_experience::world_material::WorldMaterials,
+    commands: &[Command],
+) -> WorldChange {
+    let mut params = Vec::new();
+    for command in commands {
+        match command {
+            Command::WorldMaterial {
+                id,
+                material: Some(spec),
+            } if world
+                .materials()
+                .get(id)
+                .is_some_and(|held| held.same_program(spec)) =>
+            {
+                params.push(*id);
+            }
+            Command::WorldMaterial { .. } | Command::WorldBinding { .. } => {
+                return WorldChange::Structural;
+            }
+            _ => {}
+        }
+    }
+    if params.is_empty() {
+        WorldChange::None
+    } else {
+        WorldChange::Params(params)
     }
 }

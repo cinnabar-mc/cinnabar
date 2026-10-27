@@ -539,16 +539,10 @@ impl EquipmentRuntime {
             && binding.color_mask == assets::EquipmentColorMask::Dye;
         presentation.submission.material.color_mask = color_mask;
         if profile == render_api::CombatVisuals::Legacy112 {
-            presentation.submission.material.kind = if item.has_glint() {
-                assets::EntityRenderMaterial::Glint
-            } else {
-                assets::EntityRenderMaterial::Default
-            };
-            presentation.submission.material.state = Some(assets::EntityRenderMaterialState {
-                alpha_test: true,
-                cull: false,
-                ..Default::default()
-            });
+            presentation.submission.material = presentation
+                .submission
+                .material
+                .legacy_worn(item.has_glint());
         }
         if profile == render_api::CombatVisuals::Legacy112
             && from_pack

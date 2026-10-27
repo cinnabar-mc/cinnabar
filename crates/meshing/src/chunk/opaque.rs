@@ -90,6 +90,7 @@ pub(crate) struct CubeMeshOutput<'a> {
     diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
     materials: &'a [assets::Material],
     split_tinted_faces: bool,
+    world_materials: &'a [(u32, u8)],
 }
 
 impl<'a> CubeMeshOutput<'a> {
@@ -98,13 +99,20 @@ impl<'a> CubeMeshOutput<'a> {
         diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
         materials: &'a [assets::Material],
         split_tinted_faces: bool,
+        world_materials: &'a [(u32, u8)],
     ) -> Self {
         Self {
             streams,
             diagnostic_geometry,
             materials,
             split_tinted_faces,
+            world_materials,
         }
+    }
+
+    /// One more than the world material slot shading block `network_value`; zero for none.
+    fn world_material(&self, network_value: u32) -> u8 {
+        world_material_tag(self.world_materials, network_value)
     }
 }
 
@@ -303,6 +311,16 @@ const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize
     }
 }
 
+/// One more than the world material slot `tags` (sorted by network value) give block
+/// `network_value`; zero for none.
+pub(crate) fn world_material_tag(tags: &[(u32, u8)], network_value: u32) -> u8 {
+    if tags.is_empty() {
+        return 0;
+    }
+    tags.binary_search_by_key(&network_value, |(value, _)| *value)
+        .map_or(0, |index| tags[index].1)
+}
+
 pub(crate) fn greedy_slice(
     resolver: &CubeMaterialResolver<'_, '_, '_>,
     face: Face,
@@ -318,6 +336,7 @@ pub(crate) fn greedy_slice(
             let origin = block_coordinate(face, slice, u, v);
             let origin_entry = facts.at(origin[0], origin[1], origin[2]);
             let material_id = resolver.face_material(origin, origin_entry, face);
+            let world = output.world_material(origin_entry.network_value);
             let lighting = lighting_scratch[v * SIDE + u];
             let material = output.materials[material_id as usize];
             // Each isotropic face owns its block-position hash. Merging even
@@ -341,6 +360,7 @@ pub(crate) fn greedy_slice(
                 let candidate = facts.at(x, y, z);
                 let candidate_material = resolver.face_material([x, y, z], candidate, face);
                 same_greedy_identity(origin_entry, candidate, material_id, candidate_material)
+                    && output.world_material(candidate.network_value) == world
                     && lighting_scratch[v * SIDE + u + width] == lighting
             } {
                 width += 1;
@@ -358,7 +378,8 @@ pub(crate) fn greedy_slice(
                         candidate,
                         material_id,
                         candidate_material,
-                    ) {
+                    ) || output.world_material(candidate.network_value) != world
+                    {
                         break 'height;
                     }
                     if lighting_scratch[(v + height) * SIDE + u + offset] != lighting {
@@ -378,7 +399,8 @@ pub(crate) fn greedy_slice(
                     width as u8,
                     height as u8,
                     material_id,
-                ),
+                )
+                .with_world_material(world),
                 lighting,
                 crate::is_single_sided_opaque(output.materials, material_id),
             );

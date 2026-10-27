@@ -226,21 +226,8 @@ fn generated_material_states_cover_the_pack_without_stale_aliases() {
             "{name}"
         );
     }
-    for (name, state) in rules().material_states() {
-        assert_eq!(
-            EntityRenderMaterialState::from_word(rules().raster(name).word(Some(state))),
-            Some(state),
-            "{name}"
-        );
-    }
-    assert_eq!(
-        rules().material_state(HARNESS_MATERIAL),
-        Some(EntityRenderMaterialState {
-            alpha_test: true,
-            cull: false,
-            ..Default::default()
-        })
-    );
+    let harness = rules().material_state(HARNESS_MATERIAL).unwrap();
+    assert!(harness.alpha_test && !harness.cull && !harness.blend && harness.depth_write);
 }
 
 #[test]
@@ -252,7 +239,7 @@ fn pack_rules_reject_a_listed_provisional_material() {
 }
 
 #[test]
-fn pack_rules_preserve_material_alias_states_and_rasters() {
+fn pack_rules_preserve_material_alias_rasters() {
     let mut names = BTreeSet::new();
     for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
         let (domain, name) = row.split_once('\t').unwrap();

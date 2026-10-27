@@ -254,6 +254,7 @@ fn runtime_acceptance_child() {
         channels: bundle.manifest.channels.clone(),
         actions: bundle.manifest.actions.clone(),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     };
     assert!(
         !capabilities

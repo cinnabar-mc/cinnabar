@@ -65,7 +65,6 @@ fn unused_artwork_is_bounded_but_demanded_pages_are_immediate() {
             height: 8,
             layers: 1,
             rgba8: vec![marker; 8 * 8 * 4].into(),
-            color_mask: false,
             multitexture: false,
         })
         .collect();
@@ -322,7 +321,6 @@ fn large_pages_upload_within_the_frame_budget_and_bind_when_complete() {
         height: 1024,
         layers,
         rgba8: vec![9; 1024 * 1024 * 4 * layers as usize].into(),
-        color_mask: false,
         multitexture: false,
     }]);
     let total = pages.pages[0].rgba8.len();

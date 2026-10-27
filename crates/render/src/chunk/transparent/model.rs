@@ -330,6 +330,10 @@ pub(in crate::chunk) fn transparent_model_phase_distance(
     rangefinder.distance(&transparent_model_subchunk_center(key))
 }
 
+/// The world-space ordering centroid of one model draw and its absolute draw ref words, or
+/// `None` when the draw names a missing or hidden template quad. The template lookup ignores
+/// the draw's world material tag, and the returned words keep it so the shaders still route
+/// the face to its material.
 pub(in crate::chunk) fn transparent_model_draw_candidate(
     key: SubChunkKey,
     model_refs: &[PackedModelRef],
@@ -340,7 +344,8 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
     model_record_base: u32,
 ) -> Option<(Vec3, [u32; 2])> {
     let [chunk_x, chunk_y, chunk_z] = chunk_origin(key).map(|coordinate| coordinate as f32);
-    let [local_model_ref, quad_index] = draw_ref.words();
+    let [local_model_ref, quad_word] = draw_ref.words();
+    let quad_index = draw_ref.quad_index();
     let model_ref = model_refs.get(local_model_ref as usize)?.words();
     let template = model_templates.get(model_ref[1] as usize)?;
     if quad_index >= template.quad_count || model_ref[3] & (1_u32 << quad_index) == 0 {
@@ -381,7 +386,7 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
     );
     Some((
         Vec3::new(chunk_x, chunk_y, chunk_z) + block + centroid,
-        [local_model_ref.checked_add(model_record_base)?, quad_index],
+        [local_model_ref.checked_add(model_record_base)?, quad_word],
     ))
 }
 
