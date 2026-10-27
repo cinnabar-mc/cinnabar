@@ -63,11 +63,11 @@ impl Drop for FrameVariableLease<'_> {
         for (place, value) in undo.drain(..).rev() {
             variables.put(place, value);
         }
-        variables.live_temps.clear();
+        variables.buffers.live_temps.clear();
         variables.random = self.random.0;
         variables.random_draws = self.random.1;
         variables.capture_writes = false;
-        variables.writes.clear();
+        variables.buffers.writes.clear();
         variables.publication_random = None;
         variables.frame.as_mut().unwrap().undo = Some(undo);
         self.pool.0.push(variables);
@@ -104,7 +104,7 @@ impl MolangVariables {
         }
         buffers.frame.undo.get_or_insert_with(Vec::new).clear();
         self.frame = Some(buffers.frame);
-        let outer_writes = std::mem::replace(&mut self.writes, buffers.writes);
+        let outer_writes = std::mem::replace(&mut self.buffers.writes, buffers.writes);
         Isolation {
             random: (self.random, self.random_draws),
             publication: self.publication_random,
@@ -134,9 +134,10 @@ impl Drop for Isolation<'_> {
         for (place, value) in undo.drain(..).rev() {
             variables.put(place, value);
         }
-        variables.live_temps.clear();
-        variables.live_temps.extend(
+        variables.buffers.live_temps.clear();
+        variables.buffers.live_temps.extend(
             variables
+                .buffers
                 .temps
                 .iter()
                 .enumerate()
@@ -147,7 +148,7 @@ impl Drop for Isolation<'_> {
         variables.publication_random = self.publication;
         variables.capture_writes = self.capture;
         let mut writes = std::mem::replace(
-            &mut variables.writes,
+            &mut variables.buffers.writes,
             std::mem::take(&mut self.outer_writes),
         );
         writes.clear();
