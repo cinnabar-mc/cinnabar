@@ -40,6 +40,7 @@ pub use source_paths::{
 };
 use source_paths::{validate_relative_path, validate_symbol_source};
 pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
+pub use v4::material;
 
 use v4::validate_extended_payload;
 #[allow(unused_imports)]
@@ -67,9 +68,9 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-/// Includes item-use, seat, interaction, rig-frame, intrinsic shine and geometry-locator facts;
-/// stale carriers need `make assets`.
-pub const ENTITY_BLOB_VERSION: u32 = 24;
+/// Includes item-use, seat, interaction, rig-frame, intrinsic shine, geometry-locator facts and
+/// resolved entity material definitions; stale carriers need `make assets`.
+pub const ENTITY_BLOB_VERSION: u32 = 25;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).

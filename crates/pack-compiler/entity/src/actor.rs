@@ -236,7 +236,7 @@ fn build_artwork<B: AsRef<[u8]> + Send>(
     let render = &entities.render;
     let decoder = SourceDecoder {
         lenient,
-        keeps_alpha: assets::actor_sources_keeping_alpha(render, &entities.sources),
+        keeps_alpha: assets::actor_sources_keeping_alpha(render),
     };
     let layer_rasters = render
         .layers

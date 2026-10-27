@@ -305,7 +305,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let uv_dy = dpdy(uv);
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
-    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
+    let color_mask_material = (input.material & (ACTOR_MATERIAL_COLOR_MASK_FLAG | ACTOR_COLOR_MASK_MATERIAL_FLAG)) != 0u;
     let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;

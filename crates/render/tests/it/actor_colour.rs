@@ -112,7 +112,7 @@ fn cases() -> Vec<Case> {
                 name: "gamma dye mask",
                 texture: 1,
                 tint: render_model::pack_overlay_rgba8([0.4, 0.7, 0.3, 0.8]),
-                material: [0, 1, 0, 0],
+                material_word: NATIVE_COLOR_MASK,
                 ..Default::default()
             },
             Case {
@@ -232,12 +232,16 @@ fn sampled_light(case: Case, table: &[f32]) -> [f32; 3] {
     })
 }
 
+/// An authored `USE_COLOR_MASK` material's instance word.
+const NATIVE_COLOR_MASK: u32 =
+    assets::EntityRenderMaterialState::AUTHORED | assets::EntityRenderMaterialState::COLOR_MASK;
+
 fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
     let texel = TEXELS[case.texture as usize].map(|byte| f32::from(byte) / 255.0);
     let mut color = texel;
     if case.tint != 0 {
         let tint = unpack(case.tint);
-        if case.material[1] != 0
+        if case.material_word & assets::EntityRenderMaterialState::COLOR_MASK != 0
             || case.material_word & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG != 0
         {
             for i in 0..3 {
@@ -334,8 +338,8 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
 }
 
 #[test]
-fn dye_mask_pages_keep_zero_alpha_rgb_and_depth_in_both_profiles() {
-    let Some(gpu) = Gpu::for_fixture("sheep and wolf dye-mask page contract") else {
+fn dye_mask_materials_keep_zero_alpha_rgb_and_depth_in_both_profiles() {
+    let Some(gpu) = Gpu::for_fixture("sheep and wolf dye-mask material contract") else {
         return;
     };
     let cases = [0, render_model::LEGACY_COMBAT_MATERIAL_FLAG]
@@ -344,8 +348,7 @@ fn dye_mask_pages_keep_zero_alpha_rgb_and_depth_in_both_profiles() {
             [0, 1, 4].map(|texture| Case {
                 name: "body dye mask alpha is not transparency",
                 texture,
-                material: [0, 1, 0, 0],
-                material_word: profile,
+                material_word: profile | NATIVE_COLOR_MASK,
                 tint: render_model::pack_overlay_rgba8([0.2, 0.8, 0.4, 1.0]),
                 depth_probe: true,
                 ..Default::default()
@@ -459,7 +462,6 @@ fn legacy_fragment_keeps_leather_dye_red_lighting_and_untinted_glint_after_fog()
                     | assets::EntityRenderMaterial::Default.word(Some(
                         assets::EntityRenderMaterialState {
                             alpha_test: true,
-                            cull: false,
                             ..Default::default()
                         },
                     )),
@@ -718,7 +720,7 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>) {
             (authored_cutout && !(legacy && mask) && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
                 || (legacy && mask && alpha == 0.0)
                 || (enchanted && !(legacy && mask) && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
-                || (case.material[1] == 0
+                || (case.material_word & assets::EntityRenderMaterialState::COLOR_MASK == 0
                     && !mask
                     && case.material[2] == 0
                     && ((case.material[0] == 0 && alpha < 0.1)
