@@ -64,6 +64,12 @@ struct Instance<H> {
     pending_drawing_context: mod_host::presentation::Context,
     /// The helper's latest held references, independent of snapshot transfer progress.
     drawing_references: Vec<mod_render::retained::EntityKey>,
+    /// Counts structural changes to its world material declarations: each transaction
+    /// carrying a world command other than a parameter-only update, and the stop that clears
+    /// them.
+    world_revision: u64,
+    /// The materials whose parameters alone changed since the presenter last read them.
+    world_params: BTreeSet<u32>,
 }
 
 impl<H: Worker> Instance<H> {
@@ -133,6 +139,10 @@ impl<H> Instance<H> {
         self.pending = None;
         self.waiting_for = None;
         self.queue.clear();
+        if self.contributions.world != Default::default() {
+            self.world_revision += 1;
+        }
+        self.world_params.clear();
         self.contributions = Contributions::default();
         self.presentation.clear();
         self.drawing_references.clear();
@@ -141,6 +151,12 @@ impl<H> Instance<H> {
         budget.quarantine(&self.owner);
         self.stopped = Some(why);
     }
+}
+
+/// A runtime identity no other runtime in this process has had.
+fn next_world_run() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// What the trusted status says of a client part stopped after `MAX_GUEST_STRIKES` failures.
@@ -159,6 +175,9 @@ pub(super) struct Live<H = Helper> {
     /// Scene and frame revisions `screens` was built from.
     screens_built: Option<(u64, u64)>,
     scene_revision: u64,
+    /// Unique to this runtime in the process, so a presenter tells a new session from a
+    /// change in this one.
+    world_run: u64,
     instances: BTreeMap<String, Instance<H>>,
     /// The last dispatched recipient, so the next slice starts with its successor.
     last_recipient: Option<String>,
@@ -278,6 +297,8 @@ impl<H: Worker> Live<H> {
                 drawing_context: Default::default(),
                 pending_drawing_context: Default::default(),
                 drawing_references: Vec::new(),
+                world_revision: 0,
+                world_params: BTreeSet::new(),
             };
             if let Err(error) = admission {
                 let failure = CallFailure::startup(&instance.owner.bundle, &error);
@@ -297,6 +318,7 @@ impl<H: Worker> Live<H> {
             screens: Vec::new(),
             screens_built: None,
             scene_revision,
+            world_run: next_world_run(),
             instances,
             last_recipient: None,
             executable: executable.to_owned(),
@@ -579,6 +601,52 @@ impl<H: Worker> Live<H> {
         Some(&self.screens)
     }
 
+    /// This runtime's identity and a revision that changes whenever any client part's world
+    /// material declarations may have changed, and only then.
+    pub(super) fn world_contribution(&self) -> (u64, u64) {
+        let revision = self.instances.values().fold(0_u64, |sum, instance| {
+            sum.wrapping_add(instance.world_revision)
+        });
+        (self.world_run, revision)
+    }
+
+    /// Each running client part's world material declarations, in bundle order, with its share
+    /// of the signed GPU limit, what its share of the signed memory limit leaves once the
+    /// declarations themselves are charged, and its signed files. A stopped part declares
+    /// nothing.
+    pub(super) fn world_bundles(
+        &self,
+    ) -> impl Iterator<Item = super::world_materials::BundleWorld<'_>> {
+        self.instances
+            .iter()
+            .filter(|(_, instance)| instance.stopped.is_none())
+            .map(|(bundle, instance)| super::world_materials::BundleWorld {
+                bundle,
+                world: &instance.contributions.world,
+                gpu_bytes: instance.capabilities.scope.gpu_bytes,
+                memory_bytes: instance
+                    .capabilities
+                    .scope
+                    .memory_bytes
+                    .saturating_sub(instance.contributions.world.charge()),
+                files: &instance.files,
+            })
+    }
+
+    /// Takes the materials whose parameters alone changed since the last call, with their
+    /// current parameters, as (bundle, material id, parameters).
+    pub(super) fn take_world_params(&mut self) -> Vec<(String, u32, Vec<f32>)> {
+        let mut changed = Vec::new();
+        for (bundle, instance) in &mut self.instances {
+            for id in std::mem::take(&mut instance.world_params) {
+                if let Some(spec) = instance.contributions.world.materials().get(&id) {
+                    changed.push((bundle.clone(), id, spec.params.clone()));
+                }
+            }
+        }
+        changed
+    }
+
     /// Uses only host-owned status text in the persistent execution indicator; a stopped client
     /// part is named by its bundle id, which the signed manifest bounds.
     pub(super) fn text(&self) -> String {
@@ -679,6 +747,7 @@ fn capabilities(grant: &Grant, manifest: &Manifest, assets: BTreeSet<String>) ->
         channels: manifest.channels.clone(),
         actions: manifest.actions.clone(),
         max_message_bytes: grant.wire.limits.max_message_bytes,
+        namespace: manifest.namespace.clone(),
     }
 }
 

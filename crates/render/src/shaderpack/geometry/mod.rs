@@ -171,7 +171,7 @@ pub(super) fn prepare_geometry_resources(
 fn install_expansion_recording(world: &mut World) {
     let _ = world.try_schedule_scope(bevy::render::renderer::RenderGraph, |_, schedule| {
         schedule.add_systems(
-            gpu::record_geometry_expansion
+            gpu::record::record_geometry_expansion
                 .after(crate::upload_staging::BufferUploads)
                 .before(bevy::core_pipeline::schedule::camera_driver)
                 .in_set(bevy::render::renderer::RenderGraphSystems::Render)

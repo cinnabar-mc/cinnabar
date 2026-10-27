@@ -753,3 +753,124 @@ fn java_mode_toggles_withdraw_old_meshes_and_reject_late_round_trip_results() {
         assert_eq!(capture_mesh(&stream, key).java_meshing, original);
     }
 }
+
+#[test]
+fn world_material_tags_reach_new_snapshots_and_remesh_until_they_are_cleared() {
+    let (mut stream, key) = fixture();
+    stream.resident.insert(key);
+    let now = Instant::now();
+    let revision = stream.mark_dirty_exact(key, now);
+    // The center section holds value 1.
+    let tags: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8), (5, 2)]);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&tags), now),
+        Some(vec![key])
+    );
+    assert!(Arc::ptr_eq(stream.world_material_tags(), &tags));
+    assert_eq!(&*capture_mesh(&stream, key).world_materials, &*tags);
+    assert!(!stream.revisions.is_current(key, revision));
+    // The same tags change nothing.
+    let revision = stream.revisions.dirty(key).unwrap().revision;
+    assert_eq!(
+        stream.set_world_materials(Arc::from([(1_u32, 1_u8), (5, 2)]), now),
+        Some(Vec::new())
+    );
+    assert!(stream.revisions.is_current(key, revision));
+    // Revocation clears them and remeshes back to Bedrock materials once the binding's remesh
+    // has published.
+    publish(&mut stream, key);
+    assert_eq!(
+        stream.set_world_materials(Arc::from([]), now),
+        Some(vec![key])
+    );
+    assert!(!stream.revisions.is_current(key, revision));
+    assert!(capture_mesh(&stream, key).world_materials.is_empty());
+}
+
+#[test]
+fn binding_a_block_remeshes_only_the_sections_that_hold_it() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    // The center holds value 1; every neighbour is uniformly value 3.
+    let neighbours: Vec<SubChunkKey> = center
+        .mesh_neighbourhood_dependents()
+        .filter(|key| *key != center)
+        .collect();
+    let mut revisions = Vec::new();
+    for key in neighbours.iter().copied().chain([center]) {
+        stream.resident.insert(key);
+        revisions.push((key, stream.mark_dirty_exact(key, now)));
+    }
+    let neighbour = neighbours[0];
+    stream.mesh_jobs.in_flight.insert(neighbour, revisions[0].1);
+    assert_eq!(
+        stream.set_world_materials(Arc::from([(1_u32, 1_u8)]), now),
+        Some(vec![center]),
+        "the withdrawn sections are the ones whose queued uploads the caller drops"
+    );
+    for (key, revision) in &revisions {
+        assert_eq!(
+            stream.revisions.is_current(*key, *revision),
+            *key != center,
+            "only the section holding the bound block remeshes ({key:?})"
+        );
+    }
+    assert!(
+        stream.mesh_jobs.in_flight.contains_key(&neighbour),
+        "unaffected work is kept"
+    );
+}
+
+/// Acknowledges `key`'s current dirty revision as uploaded, as the renderer does once its mesh
+/// is drawn.
+fn publish(stream: &mut WorldStream, key: SubChunkKey) {
+    let dirty = stream.revisions.dirty(key).unwrap();
+    stream.acknowledge_mesh_upload(key, dirty.revision, dirty.since, Instant::now());
+}
+
+#[test]
+fn alternating_binds_wait_for_the_last_change_to_publish_and_keep_jobs_running() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    let revision = stream.mark_dirty_exact(center, now);
+    // A job is meshing the center when the first bind lands.
+    stream.mesh_jobs.in_flight.insert(center, revision);
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    stream
+        .mesh_cancellations
+        .insert(center, Arc::clone(&cancelled));
+    let bound: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8)]);
+    let unbound: Arc<[(u32, u8)]> = Arc::from([]);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&bound), now),
+        Some(vec![center])
+    );
+    assert!(
+        !cancelled.load(std::sync::atomic::Ordering::Acquire),
+        "the job in flight finishes"
+    );
+    assert_eq!(stream.mesh_jobs.in_flight.get(&center), Some(&revision));
+    let remesh = stream.revisions.dirty(center).unwrap().revision;
+    // A guest alternating bind and unbind every callback changes nothing while the remesh
+    // is outstanding, so the section is not re-dirtied again and again.
+    for round in 0..16 {
+        if round % 2 == 0 {
+            assert_eq!(stream.set_world_materials(Arc::clone(&unbound), now), None);
+        } else {
+            // Back to what is applied: nothing to do.
+            assert_eq!(
+                stream.set_world_materials(Arc::clone(&bound), now),
+                Some(Vec::new())
+            );
+        }
+        assert_eq!(stream.revisions.dirty(center).unwrap().revision, remesh);
+    }
+    assert!(Arc::ptr_eq(stream.world_material_tags(), &bound));
+    // Once it publishes, the next change applies.
+    publish(&mut stream, center);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&unbound), now),
+        Some(vec![center])
+    );
+}

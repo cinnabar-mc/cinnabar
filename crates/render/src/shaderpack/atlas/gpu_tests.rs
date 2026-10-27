@@ -70,7 +70,11 @@ fn pipelines(
 }
 
 /// Reads one level of a colour atlas back as encoded bytes.
-fn read_level(gpu: &crate::gpu_snapshot::Gpu, texture: &wgpu::Texture, level: u32) -> MipImages {
+pub(super) fn read_level(
+    gpu: &crate::gpu_snapshot::Gpu,
+    texture: &wgpu::Texture,
+    level: u32,
+) -> MipImages {
     let (width, height) = (texture.width() >> level, texture.height() >> level);
     let row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
     let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {

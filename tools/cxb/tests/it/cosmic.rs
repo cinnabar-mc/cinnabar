@@ -81,6 +81,7 @@ fn cosmic_runtime_child() {
         channels: bundle.manifest.channels.clone(),
         actions: bundle.manifest.actions.clone(),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
+        namespace: None,
     };
     let owner = Principal {
         session: "cosmic-test".into(),

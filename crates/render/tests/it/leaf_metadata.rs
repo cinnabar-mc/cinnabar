@@ -18,29 +18,27 @@ fn native_rotation(position: [i32; 3]) -> u32 {
 }
 
 #[test]
-fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_flags() {
+fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_materials() {
     let Some(gpu) = Gpu::for_fixture(
-        "gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_flags",
+        "gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_materials",
     ) else {
         return;
     };
     let native = assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR;
     let isotropic = assets::MATERIAL_FLAG_ISOTROPIC;
-    // The pinned spruce definition authors exponent .80. Encoding is shared
-    // with the compiler rather than repeating the shift/mask in the shader.
-    let exponent = 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
+    // The pinned spruce definition authors exponent .80; custom exponents carry any float.
     let mut cases = Vec::new();
     let mut rotations_seen = [false; 4];
     for x in -17..-5 {
         let position = [x, 69, -124];
         let rotation = native_rotation(position);
         rotations_seen[rotation as usize] = true;
-        for flags in [
-            native | isotropic | exponent,
-            isotropic,
-            native | exponent,
-            0,
-            native | isotropic | 1,
+        for (flags, exponent) in [
+            (native | isotropic, 0.8_f32),
+            (isotropic, 1.0),
+            (native, 3.7),
+            (0, 0.0),
+            (native | isotropic | 1, 1.0),
         ] {
             let ao_face = [0.2_f32, 0.4, 0.6, 0.9][cases.len() % 4];
             let expected_rotation = if flags & isotropic != 0 && flags & 3 == 0 {
@@ -48,20 +46,22 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
             } else {
                 flags & 3
             };
-            let expected_shade = if flags & native != 0 && flags & exponent != 0 {
-                ao_face.powf(0.8)
-            } else {
-                ao_face
-            };
-            cases.push((position, flags, ao_face, expected_rotation, expected_shade));
+            let expected_shade = ao_face.powf(exponent);
+            cases.push((
+                position,
+                flags,
+                (ao_face, exponent),
+                expected_rotation,
+                expected_shade,
+            ));
         }
     }
     assert!(rotations_seen.into_iter().all(|seen| seen));
     let mut words = Vec::new();
-    for &(position, flags, ao_face, _, _) in &cases {
+    for &(position, flags, (ao_face, exponent), _, _) in &cases {
         words.extend(position.map(|value| f32::from_bits(value as u32)));
         words.push(f32::from_bits(flags));
-        words.extend([ao_face, 0.0, 0.0, 0.0]);
+        words.extend([ao_face, exponent, 0.0, 0.0]);
     }
     let buffer = gpu.buffer(&words, wgpu::BufferUsages::STORAGE);
     let source = format!(
@@ -104,6 +104,6 @@ struct LeafMetadataCase { position_flags: vec4<u32>, shade: vec4<f32>, }
     let witness = cases[index];
     let flags = witness.position_flags.w;
     let rotation = material_uv_flags(flags, bitcast<vec3<i32>>(witness.position_flags.xyz)) & 3u;
-    return vec4(f32(rotation)/3.0, material_leaf_shade(witness.shade.x, flags), 0.0, 1.0);
+    return vec4(f32(rotation)/3.0, material_ao_shade(witness.shade.x, bitcast<u32>(witness.shade.y)), 0.0, 1.0);
 }
 "#;
