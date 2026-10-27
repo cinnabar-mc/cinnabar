@@ -28,7 +28,6 @@ const MOVE_PLAYER: &[u8] = include_bytes!("../../fixtures/move_player.bin");
 const PLAYER_AUTH_INPUT: &[u8] = include_bytes!("../../fixtures/player_auth_input.bin");
 const ADD_ACTOR: &[u8] = include_bytes!("../../fixtures/add_actor.bin");
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
-const MAX_BATCH_PACKETS: usize = 1_600;
 
 /// `TeleportCauseCommand` in gophertunnel `minecraft/protocol/packet/move_player.go`.
 ///
@@ -338,28 +337,19 @@ fn decode_rejects_input_over_16_mib() {
 }
 
 #[test]
-fn decode_accepts_1600_packets_and_rejects_1601() {
+fn decode_accepts_large_batches_of_wire_fixtures() {
+    const REPETITIONS: usize = 4_096;
     let inner = &NETWORK_SETTINGS[1..];
-    let mut at_limit = BytesMut::with_capacity(1 + inner.len() * MAX_BATCH_PACKETS);
-    at_limit.put_u8(0xfe);
-    for _ in 0..MAX_BATCH_PACKETS {
-        at_limit.extend_from_slice(inner);
+    let mut batch = BytesMut::with_capacity(1 + inner.len() * REPETITIONS);
+    batch.put_u8(0xfe);
+    for _ in 0..REPETITIONS {
+        batch.extend_from_slice(inner);
     }
-    let packets = decode_batch(at_limit.freeze()).expect("1,600 packets");
-    assert_eq!(packets.len(), MAX_BATCH_PACKETS);
-
-    let mut over_limit = BytesMut::with_capacity(1 + inner.len() * (MAX_BATCH_PACKETS + 1));
-    over_limit.put_u8(0xfe);
-    for _ in 0..=MAX_BATCH_PACKETS {
-        over_limit.extend_from_slice(inner);
+    let packets = decode_batch(batch.freeze()).expect("large server batch");
+    assert_eq!(packets.len(), REPETITIONS);
+    for packet in &packets {
+        assert_exact_round_trip(packet, NETWORK_SETTINGS);
     }
-    let err = decode_batch(over_limit.freeze()).expect_err("1,601 packets");
-    assert!(matches!(
-        err,
-        ProtocolError::TooManyPackets {
-            max: MAX_BATCH_PACKETS
-        }
-    ));
 }
 
 #[test]

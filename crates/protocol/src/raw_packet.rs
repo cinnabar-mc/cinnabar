@@ -12,9 +12,6 @@ use crate::packet::GameHeader;
 use crate::packet_tap::PacketRecordId;
 use crate::{Packet, SessionError};
 
-/// Most packets one batch may hold.
-pub(crate) const MAX_RAW_BATCH_PACKETS: usize = 1_600;
-
 /// One batch entry, `[length][header][body]`, whose body stays a slice of the received batch.
 #[derive(Debug, Clone)]
 pub(crate) struct RawPacket {
@@ -98,8 +95,8 @@ impl RawPacket {
 }
 
 /// Splits a batch body, its length-prefixed entries without the `0xfe` marker, into raw packets
-/// sharing its bytes. Bodies over `max_bytes` or holding more than [`MAX_RAW_BATCH_PACKETS`]
-/// entries are refused.
+/// sharing its bytes. The byte bound and framing checks apply without a packet-count cap,
+/// matching the upstream dialer: a server flush can contain an entire replay seek.
 pub(crate) fn decode_batch_body(
     body: Bytes,
     max_bytes: usize,
@@ -114,7 +111,7 @@ pub(crate) fn decode_batch_body(
     let backing_len = body.len();
     let mut offset = 0;
     let mut packets = Vec::new();
-    for frame in wire::Frames::new(body.clone(), MAX_RAW_BATCH_PACKETS) {
+    for frame in wire::Frames::new(body.clone(), usize::MAX) {
         let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
         offset += frame.frame().len();
         packets.push(raw_packet(frame, backing_len)?);
