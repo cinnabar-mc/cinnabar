@@ -70,12 +70,17 @@ impl RigSource for ShaderpackActors<'_> {
                 visit(RigInstance {
                     index,
                     data,
+                    raster: span.raster,
                     vertex_count: span.vertex_count,
                     texture: LayerTexture {
                         texture,
                         layer,
                         compose: page.map_or(LayerCompose::Plain, |page| {
-                            LayerCompose::for_page(page.color_mask, page.multitexture, data)
+                            LayerCompose::for_page(
+                                data.material & assets::EntityRenderMaterialState::COLOR_MASK != 0,
+                                page.multitexture,
+                                data,
+                            )
                         }),
                     },
                     runtime_id: gpu
@@ -158,12 +163,17 @@ mod replacement_tests {
         let manifest = Arc::make_mut(&mut frame.rig.manifest);
         manifest[1].identity.runtime_id = manifest[0].identity.runtime_id;
         manifest[1].identity.layer = render_model::ACTOR_LAYER_BODY + 1;
-        let eye_state = assets::EntityRenderMaterialState {
+        let eye_state = crate::actor::test_material::TestMaterial {
             depth_equal: true,
             ..Default::default()
         };
-        Arc::make_mut(&mut frame.rig.instances)[1].material =
-            assets::EntityRenderMaterial::Default.word(Some(eye_state));
+        frame.rig.rasters = Arc::from([
+            assets::entity::material::UNAUTHORED_RENDER_STATE,
+            eye_state.raster(),
+        ]);
+        let eye = &mut Arc::make_mut(&mut frame.rig.instances)[1];
+        eye.material = eye_state.word(assets::EntityRenderMaterial::Default);
+        eye.raster = 1;
         draw_frame(&mut app, &frame);
         let world = app.sub_app(RenderApp).world();
         let gpu = world.resource::<ActorGpu>();
@@ -180,8 +190,9 @@ mod replacement_tests {
         );
 
         frame.rig.frame_generation += 1;
-        Arc::make_mut(&mut frame.rig.instances)[1].material =
-            assets::EntityRenderMaterial::Default as u32;
+        let eye = &mut Arc::make_mut(&mut frame.rig.instances)[1];
+        eye.material = assets::EntityRenderMaterial::Default as u32;
+        eye.raster = 0;
         draw_frame(&mut app, &frame);
         let world = app.sub_app(RenderApp).world();
         let gpu = world.resource::<ActorGpu>();

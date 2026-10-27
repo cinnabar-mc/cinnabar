@@ -11,6 +11,8 @@ mod contracts;
 mod dependencies;
 mod identifiers;
 mod markers;
+#[cfg(test)]
+mod material_evidence;
 mod modules;
 mod paths;
 mod platforms;

@@ -52,6 +52,13 @@ grant. Requesting a permission does not supply an unimplemented adapter.
 | `world_draw` | Shared retained drawing, immediate primitives and local visual time/weather overrides |
 | `entity_observe`, `entity_highlight` | Current native actor references and masks |
 | `render_material`, `render_post`, `render_through_walls` | Bounded materials, post passes and through-wall drawing |
+| `render_world_material` | Guest `shade` materials bound to the bundle's own entities and blocks (`world-material`, server-experience 1.6.0); developer client only |
+| `render_world_material_override` | With `render_world_material`, bind any entity or block identifier, vanilla included (API 3); the developer client offers it only with `CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE=1` |
+
+A bundle asking for `render_world_material` signs a manifest `namespace` (API 2 and later): the
+identifier namespace whose entities and blocks its world materials may bind. It holds
+lowercase ASCII letters, digits, `_`, `-` and `.`, at most 64 bytes, and is never
+`minecraft`. API 1 bundles are refused.
 
 Client parts share the personal-mod drawing, render, environment and signed-asset
 imports. Terrain, packet interception and local settings remain personal-mod APIs.
@@ -118,6 +125,64 @@ files across callbacks. A file listed as a template, texture and asset is packag
 once. Source-driven projects retain their generated `shared::assets` declarations.
 The [space client](../examples/experiences/space-client) shows a camera-anchored
 planet with signed textures and a bounded procedural material.
+
+## World materials
+
+`render_world_material` lets a client part restyle its own entities and blocks with guest WGSL.
+It is developer-only: production clients do not implement it, so it stays fail-closed until the
+restricted-helper launch gate. The offer's consent text states it as one permission line:
+"Change how this server's own mobs and blocks look (up to N MB GPU memory)", N being the
+offer's GPU limit as the host enforces it.
+
+`world-material.set-material(id, spec)` declares a material: WGSL defining
+`fn shade(input: WorldMaterialInput) -> Surface`, at most four signed PNGs under `textures/`
+(read with `texture(index, uv)`), at most sixteen finite numbers (read with
+`param(input, index)`), a depth (`test`, or `always`, which also needs `render_through_walls`)
+and a blend class (`opaque`, `cutout`, `premultiplied`, `additive`). `shade` receives the UV, world
+position, Bedrock material colour (texture times tint), the light the host applies, the fog colour
+and amount, the actor overlay (zero for blocks), the animation phase (Unix time modulo 4096 s
+over 4096, so a server can time an effect's start on the same clock), the unit surface normal
+and the unit direction from the surface to the camera; it returns colour, coverage and
+emission. The host validates it with the drawing-material sandbox (no resources,
+module state, overrides, entry points, loops, recursion or storage writes; bounded expressions and
+texture reads per pixel), in the helper within four compiles per callback and again in the
+client. `bind(id, target, material)` binds `entity(identifier)` or `block(identifier)`, which
+must lie in the manifest's signed `namespace`; one target takes one binding, and a bound material
+cannot be removed. No count limits a bundle: the host charges each declaration's source,
+texture paths, parameters and identifiers to the bundle's share of the signed memory limit, and
+each published material's textures and pipelines to its share of the GPU limit. The only fixed
+bound is the tag width a target carries: a session can bind blocks to its first 63 materials and
+entities to its first 255; a binding past that is reported and draws as Bedrock.
+
+The host owns depth, blend factors, pass and visibility: a class selects the host's raster, and
+the host applies Bedrock lighting and fog to the returned surface, adding emission after
+lighting. A bound entity's body and render-controller layers draw with the material once its
+pipelines are ready in every view, and with their Bedrock material, raster and pass until then;
+equipment, capes, hats and players never do. A bound block's cube faces and model quads are tagged in
+meshing and drawn in a world material pass: opaque and cutout classes in the opaque phase,
+premultiplied and additive classes merged face by face into their section's ordinary
+translucent order, so a bound face and the water or glass beside it draw back to front by the
+face metric ordinary translucent terrain uses. A block bound to a cutout, premultiplied or
+additive material hides no other block's faces, whatever its Bedrock look, as glass hides none:
+the ground under a glass effect still draws. Touching faces of blocks bound to the same material
+stay hidden, as glass hides glass. Until the material's pipelines are ready the block draws with
+its Bedrock material.
+Each material charges its shader source, parameters and decoded textures to the bundle's share of
+the signed memory limit, and its textures and pipelines to its share of the GPU limit; replaced
+materials stay charged because compiled pipelines cannot be destroyed. A material that fails
+validation or native compilation is skipped, reported once in the log and the execution
+indicator, and its targets keep their Bedrock materials. Stopping a client part, F9 or a
+disconnect removes every material and binding in one publication without a reconnect.
+
+With a shader pack, a bound block samples an atlas sprite of its own: each frame the guest's
+`shade` renders the material over the sprite's square, every mip level, as the albedo with its
+emission added and as LabPBR emission in the specular map, and the pack lights it as any block
+sprite. The sprite sees a white base, an upward face seen from above and full light, so effects
+that depend on world position, view direction or the block's tint are flattened; until the
+first render, and after revocation, the block keeps its Bedrock sprite.
+
+Not yet: Enhanced terrain draws bound blocks as Bedrock. Identifiers outside the signed
+namespace, vanilla included, take `render_world_material_override`.
 
 ## Modal screens
 

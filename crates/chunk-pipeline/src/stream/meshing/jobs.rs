@@ -452,6 +452,7 @@ impl WorldStream {
             light_halo,
             java_meshing: self.java_meshing.clone(),
             overlays,
+            world_materials: Arc::clone(&self.world_materials),
         }
     }
     pub(in crate::stream) fn biome_neighbourhood(&self, key: SubChunkKey) -> BiomeNeighbourhood {

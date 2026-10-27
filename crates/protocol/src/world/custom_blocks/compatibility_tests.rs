@@ -169,31 +169,58 @@ fn network_legacy_light_filter_retains_transparent_plant_dampening() {
 }
 
 #[test]
-fn network_material_lighting_choices_remain_distinct() {
+fn network_material_lighting_reads_typed_float_and_packed_byte() {
     use crate::nbt_tree::Nbt;
-    let components = |ao, dimming| {
-        Nbt::Compound(vec![(
+    let material = |fields: Vec<(&str, Nbt)>| {
+        let components = Nbt::Compound(vec![(
             "minecraft:material_instances".into(),
             Nbt::Compound(vec![(
                 "materials".into(),
                 Nbt::Compound(vec![(
                     "*".into(),
-                    Nbt::Compound(vec![
-                        ("texture".into(), Nbt::String("test:plant".into())),
-                        ("ambient_occlusion".into(), Nbt::Byte(ao)),
-                        ("face_dimming".into(), Nbt::Byte(dimming)),
-                    ]),
+                    Nbt::Compound(
+                        fields
+                            .into_iter()
+                            .map(|(name, value)| (name.into(), value))
+                            .collect(),
+                    ),
                 )]),
             )]),
-        )])
+        )]);
+        super::visual_components(Some(&components))
+            .materials
+            .unwrap()[0]
+            .clone()
     };
-    let choices = [(0, 0), (0, 1), (1, 0), (1, 1)]
-        .map(|(ao, dimming)| super::visual_components(Some(&components(ao, dimming))).materials);
-    for (index, first) in choices.iter().enumerate() {
-        for second in &choices[index + 1..] {
-            assert_ne!(first, second);
-        }
-    }
+    let native = material(vec![
+        ("texture", Nbt::String("test:plant".into())),
+        ("ambient_occlusion", Nbt::Float(0.5)),
+        ("packed_bools", Nbt::Byte(-1)),
+    ]);
+    assert_eq!(native.ambient_occlusion, 0.5);
+    assert_eq!(
+        native.packed_bools, 0x1f,
+        "the client masks the byte to five flags"
+    );
+    assert!(native.face_dimming() && native.isotropic() && native.alpha_masked_tint());
+
+    // Untyped values and the standalone `face_dimming` tag are not read by the client.
+    let legacy = material(vec![
+        ("ambient_occlusion", Nbt::Byte(1)),
+        ("face_dimming", Nbt::Byte(1)),
+        ("packed_bools", Nbt::Int(1)),
+    ]);
+    assert_eq!(
+        legacy.texture.as_ref(),
+        "",
+        "a missing texture is empty, not dropped"
+    );
+    assert_eq!(legacy.ambient_occlusion, 0.0);
+    assert_eq!(legacy.packed_bools, 0);
+    assert_eq!(
+        legacy.render_method,
+        protocol_ids::BlockRenderMethod::Opaque
+    );
 }
 
 #[test]
@@ -411,4 +438,29 @@ fn inventory_visual_descriptions_stay_separate_from_placed_components() {
     assert_eq!(item.geometry.as_deref(), Some("geometry.carried"));
     assert_eq!(item.materials.unwrap()[0].texture.as_ref(), "fixture:item");
     assert!(item.transformation.is_none());
+}
+
+#[test]
+fn network_material_tables_keep_every_entry() {
+    use crate::nbt_tree::Nbt;
+    let materials = (0..100)
+        .map(|index| {
+            (
+                format!("instance_{index}"),
+                Nbt::Compound(vec![("texture".into(), Nbt::String("test:plant".into()))]),
+            )
+        })
+        .collect();
+    let components = Nbt::Compound(vec![(
+        "minecraft:material_instances".into(),
+        Nbt::Compound(vec![("materials".into(), Nbt::Compound(materials))]),
+    )]);
+    let decoded = super::visual_components(Some(&components))
+        .materials
+        .unwrap();
+    assert_eq!(
+        decoded.len(),
+        100,
+        "the client reads past 64 material instances"
+    );
 }

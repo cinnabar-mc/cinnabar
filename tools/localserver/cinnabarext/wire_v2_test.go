@@ -264,7 +264,11 @@ func TestOptionalMembersEncodeOnlyWhenSet(t *testing.T) {
 	decodeGolden(t, "manifest_payload.json", &m)
 	m.Templates = []string{"ui/b.json", "ui/a.json"}
 	encoded := string(mustEncode(t, m))
-	if !strings.Contains(encoded, `,"templates":["ui/a.json","ui/b.json"],"files":`) {
+	if !strings.Contains(encoded, `,"templates":["ui/a.json","ui/b.json"],"namespace":"fixture","files":`) {
 		t.Fatalf("templates encode as %s", encoded)
+	}
+	m.Namespace = nil
+	if encoded := string(mustEncode(t, m)); strings.Contains(encoded, `"namespace"`) {
+		t.Fatalf("an absent namespace encodes as %s", encoded)
 	}
 }

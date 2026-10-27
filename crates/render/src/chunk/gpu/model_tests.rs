@@ -567,3 +567,19 @@ fn same_key_render_replacement_preserves_urgent_priority() {
         .unwrap();
     assert!(queue.removals[&key].priority.is_urgent());
 }
+
+#[test]
+fn world_material_tags_on_model_draws_still_validate_and_survive_absolutization() {
+    let (refs, lighting, mut draws, templates) = owned_model_stream_fixture();
+    for draw in &mut draws {
+        *draw = draw.with_world_material(3);
+    }
+    assert!(validate_local_model_streams(
+        &refs, &lighting, &draws, &templates
+    ));
+    let mut words = draws.iter().map(|draw| draw.words()).collect::<Vec<_>>();
+    absolutize_model_draw_refs(&mut words, 8).unwrap();
+    let rebuilt = PackedModelDrawRef::new(words[1][0], words[1][1]);
+    assert_eq!(rebuilt.world_material(), 3);
+    assert_eq!(rebuilt.quad_index(), 2);
+}

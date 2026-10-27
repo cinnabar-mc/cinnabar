@@ -120,6 +120,9 @@ impl WorldStream {
         dirty_since: Instant,
         applied_at: Instant,
     ) {
+        // A world material remesh is done once any mesh at or past its revision is drawn, even
+        // if newer dirt has made this one stale already.
+        self.settle_world_material(key, Some(generation));
         let Some(dirty) = self.revisions.dirty(key) else {
             return;
         };
