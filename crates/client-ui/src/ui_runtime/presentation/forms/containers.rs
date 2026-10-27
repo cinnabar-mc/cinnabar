@@ -410,13 +410,12 @@ impl UiPresentationRuntime {
         let Some(engine) = self.engine.as_deref() else {
             return false;
         };
-        self.screens.containers.inventory_preparation_pending()
-            || self.screens.containers.needs_inventory_preparation(
-                engine,
-                &ContainerAuthority::new(player, runtime),
-                self.inventory_preparation_revision
-                    .load(std::sync::atomic::Ordering::Relaxed),
-            )
+        self.screens.containers.needs_inventory_preparation(
+            engine,
+            &ContainerAuthority::new(player, runtime),
+            self.inventory_preparation_revision
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// Prepares or paints `layout`; only a visible paint publishes frame geometry.
@@ -547,8 +546,7 @@ impl UiPresentationRuntime {
     }
 
     /// Whether the closed inventory still owns unfinished preparation work.
-    #[cfg(test)]
-    pub fn engine_inventory_preparation_pending(&self) -> bool {
+    pub(in crate::ui_runtime::presentation) fn engine_inventory_preparation_pending(&self) -> bool {
         self.screens.containers.inventory_preparation_pending()
     }
 

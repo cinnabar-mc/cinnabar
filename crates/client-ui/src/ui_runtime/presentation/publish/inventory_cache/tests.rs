@@ -422,6 +422,10 @@ fn pending_inventory_preparation_keeps_projected_names_available() {
         )
         .unwrap();
     assert!(presentation.engine_inventory_preparation_pending());
+    assert!(
+        !presentation.inventory_preparation_needed(&player, &runtime),
+        "unchanged sources must not request recipe artwork again while pending"
+    );
     let update = cache.capture(
         &player,
         &ItemResolver {
