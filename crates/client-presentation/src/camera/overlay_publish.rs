@@ -100,7 +100,7 @@ pub fn load_overlay_textures(mut commands: Commands, scene: Option<ResMut<Screen
 
 /// Finds the same first fire state as the full registry reader, borrowing its shared index.
 fn pinned_fire_state() -> Option<u32> {
-    assets::pinned_block_sequential_id(assets::facts::VanillaBlock::Fire.identifier())
+    assets::pinned_block_state_by_name(assets::facts::VanillaBlock::Fire.identifier())
 }
 
 pub fn publish_screen_overlays(

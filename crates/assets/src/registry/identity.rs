@@ -26,7 +26,7 @@ pub fn pinned_block_identity(sequential_id: u32) -> Option<(&'static str, &'stat
 }
 
 /// Returns the first pinned state of an exact block name without decoding semantic facts.
-pub fn pinned_block_sequential_id(name: &str) -> Option<u32> {
+pub fn pinned_block_state_by_name(name: &str) -> Option<u32> {
     pinned_identities()
         .iter()
         .find(|identity| identity.name == name)

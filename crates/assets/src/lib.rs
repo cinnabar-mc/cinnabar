@@ -267,7 +267,7 @@ pub use provenance::{
 pub use registry::{
     BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
     ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
-    pinned_block_identity, pinned_block_sequential_id, read_registry, read_registry_for_protocol,
+    pinned_block_identity, pinned_block_state_by_name, read_registry, read_registry_for_protocol,
     registry_header_protocol,
 };
 pub use runtime::{

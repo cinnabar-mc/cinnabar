@@ -262,9 +262,9 @@ fn pinned_name_lookup_reuses_the_index_and_returns_the_first_matching_state() {
     let _ = crate::pinned_block_identity(0);
     let (_, allocations) = test_alloc::count(|| {
         for (name, first) in first_states {
-            assert_eq!(crate::pinned_block_sequential_id(name), Some(first));
+            assert_eq!(crate::pinned_block_state_by_name(name), Some(first));
         }
-        assert_eq!(crate::pinned_block_sequential_id("missing:block"), None);
+        assert_eq!(crate::pinned_block_state_by_name("missing:block"), None);
     });
     assert_eq!(allocations, 0);
 }
