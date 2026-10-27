@@ -27,6 +27,24 @@ pub(super) fn uniform(view: &ExtractedView, matrix: Mat4, exposure: f32) -> View
     }
 }
 
+/// Resolves current grid coordinates into view space for both sorting and GPU uniforms.
+pub(super) fn matrix(
+    view: &ExtractedView,
+    resolved: &render_scene::mod_scene::retained::GpuInstance,
+) -> Option<Mat4> {
+    let rotation = view.world_from_view.to_matrix();
+    let rotation = Mat4::from_cols(
+        rotation.x_axis,
+        rotation.y_axis,
+        rotation.z_axis,
+        bevy::math::Vec4::W,
+    )
+    .inverse();
+    let matrix = rotation * Mat4::from_cols_array_2d(&resolved.transform);
+    let determinant = matrix.determinant();
+    (determinant.is_finite() && determinant.abs() >= 1e-10).then_some(matrix)
+}
+
 /// Limits uploads to one background generation, then binds cached shared terrain tables.
 #[allow(
     clippy::too_many_arguments,
@@ -265,19 +283,10 @@ pub(super) fn prepare(
                 ) {
                     continue;
                 }
-                let rotation = view.world_from_view.to_matrix();
-                let rotation = Mat4::from_cols(
-                    rotation.x_axis,
-                    rotation.y_axis,
-                    rotation.z_axis,
-                    bevy::math::Vec4::W,
-                )
-                .inverse();
-                let matrix = rotation * Mat4::from_cols_array_2d(&resolved.transform);
-                let determinant = matrix.determinant();
-                if !determinant.is_finite() || determinant.abs() < 1e-10 {
+                let Some(matrix) = matrix(view, &resolved) else {
                     continue;
-                }
+                };
+                let determinant = matrix.determinant();
                 let key = Key {
                     msaa: *msaa,
                     hdr: camera.hdr,
@@ -325,6 +334,7 @@ pub(super) fn prepare(
                         sort_camera: None,
                         pipelines: ids.clone().try_into().unwrap(),
                         clip: instance.clip,
+                        always: instance.depth == Depth::Always,
                         active: true,
                         _charge: charge,
                     });
@@ -332,6 +342,7 @@ pub(super) fn prepare(
                 let placement = placements.get_mut(&key).unwrap();
                 placement.pipelines = ids.try_into().unwrap();
                 placement.clip = instance.clip;
+                placement.always = instance.depth == Depth::Always;
                 placement.active = true;
                 if placement.matrix != matrix
                     || placement.projection != view.clip_from_view

@@ -135,6 +135,7 @@ struct Placement {
     sort_camera: Option<[u32; 6]>,
     pipelines: [CachedRenderPipelineId; 5],
     clip: Option<DrawingHandle>,
+    always: bool,
     active: bool,
     _charge: mod_render::GpuAllocation<()>,
 }
@@ -150,7 +151,10 @@ pub(in crate::chunk) struct Blocks {
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct BlockPass;
+pub(crate) enum BlockPass {
+    Opaque,
+    Overlay,
+}
 
 #[derive(Resource)]
 struct Installed;
@@ -172,11 +176,10 @@ pub(crate) fn install(app: &mut App) {
         .init_resource::<Blocks>()
         .add_render_command::<Transparent3d, transparent::DrawCommands>()
         .add_systems(RenderStartup, bevy::render::init_gpu_resource::<Pipelines>)
+        .add_systems(Render, transparent::queue.in_set(RenderSystems::Queue))
         .add_systems(
             Render,
-            (prepare::prepare, transparent::queue)
-                .chain()
-                .in_set(RenderSystems::PrepareBindGroups),
+            prepare::prepare.in_set(RenderSystems::PrepareBindGroups),
         );
     install_graph(render.world_mut());
 }
@@ -192,13 +195,21 @@ pub(crate) fn install_graph(world: &mut World) {
     }
     let installed = world
         .try_schedule_scope(bevy::core_pipeline::Core3d, |_, schedule| {
-            schedule.configure_sets(
-                BlockPass
+            schedule.configure_sets((
+                BlockPass::Opaque
                     .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
                     .after(crate::scene_target::ScenePass::Opaque)
                     .before(crate::scene_target::ScenePass::Transparent),
-            );
-            schedule.add_systems(drawing::world_draw.in_set(BlockPass));
+                BlockPass::Overlay
+                    .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
+                    .after(crate::scene_target::ScenePass::Transparent)
+                    .before(crate::mod_render::retained::clips::ClipPass)
+                    .before(crate::scene_target::ScenePass::Finish),
+            ));
+            schedule.add_systems((
+                drawing::world_draw::<false>.in_set(BlockPass::Opaque),
+                drawing::world_draw::<true>.in_set(BlockPass::Overlay),
+            ));
         })
         .is_ok();
     if installed {

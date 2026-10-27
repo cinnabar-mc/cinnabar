@@ -106,6 +106,15 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool, const AFTER_PACK: boo
     }
     let gamma = admitted(camera.hdr, *msaa, enhanced.is_some());
     let draws = gamma.then(|| native_draws(world));
+    // Retained terrain keeps its ordinary material program in enhanced views too.
+    let retained = (!camera.hdr)
+        .then(|| {
+            world
+                .resource::<DrawFunctions<Transparent3d>>()
+                .read()
+                .get_id::<crate::chunk::blocks::transparent::DrawCommands>()
+        })
+        .flatten();
     let filtered = blur || smaa.is_some() || overlay;
     let nametag = filtered
         .then(|| crate::nametag_render::draw_function(world))
@@ -117,7 +126,8 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool, const AFTER_PACK: boo
             (
                 draws
                     .as_ref()
-                    .is_some_and(|draws| draws.contains(&Some(item.draw_function()))),
+                    .is_some_and(|draws| draws.contains(&Some(item.draw_function())))
+                    || retained == Some(item.draw_function()),
                 crate::nametag_render::deferred_by_world_filter(
                     filtered,
                     nametag,
@@ -197,7 +207,7 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool, const AFTER_PACK: boo
 }
 
 /// Native transparent families output encoded colour and blend through the compatible UNORM view.
-fn native_draws(world: &World) -> [Option<DrawFunctionId>; 9] {
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 8] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
     let nametags = crate::nametag_render::draw_function(world);
     let primitives = crate::primitive_shapes::draw_function(world);
@@ -211,7 +221,6 @@ fn native_draws(world: &World) -> [Option<DrawFunctionId>; 9] {
         draws.get_id::<crate::actor_render::phase::DrawTransparentActorCommands>(),
         nametags,
         primitives,
-        draws.get_id::<crate::chunk::blocks::transparent::DrawCommands>(),
     ]
 }
 

@@ -2,7 +2,7 @@ use super::*;
 
 /// Supplies two retained section ranges on opposite sides of a world glass surface.
 fn fixture() -> (App, bevy::render::view::RetainedViewEntity) {
-    let (mut app, (view, id), mut placement) = super::super::tests::placement_fixture();
+    let (mut app, (view, id), mut placement, resources) = super::super::tests::placement_fixture();
     let device = app.world().resource::<RenderDevice>();
     let ledger = mod_render::GpuLedger::new(1024);
     placement.order = Some(Order {
@@ -17,16 +17,22 @@ fn fixture() -> (App, bevy::render::view::RetainedViewEntity) {
             })
             .unwrap(),
         count: 2,
-        groups: [10., 25.]
-            .into_iter()
-            .enumerate()
-            .map(|(i, z)| sorting::Group {
-                center: Vec3::new(0., 0., z),
-                range: i as u32..i as u32 + 1,
-            })
+        groups: (0..2)
+            .map(|z| (SubChunkKey::new(0, 0, 0, z), z as u32..z as u32 + 1))
             .collect(),
     });
-    placement.matrix = Mat4::from_translation(Vec3::new(0., 0., -30.));
+    // A previous pose must not determine the current phase distance.
+    placement.matrix = Mat4::from_translation(Vec3::new(0., 0., 100.));
+    let mut resources = (*resources).clone();
+    resources.connection = 1;
+    resources
+        .instances
+        .get_mut(&id)
+        .unwrap()
+        .transform
+        .translation[2] = -32.;
+    let mut scene = ModRenderScene::default();
+    scene.retained.push(Arc::new(resources));
     placement.active = true;
     app.add_render_command::<Transparent3d, DrawCommands>();
     let draw_function = app
@@ -47,7 +53,7 @@ fn fixture() -> (App, bevy::render::view::RetainedViewEntity) {
             .unwrap(),
         Transparent3d {
             sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
-            distance: -10.,
+            distance: -16.,
             pipeline: CachedRenderPipelineId::INVALID,
             entity: (view, main),
             draw_function,
@@ -56,16 +62,17 @@ fn fixture() -> (App, bevy::render::view::RetainedViewEntity) {
             indexed: true,
         },
     );
-    app.insert_resource(DrawingFrame {
-        connection: 1,
-        live_owners: [(id.owner, id.generation)].into(),
-        ..default()
-    })
-    .insert_resource(Blocks {
-        placements: BTreeMap::from([((view, id), placement)]),
-        ..default()
-    })
-    .add_systems(Update, queue);
+    app.insert_resource(scene)
+        .insert_resource(DrawingFrame {
+            connection: 1,
+            live_owners: [(id.owner, id.generation)].into(),
+            ..default()
+        })
+        .insert_resource(Blocks {
+            placements: BTreeMap::from([((view, id), placement)]),
+            ..default()
+        })
+        .add_systems(Update, (queue, crate::transparent_phase::sort).chain());
     (app, retained)
 }
 
@@ -80,9 +87,9 @@ fn retained_transparency_composes_on_both_sides_of_depth_writing_world_glass() {
     let mut depth = 0.;
     for item in phases[&retained].items.values() {
         let (z, source) = match item.distance {
-            -20. => (0.2, [1., 0., 0.]),
-            -10. => (0.5, [0., 0., 1.]),
-            -5. => (0.8, [0., 1., 0.]),
+            -24. => (0.2, [1., 0., 0.]),
+            -16. => (0.5, [0., 0., 1.]),
+            -8. => (0.8, [0., 1., 0.]),
             other => panic!("unexpected transparent section distance: {other}"),
         };
         if z >= depth {
@@ -110,4 +117,17 @@ fn retained_transparency_queues_nothing_under_a_replacement_background() {
             .len(),
         1
     );
+}
+
+#[test]
+fn retained_depth_always_transparency_stays_out_of_the_world_depth_sort() {
+    let (mut app, _) = fixture();
+    let mut scene = app.world_mut().resource_mut::<ModRenderScene>();
+    for resources in &mut scene.retained {
+        for instance in Arc::make_mut(resources).instances.values_mut() {
+            instance.depth = Depth::Always;
+        }
+    }
+    app.update();
+    assert!(app.world().resource::<Blocks>().draws.is_empty());
 }

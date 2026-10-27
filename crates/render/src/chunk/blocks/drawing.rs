@@ -9,9 +9,10 @@ pub(crate) fn encode<'w>(
     entity: Entity,
     clip: Option<DrawingHandle>,
     transparent: bool,
+    always: Option<bool>,
     pass: &mut TrackedRenderPass<'w>,
 ) {
-    if !contains(world, entity, clip) {
+    if !contains(world, entity, clip, always) {
         return;
     }
     let (Some(blocks), Some(cache), Some(lightmap)) = (
@@ -30,6 +31,7 @@ pub(crate) fn encode<'w>(
             || view != entity
             || !placement.active
             || placement.clip != clip
+            || always.is_some_and(|always| always != placement.always)
         {
             continue;
         }
@@ -102,7 +104,12 @@ fn issue(pass: &mut TrackedRenderPass<'_>, args: DrawIndexedIndirectArgs) {
 }
 
 /// Whether this view has active block contents using a particular clip.
-pub(crate) fn contains(world: &World, entity: Entity, clip: Option<DrawingHandle>) -> bool {
+pub(crate) fn contains(
+    world: &World,
+    entity: Entity,
+    clip: Option<DrawingHandle>,
+    always: Option<bool>,
+) -> bool {
     if world
         .get_resource::<render_scene::panorama::PanoramaScene>()
         .is_some_and(|scene| !scene.game_visible())
@@ -111,7 +118,10 @@ pub(crate) fn contains(world: &World, entity: Entity, clip: Option<DrawingHandle
     }
     world.get_resource::<Blocks>().is_some_and(|blocks| {
         blocks.placements.iter().any(|(&(view, _), placement)| {
-            view == entity && placement.active && placement.clip == clip
+            view == entity
+                && placement.active
+                && placement.clip == clip
+                && always.is_none_or(|always| always == placement.always)
         })
     })
 }
@@ -121,7 +131,7 @@ pub(crate) fn contains(world: &World, entity: Entity, clip: Option<DrawingHandle
     clippy::type_complexity,
     reason = "the view pass borrows Bevy's target and viewport components"
 )]
-pub(super) fn world_draw(
+pub(super) fn world_draw<const OVERLAY: bool>(
     world: &World,
     query: ViewQuery<(
         &ViewTarget,
@@ -133,7 +143,7 @@ pub(super) fn world_draw(
 ) -> bevy::ecs::error::Result {
     let entity = query.entity();
     let (target, depth, camera, resolution) = query.into_inner();
-    if !contains(world, entity, None) {
+    if !contains(world, entity, None, Some(OVERLAY)) {
         return Ok(());
     }
     let extent = [depth.texture().width(), depth.texture().height()];
@@ -142,29 +152,36 @@ pub(super) fn world_draw(
     else {
         return Ok(());
     };
-    let Some(color) = crate::scene_target::retained_color_attachment(world, entity, target, false)
-    else {
-        return Ok(());
-    };
-    let colors = [Some(color)];
-    let mut pass =
-        context.begin_tracked_render_pass(bevy::render::render_resource::RenderPassDescriptor {
-            label: Some("retained terrain"),
-            color_attachments: &colors,
-            depth_stencil_attachment: Some(
-                depth.get_attachment(bevy::render::render_resource::StoreOp::Store),
-            ),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-    pass.set_camera_viewport(&viewport);
-    pass.set_scissor_rect(
-        viewport.physical_position.x,
-        viewport.physical_position.y,
-        viewport.physical_size.x,
-        viewport.physical_size.y,
-    );
-    encode(world, entity, None, false, &mut pass);
+    for transparent in [false, true].into_iter().take(if OVERLAY { 2 } else { 1 }) {
+        let Some(color) = crate::scene_target::retained_color_attachment(
+            world,
+            entity,
+            target,
+            transparent && !camera.hdr,
+        ) else {
+            return Ok(());
+        };
+        let colors = [Some(color)];
+        let mut pass = context.begin_tracked_render_pass(
+            bevy::render::render_resource::RenderPassDescriptor {
+                label: Some("retained terrain"),
+                color_attachments: &colors,
+                depth_stencil_attachment: Some(
+                    depth.get_attachment(bevy::render::render_resource::StoreOp::Store),
+                ),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            },
+        );
+        pass.set_camera_viewport(&viewport);
+        pass.set_scissor_rect(
+            viewport.physical_position.x,
+            viewport.physical_position.y,
+            viewport.physical_size.x,
+            viewport.physical_size.y,
+        );
+        encode(world, entity, None, transparent, Some(OVERLAY), &mut pass);
+    }
     Ok(())
 }

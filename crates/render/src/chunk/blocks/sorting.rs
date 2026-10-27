@@ -13,12 +13,7 @@ pub(super) struct Face {
 pub(super) struct Order {
     pub _buffer: mod_render::GpuAllocation<Buffer>,
     pub count: u32,
-    pub groups: Vec<Group>,
-}
-
-pub(super) struct Group {
-    pub center: Vec3,
-    pub range: Range<u32>,
+    pub groups: BTreeMap<SubChunkKey, Range<u32>>,
 }
 
 /// Computes native face centroids once, after the ordinary uploader has assigned addresses.
@@ -112,7 +107,11 @@ pub(super) fn sort(
 }
 
 /// Orders sections by view depth and delegates their mixed face order to ordinary terrain.
-fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> (Vec<[u32; 2]>, Vec<Group>) {
+fn references(
+    faces: &[Face],
+    camera: Vec3,
+    direction: Vec3,
+) -> (Vec<[u32; 2]>, BTreeMap<SubChunkKey, Range<u32>>) {
     let mut groups = BTreeMap::<SubChunkKey, Vec<MixedFace>>::new();
     for (index, face) in faces.iter().enumerate() {
         groups.entry(face.key).or_default().push(MixedFace {
@@ -133,7 +132,7 @@ fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> (Vec<[u32; 2]>, 
             .then_with(|| left.cmp(right))
     });
     let mut refs = Vec::with_capacity(faces.len());
-    let mut ranges = Vec::with_capacity(groups.len());
+    let mut ranges = BTreeMap::new();
     for (key, mut group) in groups {
         let start = refs.len() as u32;
         sort_faces(key, camera, &mut group);
@@ -142,10 +141,7 @@ fn references(faces: &[Face], camera: Vec3, direction: Vec3) -> (Vec<[u32; 2]>, 
                 .into_iter()
                 .map(|face| faces[face.index as usize].reference),
         );
-        ranges.push(Group {
-            center: Vec3::from_array(chunk_origin(key).map(|v| v as f32)) + Vec3::splat(8.),
-            range: start..refs.len() as u32,
-        });
+        ranges.insert(key, start..refs.len() as u32);
     }
     (refs, ranges)
 }

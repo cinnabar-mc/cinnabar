@@ -395,7 +395,6 @@ fn retained_partial_edits_keep_the_context_of_reused_sections_before_the_next_pr
         .unwrap();
     store.commit();
     let edited = store.snapshot().geometry[&id].blocks().unwrap();
-    assert!(edited.bind_context(&assets, NetworkIdMode::Sequential, settings));
     assert!(!edited.bind_context(
         &assets,
         NetworkIdMode::Sequential,
@@ -409,4 +408,5 @@ fn retained_partial_edits_keep_the_context_of_reused_sections_before_the_next_pr
         NetworkIdMode::Sequential,
         settings
     ));
+    assert!(edited.bind_context(&assets, NetworkIdMode::Sequential, settings));
 }

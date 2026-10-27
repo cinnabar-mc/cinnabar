@@ -122,7 +122,12 @@ fn portal_resources_enforce_combined_bundle_triangles_after_worker_completion() 
 }
 
 /// Supplies an admitted placement on the validated NOOP device without game carriers.
-pub(super) fn placement_fixture() -> (App, (Entity, DrawingHandle), Placement) {
+pub(super) fn placement_fixture() -> (
+    App,
+    (Entity, DrawingHandle),
+    Placement,
+    Arc<retained::Resources>,
+) {
     let (mut app, _) = crate::queue_review_support::app();
     let (store, grid, id, _) = grid_scene();
     let device = app.world().resource::<RenderDevice>().clone();
@@ -175,15 +180,16 @@ pub(super) fn placement_fixture() -> (App, (Entity, DrawingHandle), Placement) {
         sort_camera: None,
         pipelines: [pipeline; 5],
         clip: None,
+        always: false,
         active: false,
         _charge: ledger.allocate(0, || Some(())).unwrap(),
     };
-    (app, (view, id), placement)
+    (app, (view, id), placement, Arc::clone(store.snapshot()))
 }
 
 #[test]
 fn portal_resources_drain_completed_sorts_while_their_grid_is_offscreen() {
-    let (_, key, mut placement) = placement_fixture();
+    let (_, key, mut placement, _) = placement_fixture();
     let pool = AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let job = pool.spawn(async { None });
     test_time::eventually("completed offscreen block sort", || job.is_finished());
@@ -276,7 +282,7 @@ fn retained_opaque_grids_remain_visible_through_world_transparency() {
         schedule
             .configure_sets((ScenePass::Opaque, ScenePass::Transparent, ScenePass::Finish).chain());
         schedule.add_systems((
-            opaque_grid.in_set(BlockPass),
+            opaque_grid.in_set(BlockPass::Opaque),
             world_glass.in_set(ScenePass::Transparent),
         ));
     });
@@ -288,19 +294,44 @@ fn retained_opaque_grids_remain_visible_through_world_transparency() {
 
 #[test]
 fn retained_blocks_follow_gameplay_visibility_even_with_active_placements() {
-    let (mut app, (view, id), mut placement) = placement_fixture();
+    let (mut app, (view, id), mut placement, _) = placement_fixture();
     placement.active = true;
     app.world_mut().insert_resource(Blocks {
         placements: BTreeMap::from([((view, id), placement)]),
         ..default()
     });
-    assert!(drawing::contains(app.world(), view, None));
+    assert!(drawing::contains(app.world(), view, None, None));
     let mut panorama = render_scene::panorama::PanoramaScene::default();
     panorama.set_game_visible(false);
     app.world_mut().insert_resource(panorama);
-    assert!(!drawing::contains(app.world(), view, None));
+    assert!(!drawing::contains(app.world(), view, None, None));
     app.world_mut()
         .resource_mut::<render_scene::panorama::PanoramaScene>()
         .set_game_visible(true);
-    assert!(drawing::contains(app.world(), view, None));
+    assert!(drawing::contains(app.world(), view, None, None));
+}
+
+/// Models opaque and blended depth-always contents at the shared overlay boundary.
+fn overlay_grid(mut pixel: ResMut<Pixel>) {
+    pixel.color = [0.5, 0.5, 0.];
+    pixel.depth = 0.6;
+}
+
+#[test]
+fn retained_depth_always_contents_remain_above_world_glass() {
+    use crate::scene_target::ScenePass;
+    use bevy::core_pipeline::Core3d;
+    let mut world = crate::render_test_support::empty_render_world();
+    world.init_resource::<Pixel>();
+    install_graph(&mut world);
+    world.schedule_scope(Core3d, |_, schedule| {
+        schedule
+            .configure_sets((ScenePass::Opaque, ScenePass::Transparent, ScenePass::Finish).chain());
+        schedule.add_systems((
+            world_glass.in_set(ScenePass::Transparent),
+            overlay_grid.in_set(BlockPass::Overlay),
+        ));
+    });
+    world.run_schedule(Core3d);
+    assert_eq!(world.resource::<Pixel>().color, [0.5, 0.5, 0.]);
 }

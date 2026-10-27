@@ -446,7 +446,7 @@ fn draw(
                 continue;
             }
             if !view.batches.iter().any(|b| !b.mask && b.clip == Some(clip))
-                && !crate::chunk::blocks::drawing::contains(world, entity, Some(clip))
+                && !crate::chunk::blocks::drawing::contains(world, entity, Some(clip), None)
             {
                 continue;
             }
@@ -517,7 +517,14 @@ fn draw(
                 pass.draw(0..mesh.count, batch.instances.clone());
             }
             pass.set_stencil_reference(chain.len() as u32);
-            crate::chunk::blocks::drawing::encode(world, entity, Some(clip), false, &mut pass);
+            crate::chunk::blocks::drawing::encode(
+                world,
+                entity,
+                Some(clip),
+                false,
+                None,
+                &mut pass,
+            );
             for batch in view
                 .batches
                 .iter()
@@ -544,7 +551,7 @@ fn draw(
                 pass.draw(0..mesh.count, batch.instances.clone());
             }
             drop(pass);
-            if crate::chunk::blocks::drawing::contains(world, entity, Some(clip)) {
+            if crate::chunk::blocks::drawing::contains(world, entity, Some(clip), None) {
                 let colors = [crate::scene_target::retained_color_attachment(
                     world,
                     entity,
@@ -577,7 +584,14 @@ fn draw(
                     viewport.physical_size.y,
                 );
                 pass.set_stencil_reference(chain.len() as u32);
-                crate::chunk::blocks::drawing::encode(world, entity, Some(clip), true, &mut pass);
+                crate::chunk::blocks::drawing::encode(
+                    world,
+                    entity,
+                    Some(clip),
+                    true,
+                    None,
+                    &mut pass,
+                );
             }
         }
     }
