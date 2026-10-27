@@ -198,7 +198,6 @@ fn table_domain(file: &str) -> &'static str {
         | "default-sprite-bindings-1.26.50.json" => "retail_item",
         "block-item-routes-v1001.json"
         | "block-entities-v1001.json"
-        | "visual-coverage-v1001.json"
         | "visual-invisible-v1001.json" => "legacy_block",
         "block-entities-v2193.json"
         | "block-item-routes-v2193.json"
@@ -306,7 +305,6 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     || (key == "name"
                         && (file == "registry-policy.json"
                             || file == "block-properties-v2193.json"
-                            || file == "visual-coverage-v1001.json"
                             || path.contains("/backing_blocks/")));
                 if identity_field {
                     if let Some(identifier) = value.as_str() {
