@@ -379,6 +379,9 @@ fn selection_consumers_ownerless_shield_thumbnail_keeps_the_ordinary_definition(
 #[path = "selected_cache_tests.rs"]
 mod cache;
 
+#[path = "shield_pressure_tests.rs"]
+mod shield_pressure;
+
 #[test]
 fn shield_stack_patterns_select_distinct_inventory_artwork() {
     use crate::ui_runtime::presentation::publish::item_icons::test_support::stack_icon;

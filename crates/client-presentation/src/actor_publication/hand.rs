@@ -24,6 +24,8 @@ mod native_tests;
 #[cfg(test)]
 mod remote_body_tests;
 #[cfg(test)]
+mod shield_tests;
+#[cfg(test)]
 mod spear_tests;
 #[cfg(test)]
 mod third_person_tests;
@@ -70,6 +72,7 @@ pub(super) fn decorated_item_atlas(
         layer.presentation.location,
         layer.presentation.submission.input.rig,
     ) {
+        layer.presentation.location.layer = 0;
         layer.presentation.submission.texture_layer = 0;
         Some(HandItemAtlas {
             width: raster.width,

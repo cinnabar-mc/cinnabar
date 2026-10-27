@@ -28,6 +28,8 @@ mod grip;
 mod map_tests;
 #[cfg(test)]
 mod presentation_tests;
+#[cfg(test)]
+mod shield_tests;
 mod visual;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
@@ -505,6 +507,13 @@ impl ItemStateStore {
         item.grip = resolved.grip;
         item.glint = resolved.glint;
         item.identifier = resolved.identifier;
+        if item
+            .identifier
+            .as_deref()
+            .is_some_and(|identifier| identifier != assets::gui_item::SHIELD_IDENTIFIER)
+        {
+            item.shield_pattern = None;
+        }
         item.visual = resolved.visual;
         item.durability = resolved.durability;
         item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
@@ -555,11 +564,13 @@ impl ItemStateStore {
         item.damage = protocol::item_stack_damage(stack);
         item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
         item.map_id = protocol::item_map_id(&stack.extra_data);
-        item.shield_pattern = (item.identifier.as_deref()
-            == Some(assets::gui_item::SHIELD_IDENTIFIER))
-        .then(|| protocol::item_shield_pattern(&stack.extra_data))
-        .flatten()
-        .map(Arc::new);
+        item.shield_pattern = item
+            .identifier
+            .as_deref()
+            .is_none_or(|identifier| identifier == assets::gui_item::SHIELD_IDENTIFIER)
+            .then(|| protocol::item_shield_pattern(&stack.extra_data))
+            .flatten()
+            .map(Arc::new);
         Some(item)
     }
 

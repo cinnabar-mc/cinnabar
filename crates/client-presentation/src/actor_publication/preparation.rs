@@ -272,6 +272,8 @@ pub fn advance_actor_frame(
     java_poses.begin_frame();
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.begin_frame();
+        equipment.begin_shield_frame();
+        equipment.set_show_custom_item_models(settings.feel().show_custom_item_models);
     }
     layer_poses.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;

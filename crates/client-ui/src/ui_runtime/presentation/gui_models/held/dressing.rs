@@ -70,6 +70,15 @@ impl UiPresentationRuntime {
             };
             Some((binding, entities, Arc::clone(artwork), model))
         });
+        self.prepare_shield_hands(selected.iter().enumerate().filter_map(|(index, selected)| {
+            let (binding, _, artwork, model) = selected.as_ref()?;
+            model.as_ref()?;
+            let hand = &hands[index].as_ref()?.0;
+            Some((
+                hand.shield_pattern.as_deref()?,
+                artwork.texture(&binding.texture.identifier)?,
+            ))
+        }));
         self.wear_pack_equipment(
             worn,
             selected.each_ref().map(|selected| {

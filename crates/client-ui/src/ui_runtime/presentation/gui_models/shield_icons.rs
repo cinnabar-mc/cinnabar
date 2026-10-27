@@ -21,14 +21,26 @@ struct Cache {
     pages: Vec<UiTexturePage>,
     dirty: bool,
     wanted: BTreeSet<render_api::ShieldPattern>,
+    hands: BTreeMap<Key, assets::EquipmentTexture>,
     source_limit: u32,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
     appearance: render_api::ShieldPattern,
     source: usize,
     size: [u16; 2],
+}
+
+impl Key {
+    /// Identifies a composition by its cloth data and retained base allocation.
+    fn new(appearance: render_api::ShieldPattern, base: &assets::EquipmentTexture) -> Self {
+        Self {
+            appearance,
+            source: base.rgba8.as_ptr() as usize,
+            size: [base.width, base.height],
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -49,11 +61,7 @@ impl Cache {
         first: u16,
         texture: impl FnMut(&str) -> Option<&'a assets::EquipmentTexture>,
     ) -> Option<Image> {
-        let key = Key {
-            appearance,
-            source: base.rgba8.as_ptr() as usize,
-            size: [base.width, base.height],
-        };
+        let key = Key::new(appearance, base);
         if let Some(image) = self.icons.get(&key) {
             return Some(image.clone());
         }
@@ -175,39 +183,98 @@ impl UiPresentationRuntime {
             .into_iter()
             .map(|appearance| appearance.as_ref().clone())
             .collect();
-        let reset = {
-            let cache = self
-                .gui_models
-                .shield_icons
-                .cache
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            cache.wanted != appearances
+        let hands = self
+            .gui_models
+            .shield_icons
+            .cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .hands
+            .clone();
+        self.prepare_shield_images(appearances, hands);
+    }
+
+    /// Fits the currently selected hand sheets together with the visible inventory art.
+    pub(in crate::ui_runtime::presentation) fn prepare_shield_hands<'a>(
+        &mut self,
+        hands: impl IntoIterator<Item = (&'a render_api::ShieldPattern, &'a assets::EquipmentTexture)>,
+    ) {
+        let hands = hands
+            .into_iter()
+            .map(|(pattern, base)| (Key::new(pattern.clone(), base), base.clone()))
+            .collect();
+        let appearances = self
+            .gui_models
+            .shield_icons
+            .cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .wanted
+            .clone();
+        self.prepare_shield_images(appearances, hands);
+    }
+
+    /// Rebuilds every demanded composition at one resolution before consumers retain addresses.
+    fn prepare_shield_images(
+        &mut self,
+        appearances: BTreeSet<render_api::ShieldPattern>,
+        hands: BTreeMap<Key, assets::EquipmentTexture>,
+    ) {
+        let Some(source) = self.gui_models.sources.shield.as_ref() else {
+            return;
         };
-        if reset {
+        let Some(startup) = self.equipment_catalog.as_deref() else {
+            return;
+        };
+        let active = self.gui_models.pack_equipment.source.as_deref();
+        let base = active
+            .and_then(|catalog| catalog.texture(&source.texture.identifier))
+            .unwrap_or(&source.texture);
+        let mut cache = self
+            .gui_models
+            .shield_icons
+            .cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if cache.wanted != appearances || !cache.hands.keys().eq(hands.keys()) {
             self.inventory_cache = Some(Default::default());
             let mut limit = render_model::UI_MODEL_ATLAS_SIDE;
             loop {
-                *self
-                    .gui_models
-                    .shield_icons
-                    .cache
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner()) = Cache {
+                *cache = Cache {
                     wanted: appearances.clone(),
+                    hands: hands.clone(),
                     source_limit: limit,
                     dirty: true,
                     ..Default::default()
                 };
                 let complete = appearances
                     .iter()
-                    .all(|appearance| self.shield_icon(appearance).is_some());
+                    .map(|appearance| (appearance, base))
+                    .chain(hands.iter().map(|(key, base)| (&key.appearance, base)))
+                    .all(|(appearance, base)| {
+                        cache
+                            .insert(
+                                appearance.clone(),
+                                source,
+                                base,
+                                (self.textures.dynamic_start()
+                                    + render_model::UI_SHIELD_PAGE_OFFSET)
+                                    as u16,
+                                |path| {
+                                    active
+                                        .and_then(|catalog| catalog.texture(path))
+                                        .or_else(|| startup.texture(path))
+                                },
+                            )
+                            .is_some()
+                    });
                 if complete || limit <= 1 {
                     break;
                 }
                 limit /= 2;
             }
         }
+        drop(cache);
         self.publish_shield_icons();
     }
 

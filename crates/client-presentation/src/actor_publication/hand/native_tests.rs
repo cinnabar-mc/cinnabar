@@ -138,6 +138,10 @@ fn fixture_with_binding(
         .1
         .clone();
     files.push((
+        format!("{}.png", assets::item::shield::pattern_path("")).into(),
+        paper.clone(),
+    ));
+    files.push((
         format!("{}.png", assets::entity::MAP_BACKGROUND_TEXTURE_IDENTIFIER).into(),
         paper,
     ));
