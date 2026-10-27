@@ -44,6 +44,7 @@ fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
         priority: ChunkUploadPriority::new(0.0),
         token: None,
         publication_permit: None,
+        world_materials: false,
     }
 }
 

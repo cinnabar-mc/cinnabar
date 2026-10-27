@@ -753,3 +753,311 @@ fn java_mode_toggles_withdraw_old_meshes_and_reject_late_round_trip_results() {
         assert_eq!(capture_mesh(&stream, key).java_meshing, original);
     }
 }
+
+#[test]
+fn world_material_tags_reach_new_snapshots_and_remesh_until_they_are_cleared() {
+    let (mut stream, key) = fixture();
+    stream.resident.insert(key);
+    let now = Instant::now();
+    let revision = stream.mark_dirty_exact(key, now);
+    // The center section holds value 1.
+    let tags: Arc<[::meshing::WorldMaterialBlock]> = Arc::from([
+        ::meshing::WorldMaterialBlock::new(1, 1, false),
+        ::meshing::WorldMaterialBlock::new(5, 2, true),
+    ]);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&tags), now),
+        Some(vec![key])
+    );
+    assert!(Arc::ptr_eq(stream.world_material_tags(), &tags));
+    assert_eq!(&*capture_mesh(&stream, key).world_materials, &*tags);
+    assert!(!stream.revisions.is_current(key, revision));
+    // The same tags change nothing.
+    let revision = stream.revisions.dirty(key).unwrap().revision;
+    assert_eq!(
+        stream.set_world_materials(
+            Arc::from([
+                ::meshing::WorldMaterialBlock::new(1, 1, false),
+                ::meshing::WorldMaterialBlock::new(5, 2, true)
+            ]),
+            now
+        ),
+        Some(Vec::new())
+    );
+    assert!(stream.revisions.is_current(key, revision));
+    // Revocation clears them and remeshes back to Bedrock materials once the binding's remesh
+    // has published.
+    publish(&mut stream, key);
+    assert_eq!(
+        stream.set_world_materials(Arc::from([]), now),
+        Some(vec![key])
+    );
+    assert!(!stream.revisions.is_current(key, revision));
+    assert!(capture_mesh(&stream, key).world_materials.is_empty());
+}
+
+#[test]
+fn binding_a_block_remeshes_only_the_sections_that_hold_it() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    // The center holds value 1; every neighbour is uniformly value 3.
+    let neighbours: Vec<SubChunkKey> = center
+        .mesh_neighbourhood_dependents()
+        .filter(|key| *key != center)
+        .collect();
+    let mut revisions = Vec::new();
+    for key in neighbours.iter().copied().chain([center]) {
+        stream.resident.insert(key);
+        revisions.push((key, stream.mark_dirty_exact(key, now)));
+    }
+    let neighbour = neighbours[0];
+    stream.mesh_jobs.in_flight.insert(neighbour, revisions[0].1);
+    assert_eq!(
+        stream.set_world_materials(
+            Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+            now
+        ),
+        Some(vec![center]),
+        "the withdrawn sections are the ones whose queued uploads the caller drops"
+    );
+    for (key, revision) in &revisions {
+        assert_eq!(
+            stream.revisions.is_current(*key, *revision),
+            *key != center,
+            "only the section holding the bound block remeshes ({key:?})"
+        );
+    }
+    assert!(
+        stream.mesh_jobs.in_flight.contains_key(&neighbour),
+        "unaffected work is kept"
+    );
+}
+
+#[test]
+fn a_block_that_stops_hiding_faces_remeshes_the_sections_beside_it_too() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    // The center holds value 1; every neighbour is uniformly value 3.
+    let sections: Vec<SubChunkKey> = center.mesh_neighbourhood_dependents().collect();
+    for key in &sections {
+        stream.resident.insert(*key);
+        stream.mark_dirty_exact(*key, now);
+    }
+    let mut remeshed = stream
+        .set_world_materials(
+            Arc::from([::meshing::WorldMaterialBlock::new(1, 1, true)]),
+            now,
+        )
+        .unwrap();
+    remeshed.sort();
+    let mut expected = sections.clone();
+    expected.sort();
+    assert_eq!(
+        remeshed, expected,
+        "a see-through block uncovers the faces its neighbours turn toward it"
+    );
+}
+
+#[test]
+fn a_block_a_material_starts_moving_remeshes_the_sections_beside_it_too() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    let sections: Vec<SubChunkKey> = center.mesh_neighbourhood_dependents().collect();
+    for key in &sections {
+        stream.resident.insert(*key);
+        stream.mark_dirty_exact(*key, now);
+    }
+    let shaded = ::meshing::WorldMaterialBlock::new(1, 1, false);
+    assert_eq!(
+        stream.set_world_materials(Arc::from([shaded]), now),
+        Some(vec![center]),
+        "a material that only shades changes only its own sections"
+    );
+    for key in &sections {
+        stream.settle_world_material(*key, None);
+    }
+    let mut remeshed = stream
+        .set_world_materials(Arc::from([shaded.displacing(true)]), now)
+        .unwrap();
+    remeshed.sort();
+    let mut expected = sections.clone();
+    expected.sort();
+    assert_eq!(
+        remeshed, expected,
+        "a displaced block may uncover the faces its neighbours turn toward it"
+    );
+}
+
+#[test]
+fn a_see_through_block_bound_to_another_material_remeshes_the_sections_beside_it_too() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    let sections: Vec<SubChunkKey> = center.mesh_neighbourhood_dependents().collect();
+    for key in &sections {
+        stream.resident.insert(*key);
+        stream.mark_dirty_exact(*key, now);
+    }
+    let glass = |tag| ::meshing::WorldMaterialBlock::new(1, tag, true);
+    stream
+        .set_world_materials(Arc::from([glass(1)]), now)
+        .unwrap();
+    for key in &sections {
+        stream.settle_world_material(*key, None);
+    }
+    // Still see-through, but now same-tag culling across the borders pairs it differently.
+    let mut remeshed = stream
+        .set_world_materials(Arc::from([glass(2)]), now)
+        .unwrap();
+    remeshed.sort();
+    let mut expected = sections.clone();
+    expected.sort();
+    assert_eq!(remeshed, expected);
+}
+
+/// Acknowledges `key`'s current dirty revision as uploaded, as the renderer does once its mesh
+/// is drawn.
+fn publish(stream: &mut WorldStream, key: SubChunkKey) {
+    let dirty = stream.revisions.dirty(key).unwrap();
+    stream.acknowledge_mesh_upload(key, dirty.revision, dirty.since, Instant::now());
+}
+
+#[test]
+fn alternating_binds_wait_for_the_last_change_to_publish_and_keep_jobs_running() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    let revision = stream.mark_dirty_exact(center, now);
+    // A job is meshing the center when the first bind lands.
+    stream.mesh_jobs.in_flight.insert(center, revision);
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    stream
+        .mesh_cancellations
+        .insert(center, Arc::clone(&cancelled));
+    let bound: Arc<[::meshing::WorldMaterialBlock]> =
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]);
+    let unbound: Arc<[::meshing::WorldMaterialBlock]> = Arc::from([]);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&bound), now),
+        Some(vec![center])
+    );
+    assert!(
+        !cancelled.load(std::sync::atomic::Ordering::Acquire),
+        "the job in flight finishes"
+    );
+    assert_eq!(stream.mesh_jobs.in_flight.get(&center), Some(&revision));
+    let remesh = stream.revisions.dirty(center).unwrap().revision;
+    // A guest alternating bind and unbind every callback changes nothing while the remesh
+    // is outstanding, so the section is not re-dirtied again and again.
+    for round in 0..16 {
+        if round % 2 == 0 {
+            assert_eq!(stream.set_world_materials(Arc::clone(&unbound), now), None);
+        } else {
+            // Back to what is applied: nothing to do.
+            assert_eq!(
+                stream.set_world_materials(Arc::clone(&bound), now),
+                Some(Vec::new())
+            );
+        }
+        assert_eq!(stream.revisions.dirty(center).unwrap().revision, remesh);
+    }
+    assert!(Arc::ptr_eq(stream.world_material_tags(), &bound));
+    // Once it publishes, the next change applies.
+    publish(&mut stream, center);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&unbound), now),
+        Some(vec![center])
+    );
+}
+
+#[test]
+fn unrelated_dirt_after_a_change_publishes_does_not_hold_the_next_change() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    let bound: Arc<[::meshing::WorldMaterialBlock]> =
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]);
+    assert_eq!(
+        stream.set_world_materials(Arc::clone(&bound), now),
+        Some(vec![center])
+    );
+    let progress = stream.world_material_progress();
+    // Redstone keeps dirtying the section: a newer revision publishes, then it is dirty again.
+    stream.mark_dirty_exact(center, now);
+    publish(&mut stream, center);
+    assert_eq!(stream.world_material_progress(), progress + 1);
+    stream.mark_dirty_exact(center, now);
+    assert!(stream.revisions.dirty(center).is_some());
+    assert_eq!(
+        stream.set_world_materials(Arc::from([]), now),
+        Some(vec![center]),
+        "the change's own remesh published, so the next change applies"
+    );
+}
+
+#[test]
+fn an_unloaded_section_settles_the_change_it_was_held_for() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    stream.set_world_materials(
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+        now,
+    );
+    assert_eq!(stream.set_world_materials(Arc::from([]), now), None);
+    stream.settle_world_material(center, None);
+    assert!(stream.set_world_materials(Arc::from([]), now).is_some());
+}
+
+#[test]
+fn the_applied_tags_name_their_slots() {
+    let (mut stream, _) = fixture();
+    assert_eq!(stream.world_material_slots(), 0);
+    stream.set_world_materials(
+        Arc::from([
+            ::meshing::WorldMaterialBlock::new(1, 1, false),
+            ::meshing::WorldMaterialBlock::new(7, 4, false),
+        ]),
+        Instant::now(),
+    );
+    assert_eq!(stream.world_material_slots(), 0b1001);
+}
+
+#[test]
+fn a_section_dirtied_every_tick_settles_once_a_mesh_past_the_change_is_drawn() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    stream.set_world_materials(
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+        now,
+    );
+    let progress = stream.world_material_progress();
+    // The remesh publishes after redstone has dirtied the section again, so the drawn
+    // generation is already stale.
+    stream.mark_dirty_exact(center, now);
+    let drawn = stream.revisions.dirty(center).unwrap();
+    stream.mark_dirty_exact(center, now);
+    stream.acknowledge_mesh_upload(center, drawn.revision, drawn.since, now);
+    assert_eq!(stream.world_material_progress(), progress + 1);
+    assert!(stream.set_world_materials(Arc::from([]), now).is_some());
+}
+
+#[test]
+fn a_section_that_never_publishes_holds_the_next_change_only_for_a_bounded_wait() {
+    let (mut stream, center) = fixture();
+    let now = Instant::now();
+    stream.resident.insert(center);
+    stream.set_world_materials(
+        Arc::from([::meshing::WorldMaterialBlock::new(1, 1, false)]),
+        now,
+    );
+    for _ in 1..super::super::resource_reload::WORLD_MATERIAL_HOLD_ROUNDS {
+        stream.mark_dirty_exact(center, now);
+        stream.count_mesh_round();
+    }
+    assert_eq!(stream.set_world_materials(Arc::from([]), now), None);
+    let progress = stream.world_material_progress();
+    stream.count_mesh_round();
+    assert_eq!(stream.world_material_progress(), progress + 1);
+    assert!(stream.set_world_materials(Arc::from([]), now).is_some());
+}

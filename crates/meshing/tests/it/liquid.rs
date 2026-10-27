@@ -209,6 +209,38 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
 }
 
 #[test]
+fn water_draws_its_face_beside_a_block_a_world_material_may_move() {
+    let center = blocks(&[(WATER_SOURCE, [8, 8, 8]), (SOLID, [9, 8, 8])]);
+    let with = |world: &[meshing::WorldMaterialBlock]| {
+        meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &BlockClassifier::new(AIR),
+            runtime_assets(),
+            NetworkIdMode::Sequential,
+            &MeshNeighbourhood::new(&center),
+            &meshing::lighting::FullBrightLightSampler,
+            meshing::MeshOptions {
+                world_materials: world,
+                ..Default::default()
+            },
+        )
+    };
+    let faces_solid = |mesh: &meshing::ChunkMesh| {
+        mesh.liquid_quads()
+            .iter()
+            .any(|quad| quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX)
+    };
+    let shaded = meshing::WorldMaterialBlock::new(SOLID, 1, false);
+    assert!(
+        !faces_solid(&with(&[shaded])),
+        "a block a material only shades hides the water face"
+    );
+    assert!(
+        faces_solid(&with(&[shaded.displacing(true)])),
+        "a displaced block may move away, so the water face draws"
+    );
+}
+
+#[test]
 fn opaque_roofs_keep_liquid_surfaces_below_their_bottom_face() {
     for liquid in [WATER_SOURCE, NON_WATER_LIQUID] {
         let covered = mesh(&blocks(&[(liquid, [8, 8, 8]), (SOLID, [8, 9, 8])]));

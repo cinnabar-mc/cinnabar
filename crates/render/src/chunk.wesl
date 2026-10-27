@@ -1,6 +1,6 @@
 import render::chunk_records::{chunk_origins, animations, animation_frames, clock};
 
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_ao_shade, material_mask_varyings, material_mask_reference};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
@@ -100,6 +100,9 @@ struct VertexOutput {
     @location(11) native_ao_face: f32,
     @if(!ENHANCED)
     @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
+    // Cinnabar masks: inverted glow and emissive references (zero names none) and strength bits.
+    @if(!ENHANCED)
+    @location(13) @interpolate(flat) masks: vec3<u32>,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -340,6 +343,8 @@ struct CubeQuad {
     material_id: u32,
     /// `material_id` after positional variation at the origin block.
     selected_material_id: u32,
+    /// One more than the quad's world material slot; zero draws the Bedrock material.
+    world: u32,
 }
 
 /// Decodes packed quad `instance_index` of the section in origin slot `metadata_index`.
@@ -362,6 +367,7 @@ fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
         chunk_origin.stream_bases.y + local_quad_index,
         quad.material_id,
         positional_material_id(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin)),
+        geometry >> 26u,
     );
 }
 
@@ -376,6 +382,22 @@ fn cube_light_sample(lighting_record_index: u32, corner: u32) -> u32 {
 /// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
 /// vertex_index / 4 selects its origin, and instance_index selects the packed quad.
 fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
+    // Quads tagged for a programmable world material draw only in that material's pass, or in
+    // the fallback pass that draws every tagged quad while its material is not ready.
+    // Enhanced terrain has no world material pass, so it draws tagged quads as Bedrock.
+    let world_tag = quads[instance_index].geometry >> 26u;
+    var world_hidden = false;
+    @if(!ENHANCED)
+    { world_hidden = world_tag != 0u; }
+    @if(WORLD_MATERIAL)
+    { world_hidden = world_tag != world_material_tag(); }
+    @if(WORLD_MATERIAL_FALLBACK)
+    { world_hidden = world_tag == 0u; }
+    if (world_hidden) {
+        var hidden: VertexOutput;
+        hidden.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
+        return hidden;
+    }
     let cube = cube_quad(instance_index, vertex_index / 4u);
     let local_origin = cube.local_origin;
     let face = cube.face;
@@ -399,7 +421,16 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.frame_blend = animation_sample.blend;
     out.quad_shape = pack_quad_shape(face, width, height, uv_flags);
     out.current_texture = animation_sample.current_texture;
+    // A world material may move the drawn corner within its declared bound; positions read by
+    // shading and gameplay stay where the block is.
+    @if(WORLD_MATERIAL_DISPLACE)
+    {
+        let world_material_offset = world_material_displace(WorldVertexInput(world_position, face_normal(face), out.uv, world_material_phase()));
+        out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset + world_material_offset);
+    }
     out.material_flags = material.flags;
+    @if(!ENHANCED)
+    out.masks = material_mask_varyings(material);
     out.local_position = local_position;
     out.biome_record = u32(cube.chunk_origin.w);
     out.next_texture = animation_sample.next_texture;
@@ -418,7 +449,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     @if(!ENHANCED)
     out.native_light_levels = terrain_light_levels(light_sample);
     @if(!ENHANCED)
-    out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
+    out.native_ao_face = material_ao_shade(ao * dimming, material.ao_exponent);
     @if(!ENHANCED)
     out.uniform_tint_gamma = vec4(0.0);
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
@@ -625,10 +656,46 @@ fn native_leaf_colour(
     return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
 }
 
+// Cinnabar material masks of a face: glow RGB added after lighting, and the weight with which
+// the face draws unlit.
+struct CubeMasks {
+    glow: vec3<f32>,
+    unlit: f32,
+}
+
+@if(!ENHANCED)
+fn cube_masks(@if(!ENHANCED)
+in: VertexOutput) -> CubeMasks {
+    let uv_dx = dpdx(in.uv);
+    let uv_dy = dpdy(in.uv);
+    var masks = CubeMasks(vec3(0.0), 0.0);
+    let strength = bitcast<f32>(in.masks.z);
+    let uv = clamp(in.uv, vec2(0.0), quad_shape_uv_limit(in.quad_shape));
+    // Explicit gradients keep these samples valid inside the branches.
+    if (in.masks.x != 0u) {
+        let glow = sample_material_texture_ref(material_mask_reference(in.masks.x), uv, uv_dx, uv_dy, 0u);
+        masks.glow = glow.rgb * glow.a * strength;
+    }
+    if (in.masks.y != 0u) {
+        let emissive = sample_material_texture_ref(material_mask_reference(in.masks.y), uv, uv_dx, uv_dy, 0u);
+        masks.unlit = clamp(emissive.a * strength, 0.0, 1.0);
+    }
+    return masks;
+}
+
 // Terrain lighting operates on encoded RGB before the framebuffer conversion.
 fn native_cube_colour(
     texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
     ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,
+) -> vec4<f32> {
+    return native_masked_cube_colour(texture, flags, tint_gamma, ao_face, lightmap_gamma, fog_linear, fog_amount, CubeMasks(vec3(0.0), 0.0));
+}
+
+// `native_cube_colour` with a face's Cinnabar masks applied.
+fn native_masked_cube_colour(
+    texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
+    ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,
+    masks: CubeMasks,
 ) -> vec4<f32> {
     let texture_gamma = texture.rgb;
     // Current atlas overlay and installed near-version opaque
@@ -636,13 +703,30 @@ fn native_cube_colour(
     // Apply this in the same gamma domain as the native terrain product.
     let overlay = material_uses_overlay_mask(flags);
     let masked_tint = select(tint_gamma, mix(vec3(1.0), tint_gamma, texture.a), overlay);
-    let colour = native_leaf_colour(texture_gamma, masked_tint, ao_face, lightmap_gamma, fog_linear, fog_amount);
+    let fog_gamma = tint_to_gamma(vec4(fog_linear, 1.0)).rgb;
+    // Emissive texels skip the face shade and lightmap; glow adds after lighting, before fog.
+    let lit_gamma = ((texture_gamma * masked_tint) * mix(ao_face, 1.0, masks.unlit))
+        * mix(lightmap_gamma, vec3(1.0), masks.unlit) + masks.glow;
+    let colour = tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
     let alpha = select(texture.a, 1.0, overlay || material_uses_native_leaf_colour(flags));
     return vec4(colour, alpha);
 }
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return cube_fragment(in, front);
+}
+
+// The world material effects pass over a bound cube face.
+@if(WORLD_MATERIAL_EFFECTS)
+@fragment
+fn world_effects_fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> WorldEffectsOutput {
+    _ = cube_fragment(in, front);
+    return world_effects_output();
+}
+
+/// The colour of a cube fragment, discarding what its material does not draw.
+fn cube_fragment(in: VertexOutput, front: bool) -> vec4<f32> {
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
@@ -809,19 +893,64 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     @if(ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
     @if(!ENHANCED)
-    let tint_gamma = ordinary_cube_tint_gamma(in);
+    var tint_gamma = ordinary_cube_tint_gamma(in);
     @if(!ENHANCED)
-    let native_colour = native_cube_colour(
-        sampled,
-        in.material_flags,
+    var masks = cube_masks(in);
+    @if(!ENHANCED)
+    var texture = sampled;
+    @if(!ENHANCED)
+    var flags = in.material_flags;
+    // A programmable world material replaces the tinted Bedrock colour before the host's
+    // lightmap, face shade and fog; its emission adds after lighting like a glow mask.
+    @if(!ENHANCED && WORLD_MATERIAL_SCENE)
+    { world_material_set_fragment(in.clip_position.xy, view.clip_from_view[3][2] / max(in.clip_position.z, 1.0e-9)); }
+    @if(!ENHANCED && WORLD_MATERIAL)
+    {
+        let world_fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+        let world_light = terrain_light_colour(in.native_light_levels) * in.native_ao_face;
+        // Faces a material only shades merge across blocks; each block still reads its own
+        // surface coordinates, as one-block faces do.
+        let world_input = WorldMaterialInput(
+            fract(in.uv), in.world_position, vec4(sampled.rgb * tint_gamma, sampled.a),
+            vec4(world_light, in.native_ao_face),
+            vec4(world_fog_gamma, distance_fog_amount(in.world_position)),
+            vec4(0.0), world_material_phase(), quad_shape_normal(in.quad_shape),
+            normalize(view.world_position - in.world_position));
+        let world_surface = world_material_resolve(world_input);
+        @if(WORLD_MATERIAL_EFFECTS)
+        { world_effects_capture(world_input, world_surface.emission); }
+        @if(WORLD_MATERIAL_CUTOUT)
+        if (world_surface.coverage < 0.5) { discard; }
+        texture = vec4(world_surface.color, world_surface.coverage);
+        @if(WORLD_MATERIAL_OPAQUE || WORLD_MATERIAL_CUTOUT)
+        { texture.a = 1.0; }
+        tint_gamma = vec3(1.0);
+        // The Bedrock overlay mask and leaf colour rules no longer apply to the guest colour.
+        flags = 0u;
+        masks.glow += world_surface.emission;
+    }
+    @if(!ENHANCED)
+    let native_colour = native_masked_cube_colour(
+        texture,
+        flags,
         tint_gamma,
         in.native_ao_face,
         terrain_light_colour(in.native_light_levels),
         atmosphere.fog_color_start.rgb,
         distance_fog_amount(in.world_position),
+        masks,
     );
-    @if(!ENHANCED)
-    return native_colour;
+    // A blended world material in the gamma-blended translucent pass writes gamma colour, as
+    // ordinary translucent terrain does there.
+    @if(!ENHANCED && NATIVE_GAMMA_BLEND)
+    let output = tint_to_gamma(native_colour);
+    @if(!ENHANCED && !NATIVE_GAMMA_BLEND)
+    let output = native_colour;
+    // Premultiplied and additive world material classes blend with a source factor of one.
+    @if(!ENHANCED && WORLD_MATERIAL_PREMULTIPLY)
+    return vec4(output.rgb * output.a, output.a);
+    @if(!ENHANCED && !WORLD_MATERIAL_PREMULTIPLY)
+    return output;
 }
 
 // Alpha-tested terrain depth; opaque texels cast independently of baked light.

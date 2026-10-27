@@ -177,7 +177,8 @@ impl Face {
 ///
 /// `geometry` packs local block origin X/Y/Z into bits 0..14 (five bits each),
 /// face into bits 15..17, `(width - 1)` into bits 18..21, and
-/// `(height - 1)` into bits 22..25. Bits 26..31 are reserved. The second word
+/// `(height - 1)` into bits 22..25, and one more than the quad's programmable world
+/// material slot into bits 26..31 (zero for none). The second word
 /// stores the compact material-table ID resolved from the active asset set.
 ///
 /// Width/height axes are Z/Y for X faces, X/Z for Y faces, and X/Y for Z
@@ -223,6 +224,16 @@ impl PackedModelRef {
         }
     }
 
+    /// The block this ref draws, as its x, y and z within the section.
+    #[must_use]
+    pub const fn local(self) -> [u8; 3] {
+        [
+            (self.packed_transform & 15) as u8,
+            ((self.packed_transform >> 4) & 15) as u8,
+            ((self.packed_transform >> 8) & 15) as u8,
+        ]
+    }
+
     #[must_use]
     pub const fn words(self) -> [u32; 4] {
         [
@@ -234,7 +245,9 @@ impl PackedModelRef {
     }
 }
 
-/// One exact visible-quad draw indirection into the packed model-ref stream.
+/// One exact visible-quad draw indirection into the packed model-ref stream. The second word
+/// holds the template quad index in bits 0..25 and one more than the quad's programmable world
+/// material slot in bits 26..31, as [`PackedQuad`] does.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PackedModelDrawRef {
@@ -243,12 +256,43 @@ pub struct PackedModelDrawRef {
 }
 
 impl PackedModelDrawRef {
+    const WORLD_SHIFT: u32 = 26;
+
     #[must_use]
     pub const fn new(model_ref_index: u32, quad_index: u32) -> Self {
         Self {
             model_ref_index,
             quad_index,
         }
+    }
+
+    /// This draw tagged with `world`, one more than its world material slot; a tag above
+    /// [`PackedQuad::MAX_WORLD_MATERIAL`] leaves it untagged.
+    #[must_use]
+    pub const fn with_world_material(mut self, world: u8) -> Self {
+        if world <= PackedQuad::MAX_WORLD_MATERIAL {
+            self.quad_index = (self.quad_index & ((1 << Self::WORLD_SHIFT) - 1))
+                | ((world as u32) << Self::WORLD_SHIFT);
+        }
+        self
+    }
+
+    /// The model ref this draw reads.
+    #[must_use]
+    pub const fn model_ref_index(self) -> u32 {
+        self.model_ref_index
+    }
+
+    /// The template quad this draw draws, without its world material tag.
+    #[must_use]
+    pub const fn quad_index(self) -> u32 {
+        self.quad_index & ((1 << Self::WORLD_SHIFT) - 1)
+    }
+
+    /// One more than the draw's world material slot; zero draws the Bedrock material.
+    #[must_use]
+    pub const fn world_material(self) -> u8 {
+        (self.quad_index >> Self::WORLD_SHIFT) as u8
     }
 
     #[must_use]
@@ -494,6 +538,9 @@ impl PackedQuad {
     const HEIGHT_SHIFT: u32 = 22;
     const POSITION_MASK: u32 = 0x1f;
     const EXTENT_MASK: u32 = 0x0f;
+    const WORLD_SHIFT: u32 = 26;
+    /// The largest world material tag a quad carries.
+    pub const MAX_WORLD_MATERIAL: u8 = 0x3f;
 
     /// Origin coordinates must lie inside the sub-chunk and extents in `1..=16`.
     #[must_use]
@@ -549,6 +596,23 @@ impl PackedQuad {
     #[must_use]
     pub const fn material_id(&self) -> u32 {
         self.material_id
+    }
+
+    /// This quad tagged with `world`, one more than its world material slot; a tag above
+    /// [`Self::MAX_WORLD_MATERIAL`] leaves it untagged.
+    #[must_use]
+    pub const fn with_world_material(mut self, world: u8) -> Self {
+        if world <= Self::MAX_WORLD_MATERIAL {
+            self.geometry = (self.geometry & !(0x3f << Self::WORLD_SHIFT))
+                | ((world as u32) << Self::WORLD_SHIFT);
+        }
+        self
+    }
+
+    /// One more than the quad's world material slot; zero draws the Bedrock material.
+    #[must_use]
+    pub const fn world_material(&self) -> u8 {
+        (self.geometry >> Self::WORLD_SHIFT) as u8
     }
 
     /// Raw words ready for upload to a storage buffer.
@@ -696,6 +760,8 @@ pub struct ChunkMesh {
     pub(crate) liquid_quads: Box<[PackedLiquidQuad]>,
     pub(crate) liquid_lighting: Box<[PackedQuadLighting]>,
     pub(crate) connectivity: FaceConnectivity,
+    /// Whether any cube quad or model draw carries a world material tag.
+    pub(crate) world_materials: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -790,6 +856,7 @@ impl ChunkMesh {
                 cube_lighting: cube_lighting.len(),
             });
         }
+        let world_materials = crate::world_materials::tagged(&cube_quads, &model_draw_refs, &[]);
         Ok(Self {
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
@@ -806,6 +873,7 @@ impl ChunkMesh {
             liquid_quads: liquid_quads.into_boxed_slice(),
             liquid_lighting: liquid_lighting.into_boxed_slice(),
             connectivity,
+            world_materials,
         })
     }
 
@@ -852,6 +920,11 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn with_transparent_model_draw_refs(mut self, draw_refs: Vec<PackedModelDrawRef>) -> Self {
+        self.world_materials = crate::world_materials::tagged(
+            self.cube_quads(),
+            &self.model_draw_refs.opaque,
+            &draw_refs,
+        );
         self.model_draw_refs.transparent = draw_refs.into_boxed_slice();
         self
     }

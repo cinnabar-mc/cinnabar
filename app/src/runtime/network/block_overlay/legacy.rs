@@ -133,12 +133,5 @@ fn parse_textures(textures: &Value) -> Option<Box<[CustomMaterialInstance]>> {
 }
 
 fn material(name: &str, texture: &str) -> CustomMaterialInstance {
-    CustomMaterialInstance {
-        name: name.into(),
-        texture: texture.into(),
-        render_method: None,
-        tint_method: None,
-        ambient_occlusion: None,
-        face_dimming: None,
-    }
+    CustomMaterialInstance::with_authored_defaults(name, texture)
 }

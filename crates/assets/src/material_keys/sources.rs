@@ -34,6 +34,9 @@ pub struct BlockTextureSource {
 /// Largest number of state variants or positional choices in a terrain entry.
 pub const MAX_TERRAIN_VARIANTS: usize = 256;
 
+/// The weight of a terrain variation that names none, as Bedrock's texture parser defaults it.
+pub const DEFAULT_TERRAIN_WEIGHT: f32 = 1.0;
+
 /// The largest raw terrain choice weight before normalization.
 const MAX_TERRAIN_WEIGHT: f32 = 1_000_000.0;
 

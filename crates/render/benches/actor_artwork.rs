@@ -26,7 +26,6 @@ fn artwork_burst(c: &mut Criterion) {
             height: 128,
             layers: 1,
             rgba8: Arc::from(vec![marker; 128 * 128 * 4]),
-            color_mask: false,
             multitexture: false,
         })
         .collect();

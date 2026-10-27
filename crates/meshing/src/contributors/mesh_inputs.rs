@@ -27,7 +27,9 @@ const _: () = assert!(DIAGNOSTIC_MATERIAL == 0);
 /// value, and the cell's layers must still merge without a diagnostic. The whole sections are
 /// compared, so cells changed outside `hint` are still found; `hint` (the cells an update set)
 /// is checked first so an ordinary visible change is rejected without decoding a layer.
-/// `water_filled` is the sorted list used by the liquid mesher. Membership must be unchanged.
+/// The last argument holds the sorted water-filled values the liquid mesher reads and the sorted
+/// world material blocks the cube mesher reads; membership, tags, see-through and displacement
+/// must be unchanged.
 /// Unregistered values answer `false` without counting a registry miss.
 pub fn block_changes_preserve_meshes(
     classifier: BlockClassifier,
@@ -36,9 +38,13 @@ pub fn block_changes_preserve_meshes(
     previous: &SubChunk,
     replacement: &SubChunk,
     hint: impl IntoIterator<Item = [u8; 3]>,
-    water_filled: &[u32],
+    (water_filled, world_materials): (&[u32], &[crate::WorldMaterialBlock]),
 ) -> bool {
     let layers = previous.storages().len();
+    let world = |value: u32| {
+        crate::world_materials::find(world_materials, value)
+            .map(|block| (block.tag, block.see_through, block.displaces))
+    };
     if layers != replacement.storages().len() {
         return false;
     }
@@ -46,6 +52,7 @@ pub fn block_changes_preserve_meshes(
         old == new
             || (water_filled.binary_search(&old).is_ok()
                 == water_filled.binary_search(&new).is_ok()
+                && world(old) == world(new)
                 && values_share_mesh_inputs(classifier, assets, mode, old, new))
     };
     for [x, y, z] in hint {

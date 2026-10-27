@@ -71,15 +71,24 @@ fn capture(app: &mut App) -> Image {
     result.lock().unwrap().take().unwrap()
 }
 
-/// Checks rendered color and dimensions without relying on camera or schedule internals.
-fn assert_blue(image: Image, expected_size: (u32, u32)) {
+/// Whether a capture holds the blue camera output at `expected_size`, read without relying on
+/// camera or schedule internals.
+fn is_blue(image: Image, expected_size: (u32, u32)) -> bool {
     let pixels = image.try_into_dynamic().unwrap().to_rgb8();
-    assert_eq!(pixels.dimensions(), expected_size);
+    if pixels.dimensions() != expected_size {
+        return false;
+    }
     let pixel = pixels.get_pixel(expected_size.0 / 2, expected_size.1 / 2).0;
-    assert!(
-        pixel[2] > 100 && pixel[2] > pixel[1] && pixel[1] > pixel[0],
-        "blue camera output, got {pixel:?}"
-    );
+    pixel[2] > 100 && pixel[2] > pixel[1] && pixel[1] > pixel[0]
+}
+
+/// Captures until a frame holds the blue camera output at `expected_size`. Frames before the
+/// camera's pipelines are ready read back black, which a loaded machine reaches only later, so
+/// the test waits on the output rather than a fixed number of frames.
+fn assert_eventually_blue(app: &mut App, expected_size: (u32, u32)) {
+    test_time::eventually("blue hidden camera capture", || {
+        is_blue(capture(app), expected_size)
+    });
 }
 
 #[test]
@@ -117,10 +126,7 @@ fn hidden_camera_pixels_reach_shared_capture() {
     ));
     app.finish();
     app.cleanup();
-    for _ in 0..8 {
-        app.update();
-    }
-    assert_blue(capture(&mut app), (64, 32));
+    assert_eventually_blue(&mut app, (64, 32));
     {
         let mut windows = app
             .world_mut()
@@ -131,8 +137,5 @@ fn hidden_camera_pixels_reach_shared_capture() {
             .resolution
             .set_physical_resolution(32, 16);
     }
-    for _ in 0..4 {
-        app.update();
-    }
-    assert_blue(capture(&mut app), (32, 16));
+    assert_eventually_blue(&mut app, (32, 16));
 }

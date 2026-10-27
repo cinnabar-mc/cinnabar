@@ -85,6 +85,9 @@ pub struct MeshOptions<'a> {
     pub water_filled: &'a [u32],
     /// The cell overlays of the sub-chunk's own cells, drawn in order after its block models.
     pub overlays: &'a [crate::CellOverlay],
+    /// The blocks a programmable world material shades, sorted by network value (see
+    /// [`crate::WorldMaterialBlock`]); empty draws every block as Bedrock.
+    pub world_materials: &'a [crate::WorldMaterialBlock],
 }
 
 /// Greedy-mesh the bounded palette snapshot with solved block/sky light.
@@ -155,9 +158,10 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             liquid_quads: Box::new([]),
             liquid_lighting: Box::new([]),
             connectivity: cave_connectivity(&facts, |_| true),
+            world_materials: false,
         };
     }
-    let masks = VisibilityMasks::from_facts(&facts);
+    let masks = VisibilityMasks::from_facts(&facts, options.world_materials);
     let connectivity = cave_connectivity(&facts, |[x, y, z]| !masks.occludes(x, y, z));
     let block_bits = crate::palette_bits::NeighbourhoodBlockBits::new(
         *classifier,
@@ -194,6 +198,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         options.cutout_leaves,
     );
     let mut cube_streams = CubeQuadStreams::default();
+    let mut tagged_models = false;
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     // Greedy merging reads lighting only at the current slice's visible cells, which are
     // all rewritten before it runs, so one scratch serves every slice.
@@ -202,7 +207,14 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     // unregistered value is still resolved, and counted as missing, once per face.
     let mut known_emission: Option<(u32, bool)> = None;
     for face in Face::ALL {
-        let columns = exposed_columns(palette_context, face, &masks, &neighbour_facts, &leaves);
+        let columns = exposed_columns(
+            palette_context,
+            face,
+            (&facts, &masks),
+            &neighbour_facts,
+            &leaves,
+            options.world_materials,
+        );
         for slice in 0..SIDE {
             let mut rows = [0_u64; SIDE];
             for (v, row) in rows.iter_mut().enumerate() {
@@ -255,6 +267,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     &mut diagnostic_geometry,
                     visuals.materials(),
                     options.split_tinted_faces,
+                    options.world_materials,
                 ),
             );
         }
@@ -382,7 +395,11 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                     template.flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0
                                         && quad.flags & assets::MODEL_QUAD_FLAG_CULL_FACE_MASK == 0;
                                 if (neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
-                                    && !inset_portal_face)
+                                    && !inset_portal_face
+                                    && !crate::world_materials::hides_no_other(
+                                        options.world_materials,
+                                        neighbour.network_value,
+                                    ))
                                     || equal_pane
                                     || equal_transparent_cube
                                     || equal_portal
@@ -440,6 +457,12 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
                                 continue;
                             };
+                            let world = crate::world_materials::tag(
+                                options.world_materials,
+                                entry.network_value,
+                            );
+                            // A visible ref pushes at least one draw, all carrying its tag.
+                            tagged_models |= world != 0;
                             model_refs.push(PackedModelRef::new(
                                 pack_model_transform(
                                     [x as u8, y as u8, z as u8],
@@ -473,7 +496,8 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             let mut remaining = visible_quad_mask;
                             while remaining != 0 {
                                 let quad_index = remaining.trailing_zeros();
-                                let draw_ref = PackedModelDrawRef::new(model_ref_index, quad_index);
+                                let draw_ref = PackedModelDrawRef::new(model_ref_index, quad_index)
+                                    .with_world_material(world);
                                 if template_quads[quad_index as usize].material
                                     != DIAGNOSTIC_MATERIAL
                                     && visuals
@@ -514,11 +538,12 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             network_id_mode,
             neighbourhood,
             &lighting,
-            options.water_filled,
+            (options.water_filled, options.world_materials),
         )
     } else {
         (Vec::new(), Vec::new())
     };
+    let world_materials = tagged_models || cube_streams.has_world_materials();
     let (quads, cube_lighting, layout) = cube_streams.finish();
     ChunkMesh {
         cube_streams: Box::new(CubeStreams {
@@ -536,6 +561,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         liquid_quads: liquid_quads.into_boxed_slice(),
         liquid_lighting: liquid_lighting.into_boxed_slice(),
         connectivity,
+        world_materials,
     }
 }
 use std::cell::OnceCell;

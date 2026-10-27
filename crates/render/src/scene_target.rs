@@ -32,6 +32,21 @@ pub(crate) struct SceneTarget {
 }
 
 impl SceneTarget {
+    /// The identity of the colour view passes draw into.
+    pub(crate) fn texture_view_id(&self) -> TextureViewId {
+        self.encoded.id()
+    }
+
+    /// The colour view passes draw into, in the texture's own format.
+    pub(crate) fn encoded_view(&self) -> &TextureView {
+        &self.encoded
+    }
+
+    /// The format a pass that decodes the colour reads it in.
+    pub(crate) fn read_format(&self) -> TextureFormat {
+        self.format
+    }
+
     /// Allocates only renderable samples; the single-sample path permits its final raw transfer.
     /// `None` when the device is out of memory.
     fn new(

@@ -148,10 +148,17 @@ struct OcclusionPart {
 }
 
 impl OcclusionPart {
-    fn resolve(assets: &RuntimeAssets, contributors: ResolvedContributors) -> Self {
-        let occluder = contributors
-            .primary_entry()
-            .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
+    /// The occlusion of `contributors`, where `world` decides which bound blocks hide nothing:
+    /// a see-through or displacing world material hides no liquid face either.
+    fn resolve(
+        assets: &RuntimeAssets,
+        contributors: ResolvedContributors,
+        world: &[crate::WorldMaterialBlock],
+    ) -> Self {
+        let occluder = contributors.primary_entry().filter(|entry| {
+            entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                && !crate::world_materials::hides_no_other(world, entry.network_value)
+        });
         Self {
             occludes: occluder.is_some(),
             full_cell_barrier: contributors.primary_entry().is_some_and(|entry| {
@@ -249,6 +256,8 @@ struct DirectSampler<'assets> {
     classifier: BlockClassifier,
     assets: &'assets RuntimeAssets,
     mode: NetworkIdMode,
+    /// The blocks a world material shades, sorted by network value.
+    world: &'assets [crate::WorldMaterialBlock],
 }
 
 impl DirectSampler<'_> {
@@ -284,7 +293,7 @@ impl LiquidSampler for DirectSampler<'_> {
         coordinate: [i32; 3],
     ) -> Option<OcclusionPart> {
         self.contributors(neighbourhood, coordinate)
-            .map(|contributors| OcclusionPart::resolve(self.assets, contributors))
+            .map(|contributors| OcclusionPart::resolve(self.assets, contributors, self.world))
     }
 }
 
@@ -370,6 +379,7 @@ pub fn sample_camera_medium(
         classifier,
         assets,
         mode,
+        world: &[],
     };
     let Some(cell) = sampler.liquid(neighbourhood, block) else {
         return CameraMedium::Air;
@@ -398,7 +408,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
     lighting_inputs: &L,
-    water_filled: &[u32],
+    (water_filled, world_materials): (&[u32], &[crate::WorldMaterialBlock]),
 ) -> (Vec<PackedLiquidQuad>, Vec<PackedQuadLighting>) {
     let center = neighbourhood
         .sub_chunk([0, 0, 0])
@@ -425,7 +435,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     if !contains_liquid {
         return (Vec::new(), Vec::new());
     }
-    let mut sampler = Sampler::new(classifier, assets, mode, neighbourhood);
+    let mut sampler = Sampler::new(classifier, assets, mode, (neighbourhood, world_materials));
     let mut transparent_quads = Vec::new();
     let mut depth_quads = Vec::new();
     let mut push_quad = |quad: PackedLiquidQuad| {

@@ -21,12 +21,13 @@ fn assert_matches_direct(assets: &RuntimeAssets, center: &world::SubChunk) {
         classifier,
         assets,
         NetworkIdMode::Sequential,
-        &neighbourhood,
+        (&neighbourhood, &[]),
     );
     let mut direct = DirectSampler {
         classifier,
         assets,
         mode: NetworkIdMode::Sequential,
+        world: &[],
     };
     let coordinates: Vec<_> = (-2..=17)
         .flat_map(|x| (-2..=17).flat_map(move |y| (-2..=17).map(move |z| [x, y, z])))

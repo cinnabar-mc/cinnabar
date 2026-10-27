@@ -14,6 +14,8 @@ pub(in crate::stream) struct MeshSnapshot {
     pub(in crate::stream) java_meshing: Option<Arc<[u32]>>,
     /// The sub-chunk's overlay hosts, whose block-state overlays the mesh draws.
     pub(in crate::stream) overlays: OverlayHosts,
+    /// World material tags by sorted network value ([`WorldStream::set_world_materials`]).
+    pub(in crate::stream) world_materials: Arc<[::meshing::WorldMaterialBlock]>,
 }
 
 pub(in crate::stream) type BiomeNeighbourhood =
@@ -115,6 +117,7 @@ impl MeshSnapshot {
                 cutout_leaves: self.java_meshing.is_some(),
                 water_filled: self.java_meshing.as_deref().unwrap_or_default(),
                 overlays: &overlays,
+                world_materials: &self.world_materials,
             },
         )
     }

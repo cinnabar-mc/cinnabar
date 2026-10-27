@@ -16,14 +16,24 @@ pub(super) enum Step {
 }
 
 /// The Molang condition under which `path` selects its leaf; `None` for an unconditional leaf.
+/// A step expression that does not compile reads 0.0, as vanilla evaluates it, so a ternary
+/// takes its else branch and an array index selects the first element.
 pub(super) fn condition_text(path: &[Step]) -> Option<String> {
+    let read = |text: &str| -> String {
+        if crate::entity::molang::MolangCompiler::compiles(text) {
+            text.to_owned()
+        } else {
+            "0.0".to_owned()
+        }
+    };
     let parts: Vec<String> = path
         .iter()
         .map(|step| match step {
-            Step::Branch(text, true) => format!("({text})"),
-            Step::Branch(text, false) => format!("!({text})"),
+            Step::Branch(text, true) => format!("({})", read(text)),
+            Step::Branch(text, false) => format!("!({})", read(text)),
             // As for any Molang array: indices past the end wrap, negatives select the first.
             Step::Element(index, len, element) => {
+                let index = read(index);
                 format!("(math.mod(math.max(math.floor(({index})), 0), {len}) == {element})")
             }
         })

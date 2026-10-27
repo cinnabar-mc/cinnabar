@@ -50,11 +50,14 @@ pub(crate) struct CubeQuadStreams {
     solid_counts: [u32; 6],
     two_sided: Vec<PackedQuad>,
     two_sided_lighting: Vec<PackedQuadLighting>,
+    /// Whether any quad pushed carries a world material tag.
+    world_materials: bool,
 }
 
 impl CubeQuadStreams {
     /// Solid quads must arrive grouped by face in `Face::ALL` order.
     fn push(&mut self, quad: PackedQuad, lighting: PackedQuadLighting, solid: bool) {
+        self.world_materials |= quad.world_material() != 0;
         if solid {
             self.solid_counts[quad.face().index()] += 1;
             self.solid.push(quad);
@@ -63,6 +66,11 @@ impl CubeQuadStreams {
             self.two_sided.push(quad);
             self.two_sided_lighting.push(lighting);
         }
+    }
+
+    /// Whether any quad pushed so far carries a world material tag.
+    pub(crate) const fn has_world_materials(&self) -> bool {
+        self.world_materials
     }
 
     pub(crate) fn finish(self) -> (Vec<PackedQuad>, Vec<PackedQuadLighting>, CubeQuadLayout) {
@@ -90,6 +98,7 @@ pub(crate) struct CubeMeshOutput<'a> {
     diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
     materials: &'a [assets::Material],
     split_tinted_faces: bool,
+    world_materials: &'a [crate::WorldMaterialBlock],
 }
 
 impl<'a> CubeMeshOutput<'a> {
@@ -98,13 +107,25 @@ impl<'a> CubeMeshOutput<'a> {
         diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
         materials: &'a [assets::Material],
         split_tinted_faces: bool,
+        world_materials: &'a [crate::WorldMaterialBlock],
     ) -> Self {
         Self {
             streams,
             diagnostic_geometry,
             materials,
             split_tinted_faces,
+            world_materials,
         }
+    }
+
+    /// One more than the world material slot shading block `network_value`; zero for none.
+    fn world_material(&self, network_value: u32) -> u8 {
+        crate::world_materials::tag(self.world_materials, network_value)
+    }
+
+    /// Whether a world material may move block `network_value`'s vertices.
+    fn displaces(&self, network_value: u32) -> bool {
+        crate::world_materials::displaces(self.world_materials, network_value)
     }
 }
 
@@ -155,52 +176,68 @@ impl AxisColumns {
 
 pub(crate) struct VisibilityMasks {
     geometry: AxisColumns,
+    /// Voxels that hide their neighbours' faces: full occluders that no see-through or
+    /// displacing world material shades.
     occluders: AxisColumns,
+    /// Voxels a world material shades without moving them whose geometry covers each of their
+    /// faces ([`covers_faces`]): they hide the faces a same-tag neighbour turns toward them.
+    bound: AxisColumns,
 }
 
 impl VisibilityMasks {
-    pub(crate) fn from_facts(facts: &PaletteFacts<'_>) -> Self {
+    /// The masks of `facts`, with `world` (sorted by network value) deciding which voxels a
+    /// world material shades and which of those hide nothing.
+    pub(crate) fn from_facts(
+        facts: &PaletteFacts<'_>,
+        world: &[crate::WorldMaterialBlock],
+    ) -> Self {
+        let classify = |entry: &ResolvedPaletteEntry| {
+            let bound = crate::world_materials::find(world, entry.network_value);
+            (
+                entry.emits_cube_geometry(),
+                entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                    && !bound.is_some_and(|block| block.see_through || block.displaces),
+                bound.is_some_and(|block| !block.displaces) && covers_faces(entry),
+            )
+        };
+        let all = |set: bool| {
+            if set {
+                AxisColumns::full()
+            } else {
+                AxisColumns::empty()
+            }
+        };
         match &facts.source {
             PaletteSource::Air => Self {
                 geometry: AxisColumns::empty(),
                 occluders: AxisColumns::empty(),
+                bound: AxisColumns::empty(),
             },
             PaletteSource::Uniform(contributors) => {
-                let entry = contributors.geometry_entry();
+                let (geometry, occluder, bound) = classify(&contributors.geometry_entry());
                 Self {
-                    geometry: if entry.emits_cube_geometry() {
-                        AxisColumns::full()
-                    } else {
-                        AxisColumns::empty()
-                    },
-                    occluders: if entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
-                        AxisColumns::full()
-                    } else {
-                        AxisColumns::empty()
-                    },
+                    geometry: all(geometry),
+                    occluders: all(occluder),
+                    bound: all(bound),
                 }
             }
             PaletteSource::Mixed(_) => {
                 let mut masks = Self {
                     geometry: AxisColumns::empty(),
                     occluders: AxisColumns::empty(),
+                    bound: AxisColumns::empty(),
                 };
-                facts.for_each_voxel_class(
-                    |entry| {
-                        (
-                            entry.emits_cube_geometry(),
-                            entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE),
-                        )
-                    },
-                    |x, y, z, (geometry, occluder)| {
-                        if geometry {
-                            masks.geometry.set(x, y, z);
-                        }
-                        if occluder {
-                            masks.occluders.set(x, y, z);
-                        }
-                    },
-                );
+                facts.for_each_voxel_class(classify, |x, y, z, (geometry, occluder, bound)| {
+                    if geometry {
+                        masks.geometry.set(x, y, z);
+                    }
+                    if occluder {
+                        masks.occluders.set(x, y, z);
+                    }
+                    if bound {
+                        masks.bound.set(x, y, z);
+                    }
+                });
                 masks
             }
         }
@@ -212,12 +249,16 @@ impl VisibilityMasks {
     }
 }
 
+/// The cube faces toward `face` that the section `facts` (with its `masks`) draws, by column:
+/// faces no neighbour hides, where `world` decides which bound blocks hide nothing and which
+/// hide their same-tag neighbours.
 pub(crate) fn exposed_columns<'a>(
     context: PaletteResolutionContext<'_, 'a>,
     face: Face,
-    masks: &VisibilityMasks,
+    (facts, masks): (&PaletteFacts<'_>, &VisibilityMasks),
     neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
     leaves: &super::leaves::LeafOcclusion<'_, 'a>,
+    world: &[crate::WorldMaterialBlock],
 ) -> Columns {
     let neighbour = context
         .neighbourhood
@@ -243,12 +284,32 @@ pub(crate) fn exposed_columns<'a>(
         for (u, exposed_cell) in exposed_row.iter_mut().enumerate() {
             let geometry_column = masks.geometry.column(face, u, v);
             let occluder_column = masks.occluders.column(face, u, v);
-            let neighbour_occluders = if face.is_negative() {
-                occluder_column << 1
-            } else {
-                occluder_column >> 1
+            let toward_neighbour = |column: u64| {
+                if face.is_negative() {
+                    column << 1
+                } else {
+                    column >> 1
+                }
             };
-            let mut faces = geometry_column & !neighbour_occluders & FULL_COLUMN;
+            let mut faces = geometry_column & !toward_neighbour(occluder_column) & FULL_COLUMN;
+            let bound_column = masks.bound.column(face, u, v);
+            let mut pairs = faces & bound_column & toward_neighbour(bound_column);
+            while pairs != 0 {
+                let slice = pairs.trailing_zeros() as usize;
+                pairs &= pairs - 1;
+                let cell = block_coordinate(face, slice, u, v);
+                let offset = face_offset(face);
+                let [x, y, z] = std::array::from_fn(|axis| {
+                    cell[axis].wrapping_add_signed(isize::from(offset[axis]))
+                });
+                if crate::world_materials::same_tag(
+                    world,
+                    facts.at(cell[0], cell[1], cell[2]).network_value,
+                    facts.at(x, y, z).network_value,
+                ) {
+                    faces &= !(1_u64 << slice);
+                }
+            }
 
             if faces & boundary_bit != 0 {
                 let neighbour = neighbour
@@ -257,7 +318,20 @@ pub(crate) fn exposed_columns<'a>(
                         let [x, y, z] = neighbour_boundary_coordinate(face, u, v);
                         facts.at(x, y, z)
                     });
-                if culls_face(neighbour.flags) {
+                // Only world materials read the cell's own block; sections without them skip it.
+                let same_tag_cover = || {
+                    let slice = boundary_bit.trailing_zeros() as usize;
+                    let [x, y, z] = block_coordinate(face, slice, u, v);
+                    crate::world_materials::same_tag(
+                        world,
+                        facts.at(x, y, z).network_value,
+                        neighbour.network_value,
+                    ) && covers_faces(&neighbour)
+                };
+                if (culls_face(neighbour.flags)
+                    && !crate::world_materials::hides_no_other(world, neighbour.network_value))
+                    || (!world.is_empty() && same_tag_cover())
+                {
                     faces &= !boundary_bit;
                 }
             }
@@ -286,6 +360,12 @@ pub(crate) const fn face_offset(face: Face) -> [i8; 3] {
         Face::NegativeZ => [0, 0, -1],
         Face::PositiveZ => [0, 0, 1],
     }
+}
+
+/// Whether `entry`'s geometry covers each whole face of its block, as a full cube or a model
+/// that occludes full faces does; a same-tag neighbour hides a bound face only then.
+const fn covers_faces(entry: &ResolvedPaletteEntry) -> bool {
+    entry.emits_cube_geometry() || culls_face(entry.flags)
 }
 
 const fn culls_face(neighbour: BlockFlags) -> bool {
@@ -318,6 +398,7 @@ pub(crate) fn greedy_slice(
             let origin = block_coordinate(face, slice, u, v);
             let origin_entry = facts.at(origin[0], origin[1], origin[2]);
             let material_id = resolver.face_material(origin, origin_entry, face);
+            let world = output.world_material(origin_entry.network_value);
             let lighting = lighting_scratch[v * SIDE + u];
             let material = output.materials[material_id as usize];
             // Each isotropic face owns its block-position hash. Merging even
@@ -330,7 +411,10 @@ pub(crate) fn greedy_slice(
                 // Mixed biomes vary tint per block; one-block faces let the renderer blend
                 // it once per face rather than once per pixel.
                 || (output.split_tinted_faces
-                    && material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0);
+                    && material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0)
+                // A displacing world material may move each corner of a face, so its block's
+                // faces stay one block wide and every block moves on its own.
+                || (world != 0 && output.displaces(origin_entry.network_value));
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;
@@ -341,6 +425,7 @@ pub(crate) fn greedy_slice(
                 let candidate = facts.at(x, y, z);
                 let candidate_material = resolver.face_material([x, y, z], candidate, face);
                 same_greedy_identity(origin_entry, candidate, material_id, candidate_material)
+                    && output.world_material(candidate.network_value) == world
                     && lighting_scratch[v * SIDE + u + width] == lighting
             } {
                 width += 1;
@@ -358,7 +443,8 @@ pub(crate) fn greedy_slice(
                         candidate,
                         material_id,
                         candidate_material,
-                    ) {
+                    ) || output.world_material(candidate.network_value) != world
+                    {
                         break 'height;
                     }
                     if lighting_scratch[(v + height) * SIDE + u + offset] != lighting {
@@ -378,7 +464,8 @@ pub(crate) fn greedy_slice(
                     width as u8,
                     height as u8,
                     material_id,
-                ),
+                )
+                .with_world_material(world),
                 lighting,
                 crate::is_single_sided_opaque(output.materials, material_id),
             );
