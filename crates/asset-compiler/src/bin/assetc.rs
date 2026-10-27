@@ -138,6 +138,11 @@ struct EntityAssetsReport<'a> {
     counts: EntityAssetCounts,
     sources: &'a [EntityAssetSource],
     symbols: &'a [EntityAssetSymbol],
+    /// Resolved material definitions, indexed by each render layer's `material_definition`.
+    materials: &'a [assets::entity::material::EntityMaterialDefinition],
+    /// Each material actors draw: its source file, inheritance chain, variant, drawn and carried
+    /// defines, and why it draws approximately, if it does.
+    material_provenance: &'a [assets::entity_material_report::EntityMaterialProvenance],
     reference_outcomes: &'a [CompileReferenceOutcome<u32>],
 }
 
@@ -737,7 +742,7 @@ fn compile_entity_assets_command(
     let compiled = &compilation.assets;
     let blob = encode_entity_blob(compiled)?;
     let report_data = EntityAssetsReport {
-        schema: 4,
+        schema: 6,
         source,
         source_manifest_sha256: hex(&compiled.source_manifest_sha256).into_boxed_str(),
         blob_sha256: format!("{:x}", Sha256::digest(&blob)).into_boxed_str(),
@@ -810,6 +815,8 @@ fn compile_entity_assets_command(
         },
         sources: &compiled.sources,
         symbols: &compiled.symbols,
+        materials: &compiled.render.materials,
+        material_provenance: &compilation.material_provenance,
         reference_outcomes: &compilation.reference_outcomes,
     };
     let mut report_bytes =

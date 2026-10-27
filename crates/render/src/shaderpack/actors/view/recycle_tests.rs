@@ -34,6 +34,7 @@ impl RigSource for Source<'_> {
             index: 0,
             data: &self.data,
             vertex_count: 3,
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             texture: LayerTexture {
                 texture: self.texture,
                 layer: 0,

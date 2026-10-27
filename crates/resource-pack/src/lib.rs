@@ -40,7 +40,7 @@ pub use library::{
 pub use merge::{MAX_MERGED_ENTRIES, MAX_WINNING_BYTES, MAX_WINNING_FILES};
 pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};
 pub use parser::validate_archive_bytes;
-pub use view::LayeredPackView;
+pub use view::{LayeredPackView, PackLayer};
 
 /// Maximum compressed source bytes decoded for one pack texture.
 pub const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;

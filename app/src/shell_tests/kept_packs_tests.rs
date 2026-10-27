@@ -188,7 +188,9 @@ fn leaving_restores_the_startup_actor_artwork() {
         pixel_sha256: [0; 32],
         rgba8: std::sync::Arc::from(vec![9u8; 16]),
     };
-    let session = startup.clone().with_pack_artwork(&[raster], &[]);
+    let session = startup
+        .clone()
+        .with_pack_artwork(&[raster], &[], &Default::default());
     assert_ne!(session.identity(), startup.identity());
     let root = tempfile::tempdir().unwrap();
     let mut app = session_app(
