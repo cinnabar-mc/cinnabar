@@ -37,6 +37,7 @@ mod ownership_tests;
 pub mod pack_catalog;
 mod paint_bounds;
 pub use paint_bounds::{PaintBounds, PaintObserver};
+pub mod layout_task;
 mod paint_transform;
 pub mod pixel_snap;
 mod render;

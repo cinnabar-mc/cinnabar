@@ -491,9 +491,23 @@ impl UiPresentationRuntime {
             id_aux: &id_aux,
         };
         let drawn = if prepare {
-            self.screens
-                .containers
-                .prepare(renderer, &source, &items, input, &mut paint_frame);
+            let translator = runtime.translator();
+            let resources = ui_engine::engine::layout_task::LayoutResources {
+                font: Arc::clone(&self.font),
+                layouts: ui::TextLayoutCache::new(
+                    super::super::TEXT_CACHE_ENTRIES,
+                    super::super::TEXT_CACHE_BYTES,
+                ),
+                translate: Arc::new(move |key| translator.lookup(key)),
+            };
+            self.screens.containers.prepare(
+                renderer,
+                &source,
+                &items,
+                input,
+                &mut paint_frame,
+                resources,
+            );
             None
         } else {
             self.screens

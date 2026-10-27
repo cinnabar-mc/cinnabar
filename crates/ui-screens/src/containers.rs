@@ -11,6 +11,7 @@ use json_ui::{CollectionItem, DataSource, Scalar, ViewState, hit_test};
 use protocol::NetworkItemStack;
 use serde_json::Value;
 use ui::IconRef;
+use ui_engine::engine::layout_task::{LayoutResources, LayoutTask};
 use ui_engine::engine::{
     FormEngine, ScreenArt,
     item_renderer::ItemRenderer,
@@ -137,6 +138,9 @@ pub struct ContainerScreen {
     inventory: Option<ScreenCache>,
     /// Sources observed by the last closed-inventory preparation.
     prewarmed: Option<preparation::InventoryPreparation>,
+    /// At most one closed-screen layout runs in the background.
+    preparing: Option<(u64, LayoutTask<preparation::PreparedInventory>)>,
+    preparation_revision: u64,
     /// Screens resolved from the catalog, for cache tests.
     resolves: usize,
     /// Immutable creative rows reused across hover and scroll frames.
@@ -172,19 +176,18 @@ impl ContainerScreen {
         input: ContainerInput<'_>,
         frame: &mut PaintFrame<'_>,
     ) -> Option<EngineFrame> {
-        self.render(engine, source, items, input, frame, false)
-    }
-
-    /// Prepares layout and textures without starting live bindings or painting the closed screen.
-    pub fn prepare(
-        &mut self,
-        engine: &FormEngine,
-        source: &dyn ContainerSource,
-        items: &ContainerFrame<'_>,
-        input: ContainerInput<'_>,
-        frame: &mut PaintFrame<'_>,
-    ) {
-        let _ = self.render(engine, source, items, input, frame, true);
+        if matches!(input.layout, ScreenLayout::Personal { .. })
+            && let Some((revision, mut task)) = self.preparing.take()
+            && let Some(mut prepared) = task.finish(engine)
+        {
+            if revision != self.preparation_revision
+                && let Some(cache) = &mut prepared.cache
+            {
+                cache.invalidate_textures();
+            }
+            self.install_prepared(prepared);
+        }
+        self.render(engine, source, items, input, frame, None)
     }
 
     /// Shares container data and layout preparation between prewarming and visible painting.
@@ -195,7 +198,7 @@ impl ContainerScreen {
         items: &ContainerFrame<'_>,
         input: ContainerInput<'_>,
         frame: &mut PaintFrame<'_>,
-        prepare: bool,
+        prepare: Option<LayoutResources>,
     ) -> Option<EngineFrame> {
         let ContainerInput {
             layout,
@@ -258,6 +261,10 @@ impl ContainerScreen {
             scroll: screen.container_scroll.clone(),
             ..ViewState::default()
         };
+        if let Some(resources) = prepare {
+            self.start_preparing(engine, context, data, view, frame, resources);
+            return None;
+        }
         let overlay = held_stack(
             source.player().inventory.ledger().cursor_stack(),
             items.cursor_icon,
@@ -303,12 +310,7 @@ impl ContainerScreen {
                     cache, catalog, baseline, reference, &context, &data, &view, root, env, text,
                 )
             };
-            if prepare {
-                let _ = engine.prepare(art, &mut paint_frame, draw);
-                Ok(None)
-            } else {
-                engine.draw(art, &mut paint_frame, draw)
-            }
+            engine.draw(art, &mut paint_frame, draw)
         };
         frame.renderers = caller;
         if resolved(cache) != before {
@@ -333,6 +335,7 @@ impl ContainerScreen {
     /// Releases texture-dependent measurements and layout while retaining the bound screen.
     pub fn invalidate_textures(&mut self) {
         self.prewarmed = None;
+        self.preparation_revision = self.preparation_revision.wrapping_add(1);
         for cache in [&mut self.cache, &mut self.inventory].into_iter().flatten() {
             cache.invalidate_textures();
         }
@@ -368,40 +371,6 @@ impl ContainerScreen {
         self.inventory
             .as_ref()
             .map_or(0, |cache| cache.binding.rebuilt_total())
-    }
-
-    /// Whether the personal inventory needs preparation for these sources. An inventory already
-    /// painted retains its live bindings and needs no prewarm when it closes.
-    pub fn prewarm_inventory(
-        &mut self,
-        engine: &FormEngine,
-        source: &dyn ContainerSource,
-        artwork: u64,
-    ) -> bool {
-        if !self.needs_inventory_preparation(engine, source, artwork) {
-            return false;
-        }
-        self.prewarmed = Some(preparation::InventoryPreparation::capture(
-            engine, source, artwork,
-        ));
-        true
-    }
-
-    /// Checks whether closed-screen inputs need artwork and layout preparation.
-    pub fn needs_inventory_preparation(
-        &self,
-        engine: &FormEngine,
-        source: &dyn ContainerSource,
-        artwork: u64,
-    ) -> bool {
-        !self
-            .inventory
-            .as_ref()
-            .is_some_and(|cached| cached.live && Arc::ptr_eq(&cached.catalog, engine.catalog()))
-            && !self
-                .prewarmed
-                .as_ref()
-                .is_some_and(|prewarmed| prewarmed.matches(engine, source, artwork))
     }
 }
 

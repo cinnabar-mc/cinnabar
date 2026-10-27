@@ -47,6 +47,26 @@ fn draw(
     player: &player_state::PlayerState,
     now: u64,
 ) -> UiRenderInput {
+    let mut frame = draw_frame(presentation, runtime, player, now);
+    if !runtime.inventory_open() {
+        test_time::eventually("inventory preparation worker", || {
+            frame = draw_frame(presentation, runtime, player, now);
+            !presentation
+                .screens
+                .containers
+                .inventory_preparation_pending()
+        });
+    }
+    frame
+}
+
+/// Builds exactly one frame, allowing tests to observe unfinished preparation.
+fn draw_frame(
+    presentation: &mut UiPresentationRuntime,
+    runtime: &UiRuntime,
+    player: &player_state::PlayerState,
+    now: u64,
+) -> UiRenderInput {
     presentation
         .build(
             player,
@@ -359,4 +379,76 @@ fn prewarmed_inventory_animation_starts_at_the_real_open() {
         }
         assert_eq!(warm.engine_container_resolves(), 1);
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn closed_inventory_frames_defer_binding_and_layout() {
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":fixed_labels()
+    }});
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    draw_frame(&mut warm, &runtime, &player, 0);
+    assert_eq!(warm.engine_container_resolves(), 0);
+    assert_eq!(warm.engine_container_placed(), 0);
+    assert_eq!(warm.engine_inventory_rebuilt(), 0);
+    assert!(warm.screens.containers.inventory_preparation_pending());
+    // Opening immediately must finish the worker's remaining work and paint the same screen.
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw_frame(&mut cold, &runtime, &player, 100);
+    let opened = draw_frame(&mut warm, &runtime, &player, 100);
+    assert_eq!(opened.vertices, expected.vertices);
+    assert_eq!(warm.engine_container_resolves(), 1);
+    assert!(!warm.screens.containers.inventory_preparation_pending());
+}
+
+#[test]
+fn unchanged_closed_inventory_does_no_more_preparation() {
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":fixed_labels()
+    }});
+    let (mut warm, runtime, player) = inventory_fixture(definition);
+    draw(&mut warm, &runtime, &player, 0);
+    let work = (
+        warm.engine_container_resolves(),
+        warm.engine_container_placed(),
+        warm.engine_inventory_rebuilt(),
+    );
+    for now in 1..8 {
+        draw_frame(&mut warm, &runtime, &player, now);
+        assert!(!warm.screens.containers.inventory_preparation_pending());
+        assert_eq!(
+            (
+                warm.engine_container_resolves(),
+                warm.engine_container_placed(),
+                warm.engine_inventory_rebuilt()
+            ),
+            work
+        );
+    }
+}
+
+#[test]
+fn opening_during_a_source_change_uses_the_current_inputs() {
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":[{"creative":{
+            "type":"panel", "size":["100%","100%"],
+            "bindings":[{"binding_name":"#is_creative_mode",
+                "binding_name_override":"#visible"}],
+            "controls":fixed_labels()
+        }}]
+    }});
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    draw_frame(&mut warm, &runtime, &player, 0);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    draw_frame(&mut warm, &runtime, &player, 1);
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw_frame(&mut cold, &runtime, &player, 2);
+    let opened = draw_frame(&mut warm, &runtime, &player, 2);
+    assert_eq!(opened.vertices, expected.vertices);
+    assert!(warm.engine_container_frame().is_some());
 }

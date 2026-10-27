@@ -2,9 +2,14 @@
 
 use std::sync::Arc;
 
+use super::{ContainerInput, ContainerScreen, ScreenCache};
+use crate::container_source::ContainerFrame;
 use inventory::inventory_ledger::InventoryPresentationSnapshot;
 use protocol::{CreativeContentEvent, PlayerGameMode};
-use ui_engine::engine::FormEngine;
+use ui_engine::engine::{FormEngine, ScreenArt, layout_task::LayoutResources, screen::PaintFrame};
+
+#[cfg(not(target_arch = "wasm32"))]
+use ui_engine::engine::layout_task::LayoutTask;
 
 use crate::container_source::ContainerSource;
 
@@ -63,4 +68,163 @@ fn same_creative(
         (None, None) => true,
         _ => false,
     }
+}
+
+impl ContainerScreen {
+    /// Whether a closed inventory still owns unfinished preparation work.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn inventory_preparation_pending(&self) -> bool {
+        self.preparing.is_some()
+    }
+
+    /// Prepares layout and textures without starting live bindings or painting the closed screen.
+    pub fn prepare(
+        &mut self,
+        engine: &FormEngine,
+        source: &dyn ContainerSource,
+        items: &ContainerFrame<'_>,
+        input: ContainerInput<'_>,
+        frame: &mut PaintFrame<'_>,
+        resources: LayoutResources,
+    ) {
+        if let Some((revision, task)) = &mut self.preparing {
+            let revision = *revision;
+            let std::task::Poll::Ready(result) = task.poll(engine) else {
+                return;
+            };
+            self.preparing = None;
+            if let Some(cache) = result {
+                self.install_prepared(cache);
+            }
+            if revision == self.preparation_revision {
+                if let Some(render) = self
+                    .inventory
+                    .as_ref()
+                    .and_then(|cache| cache.laid.as_ref())
+                    .map(|(_, _, render)| render)
+                {
+                    let _ =
+                        engine.prepare(ScreenArt::default(), frame, |_, _| Some(render.as_ref()));
+                }
+                return;
+            }
+            if let Some(cache) = &mut self.inventory {
+                cache.invalidate_textures();
+            }
+        }
+        let _ = self.render(engine, source, items, input, frame, Some(resources));
+    }
+
+    /// Publishes the worker-owned cache only after its complete initial layout.
+    pub(super) fn install_prepared(&mut self, prepared: PreparedInventory) {
+        self.resolves += usize::from(prepared.resolved);
+        self.inventory = prepared.cache;
+    }
+
+    /// Whether the personal inventory needs preparation for these sources. An inventory already
+    /// painted retains its live bindings and needs no prewarm when it closes.
+    pub fn prewarm_inventory(
+        &mut self,
+        engine: &FormEngine,
+        source: &dyn ContainerSource,
+        artwork: u64,
+    ) -> bool {
+        if !self.needs_inventory_preparation(engine, source, artwork) {
+            return self.preparing.is_some();
+        }
+        self.preparation_revision = self.preparation_revision.wrapping_add(1);
+        self.prewarmed = Some(InventoryPreparation::capture(engine, source, artwork));
+        true
+    }
+
+    /// Checks whether closed-screen inputs need artwork and layout preparation.
+    pub fn needs_inventory_preparation(
+        &self,
+        engine: &FormEngine,
+        source: &dyn ContainerSource,
+        artwork: u64,
+    ) -> bool {
+        !self
+            .inventory
+            .as_ref()
+            .is_some_and(|cached| cached.live && Arc::ptr_eq(&cached.catalog, engine.catalog()))
+            && !self
+                .prewarmed
+                .as_ref()
+                .is_some_and(|prewarmed| prewarmed.matches(engine, source, artwork))
+    }
+
+    /// Moves the retained tree to one worker; closed-screen frames never bind or place controls.
+    pub(super) fn start_preparing(
+        &mut self,
+        engine: &FormEngine,
+        context: json_ui::Context,
+        data: json_ui::DataSource,
+        view: json_ui::ViewState,
+        frame: &mut PaintFrame<'_>,
+        resources: LayoutResources,
+    ) {
+        let mut cache = self.inventory.take();
+        let (catalog, baseline) = (
+            Arc::clone(engine.catalog()),
+            Arc::clone(engine.base_catalog()),
+        );
+        let text = (frame.metrics.scale.get(), frame.language);
+        // Browsers cannot start native threads. Keep their existing preparation path.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = resources;
+            let before = cache.as_ref().map(|cache| Arc::as_ptr(&cache.resolved));
+            let _ = engine.prepare(ScreenArt::default(), frame, |env, root| {
+                ScreenCache::render(
+                    &mut cache,
+                    &catalog,
+                    &baseline,
+                    super::ScreenLayout::Personal { book: false }.screen().0,
+                    &context,
+                    &data,
+                    &view,
+                    root,
+                    env,
+                    text,
+                )
+            });
+            let resolved = cache.as_ref().map(|cache| Arc::as_ptr(&cache.resolved)) != before;
+            self.install_prepared(PreparedInventory { cache, resolved });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let task = LayoutTask::spawn(
+                resources,
+                frame.metrics,
+                frame.content,
+                engine.textures.metadata_revision(),
+                move |env, root| {
+                    let before = cache.as_ref().map(|cache| Arc::as_ptr(&cache.resolved));
+                    let _ = ScreenCache::render(
+                        &mut cache,
+                        &catalog,
+                        &baseline,
+                        super::ScreenLayout::Personal { book: false }.screen().0,
+                        &context,
+                        &data,
+                        &view,
+                        root,
+                        env,
+                        text,
+                    );
+                    let resolved =
+                        cache.as_ref().map(|cache| Arc::as_ptr(&cache.resolved)) != before;
+                    PreparedInventory { cache, resolved }
+                },
+            );
+            self.preparing = task.map(|task| (self.preparation_revision, task));
+        }
+    }
+}
+
+/// The complete initial layout and whether it resolved a new screen definition.
+pub(super) struct PreparedInventory {
+    pub(super) cache: Option<ScreenCache>,
+    resolved: bool,
 }

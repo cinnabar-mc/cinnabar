@@ -789,6 +789,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Native closed inventory binding, text measurement and layout run on a worker. Closed frames
+  serve a fixed allowance of texture metadata queries, and opening finishes pending work
+  before painting. Revision checks retain prepared results until their sources change.
+  Browser preparation and hardware warmup and first-open qualification remain incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
   Client-owned panel collections support bounded four-column card grids with
