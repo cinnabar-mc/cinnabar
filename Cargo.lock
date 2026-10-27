@@ -416,6 +416,7 @@ dependencies = [
  "clap",
  "proc-macro2",
  "serde",
+ "serde_json",
  "syn 2.0.118",
  "tempfile",
  "thiserror 2.0.18",
@@ -501,6 +502,7 @@ dependencies = [
  "png",
  "protocol-ids",
  "rayon",
+ "render-api",
  "rustix 1.1.4",
  "serde",
  "serde_json",
@@ -3955,6 +3957,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-material-fx"
+version = "0.1.28"
+dependencies = [
+ "experience-sdk",
+]
+
+[[package]]
+name = "experience-material-fx-client"
+version = "0.1.28"
+dependencies = [
+ "experience-sdk",
+]
+
+[[package]]
 name = "experience-probe"
 version = "0.1.28"
 dependencies = [
@@ -5658,6 +5674,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "material-bin"
+version = "0.1.28"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
+name = "material-fx"
+version = "0.1.28"
+dependencies = [
+ "anyhow",
+ "cinnabar-cxb",
+ "experience-runtime",
+ "experience-sdk",
+ "image",
+ "server-experience",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "material-showcase-mod"
+version = "0.1.28"
+dependencies = [
+ "mod-api",
+]
+
+[[package]]
 name = "matroska-demuxer"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5997,6 +6041,7 @@ dependencies = [
  "mod-api",
  "naga",
  "serde",
+ "sha2",
  "test-alloc",
  "world",
 ]
@@ -6806,6 +6851,7 @@ dependencies = [
  "assets",
  "image",
  "pack-json",
+ "protocol-ids",
  "serde",
  "serde_json",
  "sha2",
@@ -6839,6 +6885,7 @@ dependencies = [
  "pack-compiler",
  "pack-json",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

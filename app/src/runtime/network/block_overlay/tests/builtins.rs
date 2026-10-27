@@ -18,30 +18,9 @@ fn versioned_builtin_full_block_resolves_textured_cube_without_pack_geometry() {
                     base: CustomVisualComponents {
                         geometry: Some(identifier.into()),
                         materials: Some(Box::new([
-                            CustomMaterialInstance {
-                                name: "side".into(),
-                                texture: "gen".into(),
-                                render_method: None,
-                                tint_method: None,
-                                ambient_occlusion: None,
-                                face_dimming: None,
-                            },
-                            CustomMaterialInstance {
-                                name: "up".into(),
-                                texture: "lucky".into(),
-                                render_method: None,
-                                tint_method: None,
-                                ambient_occlusion: None,
-                                face_dimming: None,
-                            },
-                            CustomMaterialInstance {
-                                name: "down".into(),
-                                texture: "lucky".into(),
-                                render_method: None,
-                                tint_method: None,
-                                ambient_occlusion: None,
-                                face_dimming: None,
-                            },
+                            CustomMaterialInstance::with_authored_defaults("side", "gen"),
+                            CustomMaterialInstance::with_authored_defaults("up", "lucky"),
+                            CustomMaterialInstance::with_authored_defaults("down", "lucky"),
                         ])),
                         ..Default::default()
                     },

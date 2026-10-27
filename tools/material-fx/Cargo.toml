@@ -1,0 +1,24 @@
+[package]
+name = "material-fx"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+reads = ["examples/experiences/material-fx"]
+
+[dependencies]
+anyhow.workspace = true
+cinnabar-cxb = { path = "../cxb" }
+experience-sdk = { path = "../../crates/experience-sdk", default-features = false }
+image.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+experience-runtime = { path = "../../crates/experience-runtime" }
+server-experience = { path = "../../crates/server-experience" }
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

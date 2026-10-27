@@ -10,7 +10,8 @@ use bevy::render::render_resource::{
 };
 
 use super::jobs::{
-    JOB_BACK_ONLY, JOB_MODEL_QUAD_MASK, JOB_OVERLAY_FACE, JOB_REVERSE_FACE, JobKind,
+    JOB_BACK_ONLY, JOB_MODEL_QUAD_MASK, JOB_OVERLAY_FACE, JOB_REVERSE_FACE, JOB_WORLD_SHIFT,
+    JobKind,
 };
 use super::vertex;
 use crate::shaderpack::atlas;
@@ -47,6 +48,11 @@ pub(crate) fn expansion_shader_source(source: &str) -> String {
             "ATLAS_ANIMATION_SLOT_BASE",
             &format!("{}u", atlas::animation_sprite_slot(0)),
         )
+        .replace(
+            "ATLAS_WORLD_SLOT_BASE",
+            &format!("{}u", atlas::world_material_sprite_slot(0)),
+        )
+        .replace("JOB_WORLD_SHIFT", &format!("{JOB_WORLD_SHIFT}u"))
         .replace("ATLAS_PAGE_SLOTS", &format!("{page_slots}u"))
         .replace(
             "GENERATED_EXPAND_WORKGROUP_SIZE",

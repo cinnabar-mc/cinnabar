@@ -105,6 +105,16 @@ impl WorldStream {
         changed.sort_unstable();
         changed.dedup();
         let old_connectivity_len = self.connectivity.len();
+        if removing_all {
+            for key in self
+                .world_material_outstanding
+                .keys()
+                .copied()
+                .collect::<Vec<_>>()
+            {
+                self.settle_world_material(key, None);
+            }
+        }
         let retired_indexes = removing_all.then(|| {
             (
                 self.resident.retire(),
@@ -126,6 +136,7 @@ impl WorldStream {
                 .chain(changed.iter().copied())
                 .collect::<Vec<_>>();
             for key in &retiring {
+                self.settle_world_material(*key, None);
                 self.resident.remove(key);
                 self.known_air.remove(key);
                 self.applied_mesh_generations.remove(key);

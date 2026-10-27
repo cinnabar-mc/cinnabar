@@ -17,7 +17,6 @@ fn artwork() -> ActorArtworkPages {
         height: 16,
         layers: 1,
         rgba8: vec![7; 16 * 16 * 4].into(),
-        color_mask: false,
         multitexture: false,
     }]);
     pages
@@ -61,12 +60,12 @@ fn equal_pixels_in_the_same_slot_reuse_its_texture_after_material_changes() {
     let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let mut page = pages.pages[0].clone();
     page.rgba8 = Arc::from(page.rgba8.to_vec());
-    page.color_mask = true;
+    page.multitexture = true;
     pages.pages = Arc::from([page]);
     pages.entity_identity = [7; 32];
     assert!(gpu.prepare(&pages, &device, &queue));
     assert_eq!(gpu.page(0).unwrap()._texture.id(), texture);
-    assert!(gpu.page(0).unwrap().color_mask);
+    assert!(gpu.page(0).unwrap().multitexture);
     assert_eq!(gpu.glint.texture.as_ref().unwrap().0.id(), glint);
 }
 

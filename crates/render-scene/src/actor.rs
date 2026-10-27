@@ -83,6 +83,9 @@ pub struct ActorRenderFrame {
     pub rig: ActorRigRenderFrame,
     pub artwork: Arc<ActorArtworkPages>,
     pub instance_pages: Arc<[ActorArtworkPageId]>,
+    /// (instance word, raster state) pairs the session's entity materials can draw with, so the
+    /// renderer compiles their pipelines before any actor appears. Replaced only with the pack.
+    pub authored_rasters: Arc<[(u32, render_api::render_state::RenderState)]>,
 }
 
 impl ActorRenderFrame {
@@ -124,6 +127,7 @@ impl Default for ActorRenderFrame {
             rig: ActorRigRenderFrame::default(),
             artwork: Arc::new(ActorArtworkPages::default()),
             instance_pages: Arc::from([]),
+            authored_rasters: Arc::from([]),
         }
     }
 }
@@ -184,6 +188,15 @@ impl ActorRenderScene {
     pub fn configure_artwork(&mut self, artwork: ActorArtworkPages) {
         self.reset();
         self.frame.artwork = Arc::new(artwork);
+    }
+
+    /// Publishes the draw states the session's entity materials can use; see
+    /// [`ActorRenderFrame::authored_rasters`].
+    pub fn configure_authored_rasters(
+        &mut self,
+        rasters: Arc<[(u32, render_api::render_state::RenderState)]>,
+    ) {
+        self.frame.authored_rasters = rasters;
     }
     pub fn with_runtime_entity_assets(
         assets: &assets::RuntimeEntityAssets,

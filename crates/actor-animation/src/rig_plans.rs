@@ -350,7 +350,11 @@ impl RigPlan {
                 assets
                     .render_data()
                     .materials(layer)
-                    .any(|(_, state)| state.is_some_and(|state| state.depth_always))
+                    .any(|(_, _, definition)| {
+                        definition.is_some_and(|definition| {
+                            definition.render_state().ignores_stored_depth()
+                        })
+                    })
             }),
         })
     }

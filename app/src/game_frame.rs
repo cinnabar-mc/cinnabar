@@ -155,11 +155,24 @@ pub(crate) fn configure_world(app: &mut App) {
 pub(crate) fn configure_pack_publication(app: &mut App) {
     app.init_resource::<PackReload>().add_systems(
         Update,
-        reload_resource_packs
-            .run_if(resource_exists::<client_interaction::movement::PhysicsCollisionRegistries>)
-            .after(receive_network_events)
-            .before(ClientFrameSet::WorldPublication)
-            .before(ClientFrameSet::UiPublication)
-            .before(ChunkRenderApplySet),
+        (
+            sync_graphics_mode.before(receive_network_events),
+            reload_resource_packs
+                .run_if(resource_exists::<client_interaction::movement::PhysicsCollisionRegistries>)
+                .after(receive_network_events)
+                .before(ClientFrameSet::WorldPublication)
+                .before(ClientFrameSet::UiPublication)
+                .before(ChunkRenderApplySet),
+        ),
     );
+}
+
+/// Hands the Fancy Graphics setting to pack compiles, which pick the entity material list by
+/// it; a change applies from the next pack application.
+fn sync_graphics_mode(settings: Option<Res<client_state::RuntimeSettings>>) {
+    if let Some(settings) = settings {
+        pack_runtime::graphics::set_fancy_graphics(
+            settings.user_settings_update().1.video.fancy_graphics,
+        );
+    }
 }
