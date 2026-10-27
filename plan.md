@@ -1714,6 +1714,9 @@ Hardware join and frame acceptance still needs the full capture matrix below.
 Camera fire binding and diagnostic block names share the borrowed pinned identity
 index instead of decoding block facts during frame publication. Empty diagnostic
 snapshots do not prepare identities.
+Screen policy queries resolve inherited root properties without traversing unused
+controls, and cache them for the same catalog and context as rendered screens.
+Cold inventory updates, pack reload and hardware frame qualification remain open.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release

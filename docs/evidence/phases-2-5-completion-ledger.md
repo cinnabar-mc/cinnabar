@@ -547,6 +547,9 @@ Ingress uses bounded lookahead and the existing conflict tracker to admit light 
 past stalled terrain. Dependent mutations, dimension changes and transfer barriers stay
 ordered. Latency echoes flush when their movement/control fence clears. Deterministic
 regressions cover these paths; paired hardware join and transfer timings remain open.
+Scene policy reads retain root properties without resolving unused descendants.
+Deterministic coverage checks constant work, warm reuse and catalog/context changes;
+the full cold UI and hardware frame gates remain open.
 
 Cloud preparation skips hidden geometry, prefetches finite windows on workers and
 retains GPU storage. Regression coverage checks admission frames, exact records,
