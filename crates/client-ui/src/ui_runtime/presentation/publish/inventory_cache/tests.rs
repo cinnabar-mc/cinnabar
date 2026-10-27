@@ -383,9 +383,24 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pending_inventory_preparation_keeps_projected_names_available() {
+fn unopened_inventory_preparation_keeps_names_without_repeating_artwork() {
     let mut player = player_state::PlayerState::new(1);
-    let runtime = crate::test_support::inventory_session(&mut player);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    runtime.set_server_ui(Some(Arc::new(
+        crate::ui_runtime::presentation::forms::ServerUiPack {
+            ui_layers: vec![vec![
+                (
+                    "ui/_ui_defs.json".into(),
+                    br#"{"ui_defs":["ui/crafting.json"]}"#.to_vec(),
+                ),
+                (
+                    "ui/crafting.json".into(),
+                    br#"{"namespace":"crafting","inventory_screen":{"type":"screen"}}"#.to_vec(),
+                ),
+            ]],
+            ..Default::default()
+        },
+    )));
     player
         .inventory
         .ledger_mut()
@@ -438,5 +453,30 @@ fn pending_inventory_preparation_keeps_projected_names_available() {
     assert!(
         update.item_names.is_none(),
         "pending preparation must retain the unchanged name projection"
+    );
+    test_time::eventually("closed inventory readiness", || {
+        presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [320, 240],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        !presentation.engine_inventory_preparation_pending()
+    });
+    let update = cache.capture(
+        &player,
+        &ItemResolver {
+            runtime: &runtime,
+            presentation: &presentation,
+            authority: Some(stream.authority().inventory_ui()),
+        },
+        &ItemIconFrames::default(),
+    );
+    assert!(
+        update.item_names.is_none(),
+        "an unopened prepared screen must keep its inputs until the real open"
     );
 }

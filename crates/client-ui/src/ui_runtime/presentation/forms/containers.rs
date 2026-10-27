@@ -545,8 +545,19 @@ impl UiPresentationRuntime {
         self.screens.containers.inventory_rebuilt()
     }
 
+    /// Keeps projected slot inputs until a pending or ready inventory has actually painted.
+    pub(in crate::ui_runtime::presentation) fn inventory_inputs_needed(
+        &self,
+        player: &player_state::PlayerState,
+        runtime: &UiRuntime,
+    ) -> bool {
+        self.inventory_preparation_needed(player, runtime)
+            || self.screens.containers.retains_prepared_inventory_inputs()
+    }
+
     /// Whether the closed inventory still owns unfinished preparation work.
-    pub(in crate::ui_runtime::presentation) fn engine_inventory_preparation_pending(&self) -> bool {
+    #[cfg(test)]
+    pub fn engine_inventory_preparation_pending(&self) -> bool {
         self.screens.containers.inventory_preparation_pending()
     }
 

@@ -63,8 +63,7 @@ impl InventoryCache {
             ProjectionInput {
                 ledger: runtime.inventory_ledger(player),
                 inventory_open: runtime.inventory_open()
-                    || presentation.inventory_preparation_needed(player, runtime)
-                    || presentation.engine_inventory_preparation_pending(),
+                    || presentation.inventory_inputs_needed(player, runtime),
                 refresh,
                 animation: ProjectionAnimation {
                     player: frames.0,

@@ -82,7 +82,13 @@ impl ContainerScreen {
         }
     }
 
+    /// Whether pending or ready initial preparation still needs its projected slot inputs.
+    pub fn retains_prepared_inventory_inputs(&self) -> bool {
+        self.preparing.is_some() || self.inventory.as_ref().is_some_and(|cache| !cache.live)
+    }
+
     /// Whether a closed inventory still owns unfinished preparation work.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn inventory_preparation_pending(&self) -> bool {
         self.preparing.is_some()
     }
