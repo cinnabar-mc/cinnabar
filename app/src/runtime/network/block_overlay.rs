@@ -4,12 +4,15 @@
 
 use assets::material_keys::MaterialKeys;
 
+mod bindings;
 mod condition;
 mod items;
 pub(super) use items::compile_block_item_overlay;
 mod geometry_inputs;
 use pack_compiler::block_geometry as geometry;
 mod legacy;
+mod materials;
+use materials::cube_blends;
 mod storage;
 mod texture_admission;
 mod textures;
@@ -24,12 +27,8 @@ use std::{
 
 use assets::{
     BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties,
-    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_DISABLE_AO, MATERIAL_FLAG_DISABLE_FACE_DIMMING, MATERIAL_FLAG_DRY_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
-    MATERIAL_FLAG_WATER_TINT, MODEL_QUAD_FLAG_TWO_SIDED, Material, MaterialOverride, ModelQuad,
-    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TextureArray, TextureMip, TextureRef,
-    VisualKind, VisualSupport,
+    MODEL_QUAD_FLAG_TWO_SIDED, Material, MaterialOverride, ModelQuad, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, TextureArray, TextureMip, TextureRef, VisualKind, VisualSupport,
 };
 use protocol::{CustomBlocks, CustomVisualComponents};
 use resource_pack::LayeredPackView;
@@ -65,6 +64,12 @@ pub(crate) struct OverlayGaps {
     pub(crate) invalid_legacy_bindings: u32,
     /// Routes refused because the overlay texture array had no layer left.
     pub(crate) saturated_textures: u32,
+    /// Cinnabar block bindings no block state matched.
+    #[serde(default)]
+    pub(crate) unmatched_material_bindings: u32,
+    /// Distinct Cinnabar binding mask texture keys no terrain texture resolves.
+    #[serde(default)]
+    pub(crate) unresolved_binding_masks: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -166,12 +171,15 @@ pub(super) fn compile_block_overlay_with_textures(
         max_layers,
         slots: TextureSlots::default(),
         materials: HashMap::new(),
+        state_masks: bindings::StateMasks::default(),
+        unresolved_masks: Default::default(),
         visuals: HashMap::new(),
         gaps: OverlayGaps {
             invalid_legacy_bindings: legacy.invalid,
             ..OverlayGaps::default()
         },
     };
+    let bindings = bindings::MaterialBindings::new(view, &mut builder.gaps);
     builder.sources.push((Source::Diagnostic, 0));
     builder.overlay.materials.push(Material {
         texture: TextureRef::new(builder.overlay.base_texture_pages, 0).expect("layer zero"),
@@ -201,6 +209,8 @@ pub(super) fn compile_block_overlay_with_textures(
                 let physics = block.physics_for_state(index as u32);
                 visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
+                bindings.apply(block, Some(&state.values), &mut visual.components);
+                builder.state_masks = bindings.state_masks(block, Some(&state.values));
                 builder.push_state(
                     &visual,
                     &geometries,
@@ -220,6 +230,8 @@ pub(super) fn compile_block_overlay_with_textures(
             let physics = block.physics_for_state(state);
             visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
+            bindings.apply(block, values.as_deref(), &mut visual.components);
+            builder.state_masks = bindings.state_masks(block, values.as_deref());
             builder.push_state(
                 &visual,
                 &geometries,
@@ -238,10 +250,14 @@ pub(super) fn compile_block_overlay_with_textures(
         let _zone = bevy::log::info_span!("pack.blocks.vanilla_overrides").entered();
         builder.override_vanilla_materials(keys);
         builder.override_vanilla_bindings(keys, &legacy);
+        builder.bind_vanilla_blocks(keys, &bindings);
     }
+    builder.gaps.unmatched_material_bindings = bindings.unmatched();
+    builder.gaps.unresolved_binding_masks = builder.unresolved_masks.len() as u32;
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
         && builder.overlay.face_overrides.is_empty()
+        && builder.overlay.template_overrides.is_empty()
         && builder.vanilla_carried.is_empty()
     {
         builder.catalog.emit_diagnostics();
@@ -295,7 +311,7 @@ struct Builder<'a> {
     base_assets: Option<&'a assets::RuntimeAssets>,
     base_keys: Option<&'a MaterialKeys>,
     vanilla_carried: Vec<CarriedBlock>,
-    terrain_materials: HashMap<(String, u32, u32), u32>,
+    terrain_materials: HashMap<(String, u32, u32, u32), u32>,
     overlay: BlockOverlay,
     /// Base-carrier textures for vanilla keys the server stack does not ship.
     fallback: Option<assets::VanillaFallback<'a>>,
@@ -310,7 +326,12 @@ struct Builder<'a> {
     texture_policy: TexturePolicy,
     max_layers: usize,
     slots: TextureSlots,
-    materials: HashMap<(String, u32), u32>,
+    /// Admitted materials by texture key, flags, AO exponent bits and raw mask references.
+    materials: HashMap<(String, u32, u32, [u32; 3]), u32>,
+    /// Mask textures bindings assign to the state being pushed.
+    state_masks: bindings::StateMasks,
+    /// Binding mask keys that resolved to no texture, counted once each.
+    unresolved_masks: std::collections::HashSet<Box<str>>,
     visuals: HashMap<String, BlockVisual>,
     gaps: OverlayGaps,
 }
@@ -381,7 +402,13 @@ impl Builder<'_> {
             None | Some(FULL_BLOCK | FULL_BLOCK_V1)
                 if components.random_offset.is_none() && cube_transform =>
             {
-                self.cube(components)
+                if cube_blends(components) {
+                    // Each face keeps its own render layer, and blended faces stay drawn against
+                    // identical neighbours, so blending cubes use the full-block model path.
+                    self.model(components, &geometry::Geometry::full_block(), &[])
+                } else {
+                    self.cube(components)
+                }
             }
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
                 self.model(components, &geometry::Geometry::full_block(), &[])
@@ -401,7 +428,8 @@ impl Builder<'_> {
         visual
     }
 
-    fn cube(&mut self, components: &CustomVisualComponents) -> BlockVisual {
+    /// Resolves the six world-face materials of a cube, returning whether every face is opaque.
+    fn cube_faces(&mut self, components: &CustomVisualComponents) -> ([u32; 6], bool) {
         let rotation = components
             .transformation
             .map_or([0; 3], |transform| transform.rotation);
@@ -418,10 +446,15 @@ impl Builder<'_> {
                 0
             };
             let (material, flags, _) =
-                self.face_material(components, FACE_NAMES[source], None, true, uv_flags);
+                self.face_material(components, FACE_NAMES[source], None, uv_flags);
             opaque &= flags == 0;
             *slot = material;
         }
+        (faces, opaque)
+    }
+
+    fn cube(&mut self, components: &CustomVisualComponents) -> BlockVisual {
+        let (faces, opaque) = self.cube_faces(components);
         // Failed faces keep the diagnostic material so the cube still
         // renders; one missing texture never sinks the other five faces.
         if faces.contains(&DIAGNOSTIC_MATERIAL) {
@@ -435,7 +468,7 @@ impl Builder<'_> {
                 && transform.translation == [0.0; 3]
         }) && components.materials.as_deref().is_some_and(|materials| {
             materials.iter().all(|material| {
-                matches!(material.render_method.as_deref(), None | Some("opaque"))
+                material.render_method == protocol_ids::BlockRenderMethod::Opaque
                     && matches!(material.tint_method.as_deref(), None | Some("none"))
             })
         });
@@ -491,7 +524,7 @@ impl Builder<'_> {
                     });
                 }
                 let (material, _, two_sided) =
-                    self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
+                    self.face_material(components, FACE_NAMES[face_quad.face], instance, 0);
                 // Failed quads keep the diagnostic material so the model
                 // still renders; one missing texture never sinks the mesh.
                 failed |= material == DIAGNOSTIC_MATERIAL;
@@ -541,86 +574,6 @@ impl Builder<'_> {
             variant: 0,
             destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }
-    }
-
-    /// Resolves a face's material instance: an explicit geometry name, then the
-    /// face, then `side` for horizontal faces, then `*`.
-    /// Diagnostic fallback keeps the selected instance's sidedness.
-    fn face_material(
-        &mut self,
-        components: &CustomVisualComponents,
-        face: &str,
-        instance: Option<&str>,
-        full_block: bool,
-        uv_flags: u32,
-    ) -> (u32, u32, bool) {
-        let Some(materials) = components.materials.as_deref() else {
-            return (DIAGNOSTIC_MATERIAL, 0, false);
-        };
-        let horizontal = !matches!(face, "up" | "down");
-        let chosen = instance
-            .into_iter()
-            .chain(std::iter::once(face))
-            .chain(horizontal.then_some("side"))
-            .chain(std::iter::once("*"))
-            .find_map(|name| {
-                materials
-                    .iter()
-                    .find(|material| material.name.as_ref() == name)
-            });
-        let Some(chosen) = chosen else {
-            return (DIAGNOSTIC_MATERIAL, 0, false);
-        };
-        let two_sided = matches!(
-            chosen.render_method.as_deref(),
-            Some(
-                "alpha_test"
-                    | "alpha_test_to_opaque"
-                    | "double_sided"
-                    | "blend"
-                    | "blend_to_opaque"
-            )
-        );
-        let mut flags = match chosen.render_method.as_deref() {
-            None | Some("opaque" | "double_sided") => 0,
-            Some("blend") | Some("blend_to_opaque") => MATERIAL_FLAG_ALPHA_BLEND,
-            Some(_) => MATERIAL_FLAG_ALPHA_CUTOUT,
-        };
-        if full_block && flags == MATERIAL_FLAG_ALPHA_BLEND {
-            // Blended full cubes need a transparent-cube template; cutout is the
-            // closest supported look.
-            self.gaps.approximated_materials += 1;
-            flags = MATERIAL_FLAG_ALPHA_CUTOUT;
-        }
-        let alpha_flags = flags;
-        flags |= uv_flags | tint_flags(chosen.tint_method.as_deref());
-        if chosen.ambient_occlusion == Some(0.0) {
-            flags |= MATERIAL_FLAG_DISABLE_AO;
-        } else if chosen.ambient_occlusion.is_some_and(|value| value != 1.0) {
-            self.gaps.approximated_materials += 1;
-        }
-        if chosen.face_dimming == Some(false) {
-            flags |= MATERIAL_FLAG_DISABLE_FACE_DIMMING;
-        }
-        let texture = chosen.texture.to_string();
-        if let Some(&material) = self.materials.get(&(texture.clone(), flags)) {
-            return (material, alpha_flags, two_sided);
-        }
-        if !self.can_admit_materials(1) {
-            return (DIAGNOSTIC_MATERIAL, 0, two_sided);
-        }
-        let Some(slot) = self.texture_slot(&texture) else {
-            return (DIAGNOSTIC_MATERIAL, 0, two_sided);
-        };
-        let material = self.overlay.materials.len() as u32;
-        self.overlay.materials.push(Material {
-            texture: TextureRef::new(slot.page, slot.layer).expect("bounded layer"),
-            flags,
-            animation: slot.animation,
-            ..assets::Material::unvaried()
-        });
-        self.materials.insert((texture, flags), material);
-        (material, alpha_flags, two_sided)
     }
 
     /// Resolves a custom block's default choice, borrowing only unchanged base routes.
@@ -817,19 +770,6 @@ impl Builder<'_> {
             gaps: self.gaps,
             vanilla_carried: self.vanilla_carried,
         })
-    }
-}
-
-/// Biome tint of a material instance's `tint_method`; unknown methods do not tint.
-fn tint_flags(method: Option<&str>) -> u32 {
-    match method {
-        Some("default_foliage") => MATERIAL_FLAG_FOLIAGE_TINT,
-        Some("birch_foliage") => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_BIRCH_FOLIAGE,
-        Some("evergreen_foliage") => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_EVERGREEN_FOLIAGE,
-        Some("dry_foliage") => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_DRY_FOLIAGE,
-        Some("grass") => MATERIAL_FLAG_GRASS_TINT,
-        Some("water") => MATERIAL_FLAG_WATER_TINT,
-        _ => 0,
     }
 }
 

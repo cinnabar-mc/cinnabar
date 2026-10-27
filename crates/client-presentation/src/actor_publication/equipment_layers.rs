@@ -94,6 +94,38 @@ pub(super) fn local_equipment(
     }
 }
 
+/// Animates the glint of a `GLINT` material layer as worn glint scrolls: from the actor's
+/// interpolated tick, with the glint accessibility settings applied.
+pub(super) fn animate_material_glint(
+    submission: &mut render_model::ActorRigSubmission,
+    partial_tick: f32,
+    settings: Option<&render_scene::UiGlintSettings>,
+) {
+    if submission.material.state.is_some_and(|state| state.glint) {
+        worn_glint(
+            &mut submission.material.glint,
+            submission.input.completed_tick,
+            partial_tick,
+            settings,
+        );
+    }
+}
+
+/// Sets a worn glint's clock to `completed_tick + partial_tick` and applies the settings.
+fn worn_glint(
+    glint: &mut render_model::ActorGlint,
+    completed_tick: u64,
+    partial_tick: f32,
+    settings: Option<&render_scene::UiGlintSettings>,
+) {
+    glint.time_seconds =
+        (completed_tick as f32 + partial_tick) * simulation_clock::TICK_DURATION.as_secs_f32();
+    if let Some(settings) = settings {
+        glint.strength = settings.strength;
+        glint.speed = settings.speed;
+    }
+}
+
 /// Applies the glint accessibility settings and starts held-item glint scrolling at the
 /// draw's interpolated tick; worn equipment keeps the clock its own layer set.
 pub(super) fn animate_glint(
@@ -109,5 +141,29 @@ pub(super) fn animate_glint(
     if glint.texture == render_model::GlintTexture::Item {
         glint.time_seconds = (submission.input.completed_tick as f32 + partial_tick)
             * simulation_clock::TICK_DURATION.as_secs_f32();
+    }
+}
+
+#[cfg(test)]
+mod material_glint_tests {
+    use super::*;
+
+    #[test]
+    fn material_glint_scrolls_smoothly_with_the_accessibility_settings() {
+        let mut glint = render_model::ActorGlint::default();
+        let settings = render_scene::UiGlintSettings {
+            strength: 0.25,
+            speed: 0.5,
+        };
+        worn_glint(&mut glint, 40, 0.5, Some(&settings));
+        let tick = simulation_clock::TICK_DURATION.as_secs_f32();
+        assert_eq!(glint.time_seconds, 40.5 * tick);
+        assert_eq!((glint.strength, glint.speed), (0.25, 0.5));
+        let mut later = glint;
+        worn_glint(&mut later, 40, 0.75, Some(&settings));
+        assert!(
+            later.time_seconds > glint.time_seconds,
+            "moves between ticks"
+        );
     }
 }
