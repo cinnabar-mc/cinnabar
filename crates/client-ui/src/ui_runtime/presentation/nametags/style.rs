@@ -2,6 +2,18 @@
 
 use super::*;
 
+/// Sets native plate opacity before optional mod colour and opacity overrides.
+pub(in crate::ui_runtime::presentation) fn background_opacity(
+    scene: &mut NametagScene,
+    opacity: f32,
+) {
+    for record in &mut scene.records {
+        if record.uv[2] < 0.0 {
+            record.color[3] = opacity;
+        }
+    }
+}
+
 /// Counts the final records emitted for one plate or textured run.
 pub(super) fn record_cost(
     style: Option<&ui::mod_presentation::NametagStyle>,

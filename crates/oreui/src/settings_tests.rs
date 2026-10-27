@@ -610,6 +610,7 @@ fn settings_sliders_reach_both_limits_and_choose_the_nearest_stop() {
     for (section, name) in [
         ("video_forced_index", "render_distance"),
         ("video_forced_index", "gamma"),
+        ("video_forced_index", "nametag_background_opacity"),
         ("video_forced_index", "field_of_view"),
         (
             "keyboard_and_mouse_forced_index",
