@@ -51,10 +51,7 @@ fn draw(
     if !runtime.inventory_open() {
         test_time::eventually("inventory preparation worker", || {
             frame = draw_frame(presentation, runtime, player, now);
-            !presentation
-                .screens
-                .containers
-                .inventory_preparation_pending()
+            !presentation.engine_inventory_preparation_pending()
         });
     }
     frame
@@ -393,14 +390,14 @@ fn closed_inventory_frames_defer_binding_and_layout() {
     assert_eq!(warm.engine_container_resolves(), 0);
     assert_eq!(warm.engine_container_placed(), 0);
     assert_eq!(warm.engine_inventory_rebuilt(), 0);
-    assert!(warm.screens.containers.inventory_preparation_pending());
+    assert!(warm.engine_inventory_preparation_pending());
     // Opening immediately must finish the worker's remaining work and paint the same screen.
     runtime.toggle_inventory(&mut player, None);
     let expected = draw_frame(&mut cold, &runtime, &player, 100);
     let opened = draw_frame(&mut warm, &runtime, &player, 100);
     assert_eq!(opened.vertices, expected.vertices);
     assert_eq!(warm.engine_container_resolves(), 1);
-    assert!(!warm.screens.containers.inventory_preparation_pending());
+    assert!(!warm.engine_inventory_preparation_pending());
 }
 
 #[test]
@@ -417,7 +414,7 @@ fn unchanged_closed_inventory_does_no_more_preparation() {
     );
     for now in 1..8 {
         draw_frame(&mut warm, &runtime, &player, now);
-        assert!(!warm.screens.containers.inventory_preparation_pending());
+        assert!(!warm.engine_inventory_preparation_pending());
         assert_eq!(
             (
                 warm.engine_container_resolves(),

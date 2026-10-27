@@ -545,6 +545,12 @@ impl UiPresentationRuntime {
         self.screens.containers.inventory_rebuilt()
     }
 
+    /// Whether the closed inventory still owns unfinished preparation work.
+    #[cfg(test)]
+    pub fn engine_inventory_preparation_pending(&self) -> bool {
+        self.screens.containers.inventory_preparation_pending()
+    }
+
     /// The container frame the engine drew last build, if any.
     pub fn engine_container_frame(&self) -> Option<&EngineFrame> {
         self.projections.container.as_ref().map(|(frame, _)| frame)
