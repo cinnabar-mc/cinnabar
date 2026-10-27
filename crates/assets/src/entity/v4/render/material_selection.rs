@@ -7,6 +7,9 @@ pub enum EntityRenderMaterialSelection {
     Raster {
         material: EntityRenderMaterial,
         state: Option<EntityRenderMaterialState>,
+        /// Index into [`EntityRenderData::materials`] when the choice resolved completely.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition: Option<u32>,
     },
     Branch {
         condition: u32,
@@ -77,9 +80,9 @@ impl EntityRenderData {
             .then_some((layer.material, layer.material_state))
             .into_iter()
             .chain(self.material_nodes(layer).filter_map(|node| match node {
-                EntityRenderMaterialSelection::Raster { material, state } => {
-                    Some((*material, *state))
-                }
+                EntityRenderMaterialSelection::Raster {
+                    material, state, ..
+                } => Some((*material, *state)),
                 _ => None,
             }))
     }
@@ -95,6 +98,7 @@ pub(super) fn validate(render: &EntityRenderData, expressions: usize) -> Result<
             .expression()
             .is_some_and(|expression| expression as usize >= expressions)
             || matches!(node, EntityRenderMaterialSelection::Array { choices, .. } if choices.is_empty())
+            || matches!(node, EntityRenderMaterialSelection::Raster { definition: Some(definition), .. } if *definition as usize >= render.materials.len())
             || node.children().any(|child| {
                 child as usize <= index || child as usize >= render.material_selections.len()
             })

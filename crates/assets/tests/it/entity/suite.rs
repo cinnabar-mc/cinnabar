@@ -689,6 +689,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             layers: Box::new([entity::EntityRenderLayer {
                 material: Default::default(),
                 material_state: None,
+                material_definition: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
@@ -721,6 +722,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 condition: 0,
             }]),
             geometries: Box::new([]),
+            materials: Box::new([]),
         },
     }
     .with_unresolved_item_use()
@@ -1103,6 +1105,7 @@ fn material_selection_graph_is_optional_and_validated() {
     compiled.render.material_selections = vec![entity::EntityRenderMaterialSelection::Raster {
         material: entity::EntityRenderMaterial::Default,
         state: None,
+        definition: None,
     }]
     .into();
     compiled.render.layers[0].material_selection = Some(0);

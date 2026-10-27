@@ -90,6 +90,7 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
         Node::Raster {
             material: EntityRenderMaterial::Default,
             state: None,
+            definition: None,
         },
         Node::Raster {
             material: EntityRenderMaterial::Default,
@@ -97,6 +98,7 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
                 blend: true,
                 ..Default::default()
             }),
+            definition: None,
         },
     ]
     .into();
