@@ -51,6 +51,9 @@ struct Case {
     foil_pattern: bool,
     uv: [f32; 2],
     offsets: [f32; 2],
+    /// Glow and emissive mask layers; MAX names none.
+    masks: [u32; 2],
+    mask_strength: f32,
 }
 
 impl Default for Case {
@@ -76,6 +79,8 @@ impl Default for Case {
             foil_pattern: false,
             uv: [0.5; 2],
             offsets: [0.0; 2],
+            masks: [u32::MAX; 2],
+            mask_strength: 0.0,
         }
     }
 }
@@ -112,7 +117,7 @@ fn cases() -> Vec<Case> {
                 name: "gamma dye mask",
                 texture: 1,
                 tint: render_model::pack_overlay_rgba8([0.4, 0.7, 0.3, 0.8]),
-                material: [0, 1, 0, 0],
+                material_word: NATIVE_COLOR_MASK,
                 ..Default::default()
             },
             Case {
@@ -232,12 +237,16 @@ fn sampled_light(case: Case, table: &[f32]) -> [f32; 3] {
     })
 }
 
+/// An authored `USE_COLOR_MASK` material's instance word.
+const NATIVE_COLOR_MASK: u32 =
+    assets::EntityRenderMaterialState::AUTHORED | assets::EntityRenderMaterialState::COLOR_MASK;
+
 fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
     let texel = TEXELS[case.texture as usize].map(|byte| f32::from(byte) / 255.0);
     let mut color = texel;
     if case.tint != 0 {
         let tint = unpack(case.tint);
-        if case.material[1] != 0
+        if case.material_word & assets::EntityRenderMaterialState::COLOR_MASK != 0
             || case.material_word & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG != 0
         {
             for i in 0..3 {
@@ -251,10 +260,45 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
         }
     }
     if case.material[2] != 0 {
-        for overlay in [TEXELS[2], TEXELS[3]] {
-            let overlay = overlay.map(|byte| f32::from(byte) / 255.0);
+        let flag = |flag: u32| case.material_word & flag != 0;
+        let multiplier = if case.tint == 0 {
+            [1.0; 4]
+        } else {
+            unpack(case.tint)
+        };
+        // The shipped programs' second and third texture composition (ActorTint,
+        // Actor and ActorMultiTexture material.bin, Opaque pass).
+        let second = TEXELS[2].map(|byte| f32::from(byte) / 255.0);
+        let third = TEXELS[3].map(|byte| f32::from(byte) / 255.0);
+        let over = |color: &mut [f32; 4], layer: [f32; 4]| {
             for i in 0..3 {
-                color[i] = color[i] * (1.0 - overlay[3]) + overlay[i] * overlay[3];
+                color[i] = color[i] * (1.0 - layer[3]) + layer[i] * layer[3];
+            }
+        };
+        if flag(assets::EntityRenderMaterialState::TEXTURE_TINT) {
+            let tinted = [0, 1, 2, 3].map(|i| {
+                if i < 3 {
+                    second[i] * multiplier[i]
+                } else {
+                    second[3]
+                }
+            });
+            over(&mut color, tinted);
+        } else if flag(assets::EntityRenderMaterialState::TEXTURE_MASK) {
+            if (second[0] + second[1] + second[2]) * (1.0 - second[3]) <= 0.0 {
+                color = second;
+            }
+        } else {
+            over(&mut color, second);
+            // Any non-zero 8-bit alpha exceeds the programs' 1e-5 epsilon.
+            if flag(assets::EntityRenderMaterialState::COLOR_SECOND_TEXTURE) {
+                if third[3] > 0.0 {
+                    for i in 0..3 {
+                        color[i] = third[i] * (1.0 + (multiplier[i] - 1.0) * third[3]);
+                    }
+                }
+            } else {
+                over(&mut color, third);
             }
         }
     }
@@ -275,7 +319,8 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
     };
     let light = sampled_light(case, table);
     let enchanted = case.material_word & assets::EntityRenderMaterialState::KIND_MASK
-        == assets::EntityRenderMaterial::Glint as u32;
+        == assets::EntityRenderMaterial::Glint as u32
+        || case.material_word & assets::EntityRenderMaterialState::GLINT != 0;
     let legacy = case.material_word & render_model::LEGACY_COMBAT_MATERIAL_FLAG != 0;
     let foil: [[f32; 4]; 2] = std::array::from_fn(|pass| {
         let pixel = if case.foil_pattern && legacy {
@@ -290,10 +335,20 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
         };
         pixel.map(|byte| f32::from(byte) / 255.0)
     });
+    let mask = |layer: u32| TEXELS[layer as usize].map(|byte| f32::from(byte) / 255.0);
+    let unlit_weight = if case.masks[1] == u32::MAX {
+        0.0
+    } else {
+        (mask(case.masks[1])[3] * case.mask_strength).clamp(0.0, 1.0)
+    };
     for i in 0..3 {
         color[i] = color[i] * (1.0 - overlay[3]) + overlay[i] * overlay[3];
         if !case.unlit {
-            color[i] *= shade * light[i];
+            color[i] *= 1.0 + (shade * light[i] - 1.0) * (1.0 - unlit_weight);
+        }
+        if case.masks[0] != u32::MAX {
+            let glow = mask(case.masks[0]);
+            color[i] += glow[i] * glow[3] * case.mask_strength;
         }
         let glint = if enchanted {
             let sum = (foil[0][i] + foil[1][i])
@@ -326,6 +381,91 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
 }
 
 #[test]
+fn cinnabar_glow_masks_add_after_light_and_emissive_masks_draw_unlit() {
+    let Some(gpu) = Gpu::for_fixture("Cinnabar material mask shader") else {
+        return;
+    };
+    let dim = [0.13, 0.15, 0.25];
+    let cases = [
+        (0, [2, u32::MAX], 0.5),
+        (0, [3, u32::MAX], 2.0),
+        (8, [u32::MAX, 1], 1.0),
+        (8, [u32::MAX, 3], 3.0),
+        (8, [2, 1], 1.0),
+    ]
+    .into_iter()
+    .flat_map(|(texture, masks, mask_strength)| {
+        [[1.0; 3], dim].map(|light| Case {
+            name: "Cinnabar material masks",
+            texture,
+            light,
+            masks,
+            mask_strength,
+            ..Default::default()
+        })
+    })
+    .collect();
+    render_cases(&gpu, cases);
+}
+
+#[test]
+fn define_selected_second_textures_and_glint_follow_the_shipped_formulas() {
+    let Some(gpu) = Gpu::for_fixture("define-selected actor material shader") else {
+        return;
+    };
+    let authored = |flag: u32| assets::EntityRenderMaterialState::AUTHORED | flag;
+    let tint = render_model::pack_overlay_rgba8([0.4, 0.7, 0.3, 1.0]);
+    let cases = [[1.0; 3], [0.13, 0.15, 0.25]]
+        .into_iter()
+        .flat_map(|light| {
+            [
+                Case {
+                    name: "MULTIPLICATIVE_TINT lays the tinted second texture over the base",
+                    material_word: authored(assets::EntityRenderMaterialState::TEXTURE_TINT),
+                    tint,
+                    ..Default::default()
+                },
+                Case {
+                    name: "MASKED_MULTITEXTURE keeps the base under a translucent second texture",
+                    material_word: authored(assets::EntityRenderMaterialState::TEXTURE_MASK),
+                    tint,
+                    ..Default::default()
+                },
+                Case {
+                    name: "COLOR_SECOND_TEXTURE draws the dyed third texture where visible",
+                    material_word: authored(
+                        assets::EntityRenderMaterialState::COLOR_SECOND_TEXTURE,
+                    ),
+                    tint,
+                    ..Default::default()
+                },
+                Case {
+                    name: "COLOR_SECOND_TEXTURE without a colour draws the third texture undyed",
+                    material_word: authored(
+                        assets::EntityRenderMaterialState::COLOR_SECOND_TEXTURE,
+                    ),
+                    ..Default::default()
+                },
+            ]
+            .map(|case| Case {
+                light,
+                material: [0, 0, 1, 0],
+                ..case
+            })
+            .into_iter()
+            .chain([Case {
+                name: "GLINT adds the actor glint like the glint kind",
+                material_word: authored(assets::EntityRenderMaterialState::GLINT),
+                glint_texel: [20, 80, 140, 255],
+                light,
+                ..Default::default()
+            }])
+        })
+        .collect();
+    render_cases(&gpu, cases);
+}
+
+#[test]
 fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     let Some(gpu) = Gpu::for_fixture("actual actor colour shader") else {
         return;
@@ -334,8 +474,8 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
 }
 
 #[test]
-fn dye_mask_pages_keep_zero_alpha_rgb_and_depth_in_both_profiles() {
-    let Some(gpu) = Gpu::for_fixture("sheep and wolf dye-mask page contract") else {
+fn dye_mask_materials_keep_zero_alpha_rgb_and_depth_in_both_profiles() {
+    let Some(gpu) = Gpu::for_fixture("sheep and wolf dye-mask material contract") else {
         return;
     };
     let cases = [0, render_model::LEGACY_COMBAT_MATERIAL_FLAG]
@@ -344,8 +484,7 @@ fn dye_mask_pages_keep_zero_alpha_rgb_and_depth_in_both_profiles() {
             [0, 1, 4].map(|texture| Case {
                 name: "body dye mask alpha is not transparency",
                 texture,
-                material: [0, 1, 0, 0],
-                material_word: profile,
+                material_word: profile | NATIVE_COLOR_MASK,
                 tint: render_model::pack_overlay_rgba8([0.2, 0.8, 0.4, 1.0]),
                 depth_probe: true,
                 ..Default::default()
@@ -459,7 +598,6 @@ fn legacy_fragment_keeps_leather_dye_red_lighting_and_untinted_glint_after_fog()
                     | assets::EntityRenderMaterial::Default.word(Some(
                         assets::EntityRenderMaterialState {
                             alpha_test: true,
-                            cull: false,
                             ..Default::default()
                         },
                     )),
@@ -581,6 +719,9 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>) {
         instance_words[31] = case.offsets[1];
         instance_words[32] = case.strength;
         instance_words[33..35].fill(1.0);
+        instance_words[37] = f32::from_bits(case.masks[0]);
+        instance_words[38] = f32::from_bits(case.masks[1]);
+        instance_words[39] = case.mask_strength;
         let instance = gpu.buffer(&instance_words, wgpu::BufferUsages::STORAGE);
         let glint = glint_view(gpu, case.glint_texel, false);
         let item_glint = glint_view(gpu, case.item_glint_texel, case.foil_pattern);
@@ -718,7 +859,7 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>) {
             (authored_cutout && !(legacy && mask) && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
                 || (legacy && mask && alpha == 0.0)
                 || (enchanted && !(legacy && mask) && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
-                || (case.material[1] == 0
+                || (case.material_word & assets::EntityRenderMaterialState::COLOR_MASK == 0
                     && !mask
                     && case.material[2] == 0
                     && ((case.material[0] == 0 && alpha < 0.1)
@@ -755,7 +896,7 @@ struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: v
 @vertex fn actor_witness_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
     var out: VertexOutput;
-    out.skin_info.z = select(0xffffffffu, 0u, (bitcast<u32>(actor_witness.distance_multi.z) & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT);
+    out.skin_info.z = select(0xffffffffu, 0u, (bitcast<u32>(actor_witness.distance_multi.z) & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || (bitcast<u32>(actor_witness.distance_multi.z) & ACTOR_GLINT_DEFINE_FLAG) != 0u || instance_words[37u] != 0xffffffffu || instance_words[38u] != 0xffffffffu);
     out.position = vec4(corners[index], actor_witness.distance_multi.w, 1.0);
     out.uv = vec4(actor_witness.glint_uv.xy, vec2(0.0));
     out.skin_info.x = actor_witness.words.x;

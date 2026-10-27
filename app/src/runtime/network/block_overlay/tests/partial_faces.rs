@@ -3,15 +3,8 @@ use super::*;
 /// Failed faces keep the diagnostic material while their cube still renders.
 #[test]
 fn cube_keeps_rendering_with_a_failed_face() {
-    let instances =
-        [("*", "lucky"), ("up", "absent")].map(|(name, texture)| CustomMaterialInstance {
-            name: name.into(),
-            texture: texture.into(),
-            render_method: None,
-            tint_method: None,
-            ambient_occlusion: None,
-            face_dimming: None,
-        });
+    let instances = [("*", "lucky"), ("up", "absent")]
+        .map(|(name, texture)| CustomMaterialInstance::with_authored_defaults(name, texture));
     let chair = block(
         "test:chair",
         1,
@@ -82,7 +75,7 @@ fn model_keeps_quads_and_sidedness_with_failed_materials() {
             (Some("blend_to_opaque"), true),
         ] {
             let mut instances = materials(texture).unwrap();
-            instances[0].render_method = method.map(Into::into);
+            instances[0].render_method = protocol_ids::BlockRenderMethod::from_network(method);
             let statue = block(
                 "test:statue",
                 1,
@@ -134,5 +127,96 @@ fn model_keeps_quads_and_sidedness_with_failed_materials() {
                 assert_eq!(published.flags, compiled.flags);
             }
         }
+    }
+}
+
+fn full_block(instances: Box<[CustomMaterialInstance]>) -> CustomBlocks {
+    CustomBlocks {
+        blocks: vec![block(
+            "test:surface",
+            1,
+            CustomBlockVisuals {
+                base: CustomVisualComponents {
+                    geometry: Some("minecraft:geometry.full_block".into()),
+                    materials: Some(instances),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )]
+        .into(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn blended_full_cubes_keep_per_face_layers_on_the_model_path() {
+    let mut instances = materials("lucky").unwrap().into_vec();
+    instances[0].render_method = protocol_ids::BlockRenderMethod::Blend;
+    instances.push(CustomMaterialInstance::with_authored_defaults(
+        "up", "lucky",
+    ));
+    let compiled =
+        compile_block_overlay(&view(), &full_block(instances.into()), false, None).unwrap();
+    let visual = compiled.overlay.visuals[0];
+    assert_eq!(visual.kind, VisualKind::Model);
+    let template = compiled.overlay.model_templates[visual.model_template as usize];
+    assert_eq!(
+        template.flags & assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+        0,
+        "identical blended neighbours keep their shared faces"
+    );
+    let quads = &compiled.overlay.model_quads[template.quad_start as usize..]
+        [..template.quad_count as usize];
+    let blends = quads
+        .iter()
+        .filter(|quad| {
+            compiled.overlay.materials[quad.material as usize].flags
+                & assets::MATERIAL_FLAG_ALPHA_BLEND
+                != 0
+        })
+        .count();
+    assert_eq!(blends, 5, "the opaque top keeps its own layer");
+    assert_eq!(compiled.gaps.approximated_materials, 0);
+    RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &compiled.overlay)
+        .expect("blended model publishes");
+}
+
+#[test]
+fn isotropic_instances_randomize_only_their_own_faces() {
+    let mut instances = materials("lucky").unwrap().into_vec();
+    instances[0].packed_bools |= 2;
+    instances.push(CustomMaterialInstance::with_authored_defaults("up", "gen"));
+    let compiled =
+        compile_block_overlay(&view(), &full_block(instances.into()), false, None).unwrap();
+    let faces = compiled.overlay.visuals[0].faces;
+    let flags = |face: BlockFace| compiled.overlay.materials[faces[face as usize] as usize].flags;
+    assert_ne!(flags(BlockFace::North) & assets::MATERIAL_FLAG_ISOTROPIC, 0);
+    assert_eq!(flags(BlockFace::Up) & assets::MATERIAL_FLAG_ISOTROPIC, 0);
+}
+
+#[test]
+fn every_finite_ambient_occlusion_reaches_the_exponent_unchanged() {
+    // Approximations are counted per drawn face.
+    for (exponent, drawn, approximated) in [
+        (0.8, 0.8, 0),
+        (0.805, 0.805, 0),
+        (4.0, 4.0, 0),
+        (10.0, 10.0, 0),
+        (0.333, 0.333, 0),
+        (37.5, 37.5, 0),
+        (f32::NAN, assets::DEFAULT_AO_EXPONENT, 6),
+    ] {
+        let mut instances = materials("lucky").unwrap();
+        instances[0].ambient_occlusion = exponent;
+        let compiled = compile_block_overlay(&view(), &full_block(instances), false, None).unwrap();
+        let material = compiled.overlay.materials[compiled.overlay.visuals[0].faces[0] as usize];
+        assert_eq!(material.ao_exponent, f32::to_bits(drawn), "{exponent}");
+        assert_eq!(material.flags & assets::MATERIAL_FLAG_DISABLE_AO, 0);
+        assert_eq!(
+            compiled.gaps.approximated_materials, approximated,
+            "{exponent}"
+        );
     }
 }

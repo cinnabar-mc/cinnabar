@@ -32,6 +32,7 @@ pub(crate) fn raster_batch(gpu: &Gpu, batch: RasterBatch<'_>, scene: RasterScene
         &[],
         Default::default(),
         None,
+        None,
     )
 }
 
@@ -75,12 +76,13 @@ pub(crate) fn cube(size: [u32; 3], top: bool, bottom: bool) -> Vec<ActorRigVerte
 }
 
 pub(crate) fn source(gamma: bool) -> String {
-    source_with_definitions(gamma, &[])
+    source_with_definitions(gamma, &[], "")
 }
 
-/// Compiles the production actor entry points with the selected fixture variants.
-fn source_with_definitions(gamma: bool, definitions: &[&str]) -> String {
-    let actor = include_str!("../../../src/actor.wesl")
+/// Compiles the production actor entry points with the selected fixture variants, and a world
+/// material's library (bound in group 2) when `world` is not empty.
+fn source_with_definitions(gamma: bool, definitions: &[&str], world: &str) -> String {
+    let actor = format!("{}\n{world}", include_str!("../../../src/actor.wesl"))
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
             &render_model::ACTOR_GPU_INSTANCE_WORDS.to_string(),
@@ -97,6 +99,7 @@ fn source_with_definitions(gamma: bool, definitions: &[&str]) -> String {
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)")
         .replace("@group(3) @binding(0)", "@group(0) @binding(22)")
+        .replace("@group(2) @binding(0)", "@group(0) @binding(23)")
 }
 
 pub(crate) fn raster(
@@ -349,6 +352,69 @@ pub(crate) fn raster_material_in_scene(
         &definitions,
         state,
         companion,
+        None,
+    )
+}
+
+/// Renders one actor drawn with a world material's library: `library` from
+/// `WorldMaterial::library(2)` (no textures) and `frame` its frame uniform.
+pub(crate) fn raster_world_material(
+    gpu: &Gpu,
+    vertices: &[ActorRigVertex],
+    material: render_model::ActorMaterial,
+    library: &str,
+    frame: &[f32],
+    definitions: &[&str],
+) -> Vec<u8> {
+    let instance = ActorGpuInstance {
+        world_from_actor: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+        partial_tick: 1.0,
+        uv_anim: render_model::IDENTITY_UV_ANIM,
+        multitexture_layers: [u32::MAX; 2],
+        material: material.gpu_word(),
+        dissolve_multiplier: material.dissolve_multiplier,
+        light_color_multiplier: material.light_color_multiplier,
+        ..Default::default()
+    };
+    let texels = [[200, 200, 200, 255]; 4];
+    raster_batch_in_scene(
+        gpu,
+        RasterBatch {
+            vertices,
+            geometry: &[render_model::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: vertices.len() as u32,
+            }],
+            instances: &[instance],
+            draws: &[(0..vertices.len() as u32, 0..1)],
+        },
+        material,
+        RasterScene {
+            clip_from_world: Mat4::from_cols(
+                Vec4::new(2.0, 0.0, 0.0, 0.0),
+                Vec4::ZERO,
+                Vec4::new(0.0, -2.0, 0.0, 0.0),
+                Vec4::new(0.0, 0.0, 0.5, 1.0),
+            ),
+            world_from_actor: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+            camera_position: Vec3::ZERO,
+            texture_size: [2, 2],
+            texels: &texels,
+        },
+        false,
+        false,
+        definitions,
+        Default::default(),
+        None,
+        Some((library, frame)),
     )
 }
 
@@ -367,6 +433,7 @@ fn raster_batch_in_scene(
     definitions: &[&str],
     mut state: gpu_snapshot::RasterState,
     companion: Option<wgpu::TextureView>,
+    world: Option<(&str, &[f32])>,
 ) -> Vec<u8> {
     let view = gpu.buffer(
         &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
@@ -507,6 +574,14 @@ fn raster_batch_in_scene(
             resource: wgpu::BindingResource::TextureView(view),
         });
     }
+    let world_frame = world.map(|(_, frame)| gpu.buffer(frame, wgpu::BufferUsages::UNIFORM));
+    if let Some(frame) = &world_frame {
+        bindings.push(wgpu::BindGroupEntry {
+            binding: 23,
+            resource: frame.as_entire_binding(),
+        });
+    }
+    let world = world.map_or("", |(library, _)| library);
     let draws: Vec<_> = batch
         .draws
         .iter()
@@ -514,9 +589,8 @@ fn raster_batch_in_scene(
             fragment: state.actor_fragment.unwrap_or("actor_fragment"),
             vertices: vertices.clone(),
             bindings: &bindings,
-            blend: material.state.and_then(render::actor_material_blend_state),
-            write_depth: state.actor_fragment.is_none()
-                && material.state.is_none_or(|state| state.depth_write),
+            blend: render::actor_material_blend_state(&material.raster()),
+            write_depth: state.actor_fragment.is_none() && material.raster().depth.write,
         })
         .collect();
     state.instance_ranges = batch
@@ -580,14 +654,14 @@ fn raster_batch_in_scene(
     };
     if srgb {
         gpu.render_srgb_with_state(
-            &source_with_definitions(gamma, definitions),
+            &source_with_definitions(gamma, definitions, world),
             "actor_vertex",
             &draws,
             state,
         )
     } else {
         gpu.render_with_state(
-            &source_with_definitions(gamma, definitions),
+            &source_with_definitions(gamma, definitions, world),
             "actor_vertex",
             &draws,
             state,

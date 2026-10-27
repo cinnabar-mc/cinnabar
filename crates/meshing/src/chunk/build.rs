@@ -85,6 +85,10 @@ pub struct MeshOptions<'a> {
     pub water_filled: &'a [u32],
     /// The cell overlays of the sub-chunk's own cells, drawn in order after its block models.
     pub overlays: &'a [crate::CellOverlay],
+    /// Network values, sorted, of the blocks a programmable world material shades, each with
+    /// one more than its material slot. Their cube faces carry that slot, never merge with
+    /// other faces, and draw only in their material's pass; empty draws every block as Bedrock.
+    pub world_materials: &'a [(u32, u8)],
 }
 
 /// Greedy-mesh the bounded palette snapshot with solved block/sky light.
@@ -255,6 +259,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     &mut diagnostic_geometry,
                     visuals.materials(),
                     options.split_tinted_faces,
+                    options.world_materials,
                 ),
             );
         }
@@ -440,6 +445,10 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
                                 continue;
                             };
+                            let world = super::opaque::world_material_tag(
+                                options.world_materials,
+                                entry.network_value,
+                            );
                             model_refs.push(PackedModelRef::new(
                                 pack_model_transform(
                                     [x as u8, y as u8, z as u8],
@@ -473,7 +482,8 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             let mut remaining = visible_quad_mask;
                             while remaining != 0 {
                                 let quad_index = remaining.trailing_zeros();
-                                let draw_ref = PackedModelDrawRef::new(model_ref_index, quad_index);
+                                let draw_ref = PackedModelDrawRef::new(model_ref_index, quad_index)
+                                    .with_world_material(world);
                                 if template_quads[quad_index as usize].material
                                     != DIAGNOSTIC_MATERIAL
                                     && visuals

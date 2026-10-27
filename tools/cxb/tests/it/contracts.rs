@@ -117,6 +117,7 @@ fn shared_ingress_transitions_match_the_client_boundary() {
             channels: manifest.channels,
             actions: manifest.actions,
             max_message_bytes: grant.wire.limits.max_message_bytes,
+            namespace: None,
         };
         let base: Envelope = fixture("envelope_to_client.json");
         let epoch = base.world_epoch;

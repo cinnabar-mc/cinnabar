@@ -753,3 +753,25 @@ fn java_mode_toggles_withdraw_old_meshes_and_reject_late_round_trip_results() {
         assert_eq!(capture_mesh(&stream, key).java_meshing, original);
     }
 }
+
+#[test]
+fn world_material_tags_reach_new_snapshots_and_remesh_until_they_are_cleared() {
+    let (mut stream, key) = fixture();
+    stream.resident.insert(key);
+    let now = Instant::now();
+    let revision = stream.mark_dirty_exact(key, now);
+    let before = stream.mesh_render_revision();
+    let tags: Arc<[(u32, u8)]> = Arc::from([(1_u32, 1_u8), (5, 2)]);
+    stream.set_world_materials(Arc::clone(&tags), now);
+    assert_eq!(&*capture_mesh(&stream, key).world_materials, &*tags);
+    assert!(stream.mesh_render_revision() > before);
+    assert!(!stream.revisions.is_current(key, revision));
+    // The same tags change nothing.
+    let unchanged = stream.mesh_render_revision();
+    stream.set_world_materials(Arc::clone(&tags), now);
+    assert_eq!(stream.mesh_render_revision(), unchanged);
+    // Revocation clears them and remeshes back to Bedrock materials.
+    stream.set_world_materials(Arc::from([]), now);
+    assert!(stream.mesh_render_revision() > unchanged);
+    assert!(capture_mesh(&stream, key).world_materials.is_empty());
+}

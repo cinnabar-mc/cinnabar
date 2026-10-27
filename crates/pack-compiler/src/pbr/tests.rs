@@ -100,7 +100,7 @@ fn texture_set_constants_follow_argb_mer_and_subsurface_dominance_rules() {
         .path()
         .join("textures/blocks/stone.texture_set.json");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(&path, br##"{"minecraft:texture_set":{"color":"#80112233","metalness_emissive_roughness_subsurface":[64.0,128.0,192.0,128.0],"heightmap":64.0}}"##).unwrap();
+    fs::write(&path, br##"{"format_version":"1.21.30","minecraft:texture_set":{"color":"#80112233","metalness_emissive_roughness_subsurface":[64,128,192,128]}}"##).unwrap();
     let pack = PbrPack::new(directory.path(), None);
     let texture = load_pbr_texture(&[pack], "textures/blocks/stone")
         .unwrap()
@@ -108,21 +108,33 @@ fn texture_set_constants_follow_argb_mer_and_subsurface_dominance_rules() {
     let frame = texture.frame(0, 1).unwrap();
     assert_eq!(frame.color.get_pixel(0, 0).0, [17, 34, 51, 128]);
     assert_eq!(frame.material.get_pixel(0, 0).0, [0, 128, 192, 128]);
-    assert_eq!(frame.normal.get_pixel(0, 0).0, [128, 128, 255, 64]);
     assert_eq!(frame.flags & (PBR_REF_HEIGHT | PBR_REF_NORMAL), 0);
     assert_ne!(frame.flags & PBR_REF_SUBSURFACE, 0);
     let (tie, _) = decode::mer(rgba([64, 0, 192, 64]), true);
     assert_eq!(tie.get_pixel(0, 0).0, [0, 0, 192, 64]);
     let (metal, _) = decode::mer(rgba([255, 0, 192, 64]), true);
     assert_eq!(metal.get_pixel(0, 0).0, [255, 0, 192, 0]);
-    fs::write(&path,br#"{"minecraft:texture_set":{"color":[255,255,255,255],"metalness_emissive_roughness":[64.5,0,255]}}"#).unwrap();
+    // A non-integral channel logs and takes full intensity instead of rejecting the set, and a
+    // numeric heightmap is a uniform height that keeps the set's own colour.
+    fs::write(&path,br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[255,255,255,255],"metalness_emissive_roughness":[64.5,0,255]}}"#).unwrap();
     assert!(
         load_pbr_texture(
             &[PbrPack::new(directory.path(), None)],
             "textures/blocks/stone"
         )
-        .is_err()
+        .is_ok()
     );
+    fs::write(&path,br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[1,2,3,255],"heightmap":64}}"#).unwrap();
+    let texture = load_pbr_texture(
+        &[PbrPack::new(directory.path(), None)],
+        "textures/blocks/stone",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(texture.has_height_map());
+    let frame = texture.frame(0, 1).unwrap();
+    assert_eq!(frame.color.get_pixel(0, 0).0, [1, 2, 3, 255]);
+    assert_eq!(frame.normal.get_pixel(0, 0)[3], 64);
 }
 
 #[test]
@@ -131,13 +143,17 @@ fn texture_sets_reject_conflicting_layers_and_cross_pack_references() {
     let other = tempfile::tempdir().unwrap();
     let path = owner.path().join("textures/blocks/stone.texture_set.json");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(&path, br#"{"minecraft:texture_set":{"color":[255,255,255,255],"normal":"normal","heightmap":64}}"#).unwrap();
+    fs::write(&path, br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[255,255,255,255],"normal":"normal","heightmap":"height"}}"#).unwrap();
     let packs = [
         PbrPack::new(owner.path(), None),
         PbrPack::new(other.path(), None),
     ];
     assert!(load_pbr_texture(&packs, "textures/blocks/stone").is_err());
-    fs::write(&path, br#"{"minecraft:texture_set":{"color":"missing"}}"#).unwrap();
+    fs::write(
+        &path,
+        br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"missing"}}"#,
+    )
+    .unwrap();
     save(
         other.path(),
         "textures/blocks/missing.png",
@@ -146,7 +162,7 @@ fn texture_sets_reject_conflicting_layers_and_cross_pack_references() {
     assert!(load_pbr_texture(&packs, "textures/blocks/stone").is_err());
     fs::write(
         &path,
-        br#"{"minecraft:texture_set":{"color":"../../outside"}}"#,
+        br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"../../outside"}}"#,
     )
     .unwrap();
     assert!(load_pbr_texture(&packs, "textures/blocks/stone").is_err());

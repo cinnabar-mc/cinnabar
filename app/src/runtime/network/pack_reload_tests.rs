@@ -422,10 +422,10 @@ fn session_reload_publishes_prepared_actor_pages() {
     let base = app.world().resource::<render_scene::ActorArtworkResource>();
     let prepared = world.prepared_actor_artwork.as_ref().unwrap();
     let pages = prepared.pages_for(base, pack).unwrap();
-    let expected = base
-        .0
-        .clone()
-        .with_pack_artwork(&pack.textures, &pack.bindings);
+    let expected =
+        base.0
+            .clone()
+            .with_pack_artwork(&pack.textures, &pack.bindings, &Default::default());
     assert_eq!(pages.identity(), expected.identity());
     assert_eq!(pages.pages(), expected.pages());
     for binding in pack.bindings.iter() {

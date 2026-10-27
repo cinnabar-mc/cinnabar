@@ -10,6 +10,7 @@ use assets::{
         pack::{PackBlock, PackTexture},
     },
 };
+use protocol_ids::BlockRenderMethod;
 use serde_json::Value;
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
@@ -122,12 +123,13 @@ fn resolve(
     }
     let (instance, material) = instances.iter().next()?;
     let material = material.as_object()?;
-    if material.get("render_method")?.as_str()? != "alpha_test_single_sided"
+    let method = BlockRenderMethod::from_name(material.get("render_method")?.as_str()?)?;
+    if method != BlockRenderMethod::AlphaTestSingleSided
         || material.get("ambient_occlusion")?.as_f64()? != 0.0
     {
         return None;
     }
-    let mut flags = assets::MATERIAL_FLAG_ALPHA_CUTOUT | assets::MATERIAL_FLAG_DISABLE_AO;
+    let mut flags = assets::block_render_method_flags(method) | assets::MATERIAL_FLAG_DISABLE_AO;
     if material.get("face_dimming").and_then(Value::as_bool) == Some(false) {
         flags |= assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
     }

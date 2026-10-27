@@ -416,6 +416,7 @@ dependencies = [
  "clap",
  "proc-macro2",
  "serde",
+ "serde_json",
  "syn 2.0.118",
  "tempfile",
  "thiserror 2.0.18",
@@ -501,6 +502,7 @@ dependencies = [
  "png",
  "protocol-ids",
  "rayon",
+ "render-api",
  "rustix 1.1.4",
  "serde",
  "serde_json",
@@ -5658,6 +5660,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "material-bin"
+version = "0.1.28"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "matroska-demuxer"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6806,6 +6815,7 @@ dependencies = [
  "assets",
  "image",
  "pack-json",
+ "protocol-ids",
  "serde",
  "serde_json",
  "sha2",
@@ -6839,6 +6849,7 @@ dependencies = [
  "pack-compiler",
  "pack-json",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
