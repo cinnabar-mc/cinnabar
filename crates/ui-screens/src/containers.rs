@@ -324,15 +324,6 @@ impl ContainerScreen {
         }
     }
 
-    /// Releases texture-dependent measurements and layout while retaining the bound screen.
-    pub fn invalidate_textures(&mut self) {
-        self.prewarmed = None;
-        self.preparation_revision = self.preparation_revision.wrapping_add(1);
-        for cache in [&mut self.cache, &mut self.inventory].into_iter().flatten() {
-            cache.invalidate_textures();
-        }
-    }
-
     /// Layouts the retained container screens have run.
     pub fn layouts(&self) -> usize {
         [&self.cache, &self.inventory]

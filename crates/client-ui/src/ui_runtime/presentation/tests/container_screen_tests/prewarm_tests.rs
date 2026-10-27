@@ -473,3 +473,32 @@ fn replacing_the_catalog_drops_obsolete_preparation_before_open() {
     );
     assert!(!warm.engine_inventory_preparation_pending());
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pending_source_changes_reuse_static_measurements_at_first_open() {
+    let mut definition = once_name_screen();
+    definition["inventory_screen"]["controls"]
+        .as_array_mut()
+        .unwrap()
+        .extend(fixed_labels());
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut prepared, _, _) = inventory_fixture(definition);
+    draw(&mut prepared, &runtime, &player, 0);
+    let initial_placed = prepared.engine_container_placed();
+    assert!(initial_placed >= FIXED_LABELS);
+    draw_frame(&mut warm, &runtime, &player, 0);
+    assert!(warm.engine_inventory_preparation_pending());
+    populate(&mut runtime, &mut player);
+    draw_frame(&mut warm, &runtime, &player, 1);
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw_frame(&mut prepared, &runtime, &player, 2);
+    let opened = draw_frame(&mut warm, &runtime, &player, 2);
+    assert_eq!(opened.vertices, expected.vertices);
+    assert!(
+        warm.engine_container_placed() < initial_placed + 32,
+        "a ledger refresh discarded prepared static measurements: {} -> {}",
+        initial_placed,
+        warm.engine_container_placed()
+    );
+}

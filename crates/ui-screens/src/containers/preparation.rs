@@ -70,6 +70,18 @@ fn same_creative(
 }
 
 impl ContainerScreen {
+    /// Releases texture-dependent measurements and layout while retaining the bound screen.
+    pub fn invalidate_textures(&mut self) {
+        self.prewarmed = None;
+        self.preparation_revision = self.preparation_revision.wrapping_add(1);
+        if let Some(pending) = &mut self.preparing {
+            pending.invalidate_measurements = true;
+        }
+        for cache in [&mut self.cache, &mut self.inventory].into_iter().flatten() {
+            cache.invalidate_textures();
+        }
+    }
+
     /// Whether a closed inventory still owns unfinished preparation work.
     #[cfg(any(test, feature = "test-support"))]
     pub fn inventory_preparation_pending(&self) -> bool {
@@ -127,7 +139,7 @@ impl ContainerScreen {
             return std::task::Poll::Pending;
         };
         if let Some(mut prepared) = result {
-            if pending.revision != self.preparation_revision
+            if pending.invalidate_measurements
                 && let Some(cache) = &mut prepared.cache
             {
                 cache.invalidate_textures();
@@ -245,6 +257,7 @@ impl ContainerScreen {
                 revision: self.preparation_revision,
                 catalog: task_catalog,
                 task,
+                invalidate_measurements: false,
             });
         }
     }
@@ -261,4 +274,5 @@ pub(super) struct PendingInventory {
     revision: u64,
     catalog: Arc<json_ui::Catalog>,
     task: LayoutTask<PreparedInventory>,
+    invalidate_measurements: bool,
 }
