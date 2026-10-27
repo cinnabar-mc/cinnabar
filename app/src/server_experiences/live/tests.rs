@@ -113,6 +113,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                         channels,
                         actions: BTreeSet::from([format!("{}.pick", owner.bundle)]),
                         max_message_bytes: grant.wire.limits.max_message_bytes,
+                        namespace: None,
                     },
                     owner,
                     contributions: Contributions::default(),
@@ -509,6 +510,7 @@ fn sends_over_the_session_message_limit_are_refused_at_send_time() {
         channels: vec![channel.clone()],
         actions: BTreeSet::new(),
         templates: BTreeSet::new(),
+        namespace: None,
         files: Vec::new(),
     };
     // A send whose record is `bytes` long as JSON.

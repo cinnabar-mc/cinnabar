@@ -148,6 +148,25 @@ impl WorldStream {
         self.mesh_policy_changed(now);
     }
 
+    /// Tags the cube faces of the blocks in `tags` (network value, one more than the world
+    /// material slot; sorted, values unique) for their world material passes. Binding, unbinding
+    /// or revoking a material changes the tags and remeshes every resident sub-chunk, so the
+    /// blocks draw with their Bedrock materials again without a reconnect.
+    pub fn set_world_materials(&mut self, tags: Arc<[(u32, u8)]>, now: Instant) {
+        if *self.world_materials == *tags {
+            return;
+        }
+        debug_assert!(tags.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        self.world_materials = tags;
+        self.mesh_policy_changed(now);
+    }
+
+    /// The world material tags meshing applies ([`Self::set_world_materials`]).
+    #[must_use]
+    pub fn world_materials(&self) -> &[(u32, u8)] {
+        &self.world_materials
+    }
+
     /// The water-filled network values of Java meshing ([`Self::set_java_meshing`]), if on.
     #[must_use]
     pub fn java_meshing(&self) -> Option<&[u32]> {

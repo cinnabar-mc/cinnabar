@@ -88,8 +88,11 @@ fn captured_entity_stack_retains_animation_payloads() {
     );
     assert!(!actors.bindings.is_empty());
     report_title_rigs(&vanilla, &actors, &files);
-    let pages = render_model::ActorArtworkPages::default()
-        .with_pack_artwork(&actors.textures, &actors.bindings);
+    let pages = render_model::ActorArtworkPages::default().with_pack_artwork(
+        &actors.textures,
+        &actors.bindings,
+        &Default::default(),
+    );
     eprintln!(
         "compiled actor artwork: pages={} rejected_bindings={}",
         pages.pages().len(),

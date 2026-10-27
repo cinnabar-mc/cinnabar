@@ -38,6 +38,7 @@ members = [
     "examples/experiences/terminal-client",
     "examples/experiences/space-client",
     "examples/dragonfly-extension/client",
+    "tools/material-bin",
     "crates/input",
     "crates/developer-control",
     "crates/json-ui",

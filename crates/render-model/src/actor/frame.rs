@@ -35,6 +35,18 @@ pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
+
+/// Where an instance's material word keeps [`ActorMaterial::world`].
+pub const ACTOR_WORLD_MATERIAL_SHIFT: u32 = 23;
+/// The material word bits that hold [`ActorMaterial::world`].
+pub const ACTOR_WORLD_MATERIAL_MASK: u32 = 0xff << ACTOR_WORLD_MATERIAL_SHIFT;
+
+/// The programmable world material slot an instance's material word names, if any.
+#[must_use]
+pub fn actor_world_material(word: u32) -> Option<u16> {
+    let world = (word & ACTOR_WORLD_MATERIAL_MASK) >> ACTOR_WORLD_MATERIAL_SHIFT;
+    (world != 0).then(|| world as u16 - 1)
+}
 /// First player skin-animation layer, following the equipment range.
 pub const ACTOR_LAYER_SKIN_BASE: u8 = 26;
 /// World flames follow every supported animated skin layer.
@@ -111,13 +123,21 @@ pub struct ActorMaterial {
     /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
+    /// Shading features of the authored material; `None` when the layer names none.
     pub state: Option<assets::EntityRenderMaterialState>,
+    /// Raster state of the authored material; `None` draws as a layer without one.
+    pub render_state: Option<render_api::render_state::RenderState>,
     /// Suppresses overlays without changing whether raster state was authored.
     pub suppress_overlay: bool,
     /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
     pub dissolve_multiplier: f32,
     /// RGB illumination multiplier; applies to lit and unlit draws without clamping.
     pub light_color_multiplier: f32,
+    /// Cinnabar material masks on the draw's artwork page.
+    pub masks: super::ActorMaterialMasks,
+    /// One more than the slot of the programmable world material that shades this draw; zero
+    /// draws the Bedrock material alone.
+    pub world: u8,
 }
 
 impl ActorMaterial {
@@ -147,9 +167,12 @@ impl Default for ActorMaterial {
             glint: Default::default(),
             kind: Default::default(),
             state: None,
+            render_state: None,
             suppress_overlay: false,
             dissolve_multiplier: 1.0,
             light_color_multiplier: 1.0,
+            masks: super::ActorMaterialMasks::NONE,
+            world: 0,
         }
     }
 }
@@ -199,12 +222,18 @@ pub struct ActorGpuInstance {
     pub dissolve_multiplier: f32,
     pub light_color_multiplier: f32,
     pub glint: [f32; 6],
+    /// Index into [`ActorRigRenderFrame::rasters`].
+    pub raster: u32,
+    /// Glow and emissive mask layers on the instance's page; MAX names no mask.
+    pub mask_layers: [u32; 2],
+    pub mask_strength: f32,
 }
 
 impl Default for ActorGpuInstance {
     fn default() -> Self {
         Self {
             light_color_multiplier: 1.0,
+            mask_layers: [u32::MAX; 2],
             ..Self::zeroed()
         }
     }
@@ -270,6 +299,8 @@ pub struct ActorRigRenderFrame {
     pub geometry_vertices: ActorRigVertexSegments,
     pub geometry_spans: Arc<[ActorRigGeometrySpan]>,
     pub manifest: Arc<[ActorDrawManifestEntry]>,
+    /// Distinct raster states this frame draws, indexed by [`ActorGpuInstance::raster`].
+    pub rasters: Arc<[render_api::render_state::RenderState]>,
     pub maximum_vertex_count: u32,
     pub rejects: ActorRigRejects,
 }
@@ -285,6 +316,7 @@ impl Default for ActorRigRenderFrame {
             geometry_vertices: ActorRigVertexSegments::default(),
             geometry_spans: Arc::from([]),
             manifest: Arc::from([]),
+            rasters: Arc::from([]),
             maximum_vertex_count: 0,
             rejects: ActorRigRejects::default(),
         }
@@ -315,6 +347,7 @@ struct BuildScratch {
     previous_bones: Vec<[[f32; 4]; 3]>,
     current_bones: Vec<[[f32; 4]; 3]>,
     manifest: Vec<ActorDrawManifestEntry>,
+    rasters: Vec<render_api::render_state::RenderState>,
 }
 
 /// Where one admitted submission draws: by layer, texture page and geometry, then in identity
@@ -595,11 +628,13 @@ impl ActorRigFrameBuilder {
         let mut previous_bones = std::mem::take(&mut scratch.previous_bones);
         let mut current_bones = std::mem::take(&mut scratch.current_bones);
         let mut manifest = std::mem::take(&mut scratch.manifest);
+        let mut rasters = std::mem::take(&mut scratch.rasters);
         let mut instance_locations = std::mem::take(&mut scratch.instance_locations);
         instances.clear();
         previous_bones.clear();
         current_bones.clear();
         manifest.clear();
+        rasters.clear();
         let mut maximum_vertex_count = 0;
         let mut rejects = ActorRigRejects::default();
 
@@ -692,6 +727,15 @@ impl ActorRigFrameBuilder {
                 continue;
             };
             let instance_index = instances.len() as u32;
+            let raster = submission.material.raster();
+            // A frame draws few distinct states, so a linear search beats hashing.
+            let raster = match rasters.iter().position(|existing| *existing == raster) {
+                Some(index) => index as u32,
+                None => {
+                    rasters.push(raster);
+                    rasters.len() as u32 - 1
+                }
+            };
             instances.push(ActorGpuInstance {
                 world_from_actor: submission.world_from_actor,
                 previous_bone_base,
@@ -718,6 +762,16 @@ impl ActorRigFrameBuilder {
                     submission.material.light_color_multiplier
                 } else {
                     1.0
+                },
+                raster,
+                mask_layers: [
+                    submission.material.masks.glow_layer,
+                    submission.material.masks.emissive_layer,
+                ],
+                mask_strength: if submission.material.masks.strength.is_finite() {
+                    submission.material.masks.strength
+                } else {
+                    0.0
                 },
             });
             manifest.push(ActorDrawManifestEntry {
@@ -748,6 +802,7 @@ impl ActorRigFrameBuilder {
             geometry_vertices: self.catalog.vertices.clone(),
             geometry_spans: Arc::clone(&self.catalog.published_spans),
             manifest: Arc::from(manifest.as_slice()),
+            rasters: Arc::from(rasters.as_slice()),
             maximum_vertex_count,
             rejects,
         };
@@ -761,6 +816,7 @@ impl ActorRigFrameBuilder {
             previous_bones,
             current_bones,
             manifest,
+            rasters,
         };
         frame
     }
@@ -905,9 +961,34 @@ mod material_tests;
 mod culling_tests;
 
 impl ActorMaterial {
-    /// Shader kind and independently admitted raster states in the shared instance word.
+    /// The raster state this material draws with.
+    #[must_use]
+    pub fn raster(self) -> render_api::render_state::RenderState {
+        self.render_state
+            .unwrap_or(assets::entity::material::UNAUTHORED_RENDER_STATE)
+    }
+
+    /// Shader kind and shading flags in the shared instance word. An authored material's cull
+    /// and blend bits, which the shader reads, follow its raster state.
     pub fn gpu_word(self) -> u32 {
+        let raster = self.raster();
+        let flag = |enabled: bool, flag: u32| {
+            if enabled && self.state.is_some() {
+                flag
+            } else {
+                0
+            }
+        };
         self.kind.word(self.state)
+            | (u32::from(self.world) << ACTOR_WORLD_MATERIAL_SHIFT)
+            | flag(
+                raster.cull == render_api::render_state::CullMode::Back,
+                assets::EntityRenderMaterialState::CULL,
+            )
+            | flag(
+                raster.blend.is_some(),
+                assets::EntityRenderMaterialState::BLEND,
+            )
             | if self.suppress_overlay {
                 assets::EntityRenderMaterialState::DISABLE_OVERLAY
             } else {

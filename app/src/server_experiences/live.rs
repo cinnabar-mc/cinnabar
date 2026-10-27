@@ -579,6 +579,27 @@ impl<H: Worker> Live<H> {
         Some(&self.screens)
     }
 
+    /// Changes whenever any client part's retained contributions may have changed.
+    pub(super) fn contribution_revision(&self) -> u64 {
+        self.scene_revision
+    }
+
+    /// Each running client part's world material declarations, in bundle order, with its share
+    /// of the signed GPU limit and its signed textures. A stopped part declares nothing.
+    pub(super) fn world_bundles(
+        &self,
+    ) -> impl Iterator<Item = super::world_materials::BundleWorld<'_>> {
+        self.instances
+            .iter()
+            .filter(|(_, instance)| instance.stopped.is_none())
+            .map(|(bundle, instance)| super::world_materials::BundleWorld {
+                bundle,
+                world: &instance.contributions.world,
+                gpu_bytes: instance.capabilities.scope.gpu_bytes,
+                textures: &instance.files.textures,
+            })
+    }
+
     /// Uses only host-owned status text in the persistent execution indicator; a stopped client
     /// part is named by its bundle id, which the signed manifest bounds.
     pub(super) fn text(&self) -> String {
@@ -679,6 +700,7 @@ fn capabilities(grant: &Grant, manifest: &Manifest, assets: BTreeSet<String>) ->
         channels: manifest.channels.clone(),
         actions: manifest.actions.clone(),
         max_message_bytes: grant.wire.limits.max_message_bytes,
+        namespace: manifest.namespace.clone(),
     }
 }
 

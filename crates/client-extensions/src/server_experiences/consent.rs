@@ -25,10 +25,11 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
             } else {
                 "First-use key pinning does not verify the operator's identity."
             };
+            let world = world_material_notice(&offer.offer.scope);
             format!(
                 concat!(
                     "Server: {}\nKey: {}\n{}\n{}\n",
-                    "Permissions: {:?}\nMemory limit: {} bytes; GPU limit: {} bytes\n",
+                    "Permissions: {:?}\nMemory limit: {} bytes; GPU limit: {} bytes\n{}",
                     "Media/download hosts: {}\nThese hosts see your IP address.\n",
                     "Fallback: {}\nServer code is untrusted. F9 disables it immediately.",
                 ),
@@ -39,6 +40,7 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
                 offer.offer.scope.permissions,
                 offer.offer.scope.memory_bytes,
                 offer.offer.scope.gpu_bytes,
+                world,
                 offer
                     .offer
                     .scope
@@ -56,6 +58,24 @@ pub fn chrome(session: &server_experience::session::Session) -> (Option<String>,
         }),
     };
     (Some(text), matches!(session.state, State::Offered(_)))
+}
+
+/// What approving `render_world_material` allows, stated on its own line with the GPU budget
+/// that bounds it; empty when the offer does not ask for it. The wording is provisional.
+pub fn world_material_notice(scope: &server_experience::manifest::Scope) -> String {
+    if !scope
+        .permissions
+        .contains(&server_experience::manifest::Permission::RenderWorldMaterial)
+    {
+        return String::new();
+    }
+    format!(
+        concat!(
+            "World materials: server code may change how the world and entities look, ",
+            "for its own blocks and entities only, within the {} byte GPU limit.\n",
+        ),
+        scope.gpu_bytes
+    )
 }
 
 /// Leaves all ordinary input untouched when there is no offered experience.
@@ -76,5 +96,23 @@ mod status_tests {
         assert!(!can_disable(&session.state));
         assert_eq!(chrome(&session), (None, false));
         assert!(!can_disable(&State::Disabled));
+    }
+
+    #[test]
+    fn world_material_consent_names_appearance_and_the_gpu_budget() {
+        let mut scope = server_experience::manifest::Scope {
+            permissions: Default::default(),
+            origins: Default::default(),
+            memory_bytes: 0,
+            gpu_bytes: 4096,
+            personal_mods: Default::default(),
+        };
+        assert!(world_material_notice(&scope).is_empty());
+        scope
+            .permissions
+            .insert(server_experience::manifest::Permission::RenderWorldMaterial);
+        let notice = world_material_notice(&scope);
+        assert!(notice.contains("world and entities look"), "{notice}");
+        assert!(notice.contains("4096 byte GPU limit"), "{notice}");
     }
 }

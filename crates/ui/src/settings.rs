@@ -258,6 +258,9 @@ pub struct VideoSettings {
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations instead of vanilla Bedrock's.
     pub java_animations: bool,
+    /// Bedrock's Fancy Graphics: server packs load `materials/fancy.json` as their entity
+    /// material list, and `materials/sad.json` with it off.
+    pub fancy_graphics: bool,
     /// Draws server-pack custom held-item models instead of their ordinary item icons.
     pub show_custom_item_models: bool,
     /// Draws other players' catalog cosmetics and their effects.
@@ -297,6 +300,7 @@ impl Default for VideoSettings {
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
             java_animations: false,
+            fancy_graphics: true,
             show_custom_item_models: DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
             show_other_player_cosmetics: DEFAULT_SHOW_OTHER_PLAYER_COSMETICS,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
