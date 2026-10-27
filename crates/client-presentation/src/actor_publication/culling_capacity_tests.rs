@@ -84,8 +84,11 @@ fn catalog(
     let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
         .unwrap();
-    let artwork =
-        ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
+    let artwork = ActorArtworkPages::default().with_pack_artwork(
+        &compiled.textures,
+        &compiled.bindings,
+        &Default::default(),
+    );
     let assets = Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
     (assets, artwork)
 }

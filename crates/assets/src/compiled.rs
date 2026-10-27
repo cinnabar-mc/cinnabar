@@ -118,7 +118,7 @@ pub const MATERIAL_FLAG_DISABLE_FACE_DIMMING: u32 = 1 << 26;
 pub const MATERIAL_FLAG_CAULDRON_WATER: u32 = 1 << 27;
 /// Packed vertex colour used by ordinary cauldron water, including its translucency.
 pub const CAULDRON_WATER_COLOUR: [u8; 4] = [52, 81, 89, 191];
-/// Compact world-leaf AO exponent. Zero selects the native omitted default (1).
+/// Compact authored AO exponent in hundredths. Zero selects the native omitted default (1).
 pub const MATERIAL_LEAF_AO_EXPONENT_SHIFT: u32 = 17;
 pub const MATERIAL_LEAF_AO_EXPONENT_MAX: u32 = u8::MAX as u32;
 pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
@@ -126,6 +126,50 @@ pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
 pub const MATERIAL_LEAF_AO_EXPONENT_SCALE: u32 = 100;
 pub const MATERIAL_LEAF_METADATA_MASK: u32 =
     MATERIAL_FLAG_ISOTROPIC | MATERIAL_LEAF_AO_EXPONENT_MASK;
+
+/// Coverage flags one block render method selects: blend, cutout, or neither for opaque layers.
+/// Two-sidedness depends on the caller's geometry; see [`protocol_ids::BlockRenderMethod::two_sided`].
+#[must_use]
+pub const fn block_render_method_flags(method: protocol_ids::BlockRenderMethod) -> u32 {
+    if method.blends() {
+        MATERIAL_FLAG_ALPHA_BLEND
+    } else if method.alpha_tests() {
+        MATERIAL_FLAG_ALPHA_CUTOUT
+    } else {
+        0
+    }
+}
+
+/// The block render method closest to drawing `raster` with or without an alpha test, and
+/// whether it draws it exactly. Block passes draw opaque, cutout or alpha-blended faces, one- or
+/// two-sided, with the default depth test and every channel written; blended faces are always
+/// two-sided.
+#[must_use]
+pub fn block_render_method_for(
+    raster: &render_api::render_state::RenderState,
+    alpha_test: bool,
+) -> (protocol_ids::BlockRenderMethod, bool) {
+    use protocol_ids::BlockRenderMethod as Method;
+    use render_api::render_state::{BlendState, CompareFunction, CullMode};
+    let two_sided = raster.cull == CullMode::None;
+    let method = match (raster.blend.is_some(), alpha_test, two_sided) {
+        (true, _, _) => Method::Blend,
+        (false, true, true) => Method::AlphaTest,
+        (false, true, false) => Method::AlphaTestSingleSided,
+        (false, false, true) => Method::DoubleSided,
+        (false, false, false) => Method::Opaque,
+    };
+    let exact = method.two_sided() == two_sided
+        && raster.cull != CullMode::Front
+        && raster.blend.is_none_or(|blend| blend == BlendState::ALPHA)
+        && raster.depth.compare == Some(CompareFunction::LessEqual)
+        && (raster.depth.write || method.blends())
+        && raster.stencil.is_none()
+        && raster.write_color
+        && raster.write_alpha
+        && !raster.alpha_to_coverage;
+    (method, exact)
+}
 
 /// Decodes admitted pack-authored hundredths, without changing the native default.
 #[must_use]
@@ -170,8 +214,6 @@ pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
                 == 0)
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
-        && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0
-            || flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0)
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         && (flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR == 0 || flags & MATERIAL_FLAG_ALPHA_BLEND == 0)
         && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)
@@ -307,4 +349,86 @@ pub struct CompiledAssets {
     /// Exact source identities bound into the blob header. Encode rejects
     /// incomplete identity, so serialized output always names its inputs.
     pub provenance: BlobProvenance,
+}
+
+#[cfg(test)]
+mod block_render_method_tests {
+    use protocol_ids::BlockRenderMethod as Method;
+    use render_api::render_state::{
+        BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction, CullMode,
+        RenderState,
+    };
+
+    use super::block_render_method_for;
+
+    #[test]
+    fn rasters_lower_to_the_closest_block_render_method() {
+        let raster = |cull, blend| RenderState {
+            cull,
+            blend,
+            ..Default::default()
+        };
+        for (state, alpha_test, expected) in [
+            (raster(CullMode::Back, None), false, (Method::Opaque, true)),
+            (
+                raster(CullMode::None, None),
+                false,
+                (Method::DoubleSided, true),
+            ),
+            (
+                raster(CullMode::None, None),
+                true,
+                (Method::AlphaTest, true),
+            ),
+            (
+                raster(CullMode::Back, None),
+                true,
+                (Method::AlphaTestSingleSided, true),
+            ),
+            (
+                raster(CullMode::None, Some(BlendState::ALPHA)),
+                false,
+                (Method::Blend, true),
+            ),
+            // Blended faces are always two-sided, and additive blending has no block pass.
+            (
+                raster(CullMode::Back, Some(BlendState::ALPHA)),
+                false,
+                (Method::Blend, false),
+            ),
+            (
+                raster(CullMode::Front, None),
+                false,
+                (Method::Opaque, false),
+            ),
+        ] {
+            assert_eq!(
+                block_render_method_for(&state, alpha_test),
+                expected,
+                "{state:?}"
+            );
+        }
+        let additive = BlendComponent {
+            source: BlendFactor::One,
+            destination: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+        let glow = raster(
+            CullMode::None,
+            Some(BlendState {
+                color: additive,
+                alpha: additive,
+            }),
+        );
+        assert_eq!(
+            block_render_method_for(&glow, false),
+            (Method::Blend, false)
+        );
+        let mut through = raster(CullMode::Back, None);
+        through.depth.compare = Some(CompareFunction::Always);
+        assert_eq!(
+            block_render_method_for(&through, false),
+            (Method::Opaque, false)
+        );
+    }
 }

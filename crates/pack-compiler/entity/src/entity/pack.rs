@@ -51,6 +51,8 @@ pub struct EntityPackSkips {
     pub over_budget: u32,
     /// Files dropped because the pack failed to compile with them and succeeded without.
     pub isolated: u32,
+    /// Materials past their declaration or definition bounds, drawn as layers without one.
+    pub unresolved_materials: u32,
 }
 
 /// A pack's entity catalog. Symbols a pack shares with vanilla resolve as
@@ -73,7 +75,8 @@ fn in_families(path: &str) -> bool {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     let json = extension == Some("json");
     let raster = matches!(extension, Some("png" | "tga"));
-    let material = path.starts_with("materials/") && extension == Some("material");
+    let material = (path.starts_with("materials/") && extension == Some("material"))
+        || path == super::materials::extension::MATERIAL_BINDINGS_PATH;
     (json
         && [
             "entity/",
@@ -429,7 +432,10 @@ fn compile_selected(
                 assets: compilation.assets,
                 reference_outcomes: compilation.reference_outcomes,
                 equipment_bindings: compilation.equipment_bindings,
-                skipped,
+                skipped: EntityPackSkips {
+                    unresolved_materials: compilation.unresolved_materials,
+                    ..skipped
+                },
                 payloads,
             })
         }),

@@ -16,37 +16,80 @@ fn authored(flags: u32) -> u32 {
 
 #[test]
 fn actors_draw_in_the_iris_program_their_material_selects() {
-    let entities = classify(0, 0.0, None, false).unwrap();
+    use crate::actor::test_material::TestMaterial;
+    let unauthored = assets::entity::material::UNAUTHORED_RENDER_STATE;
+    let classify_flags = |flags: TestMaterial| {
+        classify(
+            flags.word(EntityRenderMaterial::Default),
+            &flags.raster(),
+            0.0,
+            None,
+            false,
+        )
+    };
+    let entities = classify(0, &unauthored, 0.0, None, false).unwrap();
     assert_eq!(entities.kind, DrawKind::Entities);
     assert!(entities.shadow && !entities.glint && !entities.one_sided);
-    let blended = classify(authored(State::BLEND), 0.0, None, false).unwrap();
+    let blended = classify_flags(TestMaterial {
+        cull: false,
+        blend: true,
+        ..Default::default()
+    })
+    .unwrap();
     assert_eq!(blended.kind, DrawKind::EntitiesTranslucent);
     assert!(blended.shadow);
-    let eyes = classify(authored(State::BLEND | State::ADDITIVE), 0.0, None, false).unwrap();
+    let eyes = classify_flags(TestMaterial {
+        cull: false,
+        blend: true,
+        additive: true,
+        ..Default::default()
+    })
+    .unwrap();
     assert_eq!(eyes.kind, DrawKind::SpiderEyes);
     assert!(!eyes.shadow, "additive eye layers cast no shadow");
-    let culled = classify(authored(State::CULL | State::ALPHA_TEST), 0.0, None, false).unwrap();
+    let culled = classify_flags(TestMaterial {
+        cull: true,
+        alpha_test: true,
+        ..Default::default()
+    })
+    .unwrap();
     assert!(culled.one_sided);
     assert_eq!(
-        classify(EntityRenderMaterial::DissolveDepth as u32, 0.0, None, false),
+        classify(
+            EntityRenderMaterial::DissolveDepth as u32,
+            &unauthored,
+            0.0,
+            None,
+            false
+        ),
         None,
         "dissolve's depth-only helper is not drawn"
     );
-    let glint = classify(EntityRenderMaterial::Glint as u32, 0.0, None, false).unwrap();
+    let glint = classify(
+        EntityRenderMaterial::Glint as u32,
+        &unauthored,
+        0.0,
+        None,
+        false,
+    )
+    .unwrap();
     assert!(glint.glint);
     assert!(
-        classify(0, 0.5, None, false).unwrap().glint,
+        classify(0, &unauthored, 0.5, None, false).unwrap().glint,
         "item glint extent"
     );
 }
 
 #[test]
 fn first_person_instances_draw_as_the_hand() {
-    let hand = classify(0, 0.0, Some(false), true).unwrap();
+    let unauthored = assets::entity::material::UNAUTHORED_RENDER_STATE;
+    let hand = classify(0, &unauthored, 0.0, Some(false), true).unwrap();
     assert_eq!(hand.kind, DrawKind::Hand);
     assert!(!hand.shadow);
     assert_eq!(
-        classify(0, 0.0, Some(true), true).unwrap().kind,
+        classify(0, &unauthored, 0.0, Some(true), true)
+            .unwrap()
+            .kind,
         DrawKind::HandWater
     );
 }

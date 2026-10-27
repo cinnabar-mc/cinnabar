@@ -101,7 +101,6 @@ fn invalid_updates_preserve_the_original_snapshot_without_hashing() {
             height: image.height,
             layers: 1,
             rgba8: image.rgba8,
-            color_mask: false,
             multitexture: false,
         }]),
         ..Default::default()

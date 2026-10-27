@@ -12,6 +12,10 @@ use assets::entity_render_pattern_matches as pattern_matches;
 pub struct RenderTextureLayer {
     pub material: assets::EntityRenderMaterial,
     pub material_state: Option<assets::EntityRenderMaterialState>,
+    /// Raster state of the layer's resolved material definition, when it has one.
+    pub render_state: Option<render_api::render_state::RenderState>,
+    /// Mask textures of the layer's Cinnabar material, when it has any.
+    pub masks: Option<assets::EntityMaterialMasks>,
     /// Entity-catalog source index of the raster.
     pub source: u32,
     /// Position among its controller layer's textures; a material samples later slots in the
@@ -269,7 +273,6 @@ pub(super) fn evaluate_render_cached(
     let assets = evaluator.assets;
     let mut output = Vec::new();
     let mut unresolved_artwork = false;
-    let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
     let symbol = assets
         .rig_bindings()
         .get(rig.binding)
@@ -281,16 +284,8 @@ pub(super) fn evaluate_render_cached(
         });
     for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
         if let Some(cache) = cache.as_deref_mut() {
-            let evaluated = cache.sample(
-                index,
-                evaluator,
-                variables,
-                rig,
-                layer,
-                actor_color,
-                multitexture,
-                budget,
-            )?;
+            let evaluated =
+                cache.sample(index, evaluator, variables, rig, layer, actor_color, budget)?;
             unresolved_artwork |= evaluated.unresolved_artwork;
             output.extend(evaluated.layers);
         } else {
@@ -299,7 +294,7 @@ pub(super) fn evaluate_render_cached(
                 variables,
                 rig,
                 layer,
-                (actor_color, multitexture),
+                actor_color,
                 &mut output,
                 budget,
             )?;
@@ -356,7 +351,6 @@ fn evaluate_layer(
     rig: RenderRig<'_>,
     layer: &assets::EntityRenderLayer,
     actor_color: [f32; 4],
-    multitexture: bool,
     budget: &mut EvalBudget<'_>,
 ) -> Result<LayerOutput, EvalError> {
     let mut output = Vec::new();
@@ -365,7 +359,7 @@ fn evaluate_layer(
         variables,
         rig,
         layer,
-        (actor_color, multitexture),
+        actor_color,
         &mut output,
         budget,
     )?;
@@ -381,7 +375,7 @@ fn evaluate_layer_into(
     variables: &mut MolangVariables,
     rig: RenderRig<'_>,
     layer: &assets::EntityRenderLayer,
-    (actor_color, multitexture): ([f32; 4], bool),
+    actor_color: [f32; 4],
     output: &mut Vec<RenderTextureLayer>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<bool, EvalError> {
@@ -396,7 +390,15 @@ fn evaluate_layer_into(
     {
         return Ok(unresolved_artwork);
     }
-    let (material, material_state) = selected_material(evaluator, variables, layer, budget)?;
+    let SelectedMaterial {
+        material,
+        state: material_state,
+        definition: material_definition,
+        masks: material_masks,
+    } = selected_material(evaluator, variables, layer, budget)?;
+    // A selected `USE_MULTITEXTURE` material samples the controller's first three textures in
+    // one draw.
+    let multitexture = material_state.is_some_and(|state| state.multitexture);
     let choices = render
         .geometries
         .get(
@@ -521,10 +523,18 @@ fn evaluate_layer_into(
     } else {
         selected_sources.len()
     };
+    let render_state = material_definition
+        .and_then(|index| render.materials.get(index as usize))
+        .map(assets::entity::material::EntityMaterialDefinition::render_state);
+    let masks = material_masks
+        .and_then(|index| render.material_masks.get(index as usize))
+        .copied();
     for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
         output.push(RenderTextureLayer {
             material,
             material_state,
+            render_state,
+            masks,
             source,
             texture_slot: texture_slot as u16,
             multitexture: grouped,
@@ -543,28 +553,50 @@ fn evaluate_layer_into(
     Ok(unresolved_artwork)
 }
 
+/// The raster one controller layer draws with this frame.
+#[derive(Clone, Copy)]
+struct SelectedMaterial {
+    material: assets::EntityRenderMaterial,
+    state: Option<assets::EntityRenderMaterialState>,
+    /// Index into the carrier's material table.
+    definition: Option<u32>,
+    /// Index into the carrier's Cinnabar mask table.
+    masks: Option<u32>,
+}
+
 /// Evaluates one whole-model material decision before executing the controller body once.
 fn selected_material(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     layer: &assets::EntityRenderLayer,
     budget: &mut EvalBudget<'_>,
-) -> Result<
-    (
-        assets::EntityRenderMaterial,
-        Option<assets::EntityRenderMaterialState>,
-    ),
-    EvalError,
-> {
+) -> Result<SelectedMaterial, EvalError> {
     use assets::EntityRenderMaterialSelection as Node;
     let Some(mut selected) = layer.material_selection else {
-        return Ok((layer.material, layer.material_state));
+        return Ok(SelectedMaterial {
+            material: layer.material,
+            state: layer.material_state,
+            definition: layer.material_definition,
+            masks: layer.material_masks,
+        });
     };
     let nodes = &evaluator.assets.render_data().material_selections;
     loop {
         budget.charge_work()?;
         selected = match nodes.get(selected as usize).ok_or(EvalError::Invalid)? {
-            Node::Raster { material, state } => return Ok((*material, *state)),
+            Node::Raster {
+                material,
+                state,
+                definition,
+                masks,
+            } => {
+                return Ok(SelectedMaterial {
+                    material: *material,
+                    state: *state,
+                    definition: *definition,
+                    masks: *masks,
+                });
+            }
             Node::Branch { condition, yes, no } => {
                 if evaluator
                     .run(*condition as usize, variables, 0.0, budget)?
