@@ -141,6 +141,8 @@ pub struct ContainerScreen {
     /// At most one closed-screen layout runs in the background.
     preparing: Option<preparation::PendingInventory>,
     preparation_revision: u64,
+    /// A readiness update requires another texture request over the retained layout.
+    refresh_artwork: bool,
     /// Screens resolved from the catalog, for cache tests.
     resolves: usize,
     /// Immutable creative rows reused across hover and scroll frames.

@@ -70,6 +70,11 @@ fn same_creative(
 }
 
 impl ContainerScreen {
+    /// Requests later artwork without discarding the closed inventory's measurements.
+    pub fn refresh_artwork(&mut self) {
+        self.refresh_artwork = true;
+    }
+
     /// Releases texture-dependent measurements and layout while retaining the bound screen.
     pub fn invalidate_textures(&mut self) {
         self.prewarmed = None;
@@ -103,21 +108,22 @@ impl ContainerScreen {
         frame: &mut PaintFrame<'_>,
         resources: LayoutResources,
     ) {
-        match self.collect_preparation(engine, false) {
+        let prepared = match self.collect_preparation(engine, false) {
             std::task::Poll::Pending => return,
-            std::task::Poll::Ready(Some(revision)) if revision == self.preparation_revision => {
-                if let Some(render) = self
-                    .inventory
-                    .as_ref()
-                    .and_then(|cache| cache.laid.as_ref())
-                    .map(|(_, _, render)| render)
-                {
-                    let _ =
-                        engine.prepare(ScreenArt::default(), frame, |_, _| Some(render.as_ref()));
-                }
-                return;
+            std::task::Poll::Ready(Some(revision)) => revision == self.preparation_revision,
+            std::task::Poll::Ready(None) => self.refresh_artwork,
+        };
+        if prepared {
+            self.refresh_artwork = false;
+            if let Some(render) = self
+                .inventory
+                .as_ref()
+                .and_then(|cache| cache.laid.as_ref())
+                .map(|(_, _, render)| render)
+            {
+                let _ = engine.prepare(ScreenArt::default(), frame, |_, _| Some(render.as_ref()));
             }
-            _ => {}
+            return;
         }
         let _ = self.render(engine, source, items, input, frame, Some(resources));
     }
@@ -169,8 +175,9 @@ impl ContainerScreen {
         artwork: u64,
     ) -> bool {
         if !self.needs_inventory_preparation(engine, source, artwork) {
-            return self.preparing.is_some();
+            return self.preparing.is_some() || self.refresh_artwork;
         }
+        self.refresh_artwork = false;
         self.preparation_revision = self.preparation_revision.wrapping_add(1);
         self.prewarmed = Some(InventoryPreparation::capture(engine, source, artwork));
         true

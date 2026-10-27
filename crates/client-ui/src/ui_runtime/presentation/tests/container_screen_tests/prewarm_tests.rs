@@ -80,7 +80,7 @@ fn populate(runtime: &mut UiRuntime, player: &mut player_state::PlayerState) {
     runtime
         .enqueue_inventory_event(
             player,
-            1,
+            runtime.session_id(),
             1,
             InventoryEvent::Content(InventoryContentEvent {
                 container: ContainerIdentity::window(0),
@@ -426,6 +426,91 @@ fn unchanged_closed_inventory_does_no_more_preparation() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn image_residency_keeps_prepared_inventory_measurements() {
+    let keys = ["textures/ui/residency_0", "textures/ui/residency_1"];
+    let mut controls = fixed_labels();
+    for (index, key) in keys.iter().enumerate() {
+        controls.push(json!({format!("image_{index}"):{
+            "type":"image", "texture":key, "size":[16,16]
+        }}));
+    }
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":controls
+    }});
+    let (mut presentation, runtime, player) = inventory_fixture(definition);
+    draw(&mut presentation, &runtime, &player, 0);
+
+    let width = ui_engine::pages::WHOLE_ART_PAGE + 1;
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(width, 2, image::Rgba([20, 40, 60, 255]))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let files: Vec<_> = keys
+        .iter()
+        .map(|key| (format!("{key}.png"), bytes.get_ref().clone()))
+        .collect();
+    let engine = presentation.engine.as_mut().unwrap();
+    engine.textures = ui_engine::textures::TextureSet::new(
+        0,
+        Arc::clone(&engine.textures.remote),
+        ui_engine::sources::ImageWork::default(),
+    );
+    engine
+        .textures
+        .set_atlas(ui_engine::atlas::ServerAtlas::new(&files, None, 1), 1);
+    let head = render_model::UiTexturePage::owned([4, 2], vec![255; 32].into()).unwrap();
+    engine
+        .textures
+        .atlas_mut()
+        .set_local_player_head(Some(&head));
+    presentation.poll_server_ui_images();
+    draw(&mut presentation, &runtime, &player, 1);
+    let placed = presentation.engine_container_placed();
+    let metadata = presentation
+        .engine
+        .as_ref()
+        .unwrap()
+        .textures
+        .metadata_revision();
+    test_time::eventually("all prepared inventory images become resident", || {
+        draw_frame(&mut presentation, &runtime, &player, 2);
+        let atlas = presentation.engine.as_ref().unwrap().textures.lock();
+        keys.iter().all(|key| atlas.native_sheet_ready(key))
+            && !presentation.engine_inventory_preparation_pending()
+    });
+    assert_eq!(
+        presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .textures
+            .metadata_revision(),
+        metadata
+    );
+    assert_eq!(
+        presentation.engine_container_placed(),
+        placed,
+        "image readiness must request later images without placing controls again"
+    );
+    assert!(!presentation.engine_inventory_preparation_pending());
+
+    let head = render_model::UiTexturePage::owned([8, 2], vec![255; 64].into()).unwrap();
+    presentation
+        .engine
+        .as_mut()
+        .unwrap()
+        .textures
+        .atlas_mut()
+        .set_local_player_head(Some(&head));
+    presentation.poll_server_ui_images();
+    assert!(
+        presentation.inventory_preparation_needed(&player, &runtime),
+        "metadata published before the poll still invalidates preparation"
+    );
+}
+
 #[test]
 fn opening_during_a_source_change_uses_the_current_inputs() {
     let definition = json!({"namespace":"crafting", "inventory_screen":{
@@ -501,4 +586,51 @@ fn pending_source_changes_reuse_static_measurements_at_first_open() {
         initial_placed,
         warm.engine_container_placed()
     );
+}
+
+#[test]
+fn rejoining_prepares_a_fresh_inventory_lifetime_before_open() {
+    let mut definition = once_name_screen();
+    definition["inventory_screen"]["controls"]
+        .as_array_mut()
+        .unwrap()
+        .extend(fixed_labels());
+    let (mut warm, mut runtime, mut player) = inventory_fixture(definition.clone());
+    let (mut cold, _, _) = inventory_fixture(definition);
+    populate(&mut runtime, &mut player);
+    warm.hud_frame_mut()
+        .item_names
+        .insert((1, 0), Arc::from("200"));
+    draw(&mut warm, &runtime, &player, 0);
+    runtime.toggle_inventory(&mut player, None);
+    draw(&mut warm, &runtime, &player, 1);
+    runtime.toggle_inventory(&mut player, None);
+
+    let pack = runtime.server_ui().cloned();
+    runtime.begin_session(2);
+    player = player_state::PlayerState::new(runtime.session_id());
+    runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player, runtime.session_id(), 42)
+        .unwrap();
+    runtime.set_server_ui(pack);
+    populate(&mut runtime, &mut player);
+    for presentation in [&mut warm, &mut cold] {
+        presentation
+            .hud_frame_mut()
+            .item_names
+            .insert((1, 0), Arc::from("00"));
+        draw(presentation, &runtime, &player, 2);
+    }
+    let placed = warm.engine_container_placed();
+    let bound = warm.engine_inventory_rebuilt();
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw(&mut cold, &runtime, &player, 3);
+    let opened = draw(&mut warm, &runtime, &player, 3);
+    assert_eq!(
+        opened.vertices, expected.vertices,
+        "a new session reads fresh once bindings"
+    );
+    assert!(warm.engine_container_placed() - placed < 32);
+    assert!(warm.engine_inventory_rebuilt() - bound < 16);
 }

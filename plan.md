@@ -1714,6 +1714,10 @@ Hardware join and frame acceptance still needs the full capture matrix below.
 Camera fire binding and diagnostic block names share the borrowed pinned identity
 index instead of decoding block facts during frame publication. Empty diagnostic
 snapshots do not prepare identities.
+Original-image readiness retains HUD and inventory measurements when dimensions
+stay the same. Metadata changes still invalidate their layouts and preparation.
+Changing sessions resets container lifetimes so closed-inventory preparation can
+run again before the first rejoin open.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
