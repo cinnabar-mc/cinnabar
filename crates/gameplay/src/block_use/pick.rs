@@ -39,12 +39,10 @@ impl PickResult {
             Self::Block(block) => block.position.map(|axis| axis as f32 + 0.5),
             Self::Actor { point, .. } => point,
         };
-        let [x, y, z] = std::array::from_fn(|axis| eye[axis] - point[axis]);
-        let reach = reach as f32;
-        if reach * reach < z * z + y * y + x * x {
-            Self::Miss
-        } else {
+        if crate::interaction_authority::pick_point_in_range(point, eye, reach) {
             self
+        } else {
+            Self::Miss
         }
     }
 
