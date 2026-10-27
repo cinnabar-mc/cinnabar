@@ -10,7 +10,6 @@ use bevy::{
     prelude::{EulerRot, Res, ResMut, Time, Vec3},
     time::Real,
 };
-use chunk_pipeline::WorldStream;
 use client_runtime::network::NetworkHandle;
 use protocol::PlayerInputMode;
 use semantic_input::Action;
@@ -84,36 +83,17 @@ pub(crate) fn advance_local_physics(
     let analogue_movement = input.analogue_movement();
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = gameplay::movement::wire_yaw(180.0 - bevy_yaw.to_degrees());
-    let user_settings = settings
-        .settings
-        .as_deref()
-        .map(|settings| settings.user_settings_update().1);
-    let animation = user_settings
-        .map(|settings| settings.animation)
-        .unwrap_or_default();
-    let java_animations = settings.camera.as_deref().map_or_else(
-        || user_settings.is_some_and(|settings| settings.video.java_animations),
-        |camera| camera.feel().java_animations,
-    );
-    let java_blocking = is_java_sword_blocking(
-        player.as_deref(),
-        stream,
-        input.phase(Action::Use).held,
-        java_animations,
-    );
-    let mut facts = gameplay::movement::local_facts::read(
+    let facts = gameplay::movement::local_facts::read(
         player.as_deref().map(|player| &**player),
         &client_interaction::movement::world_view::GameplayWorldView(stream),
         item_use
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),
     );
-    if java_blocking && !animation.keep_sprint_while_blocking {
-        facts.sprint_blocked = true;
-        facts.sprint_start_blocked = true;
-    }
-    let gameplay = user_settings
-        .map(|settings| settings.gameplay)
+    let gameplay = settings
+        .settings
+        .as_deref()
+        .map(|settings| settings.user_settings_update().1.gameplay)
         .unwrap_or_default();
     #[cfg(not(target_arch = "wasm32"))]
     let gameplay = settings
@@ -142,17 +122,9 @@ pub(crate) fn advance_local_physics(
         always_sprint: gameplay.always_sprint && input_mode == PlayerInputMode::Mouse,
         toggle_sneak: gameplay.toggle_sneak,
         facts,
-        movement_modifier: item_use
+        item_use_modifier: item_use
             .as_deref()
-            .and_then(|item_use| item_use.movement_modifier())
-            .map(gameplay::movement::MovementModifier::ItemUse)
-            .or_else(|| {
-                (java_blocking && animation.blocking_slowdown).then_some(
-                    gameplay::movement::MovementModifier::InputScale(
-                        gameplay::movement::JAVA_BLOCKING_INPUT_SCALE,
-                    ),
-                )
-            }),
+            .and_then(|item_use| item_use.movement_modifier()),
         hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held()).then(
             || gameplay::movement::PhysicsFrameHold {
                 registry: collisions.registry(stream.network_id_mode()).identity(),
@@ -205,29 +177,6 @@ pub(crate) fn advance_local_physics(
         });
     }
     publish_physics_view(&physics, &mut view);
-}
-
-/// Java's sword block is a local presentation and movement mode, not a Bedrock item-use action.
-fn is_java_sword_blocking(
-    player: Option<&PlayerRuntime>,
-    stream: &WorldStream,
-    use_held: bool,
-    java_animations: bool,
-) -> bool {
-    java_animations
-        && use_held
-        && player
-            .and_then(|player| {
-                player
-                    .selected_stack()
-                    .or_else(|| player.selected_backing_stack())
-            })
-            .and_then(|stack| stream.authority().canonical_item_stack(stack))
-            .is_some_and(|item| {
-                item.identifier
-                    .as_deref()
-                    .is_some_and(render_model::java_animation::is_java_sword)
-            })
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.

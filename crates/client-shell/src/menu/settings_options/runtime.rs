@@ -59,14 +59,6 @@ impl MenuRuntime {
 
     /// Applies a validated setting edit and marks its persistence and runtime handoff dirty.
     pub(in crate::menu) fn set_option(&mut self, index: u16, value: i32) {
-        let Some(option) =
-            launcher::menu::settings_options::SETTINGS_OPTIONS.get(usize::from(index))
-        else {
-            return;
-        };
-        if !self.settings_options.option_enabled(option.id) {
-            return;
-        }
         // A real edit replaces any session override and is saved.
         let overrides = self.session_overrides.len();
         self.session_overrides

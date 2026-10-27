@@ -195,7 +195,6 @@ fn check_visibility(controlled: bool) {
                     local_runtime_id: 2,
                     local_equipment: &Default::default(),
                     java_posed: &[],
-                    java_item_blocking: true,
                     combat_visuals: render_api::DEFAULT_COMBAT_VISUALS,
                     local_emote_pose: None,
                     remote_emote_poses: &Default::default(),

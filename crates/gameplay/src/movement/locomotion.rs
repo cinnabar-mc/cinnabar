@@ -265,12 +265,11 @@ impl ModeTracker {
     /// The move vector sprint intent reads, from the previous tick's pose. A sneak request or
     /// a sneaking or crawling pose scales it, except while flying, swimming or in water, so
     /// crouching blocks and stops a sprint. Swift Sneak raises the factor only once the pose
-    /// is active; a fresh request uses the plain sneak factor. Local travel scaling is excluded.
+    /// is active; a fresh request uses the plain sneak factor.
     pub(super) fn intent_vector(&self, input: sim::MovementInput, in_water: bool) -> [f32; 2] {
         let pose = self.sneaking || self.mode == MovementMode::Crawling;
         let exempt = matches!(self.mode, MovementMode::Flying | MovementMode::Swimming) || in_water;
         sim::MovementInput {
-            local_input_scale: None,
             sneaking: (input.sneaking || pose) && !exempt,
             mode: MovementMode::Walking,
             swift_sneak: if pose { input.swift_sneak } else { 0 },
@@ -286,13 +285,9 @@ impl ModeTracker {
         self.sneaking = sneaking;
     }
 
-    /// Captures primary controls before local travel scaling for the next tick's double-tap detector.
+    /// Captures the final primary controls for the next fixed tick's double-tap detector.
     pub(super) fn record_controls(&mut self, input: sim::MovementInput, sneak_down: bool) {
         self.previous_jumping = input.jumping;
-        let input = sim::MovementInput {
-            local_input_scale: None,
-            ..input
-        };
         self.sprint_trigger
             .record_controls(input.processed_controls().move_vector[1] as f32, sneak_down);
     }

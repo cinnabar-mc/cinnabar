@@ -35,7 +35,7 @@ fn mounted_remote_frame_matches_fixed_native_java_states() {
             ..source_rig
         };
         rig.java.body_yaw = [input[0], input[1]];
-        let pose = third_person_input(&rig, &actor, None, alpha, false, true);
+        let pose = third_person_input(&rig, &actor, None, alpha, false);
         degrees_near(body, expected[0]);
         degrees_near(head, expected[1]);
         assert!((pose.head_pitch - expected[2]).abs() < 1e-5);
@@ -141,7 +141,6 @@ fn frame(stream: &WorldStream, local: bool, alpha: f32) -> ThirdPerson<'_> {
         local.then_some(&equipment),
         alpha,
         &mut PoseScratch::default(),
-        true,
     )
     .unwrap()
 }
@@ -251,16 +250,7 @@ fn remote_mounted_head_interpolates_tick_angles_and_ignores_the_pending_target()
     assert_eq!(actor.pitch, 35.0);
     assert_ne!(actor.head_yaw, actor.received_pose.head_yaw);
     let rig = stream.authority().actor_rig(2).unwrap();
-    let posed = third_person(
-        &stream,
-        &rig,
-        actor,
-        None,
-        0.5,
-        &mut PoseScratch::default(),
-        true,
-    )
-    .unwrap();
+    let posed = third_person(&stream, &rig, actor, None, 0.5, &mut PoseScratch::default()).unwrap();
     degrees_near(posed.rig.body_yaw, 112.0);
     head_pose_near(&posed, 68.0, 30.0);
     degrees_near(
@@ -414,7 +404,6 @@ fn local_java_torso_frame_uses_physics_alpha_for_heading_and_cape_rotation() {
         Some(&equipment),
         0.1,
         &mut PoseScratch::default(),
-        true,
     )
     .unwrap();
     degrees_near(
@@ -457,10 +446,10 @@ fn local_java_torso_phase_without_motion_retains_the_same_hand_source() {
         },
     };
     stream.sync_local_swing_motion(authority, [sample(0.25)]);
-    let first = super::super::hand::source_key(&stream, None, None, 0.1, true);
+    let first = super::super::hand::source_key(&stream, None, None, 0.1);
     assert!(first.is_some());
     stream.sync_local_swing_motion(authority, [sample(0.75)]);
-    let second = super::super::hand::source_key(&stream, None, None, 0.1, true);
+    let second = super::super::hand::source_key(&stream, None, None, 0.1);
     assert!(
         first == second,
         "unchanged sampled torso keeps the hand source"

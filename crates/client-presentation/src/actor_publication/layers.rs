@@ -10,7 +10,6 @@ pub(super) struct LayerPoses<'a> {
     pub local_runtime_id: u64,
     pub local_equipment: &'a ActorEquipmentInput,
     pub java_posed: &'a [java::Posed],
-    pub java_item_blocking: bool,
     pub combat_visuals: render_api::CombatVisuals,
     pub local_emote_pose: Option<&'a actor_animation::CustomEmotePose>,
     pub remote_emote_poses:
@@ -59,7 +58,6 @@ pub(super) fn attach(
         local_runtime_id,
         local_equipment: _,
         java_posed,
-        java_item_blocking: _,
         combat_visuals: _,
         local_emote_pose: _,
         remote_emote_poses: _,

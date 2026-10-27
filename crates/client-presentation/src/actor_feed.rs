@@ -95,7 +95,7 @@ pub fn prepare_local_player_feed(
             .main
             .as_ref()
             .is_some_and(|item| render_model::java_animation::is_java_sword(&item.identifier));
-    let blocking = java_sword && settings.feel().java_item_blocking && use_held;
+    let blocking = java_sword && use_held;
     let local_use = if blocking {
         client_world::LocalItemUse::Using
     } else {

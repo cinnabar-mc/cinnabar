@@ -8,7 +8,6 @@ pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
 pub mod graphics_api;
-pub mod java_animations;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
@@ -218,16 +217,6 @@ impl SettingsOptions {
     /// ```
     pub fn value(&self, id: SettingId) -> i32 {
         self.get(id.index())
-    }
-
-    /// Whether the saved animation family enables Java-specific controls.
-    pub fn java_animations_selected(&self) -> bool {
-        self.value(SettingId::Animations) == 0
-    }
-
-    /// Whether a settings control can currently apply an edit; saved inactive values remain intact.
-    pub fn option_enabled(&self, id: SettingId) -> bool {
-        !java_animations::requires_java_animations(id) || self.java_animations_selected()
     }
 
     /// Validates and snaps a UI or persisted value to its declared range.

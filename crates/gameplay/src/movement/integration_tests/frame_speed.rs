@@ -24,7 +24,7 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         always_sprint: false,
         toggle_sneak: false,
         facts: Default::default(),
-        movement_modifier: None,
+        item_use_modifier: None,
         hold: None,
     }
 }
@@ -492,7 +492,7 @@ fn item_use_slowdown_scales_the_wire_move_vector_by_its_square() {
     let mut speed = super::LocalMovementSpeedAuthority::default();
     let mut effects = super::LocalMovementEffectTimeline::default();
     let mut frame = speed_frame(Default::default());
-    frame.movement_modifier = Some(super::MovementModifier::ItemUse(0.35));
+    frame.item_use_modifier = Some(0.35);
     assert!(locals.advance(
         frame,
         &mut physics,
@@ -503,95 +503,6 @@ fn item_use_slowdown_scales_the_wire_move_vector_by_its_square() {
     ));
     let snapshot = *ticker.pending_snapshots().last().unwrap();
     assert_eq!(snapshot.move_vector, [0.0, 0.35_f32 * 0.35_f32]);
-}
-
-#[test]
-fn direct_input_scale_keeps_exact_wire_axes_and_raw_input() {
-    for axes in [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.75]] {
-        for sprinting in [false, true] {
-            let mut snapshots = Vec::new();
-            for modifier in [
-                None,
-                Some(crate::movement::MovementModifier::InputScale(0.2)),
-            ] {
-                let (mut physics, mut ticker) = walked_physics(0);
-                let mut locals = super::LocomotionState::default();
-                let mut speed = super::LocalMovementSpeedAuthority::default();
-                let mut effects = super::LocalMovementEffectTimeline::default();
-                let mut frame = speed_frame(semantic_input::ActionPhase {
-                    pressed: sprinting,
-                    held: sprinting,
-                    released: false,
-                });
-                frame.movement = axes;
-                frame.raw_movement = axes;
-                frame.analogue_movement = axes;
-                frame.movement_modifier = modifier;
-                assert!(locals.advance(
-                    frame,
-                    &mut physics,
-                    &mut ticker,
-                    &mut effects,
-                    &mut speed,
-                    &VersionedFloor(1)
-                ));
-                snapshots.push(*ticker.pending_snapshots().last().unwrap());
-            }
-            let [plain, scaled] = snapshots.as_slice() else {
-                unreachable!()
-            };
-            let wire_axes = [-axes[0], axes[1]];
-            let slowed_axes = wire_axes.map(|axis| axis * 0.2_f32);
-            assert_eq!(scaled.move_vector, slowed_axes);
-            assert_eq!(scaled.raw_move_vector, wire_axes);
-            assert_eq!(scaled.analogue_move_vector, wire_axes);
-            assert_eq!(
-                scaled.flags, plain.flags,
-                "input scaling must not claim item use or change sprint controls"
-            );
-            assert_eq!(scaled.tick, plain.tick);
-            let packet = protocol::player_auth_input(*scaled).unwrap();
-            let sent = protocol::player_auth_input_trace_sample(&packet).unwrap();
-            assert_eq!(sent.move_vector, slowed_axes);
-            assert_eq!(sent.raw_move_vector, wire_axes);
-            assert_eq!(sent.analog_move_vector, wire_axes);
-            assert_eq!(sent.position, scaled.position);
-        }
-    }
-}
-
-#[test]
-fn direct_input_scale_keeps_sprint_and_wire_controls_during_correction_replay() {
-    let (mut physics, mut ticker) = walked_physics(0);
-    let mut locals = super::LocomotionState::default();
-    let mut speed = super::LocalMovementSpeedAuthority::default();
-    let mut effects = super::LocalMovementEffectTimeline::default();
-    for tick in 0..3 {
-        let mut frame = speed_frame(semantic_input::ActionPhase {
-            pressed: tick == 0,
-            held: true,
-            released: false,
-        });
-        frame.now += Duration::from_millis(50 * tick);
-        frame.movement_modifier = Some(super::MovementModifier::InputScale(0.2));
-        assert!(locals.advance(
-            frame,
-            &mut physics,
-            &mut ticker,
-            &mut effects,
-            &mut speed,
-            &VersionedFloor(1)
-        ));
-        assert!(physics.sample_at(101 + tick).unwrap().processed.sprinting);
-    }
-    let before: Vec<_> = ticker
-        .pending_snapshots()
-        .into_iter()
-        .filter(|snapshot| snapshot.tick > 101)
-        .collect();
-    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(ticker.pending_snapshots(), before);
-    assert!(physics.sample_at(103).unwrap().processed.sprinting);
 }
 
 /// Holding sprint into a wall ends the sprint on the blocked tick. Render frames between

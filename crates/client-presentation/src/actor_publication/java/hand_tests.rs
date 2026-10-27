@@ -353,7 +353,6 @@ fn source_with_equipment_and_map(
         },
         &mut equipment,
         &mut cache,
-        true,
     )
     .unwrap();
     (source, equipment.take_pending_geometries())
@@ -808,7 +807,6 @@ fn retained_native_bow_stays_idle_when_the_newly_selected_food_is_used() {
         },
         &mut equipment,
         &mut cache,
-        true,
     )
     .unwrap();
     let draw = &source.items[0].as_ref().unwrap().0;

@@ -58,7 +58,7 @@ mod tests {
             always_sprint: false,
             toggle_sneak: false,
             facts: Default::default(),
-            movement_modifier: None,
+            item_use_modifier: None,
             hold: None,
         }
     }

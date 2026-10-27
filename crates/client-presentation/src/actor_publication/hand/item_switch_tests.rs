@@ -114,7 +114,7 @@ fn equip_samples_and_retained_source_keys_follow_every_frame_fraction() {
         let at = |alpha| {
             [
                 hand_progress(rig.hand, None, alpha).equip,
-                java::first_person_hand(&rig, None, None, None, alpha, None, true).equip,
+                java::first_person_hand(&rig, None, None, None, alpha, None).equip,
             ]
         };
         let start = at(0.0);
@@ -131,10 +131,7 @@ fn equip_samples_and_retained_source_keys_follow_every_frame_fraction() {
                 );
             }
         }
-        assert!(
-            source_key(&stream, None, None, 0.25, true)
-                != source_key(&stream, None, None, 0.75, true)
-        );
+        assert!(source_key(&stream, None, None, 0.25) != source_key(&stream, None, None, 0.75));
         previous_end = Some(end);
     }
 }

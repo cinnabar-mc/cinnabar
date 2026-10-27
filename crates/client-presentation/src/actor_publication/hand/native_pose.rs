@@ -163,7 +163,7 @@ impl NativePoseCache {
         let runtime_id = presentation.submission.input.identity.runtime_id;
         let rig = stream.authority().actor_rig(runtime_id)?;
         let key = PoseKey {
-            source: source_key(stream, consume, animation, alpha, false),
+            source: source_key(stream, consume, animation, alpha),
             tick: (rig.rig.0, rig.completed_tick, rig.reset_generation),
             actor_alpha: alpha.to_bits(),
             physics_alpha: rig.java.local_swing_alpha.map(f32::to_bits),

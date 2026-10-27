@@ -771,10 +771,6 @@ projectile interpolation and shake, sleep/mount poses, name tags (including over
 oversized server cosmetics), capes, shadows,
 particles and equipment materials. Preserve existing accepted Java animation/cape/name-tag
 and combat-visual deviations described in [AGENTS.md](AGENTS.md).
-Java 1.7 animation settings keep the sword-blocking pose, movement slowdown and
-sprint behavior independent. Defaults preserve ordinary movement; the optional
-movement overrides apply only to held sword blocking in Java mode. Live server
-acceptance of those movement overrides remains incomplete.
 
 See [actor animation clocks](docs/reference/actor-animation-clocks.md),
 [projectile rendering](docs/projectile-rendering.md) and

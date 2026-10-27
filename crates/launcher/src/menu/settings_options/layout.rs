@@ -18,7 +18,7 @@ macro_rules! panels {
 }
 
 panels! {
-AccessibilityGameplay,AccessibilityUi,VideoBackend,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAnimations,VideoJavaCombat,VideoAdvanced,Audio,Keyboard,Controller,Touch,General,GeneralPause,GeneralNetwork,Updates,ModUpdates,GeneralAdvanced,CreatorCoordinates,Chat,Discord,DiscordDetails
+AccessibilityGameplay,AccessibilityUi,VideoBackend,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,Touch,General,GeneralPause,GeneralNetwork,Updates,ModUpdates,GeneralAdvanced,CreatorCoordinates,Chat,Discord,DiscordDetails
 }
 
 /// Derives ordered rows once and rejects duplicate or missing row positions.
@@ -70,8 +70,6 @@ impl SettingPanel {
             | Self::VideoClouds
             | Self::VideoCustomization
             | Self::VideoAccessibility
-            | Self::VideoAnimations
-            | Self::VideoJavaCombat
             | Self::VideoAdvanced => SettingSection::Video,
             Self::Audio => SettingSection::Sound,
             Self::Keyboard => SettingSection::KeyboardAndMouse,

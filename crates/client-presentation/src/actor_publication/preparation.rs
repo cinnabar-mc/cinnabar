@@ -437,13 +437,7 @@ pub fn advance_actor_frame(
                     ..input
                 });
             *captured_hand_use = (consume_ticks, item_animation);
-            *hand_key = hand::source_key(
-                stream,
-                consume_ticks,
-                item_animation,
-                step.partial_tick,
-                settings.feel().java_item_blocking,
-            );
+            *hand_key = hand::source_key(stream, consume_ticks, item_animation, step.partial_tick);
             equipment.begin_hand_readiness();
             let source = hand::source(
                 hand::HandInputs {
@@ -462,7 +456,6 @@ pub fn advance_actor_frame(
                         .map_or(Mat4::IDENTITY, hand_motion_matrix),
                 },
                 java_mode,
-                settings.feel().java_item_blocking,
                 equipment,
                 java_hand,
             );

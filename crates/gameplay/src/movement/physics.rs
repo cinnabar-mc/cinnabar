@@ -122,7 +122,7 @@ pub fn physics_movement_input(
 
 /// Vanilla slows the move vector by the square of the used item's modifier in
 /// f32, skipping modifiers within float epsilon of one.
-pub(super) fn item_use_factor(modifier: f64) -> f64 {
+fn item_use_factor(modifier: f64) -> f64 {
     let modifier = modifier as f32;
     if (modifier - 1.0).abs() > f32::EPSILON {
         f64::from(modifier * modifier)

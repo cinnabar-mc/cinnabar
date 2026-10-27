@@ -920,7 +920,6 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(settings_screens::SEARCH_STATES)
         .chain(settings_screens::WORLD_STATES)
         .chain(settings_screens::PAGE_STATES)
-        .chain(settings_screens::JAVA_ANIMATION_STATES)
         .chain(server_forms::STATES)
         .chain(hud_hotbar::STATES)
         .chain(touch_editor::STATES)

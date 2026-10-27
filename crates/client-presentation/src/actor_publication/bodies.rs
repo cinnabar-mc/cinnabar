@@ -16,7 +16,6 @@ pub(super) struct PoseView {
     pub partial_tick: f32,
     pub first_person: bool,
     pub java_mode: bool,
-    pub java_item_blocking: bool,
     pub combat_visuals: render_api::CombatVisuals,
     pub sampling_camera: Option<([f32; 2], [f32; 3])>,
     /// Viewport width over height the first-person hand reads.
@@ -94,7 +93,6 @@ pub(super) fn sample<'a>(
             partial_tick,
             first_person,
             java_mode,
-            java_item_blocking,
             combat_visuals,
             sampling_camera,
             aspect: _,
@@ -246,15 +244,7 @@ pub(super) fn sample<'a>(
                             && !(local && (first_person || input.custom_emote.is_some())))
                         .then(|| {
                             let local = local.then_some(&input.local_equipment);
-                            java::third_person(
-                                stream,
-                                &rig,
-                                actor,
-                                local,
-                                partial_tick,
-                                java_poses,
-                                java_item_blocking,
-                            )
+                            java::third_person(stream, &rig, actor, local, partial_tick, java_poses)
                         })
                         .flatten();
                         let presented = if remote_emote_pose.is_some() {

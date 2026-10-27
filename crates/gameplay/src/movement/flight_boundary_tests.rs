@@ -294,7 +294,7 @@ fn flight_frame(
             creative_flight: true,
             ..Default::default()
         },
-        movement_modifier: None,
+        item_use_modifier: None,
         hold: None,
     }
 }

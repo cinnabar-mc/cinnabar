@@ -319,7 +319,6 @@ impl Caches {
                     partial_tick: alpha,
                     first_person: true,
                     java_mode: false,
-                    java_item_blocking: true,
                     combat_visuals: Default::default(),
                     sampling_camera: Some(([0.0; 2], Vec3::Y.to_array())),
                     aspect: 1.0,

@@ -72,7 +72,6 @@ fn local_item_use_moves_between_physics_ticks_when_the_actor_fraction_wraps() {
                 consume,
                 actor_alpha,
                 Some(&timing),
-                true,
             );
             let expected = if item == BOW {
                 JavaUse::Bow {
@@ -100,15 +99,8 @@ fn local_item_use_moves_between_physics_ticks_when_the_actor_fraction_wraps() {
             use_elapsed_ticks: Some(elapsed + 1),
             ..Default::default()
         };
-        let next_hand = first_person_hand(
-            &rig,
-            Some(item),
-            Some(item),
-            consume,
-            0.7,
-            Some(&next_tick),
-            true,
-        );
+        let next_hand =
+            first_person_hand(&rig, Some(item), Some(item), consume, 0.7, Some(&next_tick));
         assert_eq!(
             java::first_person_item(next_hand, java::JavaItemMesh::Sprite, false),
             previous.unwrap(),
@@ -132,16 +124,7 @@ fn local_use_stop_and_retained_items_ignore_a_stale_actor_use_counter() {
     };
     for item in ["minecraft:golden_apple", BOW] {
         assert_eq!(
-            first_person_hand(
-                &rig,
-                Some(item),
-                Some(item),
-                Some(32),
-                0.2,
-                Some(&timing),
-                true
-            )
-            .using,
+            first_person_hand(&rig, Some(item), Some(item), Some(32), 0.2, Some(&timing)).using,
             None,
         );
     }
@@ -154,7 +137,6 @@ fn local_use_stop_and_retained_items_ignore_a_stale_actor_use_counter() {
             Some(32),
             0.2,
             Some(&timing),
-            true
         )
         .using,
         None,
@@ -168,7 +150,6 @@ fn local_use_stop_and_retained_items_ignore_a_stale_actor_use_counter() {
             None,
             0.2,
             Some(&timing),
-            true
         )
         .using,
         Some(JavaUse::Block),
@@ -199,7 +180,6 @@ fn local_use_does_not_move_equip_or_unpredicted_use_to_the_physics_clock() {
             Some(32),
             0.25,
             Some(&timing),
-            true,
         );
         assert!((hand.equip - 0.3).abs() < 1e-6);
         assert_eq!(
@@ -224,9 +204,9 @@ fn hand_readiness_tracks_the_local_bow_fraction_and_reuses_unchanged_inputs() {
         use_elapsed_ticks: Some(14),
         ..Default::default()
     };
-    let key = super::super::hand::source_key(&stream, None, Some(timing), 0.5, true);
+    let key = super::super::hand::source_key(&stream, None, Some(timing), 0.5);
     assert!(key.is_some());
-    assert!(key == super::super::hand::source_key(&stream, None, Some(timing), 0.5, true));
+    assert!(key == super::super::hand::source_key(&stream, None, Some(timing), 0.5));
     timing.frame_alpha = 0.75;
-    assert!(key != super::super::hand::source_key(&stream, None, Some(timing), 0.5, true));
+    assert!(key != super::super::hand::source_key(&stream, None, Some(timing), 0.5));
 }

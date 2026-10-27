@@ -34,7 +34,6 @@ pub(super) fn prepare(
         partial_tick,
         first_person,
         java_mode,
-        java_item_blocking,
         combat_visuals: _,
         sampling_camera,
         aspect,
@@ -59,13 +58,7 @@ pub(super) fn prepare(
             let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
             let (consume_ticks, item_animation) = hand_use;
             let motion = hand_motion.map_or(Mat4::IDENTITY, hand_motion_matrix);
-            let key = hand::source_key(
-                stream,
-                consume_ticks,
-                item_animation,
-                partial_tick,
-                java_item_blocking,
-            );
+            let key = hand::source_key(stream, consume_ticks, item_animation, partial_tick);
             let samples_item_scale = stream
                 .authority()
                 .actor_rig(local_runtime_id)
@@ -96,7 +89,6 @@ pub(super) fn prepare(
                     aspect,
                 },
                 java_mode,
-                java_item_blocking,
                 equipment,
                 java_hand,
             )

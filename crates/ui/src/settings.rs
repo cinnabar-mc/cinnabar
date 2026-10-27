@@ -175,7 +175,6 @@ pub struct UserSettings {
     pub schema_version: u32,
     pub controls: ControlSettings,
     pub video: VideoSettings,
-    pub animation: AnimationSettings,
     pub gameplay: GameplaySettings,
 }
 
@@ -185,42 +184,7 @@ impl Default for UserSettings {
             schema_version: CURRENT_SETTINGS_SCHEMA,
             controls: ControlSettings::default(),
             video: VideoSettings::default(),
-            animation: AnimationSettings::default(),
             gameplay: GameplaySettings::default(),
-        }
-    }
-}
-
-/// Java 1.7 combat presentation and movement preferences.
-///
-/// These options are intentionally separate from [`VideoSettings::java_animations`]: the
-/// animation family selects the overall player pose, while these switches control the sword
-/// blocking details independently.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AnimationSettings {
-    /// Shows the raised-item blocking pose while Java 1.7 animations are selected.
-    pub item_blocking: bool,
-    /// Applies Java's movement slowdown while a sword is blocking.
-    pub blocking_slowdown: bool,
-    /// Allows ordinary sprinting while holding Use with a sword.
-    pub keep_sprint_while_blocking: bool,
-}
-
-impl AnimationSettings {
-    /// The legacy visual behavior is retained when Java 1.7 animations are selected.
-    pub const DEFAULT_ITEM_BLOCKING: bool = true;
-    /// Sword blocking preserves ordinary movement until the player enables the override.
-    pub const DEFAULT_BLOCKING_SLOWDOWN: bool = false;
-    /// Sword blocking preserves ordinary sprint behavior by default.
-    pub const DEFAULT_KEEP_SPRINT_WHILE_BLOCKING: bool = true;
-}
-
-impl Default for AnimationSettings {
-    fn default() -> Self {
-        Self {
-            item_blocking: Self::DEFAULT_ITEM_BLOCKING,
-            blocking_slowdown: Self::DEFAULT_BLOCKING_SLOWDOWN,
-            keep_sprint_while_blocking: Self::DEFAULT_KEEP_SPRINT_WHILE_BLOCKING,
         }
     }
 }
@@ -363,7 +327,7 @@ impl RenderMode {
 
 #[cfg(test)]
 mod tests {
-    use super::{AnimationSettings, RenderMode, UserSettings};
+    use super::{RenderMode, UserSettings};
 
     #[test]
     fn vrr_defaults_to_automatic_detection() {
@@ -376,18 +340,6 @@ mod tests {
     #[test]
     fn default_block_selection_uses_an_outline() {
         assert!(UserSettings::default().video.outline_selection);
-    }
-
-    #[test]
-    fn java_animation_details_keep_bedrock_defaults() {
-        assert_eq!(
-            UserSettings::default().animation,
-            AnimationSettings {
-                item_blocking: AnimationSettings::DEFAULT_ITEM_BLOCKING,
-                blocking_slowdown: AnimationSettings::DEFAULT_BLOCKING_SLOWDOWN,
-                keep_sprint_while_blocking: AnimationSettings::DEFAULT_KEEP_SPRINT_WHILE_BLOCKING,
-            }
-        );
     }
 
     #[test]

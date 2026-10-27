@@ -90,68 +90,6 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
     }
 }
 
-#[test]
-fn item_blocking_preference_keeps_a_using_sword_in_the_normal_grip_when_disabled() {
-    let mut stream = head_stream();
-    let mut feed = head_feed();
-    feed.main_hand = Some("minecraft:iron_sword".into());
-    feed.item_use = client_world::LocalItemUse::Using;
-    stream.sync_local_player_pose(&feed);
-    stream.prepare_actor_appearance_fixture();
-    stream.advance_actor_interpolation_frame(1);
-    let rig = stream.authority().actor_rig(1).unwrap();
-    let actor = stream.authority().actor(1).unwrap();
-
-    assert!(actor.is_using_item());
-    assert_eq!(
-        third_person_input(&rig, actor, Some("minecraft:iron_sword"), 0.0, true, true).held_right,
-        3
-    );
-    assert_eq!(
-        third_person_input(&rig, actor, Some("minecraft:iron_sword"), 0.0, true, false).held_right,
-        1
-    );
-}
-
-#[test]
-fn java_blocking_preference_controls_first_person_without_changing_the_actor_use_flag() {
-    let mut stream = head_stream();
-    let mut feed = head_feed();
-    feed.main_hand = Some("minecraft:iron_sword".into());
-    feed.item_use = client_world::LocalItemUse::Using;
-    stream.sync_local_player_pose(&feed);
-    stream.prepare_actor_appearance_fixture();
-    stream.advance_actor_interpolation_frame(1);
-    let mut rig = stream.authority().actor_rig(1).unwrap();
-    rig.hand[1].use_ticks = 1;
-    let sword = Some("minecraft:iron_sword");
-    assert_eq!(
-        first_person_hand(&rig, sword, sword, None, 0.5, None, true).using,
-        Some(JavaUse::Block)
-    );
-    assert_eq!(
-        first_person_hand(&rig, sword, sword, None, 0.5, None, false).using,
-        None
-    );
-    assert!(matches!(
-        first_person_hand(&rig, Some(BOW), Some(BOW), None, 0.5, None, false).using,
-        Some(JavaUse::Bow { .. })
-    ));
-    assert!(stream.authority().actor(1).unwrap().is_using_item());
-}
-
-#[test]
-fn java_blocking_preference_invalidates_retained_hand_layers_without_a_tick() {
-    let mut stream = head_stream();
-    stream.sync_local_player_pose(&head_feed());
-    stream.prepare_actor_appearance_fixture();
-    stream.advance_actor_interpolation_frame(1);
-    let key = super::super::hand::source_key(&stream, None, None, 0.5, true);
-    assert!(key.is_some());
-    assert!(key == super::super::hand::source_key(&stream, None, None, 0.5, true));
-    assert!(key != super::super::hand::source_key(&stream, None, None, 0.5, false));
-}
-
 /// Adds uploaded player geometry and optional animated face layers.
 pub(super) fn uploaded_skin_feed(animated: bool) -> client_world::LocalPlayerFeed {
     let mut feed = head_feed();
@@ -207,8 +145,7 @@ fn third_person_keeps_authored_pack_poses_and_accepts_uploaded_skin_geometry() {
             actor,
             Some(&equipment),
             0.5,
-            &mut PoseScratch::default(),
-            true
+            &mut PoseScratch::default()
         )
         .is_some()
     );
@@ -223,8 +160,7 @@ fn third_person_keeps_authored_pack_poses_and_accepts_uploaded_skin_geometry() {
             actor,
             Some(&equipment),
             0.5,
-            &mut PoseScratch::default(),
-            true
+            &mut PoseScratch::default()
         )
         .is_none()
     );
@@ -301,7 +237,7 @@ fn local_head_tracks_between_tick_look_while_moving_without_committing_a_pose() 
             ..rig
         };
         for alpha in [0.0, 0.25, 0.75, 1.0] {
-            let input = third_person_input(&rig, actor, None, alpha, true, true);
+            let input = third_person_input(&rig, actor, None, alpha, true);
             let body = lerp_degrees(rig.java.body_yaw[0], rig.java.body_yaw[1], alpha);
             assert_eq!(input.head_pitch, pitch);
             assert!(wrap_degrees(input.head_yaw + body - head_yaw).abs() < 1e-4);
@@ -342,7 +278,7 @@ fn nonlocal_head_keeps_tick_interpolation_and_takes_the_short_yaw_path() {
         ..rig
     };
     for alpha in [0.0, 0.25, 0.75, 1.0] {
-        let input = third_person_input(&rig, &actor, None, alpha, false, true);
+        let input = third_person_input(&rig, &actor, None, alpha, false);
         let body = lerp_degrees(rig.java.body_yaw[0], rig.java.body_yaw[1], alpha);
         assert_eq!(input.head_pitch, 10.0 + 20.0 * alpha);
         assert!(wrap_degrees(input.head_yaw + body - (179.0 + 2.0 * alpha)).abs() < 1e-4);
@@ -362,7 +298,7 @@ fn nonlocal_head_pitch_takes_the_short_path_across_the_signed_boundary() {
         actor.previous_pose.pitch = previous;
         actor.pitch = current;
         for alpha in [0.0, 0.25, 0.5, 0.75, 1.0] {
-            let input = third_person_input(&rig, &actor, None, alpha, false, true);
+            let input = third_person_input(&rig, &actor, None, alpha, false);
             assert_eq!(input.head_pitch, previous + delta * alpha);
         }
     }
@@ -634,7 +570,6 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
                 },
                 &mut equipment,
                 &mut cache,
-                true,
             )
             .expect("the retained item must publish through a mixed swap");
             let drawn = source.items[0]
@@ -895,19 +830,9 @@ fn retained_java_poses_match_fresh_retargeting_across_ticks() {
             scratch.begin_frame();
             let rig = stream.authority().actor_rig(1).unwrap();
             let actor = stream.authority().actor(1).unwrap();
-            let posed = third_person(
-                &stream,
-                &rig,
-                actor,
-                Some(&equipment),
-                alpha,
-                &mut scratch,
-                true,
-            )
-            .unwrap();
-            let pose = java::java_biped(&third_person_input(
-                &posed.rig, actor, None, alpha, true, true,
-            ));
+            let posed =
+                third_person(&stream, &rig, actor, Some(&equipment), alpha, &mut scratch).unwrap();
+            let pose = java::java_biped(&third_person_input(&posed.rig, actor, None, alpha, true));
             let fresh = retargeted(&stream, &posed.rig, &pose, &parts, alpha).unwrap();
             assert_eq!(
                 render_bits(&posed.bones),
@@ -960,19 +885,10 @@ fn java_frames_between_ticks_allocate_only_published_poses() {
             Some(&equipment),
             0.25,
             &mut scratch,
-            true,
         ));
         scratch.begin_frame();
         let before = test_alloc::thread_allocations();
-        let posed = third_person(
-            &stream,
-            &rig,
-            actor,
-            Some(&equipment),
-            0.5,
-            &mut scratch,
-            true,
-        );
+        let posed = third_person(&stream, &rig, actor, Some(&equipment), 0.5, &mut scratch);
         let allocations = test_alloc::thread_allocations() - before;
         let layers = posed.unwrap().posed.skin_layers.len() as u64;
         assert_eq!(layers, u64::from(animated));

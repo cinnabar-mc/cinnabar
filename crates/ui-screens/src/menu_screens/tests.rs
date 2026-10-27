@@ -237,33 +237,6 @@ fn pressed_buttons_map_to_menu_actions() {
 }
 
 #[test]
-fn java_blocking_bindings_and_clicks_share_the_animation_dependency() {
-    use launcher::menu::settings_options::{SettingId, layout::SettingPanel};
-    let mut view = view(MenuScreen::Settings);
-    for java in [false, true, false] {
-        std::sync::Arc::make_mut(&mut view.settings_options)
-            .set(SettingId::Animations.index(), i32::from(!java));
-        let mut data = DataSource::default();
-        crate::settings_controls::bind_values(
-            &view.settings_options,
-            None,
-            &mut data,
-            &str::to_owned,
-        );
-        for option in SettingPanel::VideoJavaCombat.options() {
-            assert_eq!(
-                data.global_value(&format!("#{}_enabled", option.name)),
-                Some(&Scalar::Bool(java))
-            );
-            let mut hit = region(HitKind::Toggle, None);
-            hit.control_name = Some(option.name.into());
-            let action = crate::settings_controls::action_values(&view.settings_options, &hit);
-            assert_eq!(action.is_some(), java);
-        }
-    }
-}
-
-#[test]
 fn the_pause_friends_drawer_invites_only_while_hosting() {
     let press = |view: &MenuView| {
         action_for(

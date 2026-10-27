@@ -523,7 +523,6 @@ pub(super) fn java_light_matrix(
 pub(super) fn source(
     inputs: HandInputs<'_>,
     java_mode: bool,
-    java_item_blocking: bool,
     equipment: &mut EquipmentRuntime,
     cache: &mut java::HandCache,
 ) -> Option<HandSource> {
@@ -538,7 +537,6 @@ pub(super) fn source(
             },
             equipment,
             cache,
-            java_item_blocking,
         )
     {
         return Some(source);
@@ -581,7 +579,6 @@ type AnimationFrameKey = (u32, Option<u32>, u32, bool, u32);
 /// Local hand source inputs whose changes require reselection after interaction admission.
 #[derive(PartialEq)]
 pub(super) struct SourceKey {
-    java_item_blocking: bool,
     lifetime: actor_animation::ActorLifetimeId,
     bones: [(usize, usize); 2],
     hand: [actor_animation::HandPhase; 2],
@@ -601,7 +598,6 @@ pub(super) fn source_key(
     consume: Option<u32>,
     animation: Option<actor_animation::AttachableAnimationInput<'_>>,
     alpha: f32,
-    java_item_blocking: bool,
 ) -> Option<SourceKey> {
     let rig = stream
         .authority()
@@ -611,7 +607,6 @@ pub(super) fn source_key(
     java.body_frame_alpha = None;
     let swing_alpha = rig.java.local_swing_alpha.unwrap_or(alpha);
     Some(SourceKey {
-        java_item_blocking,
         sampled_body_yaw: rig.java.body_yaw_at(alpha),
         sampled_swing: [
             hand_progress(rig.hand, None, swing_alpha).swing,

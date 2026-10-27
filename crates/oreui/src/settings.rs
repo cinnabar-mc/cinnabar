@@ -25,9 +25,6 @@ mod localization_tests;
 #[cfg(test)]
 mod row_tests;
 
-#[cfg(test)]
-mod java_combat_tests;
-
 use super::focus;
 use super::paint::{Bounds, Canvas};
 use super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL, TEXT, TEXT_DIMMER};
@@ -525,7 +522,7 @@ impl Content<'_, '_> {
                 unreachable!("host controls are dispatched before option rendering")
             }
             SettingKind::Toggle => {
-                let (on, enabled) = (value != 0, self.view.settings_options.option_enabled(id));
+                let (on, enabled) = (value != 0, true);
                 self.boolean(
                     &title,
                     &description,

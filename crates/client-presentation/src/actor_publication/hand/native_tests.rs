@@ -351,7 +351,6 @@ pub(super) fn hand_source_for_mode(
             aspect: 1.0,
         },
         java_mode,
-        java_mode,
         equipment,
         cache,
     )

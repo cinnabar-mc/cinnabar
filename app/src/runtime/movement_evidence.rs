@@ -231,10 +231,6 @@ fn simulation_error_detail(error: &sim::SimulationError) -> serde_json::Value {
             "kind": "invalid_item_use_movement_modifier",
             "message": error.to_string(),
         }),
-        sim::SimulationError::InvalidLocalInputScale => serde_json::json!({
-            "kind": "invalid_local_input_scale",
-            "message": error.to_string(),
-        }),
         sim::SimulationError::InvalidMovementSpeed => serde_json::json!({
             "kind": "invalid_movement_speed",
             "message": error.to_string(),

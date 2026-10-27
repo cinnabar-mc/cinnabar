@@ -2,49 +2,6 @@
 
 use super::*;
 
-/// Animation dependencies, compact wrapping and the search path to a disabled control.
-pub(super) const JAVA_ANIMATION_STATES: &[State] = &[
-    State {
-        name: "settings-animations-bedrock",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(false, ""),
-    },
-    State {
-        name: "settings-animations-java",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(true, ""),
-    },
-    State {
-        name: "settings-animations-compact",
-        size: [640, 360],
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(true, ""),
-    },
-    State {
-        name: "settings-animations-search",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(false, "sprint blocking"),
-    },
-];
-
-/// Focuses the relevant controls through normal settings scrolling with anonymous preferences.
-fn settings_java_animations(java: bool, query: &str) -> Fixture {
-    let mut view = settings(SettingSection::Video.definition().name);
-    Arc::make_mut(&mut view.settings_options).set(SettingId::Animations.index(), i32::from(!java));
-    view.settings_query = query.into();
-    view.focused_action = Some(if !query.is_empty() {
-        MenuAction::SearchSettings
-    } else if java {
-        MenuAction::SettingsOption(SettingId::KeepSprintWhileBlocking.index() as u16, 0)
-    } else {
-        MenuAction::SettingsOption(SettingId::Animations.index() as u16, 1)
-    });
-    Fixture::Menu(Box::new(view))
-}
-
 /// Search results, an empty result and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[
     State {

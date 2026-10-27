@@ -36,9 +36,7 @@ pub(super) fn attach(
                     .authority()
                     .actor(runtime_id)
                     .is_some_and(|actor| actor.is_using_item());
-                input.java = Some(crate::presentation::equipment::JavaGrip {
-                    blocking: poses.java_item_blocking && using,
-                });
+                input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
             }
             let animation = stream.authority().actor(runtime_id).zip(
                 stream.authority().actor_rig(runtime_id).map(|rig| {

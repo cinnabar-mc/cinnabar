@@ -71,10 +71,7 @@ pub(super) fn bind_values(
             continue;
         }
         let value = options.get(index);
-        data.set_global(
-            format!("#{}_enabled", option.name),
-            Scalar::Bool(options.option_enabled(option.id)),
-        );
+        data.set_global(format!("#{}_enabled", option.name), Scalar::Bool(true));
         match option.kind {
             SettingKind::Host => continue,
             SettingKind::Toggle => {
@@ -210,9 +207,6 @@ pub(super) fn action_values(options: &SettingsOptions, region: &HitRegion) -> Op
     let name = region.control_name.as_deref()?.trim_start_matches('#');
     for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
         let index = index as u16;
-        if !options.option_enabled(option.id) {
-            continue;
-        }
         match option.kind {
             SettingKind::Toggle if region.kind == HitKind::Toggle && name == option.name => {
                 return Some(MenuAction::SettingsOption(

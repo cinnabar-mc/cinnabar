@@ -1,7 +1,6 @@
 use launcher::menu::settings_options::BindingId;
 use launcher::menu::settings_options::SettingId;
 use semantic_input::{InputContext, PhysicalControl};
-
 use {
     crate::menu::settings_options::control_bindings::{
         binding_key, binding_macro_command, binding_mouse, binding_pressed, gamepad_button,
@@ -12,34 +11,6 @@ use {
         SETTINGS_OPTIONS, SettingsOptions,
     },
 };
-
-#[test]
-fn java_blocking_edits_require_java_mode_and_survive_switching_styles() {
-    use launcher::menu::MenuAction;
-    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Animations".into());
-    let edit = |id: SettingId, value| MenuAction::SettingsOption(id.index() as u16, value);
-    menu.activate(edit(SettingId::BlockingSlowdown, 1));
-    assert!(
-        !menu
-            .settings_options
-            .user_settings()
-            .animation
-            .blocking_slowdown
-    );
-    menu.activate(edit(SettingId::Animations, 0));
-    menu.activate(edit(SettingId::BlockingSlowdown, 1));
-    menu.activate(edit(SettingId::ItemBlockingAnimation, 0));
-    menu.activate(edit(SettingId::KeepSprintWhileBlocking, 0));
-    let saved = menu.settings_options.user_settings().animation;
-    assert!(saved.blocking_slowdown);
-    assert!(!saved.item_blocking);
-    assert!(!saved.keep_sprint_while_blocking);
-    menu.activate(edit(SettingId::Animations, 1));
-    menu.activate(edit(SettingId::BlockingSlowdown, 0));
-    assert_eq!(menu.settings_options.user_settings().animation, saved);
-    menu.activate(edit(SettingId::Animations, 0));
-    assert_eq!(menu.settings_options.user_settings().animation, saved);
-}
 
 /// Finds an option through the same stable controller identifier used on disk.
 fn index(name: &str) -> usize {
