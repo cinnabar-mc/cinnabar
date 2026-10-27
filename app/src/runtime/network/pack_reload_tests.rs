@@ -309,10 +309,9 @@ fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
             .server_ui()
             .is_none()
     );
-    assert!(
-        old.upgrade().is_none(),
-        "old presentation snapshot must be released"
-    );
+    test_time::eventually("old presentation snapshot is released", || {
+        old.upgrade().is_none()
+    });
     assert_eq!(
         app.world()
             .resource::<ClientWorld>()

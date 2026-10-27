@@ -555,6 +555,9 @@ regressions cover these paths; paired hardware join and transfer timings remain 
 Scene policy reads retain root properties without resolving unused descendants.
 Deterministic coverage checks constant work, warm reuse and catalog/context changes;
 the full cold UI and hardware frame gates remain open.
+Pack publication shares dependency evidence and retires old application
+snapshots off the frame. Clone-work regression coverage does not close the
+resource-pack or hardware performance gates.
 
 Cloud preparation skips hidden geometry, prefetches finite windows on workers and
 retains GPU storage. Regression coverage checks admission frames, exact records,

@@ -1727,6 +1727,9 @@ run again before the first rejoin open.
 Screen policy queries resolve inherited root properties without traversing unused
 controls, and cache them for the same catalog and context as rendered screens.
 Cold inventory updates, pack reload and hardware frame qualification remain open.
+Resource-pack application snapshots share immutable dependency records. Reload
+workers copy them when compiling changes, and old publication snapshots retire
+off the frame. Hardware reload and complete join qualification remain open.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
