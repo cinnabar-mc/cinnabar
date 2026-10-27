@@ -204,7 +204,22 @@ impl ItemStateStore {
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         let registry = built_in_registry(assets.as_deref());
-        let mut store = Self {
+        let mut store = Self::with_registry(assets, registry);
+        store.rebuild_use_profiles();
+        store
+    }
+
+    /// Display actors never receive equipment or an item registry, so they need no retail tables.
+    pub(crate) fn empty() -> Self {
+        Self::with_registry(None, BTreeMap::new())
+    }
+
+    /// Starts item state around admitted records; normal stores then prepare their use profiles.
+    fn with_registry(
+        assets: Option<Arc<RuntimeEntityAssets>>,
+        registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
+    ) -> Self {
+        Self {
             presentation_generation: Arc::new(()),
             assets,
             registry,
@@ -220,9 +235,7 @@ impl ItemStateStore {
             use_overlays: None,
             attack_timings: None,
             notices: Vec::new(),
-        };
-        store.rebuild_use_profiles();
-        store
+        }
     }
 
     /// Records where an equipment event landed; the stacks are named through the registry.

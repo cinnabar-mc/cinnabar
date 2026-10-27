@@ -548,7 +548,8 @@ past stalled terrain. Dependent mutations, dimension changes and transfer barrie
 ordered. Latency echoes flush when their movement/control fence clears. Deterministic
 regressions cover these paths; paired hardware join and transfer timings remain open.
 Join workers prepare base entity expression analysis before session publication;
-authoritative and spawner stores share it with independent actor state. Cold UI,
+authoritative and spawner stores share it with independent actor state. Displays
+skip unused item tables, and network stores avoid a discarded initial table. Cold UI,
 pack reload and reference-hardware acceptance remain open.
 
 Cloud preparation skips hidden geometry, prefetches finite windows on workers and

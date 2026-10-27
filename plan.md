@@ -1716,6 +1716,7 @@ index instead of decoding block facts during frame publication. Empty diagnostic
 snapshots do not prepare identities.
 Joins prepare base entity expression analysis on their session worker. Authoritative
 and spawner actor stores share that analysis while keeping separate actor state.
+Display stores skip unused item tables; network stores build their item tables once.
 Cold UI, pack reload and hardware join qualification remain incomplete.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
