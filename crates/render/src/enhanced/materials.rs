@@ -174,6 +174,7 @@ mod tests {
             variation_start: 0,
             variation_count: 0,
             variation_weight: 0,
+            ..assets::Material::unvaried()
         };
         let compiled = assets::CompiledAssets {
             visuals: vec![

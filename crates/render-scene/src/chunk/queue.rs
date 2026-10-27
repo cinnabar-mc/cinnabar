@@ -57,6 +57,24 @@ impl ChunkRenderQueue {
         self.pending_bytes = 0;
     }
 
+    /// Drops the queued uploads of `keys`, whose stream remeshes them, restoring each key's
+    /// presented generation; removals and other keys' uploads stay.
+    pub fn withdraw_uploads(&mut self, keys: impl IntoIterator<Item = SubChunkKey>) {
+        for key in keys {
+            let Some(pending) = self.pending.remove(&key) else {
+                continue;
+            };
+            self.pending_bytes = self
+                .pending_bytes
+                .saturating_sub(pending_upload_byte_len(&pending));
+            if let Some(generation) = pending.previous_generation {
+                self.render_manifest.insert(key, generation);
+            } else {
+                self.render_manifest.remove(&key);
+            }
+        }
+    }
+
     #[must_use]
     pub fn with_limits(limits: ChunkRenderQueueLimits) -> Self {
         Self {

@@ -40,7 +40,7 @@
       "module": "policy",
       "name": "API_VERSION",
       "type": "u16",
-      "value": "1",
+      "value": "4",
       "go": "APIVersion"
     },
     {
@@ -650,6 +650,13 @@
           "name": "templates",
           "go": "Templates",
           "type": "BTreeSet<String>",
+          "optional": true,
+          "skip": true
+        },
+        {
+          "name": "namespace",
+          "go": "Namespace",
+          "type": "Option<String>",
           "optional": true,
           "skip": true
         },
@@ -1272,10 +1279,40 @@
           "implemented": true
         },
         {
+          "rust": "RenderWorldMaterial",
+          "go": "PermissionRenderWorldMaterial",
+          "json": "render_world_material",
+          "implemented": false
+        },
+        {
           "rust": "RenderPost",
           "go": "PermissionRenderPost",
           "json": "render_post",
           "implemented": true
+        },
+        {
+          "rust": "RenderWorldMaterialOverride",
+          "go": "PermissionRenderWorldMaterialOverride",
+          "json": "render_world_material_override",
+          "implemented": false
+        },
+        {
+          "rust": "RenderWorldMaterialVertex",
+          "go": "PermissionRenderWorldMaterialVertex",
+          "json": "render_world_material_vertex",
+          "implemented": false
+        },
+        {
+          "rust": "RenderWorldMaterialScene",
+          "go": "PermissionRenderWorldMaterialScene",
+          "json": "render_world_material_scene",
+          "implemented": false
+        },
+        {
+          "rust": "RenderWorldMaterialPasses",
+          "go": "PermissionRenderWorldMaterialPasses",
+          "json": "render_world_material_passes",
+          "implemented": false
         }
       ]
     },

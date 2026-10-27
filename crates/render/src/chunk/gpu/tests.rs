@@ -287,6 +287,7 @@ fn aligned_shared_geometry_is_transparent_validator_eligible() {
         token: None,
         publication_permit: None,
         origin: [0; 3],
+        world_materials: false,
     };
     let allocation = GpuChunkAllocation {
         cube_layout: CubeQuadLayout::default(),

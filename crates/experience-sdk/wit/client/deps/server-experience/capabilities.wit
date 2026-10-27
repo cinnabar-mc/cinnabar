@@ -1,4 +1,4 @@
-package cinnabar:server-experience@1.5.0;
+package cinnabar:server-experience@1.7.0;
 
 /// Host-owned JSON-UI widgets and the bundle's signed modal screens.
 /// Player mods import this interface's types; its functions are available only to client parts.
@@ -94,4 +94,92 @@ interface media {
     enum operation { prepare, play, pause, seek, stop }
     /// Requests playback state or a seek position in milliseconds for an authorized media ID.
     control: func(id: string, op: operation, position-ms: u64) -> result<_, string>;
+}
+
+/// Programmable world materials for the bundle's own entities and blocks, under the
+/// `render_world_material` permission. A material is a WGSL `shade` function the host
+/// validates and composes into its entity and terrain pipelines; the host owns depth, blend,
+/// pass order and visibility, and applies Bedrock lighting and fog to the surface it returns.
+/// Bindings name only identifiers in the manifest's signed `namespace`.
+@since(version = 1.6.0)
+interface world-material {
+    /// `always` draws through other geometry and also needs `render_through_walls`.
+    enum depth { test, always }
+    /// The host blend class, which also selects the pass the material draws in.
+    enum blend { opaque, cutout, premultiplied, additive }
+    record material-spec {
+        /// Defines `fn shade(input: WorldMaterialInput) -> Surface`; no resources, globals,
+        /// loops or entry points.
+        source: string,
+        /// Signed bundle PNGs under `textures/`, at most four, read by `texture(index, uv)`.
+        textures: list<string>,
+        /// At most sixteen finite numbers, read by `param(input, index)`.
+        params: list<f32>,
+        depth: depth,
+        blend: blend,
+    }
+    /// What a binding restyles: an entity type or a block, by namespaced identifier.
+    variant target { entity(string), block(string) }
+    /// Validates and declares material `id`, replacing any material of that id; its bindings
+    /// follow the replacement. Each call counts against the per-callback compile budget.
+    set-material: func(id: u32, spec: material-spec) -> result<_, string>;
+    /// Removes material `id`; refused while a binding names it.
+    remove-material: func(id: u32) -> result<_, string>;
+    /// Draws `target` with material `material`, replacing binding `id`.
+    bind: func(id: u32, target: target, material: u32) -> result<_, string>;
+    /// Removes binding `id`; the target draws with its Bedrock material again.
+    unbind: func(id: u32) -> result<_, string>;
+}
+
+/// World material effects beyond `shade`, each under a permission of its own besides
+/// `render_world_material`: displacement under `render_world_material_vertex`, reading the
+/// scene under `render_world_material_scene`, and outlines, bloom, particles and compute
+/// cells under `render_world_material_passes`. Each draws only the targets the material is
+/// bound to; nothing a material draws or computes is ever read back to the guest.
+@since(version = 1.7.0)
+interface world-material-effects {
+    use world-material.{material-spec};
+    /// An outline drawn around each bound target: its geometry again, pushed out along its
+    /// normals by at most four texels and seen from behind, in the colour of the material's
+    /// `fn outline(input: WorldMaterialInput) -> vec3<f32>`.
+    record outline { width-texels: f32 }
+    /// A blur of what the bound targets emit, at most four times as strong and sixteen
+    /// screen pixels wide, added over the frame.
+    record bloom { strength: f32, radius-pixels: f32 }
+    /// At most 4096 pixel squares around each bound target, placed within `radius-blocks`
+    /// (at most four) by the material's `fn particle(input: WorldParticleInput) ->
+    /// WorldParticle`.
+    record particles { count: u32, radius-blocks: f32 }
+    record effects {
+        /// Moves the drawn geometry by the material's
+        /// `fn displace(input: WorldVertexInput) -> vec3<f32>`, clamped on each axis to this
+        /// many blocks (at most two). Culling grows by it; hit boxes and positions never move.
+        displacement-blocks: option<f32>,
+        /// Lets `shade` read the view's opaque colour and depth already drawn, with
+        /// `scene_color` and `scene_depth`. Premultiplied and additive classes only.
+        scene: bool,
+        outline: option<outline>,
+        bloom: option<bloom>,
+        particles: option<particles>,
+        /// The compute declaration whose cells the material's functions read with `cell`.
+        cells: option<u32>,
+    }
+    /// Validates and declares material `id` with `effects`, as `world-material.set-material`
+    /// does without them; each call counts against the per-callback compile budget.
+    set-material-with-effects: func(id: u32, spec: material-spec, effects: effects) -> result<_, string>;
+    /// A compute declaration: `cells` (at most 65536) cells of four numbers the host owns for
+    /// the bundle, each set once per frame to what
+    /// `fn step(input: WorldCellInput) -> vec4<f32>` returns from the previous frame's cells.
+    /// A bundle's computes together update at most 262144 cells a frame.
+    record compute-spec {
+        source: string,
+        cells: u32,
+        /// At most sixteen finite numbers, read by `compute_param(index)`.
+        params: list<f32>,
+    }
+    /// Validates and declares compute `id`, replacing any of that id; new parameters alone
+    /// keep its cells. Each call counts against the per-callback compile budget.
+    set-compute: func(id: u32, spec: compute-spec) -> result<_, string>;
+    /// Removes compute `id`; refused while a material reads its cells.
+    remove-compute: func(id: u32) -> result<_, string>;
 }

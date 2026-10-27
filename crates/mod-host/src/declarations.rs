@@ -1,7 +1,10 @@
 //! A component's own requests and Mods-library metadata, read by parsing its sections only.
 
-use crate::{ModGrants, SourceKind, packet_mod::native_capabilities, read_source};
-use anyhow::{Result, anyhow, ensure};
+use crate::{
+    ModGrants, SourceKind, component_assets::ComponentAssets, packet_mod::native_capabilities,
+    read_source,
+};
+use anyhow::{Context, Result, anyhow, ensure};
 use std::{io::Cursor, path::Path, sync::Arc};
 use ui::mod_metadata::{GitHubModAsset, GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
 use wasmparser::{ComponentName, KnownCustom, Name, Parser, Payload};
@@ -130,6 +133,13 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
         requested,
         metadata,
     })
+}
+
+/// Checks that the loader accepts `component` as packed: every section, a requested grants
+/// section among them, counts toward the executable byte limit.
+pub fn check_loadable(component: &[u8]) -> Result<()> {
+    ComponentAssets::read(component).context("the component would not load")?;
+    Ok(())
 }
 
 /// Parses and validates one bounded JSON grant request.
