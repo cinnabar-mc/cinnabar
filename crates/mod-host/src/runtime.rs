@@ -1,5 +1,7 @@
 mod action_filter;
+mod input_bindings;
 mod input_host;
+pub(crate) mod legacy_input;
 mod output_lifecycle;
 mod presentation;
 mod recovery;

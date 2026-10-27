@@ -27,6 +27,8 @@ pub(super) struct ModObservation<'w, 's> {
     /// The damage shake that `read-damage-shake` reports.
     damage_shake: Option<Res<'w, client_presentation::camera::actor_effects::PresentedDamageShake>>,
     native_camera: Local<'s, native_camera::NativeCamera>,
+    bindings: Local<'s, bindings::Bindings>,
+    input_settings: Option<Res<'w, client_state::RuntimeSettings>>,
 }
 
 #[allow(
@@ -67,6 +69,8 @@ pub(super) fn drive_mod(
         relayed,
         damage_shake,
         mut native_camera,
+        mut bindings,
+        input_settings,
     } = observation;
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
@@ -294,6 +298,18 @@ pub(super) fn drive_mod(
         .screen_owner()
         .filter(|&owner| extension.hosts.host(owner).is_recovering());
     let mut callback_failures = Vec::new();
+    if let Some(input_settings) = input_settings.as_ref() {
+        let bindings = bindings.sample(input_settings.controls_update().1);
+        for index in 0..extension.hosts.host_count() {
+            if let Err(error) = extension
+                .hosts
+                .host_mut(index)
+                .observe_input_bindings(std::sync::Arc::clone(&bindings))
+            {
+                warn!(%error, "mod input bindings rejected");
+            }
+        }
+    }
     multi::run_frame_callbacks(
         &mut extension.hosts,
         multi::FrameInput {

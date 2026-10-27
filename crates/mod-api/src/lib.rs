@@ -19,6 +19,11 @@ pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
 pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
 
 mod guest;
+mod input;
+pub use input::{
+    MAX_CONTROL_KEY_BYTES, MAX_CONTROL_KEYS, MAX_INPUT_ACTION_BYTES, MAX_INPUT_BINDINGS,
+    MAX_INPUT_BINDINGS_PER_READ, control_key_valid,
+};
 pub mod native_camera;
 pub mod native_frame;
 pub mod native_menu;
@@ -50,7 +55,7 @@ pub const MAX_CAMERA_DELTA_RADIANS: f32 = 0.25;
 pub const MAX_ENTITY_REACH_BLOCKS: f32 = 6.0;
 /// Maximum opt-in delay of post-login application packets in either direction.
 pub const MAX_PACKET_DELAY_MS: u32 = 1_000;
-/// Bounded control and settings payloads for personal components.
+/// Bounded serialized personal settings.
 pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
 /// Inventory requests one player-mod callback may make.
 pub const MAX_INVENTORY_REQUESTS: usize = 4;
@@ -99,15 +104,6 @@ pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     NOTICES_SECTION,
     ICON_SECTION,
 ];
-pub const MAX_CONTROL_KEYS: usize = 64;
-/// Maximum bytes in a physical key name supplied by local controls.
-pub const MAX_CONTROL_KEY_BYTES: usize = 32;
-/// Whether a physical key name fits the shared controls wire contract.
-pub fn control_key_valid(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= MAX_CONTROL_KEY_BYTES
-        && key.bytes().all(|c| c.is_ascii_alphanumeric())
-}
 
 /// Maximum nearby mobs in one snapshot, and the radius they are drawn from.
 pub const MAX_GAMEPLAY_MOBS: usize = 64;

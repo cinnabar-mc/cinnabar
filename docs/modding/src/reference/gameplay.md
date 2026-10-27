@@ -63,7 +63,6 @@ record snapshot {
     eye: vector3,
     yaw: f32,
     pitch: f32,
-    attack-held: bool,
     frame-seconds: f32,
     players: list<player>,
 }
@@ -76,7 +75,6 @@ record snapshot {
 | `eye` | `vector3` |  |
 | `yaw` | `f32` |  |
 | `pitch` | `f32` |  |
-| `attack-held` | `bool` |  |
 | `frame-seconds` | `f32` |  |
 | `players` | `list<player>` |  |
 
@@ -95,9 +93,6 @@ record movement-snapshot {
     tick: u64,
     velocity: vector3,
     on-ground: bool,
-    jump-held: bool,
-    sprint-held: bool,
-    sneak-held: bool,
     eligible: bool,
     knockback-sequence: u64,
 }
@@ -110,9 +105,6 @@ record movement-snapshot {
 | `tick` | `u64` |  |
 | `velocity` | `vector3` |  |
 | `on-ground` | `bool` |  |
-| `jump-held` | `bool` |  |
-| `sprint-held` | `bool` | Resolved physical sprint and sneak bindings, before mod intents. |
-| `sneak-held` | `bool` |  |
 | `eligible` | `bool` |  |
 | `knockback-sequence` | `u64` |  |
 

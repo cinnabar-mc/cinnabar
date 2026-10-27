@@ -501,7 +501,10 @@ fn movement_input_requires_explicit_grant_and_eligible_frame() {
         assert!(granted.pulse_jump().unwrap().is_err());
     }
     granted.motion.snapshot = Some(movement());
-    assert_eq!(granted.read_movement().unwrap().unwrap(), Some(movement()));
+    assert_eq!(
+        granted.read_movement().unwrap().unwrap(),
+        Some(movement().into())
+    );
     granted.pulse_jump().unwrap().unwrap();
     assert!(granted.motion.pending_jump);
     assert!(

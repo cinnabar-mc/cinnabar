@@ -40,14 +40,22 @@ mod settings;
 mod terrain;
 pub use settings::{SettingsSnapshot, settings_companion};
 
+pub use packet_mod::NativeFrame;
 pub use runtime::HudTextMeasure;
+pub use runtime::cinnabar::extension::input::{
+    ActionBinding as InputActionBinding, BindingContext, BindingModifiers,
+    Bindings as InputBindings,
+};
+pub use runtime::legacy_input::{
+    MovementSnapshot as GameplayMovementSnapshot, Snapshot as GameplaySnapshot,
+};
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
     CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig,
     ControlModes as GameplayControlModes, Mob as GameplayMob,
-    MovementIntents as GameplayMovementIntents, MovementSnapshot as GameplayMovementSnapshot,
-    Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+    MovementIntents as GameplayMovementIntents, Player as GameplayPlayer,
+    Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, ActorLife, Bounds as ActorObservationBounds,

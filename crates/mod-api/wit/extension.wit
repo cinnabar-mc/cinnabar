@@ -431,6 +431,37 @@ interface input {
         keys-held: option<list<string>>,
         events: bool,
     }
+    /// The context in which the player assigned a physical chord.
+    enum binding-context { gameplay, ui }
+    /// Modifier groups required in addition to the key; either side satisfies a group.
+    record binding-modifiers { shift: bool, control: bool, alt: bool, super-key: bool }
+    /// One player-assigned keyboard or observable mouse-button chord. Multiple rows are
+    /// alternative bindings. More specific satisfied chords on the same key and context
+    /// take precedence. Keys use exactly the controls.keys-held naming contract.
+    record action-binding {
+        /// Stable input Action names in kebab-case: move-forward, move-backward, move-left,
+        /// move-right, look-up, look-down, look-left, look-right, jump, sneak, sprint, attack,
+        /// use, cycle-perspective, menu, back, hotbar-1 through hotbar-9, hotbar-previous,
+        /// hotbar-next, ui-up, ui-down, ui-left, ui-right, ui-accept, ui-cancel, ui-tab-next,
+        /// ui-tab-previous, player-list, freelook, interact-with-toast, pick-item.
+        action: string,
+        context: binding-context,
+        key: string,
+        modifiers: binding-modifiers,
+    }
+    /// A page of the player's current chords, in settings order. Total is at most
+    /// MAX_INPUT_BINDINGS; entries has at most MAX_INPUT_BINDINGS_PER_READ rows.
+    /// Only keyboard keys and MouseLeft/MouseRight/MouseMiddle are observable here; mouse
+    /// axes, additional buttons, gamepads and built-in touch controls are not in keys-held.
+    record bindings { revision: u64, total: u32, entries: list<action-binding> }
+    /// Requires controls authority and shares read-controls' callback read allowance.
+    /// Offset is 0 through total, and limit is 1 through MAX_INPUT_BINDINGS_PER_READ.
+    /// Pass the last complete revision to receive none while unchanged. To collect pages,
+    /// pass none, advance offset by each page's length and restart at zero if revision changes.
+    /// Discard old assignments while collecting a changed revision; apply complete revisions.
+    /// Revisions are host-local: clear guest caches on reinitialization. Returns an error
+    /// until settings are sampled or for invalid page bounds. Does not resolve actions.
+    read-bindings: func(after: option<u64>, offset: u32, limit: u32) -> result<option<bindings>, string>;
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     /// Reads this callback's control sample with controls authority and the shared read allowance.
@@ -475,7 +506,6 @@ interface gameplay {
         eye: vector3,
         yaw: f32,
         pitch: f32,
-        attack-held: bool,
         frame-seconds: f32,
         players: list<player>,
     }
@@ -488,10 +518,6 @@ interface gameplay {
         tick: u64,
         velocity: vector3,
         on-ground: bool,
-        jump-held: bool,
-        /// Resolved physical sprint and sneak bindings, before mod intents.
-        sprint-held: bool,
-        sneak-held: bool,
         eligible: bool,
         knockback-sequence: u64,
     }

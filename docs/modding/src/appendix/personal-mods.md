@@ -57,6 +57,7 @@ other grants with the [development switches](https://github.com/cinnabar-mc/cinn
 | Read-only inventory/effects, poses and physics | `player-state` and `gameplay` in extension WIT; unavailable data is optional, not inferred |
 | Camera, item use, movement and attack requests | WIT `gameplay`; frame-local policies expire even when a callback is deferred |
 | Native damage shake | `camera.read-damage-shake` with `camera`: the last presented shake at full strength, in `view-tilt` degrees, so a suppressing tilt can redraw it at another intensity |
+| Raw physical input and player bindings | WIT `input.read-controls` and `input.read-bindings`; `controls`; mods resolve action holds themselves |
 | Controls, settings and personal panels | WIT `input`, `settings`, `panel`; settings use a bounded companion file |
 | Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
 | HUD surface, text metrics and vanilla elements | WIT `hud`; see [HUD surfaces](#hud-surfaces); retained output clears on quarantine/reload/unload |

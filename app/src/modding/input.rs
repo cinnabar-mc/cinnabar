@@ -34,7 +34,7 @@ pub(super) struct PanelInput<'w> {
     reserved: Option<ResMut<'w, super::ReservedControls>>,
 }
 
-const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
+pub(super) const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
     (MouseButton::Left, "MouseLeft"),
     (MouseButton::Right, "MouseRight"),
     (MouseButton::Middle, "MouseMiddle"),

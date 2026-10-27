@@ -139,10 +139,9 @@ fn current_frame_crosses_real_component_boundary_and_rotation_is_consumed_once()
         i32.const 156 f32.load f32.const 1 f32.ne if unreachable end \
         i32.const 168 f32.load f32.const 0.4 f32.ne if unreachable end \
         i32.const 172 f32.load f32.const 0.2 f32.ne if unreachable end \
-        i32.const 176 i32.load8_u i32.const 1 i32.ne if unreachable end \
-        i32.const 180 f32.load f32.const 0.016 f32.ne if unreachable end \
-        i32.const 188 i32.load i32.const 1 i32.ne if unreachable end \
-        i32.const 184 i32.load i64.load i64.const 99 i64.ne if unreachable end {}",
+        i32.const 176 f32.load f32.const 0.016 f32.ne if unreachable end \
+        i32.const 184 i32.load i32.const 1 i32.ne if unreachable end \
+        i32.const 180 i32.load i64.load i64.const 99 i64.ne if unreachable end {}",
         read(false, true),
         rotate(0.1, -0.1, false)
     );
@@ -193,8 +192,8 @@ fn remote_session_preserves_independently_consented_player_poses_and_camera() {
                 "{} {} {}",
                 read(!players, true),
                 if players {
-                    "i32.const 188 i32.load i32.const 1 i32.ne if unreachable end \
-                     i32.const 184 i32.load i64.load i64.const 99 i64.ne if unreachable end"
+                    "i32.const 184 i32.load i32.const 1 i32.ne if unreachable end \
+                     i32.const 180 i32.load i64.load i64.const 99 i64.ne if unreachable end"
                 } else {
                     ""
                 },
@@ -539,13 +538,66 @@ fn legacy_gameplay_component_keeps_its_original_import_type() {
     let source = include_str!("gameplay_0_1.wat")
         .replace("$GAMEPLAY", &format!("{name}/gameplay@{version}"))
         .replace("$INIT", "")
-        .replace("$FRAME", "");
+        .replace("$FRAME", "i32.const 128 call $read i32.const 176 i32.load8_u i32.const 1 i32.ne if unreachable end");
     let mut host = ModHost::load_snapshot_with_grants(
         &directory.path().join("legacy-gameplay.wat"),
         source.as_bytes(),
-        ModGrants::default(),
+        grants(),
     )
     .unwrap();
-    host.frame(false).unwrap();
+    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
     assert!(host.is_active());
+}
+
+/// Both canonical record layouts run, including legacy physical holds, without changing gates.
+#[test]
+fn movement_records_keep_built_guests_and_current_imports_running() {
+    for fixture in [
+        include_str!("movement.wat"),
+        include_str!("movement_0_1.wat"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut host = ModHost::load_snapshot_with_grants(
+            &directory.path().join("movement.wat"),
+            fixture.as_bytes(),
+            ModGrants {
+                movement: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let movement = GameplayMovementSnapshot {
+            session: 1,
+            dimension: 0,
+            tick: 5,
+            velocity: GameplayVector3 {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            on_ground: true,
+            eligible: true,
+            jump_held: true,
+            sprint_held: true,
+            sneak_held: true,
+            knockback_sequence: 2,
+        };
+        let mut controls = crate::empty_controls();
+        controls.focused = true;
+        controls.gameplay = true;
+        host.frame_with_movement(
+            false,
+            Some(GameplaySnapshot {
+                session: 1,
+                dimension: 0,
+                ..snapshot()
+            }),
+            Vec::new(),
+            None,
+            Some(movement),
+            controls,
+        )
+        .unwrap();
+        assert!(host.is_active());
+    }
 }

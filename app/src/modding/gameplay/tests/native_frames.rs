@@ -2,7 +2,7 @@ use super::*;
 use client_shell::ui_resources::UiRuntimeResource;
 
 #[derive(Resource, Default)]
-struct Frames(Vec<mod_api::native_frame::Frame>);
+struct Frames(Vec<mod_host::NativeFrame>);
 
 /// Capture active/suspended frames through the production input/world boundary.
 fn capture_native(

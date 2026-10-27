@@ -1,6 +1,6 @@
 # Input
 
-Input comes through the `input` interface. Its controls, text and field reads and key reservations need `controls`; the demo action read, `demo_pressed`, is ungated. Everything in it is local: key names, edges and events from this machine. Reading input never synthesizes gameplay input; the request functions at the end of this guide are the narrow exceptions, each with its own grant.
+Input comes through the `input` interface. Its controls, bindings, text and field reads and key reservations need `controls`; the demo action read, `demo_pressed`, is ungated. Everything in it is local: key names, edges and events from this machine. Reading input never synthesizes gameplay input; the request functions at the end of this guide are the narrow exceptions, each with its own grant.
 
 ## Reading a frame of input
 
@@ -23,6 +23,30 @@ Key names are physical key names of at most `MAX_CONTROL_KEY_BYTES` (32) bytes, 
 When you only need part of the frame, `read_selected_controls` takes a `selection` — which `keys_pressed` and `keys_held` names to include (none selects all, an empty list selects none) and whether to include `events` — and returns the same record with the unselected fields empty. It shares the `read_controls` callback read budget, so selecting is about copying less, not reading more often.
 
 React to `keys_pressed` for actions. A held key appears in `keys_held` every frame, so treating held as pressed fires your action every frame; the examples check the host-assigned demo edge with `input::demo_pressed` for the same reason — it is true only for the current frame's action edge. If your mod must not act while a menu owns input, check `gameplay` and `focused`: input edges expire with their frame, and edges that arrive while your callback is deferred are not replayed later.
+
+## Reading the player's bindings
+
+Use `input::read_bindings(None, 0, limit)` to start reading the player's current assignments.
+A reply contains a revision, a total count (at most `MAX_INPUT_BINDINGS`) and a bounded page
+(at most `MAX_INPUT_BINDINGS_PER_READ` rows). Advance the offset by the page length until you
+have the total; restart at zero if the revision changes. Suspend action-dependent policy
+while collecting a changed revision. On later frames, pass the last complete revision to
+receive `None` while unchanged. This shares the controls read allowance; small pages let
+mods spread decoding and cache updates across callbacks.
+Each entry names an action (for example `attack`, `jump` or `use`), a gameplay/UI context,
+a physical key and required modifier groups. Alternative entries bind the same action to
+several inputs. The names are the same ones in `keys_held`, including `MouseLeft`, `KeyW`
+and `Space`. These are the player's assignments, including rebinds.
+
+A mod resolves its own action holds: in focused gameplay outside its panel, look for a bound
+key in `keys_held` with the required modifiers. Either left or right satisfies a modifier
+group. A more specific satisfied chord on the same key and in the same context takes
+precedence. Reserved keys are still observable but do not reach ordinary gameplay; account
+for your reservations when requesting game actions. The host separately enforces request
+gates, so handle a refused request even after your own check.
+
+Only keyboard keys and the three observed mouse buttons are currently covered. Gamepads,
+built-in touch controls, mouse axes and additional mouse buttons are not in `keys_held`.
 
 ## Text input
 

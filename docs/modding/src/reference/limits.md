@@ -24,6 +24,9 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
+| `mod_api::MAX_INPUT_BINDINGS_PER_READ` | 16 | Physical binding entries copied per read. |
+| `mod_api::MAX_INPUT_BINDINGS` | 128 | Physical binding entries per settings snapshot. |
+| `mod_api::MAX_INPUT_ACTION_BYTES` | 32 | Bytes per stable binding action name. |
 | `mod_api::MAX_CONTROL_KEYS` | 64 | Reserved physical keys. |
 | `mod_api::MAX_CONTROL_KEY_BYTES` | 32 | Bytes per physical key name. |
 | `ui::mod_panel::MAX_PANEL_BYTES` | 327680 | Whole personal panel JSON bytes. |

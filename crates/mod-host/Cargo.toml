@@ -9,6 +9,7 @@ publish = false
 platform-specific = ["windows"]
 reads = [
     "crates/mod-api/native-render-v1.json",
+    "crates/mod-api/native-frame-v1.json",
     "crates/experience-sdk/wit/client",
     "crates/experience-sdk/wit/session",
     "crates/mod-api/wit",
@@ -31,6 +32,7 @@ name = "cinnabar-media-helper"
 path = "src/bin/media_helper.rs"
 
 [dependencies]
+wat = "1"
 assets = { path = "../assets" }
 experience-sdk = { path = "../experience-sdk", default-features = false, features = ["declarations"] }
 mod-api = { path = "../mod-api" }
@@ -70,7 +72,6 @@ test-alloc = { path = "../test-alloc" }
 test-time = { path = "../test-time" }
 tempfile = "3"
 wasm-metadata = { version = "=0.247.0", default-features = false }
-wat = "1"
 wit-parser.workspace = true
 
 [[bench]]

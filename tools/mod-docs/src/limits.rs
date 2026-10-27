@@ -29,6 +29,9 @@ pub(super) fn render() -> String {
         mod_api::MAX_SETTINGS_BYTES => "Settings JSON bytes.",
     );
     section!("Controls and presentation",
+        mod_api::MAX_INPUT_BINDINGS_PER_READ => "Physical binding entries copied per read.",
+        mod_api::MAX_INPUT_BINDINGS => "Physical binding entries per settings snapshot.",
+        mod_api::MAX_INPUT_ACTION_BYTES => "Bytes per stable binding action name.",
         mod_api::MAX_CONTROL_KEYS => "Reserved physical keys.",
         mod_api::MAX_CONTROL_KEY_BYTES => "Bytes per physical key name.",
         ui::mod_panel::MAX_PANEL_BYTES => "Whole personal panel JSON bytes.",

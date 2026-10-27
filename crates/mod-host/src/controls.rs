@@ -61,6 +61,7 @@ impl ModHost {
 
 pub(super) struct ControlState {
     pub frame: ControlFrame,
+    pub bindings: Option<Arc<crate::InputBindings>>,
     pub text_events: Vec<ui::mod_panel::TextEvent>,
     pub field_events: Vec<ui::mod_panel::FieldEvent>,
     text_events_in_frame: bool,
@@ -99,6 +100,7 @@ impl ControlState {
     pub(super) fn rollback(&mut self) {
         let Self {
             frame: _,
+            bindings: _,
             text_events: _,
             field_events: _,
             text_events_in_frame: _,
@@ -131,6 +133,7 @@ impl ControlState {
     pub fn new(settings: String) -> Self {
         Self {
             frame: empty_controls(),
+            bindings: None,
             text_events: Vec::new(),
             field_events: Vec::new(),
             text_events_in_frame: false,
@@ -202,7 +205,7 @@ impl ControlState {
         self.frame = empty_controls();
     }
 
-    fn budget(&mut self, read: bool) -> Result<()> {
+    pub(super) fn budget(&mut self, read: bool) -> Result<()> {
         let count = if read {
             &mut self.reads
         } else {
