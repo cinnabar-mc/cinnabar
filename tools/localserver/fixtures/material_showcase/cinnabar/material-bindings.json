@@ -1,0 +1,1 @@
+{"format_version":"1.0.0","materials":{"cinnabar:glow":{"base":"entity_alphatest","textures":{"glow_mask":"textures/entity/material_showcase_glow"},"parameters":{"strength":{"scalar":1.5}}}},"bindings":[{"entity":"cinnabar:material_glow","material":"cinnabar:glow"}]}

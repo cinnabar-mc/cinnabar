@@ -219,6 +219,13 @@ pub enum Command {
     TestCape {
         enabled: bool,
     },
+    /// Withdraws a world material effect permission (`render_world_material_vertex`,
+    /// `_scene` or `_passes`) from the running Experience for the rest of the session, or gives
+    /// it back; the reply lists the withdrawn ones.
+    ExperiencePermission {
+        permission: String,
+        withdrawn: bool,
+    },
     /// Changes a placeholder sign-in fixture enabled at hidden-client startup.
     SignInFixture {
         state: SignInFixtureState,

@@ -1072,3 +1072,47 @@ fn material_mappings_alias_faces_to_named_instances() {
     assert_eq!(texture("north"), None);
     assert_eq!(materials.len(), 4);
 }
+
+/// Replays synthetic network NBT carrying every `packed_bools` bit and native `mappings`.
+#[test]
+fn material_instance_palette_fixture_keeps_every_packed_bit() {
+    let bytes = include_str!("../../../fixtures/custom_block_material_instances.hex")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .flat_map(str::split_whitespace)
+        .map(|byte| u8::from_str_radix(byte, 16).expect("fixture byte is hexadecimal"))
+        .collect::<Vec<_>>();
+    let mut reader = bedrock_protocol_1_26_51::wire::Reader::new(&bytes);
+    reader
+        .read_nbt(bedrock_protocol_1_26_51::wire::NbtVariant::Network)
+        .expect("fixture is one network NBT value");
+    reader
+        .expect_consumed()
+        .expect("fixture has no trailing bytes");
+
+    let definition = parse_definition(&bytes).expect("fixture definition");
+    let materials = definition.visual.base.materials.expect("fixture materials");
+    for value in [0_u8, 1, 2, 4, 8, 16, 31] {
+        let material = materials
+            .iter()
+            .find(|material| material.name.as_ref() == format!("bits_{value:02}"))
+            .expect("fixture material");
+        assert_eq!(material.packed_bools, value);
+        assert_eq!(material.ambient_occlusion, 1.0);
+        assert_eq!(
+            material.render_method,
+            protocol_ids::BlockRenderMethod::Opaque
+        );
+        assert_eq!(material.face_dimming(), value & 1 != 0);
+        assert_eq!(material.isotropic(), value & 2 != 0);
+        assert_eq!(material.texture_variations(), value & 4 != 0);
+        assert_eq!(material.alpha_masked_tint(), value & 8 != 0);
+    }
+    for (alias, target) in [("*", 31), ("north", 2), ("fixture_named", 8)] {
+        let aliased = materials
+            .iter()
+            .find(|material| material.name.as_ref() == alias)
+            .expect("mapping alias");
+        assert_eq!(aliased.packed_bools, target);
+    }
+}

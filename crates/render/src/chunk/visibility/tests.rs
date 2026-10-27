@@ -20,6 +20,7 @@ use render_scene::{ChunkRenderInstance, ChunkRenderQueue, ChunkUploadPriority};
 use world::SubChunkKey;
 
 use super::*;
+use crate::chunk::bounds::BoundsKind;
 use crate::chunk::{ChunkEntities, ChunkRenderPlugin};
 
 /// Deterministic SplitMix64 stream, so a failing seed reproduces.
@@ -99,7 +100,7 @@ fn bevy_reference(sections: &[Section]) -> (World, Entity, Vec<Entity>) {
                     },
                     ViewVisibility::default(),
                     GlobalTransform::from_xyz(x, y, z),
-                    crate::chunk::bounds::aabb(section.models),
+                    BoundsKind::of(section.models, false).aabb(),
                 ))
                 .id()
         })
@@ -128,7 +129,12 @@ fn bevy_list(world: &mut World, camera: Entity, frustum: Frustum) -> Vec<Entity>
 fn set_of(entities: &[Entity], sections: &[Section]) -> ChunkVisibilitySet {
     let mut set = ChunkVisibilitySet::default();
     for (&entity, section) in entities.iter().zip(sections) {
-        set.insert(entity, section.origin, section.models, section.shown);
+        set.insert(
+            entity,
+            section.origin,
+            BoundsKind::of(section.models, false),
+            section.shown,
+        );
     }
     set
 }
@@ -396,10 +402,7 @@ fn random_entity(rng: &mut Rng) -> Entity {
 #[test]
 fn incremental_updates_match_full_recomputation() {
     let mut rng = Rng(0x5EED_0005);
-    let kinds = [
-        crate::chunk::bounds::aabb(false),
-        crate::chunk::bounds::aabb(true),
-    ];
+    let kinds = [BoundsKind::Full.aabb(), BoundsKind::Models.aabb()];
     let mut set = ChunkVisibilitySet::default();
     let mut reference = BTreeMap::<Entity, Section>::new();
     let mut removed = Vec::new();
@@ -411,7 +414,12 @@ fn incremental_updates_match_full_recomputation() {
         if roll < 45 || reference.is_empty() {
             let entity = random_entity(&mut rng);
             let section = sections(&mut rng, [0; 3], 1, 10)[0];
-            set.insert(entity, section.origin, section.models, section.shown);
+            set.insert(
+                entity,
+                section.origin,
+                BoundsKind::of(section.models, false),
+                section.shown,
+            );
             reference.insert(entity, section);
         } else if roll < 70 {
             let at = rng.below(reference.len() as u64) as usize;
@@ -423,7 +431,12 @@ fn incremental_updates_match_full_recomputation() {
             // Reinstated after removal, as when an instance is removed and inserted again.
             if let Some(entity) = removed.pop() {
                 let section = sections(&mut rng, [0; 3], 1, 10)[0];
-                set.insert(entity, section.origin, section.models, section.shown);
+                set.insert(
+                    entity,
+                    section.origin,
+                    BoundsKind::of(section.models, false),
+                    section.shown,
+                );
                 reference.insert(entity, section);
             }
         } else if roll < 90 {
@@ -436,7 +449,12 @@ fn incremental_updates_match_full_recomputation() {
             let at = rng.below(reference.len() as u64) as usize;
             let (&entity, section) = reference.iter_mut().nth(at).unwrap();
             section.models = !section.models;
-            set.insert(entity, section.origin, section.models, section.shown);
+            set.insert(
+                entity,
+                section.origin,
+                BoundsKind::of(section.models, false),
+                section.shown,
+            );
         }
         // Removed and unknown entities ignore visibility changes.
         let stray = random_entity(&mut rng);

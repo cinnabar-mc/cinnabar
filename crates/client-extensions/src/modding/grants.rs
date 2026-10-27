@@ -14,6 +14,8 @@ const MOVEMENT_ENV: &str = "CINNABAR_MOD_MOVEMENT";
 const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
 const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
+/// Lets a component create custom retained-drawing materials (`create-material`), beside the
+/// world draw switch.
 const RENDER_MATERIAL_ENV: &str = "CINNABAR_MOD_RENDER_MATERIAL";
 const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
 const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";

@@ -14,6 +14,12 @@ use {
     },
 };
 
+// Guests find a standing player's feet from the eye with the protocol's eye height.
+const _: () = assert!(
+    mod_api::view::STANDING_PLAYER_EYE_HEIGHT.to_bits()
+        == protocol::STANDING_PLAYER_EYE_HEIGHT.to_bits()
+);
+
 /// Loaded personal components and their merged labels, in load order.
 pub struct ModHosts {
     /// Always contains at least one host, in load order.

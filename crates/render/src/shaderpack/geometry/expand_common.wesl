@@ -66,6 +66,9 @@ struct FaceSource {
     /// Liquid surfaces: Iris's fluid render type in `mc_Entity.y`. Kernels leave it at the
     /// zero value, false, for blocks.
     fluid: bool,
+    /// One more than the face's world material slot; zero, the default, draws the Bedrock
+    /// material.
+    world: u32,
 }
 
 /// One job's decoded face: its corners and what they share. `valid` is false for a record
@@ -117,6 +120,19 @@ fn sprite_slot(material: MaterialGpu, opaque: bool) -> u32 {
         slot = base + texture_page(material.texture) * ATLAS_PAGE_SLOTS + u32(texture_layer(material.texture));
     }
     return select(ATLAS_HEADER_SLOTS, slot, slot < arrayLength(&atlas_remap));
+}
+
+/// Remap slot of the rendered sprite of world material tag `world`, or zero when the face has
+/// none or its sprite has not been rendered yet, so it keeps its Bedrock sprite.
+fn world_material_slot(world: u32) -> u32 {
+    if (world == 0u) {
+        return 0u;
+    }
+    let slot = ATLAS_WORLD_SLOT_BASE + world - 1u;
+    if (slot >= arrayLength(&atlas_remap) || atlas_remap[slot].y == 0u) {
+        return 0u;
+    }
+    return slot;
 }
 
 /// Atlas texture coordinates of sprite-local `local` in remap slot `slot`.
@@ -273,8 +289,10 @@ fn job_slot_vertex(job: vec4<u32>, slot: u32, face: JobFace, corner: u32) -> Iri
         corners.positions[0],
     );
     let overlay_slot = (job.w & JOB_OVERLAY_FACE) != 0u;
-    let overlay = material_uses_overlay_mask(source.material.flags) && overlay_slot;
-    let front = sprite_slot(source.material, false);
+    // A rendered world material sprite replaces the Bedrock sprite and its overlay mask.
+    let world = world_material_slot(source.world);
+    let overlay = material_uses_overlay_mask(source.material.flags) && overlay_slot && world == 0u;
+    let front = select(sprite_slot(source.material, false), world, world != 0u);
     if ((job.w & JOB_BACK_ONLY) != 0u) {
         if (source.two_sided) {
             return face_vertex(corners, source, source.tint, front, true, corner);

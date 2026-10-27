@@ -1,5 +1,65 @@
 use super::{MANIFEST, pack, write};
+use assets::{
+    EntityRenderData, EntityRenderLayer,
+    entity::material::{
+        EntityMaterialBlendFactor as Factor, EntityMaterialCompare, EntityMaterialState as State,
+    },
+};
 use serde_json::{Value, json};
+
+/// Summarizes a layer's shading features and its definition's raster as the flags these
+/// fixtures assert: cutout, back-face culling, blending, depth writes, emissive weighting,
+/// additive factors, overlay suppression, depth comparisons and channel writes. False optional
+/// flags are omitted.
+pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> Value {
+    let (Some(state), Some(definition)) = (
+        layer.material_state,
+        layer
+            .material_definition
+            .and_then(|index| render.materials.get(index as usize)),
+    ) else {
+        return Value::Null;
+    };
+    let blend = definition.has_state(State::Blending);
+    let additive = blend && definition.blend[1] == Factor::One;
+    let mut summary = json!({
+        "alpha_test": state.alpha_test,
+        "cull": !definition.has_state(State::DisableCulling),
+        "blend": blend,
+        "depth_write": !definition.has_state(State::DisableDepthWrite),
+    });
+    for (key, enabled) in [
+        ("emissive", state.emissive),
+        ("only_emissive", state.only_emissive),
+        ("additive", additive),
+        (
+            "additive_alpha",
+            additive && definition.blend[0] == Factor::SourceAlpha,
+        ),
+        ("disable_overlay", state.disable_overlay),
+        (
+            "depth_always",
+            definition.depth_func == EntityMaterialCompare::Always,
+        ),
+        (
+            "depth_equal",
+            definition.depth_func == EntityMaterialCompare::Equal,
+        ),
+        (
+            "disable_alpha_write",
+            definition.has_state(State::DisableAlphaWrite),
+        ),
+        (
+            "disable_color_write",
+            definition.has_state(State::DisableColorWrite),
+        ),
+    ] {
+        if enabled {
+            summary[key] = true.into();
+        }
+    }
+    summary
+}
 
 /// Compiles and round-trips the material selected by one fixture actor.
 fn state(material: &str, definitions: Option<&Value>) -> Value {
@@ -15,12 +75,12 @@ fn state(material: &str, definitions: Option<&Value>) -> Value {
     assert_eq!(compiled.render.layers.len(), 1);
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let runtime = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
-    serde_json::to_value(runtime.render_data().layers[0]).unwrap()["material_state"].clone()
+    summary(runtime.render_data(), &runtime.render_data().layers[0])
 }
 
 #[test]
 fn actor_overlay_define_is_inherited_added_removed_and_replaced() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_base": {"defines": [], "states": []},
         "fixture_overlay:fixture_base": {"+defines": ["USE_OVERLAY"]},
         "fixture_inherited:fixture_overlay": {},
@@ -50,7 +110,7 @@ fn charged_material_keeps_texture_rgb_and_adds_it_without_actor_overlay() {
         "depth_write":true,"additive":true,"disable_overlay":true});
     assert_eq!(state("charged_creeper", None), expected);
     assert_eq!(state("charged_creeper.skinning", None), expected);
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_cutout:charged_creeper": {"-states": ["Blending"]},
         "fixture_aura:entity_static": {
             "+defines": ["USE_UV_ANIM", "ALPHA_TEST"],
@@ -62,7 +122,7 @@ fn charged_material_keeps_texture_rgb_and_adds_it_without_actor_overlay() {
     assert_eq!(
         state("fixture_cutout", Some(&definitions)),
         json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true,
-            "additive":true,"disable_overlay":true})
+            "disable_overlay":true})
     );
 }
 
@@ -91,7 +151,7 @@ fn spectator_material_blends_and_respects_authored_raster_overrides() {
         state("player_spectator", None),
         json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})
     );
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "player_spectator:entity": {"+states":["DisableDepthWrite"],"+defines":["ALPHA_TEST"]}
     }});
     assert_eq!(
@@ -173,7 +233,7 @@ fn actor_material_states_keep_slime_outer_blended_culled_and_depth_writing() {
 
 #[test]
 fn sulfur_cube_material_aliases_match_authored_parent_states() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_inner:entity_alphatest": {},
         "fixture_outer:entity": {"+states": ["Blending"]},
         "fixture_override:sulfur_cube_outer": {"-states": ["Blending"]}
@@ -199,7 +259,7 @@ fn wind_material_uses_the_native_double_sided_blended_route_without_depth_writes
     assert_eq!(state("breeze_wind", None), expected);
     // Native material inheritance still includes ALPHA_TEST, but Blending selects
     // the separate transparent Actor pass after the inherited declaration is read.
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "version": "1.0.0",
         "fixture_wind:entity_static": {
             "+defines": ["ALPHA_TEST", "USE_UV_ANIM"],
@@ -215,7 +275,7 @@ fn wind_material_uses_the_native_double_sided_blended_route_without_depth_writes
     );
 }
 
-fn per_bone_pack(rules: Value, alternate: bool) -> tempfile::TempDir {
+pub(super) fn per_bone_pack(rules: Value, alternate: bool) -> tempfile::TempDir {
     let fixture = pack(0, "entity_alphatest", false);
     write(
         fixture.path(),
@@ -262,7 +322,7 @@ fn per_bone_pack(rules: Value, alternate: bool) -> tempfile::TempDir {
     fixture
 }
 
-fn visible(
+pub(super) fn visible(
     compiled: &assets::CompiledEntityAssets,
     layer: &assets::EntityRenderLayer,
     name: &str,
@@ -276,9 +336,15 @@ fn visible(
         let expression = compiled.molang_expressions[rule.condition as usize];
         let operations = &compiled.molang_ops[expression.first_op as usize
             ..expression.first_op as usize + usize::from(expression.op_count)];
-        visible = match operations {
+        let holds = match operations {
             [assets::MolangOp::Push(value)] => value.get() != 0.0,
             _ => panic!("fixture visibility must be constant"),
+        };
+        // A hide-only rule can hide a bone but never reveal one.
+        visible = if rule.hide_only {
+            visible && holds
+        } else {
+            holds
         };
     }
     visible
@@ -300,29 +366,17 @@ fn actor_material_rules_partition_bones_without_revealing_hidden_parts_or_hiding
             .layers
             .iter()
             .filter(|layer| visible(&compiled, layer, name))
-            .map(|layer| layer.material_state.unwrap())
+            .map(|layer| summary(&compiled.render, layer))
             .collect();
         match name {
             "root" => assert!(states.is_empty(), "authored visibility stays hidden"),
             "magnifyingGlass" => assert_eq!(
                 states,
-                vec![assets::EntityRenderMaterialState {
-                    alpha_test: false,
-                    cull: true,
-                    blend: true,
-                    depth_write: true,
-                    ..Default::default()
-                }]
+                vec![json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})]
             ),
             _ => assert_eq!(
                 states,
-                vec![assets::EntityRenderMaterialState {
-                    alpha_test: true,
-                    cull: false,
-                    blend: false,
-                    depth_write: true,
-                    ..Default::default()
-                }]
+                vec![json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true})]
             ),
         }
     }
@@ -349,7 +403,7 @@ fn actor_material_rules_use_the_last_match_and_cover_alternate_geometry_bones() 
             .filter(|layer| visible(&compiled, layer, name))
             .collect();
         assert_eq!(layers.len(), 1);
-        assert!(layers[0].material_state.unwrap().blend);
+        assert_eq!(summary(&compiled.render, layers[0])["blend"], true);
         assert_eq!(layers[0].geometry_count, 2);
     }
     let fixture = per_bone_pack(
@@ -361,7 +415,10 @@ fn actor_material_rules_use_the_last_match_and_cover_alternate_geometry_bones() 
     );
     let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
     assert_eq!(compiled.render.layers.len(), 1);
-    assert!(!compiled.render.layers[0].material_state.unwrap().blend);
+    assert_eq!(
+        summary(&compiled.render, &compiled.render.layers[0])["blend"],
+        false
+    );
     assert!(visible(
         &compiled,
         &compiled.render.layers[0],
@@ -478,7 +535,7 @@ fn native_emissive_aliases_preserve_authored_body_and_eye_states() {
 
 #[test]
 fn only_emissive_define_is_inherited_removed_and_replaced() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture_eyes:spider_invisible": {},
         "fixture_body:fixture_eyes": {"-defines": ["USE_ONLY_EMISSIVE"]},
         "fixture_replaced:fixture_eyes": {"defines": ["ALPHA_TEST"]},
@@ -500,13 +557,32 @@ fn only_emissive_define_is_inherited_removed_and_replaced() {
 
 #[test]
 fn generated_materials_reach_the_carrier_without_fallback() {
-    for (name, mut expected) in assets::facts::pack::rules().material_states() {
-        expected.alpha_test &= !expected.blend;
-        assert_eq!(
-            state(name, None),
-            serde_json::to_value(expected).unwrap(),
-            "{name}"
-        );
+    for (name, native) in assets::facts::pack::rules().material_states() {
+        let mut expected = json!({
+            "alpha_test": native.alpha_test && !native.blend,
+            "cull": native.cull,
+            "blend": native.blend,
+            "depth_write": native.depth_write,
+        });
+        for (key, enabled) in [
+            ("emissive", native.emissive),
+            ("only_emissive", native.only_emissive),
+            ("additive", native.blend && native.additive),
+            (
+                "additive_alpha",
+                native.blend && native.additive && native.additive_alpha,
+            ),
+            ("disable_overlay", native.disable_overlay),
+            ("depth_always", native.depth_always),
+            ("depth_equal", native.depth_equal && !native.depth_always),
+            ("disable_alpha_write", native.disable_alpha_write),
+            ("disable_color_write", native.disable_color_write),
+        ] {
+            if enabled {
+                expected[key] = true.into();
+            }
+        }
+        assert_eq!(state(name, None), expected, "{name}");
     }
     assert!(state("cushion", None).is_null());
 }
@@ -536,7 +612,7 @@ fn ordinary_aliases_keep_cutouts_and_one_sided_limbs() {
 
 #[test]
 fn depth_and_channel_write_states_inherit_and_reset_independently() {
-    let definitions = json!({"materials": {
+    let definitions = json!({"materials": {"version": "1.0.0",
         "fixture:entity": {"depthFunc":"Equal", "+states":["DisableAlphaWrite","DisableColorWrite"]},
         "fixture_child:fixture": {},
         "fixture_removed:fixture": {"depthFunc":"LessEqual", "-states":["DisableAlphaWrite","DisableColorWrite"]},
@@ -556,4 +632,215 @@ fn depth_and_channel_write_states_inherit_and_reset_independently() {
         state("fixture_replaced", Some(&definitions)),
         json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true,"depth_always":true})
     );
+}
+
+/// The value of a compiled condition that folds to a constant.
+fn constant(compiled: &assets::CompiledEntityAssets, condition: u32) -> Option<f32> {
+    let expression = compiled.molang_expressions[condition as usize];
+    match &compiled.molang_ops[expression.first_op as usize
+        ..expression.first_op as usize + usize::from(expression.op_count)]
+    {
+        [assets::MolangOp::Push(value)] => Some(value.get()),
+        _ => None,
+    }
+}
+
+#[test]
+fn material_expressions_draw_each_selectable_material_under_its_condition() {
+    let materials = |rules: Value| {
+        let fixture = per_bone_pack(rules, false);
+        pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap()
+    };
+    // A queried choice: one layer per material, each drawing the bones only while its own
+    // choice holds, so a pack prewarms both and a switch needs no new pipeline.
+    // A second whole-model rule keeps the per-choice expansion; one rule alone is a whole-model
+    // selection evaluated at draw time.
+    let queried = materials(json!([
+        {"*":"Material.default"},
+        {"*":"query.is_baby ? Material.glass : Material.default"}
+    ]));
+    assert_eq!(queried.render.layers.len(), 2);
+    let definitions = queried
+        .render
+        .layers
+        .iter()
+        .map(|layer| layer.material_definition)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        definitions.len(),
+        2,
+        "both selectable materials are compiled"
+    );
+    // The selection follows the expression's value.
+    for (selector, drawn) in [("1.0", "glass"), ("0.0", "default")] {
+        let compiled = materials(json!([
+            {"*": "Material.default"},
+            {"*": format!("{selector} ? Material.glass : Material.default")}
+        ]));
+        let active = compiled
+            .render
+            .layers
+            .iter()
+            .filter(|layer| {
+                ["magnifyingGlass", "handle"]
+                    .iter()
+                    .any(|bone| visible(&compiled, layer, bone))
+            })
+            .map(|layer| summary(&compiled.render, layer))
+            .collect::<Vec<_>>();
+        let expected = materials(json!([{ "*": format!("Material.{drawn}") }]));
+        assert_eq!(
+            active,
+            vec![summary(&expected.render, &expected.render.layers[0])],
+            "{selector}"
+        );
+    }
+    // An array selection draws each element under its index.
+    let fixture = per_bone_pack(
+        json!([{"*":"Material.default"}, {"*":"Array.looks[query.variant]"}]),
+        false,
+    );
+    write(
+        fixture.path(),
+        "render_controllers/example.json",
+        &serde_json::to_vec(&json!({"format_version":"1.8.0","render_controllers":{
+            "controller.render.example":{
+                "arrays":{"materials":{"Array.looks":["Material.default","Material.glass"]}},
+                "geometry":"Geometry.default",
+                "materials":[{"*":"Material.default"},{"*":"Array.looks[query.variant]"}],
+                "textures":["Texture.default"]
+            }
+        }}))
+        .unwrap(),
+    );
+    let indexed = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    assert_eq!(indexed.render.layers.len(), 2);
+    assert!(indexed.render.layers.iter().all(|layer| {
+        let first = layer.first_visibility as usize;
+        indexed.render.visibility[first..first + usize::from(layer.visibility_count)]
+            .iter()
+            .any(|rule| rule.hide_only)
+    }));
+}
+
+#[test]
+fn a_material_choice_whose_condition_does_not_compile_reads_zero_and_draws_the_else_branch() {
+    let fixture = per_bone_pack(
+        // A second whole-model rule keeps the per-choice expansion; one rule alone is a
+        // whole-model selection.
+        json!([{"*":"Material.default"}, {"*":"query.not_a_query ? Material.glass : Material.default"}]),
+        false,
+    );
+    let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    let drawn = compiled
+        .render
+        .layers
+        .iter()
+        .filter(|layer| {
+            ["magnifyingGlass", "handle"]
+                .iter()
+                .any(|bone| visible(&compiled, layer, bone))
+        })
+        .map(|layer| summary(&compiled.render, layer))
+        .collect::<Vec<_>>();
+    let expected = per_bone_pack(json!([{"*":"Material.default"}]), false);
+    let expected = pack_entity_compiler::compile_entity_assets(expected.path(), MANIFEST).unwrap();
+    assert_eq!(
+        drawn,
+        vec![summary(&expected.render, &expected.render.layers[0])]
+    );
+}
+
+#[test]
+fn independent_material_expressions_keep_every_choice_however_many_combinations() {
+    // Six bones, each choosing its material by its own query: 64 combinations of choices.
+    let queries = [
+        "query.is_baby",
+        "query.is_sheared",
+        "query.is_on_fire",
+        "query.is_charged",
+        "query.is_saddled",
+        "query.is_tamed",
+    ];
+    let mut rules = vec![json!({"*":"Material.default"})];
+    rules.extend(queries.iter().enumerate().map(|(index, query)| {
+        json!({ format!("part{index}"): format!("{query} ? Material.glass : Material.default") })
+    }));
+    let fixture = per_bone_pack(Value::Array(rules), false);
+    let bones: Vec<_> = std::iter::once(json!({"name":"root"}))
+        .chain((0..queries.len()).map(|index| {
+            json!({"name":format!("part{index}"),"parent":"root",
+                   "cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]})
+        }))
+        .collect();
+    write(
+        fixture.path(),
+        "models/entity/example.geo.json",
+        &serde_json::to_vec(&json!({"format_version":"1.12.0","minecraft:geometry":[
+            {"description":{"identifier":"geometry.example","texture_width":16,"texture_height":16},
+             "bones":bones},
+            {"description":{"identifier":"geometry.other","texture_width":16,"texture_height":16},
+             "bones":[{"name":"root"}]}
+        ]}))
+        .unwrap(),
+    );
+    let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    // One layer per selectable material, not one per combination.
+    assert_eq!(compiled.render.layers.len(), 2);
+    let glass = per_bone_pack(json!([{"*":"Material.glass"}]), false);
+    let glass = pack_entity_compiler::compile_entity_assets(glass.path(), MANIFEST).unwrap();
+    let glass = summary(&glass.render, &glass.render.layers[0]);
+    let glass_layer = compiled
+        .render
+        .layers
+        .iter()
+        .find(|layer| summary(&compiled.render, layer) == glass)
+        .expect("the material every expression can choose is drawn");
+    // Each part draws in each layer under its own query's choice alone.
+    for layer in &compiled.render.layers {
+        let first = layer.first_visibility as usize;
+        let rules = &compiled.render.visibility[first..first + usize::from(layer.visibility_count)];
+        let mut conditions = std::collections::BTreeSet::new();
+        for index in 0..queries.len() {
+            let name = format!("part{index}");
+            let rule = rules
+                .iter()
+                .find(|rule| rule.pattern.as_ref() == name)
+                .unwrap_or_else(|| panic!("{name} follows its choice"));
+            assert!(rule.hide_only, "{name}");
+            assert!(constant(&compiled, rule.condition).is_none(), "{name}");
+            conditions.insert(rule.condition);
+        }
+        assert_eq!(
+            conditions.len(),
+            queries.len(),
+            "parts choose independently (glass layer {})",
+            std::ptr::eq(layer, glass_layer)
+        );
+    }
+}
+
+#[test]
+fn controllers_draw_with_at_most_their_first_three_texture_expressions() {
+    let fixture = per_bone_pack(json!([{"*":"Material.default"}]), false);
+    write(
+        fixture.path(),
+        "render_controllers/example.json",
+        &serde_json::to_vec(&json!({"format_version":"1.8.0","render_controllers":{
+            "controller.render.example":{
+                "geometry":"Geometry.default",
+                "materials":[{"*":"Material.default"}],
+                "textures":["Texture.default","Texture.default","Texture.default","Texture.default"]
+            }
+        }}))
+        .unwrap(),
+    );
+    let compiled = pack_entity_compiler::compile_entity_assets(fixture.path(), MANIFEST).unwrap();
+    assert!(!compiled.render.layers.is_empty());
+    for layer in compiled.render.layers.iter() {
+        assert_eq!(
+            layer.slot_count, 3,
+            "Bedrock never evaluates a fourth texture"
+        );
+    }
 }

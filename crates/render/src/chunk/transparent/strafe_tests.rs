@@ -77,6 +77,7 @@ pub(super) fn ocean_surface(key: SubChunkKey, shore: bool) -> ChunkRenderInstanc
         priority: ChunkUploadPriority::new(0.0),
         token: None,
         publication_permit: None,
+        world_materials: false,
     }
 }
 
@@ -165,12 +166,15 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
         .init_resource::<TransparentWitnessRequest>()
         .init_resource::<TransparentWitnessEvidence>()
         .init_resource::<crate::chunk::transparent::mixed::MixedTerrainRuntime>()
+        .init_resource::<crate::chunk::world_materials::WorldTerrainSections>()
+        .init_resource::<crate::chunk::world_materials::InterleavedTerrain>()
         .init_resource::<DrawFunctions<Transparent3d>>()
         .init_resource::<ViewSortedRenderPhases<Transparent3d>>()
         .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
         .add_render_command::<Transparent3d, DrawTransparentLiquidDirectCommands>()
         .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
-        .add_render_command::<Transparent3d, crate::chunk::transparent::mixed::DrawMixedTerrainCommands>();
+        .add_render_command::<Transparent3d, crate::chunk::transparent::mixed::DrawMixedTerrainCommands>()
+        .add_render_command::<Transparent3d, crate::chunk::world_materials::DrawInterleavedTerrainCommands>();
     install_visible_transparent_tracking(app.world_mut());
     let mut surfaces = Vec::new();
     for z in -radius..=radius {

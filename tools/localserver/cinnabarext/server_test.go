@@ -173,6 +173,37 @@ func TestNewServerOffersMediaOriginsAndSurfaceMemory(t *testing.T) {
 	}
 }
 
+// A bundle that declares world materials asks for their GPU memory on top of what the offer
+// already reserves, which the client would otherwise refuse every material against.
+func TestNewServerOffersWorldMaterialMemory(t *testing.T) {
+	plain, _ := testServer(t, nil)
+	base, _ := markerOffer(t, plain.Marker())
+	s, _ := testServer(t, func(cfg *Config) {
+		cfg.Bundles[0].Manifest.Permissions |= NewPermissions(PermissionRenderWorldMaterial)
+	})
+	offer, _ := markerOffer(t, s.Marker())
+	want := min(MaxGPUBytes, base.Scope.GPUBytes+uint64(len(offer.Packages))*WorldMaterialGPUBytes)
+	if offer.Scope.GPUBytes != want || want <= base.Scope.GPUBytes {
+		t.Errorf("GPU bytes %d, want %d over the %d already reserved", offer.Scope.GPUBytes, want, base.Scope.GPUBytes)
+	}
+}
+
+// A bundle that may read the scene or draw extra passes asks for their GPU memory too.
+func TestNewServerOffersWorldMaterialEffectsMemory(t *testing.T) {
+	plain, _ := testServer(t, nil)
+	base, _ := markerOffer(t, plain.Marker())
+	for _, permission := range []Permission{PermissionRenderWorldMaterialScene, PermissionRenderWorldMaterialPasses} {
+		s, _ := testServer(t, func(cfg *Config) {
+			cfg.Bundles[0].Manifest.Permissions |= NewPermissions(PermissionRenderWorldMaterial, permission)
+		})
+		offer, _ := markerOffer(t, s.Marker())
+		want := min(MaxGPUBytes, base.Scope.GPUBytes+uint64(len(offer.Packages))*(WorldMaterialGPUBytes+WorldMaterialEffectsGPUBytes))
+		if offer.Scope.GPUBytes != want {
+			t.Errorf("%v: GPU bytes %d, want %d", permission, offer.Scope.GPUBytes, want)
+		}
+	}
+}
+
 // Startup refuses an offer the client would refuse or could not reach.
 func TestNewServerRejects(t *testing.T) {
 	tooMany := func(cfg *Config) {

@@ -257,7 +257,10 @@ impl Fixture {
         )
         .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
         Some(Self {
-            materials: gpu.words(&[0, 0, u32::MAX, 0, 0, 0], storage),
+            materials: gpu.words(
+                &crate::material_records::plain_material(0, 0, assets::NO_ANIMATION),
+                storage,
+            ),
             animations: gpu.words(&[0; 8], storage),
             animation_frames: gpu.words(&[0; 4], storage),
             clock: gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM),
