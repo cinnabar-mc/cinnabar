@@ -41,6 +41,9 @@ pub struct Source {
     pub textures: BTreeSet<String>,
     /// Drawing files read only from the signed bundle.
     pub assets: BTreeSet<String>,
+    /// The identifier namespace whose entities and blocks the bundle's world materials may
+    /// bind, which the manifest signs.
+    pub namespace: Option<String>,
     /// Each declared file's bytes, read beside `experience.toml` at its bundle path.
     pub files: BTreeMap<String, Vec<u8>>,
 }
@@ -70,6 +73,7 @@ struct Client {
     textures: BTreeSet<String>,
     #[serde(default)]
     assets: BTreeSet<String>,
+    namespace: Option<String>,
 }
 
 impl Source {
@@ -107,6 +111,7 @@ impl Source {
             templates: client.templates,
             textures: client.textures,
             assets: client.assets,
+            namespace: client.namespace,
             files: BTreeMap::new(),
         };
         let root = path.parent().unwrap_or(Path::new("."));
@@ -173,6 +178,7 @@ pub fn build(
         channels: source.channels.clone(),
         actions: source.actions.clone(),
         templates: source.templates.clone(),
+        namespace: source.namespace.clone(),
         files: entries
             .iter()
             .map(|(path, bytes)| ContentFile {

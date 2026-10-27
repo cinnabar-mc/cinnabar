@@ -128,6 +128,13 @@ pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_AZALEA
     )
 }
+
+/// Templates in one stair topology group: the straight shape and four corner shapes.
+pub const STAIR_TEMPLATE_COUNT: u32 = 5;
+/// Templates in one thin-pane group, one per connection mask.
+pub const PANE_TEMPLATE_COUNT: u32 = 16;
+/// Templates in one fence group: the post, then one arm set per connection mask.
+pub const FENCE_TEMPLATE_COUNT: u32 = 1 + 16;
 /// Number of positional sprite variants in each bubble-column surface group.
 pub const BUBBLE_COLUMN_POSITION_VARIANTS: u32 = 4;
 /// Submerged and exposed bubble-column templates, in that order.
@@ -196,6 +203,42 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_AZALEA
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+}
+
+/// Number of templates from `first` that terrain meshing and model consumers may select for a
+/// visual whose template is `first`: a topology group's complete span, or the compound chain
+/// otherwise. `None` when the selection has no fixed span, as for nether portals, or the flags
+/// are unknown, so copying the span never drops a template the mesher can reach.
+#[must_use]
+pub fn model_template_span(templates: &[ModelTemplate], first: u32) -> Option<u32> {
+    let flags = templates.get(first as usize)?.flags;
+    let group = match flags {
+        MODEL_TEMPLATE_FLAG_STAIR => STAIR_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_PANE => PANE_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER => FENCE_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_DOOR => crate::door::TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN => BUBBLE_COLUMN_TEMPLATE_COUNT,
+        MODEL_TEMPLATE_FLAG_FIRE => crate::fire::FIRE_TEMPLATE_COUNT,
+        0
+        | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+        | MODEL_TEMPLATE_FLAG_KELP
+        | MODEL_TEMPLATE_FLAG_WALL
+        | MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+        | MODEL_TEMPLATE_FLAG_SNOW_LAYER
+        | MODEL_TEMPLATE_FLAG_LILY_PAD
+        | MODEL_TEMPLATE_FLAG_BAMBOO
+        | MODEL_TEMPLATE_FLAG_TORCH
+        | MODEL_TEMPLATE_FLAG_SHORT_GRASS => {
+            return model_template_parts(templates, first).map(|parts| parts.len() as u32);
+        }
+        _ if flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0
+            && model_template_flags_are_valid(flags) =>
+        {
+            return model_template_parts(templates, first).map(|parts| parts.len() as u32);
+        }
+        _ => return None,
+    };
+    (templates.len() >= first as usize + group as usize).then_some(group)
 }
 
 /// Page field of a texture reference: three bits above the GPU metadata word,

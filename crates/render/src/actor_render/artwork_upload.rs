@@ -13,7 +13,6 @@ pub(super) struct PendingPage {
     size: Extent3d,
     /// Rows written so far, counted across layers in layer-major order.
     written_rows: u32,
-    pub(super) color_mask: bool,
     pub(super) multitexture: bool,
     reduce: bool,
     raw_views: ArtworkRawViews,
@@ -56,7 +55,6 @@ pub(super) fn start_page(
                 pixels: fitted.shared_pixels(),
                 size,
                 written_rows: 0,
-                color_mask: page.color_mask,
                 multitexture: page.multitexture,
                 reduce,
                 raw_views,
@@ -146,7 +144,6 @@ pub(super) fn continue_page(
         _texture: pending.texture,
         view,
         bind_group: None,
-        color_mask: pending.color_mask,
         multitexture: pending.multitexture,
         raw_views: pending.raw_views,
     })
@@ -163,7 +160,6 @@ fn retry_smaller(device: &RenderDevice, pending: PendingPage) -> Progress {
         height: pending.size.height as u16,
         layers: pending.size.depth_or_array_layers,
         rgba8: pending.pixels,
-        color_mask: pending.color_mask,
         multitexture: pending.multitexture,
     };
     drop(pending.texture);

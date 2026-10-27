@@ -10,9 +10,11 @@ use image::RgbaImage;
 mod decode;
 mod frames;
 mod mips;
+mod pages;
 mod sources;
 
 pub use mips::{PbrMipLayer, build_pbr_mips};
+pub use pages::{LOW_PBR_TILE_SIZE, MAX_AUTHORED_LAYERS, PbrPageArrays, PbrPages, neutral_layer};
 
 use assets::texture::PBR_REF_MATERIAL;
 
@@ -345,6 +347,37 @@ impl PbrTexture {
         }
         Ok(frame)
     }
+}
+
+/// Builds an authored texture from a validated Bedrock texture set whose images `image` reads
+/// by the name the set gives them, already resolved within the set's own pack. Uniform layers
+/// need no image. Normals are read in the DirectX convention, as Bedrock authors them.
+pub fn pbr_texture_from_texture_set(
+    set: &pack_compile_input::texture_set::TextureSetDefinition,
+    image: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+) -> Result<PbrTexture, String> {
+    use pack_compile_input::texture_set::TextureSetLayer;
+    sources::texture_from_set(
+        set,
+        PbrColorStyle::Unspecified,
+        PbrNormalFormat::DirectX,
+        &mut |layer, channels, _| match layer {
+            TextureSetLayer::Uniform(pixel) => Ok(sources::uniform(*pixel)),
+            TextureSetLayer::Image(name) => {
+                let bytes = image(name).ok_or_else(|| format!("texture set cannot find {name}"))?;
+                sources::image_bytes(&bytes, channels)
+            }
+        },
+    )
+}
+
+/// Whether a texture set carries anything besides colour: a normal or height map or a
+/// material layer.
+#[must_use]
+pub fn texture_set_has_surface(
+    set: &pack_compile_input::texture_set::TextureSetDefinition,
+) -> bool {
+    set.normal.is_some() || set.heightmap.is_some() || set.material.is_some()
 }
 
 /// Pack priority is first-to-last; a Bedrock texture set never borrows another pack's images.

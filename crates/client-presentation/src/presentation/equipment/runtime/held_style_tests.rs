@@ -115,7 +115,9 @@ fn evaluated_held_style_reaches_both_hands_and_third_person_for_startup_and_pack
                     assert_eq!(selected.overlay, [0.1, 0.2, 0.3, 0.4]);
                     assert_eq!(selected.uv_anim, [0.25, 0.125, 0.5, 0.75]);
                     let state = selected.material_state.unwrap();
-                    assert!(state.depth_always && !state.cull && !state.disable_overlay);
+                    let raster = selected.render_state.unwrap();
+                    assert!(raster.ignores_stored_depth() && !state.disable_overlay);
+                    assert_eq!(raster.cull, render_api::render_state::CullMode::None);
                     assert!(selected.ignore_lighting);
                     assert_eq!(selected.light_color_multiplier, 0.6);
                     if first_person {
@@ -409,8 +411,13 @@ fn held_dissolve_passes_keep_a_drawable_packet_in_both_views_and_hands() {
                                 let selected_state = selected.material_state;
                                 if authored_state {
                                     let state = selected_state.expect("authored raster state");
-                                    assert!(state.alpha_test && !state.cull);
-                                    assert!(!state.depth_always && !state.disable_overlay);
+                                    let raster = selected.render_state.unwrap();
+                                    assert!(state.alpha_test && !state.disable_overlay);
+                                    assert_eq!(
+                                        raster.cull,
+                                        render_api::render_state::CullMode::None
+                                    );
+                                    assert!(!raster.ignores_stored_depth());
                                 } else {
                                     assert_eq!(
                                         selected_state, None,

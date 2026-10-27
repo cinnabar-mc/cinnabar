@@ -29,7 +29,7 @@ use crate::{
 // their native upper-left crop. Model texture arrays require explicit state selectors, and
 // texture references carry three page bits so a session palette can shard across several
 // device-limited arrays; reject earlier carriers.
-pub const BLOB_VERSION: u32 = 19;
+pub const BLOB_VERSION: u32 = 21;
 pub const BLOB_MAGIC: [u8; 8] = {
     let mut magic = *b"MCBEAS00";
     magic[6] += (BLOB_VERSION / 10) as u8;
@@ -177,6 +177,10 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         push_u32(&mut bytes, material.variation_start);
         push_u32(&mut bytes, material.variation_count);
         push_u32(&mut bytes, material.variation_weight);
+        push_u32(&mut bytes, material.glow_mask);
+        push_u32(&mut bytes, material.emissive_mask);
+        push_u32(&mut bytes, material.mask_strength);
+        push_u32(&mut bytes, material.ao_exponent);
     }
     for template in &compiled.model_templates {
         push_u32(&mut bytes, template.quad_start);
@@ -321,6 +325,11 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         validate_texture_ref(material.texture, &compiled.texture_pages, "material")?;
         if !material_flags_are_valid(material.flags) {
             return Err(invalid(format!("material {index} has unsupported flags")));
+        }
+        if !f32::from_bits(material.ao_exponent).is_finite() {
+            return Err(invalid(format!(
+                "material {index} has a non-finite AO exponent"
+            )));
         }
         optional_id(
             material.animation,
@@ -664,7 +673,8 @@ pub(crate) fn compiled_stair_bases(
             index += 1;
             continue;
         }
-        let Some(group) = templates.get(index..index + 5) else {
+        let Some(group) = templates.get(index..index + crate::model::STAIR_TEMPLATE_COUNT as usize)
+        else {
             return Err(invalid("stair template group is truncated"));
         };
         if group
@@ -674,7 +684,7 @@ pub(crate) fn compiled_stair_bases(
             return Err(invalid("stair template group is noncanonical"));
         }
         bases.push(index);
-        index += 5;
+        index += crate::model::STAIR_TEMPLATE_COUNT as usize;
     }
     Ok(bases)
 }
@@ -701,7 +711,9 @@ pub(crate) fn compiled_connected_bases(
             bases.push((index, flag));
             index += crate::door::TEMPLATE_COUNT as usize;
         } else if flag == MODEL_TEMPLATE_FLAG_PANE {
-            let Some(group) = templates.get(index..index + 16) else {
+            let Some(group) =
+                templates.get(index..index + crate::model::PANE_TEMPLATE_COUNT as usize)
+            else {
                 return Err(invalid("pane template group is truncated"));
             };
             if group.iter().enumerate().any(|(mask, template)| {
@@ -710,12 +722,14 @@ pub(crate) fn compiled_connected_bases(
                 return Err(invalid("pane template group is noncanonical"));
             }
             bases.push((index, flag));
-            index += 16;
+            index += crate::model::PANE_TEMPLATE_COUNT as usize;
         } else if matches!(
             flag,
             MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER
         ) {
-            let Some(group) = templates.get(index..index + 17) else {
+            let Some(group) =
+                templates.get(index..index + crate::model::FENCE_TEMPLATE_COUNT as usize)
+            else {
                 return Err(invalid("fence template group is truncated"));
             };
             if group.iter().enumerate().any(|(offset, template)| {
@@ -729,7 +743,7 @@ pub(crate) fn compiled_connected_bases(
                 return Err(invalid("fence template group is noncanonical"));
             }
             bases.push((index, flag));
-            index += 17;
+            index += crate::model::FENCE_TEMPLATE_COUNT as usize;
         } else if flag == MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN {
             let Some(group) =
                 templates.get(index..index + crate::BUBBLE_COLUMN_TEMPLATE_COUNT as usize)

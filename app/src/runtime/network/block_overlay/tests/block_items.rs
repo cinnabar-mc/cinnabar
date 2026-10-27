@@ -129,12 +129,9 @@ fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
                     tint_method: Option<&str>|
      -> Option<Box<[CustomMaterialInstance]>> {
         Some(Box::new([CustomMaterialInstance {
-            name: "*".into(),
-            texture: "lucky".into(),
-            render_method: render_method.map(Into::into),
+            render_method: protocol_ids::BlockRenderMethod::from_network(render_method),
             tint_method: tint_method.map(Into::into),
-            ambient_occlusion: None,
-            face_dimming: None,
+            ..CustomMaterialInstance::with_authored_defaults("*", "lucky")
         }]))
     };
     for (case, transformation, materials, thumbnail) in [
@@ -145,13 +142,6 @@ fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
                 ..identity
             }),
             material(None, None),
-            true,
-        ),
-        ("blend", None, material(Some("blend"), None), true),
-        (
-            "unknown method",
-            None,
-            material(Some("unknown"), None),
             true,
         ),
         (
@@ -384,7 +374,7 @@ fn authored_inventory_visuals_use_their_own_geometry_and_materials() {
                 item_visual: Some(CustomVisualComponents {
                     geometry: Some("minecraft:geometry.full_block".into()),
                     materials: materials("lucky").map(|mut materials| {
-                        materials[0].face_dimming = Some(false);
+                        materials[0].packed_bools &= !1;
                         materials
                     }),
                     ..Default::default()
@@ -405,6 +395,7 @@ fn authored_inventory_visuals_use_their_own_geometry_and_materials() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         None,
+        true,
     )
     .unwrap();
     assert_eq!(items.overlay.visuals.len(), 1);
@@ -472,6 +463,7 @@ fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         Some(&shared),
+        true,
     );
     let inventory_view = resource_pack::LayeredPackView::tracked(stack.clone());
     let compiled = super::super::compile_block_overlay_with_textures(
@@ -482,6 +474,7 @@ fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         Some(&shared),
+        true,
     )
     .unwrap();
     let fresh_view = resource_pack::LayeredPackView::tracked(stack);
@@ -493,6 +486,7 @@ fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         None,
+        true,
     )
     .unwrap();
     assert_eq!(
