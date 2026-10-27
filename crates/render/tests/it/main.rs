@@ -10,6 +10,9 @@ mod chunk_constants;
 mod gpu_snapshot;
 #[path = "../../src/hand_rig_render/bindings.rs"]
 mod hand_rig_bindings;
+mod material_fx;
+#[path = "support/material_records.rs"]
+mod material_records;
 #[path = "../../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared production shader substitutions")]
 mod material_shader;
@@ -55,6 +58,7 @@ mod cloud_config;
 mod cloud_render;
 mod cube_tint_raster;
 mod dragon_death_rays;
+mod drawing_material_fx;
 mod end_rod_snapshot;
 mod end_sky;
 mod entity_shadow;
@@ -98,5 +102,6 @@ mod terrain_seams;
 mod transparent_terrain;
 mod ui_textures;
 mod water_material;
+mod world_material_terrain;
 mod world_model_colour;
 mod world_seams;

@@ -27,6 +27,11 @@ pub(crate) const JOB_BACK_ONLY: u32 = 1 << 18;
 /// Model jobs store the template quad index below the face flags.
 pub(crate) const JOB_MODEL_QUAD_MASK: u32 = JOB_OVERLAY_FACE - 1;
 const _: () = assert!(assets::MAX_MODEL_TEMPLATE_QUADS <= JOB_MODEL_QUAD_MASK as usize + 1);
+/// Model jobs store the draw's world material tag from this bit, above the face flags; cube
+/// jobs read theirs from the packed quad.
+pub(crate) const JOB_WORLD_SHIFT: u32 = 24;
+const _: () = assert!(JOB_BACK_ONLY < 1 << JOB_WORLD_SHIFT);
+const _: () = assert!((PackedQuad::MAX_WORLD_MATERIAL as u32) < 1 << (32 - JOB_WORLD_SHIFT));
 
 /// Iris geometry categories, in the order a section's faces are stored.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -152,7 +157,7 @@ fn model_flags(
     model_refs: &[PackedModelRef],
     draw: PackedModelDrawRef,
 ) -> Option<u32> {
-    let [model_ref, quad_index] = draw.words();
+    let (model_ref, quad_index) = (draw.model_ref_index(), draw.quad_index());
     let template_id = model_refs.get(model_ref as usize)?.words()[1];
     let template = tables.model_templates.get(template_id as usize)?;
     (quad_index < template.quad_count).then_some(())?;
@@ -235,14 +240,17 @@ pub(crate) fn plan_section(
         ),
     ] {
         for draw in draws {
-            let [model, quad] = draw.words();
+            // A world-material draw keeps its tag, which selects the material's atlas sprite
+            // once that is rendered.
+            let (model, quad) = (draw.model_ref_index(), draw.quad_index());
             let flags = model_flags(tables, section.model_refs, *draw).unwrap_or(0);
+            let world = u32::from(draw.world_material()) << JOB_WORLD_SHIFT;
             categories[category.index()].push(
                 FACING_REST,
                 JobKind::Model,
                 section.model_base + model,
                 metadata,
-                flags | quad,
+                flags | quad | world,
             );
         }
     }

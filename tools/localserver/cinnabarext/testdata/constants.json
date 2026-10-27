@@ -7,7 +7,7 @@
   "manifest_domain": "Cinnabar/experience/manifest/v1\u0000",
   "wire_version": 1,
   "max_wire_version": 2,
-  "api_version": 1,
+  "api_version": 4,
   "initial_bundle_generation": 1,
   "max_marker_bytes": 65536,
   "max_manifest_bytes": 4194304,

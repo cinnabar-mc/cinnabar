@@ -246,7 +246,10 @@ fn model_back_faces_follow_the_template_quads_sidedness_not_the_material() {
         model_quads: &model_quads,
     };
     let model_refs = [PackedModelRef::new(0, 0, 0, 0b11)];
-    let draws = [PackedModelDrawRef::new(0, 0), PackedModelDrawRef::new(0, 1)];
+    let draws = [
+        PackedModelDrawRef::new(0, 0),
+        PackedModelDrawRef::new(0, 1).with_world_material(9),
+    ];
     let section = SectionGeometry {
         metadata_index: 0,
         quad_base: 0,
@@ -262,6 +265,11 @@ fn model_back_faces_follow_the_template_quads_sidedness_not_the_material() {
     let plan = plan_section(&section, &tables);
     assert_eq!(face_range(&plan, JobKind::Model), [(0, 2), (2, 1)]);
     assert_eq!(plan.jobs[JobKind::Model as usize][0][3], JOB_REVERSE_FACE);
+    // A bound draw keeps its world material tag above the flags and its quad index.
+    assert_eq!(
+        plan.jobs[JobKind::Model as usize][1][3],
+        1 | (9 << JOB_WORLD_SHIFT)
+    );
 }
 
 #[test]

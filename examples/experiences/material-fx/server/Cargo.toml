@@ -1,0 +1,16 @@
+[package]
+name = "experience-material-fx"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+experience-sdk = { path = "../../../../crates/experience-sdk", default-features = false, features = ["server"] }
+
+[lints]
+workspace = true

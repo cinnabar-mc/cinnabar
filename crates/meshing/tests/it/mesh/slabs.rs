@@ -359,3 +359,37 @@ fn compiled_partial_slab_walls_are_cave_open_but_full_slab_walls_occlude() {
         "a complete wall of full slabs must separate opposite cave faces"
     );
 }
+
+#[test]
+fn bound_model_blocks_tag_every_model_draw_and_keep_their_template_quads() {
+    let fixture = compiled_slab_fixture();
+    let sub_chunk = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.lower],
+        &[([4, 4, 4], 1)],
+    )]);
+    let mesh = |tags: &[meshing::WorldMaterialBlock]| {
+        meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &BlockClassifier::new(fixture.air),
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            &world::MeshNeighbourhood::new(&sub_chunk),
+            &meshing::lighting::FullBrightLightSampler,
+            meshing::MeshOptions {
+                world_materials: tags,
+                ..Default::default()
+            },
+        )
+    };
+    let bedrock = mesh(&[]);
+    let bound = mesh(&[meshing::WorldMaterialBlock::new(fixture.lower, 2, false)]);
+    assert!(!bedrock.model_draw_refs().is_empty());
+    assert!(bedrock.model_draw_refs().iter().all(|draw| draw.world_material() == 0));
+    assert_eq!(bound.model_draw_refs().len(), bedrock.model_draw_refs().len());
+    for (tagged, plain) in bound.model_draw_refs().iter().zip(bedrock.model_draw_refs()) {
+        assert_eq!(tagged.world_material(), 2);
+        assert_eq!(tagged.quad_index(), plain.quad_index());
+        assert_eq!(tagged.model_ref_index(), plain.model_ref_index());
+    }
+    assert_eq!(bound.model_refs(), bedrock.model_refs(), "only the draws carry the tag");
+}

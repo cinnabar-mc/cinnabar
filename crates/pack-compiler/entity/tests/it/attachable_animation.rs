@@ -403,6 +403,6 @@ fn existing_attachable_fixture_keeps_compiled_bytes() {
     digest.update(equipment);
     assert_eq!(
         format!("{:x}", digest.finalize()),
-        "b6d3dc483c6f265fa10ac40ed47ab4bc495fadc48ed3ec9f00c11b191c2cad15"
+        "9b08b9ce6973d7b626788c9704ceca02bbcec7fa0ec15dca5b80a96accd8b3c3"
     );
 }

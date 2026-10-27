@@ -165,6 +165,7 @@ fn oversized_hand_glint_is_fitted_and_unchanged_uploads_are_retained() {
 
 fn single_instance_frame() -> ActorRigRenderFrame {
     ActorRigRenderFrame {
+        rasters: Arc::from([]),
         frame_generation: 1,
         geometry_revision: 1,
         instances: Arc::from([ActorGpuInstance::default()]),
@@ -178,6 +179,7 @@ fn single_instance_frame() -> ActorRigRenderFrame {
             vertex_count: 1,
         }]),
         manifest: Arc::from([]),
+        world_draws: Arc::from([]),
         maximum_vertex_count: 36,
         rejects: render_model::ActorRigRejects::default(),
     }

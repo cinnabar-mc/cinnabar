@@ -105,6 +105,7 @@ impl VerifiedBundle {
             "invalid action declaration"
         );
         manifest.validate_screens()?;
+        manifest.validate_namespace()?;
         ensure!(
             manifest.files.len() + 1 == entries.len(),
             "unindexed archive entry"
