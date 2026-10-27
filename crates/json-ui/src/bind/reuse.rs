@@ -528,17 +528,17 @@ fn finish_preparation(node: &mut Node) {
 
 /// Settle the bind's bookkeeping bottom-up: counts, reads, fixed points and
 /// what changed. Returns whether the subtree changed.
-pub(super) fn finish(node: &mut Node) -> bool {
+pub(super) fn finish(node: &mut Node, data: &DataSource) -> bool {
     let mut dirty = node.track.fresh || node.track.touched;
     for child in &mut node.children {
-        dirty |= finish(child);
+        dirty |= finish(child, data);
     }
     node.track.dirty = dirty;
     if !dirty {
         return false;
     }
     if node.track.fresh {
-        node.track.settled = settled(node);
+        node.track.settled = settled(node, data);
     } else if node.track.touched {
         node.track.settled = false;
     }
@@ -572,16 +572,26 @@ pub(super) fn finish(node: &mut Node) -> bool {
     true
 }
 
-/// Whether a rebuilt control's state equals the state it was rebuilt from.
-fn settled(node: &Node) -> bool {
+/// Whether an ordinary refresh can leave this control's retained state unchanged.
+fn settled(node: &Node, data: &DataSource) -> bool {
     if !node.retained {
         return true;
     }
-    let Some(prior) = node.track.prior.as_deref() else {
-        return false;
+    let Some(prior) = node.track.prior.as_deref().filter(|prior| prior.retained) else {
+        // Views settle separately, and consumed once bindings have no next-refresh work.
+        // Creation feeds, direct controller writes, factories and radio groups can still
+        // overwrite the first result on refresh, so they need the ordinary comparison.
+        return node.scope.values.is_empty()
+            && !data.controls.contains_key(node.src.name())
+            && node.src.get().factory.is_none()
+            && node.src.prop("radio_toggle_group") != Some(&Value::Bool(true))
+            && node.bindings.iter().enumerate().all(|(index, binding)| {
+                matches!(binding.kind, Kind::View { .. })
+                    || (binding.condition == super::spec::Condition::Once
+                        && node.memory.once.contains(&index))
+            });
     };
-    prior.retained
-        && node.own == prior.own
+    node.own == prior.own
         && node.native == prior.native
         && node.memory.once == prior.memory.once
         && node.memory.seen == prior.memory.seen

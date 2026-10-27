@@ -221,7 +221,7 @@ fn bind_with(
     };
     let mut node = binder.build(Src::root(Arc::clone(root)), &scope, 0);
     binder.settle_views(&mut node);
-    reuse::finish(&mut node);
+    reuse::finish(&mut node, data);
     binder.retain(node);
     binder.diagnostics
 }

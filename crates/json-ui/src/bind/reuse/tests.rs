@@ -372,22 +372,22 @@ fn published_bag_writes_rebind_only_the_owner_and_notify_its_views() {
             vec![],
         ),
     ];
-    children.extend(
-        (0..512).map(|index| control(&format!("fixed{index}"), "panel", json!({}), vec![])),
-    );
+    children.extend((0..512).map(|index| {
+        control(
+            &format!("fixed{index}"),
+            "label",
+            json!({"text":"#text", "property_bag":{"#caption":"kept"}, "bindings":[
+                {"binding_name":"#unread", "binding_condition":"once"},
+                {"binding_type":"view", "source_property_name":"#caption", "target_property_name":"#text"}
+            ]}),
+            vec![],
+        )
+    }));
     let root = Arc::new(control("root", "panel", json!({}), children));
     let data = Arc::new(DataSource::new());
     let mut state = BindState::new();
     let mut bound = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state);
     let mut measures = crate::MeasureCache::default();
-    crate::rebind(
-        &root,
-        &data,
-        &EmptyLibrary,
-        &mut state,
-        &mut bound,
-        &mut measures,
-    );
     state.publish("/root/source", "#counter", Scalar::Text("second".into()));
     crate::rebind(
         &root,
@@ -397,12 +397,49 @@ fn published_bag_writes_rebind_only_the_owner_and_notify_its_views() {
         &mut bound,
         &mut measures,
     );
-    assert_eq!(captions(&bound), ["second"]);
+    let captions = captions(&bound);
+    assert_eq!(captions[0], "second");
+    assert!(captions[1..].iter().all(|caption| *caption == "kept"));
     assert!(
         state.rebuilt() < 8,
         "bag feedback rebuilt {} controls",
         state.rebuilt()
     );
+}
+
+#[test]
+fn refresh_inputs_can_replace_new_once_binding_outputs() {
+    for creation in [false, true] {
+        let root = Arc::new(control(
+            "label",
+            "label",
+            json!({"text":"#text", "bindings":[{
+                "binding_name":"#caption", "binding_name_override":"#text",
+                "binding_condition":"once"
+            }]}),
+            vec![],
+        ));
+        let mut data = DataSource::new();
+        data.set_global("#caption", Scalar::Text("first".into()));
+        if creation {
+            data.set_creation_value("#text", Scalar::Text("refreshed".into()));
+        } else {
+            data.set_control_value("label", "#text", Scalar::Text("refreshed".into()));
+        }
+        let data = Arc::new(data);
+        let mut state = BindState::new();
+        let mut bound = crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state);
+        assert_eq!(captions(&bound), ["first"]);
+        crate::rebind(
+            &root,
+            &data,
+            &EmptyLibrary,
+            &mut state,
+            &mut bound,
+            &mut crate::MeasureCache::default(),
+        );
+        assert_eq!(captions(&bound), ["refreshed"]);
+    }
 }
 
 #[test]

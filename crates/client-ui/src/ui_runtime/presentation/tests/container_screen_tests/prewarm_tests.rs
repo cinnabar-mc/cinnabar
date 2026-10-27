@@ -247,6 +247,9 @@ fn prepared_scroll_feedback_keeps_unchanged_binding_lifetimes() {
     let expected = draw(&mut cold, &runtime, &player, 100);
     let opened = draw(&mut warm, &runtime, &player, 100);
     assert_eq!(opened.vertices, expected.vertices);
+    let expected_feedback = draw(&mut cold, &runtime, &player, 150);
+    let feedback = draw(&mut warm, &runtime, &player, 150);
+    assert_eq!(feedback.vertices, expected_feedback.vertices);
     let rebuilt = warm.engine_inventory_rebuilt() - prepared;
     assert!(
         rebuilt < 16,
