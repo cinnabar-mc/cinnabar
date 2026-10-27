@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn copying_sparse_variables_visits_only_assigned_slots() {
+fn copying_warm_sparse_variables_visits_only_assigned_slots() {
     let layout = VariableLayout {
         variable_count: 100_000,
         temp_count: 40_000,
@@ -14,6 +14,9 @@ fn copying_sparse_variables_visits_only_assigned_slots() {
     variables
         .store(Place::Temporary(4), MolangValue::ActorReference(42))
         .unwrap();
+    for _ in 0..3 {
+        drop(variables.clone());
+    }
     super::super::selection_work::take();
     let copy = variables.clone();
     let work = super::super::selection_work::take();
