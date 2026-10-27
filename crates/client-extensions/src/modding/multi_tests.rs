@@ -18,6 +18,7 @@ fn keys_reserved_by_an_earlier_mod_are_withheld_and_panel_events_go_to_the_owner
     let mut frame = mod_host::empty_controls();
     frame.keys_pressed = vec!["Digit1".into(), "KeyQ".into()];
     frame.keys_held = vec!["Digit1".into(), "ShiftLeft".into()];
+    frame.keys_admitted = vec!["Digit1".into(), "ShiftLeft".into()];
     frame.events = vec![mod_host::ControlEvent {
         id: "enabled".into(),
         value: 1.0,
@@ -27,6 +28,8 @@ fn keys_reserved_by_an_earlier_mod_are_withheld_and_panel_events_go_to_the_owner
     let later = claim_controls(&frame, &["Digit1".into()], false, &[]);
     assert_eq!(later.keys_pressed, ["KeyQ"]);
     assert_eq!(later.keys_held, ["ShiftLeft"]);
+    // Current-callback reservations do not rewrite the already finalized native gate.
+    assert_eq!(later.keys_admitted, frame.keys_admitted);
     assert!(later.events.is_empty());
     assert_eq!((later.pointer, later.wheel), (None, 0.0));
     let owner = claim_controls(&frame, &[], true, &[]);

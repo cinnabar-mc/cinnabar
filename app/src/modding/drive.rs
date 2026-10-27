@@ -226,7 +226,11 @@ pub(super) fn drive_mod(
         &mut screen_input,
     );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
-    let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    controls.keys_admitted = bindings::admitted_keys(
+        gameplay.input.as_deref().and_then(|input| input.snapshot()),
+        captured && !absorbed,
+    );
     let chat_events = std::mem::take(&mut extension.chat_events);
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registrations: Vec<_> = extension

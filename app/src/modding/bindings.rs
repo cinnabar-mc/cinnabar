@@ -34,22 +34,7 @@ impl Bindings {
 
 /// Keeps only controls that the existing physical key observation can actually name.
 fn project(binding: &ActionBinding) -> Option<InputActionBinding> {
-    let key = match binding.chord.control {
-        PhysicalControl::KeyboardUsage(usage) => {
-            let (code, _) = client_shell::physical_input::DESKTOP_KEYS
-                .iter()
-                .find(|(_, key)| key.usage() == Some(usage))?;
-            format!("{code:?}")
-        }
-        PhysicalControl::MouseButton(button) => super::input::POINTER_BUTTONS
-            .iter()
-            .find(|(physical, _)| {
-                client_shell::physical_input::mouse_button_code(*physical) == Some(button)
-            })?
-            .1
-            .to_owned(),
-        _ => return None,
-    };
+    let key = physical_name(binding.chord.control)?;
     let modifiers = binding.chord.modifiers;
     Some(InputActionBinding {
         action: binding.action.binding_name().to_owned(),
@@ -67,5 +52,49 @@ fn project(binding: &ActionBinding) -> Option<InputActionBinding> {
     })
 }
 
+/// Maps routed controls and player chords through the same desktop naming contract.
+pub(super) fn physical_name(control: PhysicalControl) -> Option<String> {
+    match control {
+        PhysicalControl::KeyboardUsage(usage) => {
+            let (code, _) = client_shell::physical_input::DESKTOP_KEYS
+                .iter()
+                .find(|(_, key)| key.usage() == Some(usage))?;
+            Some(format!("{code:?}"))
+        }
+        PhysicalControl::MouseButton(button) => Some(
+            super::input::POINTER_BUTTONS
+                .iter()
+                .find(|(physical, _)| {
+                    client_shell::physical_input::mouse_button_code(*physical) == Some(button)
+                })?
+                .1
+                .to_owned(),
+        ),
+        _ => None,
+    }
+}
+
+/// Copies the finalized router's admission for this callback, independently of game actions.
+pub(super) fn admitted_keys(
+    input: Option<&semantic_input::ActionSnapshot>,
+    owned: bool,
+) -> Vec<String> {
+    if !owned {
+        return Vec::new();
+    }
+    let mut keys: Vec<_> = input
+        .into_iter()
+        .flat_map(|snapshot| &snapshot.admitted_desktop)
+        .filter_map(|control| physical_name(*control))
+        .collect();
+    keys.sort_unstable();
+    keys.dedup();
+    keys.truncate(mod_api::MAX_CONTROL_KEYS);
+    keys
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod admission_tests;

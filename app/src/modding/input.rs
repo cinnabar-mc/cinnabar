@@ -644,10 +644,11 @@ pub(super) fn prepare_mod_input(
             Vec::new()
         },
         keys_held: if focused && !absorbed && !editing {
-            physical.held_keys.clone()
+            physical.held_sample()
         } else {
             Vec::new()
         },
+        keys_admitted: Vec::new(),
         events,
         pointer: window
             .cursor_position()

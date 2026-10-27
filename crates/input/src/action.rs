@@ -243,6 +243,9 @@ impl ReleaseReason {
 pub struct ActionSnapshot {
     /// Ordered desktop transitions, when supplied by the physical adapter.
     pub ordered: Option<crate::OrderedActions>,
+    /// Held desktop controls admitted to gameplay by this exact finalized routing sample.
+    /// Empty for another context/device, focus loss or a release barrier; never action names.
+    pub admitted_desktop: Vec<crate::PhysicalControl>,
     pub frame_sequence: InputSequence,
     pub authority_generation: InputAuthorityGeneration,
     /// Unit-clamped movement consumed by simulation and packet construction.

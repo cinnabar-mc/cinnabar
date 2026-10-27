@@ -175,6 +175,7 @@ mod tests {
         FinalizedInput(
             Some(ActionSnapshot {
                 ordered: None,
+                admitted_desktop: Vec::new(),
                 frame_sequence: crate::identity::InputSequence::new(1),
                 authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
                 movement,

@@ -199,6 +199,7 @@ pub fn empty_controls() -> ControlFrame {
         panel_open: false,
         keys_pressed: Vec::new(),
         keys_held: Vec::new(),
+        keys_admitted: Vec::new(),
         events: Vec::new(),
         pointer: None,
         wheel: 0.0,

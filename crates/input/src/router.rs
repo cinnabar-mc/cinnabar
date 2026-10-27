@@ -1,6 +1,7 @@
 use crate::button_events::{button_edges, discard_button_edges};
 use crate::identity::{InputAuthorityGeneration, InputSequence};
 
+mod admission;
 mod ordered;
 
 use crate::{
@@ -248,6 +249,7 @@ impl SemanticInputRouter {
             self.sample(&filtered, input_mode)
         };
         let ordered = self.finalize_desktop_events(&frame, input_mode, &mut sample);
+        let admitted_desktop = self.finalize_desktop_admission(&frame, input_mode, &mut sample);
         let mut phases = [ActionPhase::default(); Action::COUNT];
         let mut release_reasons = [None; Action::COUNT];
 
@@ -311,6 +313,7 @@ impl SemanticInputRouter {
 
         Ok(ActionSnapshot {
             ordered,
+            admitted_desktop,
             frame_sequence: self.frame_sequence,
             authority_generation: self.authority_generation,
             movement: sample.movement,

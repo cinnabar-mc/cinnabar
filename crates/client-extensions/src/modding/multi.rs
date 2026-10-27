@@ -516,6 +516,7 @@ fn claim_controls(
         panel_open: frame.panel_open,
         keys_pressed: free(&frame.keys_pressed),
         keys_held: free(&frame.keys_held),
+        keys_admitted: frame.keys_admitted.clone(),
         events: frame
             .events
             .iter()

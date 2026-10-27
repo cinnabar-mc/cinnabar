@@ -92,6 +92,7 @@ record controls {
     panel-open: bool,
     keys-pressed: list<string>,
     keys-held: list<string>,
+    keys-admitted: list<string>,
     events: list<event>,
     pointer: option<tuple<f32, f32>>,
     wheel: f32,
@@ -105,7 +106,8 @@ record controls {
 | `gameplay` | `bool` |  |
 | `panel-open` | `bool` |  |
 | `keys-pressed` | `list<string>` | Physical non-repeat edges; pointer buttons use MouseLeft/MouseRight/MouseMiddle. |
-| `keys-held` | `list<string>` | Physical keys held this frame, including reserved ones. |
+| `keys-held` | `list<string>` | Physical keys held this frame, including reserved ones, in physical-name order.<br>Truncated to MAX_CONTROL_KEYS when more are held. |
+| `keys-admitted` | `list<string>` | Held desktop keys/buttons admitted by the finalized gameplay router, including<br>modifiers. Uses keys-held names and bounds; excludes consumed, quarantined,<br>reserved and ineligible-device controls. Empty outside gameplay input ownership.<br>Match read-bindings chords against this list, respecting modifier precedence.<br>This is physical admission, never a resolved action or permission to act.<br>Same physical-name order as keys-held, independently truncated to MAX_CONTROL_KEYS.<br>Above that held-key cap, chord resolution can differ from the host's gate. |
 | `events` | `list<event>` |  |
 | `pointer` | `option<tuple<f32, f32>>` | Pointer position in the gameplay HUD root's GUI units from its top left, the space of<br>`hud.read-viewport`, while this mod's open panel owns input; none otherwise. A panel's<br>own fitting, such as a `reference_size` scaled to a small window, does not change it. |
 | `wheel` | `f32` | Wheel notches this frame while this mod's panel owns input; positive scrolls up. |
@@ -122,6 +124,7 @@ Selects which fields to copy without changing the underlying frame or its event 
 record selection {
     keys-pressed: option<list<string>>,
     keys-held: option<list<string>>,
+    keys-admitted: option<list<string>>,
     events: bool,
 }
 ```
@@ -130,6 +133,7 @@ record selection {
 | --- | --- | --- |
 | `keys-pressed` | `option<list<string>>` | None selects all keys; some(empty) selects none; names select exact matches. |
 | `keys-held` | `option<list<string>>` |  |
+| `keys-admitted` | `option<list<string>>` |  |
 | `events` | `bool` |  |
 
 <a id="type-binding-context"></a>

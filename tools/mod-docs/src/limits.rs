@@ -32,7 +32,7 @@ pub(super) fn render() -> String {
         mod_api::MAX_INPUT_BINDINGS_PER_READ => "Physical binding entries copied per read.",
         mod_api::MAX_INPUT_BINDINGS => "Physical binding entries per settings snapshot.",
         mod_api::MAX_INPUT_ACTION_BYTES => "Bytes per stable binding action name.",
-        mod_api::MAX_CONTROL_KEYS => "Reserved physical keys.",
+        mod_api::MAX_CONTROL_KEYS => "Physical keys per held/admitted/pressed list, selection or reservation. Held and admitted lists truncate independently in physical-name order; above the cap, chord resolution can differ from the host gate.",
         mod_api::MAX_CONTROL_KEY_BYTES => "Bytes per physical key name.",
         ui::mod_panel::MAX_PANEL_BYTES => "Whole personal panel JSON bytes.",
         ui::mod_panel::MAX_PANEL_BUNDLE_BYTES => "Panel bundle bytes.",

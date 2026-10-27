@@ -1,5 +1,7 @@
 //! Old guest record shapes and host-only physical gates; current imports drop these fields.
 
+mod controls;
+
 use super::{State, cinnabar::extension::gameplay};
 use anyhow::Result;
 use wasmtime::{
@@ -97,6 +99,7 @@ pub(super) fn link(
     component: &Component,
     linker: &mut Linker<State>,
 ) -> Result<()> {
+    controls::link(engine, component, linker)?;
     for (name, item) in component.component_type().imports(engine) {
         if !name.starts_with("cinnabar:extension/gameplay@") {
             continue;

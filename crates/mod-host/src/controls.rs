@@ -311,7 +311,9 @@ pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
         frame.keys_pressed.len() <= mod_api::MAX_CONTROL_KEYS
             && frame.keys_pressed.iter().all(|key| key_valid(key))
             && frame.keys_held.len() <= mod_api::MAX_CONTROL_KEYS
-            && frame.keys_held.iter().all(|key| key_valid(key)),
+            && frame.keys_held.iter().all(|key| key_valid(key))
+            && frame.keys_admitted.len() <= mod_api::MAX_CONTROL_KEYS
+            && frame.keys_admitted.iter().all(|key| key_valid(key)),
         "invalid controls key edges"
     );
     ensure!(
@@ -355,6 +357,7 @@ pub(super) fn read_selected(
     if ![
         selection.keys_pressed.as_deref(),
         selection.keys_held.as_deref(),
+        selection.keys_admitted.as_deref(),
     ]
     .into_iter()
     .all(|names| {
@@ -372,6 +375,7 @@ pub(super) fn read_selected(
         panel_open: frame.panel_open,
         keys_pressed: selected_keys(&frame.keys_pressed, selection.keys_pressed.as_deref()),
         keys_held: selected_keys(&frame.keys_held, selection.keys_held.as_deref()),
+        keys_admitted: selected_keys(&frame.keys_admitted, selection.keys_admitted.as_deref()),
         events: if selection.events {
             frame.events.clone()
         } else {
@@ -688,3 +692,7 @@ pub(super) fn read_field_events(
         })
         .collect()))
 }
+
+#[cfg(test)]
+#[path = "controls_admission_tests.rs"]
+mod admission_tests;

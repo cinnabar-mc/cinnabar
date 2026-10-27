@@ -35,6 +35,7 @@ fn open_notification_pressed() -> SemanticInputSnapshot {
     SemanticInputSnapshot(semantic_input::finalized::FinalizedInput::from_finalized(
         ActionSnapshot {
             ordered: None,
+            admitted_desktop: Vec::new(),
             frame_sequence: InputSequence::new(1),
             authority_generation: InputAuthorityGeneration::INITIAL,
             movement: [0.0; 2],

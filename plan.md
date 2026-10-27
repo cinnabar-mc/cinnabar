@@ -1305,6 +1305,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   resets the count. Other guest traps still quarantine immediately. Live overrun recovery
   qualification remains incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Granted mod input exposes raw physical holds, player bindings and finalized per-key
+  gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;
+  overflow can differ from native gates. Desktop routing regressions cover consumption,
+  rebind quarantine, UI ownership and device changes; live input qualification remains open.
 - Generic resolved action filtering exposes synchronous module verdicts, retained
   releases and lifecycle reconciliation; timing and rates belong to modules, and
   attack and use pulses reach it as repeats. Local weather overrides retain

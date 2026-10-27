@@ -414,8 +414,17 @@ interface input {
         panel-open: bool,
         /// Physical non-repeat edges; pointer buttons use MouseLeft/MouseRight/MouseMiddle.
         keys-pressed: list<string>,
-        /// Physical keys held this frame, including reserved ones.
+        /// Physical keys held this frame, including reserved ones, in physical-name order.
+        /// Truncated to MAX_CONTROL_KEYS when more are held.
         keys-held: list<string>,
+        /// Held desktop keys/buttons admitted by the finalized gameplay router, including
+        /// modifiers. Uses keys-held names and bounds; excludes consumed, quarantined,
+        /// reserved and ineligible-device controls. Empty outside gameplay input ownership.
+        /// Match read-bindings chords against this list, respecting modifier precedence.
+        /// This is physical admission, never a resolved action or permission to act.
+        /// Same physical-name order as keys-held, independently truncated to MAX_CONTROL_KEYS.
+        /// Above that held-key cap, chord resolution can differ from the host's gate.
+        keys-admitted: list<string>,
         events: list<event>,
         /// Pointer position in the gameplay HUD root's GUI units from its top left, the space of
         /// `hud.read-viewport`, while this mod's open panel owns input; none otherwise. A panel's
@@ -429,6 +438,7 @@ interface input {
         /// None selects all keys; some(empty) selects none; names select exact matches.
         keys-pressed: option<list<string>>,
         keys-held: option<list<string>>,
+        keys-admitted: option<list<string>>,
         events: bool,
     }
     /// The context in which the player assigned a physical chord.
