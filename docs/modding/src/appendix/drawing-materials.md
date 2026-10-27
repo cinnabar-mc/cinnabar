@@ -18,7 +18,11 @@ wrap. Custom effects must also use whole cycle counts for continuous wrapping.
 
 ## Custom procedural fragments
 
-`create-material` requires both `world_draw` and `render_material`. The returned
+`create-material` requires both `world_draw` and `render_material`; a component selected through
+`CINNABAR_MOD_COMPONENT` gets them with `CINNABAR_MOD_WORLD_DRAW=1` and
+`CINNABAR_MOD_RENDER_MATERIAL=1` when its `cinnabar:grants` section asks for them
+(`mod-host pack --grants grants.json …`). The host validates at most
+`MAX_MATERIAL_COMPILES_PER_CALLBACK` materials per callback. The returned
 handle belongs to that mod incarnation and session. All operations are
 transactional. Referenced materials reject removal; removed materials remain
 charged until renderer references retire. Validation attempts, retained material

@@ -117,7 +117,7 @@ mod tests {
             dimension: 0,
             eye: GameplayVector3 {
                 x: 0.,
-                y: 1.62,
+                y: mod_api::view::STANDING_PLAYER_EYE_HEIGHT,
                 z: 0.,
             },
             yaw: 0.,
