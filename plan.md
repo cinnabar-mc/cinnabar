@@ -103,6 +103,57 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 
 ### Terrain, materials and biome acceptance
 
+- [ ] Close server-pack block and entity material parity. The behavior baseline, native
+  evidence and confirmed gaps are tracked in the
+  [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
+  is `implemented` with a named test. The entity material declaration, definition and name
+  bounds are unverified implementation limits; past them a material draws without one.
+  is `implemented` with a named test.
+  is `implemented` with a named test. The Graphics Mode video option (Fancy by default) selects
+  server packs' entity material list, `materials/fancy.json` or `materials/sad.json`; a change
+  applies from the next pack application, not to the packs already loaded.
+- [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+  block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
+  bindings take none: the schema rejects one, and the client binds unconditionally and counts the
+  ignored condition in its aggregate entity material diagnostics.
+- [ ] Stencil state stays partial: entity materials carry the complete stencil fields, but scene
+  depth (Bevy's `CORE_3D_DEPTH_FORMAT`) has no stencil aspect, so stencil tests and writes are not
+  rendered. The stencil rows close only with a stencil-capable scene depth target.
+- [x] Material robustness covers malformed or removed packs, back-to-back generations and
+  adapters that cannot represent a material. Device loss is an app-wide gap tracked under
+  acceptance and release qualification, not a material one.
+- [x] Offline material previews are not planned. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline; the developer-control snapshot's `materials` section explains
+  a live session's choices, and the actor fragment's readback tests in
+  `crates/render/tests/it/actor_colour.rs` pin define-driven draws.
+- [ ] Programmable world materials for server Experiences (`render_world_material`, guest
+  `shade` fragments bound to the bundle's own entities and blocks) are developer-only: production
+  Experience execution stays fail-closed until the restricted-helper launch gate. The signed
+  manifest's `namespace` (API 2) limits bindings to that namespace; binding other namespaces,
+  vanilla included, needs the separate `render_world_material_override` (API 3), denied by
+  default, with its own consent line. The consent
+  line reads "Change how this server's own mobs and blocks look (up to N MB GPU memory)". The
+  `world-material` import (`server-experience@1.4.0`)
+  declares materials and bindings; bound entities and cube blocks draw with them under
+  host-owned depth, blend and pass, charged to the signed memory and GPU limits, and revocation
+  restores Bedrock in one publication. Cube and model blocks are both tagged, and translucent
+  classes merge face by face into their section's ordinary translucent order (water and
+  translucent models) with ordinary terrain's face metric. Shader-pack terrain samples a bound
+  block from an atlas sprite the guest renders each frame (albedo plus LabPBR emission), which
+  the pack lights as any block. Incomplete: the sprite is one per material, rendered with a
+  flat face, fixed view and white base, so position-, view- and neighbour-dependent effects and
+  Bedrock tint are flattened; Enhanced terrain draws bound blocks as Bedrock; and only offline
+  raster acceptance exists, with no in-game capture of a bound entity or block.
+- [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
+  `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
+  (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps); no
+  such capture with the `-material-showcase` local-server fixture exists yet. A non-reference
+  headless run of that fixture qualifies nothing: the
+  host was swapping throughout, with multi-second main-thread stalls, and chunk request to
+  render-ready latency is not logged. M3 Pro, low-end and Windows/macOS native witnesses remain
+  unqualified. CI assertions cover
+  the deterministic part: unchanged reloads create no pipelines, compiles or uploads, and one
+  material change rebuilds only its dependents once.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
@@ -1725,6 +1776,9 @@ remain incomplete.
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
 frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
 screens with a free cursor still receive every raw report.
+- [ ] GPU device loss is an app-wide gap: the renderer has no device-loss path or test seam, so no
+  subsystem recovers a lost device. Pipelines, bind groups and uploaded textures, materials and
+  Enhanced maps included, are lost with it.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

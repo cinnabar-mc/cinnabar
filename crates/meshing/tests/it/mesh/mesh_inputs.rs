@@ -104,7 +104,7 @@ fn twin_preserves(previous: &SubChunk, replacement: &SubChunk, hint: &[[u8; 3]])
         previous,
         replacement,
         hint.iter().copied(),
-        &[],
+        (&[], &[]),
     )
 }
 
@@ -205,11 +205,56 @@ fn water_filled_alias_changes_are_not_mesh_neutral() {
                     &previous,
                     &replacement,
                     hint.iter().copied(),
-                    filled,
+                    (filled, &[]),
                 ),
                 filled.len() == 2,
                 "hint {hint:?}, filled {filled:?}",
             );
         }
     }
+}
+
+#[test]
+fn world_material_tags_split_greedy_faces_and_make_alias_changes_visible() {
+    let section = twin_cube_section(TWIN_B);
+    let mesh = |tags: &[(u32, u8)]| {
+        meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &BlockClassifier::new(TWIN_AIR),
+            twin_cube_assets(),
+            NetworkIdMode::Sequential,
+            &world::MeshNeighbourhood::new(&section),
+            &meshing::lighting::FullBrightLightSampler,
+            meshing::MeshOptions {
+                world_materials: tags,
+                ..Default::default()
+            },
+        )
+    };
+    let untagged = mesh(&[]);
+    assert!(untagged.quads().iter().all(|quad| quad.world_material() == 0));
+    let tagged = mesh(&[(TWIN_B, 3)]);
+    // The twins share a material and merge untagged; the tagged twin's faces stand alone.
+    assert!(tagged.quad_count() > untagged.quad_count());
+    let tagged_quads: Vec<_> = tagged
+        .quads()
+        .iter()
+        .filter(|quad| quad.world_material() == 3)
+        .collect();
+    assert!(!tagged_quads.is_empty());
+    assert!(
+        tagged_quads
+            .iter()
+            .all(|quad| quad.origin() == [15, 4, 4] && quad.width() == 1 && quad.height() == 1)
+    );
+    // Swapping a tagged twin for an untagged one changes the mesh.
+    assert!(!meshing::block_changes_preserve_meshes(
+        BlockClassifier::new(TWIN_AIR),
+        twin_cube_assets(),
+        NetworkIdMode::Sequential,
+        &twin_cube_section(TWIN_A),
+        &section,
+        [[15, 4, 4]],
+        (&[], &[(TWIN_B, 3)]),
+    ));
+    assert!(twin_preserves(&twin_cube_section(TWIN_A), &section, &[[15, 4, 4]]));
 }

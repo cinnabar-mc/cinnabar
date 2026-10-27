@@ -2,6 +2,7 @@
 
 use crate::{helper::Event, runtime::cinnabar::session::items};
 use anyhow::{Result, ensure};
+use server_experience::world_material::WorldMaterials;
 use server_experience::{
     manifest::Permission,
     policy::*,
@@ -67,6 +68,13 @@ struct State {
     calls: usize,
     initializing: bool,
     negotiation: Option<Negotiation>,
+    /// The world materials and bindings with this callback's staged declarations applied.
+    world: WorldMaterials,
+    /// How to undo this callback's staged declarations, newest last: rolling them back leaves
+    /// what the last committed transaction left, which the client holds too.
+    world_undo: Vec<world_material::Undo>,
+    /// World material validations this callback has spent.
+    world_compiles: u32,
 }
 
 impl State {
@@ -94,6 +102,8 @@ impl State {
     fn begin_output(&mut self) -> Result<()> {
         self.commands.clear();
         self.calls = 0;
+        self.roll_back_world();
+        self.world_compiles = 0;
         self.bytes = serde_json::to_vec(&Transaction {
             owner: self.owner.clone(),
             epoch: self.epoch,
@@ -123,6 +133,11 @@ impl State {
         let size = serde_json::to_vec(&command)?.len() + usize::from(!self.commands.is_empty());
         if size > MAX_HOST_OUTPUT - self.bytes {
             return Ok(Err("host output budget exceeded".into()));
+        }
+        // World declarations are refused here against the retained state, as the client's
+        // apply would refuse the whole transaction.
+        if let Err(error) = self.stage_world(&command) {
+            return Ok(Err(error));
         }
         self.bytes += size;
         self.commands.push(command);
@@ -550,6 +565,10 @@ impl BundleHost {
             &mut linker,
             |state: &mut State| state,
         )?;
+        cinnabar::server_experience::world_material::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
         items::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         crate::runtime::State::link_presentation(&mut linker, |state: &mut State| {
             &mut state.presentation
@@ -620,6 +639,9 @@ impl BundleHost {
             calls: 0,
             initializing: true,
             negotiation: None,
+            world: WorldMaterials::default(),
+            world_undo: Vec::new(),
+            world_compiles: 0,
         };
         state.presentation.render.limit_draws(MAX_DRAWS as usize);
         state.presentation.bind_presentation(drawing)?;
@@ -762,6 +784,9 @@ impl BundleHost {
         let (owner, capabilities, epoch) =
             (state.owner.clone(), state.capabilities.clone(), state.epoch);
         let session = Arc::clone(&state.session);
+        let state = self.store.data_mut();
+        state.roll_back_world();
+        let world = std::mem::take(&mut state.world);
         let bundle = owner.bundle.clone();
         let assets = state.presentation.asset_files.clone();
         match Self::start(
@@ -775,10 +800,14 @@ impl BundleHost {
         ) {
             Ok((store, exports)) => {
                 (self.store, self.exports) = (store, exports);
-                self.store
-                    .data_mut()
+                // The fresh `init` output is discarded except its sends, so the committed world
+                // state stands.
+                let state = self.store.data_mut();
+                state
                     .commands
                     .retain(|command| matches!(command, Command::Send { .. }));
+                state.world = world;
+                state.world_undo.clear();
                 self.set_session(session);
                 eprintln!(
                     "bundle {bundle} restarted after a failed callback; its guest state is lost"
@@ -924,6 +953,7 @@ impl BundleHost {
     /// Takes successful nonvisual commands; legacy objects travel only in scene snapshots.
     pub fn take_transaction(&mut self) -> Transaction {
         let state = self.store.data_mut();
+        state.world_undo.clear();
         Transaction {
             owner: state.owner.clone(),
             epoch: state.epoch,
@@ -952,3 +982,5 @@ pub fn drawing_grants(capabilities: &Capabilities) -> crate::ModGrants {
         ..Default::default()
     }
 }
+
+mod world_material;

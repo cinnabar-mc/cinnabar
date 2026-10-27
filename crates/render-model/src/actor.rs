@@ -5,6 +5,7 @@ pub mod flame;
 mod geometry;
 mod ids;
 mod locator;
+mod material_masks;
 mod rig;
 pub use locator::{ActorEmitterTransform, sampled_bone_offset, sampled_locator_transform};
 mod skin;
@@ -29,6 +30,7 @@ pub use ids::{
     is_pack_equipment_rig_id, is_pack_rig_id, item_mesh_rig_id, layer_geometries,
     layer_geometry_rig_id, pack_equipment_rig_id, pack_rig_id, skin_rig_id,
 };
+pub use material_masks::ActorMaterialMasks;
 pub use rig::{
     ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, EntityRigId,
     MAX_ACTOR_CATALOG_VERTEX_BYTES, MAX_ACTOR_CATALOG_VERTICES, MAX_ACTOR_RIG_VERTICES,
@@ -52,6 +54,7 @@ mod artwork;
 mod cull;
 pub mod frame;
 mod glint;
+mod material_variants;
 pub mod skin_slots;
 pub use artwork::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,

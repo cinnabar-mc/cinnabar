@@ -59,6 +59,8 @@ pub struct Manifest {
     pub actions: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub templates: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     pub files: Vec<ContentFile>,
 }
 
@@ -77,7 +79,9 @@ pub enum Permission {
     EntityHighlight,
     RenderThroughWalls,
     RenderMaterial,
+    RenderWorldMaterial,
     RenderPost,
+    RenderWorldMaterialOverride,
 }
 
 /// Restricts identifiers to the shared portable namespace.
@@ -222,6 +226,28 @@ impl Manifest {
         ensure!(textures <= MAX_TEXTURES, "too many textures");
         Ok(())
     }
+
+    /// A signed `namespace` must be well formed and unreserved, and a bundle asking for
+    /// `render_world_material` must sign one, since its bindings may name nothing else.
+    pub fn validate_namespace(&self) -> Result<()> {
+        ensure!(
+            self.namespace.as_deref().is_none_or(world_namespace),
+            "invalid namespace"
+        );
+        ensure!(
+            self.namespace.is_some()
+                || !self.permissions.contains(&Permission::RenderWorldMaterial),
+            "render_world_material needs a namespace"
+        );
+        ensure!(
+            self.permissions.contains(&Permission::RenderWorldMaterial)
+                || !self
+                    .permissions
+                    .contains(&Permission::RenderWorldMaterialOverride),
+            "render_world_material_override needs render_world_material"
+        );
+        Ok(())
+    }
 }
 
 /// Where a bundle keeps the images its screens may draw.
@@ -246,10 +272,57 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(|c| c.is_control() || c == '§')
 }
 
-/// What the developer client advertises: the above plus media playback onto scene quads and
-/// reading the session's items.
+/// Lets the developer client advertise `render_world_material_override` when set to `1`; it is
+/// denied otherwise.
+pub const WORLD_MATERIAL_OVERRIDE_ENV: &str = "CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE";
+
+/// What the developer client advertises: the above plus media playback onto scene quads,
+/// reading the session's items and programmable world materials, and restyling identifiers
+/// outside a bundle's namespace only when [`WORLD_MATERIAL_OVERRIDE_ENV`] opts in.
 pub fn developer_permissions() -> BTreeSet<Permission> {
+    developer_permissions_with(
+        std::env::var_os(WORLD_MATERIAL_OVERRIDE_ENV).is_some_and(|value| value == "1"),
+    )
+}
+
+/// [`developer_permissions`], with the world material override opted in or not.
+pub fn developer_permissions_with(world_material_override: bool) -> BTreeSet<Permission> {
     let mut permissions = implemented_permissions();
-    permissions.extend([Permission::Scene, Permission::Media, Permission::Items]);
+    permissions.extend([
+        Permission::Scene,
+        Permission::Media,
+        Permission::Items,
+        Permission::RenderWorldMaterial,
+    ]);
+    if world_material_override {
+        permissions.insert(Permission::RenderWorldMaterialOverride);
+    }
     permissions
+}
+
+/// Namespaces no bundle may claim as its own; binding their identifiers needs
+/// `render_world_material_override`.
+pub const RESERVED_NAMESPACES: [&str; 1] = ["minecraft"];
+
+/// Longest signed `namespace`, in bytes.
+pub const MAX_NAMESPACE_BYTES: usize = 64;
+
+/// Whether `namespace` is one a manifest may sign: lowercase ASCII letters, digits, `_`, `-`
+/// and `.`, with no `:`, at most [`MAX_NAMESPACE_BYTES`], and not reserved.
+pub fn world_namespace(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.len() <= MAX_NAMESPACE_BYTES
+        && namespace
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-.".contains(&b))
+        && !RESERVED_NAMESPACES.contains(&namespace)
+}
+
+/// Whether `identifier` (`namespace:name`) lies in `namespace`; the name must be non-empty.
+pub fn in_namespace(identifier: &str, namespace: &str) -> bool {
+    identifier
+        .strip_prefix(namespace)
+        .and_then(|rest| rest.strip_prefix(':'))
+        .is_some_and(|name| !name.is_empty() && !name.contains(':'))
+        && crate::manifest::identifier(identifier)
 }

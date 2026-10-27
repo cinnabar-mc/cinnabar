@@ -201,10 +201,11 @@ type Manifest struct {
 	Channels       []Channel
 	Actions        []string
 	Templates      []string
+	Namespace      *string
 	Files          []ContentFile
 }
 
-var manifestFields = []string{"version", "api", "id", "publisher_key", "package_version", "permissions", "component", "channels", "actions", "templates", "files"}
+var manifestFields = []string{"version", "api", "id", "publisher_key", "package_version", "permissions", "component", "channels", "actions", "templates", "namespace", "files"}
 
 // appendJSON writes Manifest in canonical field order.
 func (v Manifest) appendJSON(b []byte) ([]byte, error) {
@@ -227,6 +228,11 @@ func (v Manifest) appendJSON(b []byte) ([]byte, error) {
 	if len(v.Templates) > 0 {
 		o.key()
 		o.add(appendSet(o.b, v.Templates))
+	} else {
+		o.skip()
+	}
+	if v.Namespace != nil {
+		o.str(*v.Namespace)
 	} else {
 		o.skip()
 	}
@@ -263,11 +269,17 @@ func (v *Manifest) decodeJSON(r *reader) error {
 			v.Actions, err = readSet(r)
 		case "templates":
 			v.Templates, err = readSet(r)
+		case "namespace":
+			if !r.null() {
+				var item string
+				item, err = r.str()
+				v.Namespace = &item
+			}
 		case "files":
 			v.Files, err = readList[ContentFile](r)
 		}
 		return err
-	}, "component", "templates")
+	}, "component", "templates", "namespace")
 }
 
 type Permission uint8
@@ -285,10 +297,12 @@ const (
 	PermissionEntityHighlight
 	PermissionRenderThroughWalls
 	PermissionRenderMaterial
+	PermissionRenderWorldMaterial
 	PermissionRenderPost
+	PermissionRenderWorldMaterialOverride
 )
 
-var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media", "items", "world_draw", "entity_observe", "entity_highlight", "render_through_walls", "render_material", "render_post"}
+var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media", "items", "world_draw", "entity_observe", "entity_highlight", "render_through_walls", "render_material", "render_world_material", "render_post", "render_world_material_override"}
 
 // String returns the schema name, or a diagnostic for an invalid enum.
 func (v Permission) String() string {

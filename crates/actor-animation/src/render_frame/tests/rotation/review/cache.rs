@@ -12,10 +12,18 @@ fn admission_fixture() -> CompiledEntityAssets {
     let mut layers = compiled.render.layers.to_vec();
     let mut layer = layers[0];
     layer.condition = Some(visible);
-    layer.material_state = Some(assets::EntityRenderMaterialState {
-        depth_always: true,
-        ..Default::default()
-    });
+    layer.material_state = Some(assets::EntityRenderMaterialState::default());
+    layer.material_definition = Some(compiled.render.materials.len() as u32);
+    compiled.render.materials = compiled
+        .render
+        .materials
+        .iter()
+        .cloned()
+        .chain([assets::entity::material::EntityMaterialDefinition {
+            depth_func: assets::entity::material::EntityMaterialCompare::Always,
+            ..Default::default()
+        }])
+        .collect();
     let mut slots = compiled.render.slots.to_vec();
     let mut slot = slots[0];
     let mut candidates = compiled.render.candidates.to_vec();
@@ -68,11 +76,11 @@ fn admission_body_and_draw_share_material_scale_and_persona_after_budget_exhaust
             actors.get_mut(&1).unwrap().head_yaw = 90.0;
             store.advance_tick(&actors, None, None, true, true, |_| context.clone());
             let rig = store.get(1).unwrap();
-            assert!(
-                !rig.render
-                    .iter()
-                    .any(|layer| { layer.material_state.is_some_and(|state| state.depth_always) })
-            );
+            assert!(!rig.render.iter().any(|layer| {
+                layer
+                    .render_state
+                    .is_some_and(|raster| raster.ignores_stored_depth())
+            }));
             let expected_scale = 1.0
                 + (actors[&1].head_yaw * 0.5 - (rig.previous_body_yaw + rig.body_yaw) * 0.5) * 0.01;
             let authored = authored_state(&store);
@@ -90,11 +98,11 @@ fn admission_body_and_draw_share_material_scale_and_persona_after_budget_exhaust
             frame.set_remaining_ops(0);
             let body = frame.layers_with_skin(1).unwrap();
             assert_eq!(body.render, first_body.render);
-            assert!(
-                body.render
-                    .iter()
-                    .any(|layer| { layer.material_state.is_some_and(|state| state.depth_always) })
-            );
+            assert!(body.render.iter().any(|layer| {
+                layer
+                    .render_state
+                    .is_some_and(|raster| raster.ignores_stored_depth())
+            }));
             let scale = body.render[0].sampled_scale.unwrap();
             assert!((scale[0] - expected_scale).abs() < 1e-5);
             if persona {
@@ -165,11 +173,9 @@ fn persona_work_exhaustion_preserves_successful_body_and_admission_layers() {
         &body.skin[0].current,
         &rig.skin_layers[0].current
     ));
-    assert!(
-        frame
-            .layers(1)
-            .unwrap()
-            .iter()
-            .any(|layer| { layer.material_state.is_some_and(|state| state.depth_always) })
-    );
+    assert!(frame.layers(1).unwrap().iter().any(|layer| {
+        layer
+            .render_state
+            .is_some_and(|raster| raster.ignores_stored_depth())
+    }));
 }

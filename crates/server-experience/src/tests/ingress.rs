@@ -40,6 +40,7 @@ fn queue_fixture() -> (negotiation::Grant, runtime::Capabilities, wire::Envelope
                 }],
             })
             .to_vec(),
+        namespace: None,
     };
     let message = wire::Envelope {
         version: grant.wire.version,
@@ -302,6 +303,7 @@ fn overlapping_package_names_do_not_share_permissions_or_channel_schemas() {
         channels: vec![channel],
         actions: BTreeSet::new(),
         max_message_bytes: grant.wire.limits.max_message_bytes,
+        namespace: None,
     };
     let mut parent = capabilities.clone();
     parent.channels.clear();

@@ -12,7 +12,9 @@
     "entity_highlight",
     "render_through_walls",
     "render_material",
-    "render_post"
+    "render_world_material",
+    "render_post",
+    "render_world_material_override"
   ],
   "implemented_permissions": [
     "ui",

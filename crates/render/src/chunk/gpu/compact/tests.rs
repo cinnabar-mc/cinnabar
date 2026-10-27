@@ -20,7 +20,14 @@ fn four_storage_buffers_render_every_packed_table_and_later_updates() {
         .map(|binding| {
             let words = match binding {
                 2 => vec![2, 0, 0, 0, 0, 0, 0, 0],
-                3 => vec![3, 0, 0, 0, 0, 0],
+                3 => {
+                    // Two whole records; the second's last word proves the packed stride.
+                    let record = assets::MATERIAL_BYTES / 4;
+                    let mut words = vec![0; 2 * record];
+                    words[0] = 3;
+                    words[2 * record - 1] = 5;
+                    words
+                }
                 8 => {
                     let mut words = vec![0; size_of::<BiomeTintGpu>() / 4];
                     words[0] = 8;
@@ -66,7 +73,7 @@ struct Output { @builtin(position) position: vec4<f32>, @location(0) value: f32 
 @vertex fn vertex(@builtin(vertex_index) index: u32) -> Output {
     var out: Output;
     out.position = vec4(vec2(f32((index << 1u) & 2u), f32(index & 2u)) * 2.0 - vec2(1.0), 0.5, 1.0);
-    let total = u32(chunk_origins(0u).value.x) + materials(0u).texture + tint_grass(0u) + animations(0u).frame_start + animation_frames(0u) + model_templates(0u) + transparent_refs(0u).liquid_record_index + cube_quads[0] + geometry_streams[0] + biome_records[0];
+    let total = u32(chunk_origins(0u).value.x) + materials(0u).texture + materials(1u).ao_exponent + tint_grass(0u) + animations(0u).frame_start + animation_frames(0u) + model_templates(0u) + transparent_refs(0u).liquid_record_index + cube_quads[0] + geometry_streams[0] + biome_records[0];
     out.value = f32(total) / 255.0;
     return out;
 }
@@ -76,7 +83,7 @@ struct Output { @builtin(position) position: vec4<f32>, @location(0) value: f32 
     );
     // Preparation must not hold a reference across the next graph update.
     drop(entries);
-    for (origin, expected) in [(2u32, 79u8), (22u32, 99u8)] {
+    for (origin, expected) in [(2u32, 84u8), (22u32, 104u8)] {
         gpu.queue.write_buffer(
             &sources.iter().find(|(binding, _)| *binding == 2).unwrap().1,
             0,

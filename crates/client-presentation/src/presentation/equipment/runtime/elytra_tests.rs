@@ -244,7 +244,10 @@ fn chest_elytra_draws_native_wings_and_follows_folded_crouching_and_flight_contr
     assert_eq!(folded[0].submission.input.current_bones.len(), 3);
     assert_eq!(selected_pixel(&pages, &folded[0]), [200, 40, 40, 255]);
     assert!(folded[0].submission.material.state.unwrap().alpha_test);
-    assert!(!folded[0].submission.material.state.unwrap().cull);
+    assert_eq!(
+        folded[0].submission.material.raster().cull,
+        render_api::render_state::CullMode::None
+    );
 
     owner.metadata.insert(0, ActorMetadataValue::Flags(1 << 1));
     let crouching = layers(&mut runtime, &body, &owner, &input, 2);
@@ -528,7 +531,6 @@ fn worn_wings_draw_every_material_group_once() {
 fn vanilla_wing_materials_keep_alpha_tested_double_sided_state() {
     let alpha_tested = assets::EntityRenderMaterialState {
         alpha_test: true,
-        cull: false,
         ..Default::default()
     };
     for material in ["elytra", "entity_alphatest"] {
@@ -547,6 +549,11 @@ fn vanilla_wing_materials_keep_alpha_tested_double_sided_state() {
                 Some(alpha_tested),
                 "{material} enchanted={enchanted}"
             );
+            assert_eq!(
+                draws[0].submission.material.raster().cull,
+                render_api::render_state::CullMode::None,
+                "{material} enchanted={enchanted}"
+            );
         }
     }
 }
@@ -554,19 +561,16 @@ fn vanilla_wing_materials_keep_alpha_tested_double_sided_state() {
 /// A pack wing group keeps its own resolved emissive or translucent material settings.
 #[test]
 fn worn_wing_groups_keep_their_authored_material_state() {
+    use render_api::render_state::CullMode;
     let emissive = assets::EntityRenderMaterialState {
         alpha_test: true,
-        cull: false,
         emissive: true,
         ..Default::default()
     };
-    let translucent = assets::EntityRenderMaterialState {
-        blend: true,
-        ..Default::default()
-    };
-    for (material, expected) in [
-        ("entity_emissive_alpha", emissive),
-        ("entity_alphablend", translucent),
+    let translucent = assets::EntityRenderMaterialState::default();
+    for (material, expected, cull, blends) in [
+        ("entity_emissive_alpha", emissive, CullMode::None, false),
+        ("entity_alphablend", translucent, CullMode::Back, true),
     ] {
         let mut files = wing_pack();
         edit_json(&mut files, "attachables/elytra.json", |document| {
@@ -586,6 +590,9 @@ fn worn_wing_groups_keep_their_authored_material_state() {
             Some(expected),
             "{material}"
         );
+        let raster = draws[1].submission.material.raster();
+        assert_eq!(raster.cull, cull, "{material}");
+        assert_eq!(raster.blend.is_some(), blends, "{material}");
     }
 }
 
