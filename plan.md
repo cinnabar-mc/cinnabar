@@ -1157,6 +1157,8 @@ qualification remain incomplete.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+Non-authoritative camera movement requires developer-control or acceptance support.
+Packaging builds reject `--freecam` and `--auto-fly` and omit their movement system.
 First-run setup retains extracted resource versions, bound to their pinned archive hashes,
 so compiler updates reuse source packs while rebuilding stale carriers. Packaged upgrade and
 rollback acceptance of this reuse remains incomplete.
