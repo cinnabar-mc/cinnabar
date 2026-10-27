@@ -15,6 +15,10 @@
 //! - [`static_sprite_slot`] for each carrier page layer;
 //! - [`opaque_sprite_slot`]: the same texture with alpha forced to 255, packed for overlay-mask
 //!   materials and otherwise repeating the static slot;
+//! - [`world_material_sprite_slot`]: a block-sized sprite per world material slot a block can
+//!   be bound to, which [`world_sprites`] renders from the material's guest shader each frame;
+//!   its remap rectangle stays empty, so bound faces keep their Bedrock sprite, until the first
+//!   render;
 //! - [`animation_sprite_slot`]: a display sprite (sized to the largest frame) that always shows
 //!   the frame the world animation clock selects, blending into the next frame when the
 //!   animation blends.
@@ -44,6 +48,7 @@ mod plan;
 #[cfg(test)]
 mod tests;
 mod upload;
+pub(crate) mod world_sprites;
 
 pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 
@@ -89,9 +94,18 @@ pub const fn opaque_sprite_slot(page: u32, layer: u32) -> u32 {
     ATLAS_HEADER_SLOTS + STATIC_SPRITE_SLOTS + page * (assets::TEXTURE_LAYER_MASK + 1) + layer
 }
 
+/// World material sprites: one per slot a block binding can name.
+pub const WORLD_MATERIAL_SPRITES: u32 =
+    mod_render::world_material::publication::MAX_BLOCK_SLOTS as u32;
+
+/// Remap slot of world material slot `slot`'s sprite.
+pub const fn world_material_sprite_slot(slot: u32) -> u32 {
+    ATLAS_HEADER_SLOTS + 2 * STATIC_SPRITE_SLOTS + slot
+}
+
 /// Remap slot of animation `animation`'s display sprite.
 pub const fn animation_sprite_slot(animation: u32) -> u32 {
-    ATLAS_HEADER_SLOTS + 2 * STATIC_SPRITE_SLOTS + animation
+    ATLAS_HEADER_SLOTS + 2 * STATIC_SPRITE_SLOTS + WORLD_MATERIAL_SPRITES + animation
 }
 
 /// The published atlas generation; replaced as a whole when the carrier changes.
@@ -124,12 +138,14 @@ impl Plugin for ShaderpackAtlasPlugin {
         }
         app.sub_app_mut(RenderApp)
             .init_resource::<AtlasBuild>()
+            .init_resource::<world_sprites::WorldSpritePipelines>()
             .add_systems(
                 Render,
                 (
                     blend::init_blend_pipelines,
                     prepare_shaderpack_atlas,
                     update_shaderpack_animations,
+                    world_sprites::render_world_sprites.after(crate::world_material::prepare),
                 )
                     .chain()
                     .run_if(super::scheduling::render_work_pending.and_then(atlas_requested))
@@ -167,6 +183,7 @@ fn release_shaderpack_atlas(
     atlas: Option<Res<ShaderpackAtlas>>,
     animations: Option<Res<AtlasAnimations>>,
     pipelines: Option<Res<blend::AtlasBlendPipelines>>,
+    sprites: Option<Res<world_sprites::WorldMaterialSprites>>,
 ) {
     if build.requested.is_some() || build.task.is_some() {
         build.requested = None;
@@ -184,6 +201,9 @@ fn release_shaderpack_atlas(
     }
     if pipelines.is_some() {
         commands.remove_resource::<blend::AtlasBlendPipelines>();
+    }
+    if sprites.is_some() {
+        commands.remove_resource::<world_sprites::WorldMaterialSprites>();
     }
 }
 
@@ -345,9 +365,10 @@ fn prepare_shaderpack_atlas(
         return;
     };
     build.generation += 1;
-    let (atlas, animations) = publish(built, build.generation);
+    let (atlas, animations, sprites) = publish(built, build.generation);
     commands.insert_resource(atlas);
     commands.insert_resource(animations);
+    commands.insert_resource(sprites);
 }
 
 /// Plans, assembles and uploads one generation; `None` logs why the previous atlas stays, or
@@ -394,6 +415,7 @@ fn build_atlas(
         animation_frames: runtime.animation_frames(),
         layout: &layout,
         authored,
+        world_sprites: WORLD_MATERIAL_SPRITES,
     };
     let limits = device.limits();
     token.proceed(Stage::Plan)?;
@@ -433,8 +455,16 @@ fn build_atlas(
     })
 }
 
-/// Creates the published views and the animation state of a finished build.
-fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimations) {
+/// Creates the published views, the animation state and the world material sprites of a
+/// finished build.
+fn publish(
+    built: BuiltAtlas,
+    generation: u64,
+) -> (
+    ShaderpackAtlas,
+    AtlasAnimations,
+    world_sprites::WorldMaterialSprites,
+) {
     let BuiltAtlas {
         plan,
         uploaded,
@@ -468,6 +498,8 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
         source: source.clone(),
     };
     let runtime = source.assets();
+    let sprites =
+        world_sprites::WorldMaterialSprites::new(&uploaded, plan.world_sprites, plan.mip_levels);
     let animations = AtlasAnimations::new(
         &uploaded,
         runtime.animations(),
@@ -476,7 +508,7 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
         plan.mip_levels,
         [plan.atlas.width, plan.atlas.height],
     );
-    (atlas, animations)
+    (atlas, animations, sprites)
 }
 
 /// Optional blend resources used while animation pipelines are compiling.

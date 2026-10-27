@@ -185,6 +185,32 @@ it to spread large work, such as encoding a document, over later callbacks.
 status effects, sidebar or hunger row; `hud.read-elements` reports whether vanilla
 draws each this frame, ignoring hiding, and its bounds in GUI units when laid out.
 
+## Drawing material showcase
+
+`examples/mods/material-showcase` shows custom retained-drawing materials (`create-material`):
+four glowing waypoint beams, each its own colour, stand six blocks around where you first stand,
+with pulses of light travelling up them and their glow fading towards the top; an animated
+outline of marching, colour-cycling dashes marks the top of the block under your feet and follows
+you. Both draw additively and emit, so they stand out at night. The host validates one material
+per callback, so `init` creates the beam's material and the first gameplay frame the outline's.
+
+The component declares the grants it asks for in `grants.json`, which `pack --grants` embeds;
+the environment switches then grant them:
+
+```sh
+cargo build -p material-showcase-mod --target wasm32-unknown-unknown --locked
+cargo run -p mod-host --bin mod-host --locked -- pack \
+  --grants examples/mods/material-showcase/grants.json \
+  target/wasm32-unknown-unknown/debug/material_showcase_mod.wasm /tmp/cinnabar-materials.wasm
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-materials.wasm CINNABAR_MOD_PLAYERS=1 CINNABAR_MOD_HUD=1 \
+  CINNABAR_MOD_WORLD_DRAW=1 CINNABAR_MOD_RENDER_MATERIAL=1 cargo run -p cinnabar --locked
+```
+
+Join any world (a local one from the launcher is enough); the label reads "Material showcase:
+beams and outline ready". `cargo test -p mod-host --test material_showcase` runs the same
+component through the real mod path, and `cargo test -p render --test it drawing_material_fx`
+rasters both shaders and checks their distinguishing pixels.
+
 ## Action filtering
 
 A player mod opts into `filter-actions(action-frame) -> action-verdict` with

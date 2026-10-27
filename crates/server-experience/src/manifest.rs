@@ -59,6 +59,8 @@ pub struct Manifest {
     pub actions: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub templates: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     pub files: Vec<ContentFile>,
 }
 
@@ -77,7 +79,12 @@ pub enum Permission {
     EntityHighlight,
     RenderThroughWalls,
     RenderMaterial,
+    RenderWorldMaterial,
     RenderPost,
+    RenderWorldMaterialOverride,
+    RenderWorldMaterialVertex,
+    RenderWorldMaterialScene,
+    RenderWorldMaterialPasses,
 }
 
 /// Restricts identifiers to the shared portable namespace.
@@ -110,6 +117,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::{crypto::fixed_hex, policy::*};
+
+/// Whether `origin` (an ASCII-serialized origin such as `https://cxb.invalid:443`) names a
+/// reserved `.invalid` host (RFC 6761), which never resolves. Local servers name one as the
+/// origin of bundles a client must already hold in its cache, so the client never contacts it.
+pub fn reserved_origin(origin: &str) -> bool {
+    let host = origin.split_once("://").map_or(origin, |(_, rest)| rest);
+    let host = host.split(['/', '?', '#']).next().unwrap_or_default();
+    if host.starts_with('[') {
+        return false;
+    }
+    let host = host.rsplit_once(':').map_or(host, |(name, _)| name);
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "invalid" || host.ends_with(".invalid")
+}
 
 impl Scope {
     /// Validates the user-visible scope against host ceilings.
@@ -222,6 +243,29 @@ impl Manifest {
         ensure!(textures <= MAX_TEXTURES, "too many textures");
         Ok(())
     }
+
+    /// A signed `namespace` must be well formed and unreserved, and a bundle asking for
+    /// `render_world_material` must sign one, since its bindings may name nothing else.
+    pub fn validate_namespace(&self) -> Result<()> {
+        ensure!(
+            self.namespace.as_deref().is_none_or(world_namespace),
+            "invalid namespace"
+        );
+        ensure!(
+            self.namespace.is_some()
+                || !self.permissions.contains(&Permission::RenderWorldMaterial),
+            "render_world_material needs a namespace"
+        );
+        for extension in WORLD_MATERIAL_EXTENSIONS {
+            ensure!(
+                self.permissions.contains(&Permission::RenderWorldMaterial)
+                    || !self.permissions.contains(&extension.permission),
+                "{} needs render_world_material",
+                extension.name
+            );
+        }
+        Ok(())
+    }
 }
 
 /// Where a bundle keeps the images its screens may draw.
@@ -246,10 +290,120 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(|c| c.is_control() || c == '§')
 }
 
-/// What the developer client advertises: the above plus media playback onto scene quads and
-/// reading the session's items.
+/// A permission that extends `render_world_material`, which a bundle asking for it must hold
+/// too. Each is denied by default: the developer client offers it only when its variable is
+/// set to `1`, and production clients implement none of them.
+#[derive(Clone, Copy, Debug)]
+pub struct WorldMaterialExtension {
+    pub permission: Permission,
+    /// The permission's manifest name.
+    pub name: &'static str,
+    /// The variable that lets the developer client offer it.
+    pub env: &'static str,
+}
+
+/// Every permission that extends `render_world_material`; a test checks that it lists each
+/// `render_world_material_*` permission.
+pub const WORLD_MATERIAL_EXTENSIONS: [WorldMaterialExtension; 4] = [
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialOverride,
+        name: "render_world_material_override",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_OVERRIDE",
+    },
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialVertex,
+        name: "render_world_material_vertex",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_VERTEX",
+    },
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialScene,
+        name: "render_world_material_scene",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_SCENE",
+    },
+    WorldMaterialExtension {
+        permission: Permission::RenderWorldMaterialPasses,
+        name: "render_world_material_passes",
+        env: "CINNABAR_DEV_WORLD_MATERIAL_PASSES",
+    },
+];
+
+/// What the developer client advertises: the above plus media playback onto scene quads,
+/// reading the session's items and programmable world materials, and each
+/// [`WORLD_MATERIAL_EXTENSIONS`] permission whose variable opts in.
 pub fn developer_permissions() -> BTreeSet<Permission> {
+    developer_permissions_with(|extension| {
+        std::env::var_os(extension.env).is_some_and(|value| value == "1")
+    })
+}
+
+/// [`developer_permissions`], with each world material extension offered when `opted_in`
+/// says so.
+pub fn developer_permissions_with(
+    opted_in: impl Fn(&WorldMaterialExtension) -> bool,
+) -> BTreeSet<Permission> {
     let mut permissions = implemented_permissions();
-    permissions.extend([Permission::Scene, Permission::Media, Permission::Items]);
+    permissions.extend([
+        Permission::Scene,
+        Permission::Media,
+        Permission::Items,
+        Permission::RenderWorldMaterial,
+    ]);
+    permissions.extend(
+        WORLD_MATERIAL_EXTENSIONS
+            .iter()
+            .filter(|extension| opted_in(extension))
+            .map(|extension| extension.permission),
+    );
     permissions
+}
+
+/// Namespaces no bundle may claim as its own; binding their identifiers needs
+/// `render_world_material_override`.
+pub const RESERVED_NAMESPACES: [&str; 1] = ["minecraft"];
+
+/// Longest signed `namespace`, in bytes.
+pub const MAX_NAMESPACE_BYTES: usize = 64;
+
+/// Whether `namespace` is one a manifest may sign: lowercase ASCII letters, digits, `_`, `-`
+/// and `.`, with no `:`, at most [`MAX_NAMESPACE_BYTES`], and not reserved.
+pub fn world_namespace(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.len() <= MAX_NAMESPACE_BYTES
+        && namespace
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-.".contains(&b))
+        && !RESERVED_NAMESPACES.contains(&namespace)
+}
+
+/// Whether `identifier` (`namespace:name`) lies in `namespace`; the name must be non-empty.
+pub fn in_namespace(identifier: &str, namespace: &str) -> bool {
+    identifier
+        .strip_prefix(namespace)
+        .and_then(|rest| rest.strip_prefix(':'))
+        .is_some_and(|name| !name.is_empty() && !name.contains(':'))
+        && crate::manifest::identifier(identifier)
+}
+
+#[cfg(test)]
+mod reserved_origin_tests {
+    use super::reserved_origin;
+
+    #[test]
+    fn only_reserved_invalid_hosts_are_reserved_origins() {
+        for origin in [
+            "https://cxb.invalid",
+            "https://CXB.Invalid:443",
+            "https://invalid",
+        ] {
+            assert!(reserved_origin(origin), "{origin}");
+        }
+        for origin in [
+            "https://invalid.example",
+            "https://media.example:8443",
+            "https://[::1]:443",
+            "https://127.0.0.1:19133",
+        ] {
+            assert!(!reserved_origin(origin), "{origin}");
+        }
+    }
 }

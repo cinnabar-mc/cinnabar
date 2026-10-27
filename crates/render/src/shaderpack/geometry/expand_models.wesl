@@ -65,5 +65,6 @@ fn model_face(job: vec4<u32>) -> JobFace {
     source.material = material;
     // The chunk renderer's model fragment gate keeps back faces only of two-sided template quads.
     source.two_sided = (quad.quad_flags & MODEL_QUAD_TWO_SIDED_FLAG) != 0u;
+    source.world = job.w >> JOB_WORLD_SHIFT;
     return JobFace(corners, source, true);
 }

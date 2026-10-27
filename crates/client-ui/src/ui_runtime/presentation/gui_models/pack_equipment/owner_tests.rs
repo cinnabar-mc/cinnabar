@@ -210,7 +210,7 @@ fn catalog(definitions: &[Definition<'_>]) -> assets::SessionEntityPack {
         ("models/fixture.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":64,"texture_height":32},"bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[16,16]}]}]}]}"#.to_vec()),
         ("render_controllers/fixture.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#.to_vec()),
         ("entity/player.json".into(), br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","materials":{"default":"plain"},"textures":{"default":"textures/fixture/player"},"geometry":{"default":"geometry.fixture"},"render_controllers":["controller.render.fixture"]}}}"#.to_vec()),
-        ("materials/fixture.material".into(), br#"{"materials":{"plain:entity_alphatest":{},"dyed:entity_alphatest":{"+defines":["USE_COLOR_MASK"]}}}"#.to_vec()),
+        ("materials/fixture.material".into(), br#"{"materials":{"version":"1.0.0","plain:entity_alphatest":{},"dyed:entity_alphatest":{"+defines":["USE_COLOR_MASK"]}}}"#.to_vec()),
     ];
     let mut textures = Vec::new();
     for definition in definitions {
@@ -254,6 +254,7 @@ fn catalog(definitions: &[Definition<'_>]) -> assets::SessionEntityPack {
             )
             .unwrap(),
         )),
+        material_report: None,
     }
 }
 

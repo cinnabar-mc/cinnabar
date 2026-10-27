@@ -26,6 +26,7 @@ fn instance() -> ChunkRenderInstance {
         token: None,
         publication_permit: None,
         origin: [0; 3],
+        world_materials: false,
     }
 }
 

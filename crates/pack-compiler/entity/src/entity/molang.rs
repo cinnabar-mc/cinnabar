@@ -18,7 +18,7 @@ use parser::{Binary, Expr, Program, Slot, Statement, Unary, parse, parse_with};
 /// Both block-state query spellings resolve the same named state.
 const BLOCK_QUERIES: &[&str] = &["query.block_property", "query.block_state"];
 /// Longest block expression accepted; bounds the depth of its tree, which is walked recursively.
-const MAX_BLOCK_MOLANG_BYTES: usize = 2048;
+pub(crate) const MAX_BLOCK_MOLANG_BYTES: usize = 2048;
 
 /// A block-state query result; integer and boolean states read as numbers.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -329,6 +329,12 @@ impl MolangCompiler {
             }
             Some(_) => Ok((None, 1)),
         }
+    }
+
+    /// Whether `source` compiles. Compilation depends only on the source, so this needs no
+    /// compiler state and adds no program.
+    pub fn compiles(source: &str) -> bool {
+        parse(source).is_ok_and(|program| Codegen::program(&program).is_ok())
     }
 
     /// Evaluates a constant reading with every query and variable at zero.

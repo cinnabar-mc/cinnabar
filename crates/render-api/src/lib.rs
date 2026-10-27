@@ -10,6 +10,7 @@ mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+pub mod render_state;
 mod vsync;
 pub use pose_generation::PoseGeneration;
 mod skin;

@@ -1,7 +1,7 @@
 //! Typed pack rules shared by registry validation and cold asset compilation.
 
 use super::rules::BLOCK_POLICY_BYTES;
-use crate::{EntityRenderMaterial, EntityRenderMaterialState};
+use crate::EntityRenderMaterial;
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -110,6 +110,98 @@ pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
     }
 }
 
+/// A built-in material's declared states and defines, as the generated table records them.
+/// Entity material resolution lowers it to a complete definition.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NativeMaterialState {
+    /// `ALPHA_TEST` is defined.
+    pub alpha_test: bool,
+    /// `DisableCulling` is absent.
+    pub cull: bool,
+    /// `Blending` is present.
+    pub blend: bool,
+    /// `DisableDepthWrite` is absent.
+    pub depth_write: bool,
+    /// `USE_EMISSIVE` is defined.
+    #[serde(default)]
+    pub emissive: bool,
+    /// `USE_ONLY_EMISSIVE` is defined.
+    #[serde(default)]
+    pub only_emissive: bool,
+    /// Blending adds to the destination (`One`, `One`).
+    #[serde(default)]
+    pub additive: bool,
+    /// Additive blending weights the source by its alpha (`SourceAlpha`, `One`).
+    #[serde(default)]
+    pub additive_alpha: bool,
+    /// `USE_OVERLAY` is absent.
+    #[serde(default)]
+    pub disable_overlay: bool,
+    /// `depthFunc` is `Always`.
+    #[serde(default)]
+    pub depth_always: bool,
+    /// `depthFunc` is `Equal`.
+    #[serde(default)]
+    pub depth_equal: bool,
+    /// `DisableAlphaWrite` is present.
+    #[serde(default)]
+    pub disable_alpha_write: bool,
+    /// `DisableColorWrite` is present.
+    #[serde(default)]
+    pub disable_color_write: bool,
+}
+
+impl NativeMaterialState {
+    /// The complete definition these declared states, defines, comparison and blend factors
+    /// resolve to.
+    #[must_use]
+    pub fn definition(self) -> crate::entity::material::EntityMaterialDefinition {
+        use crate::entity::material::{
+            EntityMaterialBlendFactor as Factor, EntityMaterialCompare, EntityMaterialDefinition,
+            EntityMaterialState as State,
+        };
+        let states: BTreeSet<_> = [
+            (!self.cull, State::DisableCulling),
+            (self.blend, State::Blending),
+            (!self.depth_write, State::DisableDepthWrite),
+            (self.disable_alpha_write, State::DisableAlphaWrite),
+            (self.disable_color_write, State::DisableColorWrite),
+        ]
+        .into_iter()
+        .filter_map(|(enabled, state)| enabled.then_some(state))
+        .collect();
+        let defines: BTreeSet<&str> = [
+            (self.alpha_test, "ALPHA_TEST"),
+            (self.emissive, "USE_EMISSIVE"),
+            (self.only_emissive, "USE_ONLY_EMISSIVE"),
+            (!self.disable_overlay, "USE_OVERLAY"),
+        ]
+        .into_iter()
+        .filter_map(|(enabled, define)| enabled.then_some(define))
+        .collect();
+        let mut definition = EntityMaterialDefinition {
+            states: states.into_iter().collect(),
+            defines: defines.into_iter().map(Box::from).collect(),
+            ..Default::default()
+        };
+        if self.depth_always {
+            definition.depth_func = EntityMaterialCompare::Always;
+        } else if self.depth_equal {
+            definition.depth_func = EntityMaterialCompare::Equal;
+        }
+        if self.additive {
+            let source = if self.additive_alpha {
+                Factor::SourceAlpha
+            } else {
+                Factor::One
+            };
+            definition.blend = [source, Factor::One, source, Factor::One];
+        }
+        definition
+    }
+}
+
 /// Material used by the missing harness attachables supplied by the compiler.
 pub const HARNESS_MATERIAL: &str = "harness";
 
@@ -123,6 +215,10 @@ pub enum MaterialKind {
     Provisional,
     Actor,
     UnmaskedArmor,
+    /// `USE_COLOR_MASK`: texture alpha weights the dye multiplier.
+    ColorMask,
+    /// `USE_MULTITEXTURE`: three textures draw together.
+    Multitexture,
     Dragon,
     DissolveDepth,
     DissolveColor,
@@ -299,7 +395,7 @@ impl PackRules {
         }
     }
     /// Resolves generated declaration states, including their skinning aliases.
-    pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
+    pub fn material_state(&self, name: &str) -> Option<NativeMaterialState> {
         if matches!(
             self.raster(name),
             EntityRenderMaterial::DissolveDepth | EntityRenderMaterial::DissolveColor
@@ -309,8 +405,17 @@ impl PackRules {
         }
         material_states().get(material_name(name)).copied()
     }
+    /// Every generated declaration state by name, including the paired dissolve passes that
+    /// [`Self::material_state`] leaves to their dedicated renderer contracts.
+    pub fn generated_material_states(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, NativeMaterialState)> {
+        material_states()
+            .iter()
+            .map(|(name, state)| (name.as_str(), *state))
+    }
     /// Enumerates generated states so pipeline preparation follows the material catalog.
-    pub fn material_states(&self) -> impl Iterator<Item = (&str, EntityRenderMaterialState)> {
+    pub fn material_states(&self) -> impl Iterator<Item = (&str, NativeMaterialState)> {
         material_states().keys().filter_map(|name| {
             self.material_state(name)
                 .map(|state| (name.as_str(), state))
@@ -354,8 +459,8 @@ impl PackRules {
 }
 
 /// Loads generated declaration states independently of pack-authored overrides.
-fn material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
-    static STATES: OnceLock<BTreeMap<String, EntityRenderMaterialState>> = OnceLock::new();
+fn material_states() -> &'static BTreeMap<String, NativeMaterialState> {
+    static STATES: OnceLock<BTreeMap<String, NativeMaterialState>> = OnceLock::new();
     STATES.get_or_init(|| {
         serde_json::from_str(include_str!("../../data/entity-material-states.json"))
             .expect("valid entity material states")

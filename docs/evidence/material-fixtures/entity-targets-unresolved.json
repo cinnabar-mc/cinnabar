@@ -1,0 +1,5 @@
+{
+  "status": "unresolved",
+  "reason": "The native client parses render-target format lists, but both JSON key literals are elided; no pack field is claimed from this fixture.",
+  "recovered_formats": ["R16G16_U", "D32_FLOAT", "R32_FLOAT", "R32_UINT"]
+}

@@ -195,3 +195,45 @@ fn single_tile_model_cutout_edges_do_not_wrap_to_the_opposite_row() {
         }
     }
 }
+
+// Model faces carry a Cinnabar mask strength's exact f32 bits, as cube faces do, beside their
+// sidedness and mask references.
+#[test]
+fn model_faces_keep_the_exact_mask_strength() {
+    let Some(gpu) = Gpu::for_fixture("model_faces_keep_the_exact_mask_strength") else {
+        return;
+    };
+    let strengths = [1.1f32, 100_000.0, 3.0e-6];
+    let words: Vec<u32> = strengths
+        .iter()
+        .flat_map(|strength| [strength.to_bits(), 0, 0, 0])
+        .collect();
+    let data = gpu.words(&words, wgpu::BufferUsages::STORAGE);
+    let output = EDGE_CASES_BINDING + 1;
+    let mut source = crate::shader_source::standalone(include_str!("../model.wesl"), &[SHADER_DEF]);
+    source.push_str(&format!(
+        r#"
+@group(0) @binding({EDGE_CASES_BINDING}) var<storage, read> strengths: array<vec4<u32>>;
+@group(0) @binding({output}) var<storage, read_write> carried: array<vec4<u32>>;
+@compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {{
+    let visibility = model_visibility(MODEL_VISIBLE | MODEL_TWO_SIDED, vec3(7u, 9u, strengths[id.x].x));
+    let two_sided = select(0u, 1u, (visibility.x & MODEL_TWO_SIDED) != 0u);
+    carried[id.x] = vec4(bitcast<u32>(model_mask_strength(visibility)), two_sided, visibility.z, visibility.w);
+}}
+"#
+    ));
+    let carried = gpu.compute_readback(
+        &source,
+        &[wgpu::BindGroupEntry {
+            binding: EDGE_CASES_BINDING,
+            resource: data.as_entire_binding(),
+        }],
+        output,
+        strengths.len(),
+        strengths.len() as u32,
+    );
+    for (strength, carried) in strengths.iter().zip(carried) {
+        assert_eq!(f32::from_bits(carried[0]), *strength);
+        assert_eq!(carried[1..], [1, 7, 9]);
+    }
+}
