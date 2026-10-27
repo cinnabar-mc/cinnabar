@@ -1,7 +1,8 @@
 use bevy::render::render_resource::Specializer;
 
+use crate::actor::test_material::TestMaterial;
 use crate::{actor_raster, gpu_snapshot};
-use assets::{EntityRenderMaterial, EntityRenderMaterialState};
+use assets::EntityRenderMaterial;
 use bevy::{prelude::Msaa, shader::ShaderDefVal};
 
 use super::super::{
@@ -22,13 +23,11 @@ fn authored_actor_opacity_multiplier_preserves_background() {
     else {
         return;
     };
-    let material = render_model::ActorMaterial {
-        state: Some(EntityRenderMaterialState {
-            blend: true,
-            ..Default::default()
-        }),
+    let material = TestMaterial {
+        blend: true,
         ..Default::default()
-    };
+    }
+    .material(EntityRenderMaterial::Default);
     let plane = actor_raster::cube([16, 0, 16], true, false);
     let draw = |alpha: u8| {
         actor_raster::raster_material_with_overlay(
@@ -80,12 +79,12 @@ fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
         return;
     };
     let material = render_model::ActorMaterial {
-        state: Some(EntityRenderMaterialState {
+        light_color_multiplier: 0.5,
+        ..TestMaterial {
             disable_overlay: true,
             ..Default::default()
-        }),
-        light_color_multiplier: 0.5,
-        ..Default::default()
+        }
+        .material(EntityRenderMaterial::Default)
     };
     for normal in [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]] {
         let mut plane = actor_raster::cube([16, 0, 16], true, false);
@@ -126,15 +125,15 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
     let source = [32, 100, 200, 255];
     for disable_overlay in [false, true] {
         let material = render_model::ActorMaterial {
-            state: Some(EntityRenderMaterialState {
+            light_color_multiplier: 0.5,
+            ..TestMaterial {
                 cull: false,
                 blend: true,
                 additive: true,
                 disable_overlay,
                 ..Default::default()
-            }),
-            light_color_multiplier: 0.5,
-            ..Default::default()
+            }
+            .material(EntityRenderMaterial::Default)
         };
         for light in [
             0,
@@ -203,14 +202,14 @@ fn emissive_alpha_test_keeps_colored_zero_alpha_and_weights_only_lighting() {
     };
     let plane = actor_raster::cube([16, 0, 16], true, false);
     let material = render_model::ActorMaterial {
-        state: Some(EntityRenderMaterialState {
+        light_color_multiplier: 0.25,
+        ..TestMaterial {
             alpha_test: true,
             cull: false,
             emissive: true,
             ..Default::default()
-        }),
-        light_color_multiplier: 0.25,
-        ..Default::default()
+        }
+        .material(EntityRenderMaterial::Default)
     };
     for alpha in [0, 255] {
         let frame = actor_raster::raster_material_lighting(
@@ -245,13 +244,11 @@ fn emissive_alpha_test_keeps_colored_zero_alpha_and_weights_only_lighting() {
     let ordinary = actor_raster::raster_material_target(
         &gpu,
         &plane,
-        render_model::ActorMaterial {
-            state: Some(EntityRenderMaterialState {
-                alpha_test: true,
-                ..Default::default()
-            }),
+        TestMaterial {
+            alpha_test: true,
             ..Default::default()
-        },
+        }
+        .material(EntityRenderMaterial::Default),
         false,
         [[200, 120, 40, 0]; 2],
         true,
@@ -267,17 +264,15 @@ fn additive_actor_material_adds_rgb_even_when_texture_alpha_is_zero() {
     ) else {
         return;
     };
-    let material = render_model::ActorMaterial {
-        state: Some(EntityRenderMaterialState {
-            alpha_test: true,
-            cull: false,
-            blend: true,
-            additive: true,
-            emissive: true,
-            ..Default::default()
-        }),
+    let material = TestMaterial {
+        alpha_test: true,
+        cull: false,
+        blend: true,
+        additive: true,
+        emissive: true,
         ..Default::default()
-    };
+    }
+    .material(EntityRenderMaterial::Default);
     let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
     ActorPipelineSpecializer
         .specialize(
@@ -286,6 +281,7 @@ fn additive_actor_material_adds_rgb_even_when_texture_alpha_is_zero() {
                 hdr: false,
                 enhanced: false,
                 material: material.gpu_word(),
+                raster: material.raster(),
             },
             &mut descriptor,
         )
@@ -347,18 +343,16 @@ fn alpha_weighted_additive_actor_preserves_destination_and_fades_source() {
     ) else {
         return;
     };
-    let material = render_model::ActorMaterial {
-        state: Some(EntityRenderMaterialState {
-            cull: false,
-            blend: true,
-            depth_write: false,
-            additive: true,
-            additive_alpha: true,
-            emissive: true,
-            ..Default::default()
-        }),
+    let material = TestMaterial {
+        cull: false,
+        blend: true,
+        depth_write: false,
+        additive: true,
+        additive_alpha: true,
+        emissive: true,
         ..Default::default()
-    };
+    }
+    .material(EntityRenderMaterial::Default);
     let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
     ActorPipelineSpecializer
         .specialize(
@@ -367,6 +361,7 @@ fn alpha_weighted_additive_actor_preserves_destination_and_fades_source() {
                 hdr: false,
                 enhanced: false,
                 material: material.gpu_word(),
+                raster: material.raster(),
             },
             &mut descriptor,
         )
@@ -430,15 +425,13 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
     ) else {
         return;
     };
-    let material = render_model::ActorMaterial {
-        state: Some(EntityRenderMaterialState {
-            alpha_test: true,
-            cull: false,
-            blend: true,
-            ..Default::default()
-        }),
+    let material = TestMaterial {
+        alpha_test: true,
+        cull: false,
+        blend: true,
         ..Default::default()
-    };
+    }
+    .material(EntityRenderMaterial::Default);
     let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
     ActorPipelineSpecializer
         .specialize(
@@ -447,6 +440,7 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
                 hdr: false,
                 enhanced: false,
                 material: material.gpu_word(),
+                raster: material.raster(),
             },
             &mut descriptor,
         )
@@ -497,14 +491,12 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
 #[test]
 fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometry() {
     for depth_always in [false, true] {
-        let material = render_model::ActorMaterial {
-            state: Some(EntityRenderMaterialState {
-                alpha_test: true,
-                depth_always,
-                ..Default::default()
-            }),
+        let material = TestMaterial {
+            alpha_test: true,
+            depth_always,
             ..Default::default()
-        };
+        }
+        .material(EntityRenderMaterial::Default);
         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
         ActorPipelineSpecializer
             .specialize(
@@ -513,6 +505,7 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
                     hdr: false,
                     enhanced: false,
                     material: material.gpu_word(),
+                    raster: material.raster(),
                 },
                 &mut descriptor,
             )
@@ -531,7 +524,7 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
             depth_always
         );
         assert_eq!(
-            super::super::phase::sorted(material.gpu_word()),
+            super::super::phase::sorted(material.gpu_word(), &material.raster()),
             depth_always
         );
     }
@@ -539,6 +532,10 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
 
 #[test]
 fn explicit_always_depth_overrides_the_dissolve_color_default() {
+    let always = TestMaterial {
+        depth_always: true,
+        ..Default::default()
+    };
     let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
     ActorPipelineSpecializer
         .specialize(
@@ -546,12 +543,8 @@ fn explicit_always_depth_overrides_the_dissolve_color_default() {
                 msaa: Msaa::Off,
                 hdr: false,
                 enhanced: false,
-                material: EntityRenderMaterial::DissolveColor.word(Some(
-                    EntityRenderMaterialState {
-                        depth_always: true,
-                        ..Default::default()
-                    },
-                )),
+                material: always.word(EntityRenderMaterial::DissolveColor),
+                raster: always.raster(),
             },
             &mut descriptor,
         )
@@ -573,12 +566,13 @@ fn ordinary_dissolve_color_finishes_before_depth_writing_transparency() {
                 hdr: false,
                 enhanced: false,
                 material,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             },
             &mut descriptor,
         )
         .unwrap();
     assert!(
-        !super::super::phase::sorted(material),
+        !super::super::phase::sorted(material, &assets::entity::material::UNAUTHORED_RENDER_STATE),
         "an ordinary mask and color finish together before transparent terrain"
     );
     assert!(
@@ -604,12 +598,12 @@ fn legacy_leather_preserves_alpha_and_uses_mask_alpha_only_for_dye() {
                     profile,
                     ..Default::default()
                 },
-                state: Some(EntityRenderMaterialState {
+                ..TestMaterial {
                     alpha_test: true,
                     cull: false,
                     ..Default::default()
-                }),
-                ..Default::default()
+                }
+                .material(EntityRenderMaterial::Default)
             };
             let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
             ActorPipelineSpecializer
@@ -619,6 +613,7 @@ fn legacy_leather_preserves_alpha_and_uses_mask_alpha_only_for_dye() {
                         hdr: false,
                         enhanced: false,
                         material: material.gpu_word(),
+                        raster: material.raster(),
                     },
                     &mut descriptor,
                 )
@@ -648,16 +643,14 @@ fn invisible_emissive_material_keeps_eye_texels_and_rejects_alpha_endpoints() {
         return;
     };
     let plane = actor_raster::cube([16, 0, 16], true, false);
-    let mut material = render_model::ActorMaterial {
-        state: Some(EntityRenderMaterialState {
-            alpha_test: true,
-            cull: false,
-            emissive: true,
-            only_emissive: true,
-            ..Default::default()
-        }),
+    let mut material = TestMaterial {
+        alpha_test: true,
+        cull: false,
+        emissive: true,
+        only_emissive: true,
         ..Default::default()
-    };
+    }
+    .material(EntityRenderMaterial::Default);
     let clear = actor_raster::raster_material_target(
         &gpu,
         &plane,
@@ -711,6 +704,12 @@ fn authored_depth_equal_and_channel_writes_reach_the_pipeline() {
         (false, true, ColorWrites::empty()),
         (true, true, ColorWrites::empty()),
     ] {
+        let state = TestMaterial {
+            depth_equal: true,
+            disable_alpha_write,
+            disable_color_write,
+            ..Default::default()
+        };
         let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
         ActorPipelineSpecializer
             .specialize(
@@ -718,12 +717,8 @@ fn authored_depth_equal_and_channel_writes_reach_the_pipeline() {
                     msaa: Msaa::Off,
                     hdr: false,
                     enhanced: false,
-                    material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
-                        depth_equal: true,
-                        disable_alpha_write,
-                        disable_color_write,
-                        ..Default::default()
-                    })),
+                    material: state.word(EntityRenderMaterial::Default),
+                    raster: state.raster(),
                 },
                 &mut descriptor,
             )

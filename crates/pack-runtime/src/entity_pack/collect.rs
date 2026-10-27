@@ -125,6 +125,20 @@ pub fn collect_files(
     vanilla: Option<&VanillaEntityRefs>,
     vanilla_pack_dir: Option<&Path>,
 ) -> Vec<(Box<str>, Vec<u8>)> {
+    collect_files_reporting(view, vanilla, vanilla_pack_dir).0
+}
+
+/// `(pack-relative path, bytes)` files entity compilation reads.
+pub type CollectedFiles = Vec<(Box<str>, Vec<u8>)>;
+
+/// [`collect_files`] with the counts collection notices: the entity material lists' entries
+/// it read in part or not at all.
+pub fn collect_files_reporting(
+    view: &LayeredPackView,
+    vanilla: Option<&VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&Path>,
+) -> (CollectedFiles, assets::EntityMaterialDiagnostics) {
+    let mut report = assets::EntityMaterialDiagnostics::default();
     let mut files = Vec::new();
     let CollectedEntities {
         files: entities,
@@ -145,11 +159,15 @@ pub fn collect_files(
     for (_, _, definitions) in &definitions {
         overrides.extend(definitions.keys().cloned());
     }
-    let materials = material_definitions(view);
-    let material_document = materials.as_deref().and_then(parse_pack_json);
+    let (materials, list_report) = material_files(view);
+    report.list = list_report;
+    let material_documents = materials
+        .iter()
+        .filter_map(|(path, bytes)| Some((path.clone(), parse_pack_json(bytes)?)))
+        .collect::<Vec<_>>();
     let binding_inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
         vanilla_pack_dir,
-        material_document.as_ref(),
+        &material_documents,
     )
     .ok();
     if let Some(inputs) = &binding_inputs {
@@ -224,10 +242,14 @@ pub fn collect_files(
     }
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
+    textures.extend(material_binding_textures(view));
     files.extend(entities);
-    if let Some(materials) = materials {
-        files.push(("materials/_pack.material".into(), materials));
-    }
+    files.extend(
+        materials
+            .into_iter()
+            .map(|(path, bytes)| (path.into(), bytes)),
+    );
+    files.extend(material_bindings(view));
     files.extend(attachables);
     files.extend(geometry);
     textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
@@ -248,7 +270,7 @@ pub fn collect_files(
             files.push(texture);
         }
     }
-    files
+    (files, report)
 }
 
 /// All server formats have precedence over the installed vanilla layer.
@@ -297,41 +319,184 @@ fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
 }
 
-/// Material identity is the child name; its parent remains part of the winning declaration.
-fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
-    let mut definitions = BTreeMap::new();
+/// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
+/// when invalid; the compiler then ignores it and the reason is logged here.
+fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
+    let document = material_bindings_document(view)?;
+    if let Err(reason) = pack_entity_compiler::validate_material_bindings(&document) {
+        tracing::warn!(%reason, "ignoring the pack's material bindings");
+    }
+    Some((
+        pack_entity_compiler::MATERIAL_BINDINGS_PATH.into(),
+        serde_json::to_vec(&document).ok()?,
+    ))
+}
+
+/// Texture paths the stack's material bindings name, so their rasters reach the entity catalog.
+fn material_binding_textures(view: &LayeredPackView) -> Vec<String> {
+    let Some(document) = material_bindings_document(view) else {
+        return Vec::new();
+    };
+    document
+        .get("materials")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|materials| materials.values())
+        .filter_map(|material| material.get("textures")?.as_object())
+        .flat_map(|textures| textures.values())
+        .filter_map(|path| path.as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The stack's winning `cinnabar/material-bindings.json` document.
+pub fn material_bindings_document(view: &LayeredPackView) -> Option<Value> {
+    parse_pack_json(&view.read(pack_entity_compiler::MATERIAL_BINDINGS_PATH)?)
+}
+
+/// The stack's material documents keyed by pack path, as entity compilation reads them:
+/// the resolved entity material list and the files it names, then unlisted `.material` files.
+pub fn material_documents(view: &LayeredPackView) -> Vec<(String, Value)> {
+    material_files(view)
+        .0
+        .into_iter()
+        .filter_map(|(path, bytes)| Some((path, parse_pack_json(&bytes)?)))
+        .collect()
+}
+
+/// Material files merged per path across the stack, lowest precedence first, as the client
+/// patches same-path copies. Each file keeps its own version wrapper and declaration order.
+///
+/// Every pack's copy of the entity material list is read, highest precedence first, and
+/// resolved into one list written at its own path; the files it names are kept whatever their
+/// path, those outside `materials/*.material` under a key compilation admits. Unlisted
+/// `materials/*.material` files are kept too, standing in for the vanilla lists the client does
+/// not ship.
+fn material_files(view: &LayeredPackView) -> (Vec<(String, Vec<u8>)>, assets::MaterialListReport) {
+    let list_path = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
+    let copies = view.read_layers(list_path);
+    let parsed = copies
+        .iter()
+        .rev()
+        .map(|bytes| parse_pack_json(bytes))
+        .collect::<Vec<_>>();
+    let (entries, mut report) =
+        pack_entity_compiler::resolve_material_lists(parsed.iter().flatten());
+    report.unparsable_lists += parsed.iter().filter(|copy| copy.is_none()).count() as u32;
+    let mut files = BTreeMap::<String, Value>::new();
+    let mut listed = Vec::new();
+    let mut listed_paths = BTreeSet::new();
+    for mut entry in entries {
+        let Some(document) = merged_layers(view.read_layers(&entry.path)) else {
+            continue;
+        };
+        let key = if is_material_file(&entry.path)
+            && entry.path.len() <= assets::MAX_ENTITY_ASSET_PATH_BYTES
+        {
+            entry.path.to_string()
+        } else {
+            format!("{LISTED_MATERIAL_PREFIX}{}.material", listed.len())
+        };
+        listed_paths.insert(std::mem::replace(&mut entry.path, key.as_str().into()));
+        files.insert(key, document);
+        listed.push(entry);
+    }
     for layer in view.layers() {
         for path in layer
             .files_under("materials/")
             .into_iter()
-            .filter(|path| path.ends_with(".material"))
+            .filter(|path| is_material_file(path))
         {
+            if listed_paths.contains(path) {
+                continue;
+            }
             let Ok(Some(bytes)) = layer.read_file(path) else {
                 continue;
             };
-            let Some(root) = parse_pack_json(&bytes) else {
+            let Some(document) = parse_pack_json(&bytes) else {
                 continue;
             };
-            let Some(materials) = root.get("materials").and_then(Value::as_object) else {
-                continue;
-            };
-            for (declaration, definition) in materials {
-                if !definition.is_object() {
-                    continue;
-                }
-                let child = declaration.split(':').next()?.trim_start_matches('+');
-                if !child.is_empty() {
-                    definitions.insert(child.to_owned(), (declaration.clone(), definition.clone()));
+            match files.get_mut(path) {
+                Some(merged) => patch_material_json(merged, &document),
+                None => {
+                    files.insert(path.to_owned(), document);
                 }
             }
         }
     }
-    if definitions.is_empty() {
-        return None;
+    if !listed.is_empty() {
+        files.insert(
+            list_path.to_owned(),
+            pack_entity_compiler::material_list_document(&listed),
+        );
     }
-    let mut materials = definitions.into_values().collect::<Map<_, _>>();
-    materials.insert("version".into(), Value::from("1.0.0"));
-    serde_json::to_vec(&serde_json::json!({"materials": materials})).ok()
+    let files = files
+        .into_iter()
+        .filter_map(|(path, document)| Some((path, serde_json::to_vec(&document).ok()?)))
+        .collect();
+    (files, report)
+}
+
+/// Catalog keys for listed files outside `materials/*.material` or longer than a catalog path.
+/// Pack admission forbids `:` in authored paths, so these keys cannot collide with a pack file.
+const LISTED_MATERIAL_PREFIX: &str = "materials/:listed/";
+
+/// Whether `path` is a `materials/*.material` file.
+fn is_material_file(path: &str) -> bool {
+    path.starts_with("materials/") && path.ends_with(".material")
+}
+
+/// Parses each copy, lowest precedence first, and patches it onto the copies below it.
+fn merged_layers(copies: Vec<Box<[u8]>>) -> Option<Value> {
+    let mut merged: Option<Value> = None;
+    for document in copies.iter().filter_map(|bytes| parse_pack_json(bytes)) {
+        match &mut merged {
+            Some(merged) => patch_material_json(merged, &document),
+            None => merged = Some(document),
+        }
+    }
+    merged
+}
+
+/// Applies a higher copy onto a lower one: objects merge field by field, matching keys by the
+/// declaration name before any `:` and keeping the higher spelling; arrays overwrite by index and
+/// keep the lower copy's extra tail; other values are replaced. Among lower keys sharing a name
+/// the first in key order merges, found through a name index so the merge stays linear.
+fn patch_material_json(base: &mut Value, upper: &Value) {
+    fn stem(key: &str) -> &str {
+        key.split(':').next().unwrap_or(key)
+    }
+    match (base, upper) {
+        (Value::Object(base), Value::Object(upper)) => {
+            let mut stems = std::collections::HashMap::<String, BTreeSet<String>>::new();
+            for key in base.keys() {
+                stems
+                    .entry(stem(key).to_owned())
+                    .or_default()
+                    .insert(key.clone());
+            }
+            for (key, value) in upper {
+                let keys = stems.entry(stem(key).to_owned()).or_default();
+                let merged = match keys.pop_first() {
+                    Some(existing) => base.remove(&existing).map(|mut merged| {
+                        patch_material_json(&mut merged, value);
+                        merged
+                    }),
+                    None => None,
+                };
+                keys.insert(key.clone());
+                base.insert(key.clone(), merged.unwrap_or_else(|| value.clone()));
+            }
+        }
+        (Value::Array(base), Value::Array(upper)) => {
+            for (index, value) in upper.iter().enumerate() {
+                match base.get_mut(index) {
+                    Some(slot) => *slot = value.clone(),
+                    None => base.push(value.clone()),
+                }
+            }
+        }
+        (base, upper) => *base = upper.clone(),
+    }
 }
 
 /// Splits `items` into parallel batches bounded by workers and one source's byte budget;

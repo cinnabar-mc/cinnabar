@@ -48,10 +48,9 @@ fn pinned_trader_llama_draws_body_and_carpet_as_one_three_sampler_layer() {
             let extra = layer
                 .multitexture
                 .expect("body, decor and empty sampler travel together");
+            let multitexture = assets::actor_multitexture_sources(assets.render_data());
             for source in [layer.source, extra[0], extra[1]] {
-                assert!(assets::native_actor_texture_uses_multitexture(
-                    &assets.sources()[source as usize]
-                ));
+                assert!(multitexture.contains(&source));
             }
             let body = &assets.sources()[layer.source as usize].path;
             assert_eq!(body.contains("_baby"), baby);
@@ -63,4 +62,40 @@ fn pinned_trader_llama_draws_body_and_carpet_as_one_three_sampler_layer() {
             }));
         }
     }
+}
+
+#[test]
+fn materials_sample_the_controller_slots_bedrock_binds() {
+    use assets::EntityRenderMaterialState as State;
+    let state = |edit: fn(&mut State)| {
+        let mut state = State::default();
+        edit(&mut state);
+        Some(state)
+    };
+    assert_eq!(super::extra_samplers(None), &[] as &[usize]);
+    assert_eq!(super::extra_samplers(state(|_| {})), &[] as &[usize]);
+    assert_eq!(
+        super::extra_samplers(state(|state| state.glint = true)),
+        &[] as &[usize],
+        "glint draws with the client's glint raster"
+    );
+    assert_eq!(
+        super::extra_samplers(state(|state| state.multitexture = true)),
+        &[1, 2]
+    );
+    assert_eq!(
+        super::extra_samplers(state(|state| state.texture_tint = true)),
+        &[1]
+    );
+    assert_eq!(
+        super::extra_samplers(state(|state| state.texture_mask = true)),
+        &[1]
+    );
+    assert_eq!(
+        super::extra_samplers(state(|state| {
+            state.texture_tint = true;
+            state.glint = true;
+        })),
+        &[2]
+    );
 }

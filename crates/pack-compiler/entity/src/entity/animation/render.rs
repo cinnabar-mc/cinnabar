@@ -21,6 +21,7 @@ const MAX_SLOTS_PER_LAYER: usize = 16;
 
 mod material_groups;
 use super::super::materials;
+use assets::EntityMaterialDiagnostics;
 
 pub(super) struct RenderSources<'a> {
     pub root: &'a Path,
@@ -105,10 +106,13 @@ fn compile_uv_anim(molang: &mut MolangCompiler, value: Option<&Value>) -> Option
     Some(components)
 }
 
+/// Compiles the render layers of every rig, returning the render payload, the number of
+/// material declarations and definitions left unresolved past their bounds, and the pack's
+/// entity material counts.
 pub(super) fn compile_render(
     input: RenderSources<'_>,
     molang: &mut MolangCompiler,
-) -> Result<EntityRenderData, AssetError> {
+) -> Result<(EntityRenderData, u32, EntityMaterialDiagnostics), AssetError> {
     let RenderSources {
         root,
         payloads,
@@ -119,6 +123,7 @@ pub(super) fn compile_render(
         rig_geometries,
     } = input;
     let materials = materials::MaterialStates::load(root, payloads, sources)?;
+    let mut material_table = materials::MaterialTable::default();
     let mut definitions = Vec::<(Box<str>, &Value)>::new();
     for source in sources
         .iter()
@@ -134,6 +139,7 @@ pub(super) fn compile_render(
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut layer_geometries = Vec::new();
     let mut material_selections = Vec::new();
+    let mut skipped_draws = 0;
     let mut geometry_parents = None;
     let geometry_indices = unique_geometry_indices(geometries)?;
     for (rig_index, rig) in rigs.iter().enumerate() {
@@ -277,9 +283,11 @@ pub(super) fn compile_render(
             );
             let rig_first = rig.first_geometry as usize;
             let groups = material_groups::resolve(
+                (&entity.identifier, name),
                 description,
                 definition,
                 &materials,
+                &mut material_table,
                 geometries,
                 rig_geometries[rig_first..rig_first + usize::from(rig.geometry_count)]
                     .iter()
@@ -322,6 +330,8 @@ pub(super) fn compile_render(
             let layer = EntityRenderLayer {
                 material: EntityRenderMaterial::Default,
                 material_state: None,
+                material_definition: None,
+                material_masks: None,
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
@@ -356,19 +366,32 @@ pub(super) fn compile_render(
                     candidates: &mut candidates,
                     visibility: &mut visibility,
                     geometries: &mut layer_geometries,
+                    skipped_draws: &mut skipped_draws,
                 },
                 molang,
             )?;
         }
     }
-    Ok(EntityRenderData {
-        material_selections: material_selections.into_boxed_slice(),
-        layers: layers.into_boxed_slice(),
-        slots: slots.into_boxed_slice(),
-        candidates: candidates.into_boxed_slice(),
-        visibility: visibility.into_boxed_slice(),
-        geometries: layer_geometries.into_boxed_slice(),
-    })
+    let unresolved = materials.unadmitted() + material_table.unresolved();
+    let diagnostics = EntityMaterialDiagnostics {
+        skipped_draws,
+        ..materials.diagnostics()
+    };
+    let (materials, material_masks) = material_table.into_parts();
+    Ok((
+        EntityRenderData {
+            material_selections: material_selections.into_boxed_slice(),
+            layers: layers.into_boxed_slice(),
+            slots: slots.into_boxed_slice(),
+            candidates: candidates.into_boxed_slice(),
+            visibility: visibility.into_boxed_slice(),
+            geometries: layer_geometries.into_boxed_slice(),
+            materials,
+            material_masks,
+        },
+        unresolved,
+        diagnostics,
+    ))
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition

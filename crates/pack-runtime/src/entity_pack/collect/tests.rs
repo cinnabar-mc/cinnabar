@@ -235,14 +235,21 @@ fn changing_mob_geometry_keeps_both_owner_armour_variants() {
 }
 
 fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
+    archive_with(id, "materials/entity.material", material)
+}
+
+/// A resource pack archive holding a manifest and `value` at `path`.
+fn archive_with(id: u128, path: &str, value: serde_json::Value) -> protocol::ResourcePackArchive {
+    archive_files(id, vec![(path, value)])
+}
+
+/// A resource pack archive holding a manifest and each `(path, value)` file.
+fn archive_files(id: u128, files: Vec<(&str, serde_json::Value)>) -> protocol::ResourcePackArchive {
     let id = format!("00000000-0000-0000-0000-{id:012x}");
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (path, value) in [
-        ("manifest.json", manifest),
-        ("materials/entity.material", material),
-    ] {
+    for (path, value) in std::iter::once(("manifest.json", manifest)).chain(files) {
         zip.start_file(path, zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(&serde_json::to_vec(&value).unwrap()).unwrap();
@@ -530,7 +537,7 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
     std::fs::write(
         root.path().join("materials/fixture.material"),
         json!({"materials": {
-            "coat:coat_parent": {}, "coat_parent:armor_leather": {}
+            "version": "1.0.0", "coat:coat_parent": {}, "coat_parent:armor_leather": {}
         }})
         .to_string(),
     )
@@ -554,11 +561,15 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
         ("unrelated:entity", json!({"defines": []}), true),
     ] {
         let mut materials = serde_json::Map::new();
+        materials.insert("version".into(), json!("1.0.0"));
         materials.insert(declaration.into(), fields);
-        let authored = json!({"materials": materials});
+        let authored = (
+            "materials/entity.material".to_owned(),
+            json!({"materials": materials}),
+        );
         let inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
             Some(root.path()),
-            Some(&authored),
+            std::slice::from_ref(&authored),
         )
         .unwrap();
         assert_eq!(
@@ -775,4 +786,129 @@ fn geometry_collection_bounds_parallel_parse_input() {
                 "parsed {peak} geometry input bytes in one parallel batch"
             );
         });
+}
+
+#[test]
+fn material_merges_match_declarations_by_name_across_large_files() {
+    const COUNT: usize = 20_000;
+    let lower = (0..COUNT)
+        .map(|index| {
+            (
+                format!("m{index}:base"),
+                json!({"lower": index, "kept": true}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let upper = (0..COUNT)
+        .map(|index| (format!("m{index}:other"), json!({"upper": index})))
+        .chain([("new".to_owned(), json!({"upper": "new"}))])
+        .collect::<serde_json::Map<_, _>>();
+    let mut merged = serde_json::Value::Object(lower);
+    super::patch_material_json(&mut merged, &serde_json::Value::Object(upper));
+    let merged = merged.as_object().unwrap();
+    assert_eq!(merged.len(), COUNT + 1);
+    for index in [0, COUNT / 2, COUNT - 1] {
+        assert!(!merged.contains_key(&format!("m{index}:base")));
+        assert_eq!(
+            merged[&format!("m{index}:other")],
+            json!({"lower": index, "kept": true, "upper": index}),
+            "the higher spelling keeps the lower fields it does not replace"
+        );
+    }
+    assert_eq!(merged["new"], json!({"upper": "new"}));
+}
+
+#[test]
+fn the_highest_material_bindings_file_shadows_lower_copies_even_when_invalid() {
+    let path = pack_entity_compiler::MATERIAL_BINDINGS_PATH;
+    let lower = archive_with(1, path, json!({"format_version":"1.0.0"}));
+    let upper = archive_with(2, path, json!({"format_version":"9.9.9"}));
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+    ));
+    let files = super::collect_files(&view, None, None);
+    let collected = files
+        .iter()
+        .filter(|(file, _)| file.as_ref() == path)
+        .map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(bytes).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(collected, [json!({"format_version":"9.9.9"})]);
+}
+
+#[test]
+fn every_packs_material_list_resolves_into_one_list_naming_its_files() {
+    let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
+    let lower = archive_files(
+        1,
+        vec![
+            (
+                list,
+                json!([
+                    {"path": "materials/shared.material", "+defines": ["LOWER"]},
+                    {"path": "materials/custom.json", "tag": "old"}
+                ]),
+            ),
+            ("materials/shared.material", json!({"lower": {}})),
+            ("materials/custom.json", json!({"custom": {}})),
+            ("materials/unlisted.material", json!({"unlisted": {}})),
+        ],
+    );
+    let upper = archive_files(
+        2,
+        vec![
+            (
+                list,
+                json!([{"path": "materials/shared.material", "+defines": ["UPPER"]}]),
+            ),
+            ("materials/shared.material", json!({"upper": {}})),
+        ],
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+    ));
+    let files = super::collect_files(&view, None, None)
+        .into_iter()
+        .filter(|(path, _)| path.starts_with("materials/"))
+        .map(|(path, bytes)| {
+            (
+                path.to_string(),
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let custom = "materials/:listed/1.material";
+    assert_eq!(
+        files[list],
+        json!([
+            {"path": "materials/shared.material", "defines": ["UPPER"]},
+            {"path": custom, "defines": []}
+        ])
+    );
+    assert_eq!(
+        files["materials/shared.material"],
+        json!({"lower": {}, "upper": {}})
+    );
+    assert_eq!(files[custom], json!({"custom": {}}));
+    assert_eq!(
+        files["materials/unlisted.material"],
+        json!({"unlisted": {}})
+    );
+    assert!(!files.contains_key("materials/custom.json"));
+}
+
+#[test]
+fn collection_reports_material_list_entries_it_read_in_part() {
+    let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
+    let pack = archive_files(
+        1,
+        vec![(
+            list,
+            json!([{"path": "materials/a.material", "tag": "old"}, {"path": ""}]),
+        )],
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![pack]),
+    ));
+    let (_, report) = super::collect_files_reporting(&view, None, None);
+    assert_eq!((report.list.ignored_tags, report.list.empty_paths), (1, 1));
 }

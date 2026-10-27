@@ -5,18 +5,15 @@ use super::*;
 /// Vanilla's `elytra` material derives `entity_alphatest`: alpha-tested and double-sided.
 const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRenderMaterialState {
     alpha_test: true,
-    cull: false,
-    blend: false,
-    depth_write: true,
     emissive: false,
     only_emissive: false,
-    additive: false,
-    additive_alpha: false,
     disable_overlay: false,
-    depth_always: false,
-    depth_equal: false,
-    disable_alpha_write: false,
-    disable_color_write: false,
+    color_mask: false,
+    multitexture: false,
+    glint: false,
+    texture_tint: false,
+    texture_mask: false,
+    color_second_texture: false,
 };
 
 impl EquipmentRuntime {
@@ -75,7 +72,7 @@ impl EquipmentRuntime {
                     pose.to_vec(),
                     Arc::clone(&layer.hidden_bones),
                     layer.material,
-                    layer.material_state,
+                    layer.material_state.zip(layer.render_state),
                     layer.source,
                 )
             })
@@ -114,7 +111,9 @@ impl EquipmentRuntime {
                 } else {
                     material
                 },
-                state: Some(state.unwrap_or(WING_MATERIAL_STATE)),
+                state: Some(state.map_or(WING_MATERIAL_STATE, |(state, _)| state)),
+                // `entity_alphatest`'s raster is the unauthored one.
+                render_state: state.map(|(_, raster)| raster),
                 glint: render_model::ActorGlint {
                     time_seconds: (animation.rig.completed_tick as f32 + animation.frame_alpha)
                         * simulation_clock::TICK_DURATION.as_secs_f32(),

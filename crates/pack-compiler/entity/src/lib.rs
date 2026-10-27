@@ -16,6 +16,14 @@ pub use block_entity::{
     BlockEntityCompileReport, BlockEntityTexture, CompiledBlockEntityCarrier,
     compile_block_entity_assets, overlay_block_entity_assets,
 };
+pub use entity::materials::extension::{
+    BlockMaskPaths, MATERIAL_BINDINGS_PATH, ResolvedBlockBinding,
+    block_bindings as block_material_bindings, validate as validate_material_bindings,
+};
+pub use entity::materials::list::{
+    ENTITY_MATERIAL_LIST_PATH, MAX_MATERIAL_LIST_PATH_BYTES, MaterialListEntry,
+    material_list_document, resolve_material_lists,
+};
 pub use entity::{
     BlockMolang, BlockStateValue, CompileReferenceOutcome, EntityAssetCompilation,
     EntityPackCompilation, EntityPackSkips, EquipmentBindingDependencies, FallbackReason,
