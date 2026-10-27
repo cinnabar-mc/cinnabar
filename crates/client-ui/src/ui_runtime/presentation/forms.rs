@@ -385,16 +385,20 @@ impl UiPresentationRuntime {
 
     /// Publishes completed original images before a saved menu frame can be reused.
     pub(super) fn poll_server_ui_images(&mut self) {
-        if self
+        use ui_engine::engine::ImageUpdate;
+        let update = self
             .engine
             .as_mut()
-            .is_some_and(|engine| engine.poll_native_images())
-        {
-            self.retained_menu = None;
+            .map_or(ImageUpdate::None, |engine| engine.poll_native_images());
+        if update == ImageUpdate::None {
+            return;
+        }
+        self.retained_menu = None;
+        if update == ImageUpdate::Metadata {
             self.screens.hud.invalidate_textures();
             self.screens.containers.invalidate_textures();
-            self.sync_server_ui_pages();
         }
+        self.sync_server_ui_pages();
     }
 
     /// Hands changed server atlas pages to the dynamic texture pages; runs

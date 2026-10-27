@@ -88,6 +88,17 @@ pub struct FormEngine {
     animator: std::sync::Mutex<json_ui::Animator>,
 }
 
+/// The strongest image change collected since the previous frame's poll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageUpdate {
+    /// No image readiness or dimensions changed.
+    None,
+    /// Artwork or masks settled without changing layout inputs.
+    Readiness,
+    /// Image dimensions or source metadata changed, including during the previous paint.
+    Metadata,
+}
+
 pub struct FormCache {
     model: FormModel,
     components: json_ui::Components,
@@ -232,10 +243,17 @@ impl FormEngine {
         self.screens.invalidate_layouts();
     }
 
-    /// Polls original-image readiness even when the current menu needs no repaint.
-    pub fn poll_native_images(&mut self) -> bool {
+    /// Collects image changes without treating pixel readiness as a layout change.
+    pub fn poll_native_images(&mut self) -> ImageUpdate {
         let atlas = self.textures.atlas_mut();
-        atlas.poll_native_images() | atlas.take_metadata_changed()
+        let ready = atlas.poll_native_images();
+        if atlas.take_metadata_changed() {
+            ImageUpdate::Metadata
+        } else if ready {
+            ImageUpdate::Readiness
+        } else {
+            ImageUpdate::None
+        }
     }
 
     /// The atlas page images when they changed since the last call.

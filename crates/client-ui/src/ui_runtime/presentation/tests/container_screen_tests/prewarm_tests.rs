@@ -426,6 +426,79 @@ fn unchanged_closed_inventory_does_no_more_preparation() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn image_residency_keeps_prepared_inventory_measurements() {
+    let definition = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":fixed_labels()
+    }});
+    let (mut presentation, runtime, player) = inventory_fixture(definition);
+    draw(&mut presentation, &runtime, &player, 0);
+
+    let key = "textures/ui/residency";
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([20, 40, 60, 255]))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let engine = presentation.engine.as_mut().unwrap();
+    engine.textures = ui_engine::textures::TextureSet::new(
+        0,
+        Arc::clone(&engine.textures.remote),
+        ui_engine::sources::ImageWork::default(),
+    );
+    engine.textures.set_atlas(
+        ui_engine::atlas::ServerAtlas::new(&[(format!("{key}.png"), bytes.into_inner())], None, 1),
+        1,
+    );
+    presentation.screens.containers.invalidate_textures();
+    draw(&mut presentation, &runtime, &player, 1);
+    assert!(!presentation.inventory_preparation_needed(&player, &runtime));
+    let placed = presentation.engine_container_placed();
+    let engine = presentation.engine.as_mut().unwrap();
+    let metadata = engine.textures.metadata_revision();
+    engine.textures.atlas_mut().require([key]);
+    test_time::eventually("original UI image becomes resident", || {
+        presentation.poll_server_ui_images();
+        presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .textures
+            .lock()
+            .native_sheet_ready(key)
+    });
+    assert_eq!(
+        presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .textures
+            .metadata_revision(),
+        metadata
+    );
+    assert!(
+        !presentation.inventory_preparation_needed(&player, &runtime),
+        "residency changed no dimensions and must keep the prepared layout"
+    );
+    draw_frame(&mut presentation, &runtime, &player, 2);
+    assert_eq!(presentation.engine_container_placed(), placed);
+    assert!(!presentation.engine_inventory_preparation_pending());
+
+    let head = render_model::UiTexturePage::owned([4, 2], vec![255; 32].into()).unwrap();
+    presentation
+        .engine
+        .as_mut()
+        .unwrap()
+        .textures
+        .atlas_mut()
+        .set_local_player_head(Some(&head));
+    presentation.poll_server_ui_images();
+    assert!(
+        presentation.inventory_preparation_needed(&player, &runtime),
+        "metadata published before the poll still invalidates preparation"
+    );
+}
+
 #[test]
 fn opening_during_a_source_change_uses_the_current_inputs() {
     let definition = json!({"namespace":"crafting", "inventory_screen":{
