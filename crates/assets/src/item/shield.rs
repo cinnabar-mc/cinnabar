@@ -22,16 +22,24 @@ pub fn pattern_path(code: &str) -> String {
     format!("{PATTERN_DIRECTORY}/{texture}")
 }
 
-/// Composes the base cloth and ordered overlays at the largest admitted source resolution.
+/// Composes every layer within the output pixel budget admitted by its consumer.
 /// Texture sampling uses normalized coordinates, preserving custom pack dimensions.
 pub fn compose<'a, 'p>(
     shield: &'a EquipmentTexture,
     base: u8,
     layers: impl IntoIterator<Item = (&'p str, u8)>,
+    max_pixels: usize,
     texture: impl FnMut(&str) -> Option<&'a EquipmentTexture>,
 ) -> Option<EquipmentTexture> {
     let sources = pattern_sources(base, layers, texture);
-    let [width, height] = source_size(shield, &sources)?;
+    let [mut width, mut height] = source_size(shield, &sources)?;
+    if max_pixels == 0 {
+        return None;
+    }
+    while usize::from(width) * usize::from(height) > max_pixels {
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+    }
     let mut pixels = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
     for y in 0..height {
         for x in 0..width {
@@ -127,6 +135,18 @@ mod tests {
     }
 
     #[test]
+    fn shield_composition_respects_admitted_pixels_for_crossed_strip_masks() {
+        let shield = raster("fixture:shield", &[[10, 20, 30, 255]; 128]);
+        let mut tall = raster("base", &[[255; 4]; 128]);
+        tall.width = 1;
+        tall.height = 128;
+        let result = compose(&shield, 15, [], 1024, |_| Some(&tall)).unwrap();
+        assert!(usize::from(result.width) * usize::from(result.height) <= 1024);
+        assert_eq!(&result.rgba8[..3], banner::color_rgb(15));
+        assert!(compose(&shield, 15, [], 0, |_| Some(&tall)).is_none());
+    }
+
+    #[test]
     fn shield_patterns_keep_layer_order_alpha_and_uncovered_frame_texels() {
         let shield = raster("fixture:shield", &[[10, 20, 30, 255]; 2]);
         let base = raster("base", &[[255, 255, 255, 255], [0; 4]]);
@@ -138,7 +158,7 @@ mod tests {
             "border" => Some(&border),
             _ => None,
         };
-        let partial = compose(&shield, 15, [("sc", 1)], resolve).unwrap();
+        let partial = compose(&shield, 15, [("sc", 1)], usize::MAX, resolve).unwrap();
         assert_eq!(&partial.rgba8[4..], &[10, 20, 30, 255]);
         let white = banner::color_rgb(15);
         let red = banner::color_rgb(1);
@@ -146,7 +166,7 @@ mod tests {
             ((f32::from(white[i]) * 127.0 + f32::from(red[i]) * 128.0) / 255.0).round() as u8
         });
         assert_eq!(&partial.rgba8[..3], expected);
-        let ordered = compose(&shield, 15, [("sc", 1), ("bo", 4)], resolve).unwrap();
+        let ordered = compose(&shield, 15, [("sc", 1), ("bo", 4)], usize::MAX, resolve).unwrap();
         assert_eq!(&ordered.rgba8[..3], banner::color_rgb(4));
     }
 }

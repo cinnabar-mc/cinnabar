@@ -614,7 +614,7 @@ fn first_person_texture_lookup_rejects_a_layer_absent_from_its_page() {
         .with_equipment_rasters(&[raster.clone(), raster.clone()]);
     let (artwork, _) = render_model::ActorArtworkPages::default().with_equipment_rasters(&[raster]);
     item.presentation.location = locations[1].unwrap();
-    assert!(item_atlas(&item, &artwork).is_none());
+    assert!(crate::actor_publication::hand::item_atlas(&item, &artwork).is_none());
 }
 
 #[test]

@@ -75,6 +75,7 @@ impl EquipmentRuntime {
                     .layers
                     .iter()
                     .map(|layer| (layer.pattern.as_ref(), layer.color)),
+                usize::from(width) * usize::from(height),
                 |path| {
                     pack.and_then(|catalog| catalog.texture(path))
                         .or_else(|| startup.texture(path))

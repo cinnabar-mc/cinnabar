@@ -57,6 +57,26 @@ pub(super) fn camera_space_rows(matrix: Mat4) -> [[f32; 4]; 3] {
     [composed[0], composed[1], composed[2]]
 }
 
+/// Resolves one hand's actual sheet, including shield cloth on either animation route.
+pub(super) fn decorated_item_atlas(
+    equipment: &mut EquipmentRuntime,
+    item: &crate::presentation::equipment::WornItem,
+    layer: &mut FirstPersonItem,
+    artwork: &render_model::ActorArtworkPages,
+) -> Option<HandItemAtlas> {
+    if let Some(raster) = equipment.shield_raster(item, artwork, layer.presentation.location) {
+        layer.presentation.submission.texture_layer = 0;
+        Some(HandItemAtlas {
+            width: raster.width,
+            height: raster.height,
+            layers: 1,
+            rgba8: raster.rgba8,
+        })
+    } else {
+        item_atlas(layer, artwork)
+    }
+}
+
 /// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
 /// it when not in first person, when the look FOV is unavailable, or when no skin resolved.
 pub(super) fn publish_hand_rig(
@@ -403,19 +423,7 @@ pub(super) fn vanilla_hand_source(
                 equipment.first_person_offhand(&presentation.submission, item)
             }
         })?;
-        let atlas = if let Some(raster) =
-            equipment.shield_raster(item, artwork, layer.presentation.location)
-        {
-            layer.presentation.submission.texture_layer = 0;
-            HandItemAtlas {
-                width: raster.width,
-                height: raster.height,
-                layers: 1,
-                rgba8: raster.rgba8,
-            }
-        } else {
-            item_atlas(&layer, artwork)?
-        };
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     let maps = maps::layers(

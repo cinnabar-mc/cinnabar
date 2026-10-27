@@ -86,9 +86,6 @@ impl UiPresentationRuntime {
                 let hand = &hands[index].as_ref()?.0;
                 let hand_pivots = self.gui_models.sources.hand_pivots?;
                 let texture = artwork.texture(&binding.texture.identifier)?;
-                let reusable = previous
-                    .as_ref()
-                    .filter(|previous| previous.matches(binding, &entities, &artwork, hand_pivots));
                 let source = model.as_ref().and_then(|_| {
                     if pack
                         .as_ref()
@@ -99,12 +96,6 @@ impl UiPresentationRuntime {
                             .regions
                             .get(&binding.texture.identifier)
                             .copied()
-                    } else if let Some(previous) = reusable {
-                        previous
-                            .model
-                            .as_ref()
-                            .filter(|_| previous.ready)
-                            .map(|model| model.source)
                     } else {
                         self.gui_models
                             .sources

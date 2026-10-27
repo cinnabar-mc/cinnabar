@@ -77,6 +77,7 @@ impl WorldShieldArtwork {
                     .layers
                     .iter()
                     .map(|layer| (layer.pattern.as_ref(), layer.color)),
+                assets::texture::policy::MAX_SUBSCRIBER_BYTES / 4,
                 |path| self.texture(path),
             )?
         } else {

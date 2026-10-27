@@ -91,6 +91,8 @@ impl UiPresentationRuntime {
         input: actor_animation::AttachableAnimationInput<'_>,
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
     ) {
+        super::dynamic_textures::observe_session(self, runtime.session_id());
+        super::publish::prepare_shield_art(player_runtime, runtime, self, &resolve);
         use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {

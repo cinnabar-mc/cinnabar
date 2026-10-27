@@ -491,6 +491,89 @@ fn shield_stack_patterns_select_distinct_inventory_artwork() {
     );
 
     ui.set_preview_pack_equipment(None);
+    ui.set_player_preview_skin(Some(&[255; 64 * 64 * 4]), Default::default());
+    ui.set_preview_equipment_assets(Some(Arc::clone(&pack.assets)), None);
+    ui.prepare_shield_icons([appearance.clone()]);
+    let hand = player_preview::PreviewHandItem {
+        identifier: item.into(),
+        metadata: 0,
+        shield_pattern: Some(appearance.clone()),
+        grip: None,
+        glint: Some(false),
+        use_animation: assets::item_use::ItemUseAnimation::None,
+        charged_projectile: assets::item_use::ItemProjectileRole::None,
+    };
+    ui.set_player_preview_gear([None; 4], Some((item, 0)));
+    ui.prepare_preview_hands(&[Some((hand.clone(), false)), None], None, [None; 4]);
+    let decorated = ui.preview_held_models([true; 2])[0].clone().unwrap().source;
+    ui.prepare_preview_hands(
+        &[
+            Some((
+                player_preview::PreviewHandItem {
+                    shield_pattern: None,
+                    ..hand
+                },
+                false,
+            )),
+            None,
+        ],
+        None,
+        [None; 4],
+    );
+    let restored = ui.preview_held_models([true; 2])[0].clone().unwrap().source;
+    assert_ne!(
+        restored, decorated,
+        "selecting a plain shield must restore its base sheet"
+    );
+    let page = &ui.textures.pages()[restored.page as usize];
+    let at =
+        (restored.uv[1] as usize * page.dimensions()[0] as usize + restored.uv[0] as usize) * 4;
+    assert_eq!(&page.pixels()[at..at + 4], &[210, 70, 40, 255]);
+
+    let mut player = player_state::PlayerState::new(1);
+    player.inventory.set_local_selected_slot(0);
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Content(
+            protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(
+                    protocol::PLAYER_INVENTORY_WINDOW_ID,
+                ),
+                slots: Arc::from([
+                    patterned.clone(),
+                    protocol::NetworkItemStack {
+                        metadata: 1,
+                        ..patterned.clone()
+                    },
+                ]),
+                storage_item: Default::default(),
+            },
+        ));
+    let other = Arc::new(render_api::ShieldPattern {
+        base: 0,
+        layers: Arc::from([]),
+    });
+    let canonical = crate::test_support::fixture_item(item);
+    ui.dress_player_preview(&player, &runtime, None, Default::default(), |stack| {
+        Some(client_world::CanonicalItemStack {
+            shield_pattern: Some(if stack.metadata == 0 {
+                appearance.clone()
+            } else {
+                other.clone()
+            }),
+            ..canonical.clone()
+        })
+    });
+    let selected = ui.preview_held_models([true; 2])[0].clone().unwrap().source;
+    ui.prepare_shield_icons([appearance.clone(), other]);
+    let original_sheet = source.texture("textures/ordinary").unwrap();
+    assert_eq!(
+        selected,
+        ui.shield_texture(&appearance, original_sheet).unwrap(),
+        "dressing must use the current inventory's repacked shield regions"
+    );
+
     for texture in &mut textures {
         texture.width = 512;
         texture.height = 512;

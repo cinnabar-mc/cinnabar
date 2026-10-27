@@ -90,6 +90,9 @@ fn visit_quads(geometry: &EntityGeometry, mut visit: impl FnMut(ModelQuad)) -> O
                     fixed[axis] = (value * f32::from(assets::MODEL_UV_SCALE)).round() as u16;
                 }
             }
+            // Reflecting Z reverses every face, independently of the authored mirror.
+            positions.reverse();
+            fixed_uvs.reverse();
             if cube.mirror {
                 positions.reverse();
                 fixed_uvs.reverse();
@@ -139,6 +142,34 @@ pub fn model(geometry: &EntityGeometry, texture: EquipmentTexture) -> Option<Dro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn world_shield_faces_point_outward_after_coordinate_reflection() {
+        let files = vec![("attachables/shield.json".into(), br#"{"format_version":"1.10.0","minecraft:attachable":{"description":{"identifier":"minecraft:shield","geometry":{"default":"geometry.fixture_shield"},"textures":{"default":"textures/fixture"},"materials":{"default":"entity_alphatest"},"render_controllers":["controller.render.fixture"]}}}"#.to_vec()), ("render_controllers/shield.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","textures":["Texture.default"],"materials":[{"*":"Material.default"}]}}}"#.to_vec()), ("models/shield.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture_shield","texture_width":32,"texture_height":32},"bones":[{"name":"shield","cubes":[{"origin":[-4,20,-1],"size":[8,8,1],"uv":[0,0]}]}]}]}"#.to_vec())];
+        let compiled = pack_entity_compiler::compile_entity_pack(files)
+            .unwrap()
+            .unwrap();
+        let geometry = &compiled.assets.geometries[0];
+        let texture = EquipmentTexture {
+            identifier: "fixture:shield".into(),
+            width: 32,
+            height: 32,
+            rgba8: vec![255; 4096].into(),
+        };
+        let model = model(geometry, texture).unwrap();
+        let center = glam::Vec3::new(128.0, 128.0, 136.0);
+        for quad in model.quads.iter() {
+            let p = quad
+                .positions
+                .map(|p| glam::Vec3::from_array(p.map(f32::from)));
+            let normal = (p[1] - p[0]).cross(p[2] - p[0]);
+            let midpoint = p.into_iter().sum::<glam::Vec3>() / 4.0;
+            assert!(
+                normal.dot(midpoint - center) > 0.0,
+                "shield lighting requires outward faces"
+            );
+        }
+    }
 
     #[test]
     fn framed_shield_uses_its_model_part_scale_and_front_plane() {

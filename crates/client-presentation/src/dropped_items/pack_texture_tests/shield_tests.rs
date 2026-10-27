@@ -255,3 +255,84 @@ fn dropped_and_framed_shields_keep_the_authored_model() {
         matches!(&cache.models[model as usize], DroppedItemModel::Block(model) if model.quads.len() == 6)
     );
 }
+
+#[test]
+fn refused_world_shield_uses_available_icon_artwork() {
+    let (mut icons, stream) = shield_fixture();
+    icons.set_preview_pack_equipment(Some(Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [3; 32],
+            vec![],
+            vec![assets::EquipmentTexture {
+                identifier: "textures/fixture_shield".into(),
+                width: 2048,
+                height: 2048,
+                rgba8: [255; 4].repeat(2048 * 2048).into(),
+            }],
+        )
+        .unwrap(),
+    )));
+    let mut views = Vec::new();
+    stream.authority().dropped_items_into(0.0, &mut views);
+    let mut cache = ModelCache::default();
+    cache.begin_frame();
+    cache.finish_demand();
+    for page in 0..4 {
+        cache
+            .model(
+                ModelKey::icon(
+                    ui::IconRef {
+                        page,
+                        uv: [0, 0, 16, 16],
+                        glint: false,
+                        color_mask: None,
+                    },
+                    false,
+                ),
+                || render_model::dropped_item::ItemModelCost::new(16, 1, 1024, 36),
+                || {
+                    Some(DroppedItemModel::Sprite(render_model::DroppedItemSprite {
+                        width: 16,
+                        height: 16,
+                        rgba8: vec![255; 1024].into(),
+                    }))
+                },
+            )
+            .unwrap();
+    }
+    let preparation = DropPreparation {
+        view: &views[0],
+        native_origin: views[0].position,
+        camera: None,
+        frustum: None,
+    };
+    let prepared =
+        DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, None, &preparation)
+            .expect("refused shield must retain its fallback");
+    let mut instances = Vec::new();
+    prepared.append(&views[0], &mut instances, |_| (15, 15));
+    assert!(matches!(
+        &cache.models[instances[0].model as usize],
+        DroppedItemModel::NativeSprite(_) | DroppedItemModel::Sprite(_)
+    ));
+    let placement = render_model::StaticItemPlacement {
+        identifier: assets::gui_item::SHIELD_IDENTIFIER.into(),
+        metadata: 0,
+        shield_pattern: None,
+        potted_block: None,
+        carried_block: None,
+        allow_block_models: true,
+        world_from_item: render_model::item_frame_item_transform([0; 3], 2, 0.0),
+        light: None,
+    };
+    assert!(
+        DroppedItemPublisher::placement_model(
+            &mut cache,
+            &icons,
+            None,
+            &placement,
+            icons.startup_item_icon(&placement.identifier, 0)
+        )
+        .is_some()
+    );
+}

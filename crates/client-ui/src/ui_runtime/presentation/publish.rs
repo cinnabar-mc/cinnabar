@@ -35,7 +35,9 @@ pub fn capture_hud_frame(
         .gameplay_hud()
         .mount_unique_id()
         .and_then(|unique| world.and_then(|world| world.actor_health_by_unique(unique)));
-    prepare_shield_art(player_runtime, runtime, presentation, world);
+    prepare_shield_art(player_runtime, runtime, presentation, |stack| {
+        world?.canonical_item_stack(stack)
+    });
     let mut inventory_cache = presentation
         .inventory_cache
         .take()
@@ -146,11 +148,11 @@ pub fn capture_hud_frame(
 }
 
 /// Keeps the visible stack set stable before inventory caches retain any icon addresses.
-fn prepare_shield_art(
+pub(super) fn prepare_shield_art(
     player: &player_state::PlayerState,
     runtime: &UiRuntime,
     presentation: &mut UiPresentationRuntime,
-    authority: Option<client_world::ui_read::InventoryUi<'_>>,
+    resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
 ) {
     use inventory::inventory_ledger::InventoryTarget;
     let ledger = runtime.inventory_ledger(player);
@@ -188,7 +190,7 @@ fn prepare_shield_art(
     presentation.prepare_shield_icons(
         stacks
             .into_iter()
-            .filter_map(|stack| authority?.canonical_item_stack(stack)?.shield_pattern),
+            .filter_map(|stack| resolve(stack)?.shield_pattern),
     );
 }
 

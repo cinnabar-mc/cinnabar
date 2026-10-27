@@ -57,6 +57,11 @@ impl Cache {
         if let Some(image) = self.icons.get(&key) {
             return Some(image.clone());
         }
+        let limit = if self.source_limit == 0 {
+            render_model::UI_MODEL_ATLAS_SIDE
+        } else {
+            self.source_limit
+        };
         let mut composed = assets::item::shield::compose(
             base,
             key.appearance.base,
@@ -64,14 +69,10 @@ impl Cache {
                 .layers
                 .iter()
                 .map(|layer| (layer.pattern.as_ref(), layer.color)),
+            (limit * limit) as usize,
             texture,
         )?;
         let mut thumbnail = assets::item::shield::bake_icon(&source.geometry, &composed)?;
-        let limit = if self.source_limit == 0 {
-            render_model::UI_MODEL_ATLAS_SIDE
-        } else {
-            self.source_limit
-        };
         if let Some((size, pixels)) =
             render_model::fit_rgba_within(composed.width, composed.height, &composed.rgba8, limit)
         {

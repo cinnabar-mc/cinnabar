@@ -452,7 +452,9 @@ impl DroppedItemPublisher<'_, '_> {
                 || artwork.cost(),
                 || artwork.model(),
             );
-            return cache.count_item(model);
+            if model.is_some() {
+                return cache.count_item(model);
+            }
         }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -511,7 +513,9 @@ impl DroppedItemPublisher<'_, '_> {
             let prepared = preparation.model(cache, &key, DroppedItemShape::Shield, |cache| {
                 cache.model(key.clone(), || artwork.cost(), || artwork.model())
             });
-            return cache.count_item(prepared);
+            if prepared.is_some() {
+                return cache.count_item(prepared);
+            }
         }
         let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
         cache.artwork(|cache, source| match source {
