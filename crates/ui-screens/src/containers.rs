@@ -11,7 +11,7 @@ use json_ui::{CollectionItem, DataSource, Scalar, ViewState, hit_test};
 use protocol::NetworkItemStack;
 use serde_json::Value;
 use ui::IconRef;
-use ui_engine::engine::layout_task::{LayoutResources, LayoutTask};
+use ui_engine::engine::layout_task::LayoutResources;
 use ui_engine::engine::{
     FormEngine, ScreenArt,
     item_renderer::ItemRenderer,
@@ -139,7 +139,7 @@ pub struct ContainerScreen {
     /// Sources observed by the last closed-inventory preparation.
     prewarmed: Option<preparation::InventoryPreparation>,
     /// At most one closed-screen layout runs in the background.
-    preparing: Option<(u64, LayoutTask<preparation::PreparedInventory>)>,
+    preparing: Option<preparation::PendingInventory>,
     preparation_revision: u64,
     /// Screens resolved from the catalog, for cache tests.
     resolves: usize,
@@ -176,16 +176,8 @@ impl ContainerScreen {
         input: ContainerInput<'_>,
         frame: &mut PaintFrame<'_>,
     ) -> Option<EngineFrame> {
-        if matches!(input.layout, ScreenLayout::Personal { .. })
-            && let Some((revision, mut task)) = self.preparing.take()
-            && let Some(mut prepared) = task.finish(engine)
-        {
-            if revision != self.preparation_revision
-                && let Some(cache) = &mut prepared.cache
-            {
-                cache.invalidate_textures();
-            }
-            self.install_prepared(prepared);
+        if matches!(input.layout, ScreenLayout::Personal { .. }) {
+            let _ = self.collect_preparation(engine, true);
         }
         self.render(engine, source, items, input, frame, None)
     }

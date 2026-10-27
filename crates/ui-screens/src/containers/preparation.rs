@@ -8,7 +8,6 @@ use inventory::inventory_ledger::InventoryPresentationSnapshot;
 use protocol::{CreativeContentEvent, PlayerGameMode};
 use ui_engine::engine::{FormEngine, ScreenArt, layout_task::LayoutResources, screen::PaintFrame};
 
-#[cfg(not(target_arch = "wasm32"))]
 use ui_engine::engine::layout_task::LayoutTask;
 
 use crate::container_source::ContainerSource;
@@ -87,16 +86,9 @@ impl ContainerScreen {
         frame: &mut PaintFrame<'_>,
         resources: LayoutResources,
     ) {
-        if let Some((revision, task)) = &mut self.preparing {
-            let revision = *revision;
-            let std::task::Poll::Ready(result) = task.poll(engine) else {
-                return;
-            };
-            self.preparing = None;
-            if let Some(cache) = result {
-                self.install_prepared(cache);
-            }
-            if revision == self.preparation_revision {
+        match self.collect_preparation(engine, false) {
+            std::task::Poll::Pending => return,
+            std::task::Poll::Ready(Some(revision)) if revision == self.preparation_revision => {
                 if let Some(render) = self
                     .inventory
                     .as_ref()
@@ -108,11 +100,41 @@ impl ContainerScreen {
                 }
                 return;
             }
-            if let Some(cache) = &mut self.inventory {
-                cache.invalidate_textures();
-            }
+            _ => {}
         }
         let _ = self.render(engine, source, items, input, frame, Some(resources));
+    }
+
+    /// Drops obsolete catalogs before servicing work; compatible jobs are polled or finished.
+    pub(super) fn collect_preparation(
+        &mut self,
+        engine: &FormEngine,
+        wait: bool,
+    ) -> std::task::Poll<Option<u64>> {
+        let Some(mut pending) = self.preparing.take() else {
+            return std::task::Poll::Ready(None);
+        };
+        if !Arc::ptr_eq(&pending.catalog, engine.catalog()) {
+            return std::task::Poll::Ready(None);
+        }
+        let result = if wait {
+            std::task::Poll::Ready(pending.task.finish(engine))
+        } else {
+            pending.task.poll(engine)
+        };
+        let std::task::Poll::Ready(result) = result else {
+            self.preparing = Some(pending);
+            return std::task::Poll::Pending;
+        };
+        if let Some(mut prepared) = result {
+            if pending.revision != self.preparation_revision
+                && let Some(cache) = &mut prepared.cache
+            {
+                cache.invalidate_textures();
+            }
+            self.install_prepared(prepared);
+        }
+        std::task::Poll::Ready(Some(pending.revision))
     }
 
     /// Publishes the worker-owned cache only after its complete initial layout.
@@ -194,6 +216,7 @@ impl ContainerScreen {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let task_catalog = Arc::clone(&catalog);
             let task = LayoutTask::spawn(
                 resources,
                 frame.metrics,
@@ -218,7 +241,11 @@ impl ContainerScreen {
                     PreparedInventory { cache, resolved }
                 },
             );
-            self.preparing = task.map(|task| (self.preparation_revision, task));
+            self.preparing = task.map(|task| PendingInventory {
+                revision: self.preparation_revision,
+                catalog: task_catalog,
+                task,
+            });
         }
     }
 }
@@ -227,4 +254,11 @@ impl ContainerScreen {
 pub(super) struct PreparedInventory {
     pub(super) cache: Option<ScreenCache>,
     resolved: bool,
+}
+
+/// A worker and the source identity that must still be compatible when it is collected.
+pub(super) struct PendingInventory {
+    revision: u64,
+    catalog: Arc<json_ui::Catalog>,
+    task: LayoutTask<PreparedInventory>,
 }

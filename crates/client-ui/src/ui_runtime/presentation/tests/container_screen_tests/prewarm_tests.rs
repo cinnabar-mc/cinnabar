@@ -449,3 +449,27 @@ fn opening_during_a_source_change_uses_the_current_inputs() {
     assert_eq!(opened.vertices, expected.vertices);
     assert!(warm.engine_container_frame().is_some());
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn replacing_the_catalog_drops_obsolete_preparation_before_open() {
+    let old = json!({"namespace":"crafting", "inventory_screen":{
+        "type":"screen", "controls":fixed_labels()
+    }});
+    let replacement = once_name_screen();
+    let (mut warm, mut runtime, mut player) = inventory_fixture(old);
+    let (mut cold, replacement_runtime, _) = inventory_fixture(replacement);
+    draw_frame(&mut warm, &runtime, &player, 0);
+    assert!(warm.engine_inventory_preparation_pending());
+    runtime.set_server_ui(replacement_runtime.server_ui().cloned());
+    runtime.toggle_inventory(&mut player, None);
+    let expected = draw_frame(&mut cold, &runtime, &player, 100);
+    let opened = draw_frame(&mut warm, &runtime, &player, 100);
+    assert_eq!(opened.vertices, expected.vertices);
+    assert_eq!(
+        warm.engine_container_resolves(),
+        1,
+        "opening must resolve only the replacement, without finishing the obsolete catalog"
+    );
+    assert!(!warm.engine_inventory_preparation_pending());
+}
