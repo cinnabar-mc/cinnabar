@@ -496,6 +496,12 @@ allowed_dependencies = ["mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "material-showcase-mod"
+path = "examples/mods/material-showcase"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "render-sample-mod"
 path = "examples/mods/render-sample"
 allowed_dependencies = ["mod-api"]

@@ -5694,6 +5694,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "material-showcase-mod"
+version = "0.1.28"
+dependencies = [
+ "mod-api",
+]
+
+[[package]]
 name = "matroska-demuxer"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
