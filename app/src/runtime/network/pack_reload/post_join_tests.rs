@@ -73,7 +73,7 @@ fn global_packs_only_recompile_subscribers_with_changed_reads() {
         reload
             .previous
             .as_ref()
-            .map(|old| (&old.admission, &old.dependencies)),
+            .map(|old| (&old.admission, old.dependencies.as_ref())),
     );
     let recompiled: Vec<_> = [
         (Subscriber::Blocks, changes.blocks),

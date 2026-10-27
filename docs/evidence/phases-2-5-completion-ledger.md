@@ -547,7 +547,7 @@ Ingress uses bounded lookahead and the existing conflict tracker to admit light 
 past stalled terrain. Dependent mutations, dimension changes and transfer barriers stay
 ordered. Latency echoes flush when their movement/control fence clears. Deterministic
 regressions cover these paths; paired hardware join and transfer timings remain open.
-Pack publication shares dependency evidence and retires old application/carrier
+Pack publication shares dependency evidence and retires old application
 snapshots off the frame. Clone-work regression coverage does not close the
 resource-pack or hardware performance gates.
 

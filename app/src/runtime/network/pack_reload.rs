@@ -145,7 +145,8 @@ impl PackReload {
     pub(super) fn begin_session(&mut self, generation: u64, packs: &PackApplication) {
         self.generation = generation;
         self.aim_assist_textures = packs.aim_assist_textures.clone();
-        self.replace_previous(Some(packs.clone()), None);
+        self.replace_previous(Some(packs.clone()));
+        self.previous_assets = None;
         self.server = match &packs.admission {
             PackAdmission::Validated(stack) => stack.clone(),
             PackAdmission::None => {
@@ -164,21 +165,13 @@ impl PackReload {
         self.items = None;
         self.generation = 0;
         self.aim_assist_textures = Default::default();
-        self.replace_previous(None, None);
+        self.replace_previous(None);
         self.revision += 1;
     }
 
-    /// Keeps publication snapshots cheap and retires their last metadata ownership off the frame.
-    fn replace_previous(
-        &mut self,
-        application: Option<PackApplication>,
-        assets: Option<Arc<assets::RuntimeAssets>>,
-    ) {
-        let retired = (
-            std::mem::replace(&mut self.previous, application),
-            std::mem::replace(&mut self.previous_assets, assets),
-        );
-        if retired.0.is_some() || retired.1.is_some() {
+    /// Retires the previous application's metadata off the frame.
+    fn replace_previous(&mut self, application: Option<PackApplication>) {
+        if let Some(retired) = std::mem::replace(&mut self.previous, application) {
             client_runtime::session::release_off_frame(retired);
         }
     }
@@ -222,7 +215,7 @@ impl PackReload {
                             &stack,
                             previous
                                 .as_ref()
-                                .map(|old| (&old.admission, &old.dependencies)),
+                                .map(|old| (&old.admission, old.dependencies.as_ref())),
                         )
                     };
                     let biomes_changed = changes.blocks || previous_assets.is_none();
@@ -501,10 +494,8 @@ pub(crate) fn reload_resource_packs(
                     )
                 });
                 reload.aim_assist_textures = prepared.application.aim_assist_textures.clone();
-                reload.replace_previous(
-                    Some(prepared.application.clone()),
-                    Some(prepared.assets.clone()),
-                );
+                reload.replace_previous(Some(prepared.application.clone()));
+                reload.previous_assets = Some(prepared.assets.clone());
                 if let Some(prepared) = prepared.environment {
                     environment.publish(prepared);
                 }
