@@ -397,6 +397,8 @@ impl UiPresentationRuntime {
         if update == ImageUpdate::Metadata {
             self.screens.hud.invalidate_textures();
             self.screens.containers.invalidate_textures();
+        } else {
+            self.screens.containers.refresh_artwork();
         }
         self.sync_server_ui_pages();
     }
