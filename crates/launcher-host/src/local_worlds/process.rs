@@ -41,6 +41,8 @@ pub(crate) struct StartSpec {
     /// [`HostGrant::AtLaunch`] runner gets the host resolved first; a [`HostGrant::WhenReady`] one
     /// gets the host known at launch, `None` while it still loads.
     pub host_xuid: Option<String>,
+    /// Installs the generic observer only when a personal mod has explicit local-terrain consent.
+    pub local_terrain: bool,
 }
 
 /// When a runner's servers apply the host's operator grant.
@@ -57,6 +59,10 @@ pub(crate) enum HostGrant {
 
 /// One running local server.
 pub(crate) trait Instance: Send + Sync {
+    /// The bounded read-only source, available only on supported native BDS instances.
+    fn local_terrain_source(&self) -> Option<Arc<dyn mod_api::local_terrain::Source>> {
+        None
+    }
     /// The loopback game address.
     fn address(&self) -> &str;
     fn set_paused(&self, paused: bool) -> io::Result<()>;
@@ -262,6 +268,7 @@ pub(crate) struct Launch {
 
 /// A launched server process.
 pub(crate) struct Process {
+    terrain: Option<Arc<super::local_terrain::Bridge>>,
     /// Tracked so the client's exit sweep ends it even when no destructor runs.
     child: Arc<Spawned>,
     stdin: Mutex<Option<ChildStdin>>,
@@ -306,13 +313,24 @@ pub(crate) fn launch(
     spec: Launch,
     cancel: &Cancel,
 ) -> Result<Arc<Process>, WorldError> {
-    let spawned = spawn(
+    launch_with_terrain(command, spec, cancel, None)
+}
+
+/// Attaches the private terrain observer before stdout can report its first frame.
+pub(crate) fn launch_with_terrain(
+    command: Command,
+    spec: Launch,
+    cancel: &Cancel,
+    terrain: Option<Arc<super::local_terrain::Bridge>>,
+) -> Result<Arc<Process>, WorldError> {
+    let spawned = spawn_with_terrain(
         command,
         Some(spec.address),
         spec.can_pause,
         spec.ready,
         spec.label,
         spec.on_exit,
+        terrain,
     )?;
     await_ready(spawned, spec.timeout, cancel)
 }
@@ -326,12 +344,24 @@ struct Spawn {
 /// Starts `command` as a tracked child whose output is logged under `label`; `on_exit` runs once
 /// on every path, as [`ExitHook`] describes.
 fn spawn(
+    command: Command,
+    address: Option<String>,
+    can_pause: bool,
+    is_ready: fn(&str) -> bool,
+    label: String,
+    on_exit: Option<ExitHook>,
+) -> Result<Spawn, WorldError> {
+    spawn_with_terrain(command, address, can_pause, is_ready, label, on_exit, None)
+}
+
+fn spawn_with_terrain(
     mut command: Command,
     address: Option<String>,
     can_pause: bool,
     is_ready: fn(&str) -> bool,
     label: String,
     on_exit: Option<ExitHook>,
+    terrain: Option<Arc<super::local_terrain::Bridge>>,
 ) -> Result<Spawn, WorldError> {
     command
         .stdin(Stdio::piped())
@@ -360,9 +390,15 @@ fn spawn(
         let label = label.clone();
         let mut timing = super::startup_timing::StartupTiming::new(started, child.id());
         let output_ack = Arc::clone(&output_ack);
+        let terrain = terrain.clone();
         readers.push(thread::spawn(move || {
             for_each_line(stdout, |line| {
-                tracing::debug!("{label}: {line}");
+                if let Some(terrain) = &terrain {
+                    terrain.observe(line);
+                }
+                if !super::local_terrain::is_frame(line) {
+                    tracing::debug!("{label}: {line}");
+                }
                 output_ack.observe(line);
                 timing.observe(&label, line);
                 if is_ready(line) {
@@ -403,6 +439,7 @@ fn spawn(
         });
     }
     let process = Arc::new(Process {
+        terrain,
         child,
         stdin: Mutex::new(stdin),
         console: Mutex::new(()),
@@ -414,6 +451,9 @@ fn spawn(
         stop_requested: AtomicBool::new(false),
         start_cancelled,
     });
+    if let Some(terrain) = &process.terrain {
+        terrain.start(&process);
+    }
     Ok(Spawn { process, ready })
 }
 
@@ -485,16 +525,44 @@ fn await_ready(
 fn for_each_line(reader: impl Read, mut line: impl FnMut(&str)) {
     let mut reader = BufReader::new(reader);
     let mut buffer = Vec::new();
+    let mut oversized = false;
     loop {
-        buffer.clear();
-        match reader.read_until(b'\n', &mut buffer) {
-            Ok(0) | Err(_) => return,
-            Ok(_) => line(String::from_utf8_lossy(&buffer).trim_end_matches(['\n', '\r'])),
+        let available = match reader.fill_buf() {
+            Ok([]) | Err(_) => {
+                if !buffer.is_empty() && !oversized {
+                    line(&String::from_utf8_lossy(&buffer));
+                }
+                return;
+            }
+            Ok(bytes) => bytes,
+        };
+        let count = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |i| i + 1);
+        let ended = available[count - 1] == b'\n';
+        if buffer.len() + count > super::local_terrain::MAX_FRAME_BYTES * 8 {
+            oversized = true;
+        }
+        if !oversized {
+            buffer.extend_from_slice(&available[..count]);
+        }
+        reader.consume(count);
+        if ended {
+            if !oversized {
+                line(String::from_utf8_lossy(&buffer).trim_end_matches(['\n', '\r']));
+            }
+            buffer.clear();
+            oversized = false;
         }
     }
 }
 
 impl Process {
+    /// Lets the terrain worker terminate without taking the process's stdin lock.
+    pub(super) fn terrain_stopped(&self) -> bool {
+        self.stop_requested.load(Ordering::SeqCst) || self.has_exited()
+    }
     /// Sends a command and waits for its response, process exit, cancellation or the caller's budget.
     pub(crate) fn send_confirmed(
         &self,
@@ -555,6 +623,12 @@ impl Process {
 }
 
 impl Instance for Process {
+    fn local_terrain_source(&self) -> Option<Arc<dyn mod_api::local_terrain::Source>> {
+        if self.terrain_stopped() {
+            return None;
+        }
+        self.terrain.as_ref()?.source()
+    }
     fn address(&self) -> &str {
         self.address.get().map_or("", String::as_str)
     }
@@ -568,7 +642,15 @@ impl Instance for Process {
 
     fn request_stop(&self) {
         if !self.stop_requested.swap(true, Ordering::SeqCst) {
-            let _ = self.send("stop");
+            if let Some(terrain) = &self.terrain {
+                let active = terrain.active();
+                terrain.stop();
+                if !active {
+                    let _ = self.send("stop");
+                }
+            } else {
+                let _ = self.send("stop");
+            }
         }
     }
 

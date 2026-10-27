@@ -2701,6 +2701,7 @@ dependencies = [
  "json-ui",
  "launcher",
  "launcher-host",
+ "mod-api",
  "objc2-metal 0.3.2",
  "pack-runtime",
  "player-state",
@@ -5299,6 +5300,7 @@ dependencies = [
  "libc",
  "memmap2",
  "minidumper",
+ "mod-api",
  "ndk-context",
  "protocol",
  "render-api",
@@ -7080,13 +7082,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "portal-view-mod"
-version = "0.1.28"
-dependencies = [
- "mod-api",
-]
-
-[[package]]
 name = "polling"
 version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7113,6 +7108,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "portal-view-mod"
+version = "0.1.28"
+dependencies = [
+ "mod-api",
 ]
 
 [[package]]

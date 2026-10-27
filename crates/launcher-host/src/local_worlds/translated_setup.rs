@@ -198,6 +198,7 @@ fn scratch_spec(dir: PathBuf) -> StartSpec {
         view_distance: None,
         options_unapplied: true,
         host_xuid: None,
+        local_terrain: false,
     }
 }
 

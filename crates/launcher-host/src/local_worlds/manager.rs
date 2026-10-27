@@ -1,5 +1,8 @@
 use std::{
-    sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError},
+    sync::{
+        Arc, Condvar, Mutex, MutexGuard, TryLockError,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -129,6 +132,7 @@ struct Inner {
     /// Read by each start; see [`Manager::set_host`].
     host: Mutex<Host>,
     host_changed: Condvar,
+    local_terrain_enabled: AtomicBool,
     /// Starts that have waited on a loading host, so tests can publish it mid-wait.
     #[cfg(test)]
     host_waits: std::sync::atomic::AtomicUsize,
@@ -218,6 +222,7 @@ impl Manager {
                 host_wait: parts.host_wait,
                 host: Mutex::default(),
                 host_changed: Condvar::new(),
+                local_terrain_enabled: AtomicBool::new(false),
                 #[cfg(test)]
                 host_waits: Default::default(),
                 subscribers: Mutex::default(),
@@ -479,6 +484,7 @@ impl Manager {
             view_distance,
             options_unapplied: false,
             host_xuid: None,
+            local_terrain: self.inner.local_terrain_enabled.load(Ordering::Acquire),
         };
         let started = self.background(move |manager| {
             manager.start(&spec, &cancel, generation, after);
@@ -524,6 +530,8 @@ impl Manager {
                         view_distance: spec.view_distance,
                         options_unapplied,
                         host_xuid: host_xuid.clone(),
+                        local_terrain: spec.local_terrain
+                            && self.inner.local_terrain_enabled.load(Ordering::Acquire),
                     };
                     let started = self.inner.runners.start(&fresh, cancel);
                     fresh_world = Some(fresh.world);
@@ -791,6 +799,28 @@ impl Manager {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         lock(&self.inner.subscribers).push(sender);
         receiver
+    }
+
+    /// Returns the current running native server's source; callers must enforce mod grants.
+    pub fn local_terrain_source(
+        &self,
+        identity: &str,
+    ) -> Option<Arc<dyn mod_api::local_terrain::Source>> {
+        let life = self.inner.life.try_lock().ok()?;
+        if life.state != WorldState::Running
+            || !self.inner.local_terrain_enabled.load(Ordering::Acquire)
+            || identity.strip_prefix("local:") != life.world.as_ref().map(|world| world.id.as_str())
+        {
+            return None;
+        }
+        life.instance.as_ref()?.local_terrain_source()
+    }
+
+    /// Permission changes take effect immediately; pack activation applies on the next world open.
+    pub fn set_local_terrain_enabled(&self, enabled: bool) {
+        self.inner
+            .local_terrain_enabled
+            .store(enabled, Ordering::Release);
     }
 
     fn set_state(&self, life: &mut Life, state: WorldState) {

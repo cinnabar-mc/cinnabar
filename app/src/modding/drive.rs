@@ -29,6 +29,7 @@ pub(super) struct ModObservation<'w, 's> {
     native_camera: Local<'s, native_camera::NativeCamera>,
     bindings: Local<'s, bindings::Bindings>,
     input_settings: Option<Res<'w, client_state::RuntimeSettings>>,
+    local_worlds: Option<ResMut<'w, client_shell::local_worlds::LocalWorlds>>,
 }
 
 #[allow(
@@ -71,8 +72,20 @@ pub(super) fn drive_mod(
         mut native_camera,
         mut bindings,
         input_settings,
+        mut local_worlds,
     } = observation;
     let now = time.elapsed_secs_f64();
+    if let Some(worlds) = local_worlds.as_deref_mut() {
+        let enabled = extension.as_ref().is_some_and(|runtime| {
+            !runtime.suspended
+                && (0..runtime.hosts.host_count()).any(|index| {
+                    let host = runtime.hosts.host(index);
+                    // Consent must be visible in the menu, before world-bound guests resume.
+                    host.grants().local_terrain
+                })
+        });
+        worlds.set_local_terrain_enabled(enabled);
+    }
     let (network, mut camera, cues, mut item_use) = outputs;
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
@@ -313,6 +326,22 @@ pub(super) fn drive_mod(
                 warn!(%error, "mod input bindings rejected");
             }
         }
+    }
+    let local_source = world_observation.as_ref().and_then(|world| {
+        gameplay
+            .session
+            .as_ref()
+            .filter(|session| session.is_local_world())
+            .and(local_worlds.as_deref())
+            .and_then(|worlds| worlds.local_terrain_source(&world.world))
+    });
+    for index in 0..extension.hosts.host_count() {
+        let host = extension.hosts.host_mut(index);
+        host.set_local_terrain_source(if host.is_active() && host.grants().local_terrain {
+            local_source.clone()
+        } else {
+            None
+        });
     }
     multi::run_frame_callbacks(
         &mut extension.hosts,

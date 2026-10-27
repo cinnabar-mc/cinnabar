@@ -20,6 +20,7 @@ pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
 
 mod guest;
 mod input;
+pub mod local_terrain;
 pub use input::{
     MAX_CONTROL_KEY_BYTES, MAX_CONTROL_KEYS, MAX_INPUT_ACTION_BYTES, MAX_INPUT_BINDINGS,
     MAX_INPUT_BINDINGS_PER_READ, control_key_valid,

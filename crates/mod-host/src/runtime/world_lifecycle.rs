@@ -23,6 +23,7 @@ impl State {
         let Self {
             exclusive,
             terrain: _,
+            local_terrain,
             limits: _,
             pressed: _,
             label: _,
@@ -64,6 +65,7 @@ impl State {
             touch: _,
         } = self;
         environment.revoke();
+        *local_terrain = None;
         motion.revoke();
         *world = Default::default();
         *pending_camera = None;

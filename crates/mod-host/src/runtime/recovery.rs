@@ -65,6 +65,7 @@ impl State {
         let Self {
             exclusive: _,
             terrain: _,
+            local_terrain: _,
             limits: _,
             pressed: _,
             label: _,

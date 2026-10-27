@@ -6,6 +6,7 @@
 
 use launcher::menu::settings_options::SettingId;
 mod client;
+mod local_terrain;
 
 use launcher::local_worlds::model;
 #[cfg(test)]
@@ -35,6 +36,7 @@ pub struct LocalWorlds {
     menu: WorldsMenu,
     /// Opened on the first attach and kept across core restarts.
     manager: Option<Manager>,
+    local_terrain_enabled: bool,
     client: Option<WorldsClient>,
     playing: bool,
     focused: bool,
@@ -53,6 +55,7 @@ impl Default for LocalWorlds {
         Self {
             menu: WorldsMenu::default(),
             manager: None,
+            local_terrain_enabled: false,
             client: None,
             playing: false,
             focused: true,
@@ -86,6 +89,7 @@ impl LocalWorlds {
                 manager
             }
         };
+        manager.set_local_terrain_enabled(self.local_terrain_enabled);
         if let Some(previous) = self.client.take() {
             previous.revoke();
         }
