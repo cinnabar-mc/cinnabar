@@ -184,7 +184,8 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           bin="$PWD/target/$CARGO_BUILD_TARGET/release"
-          make package-binaries PACKAGE_CARGO_FLAGS=--timings DIST_CORE="$bin/bedrock-core"
+          # Older source branches still build this helper; keep its cross-build output in bin.
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings DIST_CORE="$bin/bedrock-core" LOCAL_SERVER_OUT="$bin/bedrock-local-server"
           # The runtime table packaging stages from, plus the prep-kit compiler.
           while read -r binary; do
             lipo "$bin/$binary" -verify_arch "${{ matrix.arch }}"
