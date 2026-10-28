@@ -14,6 +14,7 @@ pub(super) fn held_placement(
     StaticItemPlacement {
         identifier: Arc::clone(&item.identifier),
         metadata: item.metadata,
+        shield_pattern: item.shield_pattern.clone(),
         potted_block: None,
         allow_block_models: frame_stream.is_some(),
         carried_block: frame_stream.and_then(|stream| {
@@ -39,6 +40,7 @@ pub(super) fn overlay_item_placements<'a>(
 ) -> impl Iterator<Item = StaticItemPlacement> + 'a {
     items.iter().filter_map(move |(face, item)| {
         let stack = HeldItem {
+            shield_pattern: None,
             identifier: Arc::clone(&item.name),
             metadata: u32::from(item.damage.max(0).unsigned_abs()),
         };

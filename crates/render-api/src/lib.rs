@@ -10,6 +10,8 @@ mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+mod shield;
+pub use shield::{BannerPattern, SHIELD_PATTERN_LAYERS, ShieldPattern};
 mod vsync;
 pub use pose_generation::PoseGeneration;
 mod skin;

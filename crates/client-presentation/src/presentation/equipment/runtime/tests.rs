@@ -36,6 +36,9 @@ mod held_scale_tests;
 #[path = "third_person_hand_tests.rs"]
 mod third_person_hand_tests;
 
+#[path = "shield_tests.rs"]
+mod shield_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;
@@ -300,6 +303,7 @@ fn block_fixture_with_visuals(
     };
     let item = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),

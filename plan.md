@@ -603,6 +603,11 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
+  Decorated shield stacks retain their cloth base and ordered banner layers for inventory
+  icons, previews and both held hands. Pattern textures follow the active pack and recoverable
+  artwork caches. Dropped and framed shields use the authored static model and retain their
+  patterns. Custom model-part trees, glint shading, third-person shield idle poses,
+  blocked-hit feedback and broader visual acceptance remain incomplete.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
   sprites; falling blocks retain their world models.

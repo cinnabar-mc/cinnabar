@@ -13,7 +13,7 @@ fn raster() -> EquipmentRaster {
 fn unchanged_animation_images_and_empty_views_reuse_pages() {
     let base = ActorArtworkPages::default();
     let image = raster();
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     cache.desired.push(image.clone());
     let first = cache.update_pages(&base).unwrap();
     assert_eq!(first.pages()[0].dimensions(), (image.width, image.height));
@@ -32,8 +32,8 @@ fn unchanged_animation_images_and_empty_views_reuse_pages() {
 fn new_images_preserve_the_slots_and_allocations_of_resident_images() {
     let base = ActorArtworkPages::default();
     let (first, second, third) = (raster(), raster(), raster());
-    let mut cache = SkinLayerCache::default();
-    let publish = |cache: &mut SkinLayerCache, visible: &[&EquipmentRaster]| {
+    let mut cache = ActorLayerCache::default();
+    let publish = |cache: &mut ActorLayerCache, visible: &[&EquipmentRaster]| {
         cache.desired.clear();
         for image in visible {
             cache.retain_image((*image).clone());
@@ -75,7 +75,7 @@ fn bounded_lookup_work_for_distinct_skin_animation_images() {
     let images: Vec<_> = (0..render_model::MAX_RENDERED_PLAYERS)
         .map(|_| raster())
         .collect();
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     let base = ActorArtworkPages::default();
     LOOKUP_PROBES.with(|count| count.set(0));
     for image in &images {
@@ -110,7 +110,7 @@ fn bounded_lookup_work_for_distinct_skin_animation_images() {
 
 /// Publishes one frame's selected images without retaining the previous desired set.
 fn publish(
-    cache: &mut SkinLayerCache,
+    cache: &mut ActorLayerCache,
     base: &ActorArtworkPages,
     images: &[EquipmentRaster],
 ) -> Option<ActorArtworkPages> {
@@ -125,7 +125,7 @@ fn publish(
 fn full_residency_replaces_only_an_offscreen_slot() {
     let base = ActorArtworkPages::default();
     let images: Vec<_> = (0..MAX_RESIDENT_SKIN_IMAGES).map(|_| raster()).collect();
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     let original = publish(&mut cache, &base, &images).unwrap();
     let retained = cache.image_location(&images[0]).unwrap();
     let evicted = cache.image_location(&images[1]).unwrap();
@@ -154,7 +154,7 @@ fn full_residency_replaces_only_an_offscreen_slot() {
 #[test]
 fn base_replacement_invalidates_pages_even_without_visible_images() {
     let base = ActorArtworkPages::default();
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     let image = raster();
     publish(&mut cache, &base, std::slice::from_ref(&image)).unwrap();
     let replacement = base.clone().with_actor_glint(EquipmentRaster {
@@ -179,7 +179,7 @@ fn malformed_images_do_not_leave_holes_before_valid_page_slots() {
     let mut bad = raster();
     bad.width += 1;
     let good = raster();
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     let pages = publish(
         &mut cache,
         &ActorArtworkPages::default(),
@@ -197,7 +197,7 @@ fn new_pixels_in_a_replacement_skin_receive_their_own_slot() {
     let original = raster();
     let mut replacement = raster();
     Arc::make_mut(&mut replacement.rgba8)[3] = 7;
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     publish(&mut cache, &base, std::slice::from_ref(&original)).unwrap();
     let old = cache.image_location(&original).unwrap();
     let pages = publish(&mut cache, &base, std::slice::from_ref(&replacement)).unwrap();
@@ -213,7 +213,7 @@ fn new_pixels_in_a_replacement_skin_receive_their_own_slot() {
 fn empty_batches_keep_resident_pages_without_drawing_or_resolving_rigs() {
     let base = ActorArtworkPages::default();
     let image = raster();
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     let first = publish(&mut cache, &base, &[image]).unwrap();
     let mut batch = ActorPresentationBatch {
         submissions: Vec::new(),
@@ -227,7 +227,8 @@ fn empty_batches_keep_resident_pages_without_drawing_or_resolving_rigs() {
                 &base,
                 |_| panic!("an empty view has no rig"),
                 &mut SkinRigCache::default(),
-                |_| panic!("an empty view has no geometry")
+                |_| panic!("an empty view has no geometry"),
+                |_, _| panic!("an empty view has no equipment"),
             )
             .is_none()
     );
@@ -251,7 +252,7 @@ fn page_id_pressure_uses_the_existing_grouped_admission_policy() {
     base.pages = vec![pixel; render_model::MAX_ACTOR_TEXTURE_PAGES - 2].into();
     let images = [raster(), raster()];
     let (expected, locations) = base.clone().with_equipment_rasters(&images);
-    let mut cache = SkinLayerCache::default();
+    let mut cache = ActorLayerCache::default();
     let actual = publish(&mut cache, &base, &images).unwrap();
     assert!(cache.packed);
     assert_eq!(actual.identity(), expected.identity());

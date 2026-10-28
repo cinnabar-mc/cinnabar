@@ -91,6 +91,8 @@ impl UiPresentationRuntime {
         input: actor_animation::AttachableAnimationInput<'_>,
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
     ) {
+        super::dynamic_textures::observe_session(self, runtime.session_id());
+        super::publish::prepare_shield_art(player_runtime, runtime, self, world, &resolve);
         use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
@@ -141,6 +143,7 @@ impl UiPresentationRuntime {
             let (identifier, stack, item) = item?;
             Some((
                 PreviewHandItem {
+                    shield_pattern: item.shield_pattern.clone(),
                     grip: Some(item.grip),
                     glint: Some(runtime.item_glint(stack, item.glint)),
                     identifier: Arc::clone(identifier),
@@ -254,6 +257,13 @@ impl UiPresentationRuntime {
             Some(preview)
         });
         let held = hands[0].as_ref().and_then(|(hand, _)| {
+            if let Some(texture) = hand
+                .shield_pattern
+                .as_deref()
+                .and_then(|pattern| self.shield_preview_texture(pattern))
+            {
+                return Some(texture);
+            }
             let identifier = hand.identifier.as_ref();
             let metadata = hand.metadata;
             if let Some(sprite) = self.session_icons.sprite(identifier, metadata) {

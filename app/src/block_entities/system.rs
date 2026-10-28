@@ -881,6 +881,7 @@ fn resolve(
                 &plant.states,
             )?;
             held.push(StaticItemPlacement {
+                shield_pattern: None,
                 allow_block_models: false,
                 identifier: Arc::clone(&plant.identifier),
                 metadata: 0,

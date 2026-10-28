@@ -1,3 +1,4 @@
+pub mod shield;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

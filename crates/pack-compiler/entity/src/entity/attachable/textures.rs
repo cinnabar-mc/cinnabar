@@ -24,26 +24,29 @@ pub(super) fn compile_texture_identifiers_with(
 /// Compiles requested rasters while retaining selected identifiers before ordinary art.
 pub(super) fn compile_texture_identifiers_with_priorities(
     sources: &[EntityAssetSource],
-    mut identifiers: Vec<&str>,
+    identifiers: Vec<&str>,
     priorities: &[&str],
     read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
+    let mut identifiers: Vec<_> = identifiers
+        .into_iter()
+        .map(str::to_owned)
+        .chain(assets::entity::shared_equipment_textures().map(str::to_owned))
+        .chain(assets::item::shield::pattern_paths())
+        .collect();
     let mut seen = std::collections::HashSet::new();
     let mut ordered = Vec::with_capacity(priorities.len() + identifiers.len());
-    for identifier in priorities.iter().copied() {
-        if seen.insert(identifier) {
-            ordered.push(identifier);
+    for &identifier in priorities {
+        if seen.insert(identifier.to_owned()) {
+            ordered.push(identifier.to_owned());
         }
-    }
-    for identifier in assets::entity::shared_equipment_textures() {
-        identifiers.push(identifier);
     }
     identifiers.sort_unstable();
     identifiers.dedup();
     ordered.extend(
         identifiers
             .into_iter()
-            .filter(|identifier| seen.insert(*identifier)),
+            .filter(|identifier| seen.insert(identifier.clone())),
     );
     let mut textures = Vec::new();
     let mut pixel_bytes = 0usize;

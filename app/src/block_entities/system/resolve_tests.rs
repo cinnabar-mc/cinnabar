@@ -421,6 +421,7 @@ fn framed_filled_maps_wait_for_pixels_without_drawing_the_inventory_icon() {
                     map: None,
                 },
                 item: Some(HeldItem {
+                    shield_pattern: None,
                     identifier: assets::facts::FILLED_MAP_IDENTIFIER.into(),
                     metadata: 0,
                 }),
@@ -479,6 +480,7 @@ fn framed_ordinary_items_keep_their_icon_without_map_data() {
                 map: None,
             },
             item: Some(HeldItem {
+                shield_pattern: None,
                 identifier: identifier.into(),
                 metadata: 0,
             }),
@@ -593,6 +595,7 @@ fn hidden_enchanting_books_resume_without_restarting_their_animation() {
 fn hidden_stateless_models_and_held_items_submit_no_geometry() {
     let mut fixture = Fixture::new();
     let item = HeldItem {
+        shield_pattern: None,
         identifier: Arc::from("minecraft:apple"),
         metadata: 0,
     };

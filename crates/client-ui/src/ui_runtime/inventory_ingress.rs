@@ -4,6 +4,11 @@ use super::{UiRuntime, UiRuntimeError};
 
 use inventory::SequencedInventoryEvent;
 
+#[cfg(test)]
+thread_local! {
+    pub(super) static CRAFTING_MATCH_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl UiRuntime {
     pub fn enqueue_inventory_event(
         &mut self,
@@ -76,6 +81,8 @@ impl UiRuntime {
         &self,
         player_runtime: &player_state::PlayerState,
     ) -> inventory::CraftGridMatch {
+        #[cfg(test)]
+        CRAFTING_MATCH_CALLS.with(|calls| calls.set(calls.get() + 1));
         player_runtime.inventory.crafting_match()
     }
 

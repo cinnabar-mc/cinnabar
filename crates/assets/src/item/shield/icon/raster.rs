@@ -1,5 +1,6 @@
 use super::{EquipmentTexture, SIDE};
 
+/// Blends one front-facing GUI triangle, counting shared edges only once.
 pub(super) fn triangle(
     pixels: &mut [u8],
     points: [[f32; 2]; 3],
@@ -54,7 +55,7 @@ pub(super) fn triangle(
             let source = &texture.rgba8[(ty * usize::from(texture.width) + tx) * 4..][..4];
             // ui_shield.skinning inherits ALPHA_TEST; no FANCY side-lighting for UI_ENTITY.
             let alpha = f32::from(source[3]) / f32::from(u8::MAX);
-            if alpha < assets::gui_item::SHIELD_ALPHA_CUTOFF {
+            if alpha < crate::gui_item::SHIELD_ALPHA_CUTOFF {
                 continue;
             }
             let output = &mut pixels[(y * SIDE + x) * 4..][..4];

@@ -60,4 +60,6 @@ state trace was removed after that authority check. Application submission now
 includes separate main/offhand rigs and texture bindings; fresh macOS/Metal
 Retina captures show both shields and their inventory/offhand icons.
 These are functional and rendered-frame checks, not a matched vanilla gallery.
-Patterned/glint layers and damage/cooldown parity remain incomplete.
+Decorated shields retain the same poses while sampling their composed banner textures in
+either hand, first person, third person and player previews. Glint-specific shading and
+damage/cooldown parity remain incomplete.
