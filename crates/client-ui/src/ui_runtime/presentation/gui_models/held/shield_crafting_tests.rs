@@ -1,9 +1,9 @@
 //! Computed crafting results join the visible shield demand before icon addresses are retained.
 use super::*;
-use crate::ui_runtime::presentation::publish::{item_icons::stack_icon, prepare_shield_art};
-use protocol::test_support::recipes::{
-    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+use crate::ui_runtime::presentation::publish::{
+    item_icons::test_support::stack_icon, prepare_shield_art,
 };
+use protocol::test_support::recipes::multi_recipe_update;
 use sha2::Digest;
 use ui_screens::inventory_capture::cache::{
     InventoryProjectionCache, ProjectedIcon, ProjectionInput, ProjectionRefresh,
@@ -52,18 +52,30 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
     ui.set_gui_models(&assets::RuntimeAssets::diagnostic(), &pack.assets)
         .unwrap();
     let mut player = player_state::PlayerState::new(1);
-    let mut entry = protocol::vanilla_item_registry()
-        .iter()
-        .find(|entry| entry.identifier.as_ref() == item)
-        .unwrap()
-        .clone();
-    entry.network_id = stack(0).network_id;
+    let entries = protocol::vanilla_item_registry();
+    let registry = protocol::ItemRegistryEvent {
+        entries: [item, assets::facts::BANNER_IDENTIFIER]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let mut entry = entries
+                    .iter()
+                    .find(|entry| entry.identifier.as_ref() == name)
+                    .unwrap()
+                    .clone();
+                entry.network_id = stack(0).network_id + index as i32;
+                entry
+            })
+            .collect::<Vec<_>>()
+            .into(),
+    };
     player.inventory.publish_bootstrap_inventory(
-        Some(protocol::ItemRegistryEvent {
-            entries: Arc::from([entry]),
-        }),
+        Some(registry.clone()),
         protocol::InventoryEvent::Authority(protocol::InventoryAuthority::Server),
     );
+    player
+        .inventory
+        .publish_crafting_rules_bootstrap(Default::default());
     player
         .inventory
         .ledger_mut()
@@ -79,34 +91,51 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
     player
         .inventory
         .ledger_mut()
-        .apply(&protocol::InventoryEvent::Slot(
-            protocol::InventorySlotEvent {
-                identity: protocol::SlotIdentity {
-                    container: protocol::ContainerIdentity::window(
-                        protocol::UI_INVENTORY_WINDOW_ID,
-                    ),
-                    slot: u16::from(*protocol::CRAFTING_INPUT_SLOTS.start()),
-                },
-                stack: stack(0),
-                storage_item: None,
+        .apply(&protocol::InventoryEvent::Open(
+            protocol::ContainerOpenEvent {
+                container: protocol::ContainerIdentity::window(3),
+                window_type: inventory::inventory_ledger::WORKBENCH_WINDOW_TYPE,
+                position: [0; 3],
+                runtime_entity_id: -1,
+            },
+        ));
+    let mut slots = vec![protocol::NetworkItemStack::empty(); protocol::UI_SLOT_COUNT];
+    let first = player
+        .inventory
+        .ledger()
+        .crafting_grid()
+        .slots()
+        .next()
+        .unwrap();
+    let mut plain = stack(0);
+    plain.stack_network_id = 101;
+    plain.extra_data = Arc::from([0; 18]);
+    plain.nbt_digest = sha2::Sha256::digest(&plain.extra_data).into();
+    slots[usize::from(first)] = plain;
+    slots[usize::from(first) + 1] = protocol::NetworkItemStack {
+        network_id: registry.entries[1].network_id,
+        count: 1,
+        stack_network_id: 102,
+        metadata: 7,
+        ..protocol::NetworkItemStack::empty()
+    };
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Content(
+            protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                slots: slots.into(),
+                storage_item: Default::default(),
             },
         ));
     let output = stack(7);
-    let mut recipe = RecipeFixture::shapeless(
-        "fixture:decorated_shield",
-        vec![IngredientFixture::named(item, 0)],
-        vec![OutputFixture {
-            user_data: output.extra_data.to_vec(),
-            ..OutputFixture::new(output.network_id, output.count)
-        }],
-    );
-    recipe.net_id = 1;
     player
         .inventory
         .enqueue_inventory_event(
             1,
             1,
-            protocol::InventoryEvent::Recipes(CraftingDataFixture::clearing(vec![recipe]).update()),
+            protocol::InventoryEvent::Recipes(multi_recipe_update(200, 55)),
         )
         .unwrap();
     player
@@ -121,17 +150,30 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
             .created_output_stack()
             .is_none()
     );
-    let computed = ui_screens::inventory_capture::crafting_output(
-        runtime.inventory_ledger(&player),
-        runtime.crafting_match(&player),
-    )
-    .expect("the recipe must supply a computed output")
-    .0;
+    let matched = runtime.crafting_match(&player);
+    assert!(
+        matches!(matched, inventory::CraftGridMatch::Shield(_)),
+        "expected the admitted recipe, got {matched:?}; grid: {:?}",
+        runtime.inventory_ledger(&player).crafting_grid_cells()
+    );
+    let computed =
+        ui_screens::inventory_capture::crafting_output(runtime.inventory_ledger(&player), matched)
+            .expect("the recipe must supply a computed output")
+            .0;
     assert_eq!(computed.extra_data, output.extra_data);
     let resolve = |stack: &protocol::NetworkItemStack| {
+        let name = registry
+            .entries
+            .iter()
+            .find(|entry| entry.network_id == stack.network_id)?
+            .identifier
+            .as_ref();
         Some(client_world::CanonicalItemStack {
-            shield_pattern: protocol::item_shield_pattern(&stack.extra_data).map(Arc::new),
-            ..crate::test_support::fixture_item(item)
+            shield_pattern: (name == item)
+                .then(|| protocol::item_shield_pattern(&stack.extra_data))
+                .flatten()
+                .map(Arc::new),
+            ..crate::test_support::fixture_item(name)
         })
     };
     ui.prepare_shield_icons(
