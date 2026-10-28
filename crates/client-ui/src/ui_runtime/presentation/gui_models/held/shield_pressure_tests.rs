@@ -56,6 +56,7 @@ fn shield_atlas_pressure_fits_owner_selected_sheets_with_inventory_art() {
         .unwrap();
     ui.set_player_preview_skin(Some(&[255; 64 * 64 * 4]), Default::default());
     ui.set_preview_equipment_assets(Some(Arc::clone(&pack.assets)), None);
+    ui.set_player_preview_gear([None; 4], Some((item, 0)));
     let appearances: Vec<_> = (0..4)
         .map(|base| {
             Arc::new(render_api::ShieldPattern {
