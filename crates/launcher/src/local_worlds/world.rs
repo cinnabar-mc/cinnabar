@@ -14,8 +14,8 @@ pub enum Generator {
 }
 
 /// Explains why a saved Dragonfly world is preserved but cannot be opened.
-pub const LEGACY_WORLD_REQUIRES_CONVERSION: &str = "This world was created with Dragonfly and cannot open on BDS yet. Its files are unchanged. \
-     Export it from Storage before converting it with an external tool.";
+pub const LEGACY_WORLD_REQUIRES_CONVERSION: &str = "This world was created with Dragonfly. BDS cannot open it, and conversion is not available \
+     in this version. The saved world is kept on this device.";
 
 /// Difficulty of a local world.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

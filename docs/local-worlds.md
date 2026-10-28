@@ -25,9 +25,11 @@ See [Android](android.md) for the remaining device and lifecycle acceptance work
 
 Worlds tagged `dragonfly`, including older records with no backend field, remain in the list
 with a **Conversion required** label. Opening one reports that BDS cannot open it yet and leaves
-its files unchanged. Renaming, deleting and exporting through Settings → Storage remain available.
-There is no automatic conversion or fallback server. Export a backup before using an external
-conversion tool; compatibility of converted chunks, actors and player data is unverified.
+its files unchanged. Renaming and deleting remain available. There is no conversion or fallback
+server in this version. On desktop, use Settings → Storage to open the local-worlds folder and
+copy a backup before using an external conversion tool. Android keeps these saves in the app's
+private storage; in-app export and conversion are unavailable. Compatibility of converted chunks,
+actors and player data is unverified.
 Existing BDS worlds continue to open normally.
 
 ## World options

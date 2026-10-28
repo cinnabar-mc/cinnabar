@@ -114,7 +114,8 @@ Back button.
 ## Local worlds
 
 All local worlds use BDS through the bundled translated runtime. Legacy Dragonfly saves
-remain on disk and require conversion before opening; export them through Settings → Storage.
+remain in private app storage and cannot open in this version. Export and conversion are
+not available in the app yet.
 
 Android APK builds include the Box64 runtime and require
 CMake, Ninja and a Linux ARM64 GCC/G++ cross-toolchain. The tested native runtime package

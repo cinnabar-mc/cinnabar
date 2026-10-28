@@ -1125,8 +1125,9 @@ compatibility. Existing catalog content is owned by the API repository.
 
 All player local worlds use BDS, including Infinite and Flat terrain. Creation and import
 refuse unsupported runtimes; there is no bundled Dragonfly fallback. Existing Dragonfly saves
-remain listed and exportable, with an explicit conversion-required error before opening and no
-automatic file changes. The checkout-only server, `cinnabarext`, Dragonfly extension example,
+remain listed, with an explicit conversion-required error before opening and no
+automatic file changes. Desktop folder access allows manual backups; Android export and
+conversion remain unavailable. The checkout-only server, `cinnabarext`, Dragonfly extension example,
 Experience runtime and `cinnabar-cxb` remain developer tools. Qualify creation, offline play,
 reload, import, persistence and hosting/session teardown across supported platforms; the accepted
 local-world scope does not establish full vanilla world-generation parity.
