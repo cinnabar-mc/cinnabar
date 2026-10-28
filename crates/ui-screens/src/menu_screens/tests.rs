@@ -98,7 +98,7 @@ fn dressing_room_buttons_open_the_skin_library_and_preserve_profile_routes() {
 
 #[test]
 fn the_version_reads_as_the_release_client_shows_it() {
-    assert_eq!(version_label("1.26.60"), "v26.50");
+    assert_eq!(version_label("1.26.60"), "v26.60");
     assert_eq!(version_label("26.60"), "v26.60");
 }
 

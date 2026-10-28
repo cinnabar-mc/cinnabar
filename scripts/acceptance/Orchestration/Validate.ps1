@@ -120,6 +120,9 @@ $script:AcceptanceValidationPhase = {
         throw "BDS executable does not exist: $BdsSourceExecutable"
     }
     if (-not $DryRun) {
+        if ($ExpectedBdsSha256 -cnotmatch '\A[0-9a-f]{64}\z') {
+            throw 'BEDROCK_BDS_SHA256 must supply the reviewed executable SHA-256'
+        }
         $actualBdsSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $BdsSourceExecutable).Hash.ToLowerInvariant()
         if ($actualBdsSha256 -cne $ExpectedBdsSha256) {
             throw "BDS executable SHA-256 is $actualBdsSha256, want $ExpectedBdsSha256"

@@ -26,8 +26,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $AcceptanceParameters = @{} + $PSBoundParameters
 
-$ExpectedBdsSha256 = '19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
-$ExpectedBdsRelease = '1.26.60.6'
+$ExpectedBdsSha256 = [string]$env:BEDROCK_BDS_SHA256
+$PinnedBedrockTarget = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\assets\bedrock-target.json') | ConvertFrom-Json
+$ExpectedBdsRelease = [string]$PinnedBedrockTarget.server_version
 $PinnedAxolotlStackCommit = 'c4540512dc47833bb40363da7ad1161110d64b67'
 $PinnedJolyneLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 $PinnedAssetSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\assets\vanilla-source.json') | ConvertFrom-Json
