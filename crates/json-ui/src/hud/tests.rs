@@ -379,7 +379,8 @@ fn current_chat_bindings_follow_visibility_and_keep_the_authored_origin() {
             ("bindings".into(), json!([
                 {"binding_name":"#editor_chat_visible","binding_name_override":"#visible"},
                 {"binding_name":"#editor_chat_offset","binding_name_override":"#offset"},
-                {"binding_name":"#editor_chat_layout_active","binding_name_override":"#layout_active"}
+                {"binding_name":"#editor_chat_layout_active"},
+                {"binding_type":"view","source_property_name":"(not #editor_chat_layout_active)","target_property_name":"#enabled"}
             ])),
         ].into(),
         base: None,
@@ -397,9 +398,6 @@ fn current_chat_bindings_follow_visibility_and_keep_the_authored_origin() {
         assert_eq!(bound.properties.get("visible"), Some(&json!(visible)));
         let offset = &bound.properties["offset"];
         assert_eq!([offset[0].as_f64(), offset[1].as_f64()], [Some(0.0); 2]);
-        assert_eq!(
-            bound.properties["property_bag"]["#layout_active"],
-            json!(false)
-        );
+        assert_eq!(bound.properties["enabled"], json!(true));
     }
 }
