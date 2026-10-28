@@ -54,11 +54,12 @@ fn decorated_shield_nonzero_source_layer_reaches_final_hand_submissions_as_layer
             let submission = source.submissions()[index + 1].take().unwrap();
             let atlas = &source.items[index].as_ref().unwrap().1;
             assert_eq!(
-                submission.texture_layer & render_model::HAND_TEXTURE_LAYER_MASK,
+                submission.texture_layer & render_model::hand::HAND_TEXTURE_LAYER_MASK,
                 0
             );
             assert!(
-                (submission.texture_layer & render_model::HAND_TEXTURE_LAYER_MASK) < atlas.layers
+                (submission.texture_layer & render_model::hand::HAND_TEXTURE_LAYER_MASK)
+                    < atlas.layers
             );
             assert_ne!(
                 submission.texture_layer & render_model::HAND_ITEM_LAYER_FLAG,

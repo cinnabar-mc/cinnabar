@@ -446,10 +446,9 @@ impl DroppedItemPublisher<'_, '_> {
         if placement.allow_block_models
             && placement.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER
             && let Some(artwork) = icons.world_shield_artwork(placement.shield_pattern.as_ref())
+            && let Some((_, model)) = cache.shield_model(artwork)
         {
-            if let Some((_, model)) = cache.shield_model(artwork) {
-                return cache.count_item(Some(model));
-            }
+            return cache.count_item(Some(model));
         }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -503,12 +502,11 @@ impl DroppedItemPublisher<'_, '_> {
         let identifier = view.item.identifier.as_deref()?;
         if identifier == assets::gui_item::SHIELD_IDENTIFIER
             && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
+            && let Some((key, model)) = cache.shield_model(artwork)
         {
-            if let Some((key, model)) = cache.shield_model(artwork) {
-                let prepared =
-                    preparation.model(cache, &key, DroppedItemShape::Shield, |_| Some(model));
-                return cache.count_item(prepared);
-            }
+            let prepared =
+                preparation.model(cache, &key, DroppedItemShape::Shield, |_| Some(model));
+            return cache.count_item(prepared);
         }
         let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
         cache.artwork(|cache, source| match source {
