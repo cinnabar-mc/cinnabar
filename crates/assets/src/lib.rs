@@ -196,9 +196,9 @@ pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, de
 pub use glyph_sheet::{CellGlyph, GlyphAtlas, GlyphSheet, SHEET_GRID, SheetGlyph};
 pub use glyph_sheet::{extract_cells, is_private_use_glyph, pack_cells, texel_size_64};
 pub use hud::{
-    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_ICONS_SHEET_SIZE, HUD_SOURCE_MANIFEST_SHA256,
-    HudCatalogError, HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog,
-    encode_hud_catalog,
+    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_ICONS_SHEET_SIZE, HudCatalogError, HudTexture,
+    HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
+    hud_source_manifest_sha256,
 };
 pub use icon::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,

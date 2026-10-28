@@ -29,7 +29,7 @@ pub(super) fn parse_geometry(
     let supported_version = if is_modern {
         matches!(
             format_version,
-            "1.12.0" | "1.16.0" | "1.21.0" | "1.21.120" | "1.26.10"
+            "1.12.0" | "1.16.0" | "1.21.0" | "1.21.60" | "1.21.120" | "1.26.10"
         )
     } else {
         matches!(format_version, "1.8.0" | "1.10.0")

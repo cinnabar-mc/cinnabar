@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::BTreeMap, fs, path::Path};
 
 use assets::{
-    HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES,
-    encode_hud_catalog,
+    HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, encode_hud_catalog,
+    hud_source_manifest_sha256,
 };
 use image::{ImageFormat, ImageReader, Limits};
 use serde::Deserialize;
@@ -95,7 +95,7 @@ pub fn compile_hud_assets(
     }
     let canonical_manifest = canonical_line_endings(source_manifest);
     let source_manifest_sha256: [u8; 32] = Sha256::digest(&canonical_manifest).into();
-    if source_manifest_sha256 != HUD_SOURCE_MANIFEST_SHA256 {
+    if source_manifest_sha256 != hud_source_manifest_sha256() {
         return Err(HudCompileError::SourceManifestIdentity {
             detail: "manifest bytes differ from assets/hud-source-v2225.json".into(),
         });

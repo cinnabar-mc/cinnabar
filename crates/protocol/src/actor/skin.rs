@@ -120,7 +120,7 @@ fn normalize_cape(image: SkinRaster<'_>, retained_bytes: &mut usize) -> Option<C
     Some(CapeImage {
         width,
         height,
-        rgba8: Arc::from(image.bytes.as_ref()),
+        rgba8: Arc::from(image.bytes),
     })
 }
 

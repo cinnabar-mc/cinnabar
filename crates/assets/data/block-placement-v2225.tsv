@@ -217,7 +217,6 @@ minecraft:chiseled_sulfur	Identity	Vanilla	-
 minecraft:chiseled_tuff	Identity	Vanilla	-
 minecraft:chiseled_tuff_bricks	Identity	Vanilla	-
 minecraft:chorus_flower	Unresolved	Vanilla	-
-minecraft:chorus_plant	Identity	Vanilla	-
 minecraft:cinnabar	Identity	Vanilla	-
 minecraft:cinnabar_brick_double_slab	DoubleSlab	Vanilla	-
 minecraft:cinnabar_brick_slab	Slab	Vanilla	minecraft:cinnabar_brick_double_slab
@@ -437,7 +436,7 @@ minecraft:exposed_lightning_rod	Unresolved	Vanilla	-
 minecraft:farmland	Unresolved	Vanilla	-
 minecraft:fence_gate	Unresolved	Vanilla	-
 minecraft:fern	Identity	Vanilla	-
-minecraft:fire	Unresolved	Fire	-
+minecraft:fire	Connections	Fire	-
 minecraft:fire_coral	Identity	Vanilla	-
 minecraft:fire_coral_block	Identity	Vanilla	-
 minecraft:fire_coral_fan	Unresolved	Vanilla	-

@@ -1,12 +1,28 @@
 {
   "schema" : 1,
   "protocol": 2225,
-  "canonical_block_states": 22091,
+  "canonical_block_states": 23960,
   "dragonfly_module": "github.com/df-mc/dragonfly",
   "dragonfly_version": "v0.11.5",
   "dragonfly_module_sum": "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=",
-  "breg_sha256": "87f97e5a8d7c5fb0593df269bcfb4487dd010c26343a508a82091301f6d03795",
+  "breg_sha256": "857441d4da34ac108cffae92468bc2115545740c1d637676f17c4da5526be266",
   "routes": [
+    {
+      "identifier": "minecraft:acacia_button",
+      "metadata": 0,
+      "block_name": "minecraft:acacia_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 20769
+    },
     {
       "identifier": "minecraft:acacia_door",
       "metadata": 0,
@@ -29,7 +45,7 @@
           "value": 0
         }
       },
-      "block_visual": 9315
+      "block_visual": 10621
     },
     {
       "identifier": "minecraft:acacia_fence",
@@ -53,7 +69,7 @@
           "value": 0
         }
       },
-      "block_visual": 21280
+      "block_visual": 23149
     },
     {
       "identifier": "minecraft:acacia_fence_gate",
@@ -73,7 +89,7 @@
           "value": 0
         }
       },
-      "block_visual": 20164
+      "block_visual": 22033
     },
     {
       "identifier": "minecraft:acacia_leaves",
@@ -101,14 +117,26 @@
           "value": "y"
         }
       },
-      "block_visual": 9066
+      "block_visual": 10372
     },
     {
       "identifier": "minecraft:acacia_planks",
       "metadata": 0,
       "block_name": "minecraft:acacia_planks",
       "block_state": {},
-      "block_visual": 9362
+      "block_visual": 10668
+    },
+    {
+      "identifier": "minecraft:acacia_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:acacia_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 13174
     },
     {
       "identifier": "minecraft:acacia_sapling",
@@ -120,7 +148,7 @@
           "value": 0
         }
       },
-      "block_visual": 16470
+      "block_visual": 18335
     },
     {
       "identifier": "minecraft:acacia_sign",
@@ -132,7 +160,7 @@
           "value": 0
         }
       },
-      "block_visual": 16200
+      "block_visual": 18065
     },
     {
       "identifier": "minecraft:acacia_slab",
@@ -144,7 +172,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 20073
+      "block_visual": 21942
     },
     {
       "identifier": "minecraft:acacia_stairs",
@@ -164,7 +192,7 @@
           "value": 3
         }
       },
-      "block_visual": 16093
+      "block_visual": 17958
     },
     {
       "identifier": "minecraft:acacia_trapdoor",
@@ -184,7 +212,7 @@
           "value": 0
         }
       },
-      "block_visual": 13265
+      "block_visual": 14634
     },
     {
       "identifier": "minecraft:acacia_wood",
@@ -196,14 +224,14 @@
           "value": "y"
         }
       },
-      "block_visual": 17359
+      "block_visual": 19228
     },
     {
       "identifier": "minecraft:air",
       "metadata": 0,
       "block_name": "minecraft:air",
       "block_state": {},
-      "block_visual": 17025
+      "block_visual": 18894
     },
     {
       "identifier": "minecraft:allium",
@@ -224,7 +252,7 @@
       "metadata": 0,
       "block_name": "minecraft:ancient_debris",
       "block_state": {},
-      "block_visual": 15938
+      "block_visual": 17803
     },
     {
       "identifier": "minecraft:andesite",
@@ -243,7 +271,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16475
+      "block_visual": 18340
     },
     {
       "identifier": "minecraft:andesite_stairs",
@@ -263,7 +291,7 @@
           "value": 3
         }
       },
-      "block_visual": 11977
+      "block_visual": 13283
     },
     {
       "identifier": "minecraft:andesite_wall",
@@ -291,7 +319,7 @@
           "value": 0
         }
       },
-      "block_visual": 13046
+      "block_visual": 14415
     },
     {
       "identifier": "minecraft:anvil",
@@ -303,7 +331,7 @@
           "value": "north"
         }
       },
-      "block_visual": 16974
+      "block_visual": 18843
     },
     {
       "identifier": "minecraft:azalea_leaves",
@@ -319,7 +347,7 @@
           "value": 0
         }
       },
-      "block_visual": 20356
+      "block_visual": 22225
     },
     {
       "identifier": "minecraft:azalea_leaves_flowered",
@@ -335,7 +363,7 @@
           "value": 0
         }
       },
-      "block_visual": 16401
+      "block_visual": 18266
     },
     {
       "identifier": "minecraft:azure_bluet",
@@ -362,7 +390,7 @@
           "value": "thin"
         }
       },
-      "block_visual": 7054
+      "block_visual": 7074
     },
     {
       "identifier": "minecraft:bamboo_block",
@@ -375,6 +403,22 @@
         }
       },
       "block_visual": 111
+    },
+    {
+      "identifier": "minecraft:bamboo_button",
+      "metadata": 0,
+      "block_name": "minecraft:bamboo_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 18500
     },
     {
       "identifier": "minecraft:bamboo_door",
@@ -442,14 +486,14 @@
           "value": 0
         }
       },
-      "block_visual": 11622
+      "block_visual": 12928
     },
     {
       "identifier": "minecraft:bamboo_mosaic",
       "metadata": 0,
       "block_name": "minecraft:bamboo_mosaic",
       "block_state": {},
-      "block_visual": 21999
+      "block_visual": 23868
     },
     {
       "identifier": "minecraft:bamboo_mosaic_slab",
@@ -481,14 +525,26 @@
           "value": 3
         }
       },
-      "block_visual": 16133
+      "block_visual": 17998
     },
     {
       "identifier": "minecraft:bamboo_planks",
       "metadata": 0,
       "block_name": "minecraft:bamboo_planks",
       "block_state": {},
-      "block_visual": 13302
+      "block_visual": 14671
+    },
+    {
+      "identifier": "minecraft:bamboo_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:bamboo_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 17670
     },
     {
       "identifier": "minecraft:bamboo_sign",
@@ -500,7 +556,7 @@
           "value": 0
         }
       },
-      "block_visual": 18842
+      "block_visual": 20711
     },
     {
       "identifier": "minecraft:bamboo_slab",
@@ -512,7 +568,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16776
+      "block_visual": 18645
     },
     {
       "identifier": "minecraft:bamboo_stairs",
@@ -552,7 +608,7 @@
           "value": 0
         }
       },
-      "block_visual": 11899
+      "block_visual": 13205
     },
     {
       "identifier": "minecraft:banner",
@@ -564,7 +620,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -576,7 +632,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -588,7 +644,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -600,7 +656,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -612,7 +668,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -624,7 +680,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -636,7 +692,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -648,7 +704,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -660,7 +716,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -672,7 +728,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -684,7 +740,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -696,7 +752,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -708,7 +764,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -720,7 +776,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -732,7 +788,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:banner",
@@ -744,7 +800,7 @@
           "value": 0
         }
       },
-      "block_visual": 17601
+      "block_visual": 19470
     },
     {
       "identifier": "minecraft:barrel",
@@ -760,14 +816,14 @@
           "value": 0
         }
       },
-      "block_visual": 9471
+      "block_visual": 10777
     },
     {
       "identifier": "minecraft:barrier",
       "metadata": 0,
       "block_name": "minecraft:barrier",
       "block_state": {},
-      "block_visual": 15534
+      "block_visual": 16903
     },
     {
       "identifier": "minecraft:basalt",
@@ -779,7 +835,7 @@
           "value": "y"
         }
       },
-      "block_visual": 9085
+      "block_visual": 10391
     },
     {
       "identifier": "minecraft:beacon",
@@ -806,7 +862,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -826,7 +882,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -846,7 +902,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -866,7 +922,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -886,7 +942,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -906,7 +962,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -926,7 +982,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -946,7 +1002,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -966,7 +1022,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -986,7 +1042,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -1006,7 +1062,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -1026,7 +1082,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -1046,7 +1102,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -1066,7 +1122,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -1086,7 +1142,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bed",
@@ -1106,7 +1162,7 @@
           "value": 0
         }
       },
-      "block_visual": 17028
+      "block_visual": 18897
     },
     {
       "identifier": "minecraft:bedrock",
@@ -1118,7 +1174,7 @@
           "value": 0
         }
       },
-      "block_visual": 17901
+      "block_visual": 19770
     },
     {
       "identifier": "minecraft:beetroot_seeds",
@@ -1130,7 +1186,23 @@
           "value": 0
         }
       },
-      "block_visual": 11956
+      "block_visual": 13262
+    },
+    {
+      "identifier": "minecraft:birch_button",
+      "metadata": 0,
+      "block_name": "minecraft:birch_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 22522
     },
     {
       "identifier": "minecraft:birch_door",
@@ -1154,7 +1226,7 @@
           "value": 0
         }
       },
-      "block_visual": 18253
+      "block_visual": 20122
     },
     {
       "identifier": "minecraft:birch_fence",
@@ -1178,7 +1250,7 @@
           "value": 0
         }
       },
-      "block_visual": 21198
+      "block_visual": 23067
     },
     {
       "identifier": "minecraft:birch_fence_gate",
@@ -1198,7 +1270,7 @@
           "value": 0
         }
       },
-      "block_visual": 7439
+      "block_visual": 7459
     },
     {
       "identifier": "minecraft:birch_leaves",
@@ -1214,7 +1286,7 @@
           "value": 0
         }
       },
-      "block_visual": 8361
+      "block_visual": 9661
     },
     {
       "identifier": "minecraft:birch_log",
@@ -1233,7 +1305,19 @@
       "metadata": 0,
       "block_name": "minecraft:birch_planks",
       "block_state": {},
-      "block_visual": 12014
+      "block_visual": 13320
+    },
+    {
+      "identifier": "minecraft:birch_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:birch_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 6601
     },
     {
       "identifier": "minecraft:birch_sapling",
@@ -1245,7 +1329,7 @@
           "value": 0
         }
       },
-      "block_visual": 19952
+      "block_visual": 21821
     },
     {
       "identifier": "minecraft:birch_sign",
@@ -1269,7 +1353,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7873
+      "block_visual": 9173
     },
     {
       "identifier": "minecraft:birch_stairs",
@@ -1289,7 +1373,7 @@
           "value": 3
         }
       },
-      "block_visual": 17695
+      "block_visual": 19564
     },
     {
       "identifier": "minecraft:birch_trapdoor",
@@ -1309,7 +1393,7 @@
           "value": 0
         }
       },
-      "block_visual": 16979
+      "block_visual": 18848
     },
     {
       "identifier": "minecraft:birch_wood",
@@ -1344,14 +1428,14 @@
       "metadata": 0,
       "block_name": "minecraft:black_carpet",
       "block_state": {},
-      "block_visual": 15543
+      "block_visual": 16912
     },
     {
       "identifier": "minecraft:black_concrete",
       "metadata": 0,
       "block_name": "minecraft:black_concrete",
       "block_state": {},
-      "block_visual": 17042
+      "block_visual": 18911
     },
     {
       "identifier": "minecraft:black_concrete_powder",
@@ -1390,7 +1474,7 @@
           "value": 3
         }
       },
-      "block_visual": 10632
+      "block_visual": 11938
     },
     {
       "identifier": "minecraft:black_glazed_terracotta",
@@ -1402,21 +1486,21 @@
           "value": 2
         }
       },
-      "block_visual": 14067
+      "block_visual": 15436
     },
     {
       "identifier": "minecraft:black_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:black_shulker_box",
       "block_state": {},
-      "block_visual": 15486
+      "block_visual": 16855
     },
     {
       "identifier": "minecraft:black_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:black_stained_glass",
       "block_state": {},
-      "block_visual": 14868
+      "block_visual": 16237
     },
     {
       "identifier": "minecraft:black_stained_glass_pane",
@@ -1447,7 +1531,7 @@
       "metadata": 0,
       "block_name": "minecraft:black_terracotta",
       "block_state": {},
-      "block_visual": 15856
+      "block_visual": 17721
     },
     {
       "identifier": "minecraft:black_wool",
@@ -1466,7 +1550,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16473
+      "block_visual": 18338
     },
     {
       "identifier": "minecraft:black_wool_stairs",
@@ -1493,7 +1577,7 @@
       "metadata": 0,
       "block_name": "minecraft:blackstone",
       "block_state": {},
-      "block_visual": 20161
+      "block_visual": 22030
     },
     {
       "identifier": "minecraft:blackstone_slab",
@@ -1525,7 +1609,7 @@
           "value": 3
         }
       },
-      "block_visual": 17948
+      "block_visual": 19817
     },
     {
       "identifier": "minecraft:blackstone_wall",
@@ -1553,7 +1637,7 @@
           "value": 0
         }
       },
-      "block_visual": 8086
+      "block_visual": 9386
     },
     {
       "identifier": "minecraft:blast_furnace",
@@ -1565,7 +1649,7 @@
           "value": "north"
         }
       },
-      "block_visual": 20070
+      "block_visual": 21939
     },
     {
       "identifier": "minecraft:blue_candle",
@@ -1595,14 +1679,14 @@
       "metadata": 0,
       "block_name": "minecraft:blue_concrete",
       "block_state": {},
-      "block_visual": 19041
+      "block_visual": 20910
     },
     {
       "identifier": "minecraft:blue_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:blue_concrete_powder",
       "block_state": {},
-      "block_visual": 17113
+      "block_visual": 18982
     },
     {
       "identifier": "minecraft:blue_concrete_slab",
@@ -1614,7 +1698,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 10009
+      "block_visual": 11315
     },
     {
       "identifier": "minecraft:blue_concrete_stairs",
@@ -1634,7 +1718,7 @@
           "value": 3
         }
       },
-      "block_visual": 14665
+      "block_visual": 16034
     },
     {
       "identifier": "minecraft:blue_glazed_terracotta",
@@ -1646,35 +1730,35 @@
           "value": 2
         }
       },
-      "block_visual": 12295
+      "block_visual": 13601
     },
     {
       "identifier": "minecraft:blue_ice",
       "metadata": 0,
       "block_name": "minecraft:blue_ice",
       "block_state": {},
-      "block_visual": 17985
+      "block_visual": 19854
     },
     {
       "identifier": "minecraft:blue_orchid",
       "metadata": 0,
       "block_name": "minecraft:blue_orchid",
       "block_state": {},
-      "block_visual": 8302
+      "block_visual": 9602
     },
     {
       "identifier": "minecraft:blue_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:blue_shulker_box",
       "block_state": {},
-      "block_visual": 16261
+      "block_visual": 18126
     },
     {
       "identifier": "minecraft:blue_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:blue_stained_glass",
       "block_state": {},
-      "block_visual": 13457
+      "block_visual": 14826
     },
     {
       "identifier": "minecraft:blue_stained_glass_pane",
@@ -1705,14 +1789,14 @@
       "metadata": 0,
       "block_name": "minecraft:blue_terracotta",
       "block_state": {},
-      "block_visual": 6933
+      "block_visual": 6953
     },
     {
       "identifier": "minecraft:blue_wool",
       "metadata": 0,
       "block_name": "minecraft:blue_wool",
       "block_state": {},
-      "block_visual": 12341
+      "block_visual": 13647
     },
     {
       "identifier": "minecraft:blue_wool_slab",
@@ -1724,7 +1808,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19422
+      "block_visual": 21291
     },
     {
       "identifier": "minecraft:blue_wool_stairs",
@@ -1744,7 +1828,7 @@
           "value": 3
         }
       },
-      "block_visual": 8827
+      "block_visual": 10127
     },
     {
       "identifier": "minecraft:bone_block",
@@ -1760,14 +1844,14 @@
           "value": "y"
         }
       },
-      "block_visual": 8551
+      "block_visual": 9851
     },
     {
       "identifier": "minecraft:bookshelf",
       "metadata": 0,
       "block_name": "minecraft:bookshelf",
       "block_state": {},
-      "block_visual": 17018
+      "block_visual": 18887
     },
     {
       "identifier": "minecraft:brain_coral",
@@ -1781,7 +1865,19 @@
       "metadata": 0,
       "block_name": "minecraft:brain_coral_block",
       "block_state": {},
-      "block_visual": 13282
+      "block_visual": 14651
+    },
+    {
+      "identifier": "minecraft:brain_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:brain_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 3664
     },
     {
       "identifier": "minecraft:brewing_stand",
@@ -1801,14 +1897,14 @@
           "value": 0
         }
       },
-      "block_visual": 20038
+      "block_visual": 21907
     },
     {
       "identifier": "minecraft:brick_block",
       "metadata": 0,
       "block_name": "minecraft:brick_block",
       "block_state": {},
-      "block_visual": 10609
+      "block_visual": 11915
     },
     {
       "identifier": "minecraft:brick_slab",
@@ -1820,7 +1916,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19987
+      "block_visual": 21856
     },
     {
       "identifier": "minecraft:brick_stairs",
@@ -1840,7 +1936,7 @@
           "value": 3
         }
       },
-      "block_visual": 16782
+      "block_visual": 18651
     },
     {
       "identifier": "minecraft:brick_wall",
@@ -1884,7 +1980,7 @@
           "value": 0
         }
       },
-      "block_visual": 14654
+      "block_visual": 16023
     },
     {
       "identifier": "minecraft:brown_carpet",
@@ -1898,14 +1994,14 @@
       "metadata": 0,
       "block_name": "minecraft:brown_concrete",
       "block_state": {},
-      "block_visual": 16170
+      "block_visual": 18035
     },
     {
       "identifier": "minecraft:brown_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:brown_concrete_powder",
       "block_state": {},
-      "block_visual": 14251
+      "block_visual": 15620
     },
     {
       "identifier": "minecraft:brown_concrete_slab",
@@ -1917,7 +2013,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19613
+      "block_visual": 21482
     },
     {
       "identifier": "minecraft:brown_concrete_stairs",
@@ -1937,7 +2033,7 @@
           "value": 3
         }
       },
-      "block_visual": 7339
+      "block_visual": 7359
     },
     {
       "identifier": "minecraft:brown_glazed_terracotta",
@@ -1956,7 +2052,7 @@
       "metadata": 0,
       "block_name": "minecraft:brown_shulker_box",
       "block_state": {},
-      "block_visual": 17298
+      "block_visual": 19167
     },
     {
       "identifier": "minecraft:brown_stained_glass",
@@ -1994,7 +2090,7 @@
       "metadata": 0,
       "block_name": "minecraft:brown_terracotta",
       "block_state": {},
-      "block_visual": 20970
+      "block_visual": 22839
     },
     {
       "identifier": "minecraft:brown_wool",
@@ -2013,7 +2109,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7985
+      "block_visual": 9285
     },
     {
       "identifier": "minecraft:brown_wool_stairs",
@@ -2033,21 +2129,40 @@
           "value": 3
         }
       },
-      "block_visual": 6681
+      "block_visual": 6701
     },
     {
       "identifier": "minecraft:bubble_coral",
       "metadata": 0,
       "block_name": "minecraft:bubble_coral",
       "block_state": {},
-      "block_visual": 16174
+      "block_visual": 18039
     },
     {
       "identifier": "minecraft:bubble_coral_block",
       "metadata": 0,
       "block_name": "minecraft:bubble_coral_block",
       "block_state": {},
-      "block_visual": 8644
+      "block_visual": 9944
+    },
+    {
+      "identifier": "minecraft:bubble_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:bubble_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 1514
+    },
+    {
+      "identifier": "minecraft:budding_amethyst",
+      "metadata": 0,
+      "block_name": "minecraft:budding_amethyst",
+      "block_state": {},
+      "block_visual": 19555
     },
     {
       "identifier": "minecraft:cactus",
@@ -2059,7 +2174,7 @@
           "value": 0
         }
       },
-      "block_visual": 17670
+      "block_visual": 19539
     },
     {
       "identifier": "minecraft:cake",
@@ -2071,7 +2186,7 @@
           "value": 0
         }
       },
-      "block_visual": 18362
+      "block_visual": 20231
     },
     {
       "identifier": "minecraft:calcite",
@@ -2094,7 +2209,7 @@
           "value": "north"
         }
       },
-      "block_visual": 13495
+      "block_visual": 14864
     },
     {
       "identifier": "minecraft:candle",
@@ -2110,7 +2225,7 @@
           "value": 0
         }
       },
-      "block_visual": 19473
+      "block_visual": 21342
     },
     {
       "identifier": "minecraft:carrot",
@@ -2122,7 +2237,7 @@
           "value": 0
         }
       },
-      "block_visual": 14818
+      "block_visual": 16187
     },
     {
       "identifier": "minecraft:carved_pumpkin",
@@ -2134,7 +2249,23 @@
           "value": "north"
         }
       },
-      "block_visual": 19408
+      "block_visual": 21277
+    },
+    {
+      "identifier": "minecraft:cherry_button",
+      "metadata": 0,
+      "block_name": "minecraft:cherry_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 11251
     },
     {
       "identifier": "minecraft:cherry_door",
@@ -2158,7 +2289,7 @@
           "value": 0
         }
       },
-      "block_visual": 8886
+      "block_visual": 10186
     },
     {
       "identifier": "minecraft:cherry_fence",
@@ -2202,7 +2333,7 @@
           "value": 0
         }
       },
-      "block_visual": 21972
+      "block_visual": 23841
     },
     {
       "identifier": "minecraft:cherry_leaves",
@@ -2218,7 +2349,7 @@
           "value": 0
         }
       },
-      "block_visual": 14057
+      "block_visual": 15426
     },
     {
       "identifier": "minecraft:cherry_log",
@@ -2230,14 +2361,26 @@
           "value": "y"
         }
       },
-      "block_visual": 18953
+      "block_visual": 20822
     },
     {
       "identifier": "minecraft:cherry_planks",
       "metadata": 0,
       "block_name": "minecraft:cherry_planks",
       "block_state": {},
-      "block_visual": 20410
+      "block_visual": 22279
+    },
+    {
+      "identifier": "minecraft:cherry_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:cherry_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 548
     },
     {
       "identifier": "minecraft:cherry_sapling",
@@ -2249,7 +2392,7 @@
           "value": 0
         }
       },
-      "block_visual": 18951
+      "block_visual": 20820
     },
     {
       "identifier": "minecraft:cherry_sign",
@@ -2261,7 +2404,7 @@
           "value": 0
         }
       },
-      "block_visual": 14198
+      "block_visual": 15567
     },
     {
       "identifier": "minecraft:cherry_slab",
@@ -2273,7 +2416,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16171
+      "block_visual": 18036
     },
     {
       "identifier": "minecraft:cherry_stairs",
@@ -2293,7 +2436,7 @@
           "value": 3
         }
       },
-      "block_visual": 18325
+      "block_visual": 20194
     },
     {
       "identifier": "minecraft:cherry_trapdoor",
@@ -2325,7 +2468,7 @@
           "value": "y"
         }
       },
-      "block_visual": 18318
+      "block_visual": 20187
     },
     {
       "identifier": "minecraft:chest",
@@ -2337,7 +2480,7 @@
           "value": "north"
         }
       },
-      "block_visual": 18316
+      "block_visual": 20185
     },
     {
       "identifier": "minecraft:chipped_anvil",
@@ -2349,42 +2492,42 @@
           "value": "north"
         }
       },
-      "block_visual": 10529
+      "block_visual": 11835
     },
     {
       "identifier": "minecraft:chiseled_cinnabar",
       "metadata": 0,
       "block_name": "minecraft:chiseled_cinnabar",
       "block_state": {},
-      "block_visual": 16427
+      "block_visual": 18292
     },
     {
       "identifier": "minecraft:chiseled_copper",
       "metadata": 0,
       "block_name": "minecraft:chiseled_copper",
       "block_state": {},
-      "block_visual": 13402
+      "block_visual": 14771
     },
     {
       "identifier": "minecraft:chiseled_deepslate",
       "metadata": 0,
       "block_name": "minecraft:chiseled_deepslate",
       "block_state": {},
-      "block_visual": 11856
+      "block_visual": 13162
     },
     {
       "identifier": "minecraft:chiseled_nether_bricks",
       "metadata": 0,
       "block_name": "minecraft:chiseled_nether_bricks",
       "block_state": {},
-      "block_visual": 18934
+      "block_visual": 20803
     },
     {
       "identifier": "minecraft:chiseled_polished_blackstone",
       "metadata": 0,
       "block_name": "minecraft:chiseled_polished_blackstone",
       "block_state": {},
-      "block_visual": 11637
+      "block_visual": 12943
     },
     {
       "identifier": "minecraft:chiseled_quartz_block",
@@ -2396,28 +2539,28 @@
           "value": "y"
         }
       },
-      "block_visual": 19092
+      "block_visual": 20961
     },
     {
       "identifier": "minecraft:chiseled_red_sandstone",
       "metadata": 0,
       "block_name": "minecraft:chiseled_red_sandstone",
       "block_state": {},
-      "block_visual": 19947
+      "block_visual": 21816
     },
     {
       "identifier": "minecraft:chiseled_resin_bricks",
       "metadata": 0,
       "block_name": "minecraft:chiseled_resin_bricks",
       "block_state": {},
-      "block_visual": 16173
+      "block_visual": 18038
     },
     {
       "identifier": "minecraft:chiseled_sandstone",
       "metadata": 0,
       "block_name": "minecraft:chiseled_sandstone",
       "block_state": {},
-      "block_visual": 15533
+      "block_visual": 16902
     },
     {
       "identifier": "minecraft:chiseled_stone_bricks",
@@ -2431,28 +2574,28 @@
       "metadata": 0,
       "block_name": "minecraft:chiseled_sulfur",
       "block_state": {},
-      "block_visual": 11290
+      "block_visual": 12596
     },
     {
       "identifier": "minecraft:chiseled_tuff",
       "metadata": 0,
       "block_name": "minecraft:chiseled_tuff",
       "block_state": {},
-      "block_visual": 20943
+      "block_visual": 22812
     },
     {
       "identifier": "minecraft:chiseled_tuff_bricks",
       "metadata": 0,
       "block_name": "minecraft:chiseled_tuff_bricks",
       "block_state": {},
-      "block_visual": 19627
+      "block_visual": 21496
     },
     {
       "identifier": "minecraft:cinnabar",
       "metadata": 0,
       "block_name": "minecraft:cinnabar",
       "block_state": {},
-      "block_visual": 16218
+      "block_visual": 18083
     },
     {
       "identifier": "minecraft:cinnabar_brick_slab",
@@ -2464,7 +2607,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 18208
+      "block_visual": 20077
     },
     {
       "identifier": "minecraft:cinnabar_brick_stairs",
@@ -2484,7 +2627,7 @@
           "value": 3
         }
       },
-      "block_visual": 15900
+      "block_visual": 17765
     },
     {
       "identifier": "minecraft:cinnabar_brick_wall",
@@ -2512,14 +2655,14 @@
           "value": 0
         }
       },
-      "block_visual": 20491
+      "block_visual": 22360
     },
     {
       "identifier": "minecraft:cinnabar_bricks",
       "metadata": 0,
       "block_name": "minecraft:cinnabar_bricks",
       "block_state": {},
-      "block_visual": 14170
+      "block_visual": 15539
     },
     {
       "identifier": "minecraft:cinnabar_slab",
@@ -2531,7 +2674,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 20941
+      "block_visual": 22810
     },
     {
       "identifier": "minecraft:cinnabar_stairs",
@@ -2551,7 +2694,7 @@
           "value": 3
         }
       },
-      "block_visual": 16739
+      "block_visual": 18608
     },
     {
       "identifier": "minecraft:cinnabar_wall",
@@ -2586,35 +2729,35 @@
       "metadata": 0,
       "block_name": "minecraft:clay",
       "block_state": {},
-      "block_visual": 18321
+      "block_visual": 20190
     },
     {
       "identifier": "minecraft:coal_block",
       "metadata": 0,
       "block_name": "minecraft:coal_block",
       "block_state": {},
-      "block_visual": 12148
+      "block_visual": 13454
     },
     {
       "identifier": "minecraft:coal_ore",
       "metadata": 0,
       "block_name": "minecraft:coal_ore",
       "block_state": {},
-      "block_visual": 8591
+      "block_visual": 9891
     },
     {
       "identifier": "minecraft:coarse_dirt",
       "metadata": 0,
       "block_name": "minecraft:coarse_dirt",
       "block_state": {},
-      "block_visual": 9486
+      "block_visual": 10792
     },
     {
       "identifier": "minecraft:cobbled_deepslate",
       "metadata": 0,
       "block_name": "minecraft:cobbled_deepslate",
       "block_state": {},
-      "block_visual": 17013
+      "block_visual": 18882
     },
     {
       "identifier": "minecraft:cobbled_deepslate_slab",
@@ -2626,7 +2769,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19072
+      "block_visual": 20941
     },
     {
       "identifier": "minecraft:cobbled_deepslate_stairs",
@@ -2674,14 +2817,14 @@
           "value": 0
         }
       },
-      "block_visual": 21459
+      "block_visual": 23328
     },
     {
       "identifier": "minecraft:cobblestone",
       "metadata": 0,
       "block_name": "minecraft:cobblestone",
       "block_state": {},
-      "block_visual": 6777
+      "block_visual": 6797
     },
     {
       "identifier": "minecraft:cobblestone_slab",
@@ -2693,7 +2836,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8416
+      "block_visual": 9716
     },
     {
       "identifier": "minecraft:cobblestone_wall",
@@ -2737,7 +2880,7 @@
           "value": 2
         }
       },
-      "block_visual": 16710
+      "block_visual": 18579
     },
     {
       "identifier": "minecraft:composter",
@@ -2749,7 +2892,7 @@
           "value": 0
         }
       },
-      "block_visual": 12221
+      "block_visual": 13527
     },
     {
       "identifier": "minecraft:copper_bars",
@@ -2773,14 +2916,14 @@
           "value": 0
         }
       },
-      "block_visual": 9219
+      "block_visual": 10525
     },
     {
       "identifier": "minecraft:copper_block",
       "metadata": 0,
       "block_name": "minecraft:copper_block",
       "block_state": {},
-      "block_visual": 10407
+      "block_visual": 11713
     },
     {
       "identifier": "minecraft:copper_chain",
@@ -2792,7 +2935,7 @@
           "value": "y"
         }
       },
-      "block_visual": 7328
+      "block_visual": 7348
     },
     {
       "identifier": "minecraft:copper_door",
@@ -2816,7 +2959,7 @@
           "value": 0
         }
       },
-      "block_visual": 15006
+      "block_visual": 16375
     },
     {
       "identifier": "minecraft:copper_golem_statue",
@@ -2828,7 +2971,7 @@
           "value": "north"
         }
       },
-      "block_visual": 9179
+      "block_visual": 10485
     },
     {
       "identifier": "minecraft:copper_grate",
@@ -2847,7 +2990,7 @@
           "value": 0
         }
       },
-      "block_visual": 22048
+      "block_visual": 23917
     },
     {
       "identifier": "minecraft:copper_ore",
@@ -2866,7 +3009,7 @@
           "value": "top"
         }
       },
-      "block_visual": 8550
+      "block_visual": 9850
     },
     {
       "identifier": "minecraft:copper_trapdoor",
@@ -2886,56 +3029,56 @@
           "value": 0
         }
       },
-      "block_visual": 14154
+      "block_visual": 15523
     },
     {
       "identifier": "minecraft:cornflower",
       "metadata": 0,
       "block_name": "minecraft:cornflower",
       "block_state": {},
-      "block_visual": 11636
+      "block_visual": 12942
     },
     {
       "identifier": "minecraft:cracked_deepslate_bricks",
       "metadata": 0,
       "block_name": "minecraft:cracked_deepslate_bricks",
       "block_state": {},
-      "block_visual": 12092
+      "block_visual": 13398
     },
     {
       "identifier": "minecraft:cracked_deepslate_tiles",
       "metadata": 0,
       "block_name": "minecraft:cracked_deepslate_tiles",
       "block_state": {},
-      "block_visual": 8371
+      "block_visual": 9671
     },
     {
       "identifier": "minecraft:cracked_nether_bricks",
       "metadata": 0,
       "block_name": "minecraft:cracked_nether_bricks",
       "block_state": {},
-      "block_visual": 9719
+      "block_visual": 11025
     },
     {
       "identifier": "minecraft:cracked_polished_blackstone_bricks",
       "metadata": 0,
       "block_name": "minecraft:cracked_polished_blackstone_bricks",
       "block_state": {},
-      "block_visual": 18841
+      "block_visual": 20710
     },
     {
       "identifier": "minecraft:cracked_stone_bricks",
       "metadata": 0,
       "block_name": "minecraft:cracked_stone_bricks",
       "block_state": {},
-      "block_visual": 6774
+      "block_visual": 6794
     },
     {
       "identifier": "minecraft:crafting_table",
       "metadata": 0,
       "block_name": "minecraft:crafting_table",
       "block_state": {},
-      "block_visual": 14189
+      "block_visual": 15558
     },
     {
       "identifier": "minecraft:creeper_head",
@@ -2947,7 +3090,23 @@
           "value": 1
         }
       },
-      "block_visual": 14060
+      "block_visual": 15429
+    },
+    {
+      "identifier": "minecraft:crimson_button",
+      "metadata": 0,
+      "block_name": "minecraft:crimson_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 10656
     },
     {
       "identifier": "minecraft:crimson_door",
@@ -2971,7 +3130,7 @@
           "value": 0
         }
       },
-      "block_visual": 7890
+      "block_visual": 9190
     },
     {
       "identifier": "minecraft:crimson_fence",
@@ -2995,7 +3154,7 @@
           "value": 0
         }
       },
-      "block_visual": 20925
+      "block_visual": 22794
     },
     {
       "identifier": "minecraft:crimson_fence_gate",
@@ -3015,7 +3174,7 @@
           "value": 0
         }
       },
-      "block_visual": 10451
+      "block_visual": 11757
     },
     {
       "identifier": "minecraft:crimson_hyphae",
@@ -3027,14 +3186,26 @@
           "value": "y"
         }
       },
-      "block_visual": 8921
+      "block_visual": 10221
     },
     {
       "identifier": "minecraft:crimson_planks",
       "metadata": 0,
       "block_name": "minecraft:crimson_planks",
       "block_state": {},
-      "block_visual": 11205
+      "block_visual": 12511
+    },
+    {
+      "identifier": "minecraft:crimson_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:crimson_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 23898
     },
     {
       "identifier": "minecraft:crimson_sign",
@@ -3046,7 +3217,7 @@
           "value": 0
         }
       },
-      "block_visual": 19098
+      "block_visual": 20967
     },
     {
       "identifier": "minecraft:crimson_slab",
@@ -3058,7 +3229,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 14754
+      "block_visual": 16123
     },
     {
       "identifier": "minecraft:crimson_stairs",
@@ -3078,7 +3249,7 @@
           "value": 3
         }
       },
-      "block_visual": 16290
+      "block_visual": 18155
     },
     {
       "identifier": "minecraft:crimson_stem",
@@ -3090,7 +3261,7 @@
           "value": "y"
         }
       },
-      "block_visual": 14748
+      "block_visual": 16117
     },
     {
       "identifier": "minecraft:crimson_trapdoor",
@@ -3110,21 +3281,21 @@
           "value": 0
         }
       },
-      "block_visual": 9072
+      "block_visual": 10378
     },
     {
       "identifier": "minecraft:crying_obsidian",
       "metadata": 0,
       "block_name": "minecraft:crying_obsidian",
       "block_state": {},
-      "block_visual": 17117
+      "block_visual": 18986
     },
     {
       "identifier": "minecraft:cut_copper",
       "metadata": 0,
       "block_name": "minecraft:cut_copper",
       "block_state": {},
-      "block_visual": 10483
+      "block_visual": 11789
     },
     {
       "identifier": "minecraft:cut_copper_slab",
@@ -3136,7 +3307,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 11857
+      "block_visual": 13163
     },
     {
       "identifier": "minecraft:cut_copper_stairs",
@@ -3156,14 +3327,14 @@
           "value": 3
         }
       },
-      "block_visual": 9901
+      "block_visual": 11207
     },
     {
       "identifier": "minecraft:cut_red_sandstone",
       "metadata": 0,
       "block_name": "minecraft:cut_red_sandstone",
       "block_state": {},
-      "block_visual": 8075
+      "block_visual": 9375
     },
     {
       "identifier": "minecraft:cut_red_sandstone_slab",
@@ -3175,14 +3346,14 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19497
+      "block_visual": 21366
     },
     {
       "identifier": "minecraft:cut_sandstone",
       "metadata": 0,
       "block_name": "minecraft:cut_sandstone",
       "block_state": {},
-      "block_visual": 15072
+      "block_visual": 16441
     },
     {
       "identifier": "minecraft:cut_sandstone_slab",
@@ -3194,7 +3365,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 12166
+      "block_visual": 13472
     },
     {
       "identifier": "minecraft:cyan_candle",
@@ -3210,21 +3381,21 @@
           "value": 0
         }
       },
-      "block_visual": 20367
+      "block_visual": 22236
     },
     {
       "identifier": "minecraft:cyan_carpet",
       "metadata": 0,
       "block_name": "minecraft:cyan_carpet",
       "block_state": {},
-      "block_visual": 6824
+      "block_visual": 6844
     },
     {
       "identifier": "minecraft:cyan_concrete",
       "metadata": 0,
       "block_name": "minecraft:cyan_concrete",
       "block_state": {},
-      "block_visual": 18999
+      "block_visual": 20868
     },
     {
       "identifier": "minecraft:cyan_concrete_powder",
@@ -3243,7 +3414,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 18912
+      "block_visual": 20781
     },
     {
       "identifier": "minecraft:cyan_concrete_stairs",
@@ -3263,7 +3434,7 @@
           "value": 3
         }
       },
-      "block_visual": 16433
+      "block_visual": 18298
     },
     {
       "identifier": "minecraft:cyan_glazed_terracotta",
@@ -3275,21 +3446,21 @@
           "value": 2
         }
       },
-      "block_visual": 12088
+      "block_visual": 13394
     },
     {
       "identifier": "minecraft:cyan_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:cyan_shulker_box",
       "block_state": {},
-      "block_visual": 17986
+      "block_visual": 19855
     },
     {
       "identifier": "minecraft:cyan_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:cyan_stained_glass",
       "block_state": {},
-      "block_visual": 14867
+      "block_visual": 16236
     },
     {
       "identifier": "minecraft:cyan_stained_glass_pane",
@@ -3313,7 +3484,7 @@
           "value": 0
         }
       },
-      "block_visual": 16658
+      "block_visual": 18523
     },
     {
       "identifier": "minecraft:cyan_terracotta",
@@ -3327,7 +3498,7 @@
       "metadata": 0,
       "block_name": "minecraft:cyan_wool",
       "block_state": {},
-      "block_visual": 12027
+      "block_visual": 13333
     },
     {
       "identifier": "minecraft:cyan_wool_slab",
@@ -3339,7 +3510,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 17599
+      "block_visual": 19468
     },
     {
       "identifier": "minecraft:cyan_wool_stairs",
@@ -3359,7 +3530,7 @@
           "value": 3
         }
       },
-      "block_visual": 14762
+      "block_visual": 16131
     },
     {
       "identifier": "minecraft:damaged_anvil",
@@ -3371,14 +3542,30 @@
           "value": "north"
         }
       },
-      "block_visual": 21219
+      "block_visual": 23088
     },
     {
       "identifier": "minecraft:dandelion",
       "metadata": 0,
       "block_name": "minecraft:dandelion",
       "block_state": {},
-      "block_visual": 22090
+      "block_visual": 23959
+    },
+    {
+      "identifier": "minecraft:dark_oak_button",
+      "metadata": 0,
+      "block_name": "minecraft:dark_oak_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 352
     },
     {
       "identifier": "minecraft:dark_oak_door",
@@ -3402,7 +3589,7 @@
           "value": 0
         }
       },
-      "block_visual": 13408
+      "block_visual": 14777
     },
     {
       "identifier": "minecraft:dark_oak_fence",
@@ -3426,7 +3613,7 @@
           "value": 0
         }
       },
-      "block_visual": 18228
+      "block_visual": 20097
     },
     {
       "identifier": "minecraft:dark_oak_fence_gate",
@@ -3446,7 +3633,7 @@
           "value": 0
         }
       },
-      "block_visual": 8398
+      "block_visual": 9698
     },
     {
       "identifier": "minecraft:dark_oak_leaves",
@@ -3462,7 +3649,7 @@
           "value": 0
         }
       },
-      "block_visual": 15605
+      "block_visual": 16974
     },
     {
       "identifier": "minecraft:dark_oak_log",
@@ -3482,6 +3669,18 @@
       "block_name": "minecraft:dark_oak_planks",
       "block_state": {},
       "block_visual": 6558
+    },
+    {
+      "identifier": "minecraft:dark_oak_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:dark_oak_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 16356
     },
     {
       "identifier": "minecraft:dark_oak_sapling",
@@ -3505,7 +3704,7 @@
           "value": 0
         }
       },
-      "block_visual": 19114
+      "block_visual": 20983
     },
     {
       "identifier": "minecraft:dark_oak_slab",
@@ -3537,7 +3736,7 @@
           "value": 3
         }
       },
-      "block_visual": 11641
+      "block_visual": 12947
     },
     {
       "identifier": "minecraft:dark_oak_trapdoor",
@@ -3557,7 +3756,7 @@
           "value": 0
         }
       },
-      "block_visual": 19957
+      "block_visual": 21826
     },
     {
       "identifier": "minecraft:dark_oak_wood",
@@ -3576,7 +3775,7 @@
       "metadata": 0,
       "block_name": "minecraft:dark_prismarine",
       "block_state": {},
-      "block_visual": 9186
+      "block_visual": 10492
     },
     {
       "identifier": "minecraft:dark_prismarine_slab",
@@ -3588,7 +3787,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 14149
+      "block_visual": 15518
     },
     {
       "identifier": "minecraft:dark_prismarine_stairs",
@@ -3608,28 +3807,40 @@
           "value": 3
         }
       },
-      "block_visual": 19558
+      "block_visual": 21427
     },
     {
       "identifier": "minecraft:dead_brain_coral",
       "metadata": 0,
       "block_name": "minecraft:dead_brain_coral",
       "block_state": {},
-      "block_visual": 18817
+      "block_visual": 20686
     },
     {
       "identifier": "minecraft:dead_brain_coral_block",
       "metadata": 0,
       "block_name": "minecraft:dead_brain_coral_block",
       "block_state": {},
-      "block_visual": 16954
+      "block_visual": 18823
+    },
+    {
+      "identifier": "minecraft:dead_brain_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:dead_brain_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 1621
     },
     {
       "identifier": "minecraft:dead_bubble_coral",
       "metadata": 0,
       "block_name": "minecraft:dead_bubble_coral",
       "block_state": {},
-      "block_visual": 18950
+      "block_visual": 20819
     },
     {
       "identifier": "minecraft:dead_bubble_coral_block",
@@ -3639,11 +3850,23 @@
       "block_visual": 4174
     },
     {
+      "identifier": "minecraft:dead_bubble_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:dead_bubble_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 1509
+    },
+    {
       "identifier": "minecraft:dead_fire_coral",
       "metadata": 0,
       "block_name": "minecraft:dead_fire_coral",
       "block_state": {},
-      "block_visual": 16282
+      "block_visual": 18147
     },
     {
       "identifier": "minecraft:dead_fire_coral_block",
@@ -3653,39 +3876,75 @@
       "block_visual": 4406
     },
     {
+      "identifier": "minecraft:dead_fire_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:dead_fire_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 18989
+    },
+    {
       "identifier": "minecraft:dead_horn_coral",
       "metadata": 0,
       "block_name": "minecraft:dead_horn_coral",
       "block_state": {},
-      "block_visual": 14941
+      "block_visual": 16310
     },
     {
       "identifier": "minecraft:dead_horn_coral_block",
       "metadata": 0,
       "block_name": "minecraft:dead_horn_coral_block",
       "block_state": {},
-      "block_visual": 16674
+      "block_visual": 18539
+    },
+    {
+      "identifier": "minecraft:dead_horn_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:dead_horn_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 19977
     },
     {
       "identifier": "minecraft:dead_tube_coral",
       "metadata": 0,
       "block_name": "minecraft:dead_tube_coral",
       "block_state": {},
-      "block_visual": 8877
+      "block_visual": 10177
     },
     {
       "identifier": "minecraft:dead_tube_coral_block",
       "metadata": 0,
       "block_name": "minecraft:dead_tube_coral_block",
       "block_state": {},
-      "block_visual": 7883
+      "block_visual": 9183
+    },
+    {
+      "identifier": "minecraft:dead_tube_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:dead_tube_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 18917
     },
     {
       "identifier": "minecraft:deadbush",
       "metadata": 0,
       "block_name": "minecraft:deadbush",
       "block_state": {},
-      "block_visual": 10465
+      "block_visual": 11771
     },
     {
       "identifier": "minecraft:decorated_pot",
@@ -3697,7 +3956,7 @@
           "value": 2
         }
       },
-      "block_visual": 17124
+      "block_visual": 18993
     },
     {
       "identifier": "minecraft:deepslate",
@@ -3721,7 +3980,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7113
+      "block_visual": 7133
     },
     {
       "identifier": "minecraft:deepslate_brick_stairs",
@@ -3741,7 +4000,7 @@
           "value": 3
         }
       },
-      "block_visual": 19502
+      "block_visual": 21371
     },
     {
       "identifier": "minecraft:deepslate_brick_wall",
@@ -3776,14 +4035,14 @@
       "metadata": 0,
       "block_name": "minecraft:deepslate_bricks",
       "block_state": {},
-      "block_visual": 12292
+      "block_visual": 13598
     },
     {
       "identifier": "minecraft:deepslate_coal_ore",
       "metadata": 0,
       "block_name": "minecraft:deepslate_coal_ore",
       "block_state": {},
-      "block_visual": 18818
+      "block_visual": 20687
     },
     {
       "identifier": "minecraft:deepslate_copper_ore",
@@ -3797,42 +4056,42 @@
       "metadata": 0,
       "block_name": "minecraft:deepslate_diamond_ore",
       "block_state": {},
-      "block_visual": 20973
+      "block_visual": 22842
     },
     {
       "identifier": "minecraft:deepslate_emerald_ore",
       "metadata": 0,
       "block_name": "minecraft:deepslate_emerald_ore",
       "block_state": {},
-      "block_visual": 16429
+      "block_visual": 18294
     },
     {
       "identifier": "minecraft:deepslate_gold_ore",
       "metadata": 0,
       "block_name": "minecraft:deepslate_gold_ore",
       "block_state": {},
-      "block_visual": 15937
+      "block_visual": 17802
     },
     {
       "identifier": "minecraft:deepslate_iron_ore",
       "metadata": 0,
       "block_name": "minecraft:deepslate_iron_ore",
       "block_state": {},
-      "block_visual": 19043
+      "block_visual": 20912
     },
     {
       "identifier": "minecraft:deepslate_lapis_ore",
       "metadata": 0,
       "block_name": "minecraft:deepslate_lapis_ore",
       "block_state": {},
-      "block_visual": 18949
+      "block_visual": 20818
     },
     {
       "identifier": "minecraft:deepslate_redstone_ore",
       "metadata": 0,
       "block_name": "minecraft:deepslate_redstone_ore",
       "block_state": {},
-      "block_visual": 16953
+      "block_visual": 18822
     },
     {
       "identifier": "minecraft:deepslate_tile_slab",
@@ -3844,7 +4103,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8870
+      "block_visual": 10170
     },
     {
       "identifier": "minecraft:deepslate_tile_stairs",
@@ -3864,7 +4123,7 @@
           "value": 3
         }
       },
-      "block_visual": 10412
+      "block_visual": 11718
     },
     {
       "identifier": "minecraft:deepslate_tile_wall",
@@ -3892,14 +4151,14 @@
           "value": 0
         }
       },
-      "block_visual": 11678
+      "block_visual": 12984
     },
     {
       "identifier": "minecraft:deepslate_tiles",
       "metadata": 0,
       "block_name": "minecraft:deepslate_tiles",
       "block_state": {},
-      "block_visual": 9768
+      "block_visual": 11074
     },
     {
       "identifier": "minecraft:diamond_block",
@@ -3913,7 +4172,7 @@
       "metadata": 0,
       "block_name": "minecraft:diamond_ore",
       "block_state": {},
-      "block_visual": 9183
+      "block_visual": 10489
     },
     {
       "identifier": "minecraft:diorite",
@@ -3952,7 +4211,7 @@
           "value": 3
         }
       },
-      "block_visual": 9270
+      "block_visual": 10576
     },
     {
       "identifier": "minecraft:diorite_wall",
@@ -3987,14 +4246,14 @@
       "metadata": 0,
       "block_name": "minecraft:dirt",
       "block_state": {},
-      "block_visual": 13456
+      "block_visual": 14825
     },
     {
       "identifier": "minecraft:dragon_egg",
       "metadata": 0,
       "block_name": "minecraft:dragon_egg",
       "block_state": {},
-      "block_visual": 19040
+      "block_visual": 20909
     },
     {
       "identifier": "minecraft:dragon_head",
@@ -4006,14 +4265,14 @@
           "value": 1
         }
       },
-      "block_visual": 14116
+      "block_visual": 15485
     },
     {
       "identifier": "minecraft:dried_kelp_block",
       "metadata": 0,
       "block_name": "minecraft:dried_kelp_block",
       "block_state": {},
-      "block_visual": 20920
+      "block_visual": 22789
     },
     {
       "identifier": "minecraft:dripstone_block",
@@ -4034,14 +4293,14 @@
       "metadata": 0,
       "block_name": "minecraft:emerald_ore",
       "block_state": {},
-      "block_visual": 19172
+      "block_visual": 21041
     },
     {
       "identifier": "minecraft:enchanting_table",
       "metadata": 0,
       "block_name": "minecraft:enchanting_table",
       "block_state": {},
-      "block_visual": 17128
+      "block_visual": 18997
     },
     {
       "identifier": "minecraft:end_brick_stairs",
@@ -4061,7 +4320,7 @@
           "value": 3
         }
       },
-      "block_visual": 16510
+      "block_visual": 18375
     },
     {
       "identifier": "minecraft:end_bricks",
@@ -4084,7 +4343,7 @@
           "value": "north"
         }
       },
-      "block_visual": 15799
+      "block_visual": 17664
     },
     {
       "identifier": "minecraft:end_rod",
@@ -4096,14 +4355,14 @@
           "value": 0
         }
       },
-      "block_visual": 14742
+      "block_visual": 16111
     },
     {
       "identifier": "minecraft:end_stone",
       "metadata": 0,
       "block_name": "minecraft:end_stone",
       "block_state": {},
-      "block_visual": 7884
+      "block_visual": 9184
     },
     {
       "identifier": "minecraft:end_stone_brick_slab",
@@ -4155,14 +4414,14 @@
           "value": "north"
         }
       },
-      "block_visual": 9195
+      "block_visual": 10501
     },
     {
       "identifier": "minecraft:exposed_chiseled_copper",
       "metadata": 0,
       "block_name": "minecraft:exposed_chiseled_copper",
       "block_state": {},
-      "block_visual": 16887
+      "block_visual": 18756
     },
     {
       "identifier": "minecraft:exposed_copper",
@@ -4193,7 +4452,7 @@
           "value": 0
         }
       },
-      "block_visual": 16266
+      "block_visual": 18131
     },
     {
       "identifier": "minecraft:exposed_copper_chain",
@@ -4205,7 +4464,7 @@
           "value": "y"
         }
       },
-      "block_visual": 12178
+      "block_visual": 13484
     },
     {
       "identifier": "minecraft:exposed_copper_door",
@@ -4229,7 +4488,7 @@
           "value": 0
         }
       },
-      "block_visual": 10540
+      "block_visual": 11846
     },
     {
       "identifier": "minecraft:exposed_copper_golem_statue",
@@ -4241,14 +4500,14 @@
           "value": "north"
         }
       },
-      "block_visual": 19631
+      "block_visual": 21500
     },
     {
       "identifier": "minecraft:exposed_copper_grate",
       "metadata": 0,
       "block_name": "minecraft:exposed_copper_grate",
       "block_state": {},
-      "block_visual": 12113
+      "block_visual": 13419
     },
     {
       "identifier": "minecraft:exposed_copper_lantern",
@@ -4260,7 +4519,7 @@
           "value": 0
         }
       },
-      "block_visual": 8059
+      "block_visual": 9359
     },
     {
       "identifier": "minecraft:exposed_copper_trapdoor",
@@ -4280,14 +4539,14 @@
           "value": 0
         }
       },
-      "block_visual": 15827
+      "block_visual": 17692
     },
     {
       "identifier": "minecraft:exposed_cut_copper",
       "metadata": 0,
       "block_name": "minecraft:exposed_cut_copper",
       "block_state": {},
-      "block_visual": 16038
+      "block_visual": 17903
     },
     {
       "identifier": "minecraft:exposed_cut_copper_slab",
@@ -4299,7 +4558,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16904
+      "block_visual": 18773
     },
     {
       "identifier": "minecraft:exposed_cut_copper_stairs",
@@ -4319,7 +4578,7 @@
           "value": 3
         }
       },
-      "block_visual": 9818
+      "block_visual": 11124
     },
     {
       "identifier": "minecraft:farmland",
@@ -4331,7 +4590,7 @@
           "value": 0
         }
       },
-      "block_visual": 8061
+      "block_visual": 9361
     },
     {
       "identifier": "minecraft:fence_gate",
@@ -4358,7 +4617,7 @@
       "metadata": 0,
       "block_name": "minecraft:fern",
       "block_state": {},
-      "block_visual": 15627
+      "block_visual": 17492
     },
     {
       "identifier": "minecraft:fire_coral",
@@ -4372,14 +4631,26 @@
       "metadata": 0,
       "block_name": "minecraft:fire_coral_block",
       "block_state": {},
-      "block_visual": 9363
+      "block_visual": 10669
+    },
+    {
+      "identifier": "minecraft:fire_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:fire_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 18723
     },
     {
       "identifier": "minecraft:fletching_table",
       "metadata": 0,
       "block_name": "minecraft:fletching_table",
       "block_state": {},
-      "block_visual": 14054
+      "block_visual": 15423
     },
     {
       "identifier": "minecraft:frame",
@@ -4399,7 +4670,7 @@
           "value": 0
         }
       },
-      "block_visual": 8564
+      "block_visual": 9864
     },
     {
       "identifier": "minecraft:furnace",
@@ -4411,21 +4682,21 @@
           "value": "north"
         }
       },
-      "block_visual": 20744
+      "block_visual": 22613
     },
     {
       "identifier": "minecraft:gilded_blackstone",
       "metadata": 0,
       "block_name": "minecraft:gilded_blackstone",
       "block_state": {},
-      "block_visual": 9812
+      "block_visual": 11118
     },
     {
       "identifier": "minecraft:glass",
       "metadata": 0,
       "block_name": "minecraft:glass",
       "block_state": {},
-      "block_visual": 16031
+      "block_visual": 17896
     },
     {
       "identifier": "minecraft:glass_pane",
@@ -4449,7 +4720,7 @@
           "value": 0
         }
       },
-      "block_visual": 11840
+      "block_visual": 13146
     },
     {
       "identifier": "minecraft:glow_frame",
@@ -4476,7 +4747,7 @@
       "metadata": 0,
       "block_name": "minecraft:glowstone",
       "block_state": {},
-      "block_visual": 7987
+      "block_visual": 9287
     },
     {
       "identifier": "minecraft:gold_block",
@@ -4509,7 +4780,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 9803
+      "block_visual": 11109
     },
     {
       "identifier": "minecraft:granite_stairs",
@@ -4557,28 +4828,28 @@
           "value": 0
         }
       },
-      "block_visual": 13506
+      "block_visual": 14875
     },
     {
       "identifier": "minecraft:grass_block",
       "metadata": 0,
       "block_name": "minecraft:grass_block",
       "block_state": {},
-      "block_visual": 14944
+      "block_visual": 16313
     },
     {
       "identifier": "minecraft:grass_path",
       "metadata": 0,
       "block_name": "minecraft:grass_path",
       "block_state": {},
-      "block_visual": 21296
+      "block_visual": 23165
     },
     {
       "identifier": "minecraft:gravel",
       "metadata": 0,
       "block_name": "minecraft:gravel",
       "block_state": {},
-      "block_visual": 22050
+      "block_visual": 23919
     },
     {
       "identifier": "minecraft:gray_candle",
@@ -4608,14 +4879,14 @@
       "metadata": 0,
       "block_name": "minecraft:gray_concrete",
       "block_state": {},
-      "block_visual": 19234
+      "block_visual": 21103
     },
     {
       "identifier": "minecraft:gray_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:gray_concrete_powder",
       "block_state": {},
-      "block_visual": 19231
+      "block_visual": 21100
     },
     {
       "identifier": "minecraft:gray_concrete_slab",
@@ -4659,21 +4930,21 @@
           "value": 2
         }
       },
-      "block_visual": 21988
+      "block_visual": 23857
     },
     {
       "identifier": "minecraft:gray_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:gray_shulker_box",
       "block_state": {},
-      "block_visual": 12045
+      "block_visual": 13351
     },
     {
       "identifier": "minecraft:gray_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:gray_stained_glass",
       "block_state": {},
-      "block_visual": 7111
+      "block_visual": 7131
     },
     {
       "identifier": "minecraft:gray_stained_glass_pane",
@@ -4697,14 +4968,14 @@
           "value": 0
         }
       },
-      "block_visual": 17526
+      "block_visual": 19395
     },
     {
       "identifier": "minecraft:gray_terracotta",
       "metadata": 0,
       "block_name": "minecraft:gray_terracotta",
       "block_state": {},
-      "block_visual": 9786
+      "block_visual": 11092
     },
     {
       "identifier": "minecraft:gray_wool",
@@ -4723,7 +4994,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 17342
+      "block_visual": 19211
     },
     {
       "identifier": "minecraft:gray_wool_stairs",
@@ -4743,7 +5014,7 @@
           "value": 3
         }
       },
-      "block_visual": 7198
+      "block_visual": 7218
     },
     {
       "identifier": "minecraft:green_candle",
@@ -4766,21 +5037,21 @@
       "metadata": 0,
       "block_name": "minecraft:green_carpet",
       "block_state": {},
-      "block_visual": 7377
+      "block_visual": 7397
     },
     {
       "identifier": "minecraft:green_concrete",
       "metadata": 0,
       "block_name": "minecraft:green_concrete",
       "block_state": {},
-      "block_visual": 14751
+      "block_visual": 16120
     },
     {
       "identifier": "minecraft:green_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:green_concrete_powder",
       "block_state": {},
-      "block_visual": 17900
+      "block_visual": 19769
     },
     {
       "identifier": "minecraft:green_concrete_slab",
@@ -4792,7 +5063,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 17357
+      "block_visual": 19226
     },
     {
       "identifier": "minecraft:green_concrete_stairs",
@@ -4812,7 +5083,7 @@
           "value": 3
         }
       },
-      "block_visual": 9139
+      "block_visual": 10445
     },
     {
       "identifier": "minecraft:green_glazed_terracotta",
@@ -4824,21 +5095,21 @@
           "value": 2
         }
       },
-      "block_visual": 16948
+      "block_visual": 18817
     },
     {
       "identifier": "minecraft:green_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:green_shulker_box",
       "block_state": {},
-      "block_visual": 16702
+      "block_visual": 18567
     },
     {
       "identifier": "minecraft:green_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:green_stained_glass",
       "block_state": {},
-      "block_visual": 8640
+      "block_visual": 9940
     },
     {
       "identifier": "minecraft:green_stained_glass_pane",
@@ -4862,21 +5133,21 @@
           "value": 0
         }
       },
-      "block_visual": 8303
+      "block_visual": 9603
     },
     {
       "identifier": "minecraft:green_terracotta",
       "metadata": 0,
       "block_name": "minecraft:green_terracotta",
       "block_state": {},
-      "block_visual": 7112
+      "block_visual": 7132
     },
     {
       "identifier": "minecraft:green_wool",
       "metadata": 0,
       "block_name": "minecraft:green_wool",
       "block_state": {},
-      "block_visual": 7376
+      "block_visual": 7396
     },
     {
       "identifier": "minecraft:green_wool_slab",
@@ -4888,7 +5159,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 18874
+      "block_visual": 20743
     },
     {
       "identifier": "minecraft:green_wool_stairs",
@@ -4924,7 +5195,7 @@
           "value": 2
         }
       },
-      "block_visual": 20976
+      "block_visual": 22845
     },
     {
       "identifier": "minecraft:hardened_clay",
@@ -4950,11 +5221,23 @@
       "block_visual": 3537
     },
     {
+      "identifier": "minecraft:heavy_weighted_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:heavy_weighted_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 4803
+    },
+    {
       "identifier": "minecraft:honeycomb_block",
       "metadata": 0,
       "block_name": "minecraft:honeycomb_block",
       "block_state": {},
-      "block_visual": 9397
+      "block_visual": 10703
     },
     {
       "identifier": "minecraft:hopper",
@@ -4970,42 +5253,54 @@
           "value": 0
         }
       },
-      "block_visual": 17542
+      "block_visual": 19411
     },
     {
       "identifier": "minecraft:horn_coral",
       "metadata": 0,
       "block_name": "minecraft:horn_coral",
       "block_state": {},
-      "block_visual": 6790
+      "block_visual": 6810
     },
     {
       "identifier": "minecraft:horn_coral_block",
       "metadata": 0,
       "block_name": "minecraft:horn_coral_block",
       "block_state": {},
-      "block_visual": 11923
+      "block_visual": 13229
+    },
+    {
+      "identifier": "minecraft:horn_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:horn_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 18565
     },
     {
       "identifier": "minecraft:ice",
       "metadata": 0,
       "block_name": "minecraft:ice",
       "block_state": {},
-      "block_visual": 17024
+      "block_visual": 18893
     },
     {
       "identifier": "minecraft:infested_chiseled_stone_bricks",
       "metadata": 0,
       "block_name": "minecraft:infested_chiseled_stone_bricks",
       "block_state": {},
-      "block_visual": 8645
+      "block_visual": 9945
     },
     {
       "identifier": "minecraft:infested_cobblestone",
       "metadata": 0,
       "block_name": "minecraft:infested_cobblestone",
       "block_state": {},
-      "block_visual": 8366
+      "block_visual": 9666
     },
     {
       "identifier": "minecraft:infested_cracked_stone_bricks",
@@ -5024,7 +5319,7 @@
           "value": "y"
         }
       },
-      "block_visual": 10397
+      "block_visual": 11703
     },
     {
       "identifier": "minecraft:infested_mossy_stone_bricks",
@@ -5038,14 +5333,14 @@
       "metadata": 0,
       "block_name": "minecraft:infested_stone",
       "block_state": {},
-      "block_visual": 15632
+      "block_visual": 17497
     },
     {
       "identifier": "minecraft:infested_stone_bricks",
       "metadata": 0,
       "block_name": "minecraft:infested_stone_bricks",
       "block_state": {},
-      "block_visual": 11867
+      "block_visual": 13173
     },
     {
       "identifier": "minecraft:invisible_bedrock",
@@ -5076,14 +5371,14 @@
           "value": 0
         }
       },
-      "block_visual": 10751
+      "block_visual": 12057
     },
     {
       "identifier": "minecraft:iron_block",
       "metadata": 0,
       "block_name": "minecraft:iron_block",
       "block_state": {},
-      "block_visual": 22022
+      "block_visual": 23891
     },
     {
       "identifier": "minecraft:iron_chain",
@@ -5095,21 +5390,81 @@
           "value": "y"
         }
       },
-      "block_visual": 19066
+      "block_visual": 20935
+    },
+    {
+      "identifier": "minecraft:iron_door",
+      "metadata": 0,
+      "block_name": "minecraft:iron_door",
+      "block_state": {
+        "door_hinge_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "minecraft:cardinal_direction": {
+          "type": "string",
+          "value": "east"
+        },
+        "open_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "upper_block_bit": {
+          "type": "byte",
+          "value": 0
+        }
+      },
+      "block_visual": 10674
     },
     {
       "identifier": "minecraft:iron_ore",
       "metadata": 0,
       "block_name": "minecraft:iron_ore",
       "block_state": {},
-      "block_visual": 10488
+      "block_visual": 11794
+    },
+    {
+      "identifier": "minecraft:iron_trapdoor",
+      "metadata": 0,
+      "block_name": "minecraft:iron_trapdoor",
+      "block_state": {
+        "direction": {
+          "type": "int",
+          "value": 3
+        },
+        "open_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "upside_down_bit": {
+          "type": "byte",
+          "value": 0
+        }
+      },
+      "block_visual": 2312
     },
     {
       "identifier": "minecraft:jukebox",
       "metadata": 0,
       "block_name": "minecraft:jukebox",
       "block_state": {},
-      "block_visual": 11258
+      "block_visual": 12564
+    },
+    {
+      "identifier": "minecraft:jungle_button",
+      "metadata": 0,
+      "block_name": "minecraft:jungle_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 425
     },
     {
       "identifier": "minecraft:jungle_door",
@@ -5133,7 +5488,7 @@
           "value": 0
         }
       },
-      "block_visual": 16002
+      "block_visual": 17867
     },
     {
       "identifier": "minecraft:jungle_fence",
@@ -5177,7 +5532,7 @@
           "value": 0
         }
       },
-      "block_visual": 12099
+      "block_visual": 13405
     },
     {
       "identifier": "minecraft:jungle_leaves",
@@ -5193,7 +5548,7 @@
           "value": 0
         }
       },
-      "block_visual": 12043
+      "block_visual": 13349
     },
     {
       "identifier": "minecraft:jungle_log",
@@ -5212,7 +5567,19 @@
       "metadata": 0,
       "block_name": "minecraft:jungle_planks",
       "block_state": {},
-      "block_visual": 16952
+      "block_visual": 18821
+    },
+    {
+      "identifier": "minecraft:jungle_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:jungle_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 6919
     },
     {
       "identifier": "minecraft:jungle_sapling",
@@ -5224,7 +5591,7 @@
           "value": 0
         }
       },
-      "block_visual": 15531
+      "block_visual": 16900
     },
     {
       "identifier": "minecraft:jungle_sign",
@@ -5236,7 +5603,7 @@
           "value": 0
         }
       },
-      "block_visual": 15547
+      "block_visual": 16916
     },
     {
       "identifier": "minecraft:jungle_slab",
@@ -5248,7 +5615,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7967
+      "block_visual": 9267
     },
     {
       "identifier": "minecraft:jungle_stairs",
@@ -5268,7 +5635,7 @@
           "value": 3
         }
       },
-      "block_visual": 17623
+      "block_visual": 19492
     },
     {
       "identifier": "minecraft:jungle_trapdoor",
@@ -5288,7 +5655,7 @@
           "value": 0
         }
       },
-      "block_visual": 12134
+      "block_visual": 13440
     },
     {
       "identifier": "minecraft:jungle_wood",
@@ -5312,7 +5679,7 @@
           "value": 0
         }
       },
-      "block_visual": 12232
+      "block_visual": 13538
     },
     {
       "identifier": "minecraft:ladder",
@@ -5324,7 +5691,7 @@
           "value": 2
         }
       },
-      "block_visual": 22025
+      "block_visual": 23894
     },
     {
       "identifier": "minecraft:lantern",
@@ -5336,21 +5703,21 @@
           "value": 0
         }
       },
-      "block_visual": 18110
+      "block_visual": 19979
     },
     {
       "identifier": "minecraft:lapis_block",
       "metadata": 0,
       "block_name": "minecraft:lapis_block",
       "block_state": {},
-      "block_visual": 8590
+      "block_visual": 9890
     },
     {
       "identifier": "minecraft:lapis_ore",
       "metadata": 0,
       "block_name": "minecraft:lapis_ore",
       "block_state": {},
-      "block_visual": 20305
+      "block_visual": 22174
     },
     {
       "identifier": "minecraft:large_fern",
@@ -5362,7 +5729,7 @@
           "value": 0
         }
       },
-      "block_visual": 16703
+      "block_visual": 18568
     },
     {
       "identifier": "minecraft:lectern",
@@ -5378,7 +5745,7 @@
           "value": 0
         }
       },
-      "block_visual": 17589
+      "block_visual": 19458
     },
     {
       "identifier": "minecraft:lever",
@@ -5394,7 +5761,7 @@
           "value": 0
         }
       },
-      "block_visual": 16727
+      "block_visual": 18596
     },
     {
       "identifier": "minecraft:light_block_0",
@@ -5415,42 +5782,42 @@
       "metadata": 0,
       "block_name": "minecraft:light_block_10",
       "block_state": {},
-      "block_visual": 16653
+      "block_visual": 18518
     },
     {
       "identifier": "minecraft:light_block_11",
       "metadata": 0,
       "block_name": "minecraft:light_block_11",
       "block_state": {},
-      "block_visual": 16654
+      "block_visual": 18519
     },
     {
       "identifier": "minecraft:light_block_12",
       "metadata": 0,
       "block_name": "minecraft:light_block_12",
       "block_state": {},
-      "block_visual": 16651
+      "block_visual": 18516
     },
     {
       "identifier": "minecraft:light_block_13",
       "metadata": 0,
       "block_name": "minecraft:light_block_13",
       "block_state": {},
-      "block_visual": 16652
+      "block_visual": 18517
     },
     {
       "identifier": "minecraft:light_block_14",
       "metadata": 0,
       "block_name": "minecraft:light_block_14",
       "block_state": {},
-      "block_visual": 16655
+      "block_visual": 18520
     },
     {
       "identifier": "minecraft:light_block_15",
       "metadata": 0,
       "block_name": "minecraft:light_block_15",
       "block_state": {},
-      "block_visual": 16656
+      "block_visual": 18521
     },
     {
       "identifier": "minecraft:light_block_2",
@@ -5522,21 +5889,21 @@
           "value": 0
         }
       },
-      "block_visual": 9736
+      "block_visual": 11042
     },
     {
       "identifier": "minecraft:light_blue_carpet",
       "metadata": 0,
       "block_name": "minecraft:light_blue_carpet",
       "block_state": {},
-      "block_visual": 10771
+      "block_visual": 12077
     },
     {
       "identifier": "minecraft:light_blue_concrete",
       "metadata": 0,
       "block_name": "minecraft:light_blue_concrete",
       "block_state": {},
-      "block_visual": 19628
+      "block_visual": 21497
     },
     {
       "identifier": "minecraft:light_blue_concrete_powder",
@@ -5555,7 +5922,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16285
+      "block_visual": 18150
     },
     {
       "identifier": "minecraft:light_blue_concrete_stairs",
@@ -5575,7 +5942,7 @@
           "value": 3
         }
       },
-      "block_visual": 6937
+      "block_visual": 6957
     },
     {
       "identifier": "minecraft:light_blue_glazed_terracotta",
@@ -5587,21 +5954,21 @@
           "value": 2
         }
       },
-      "block_visual": 12301
+      "block_visual": 13607
     },
     {
       "identifier": "minecraft:light_blue_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:light_blue_shulker_box",
       "block_state": {},
-      "block_visual": 17617
+      "block_visual": 19486
     },
     {
       "identifier": "minecraft:light_blue_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:light_blue_stained_glass",
       "block_state": {},
-      "block_visual": 13503
+      "block_visual": 14872
     },
     {
       "identifier": "minecraft:light_blue_stained_glass_pane",
@@ -5625,21 +5992,21 @@
           "value": 0
         }
       },
-      "block_visual": 7969
+      "block_visual": 9269
     },
     {
       "identifier": "minecraft:light_blue_terracotta",
       "metadata": 0,
       "block_name": "minecraft:light_blue_terracotta",
       "block_state": {},
-      "block_visual": 9135
+      "block_visual": 10441
     },
     {
       "identifier": "minecraft:light_blue_wool",
       "metadata": 0,
       "block_name": "minecraft:light_blue_wool",
       "block_state": {},
-      "block_visual": 18226
+      "block_visual": 20095
     },
     {
       "identifier": "minecraft:light_blue_wool_slab",
@@ -5651,7 +6018,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 10468
+      "block_visual": 11774
     },
     {
       "identifier": "minecraft:light_blue_wool_stairs",
@@ -5671,7 +6038,7 @@
           "value": 3
         }
       },
-      "block_visual": 15494
+      "block_visual": 16863
     },
     {
       "identifier": "minecraft:light_gray_candle",
@@ -5687,14 +6054,14 @@
           "value": 0
         }
       },
-      "block_visual": 16176
+      "block_visual": 18041
     },
     {
       "identifier": "minecraft:light_gray_carpet",
       "metadata": 0,
       "block_name": "minecraft:light_gray_carpet",
       "block_state": {},
-      "block_visual": 22020
+      "block_visual": 23889
     },
     {
       "identifier": "minecraft:light_gray_concrete",
@@ -5708,7 +6075,7 @@
       "metadata": 0,
       "block_name": "minecraft:light_gray_concrete_powder",
       "block_state": {},
-      "block_visual": 18948
+      "block_visual": 20817
     },
     {
       "identifier": "minecraft:light_gray_concrete_slab",
@@ -5720,7 +6087,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19173
+      "block_visual": 21042
     },
     {
       "identifier": "minecraft:light_gray_concrete_stairs",
@@ -5740,14 +6107,14 @@
           "value": 3
         }
       },
-      "block_visual": 9092
+      "block_visual": 10398
     },
     {
       "identifier": "minecraft:light_gray_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:light_gray_shulker_box",
       "block_state": {},
-      "block_visual": 14816
+      "block_visual": 16185
     },
     {
       "identifier": "minecraft:light_gray_stained_glass",
@@ -5792,7 +6159,7 @@
       "metadata": 0,
       "block_name": "minecraft:light_gray_wool",
       "block_state": {},
-      "block_visual": 20994
+      "block_visual": 22863
     },
     {
       "identifier": "minecraft:light_gray_wool_slab",
@@ -5804,7 +6171,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 9131
+      "block_visual": 10437
     },
     {
       "identifier": "minecraft:light_gray_wool_stairs",
@@ -5824,7 +6191,19 @@
           "value": 3
         }
       },
-      "block_visual": 6737
+      "block_visual": 6757
+    },
+    {
+      "identifier": "minecraft:light_weighted_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:light_weighted_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 7043
     },
     {
       "identifier": "minecraft:lilac",
@@ -5836,7 +6215,7 @@
           "value": 0
         }
       },
-      "block_visual": 19074
+      "block_visual": 20943
     },
     {
       "identifier": "minecraft:lily_of_the_valley",
@@ -5859,28 +6238,28 @@
           "value": 0
         }
       },
-      "block_visual": 16493
+      "block_visual": 18358
     },
     {
       "identifier": "minecraft:lime_carpet",
       "metadata": 0,
       "block_name": "minecraft:lime_carpet",
       "block_state": {},
-      "block_visual": 17118
+      "block_visual": 18987
     },
     {
       "identifier": "minecraft:lime_concrete",
       "metadata": 0,
       "block_name": "minecraft:lime_concrete",
       "block_state": {},
-      "block_visual": 9806
+      "block_visual": 11112
     },
     {
       "identifier": "minecraft:lime_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:lime_concrete_powder",
       "block_state": {},
-      "block_visual": 20944
+      "block_visual": 22813
     },
     {
       "identifier": "minecraft:lime_concrete_slab",
@@ -5892,7 +6271,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 9809
+      "block_visual": 11115
     },
     {
       "identifier": "minecraft:lime_concrete_stairs",
@@ -5962,21 +6341,21 @@
           "value": 0
         }
       },
-      "block_visual": 20094
+      "block_visual": 21963
     },
     {
       "identifier": "minecraft:lime_terracotta",
       "metadata": 0,
       "block_name": "minecraft:lime_terracotta",
       "block_state": {},
-      "block_visual": 21969
+      "block_visual": 23838
     },
     {
       "identifier": "minecraft:lime_wool",
       "metadata": 0,
       "block_name": "minecraft:lime_wool",
       "block_state": {},
-      "block_visual": 15457
+      "block_visual": 16826
     },
     {
       "identifier": "minecraft:lime_wool_slab",
@@ -5988,7 +6367,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8632
+      "block_visual": 9932
     },
     {
       "identifier": "minecraft:lime_wool_stairs",
@@ -6020,7 +6399,7 @@
           "value": "north"
         }
       },
-      "block_visual": 17022
+      "block_visual": 18891
     },
     {
       "identifier": "minecraft:loom",
@@ -6032,7 +6411,7 @@
           "value": 2
         }
       },
-      "block_visual": 7877
+      "block_visual": 9177
     },
     {
       "identifier": "minecraft:magenta_candle",
@@ -6062,14 +6441,14 @@
       "metadata": 0,
       "block_name": "minecraft:magenta_concrete",
       "block_state": {},
-      "block_visual": 9185
+      "block_visual": 10491
     },
     {
       "identifier": "minecraft:magenta_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:magenta_concrete_powder",
       "block_state": {},
-      "block_visual": 9364
+      "block_visual": 10670
     },
     {
       "identifier": "minecraft:magenta_concrete_slab",
@@ -6101,7 +6480,7 @@
           "value": 3
         }
       },
-      "block_visual": 7239
+      "block_visual": 7259
     },
     {
       "identifier": "minecraft:magenta_glazed_terracotta",
@@ -6127,7 +6506,7 @@
       "metadata": 0,
       "block_name": "minecraft:magenta_stained_glass",
       "block_state": {},
-      "block_visual": 18883
+      "block_visual": 20752
     },
     {
       "identifier": "minecraft:magenta_stained_glass_pane",
@@ -6151,14 +6530,14 @@
           "value": 0
         }
       },
-      "block_visual": 10735
+      "block_visual": 12041
     },
     {
       "identifier": "minecraft:magenta_terracotta",
       "metadata": 0,
       "block_name": "minecraft:magenta_terracotta",
       "block_state": {},
-      "block_visual": 9814
+      "block_visual": 11120
     },
     {
       "identifier": "minecraft:magenta_wool",
@@ -6177,7 +6556,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8369
+      "block_visual": 9669
     },
     {
       "identifier": "minecraft:magenta_wool_stairs",
@@ -6197,14 +6576,30 @@
           "value": 3
         }
       },
-      "block_visual": 6986
+      "block_visual": 7006
     },
     {
       "identifier": "minecraft:magma",
       "metadata": 0,
       "block_name": "minecraft:magma",
       "block_state": {},
-      "block_visual": 20957
+      "block_visual": 22826
+    },
+    {
+      "identifier": "minecraft:mangrove_button",
+      "metadata": 0,
+      "block_name": "minecraft:mangrove_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 19964
     },
     {
       "identifier": "minecraft:mangrove_door",
@@ -6228,7 +6623,7 @@
           "value": 0
         }
       },
-      "block_visual": 16564
+      "block_visual": 18429
     },
     {
       "identifier": "minecraft:mangrove_fence",
@@ -6252,7 +6647,7 @@
           "value": 0
         }
       },
-      "block_visual": 16955
+      "block_visual": 18824
     },
     {
       "identifier": "minecraft:mangrove_fence_gate",
@@ -6272,7 +6667,7 @@
           "value": 0
         }
       },
-      "block_visual": 9961
+      "block_visual": 11267
     },
     {
       "identifier": "minecraft:mangrove_leaves",
@@ -6288,7 +6683,7 @@
           "value": 0
         }
       },
-      "block_visual": 16995
+      "block_visual": 18864
     },
     {
       "identifier": "minecraft:mangrove_log",
@@ -6310,6 +6705,18 @@
       "block_visual": 4201
     },
     {
+      "identifier": "minecraft:mangrove_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:mangrove_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 9219
+    },
+    {
       "identifier": "minecraft:mangrove_sign",
       "metadata": 0,
       "block_name": "minecraft:mangrove_standing_sign",
@@ -6319,7 +6726,7 @@
           "value": 0
         }
       },
-      "block_visual": 8524
+      "block_visual": 9824
     },
     {
       "identifier": "minecraft:mangrove_slab",
@@ -6351,7 +6758,7 @@
           "value": 3
         }
       },
-      "block_visual": 9858
+      "block_visual": 11164
     },
     {
       "identifier": "minecraft:mangrove_trapdoor",
@@ -6371,7 +6778,7 @@
           "value": 0
         }
       },
-      "block_visual": 9441
+      "block_visual": 10747
     },
     {
       "identifier": "minecraft:mangrove_wood",
@@ -6383,7 +6790,7 @@
           "value": "y"
         }
       },
-      "block_visual": 8376
+      "block_visual": 9676
     },
     {
       "identifier": "minecraft:melon_block",
@@ -6406,7 +6813,14 @@
           "value": 0
         }
       },
-      "block_visual": 11157
+      "block_visual": 12463
+    },
+    {
+      "identifier": "minecraft:mob_spawner",
+      "metadata": 0,
+      "block_name": "minecraft:mob_spawner",
+      "block_state": {},
+      "block_visual": 2546
     },
     {
       "identifier": "minecraft:moss_carpet",
@@ -6432,7 +6846,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8412
+      "block_visual": 9712
     },
     {
       "identifier": "minecraft:mossy_cobblestone_stairs",
@@ -6452,7 +6866,7 @@
           "value": 3
         }
       },
-      "block_visual": 8252
+      "block_visual": 9552
     },
     {
       "identifier": "minecraft:mossy_cobblestone_wall",
@@ -6512,7 +6926,7 @@
           "value": 3
         }
       },
-      "block_visual": 14705
+      "block_visual": 16074
     },
     {
       "identifier": "minecraft:mossy_stone_brick_wall",
@@ -6540,21 +6954,21 @@
           "value": 0
         }
       },
-      "block_visual": 21637
+      "block_visual": 23506
     },
     {
       "identifier": "minecraft:mossy_stone_bricks",
       "metadata": 0,
       "block_name": "minecraft:mossy_stone_bricks",
       "block_state": {},
-      "block_visual": 7335
+      "block_visual": 7355
     },
     {
       "identifier": "minecraft:mud",
       "metadata": 0,
       "block_name": "minecraft:mud",
       "block_state": {},
-      "block_visual": 17019
+      "block_visual": 18888
     },
     {
       "identifier": "minecraft:mud_brick_slab",
@@ -6566,7 +6980,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8045
+      "block_visual": 9345
     },
     {
       "identifier": "minecraft:mud_brick_stairs",
@@ -6586,7 +7000,7 @@
           "value": 3
         }
       },
-      "block_visual": 12772
+      "block_visual": 14141
     },
     {
       "identifier": "minecraft:mud_brick_wall",
@@ -6621,7 +7035,7 @@
       "metadata": 0,
       "block_name": "minecraft:mud_bricks",
       "block_state": {},
-      "block_visual": 17344
+      "block_visual": 19213
     },
     {
       "identifier": "minecraft:muddy_mangrove_roots",
@@ -6640,14 +7054,14 @@
       "metadata": 0,
       "block_name": "minecraft:mycelium",
       "block_state": {},
-      "block_visual": 7041
+      "block_visual": 7061
     },
     {
       "identifier": "minecraft:nether_brick",
       "metadata": 0,
       "block_name": "minecraft:nether_brick",
       "block_state": {},
-      "block_visual": 19042
+      "block_visual": 20911
     },
     {
       "identifier": "minecraft:nether_brick_fence",
@@ -6671,7 +7085,7 @@
           "value": 0
         }
       },
-      "block_visual": 8808
+      "block_visual": 10108
     },
     {
       "identifier": "minecraft:nether_brick_slab",
@@ -6683,7 +7097,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 15607
+      "block_visual": 16976
     },
     {
       "identifier": "minecraft:nether_brick_stairs",
@@ -6731,7 +7145,7 @@
           "value": 0
         }
       },
-      "block_visual": 17732
+      "block_visual": 19601
     },
     {
       "identifier": "minecraft:nether_gold_ore",
@@ -6745,7 +7159,7 @@
       "metadata": 0,
       "block_name": "minecraft:nether_sprouts",
       "block_state": {},
-      "block_visual": 16657
+      "block_visual": 18522
     },
     {
       "identifier": "minecraft:nether_wart",
@@ -6757,28 +7171,28 @@
           "value": 0
         }
       },
-      "block_visual": 20394
+      "block_visual": 22263
     },
     {
       "identifier": "minecraft:nether_wart_block",
       "metadata": 0,
       "block_name": "minecraft:nether_wart_block",
       "block_state": {},
-      "block_visual": 8878
+      "block_visual": 10178
     },
     {
       "identifier": "minecraft:netherite_block",
       "metadata": 0,
       "block_name": "minecraft:netherite_block",
       "block_state": {},
-      "block_visual": 7434
+      "block_visual": 7454
     },
     {
       "identifier": "minecraft:netherrack",
       "metadata": 0,
       "block_name": "minecraft:netherrack",
       "block_state": {},
-      "block_visual": 18070
+      "block_visual": 19939
     },
     {
       "identifier": "minecraft:normal_stone_slab",
@@ -6790,7 +7204,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8445
+      "block_visual": 9745
     },
     {
       "identifier": "minecraft:normal_stone_stairs",
@@ -6841,7 +7255,7 @@
           "value": 0
         }
       },
-      "block_visual": 13437
+      "block_visual": 14806
     },
     {
       "identifier": "minecraft:oak_leaves",
@@ -6876,7 +7290,7 @@
       "metadata": 0,
       "block_name": "minecraft:oak_planks",
       "block_state": {},
-      "block_visual": 20030
+      "block_visual": 21899
     },
     {
       "identifier": "minecraft:oak_sapling",
@@ -6900,7 +7314,7 @@
           "value": 0
         }
       },
-      "block_visual": 13286
+      "block_visual": 14655
     },
     {
       "identifier": "minecraft:oak_slab",
@@ -6912,7 +7326,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8865
+      "block_visual": 10165
     },
     {
       "identifier": "minecraft:oak_stairs",
@@ -6944,7 +7358,7 @@
           "value": "y"
         }
       },
-      "block_visual": 11215
+      "block_visual": 12521
     },
     {
       "identifier": "minecraft:obsidian",
@@ -6986,21 +7400,21 @@
       "metadata": 0,
       "block_name": "minecraft:orange_carpet",
       "block_state": {},
-      "block_visual": 18107
+      "block_visual": 19976
     },
     {
       "identifier": "minecraft:orange_concrete",
       "metadata": 0,
       "block_name": "minecraft:orange_concrete",
       "block_state": {},
-      "block_visual": 17114
+      "block_visual": 18983
     },
     {
       "identifier": "minecraft:orange_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:orange_concrete_powder",
       "block_state": {},
-      "block_visual": 21633
+      "block_visual": 23502
     },
     {
       "identifier": "minecraft:orange_concrete_slab",
@@ -7012,7 +7426,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16593
+      "block_visual": 18458
     },
     {
       "identifier": "minecraft:orange_concrete_stairs",
@@ -7032,7 +7446,7 @@
           "value": 3
         }
       },
-      "block_visual": 21243
+      "block_visual": 23112
     },
     {
       "identifier": "minecraft:orange_glazed_terracotta",
@@ -7060,21 +7474,21 @@
           "value": 0
         }
       },
-      "block_visual": 19635
+      "block_visual": 21504
     },
     {
       "identifier": "minecraft:orange_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:orange_shulker_box",
       "block_state": {},
-      "block_visual": 16175
+      "block_visual": 18040
     },
     {
       "identifier": "minecraft:orange_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:orange_stained_glass",
       "block_state": {},
-      "block_visual": 9493
+      "block_visual": 10799
     },
     {
       "identifier": "minecraft:orange_stained_glass_pane",
@@ -7105,14 +7519,14 @@
       "metadata": 0,
       "block_name": "minecraft:orange_terracotta",
       "block_state": {},
-      "block_visual": 19986
+      "block_visual": 21855
     },
     {
       "identifier": "minecraft:orange_tulip",
       "metadata": 0,
       "block_name": "minecraft:orange_tulip",
       "block_state": {},
-      "block_visual": 17297
+      "block_visual": 19166
     },
     {
       "identifier": "minecraft:orange_wool",
@@ -7131,7 +7545,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 10627
+      "block_visual": 11933
     },
     {
       "identifier": "minecraft:orange_wool_stairs",
@@ -7151,21 +7565,21 @@
           "value": 3
         }
       },
-      "block_visual": 19427
+      "block_visual": 21296
     },
     {
       "identifier": "minecraft:oxeye_daisy",
       "metadata": 0,
       "block_name": "minecraft:oxeye_daisy",
       "block_state": {},
-      "block_visual": 19054
+      "block_visual": 20923
     },
     {
       "identifier": "minecraft:oxidized_chiseled_copper",
       "metadata": 0,
       "block_name": "minecraft:oxidized_chiseled_copper",
       "block_state": {},
-      "block_visual": 11912
+      "block_visual": 13218
     },
     {
       "identifier": "minecraft:oxidized_copper",
@@ -7208,7 +7622,7 @@
           "value": "y"
         }
       },
-      "block_visual": 17054
+      "block_visual": 18923
     },
     {
       "identifier": "minecraft:oxidized_copper_door",
@@ -7232,7 +7646,7 @@
           "value": 0
         }
       },
-      "block_visual": 22057
+      "block_visual": 23926
     },
     {
       "identifier": "minecraft:oxidized_copper_golem_statue",
@@ -7251,7 +7665,7 @@
       "metadata": 0,
       "block_name": "minecraft:oxidized_copper_grate",
       "block_state": {},
-      "block_visual": 16971
+      "block_visual": 18840
     },
     {
       "identifier": "minecraft:oxidized_copper_lantern",
@@ -7263,7 +7677,7 @@
           "value": 0
         }
       },
-      "block_visual": 15599
+      "block_visual": 16968
     },
     {
       "identifier": "minecraft:oxidized_copper_trapdoor",
@@ -7283,14 +7697,14 @@
           "value": 0
         }
       },
-      "block_visual": 9790
+      "block_visual": 11096
     },
     {
       "identifier": "minecraft:oxidized_cut_copper",
       "metadata": 0,
       "block_name": "minecraft:oxidized_cut_copper",
       "block_state": {},
-      "block_visual": 12308
+      "block_visual": 13614
     },
     {
       "identifier": "minecraft:oxidized_cut_copper_slab",
@@ -7302,7 +7716,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 11921
+      "block_visual": 13227
     },
     {
       "identifier": "minecraft:oxidized_cut_copper_stairs",
@@ -7337,6 +7751,22 @@
       "block_name": "minecraft:packed_mud",
       "block_state": {},
       "block_visual": 1933
+    },
+    {
+      "identifier": "minecraft:pale_oak_button",
+      "metadata": 0,
+      "block_name": "minecraft:pale_oak_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 21484
     },
     {
       "identifier": "minecraft:pale_oak_door",
@@ -7432,14 +7862,26 @@
           "value": "y"
         }
       },
-      "block_visual": 15544
+      "block_visual": 16913
     },
     {
       "identifier": "minecraft:pale_oak_planks",
       "metadata": 0,
       "block_name": "minecraft:pale_oak_planks",
       "block_state": {},
-      "block_visual": 7069
+      "block_visual": 7089
+    },
+    {
+      "identifier": "minecraft:pale_oak_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:pale_oak_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 2338
     },
     {
       "identifier": "minecraft:pale_oak_sapling",
@@ -7463,7 +7905,7 @@
           "value": 0
         }
       },
-      "block_visual": 17057
+      "block_visual": 18926
     },
     {
       "identifier": "minecraft:pale_oak_slab",
@@ -7475,7 +7917,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8873
+      "block_visual": 10173
     },
     {
       "identifier": "minecraft:pale_oak_stairs",
@@ -7495,7 +7937,7 @@
           "value": 3
         }
       },
-      "block_visual": 19135
+      "block_visual": 21004
     },
     {
       "identifier": "minecraft:pale_oak_trapdoor",
@@ -7515,7 +7957,7 @@
           "value": 0
         }
       },
-      "block_visual": 19079
+      "block_visual": 20948
     },
     {
       "identifier": "minecraft:pale_oak_wood",
@@ -7527,7 +7969,7 @@
           "value": "y"
         }
       },
-      "block_visual": 11864
+      "block_visual": 13170
     },
     {
       "identifier": "minecraft:pearlescent_froglight",
@@ -7539,7 +7981,7 @@
           "value": "y"
         }
       },
-      "block_visual": 16632
+      "block_visual": 18497
     },
     {
       "identifier": "minecraft:peony",
@@ -7551,7 +7993,7 @@
           "value": 0
         }
       },
-      "block_visual": 20665
+      "block_visual": 22534
     },
     {
       "identifier": "minecraft:piglin_head",
@@ -7563,7 +8005,7 @@
           "value": 1
         }
       },
-      "block_visual": 18048
+      "block_visual": 19917
     },
     {
       "identifier": "minecraft:pink_candle",
@@ -7579,14 +8021,14 @@
           "value": 0
         }
       },
-      "block_visual": 19235
+      "block_visual": 21104
     },
     {
       "identifier": "minecraft:pink_carpet",
       "metadata": 0,
       "block_name": "minecraft:pink_carpet",
       "block_state": {},
-      "block_visual": 20307
+      "block_visual": 22176
     },
     {
       "identifier": "minecraft:pink_concrete",
@@ -7600,7 +8042,7 @@
       "metadata": 0,
       "block_name": "minecraft:pink_concrete_powder",
       "block_state": {},
-      "block_visual": 8872
+      "block_visual": 10172
     },
     {
       "identifier": "minecraft:pink_concrete_slab",
@@ -7612,7 +8054,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19895
+      "block_visual": 21764
     },
     {
       "identifier": "minecraft:pink_concrete_stairs",
@@ -7644,7 +8086,7 @@
           "value": 2
         }
       },
-      "block_visual": 16847
+      "block_visual": 18716
     },
     {
       "identifier": "minecraft:pink_petals",
@@ -7660,21 +8102,21 @@
           "value": "north"
         }
       },
-      "block_visual": 9993
+      "block_visual": 11299
     },
     {
       "identifier": "minecraft:pink_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:pink_shulker_box",
       "block_state": {},
-      "block_visual": 9203
+      "block_visual": 10509
     },
     {
       "identifier": "minecraft:pink_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:pink_stained_glass",
       "block_state": {},
-      "block_visual": 9052
+      "block_visual": 10352
     },
     {
       "identifier": "minecraft:pink_stained_glass_pane",
@@ -7698,28 +8140,28 @@
           "value": 0
         }
       },
-      "block_visual": 18210
+      "block_visual": 20079
     },
     {
       "identifier": "minecraft:pink_terracotta",
       "metadata": 0,
       "block_name": "minecraft:pink_terracotta",
       "block_state": {},
-      "block_visual": 8363
+      "block_visual": 9663
     },
     {
       "identifier": "minecraft:pink_tulip",
       "metadata": 0,
       "block_name": "minecraft:pink_tulip",
       "block_state": {},
-      "block_visual": 8864
+      "block_visual": 10164
     },
     {
       "identifier": "minecraft:pink_wool",
       "metadata": 0,
       "block_name": "minecraft:pink_wool",
       "block_state": {},
-      "block_visual": 7435
+      "block_visual": 7455
     },
     {
       "identifier": "minecraft:pink_wool_slab",
@@ -7751,7 +8193,7 @@
           "value": 3
         }
       },
-      "block_visual": 19178
+      "block_visual": 21047
     },
     {
       "identifier": "minecraft:player_head",
@@ -7763,21 +8205,21 @@
           "value": 1
         }
       },
-      "block_visual": 7277
+      "block_visual": 7297
     },
     {
       "identifier": "minecraft:podzol",
       "metadata": 0,
       "block_name": "minecraft:podzol",
       "block_state": {},
-      "block_visual": 10406
+      "block_visual": 11712
     },
     {
       "identifier": "minecraft:polished_andesite",
       "metadata": 0,
       "block_name": "minecraft:polished_andesite",
       "block_state": {},
-      "block_visual": 20036
+      "block_visual": 21905
     },
     {
       "identifier": "minecraft:polished_andesite_slab",
@@ -7789,7 +8231,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19481
+      "block_visual": 21350
     },
     {
       "identifier": "minecraft:polished_andesite_stairs",
@@ -7809,7 +8251,7 @@
           "value": 3
         }
       },
-      "block_visual": 18006
+      "block_visual": 19875
     },
     {
       "identifier": "minecraft:polished_basalt",
@@ -7828,7 +8270,7 @@
       "metadata": 0,
       "block_name": "minecraft:polished_blackstone",
       "block_state": {},
-      "block_visual": 7040
+      "block_visual": 7060
     },
     {
       "identifier": "minecraft:polished_blackstone_brick_slab",
@@ -7840,7 +8282,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8443
+      "block_visual": 9743
     },
     {
       "identifier": "minecraft:polished_blackstone_brick_stairs",
@@ -7860,7 +8302,7 @@
           "value": 3
         }
       },
-      "block_visual": 9401
+      "block_visual": 10707
     },
     {
       "identifier": "minecraft:polished_blackstone_brick_wall",
@@ -7895,7 +8337,35 @@
       "metadata": 0,
       "block_name": "minecraft:polished_blackstone_bricks",
       "block_state": {},
-      "block_visual": 10472
+      "block_visual": 11778
+    },
+    {
+      "identifier": "minecraft:polished_blackstone_button",
+      "metadata": 0,
+      "block_name": "minecraft:polished_blackstone_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 22548
+    },
+    {
+      "identifier": "minecraft:polished_blackstone_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:polished_blackstone_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 18049
     },
     {
       "identifier": "minecraft:polished_blackstone_slab",
@@ -7907,7 +8377,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 15468
+      "block_visual": 16837
     },
     {
       "identifier": "minecraft:polished_blackstone_stairs",
@@ -7927,7 +8397,7 @@
           "value": 3
         }
       },
-      "block_visual": 8927
+      "block_visual": 10227
     },
     {
       "identifier": "minecraft:polished_blackstone_wall",
@@ -7955,14 +8425,14 @@
           "value": 0
         }
       },
-      "block_visual": 17129
+      "block_visual": 18998
     },
     {
       "identifier": "minecraft:polished_cinnabar",
       "metadata": 0,
       "block_name": "minecraft:polished_cinnabar",
       "block_state": {},
-      "block_visual": 18840
+      "block_visual": 20709
     },
     {
       "identifier": "minecraft:polished_cinnabar_slab",
@@ -7974,7 +8444,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 11293
+      "block_visual": 12599
     },
     {
       "identifier": "minecraft:polished_cinnabar_stairs",
@@ -7994,7 +8464,7 @@
           "value": 3
         }
       },
-      "block_visual": 20117
+      "block_visual": 21986
     },
     {
       "identifier": "minecraft:polished_cinnabar_wall",
@@ -8022,14 +8492,14 @@
           "value": 0
         }
       },
-      "block_visual": 8646
+      "block_visual": 9946
     },
     {
       "identifier": "minecraft:polished_deepslate",
       "metadata": 0,
       "block_name": "minecraft:polished_deepslate",
       "block_state": {},
-      "block_visual": 20411
+      "block_visual": 22280
     },
     {
       "identifier": "minecraft:polished_deepslate_slab",
@@ -8089,14 +8559,14 @@
           "value": 0
         }
       },
-      "block_visual": 20756
+      "block_visual": 22625
     },
     {
       "identifier": "minecraft:polished_diorite",
       "metadata": 0,
       "block_name": "minecraft:polished_diorite",
       "block_state": {},
-      "block_visual": 14052
+      "block_visual": 15421
     },
     {
       "identifier": "minecraft:polished_diorite_slab",
@@ -8108,7 +8578,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 9895
+      "block_visual": 11201
     },
     {
       "identifier": "minecraft:polished_diorite_stairs",
@@ -8128,7 +8598,7 @@
           "value": 3
         }
       },
-      "block_visual": 17076
+      "block_visual": 18945
     },
     {
       "identifier": "minecraft:polished_granite",
@@ -8147,7 +8617,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16216
+      "block_visual": 18081
     },
     {
       "identifier": "minecraft:polished_granite_stairs",
@@ -8167,7 +8637,7 @@
           "value": 3
         }
       },
-      "block_visual": 8322
+      "block_visual": 9622
     },
     {
       "identifier": "minecraft:polished_sulfur",
@@ -8186,7 +8656,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 18997
+      "block_visual": 20866
     },
     {
       "identifier": "minecraft:polished_sulfur_stairs",
@@ -8206,7 +8676,7 @@
           "value": 3
         }
       },
-      "block_visual": 9015
+      "block_visual": 10315
     },
     {
       "identifier": "minecraft:polished_sulfur_wall",
@@ -8234,14 +8704,14 @@
           "value": 0
         }
       },
-      "block_visual": 21805
+      "block_visual": 23674
     },
     {
       "identifier": "minecraft:polished_tuff",
       "metadata": 0,
       "block_name": "minecraft:polished_tuff",
       "block_state": {},
-      "block_visual": 18882
+      "block_visual": 20751
     },
     {
       "identifier": "minecraft:polished_tuff_slab",
@@ -8273,7 +8743,7 @@
           "value": 3
         }
       },
-      "block_visual": 19003
+      "block_visual": 20872
     },
     {
       "identifier": "minecraft:polished_tuff_wall",
@@ -8304,6 +8774,22 @@
       "block_visual": 3668
     },
     {
+      "identifier": "minecraft:poplar_button",
+      "metadata": 0,
+      "block_name": "minecraft:poplar_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 413
+    },
+    {
       "identifier": "minecraft:poplar_door",
       "metadata": 0,
       "block_name": "minecraft:poplar_door",
@@ -8325,7 +8811,7 @@
           "value": 0
         }
       },
-      "block_visual": 15570
+      "block_visual": 16939
     },
     {
       "identifier": "minecraft:poplar_fence",
@@ -8349,7 +8835,7 @@
           "value": 0
         }
       },
-      "block_visual": 19539
+      "block_visual": 21408
     },
     {
       "identifier": "minecraft:poplar_fence_gate",
@@ -8369,7 +8855,7 @@
           "value": 0
         }
       },
-      "block_visual": 21006
+      "block_visual": 22875
     },
     {
       "identifier": "minecraft:poplar_log",
@@ -8381,14 +8867,26 @@
           "value": "y"
         }
       },
-      "block_visual": 20921
+      "block_visual": 22790
     },
     {
       "identifier": "minecraft:poplar_planks",
       "metadata": 0,
       "block_name": "minecraft:poplar_planks",
       "block_state": {},
-      "block_visual": 16350
+      "block_visual": 18215
+    },
+    {
+      "identifier": "minecraft:poplar_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:poplar_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 16169
     },
     {
       "identifier": "minecraft:poplar_sapling",
@@ -8400,7 +8898,7 @@
           "value": 0
         }
       },
-      "block_visual": 19897
+      "block_visual": 21766
     },
     {
       "identifier": "minecraft:poplar_sign",
@@ -8444,7 +8942,7 @@
           "value": 3
         }
       },
-      "block_visual": 17304
+      "block_visual": 19173
     },
     {
       "identifier": "minecraft:poplar_trapdoor",
@@ -8476,14 +8974,14 @@
           "value": "y"
         }
       },
-      "block_visual": 22017
+      "block_visual": 23886
     },
     {
       "identifier": "minecraft:poppy",
       "metadata": 0,
       "block_name": "minecraft:poppy",
       "block_state": {},
-      "block_visual": 7283
+      "block_visual": 7303
     },
     {
       "identifier": "minecraft:potato",
@@ -8502,7 +9000,7 @@
       "metadata": 0,
       "block_name": "minecraft:prismarine",
       "block_state": {},
-      "block_visual": 15821
+      "block_visual": 17686
     },
     {
       "identifier": "minecraft:prismarine_brick_slab",
@@ -8514,14 +9012,14 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7378
+      "block_visual": 7398
     },
     {
       "identifier": "minecraft:prismarine_bricks",
       "metadata": 0,
       "block_name": "minecraft:prismarine_bricks",
       "block_state": {},
-      "block_visual": 21003
+      "block_visual": 22872
     },
     {
       "identifier": "minecraft:prismarine_bricks_stairs",
@@ -8553,7 +9051,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8879
+      "block_visual": 10179
     },
     {
       "identifier": "minecraft:prismarine_stairs",
@@ -8573,7 +9071,7 @@
           "value": 3
         }
       },
-      "block_visual": 18959
+      "block_visual": 20828
     },
     {
       "identifier": "minecraft:prismarine_wall",
@@ -8601,7 +9099,7 @@
           "value": 0
         }
       },
-      "block_visual": 11295
+      "block_visual": 12601
     },
     {
       "identifier": "minecraft:pumpkin",
@@ -8613,7 +9111,7 @@
           "value": "north"
         }
       },
-      "block_visual": 9762
+      "block_visual": 11068
     },
     {
       "identifier": "minecraft:pumpkin_seeds",
@@ -8629,7 +9127,7 @@
           "value": 0
         }
       },
-      "block_visual": 16351
+      "block_visual": 18216
     },
     {
       "identifier": "minecraft:purple_candle",
@@ -8645,28 +9143,28 @@
           "value": 0
         }
       },
-      "block_visual": 18071
+      "block_visual": 19940
     },
     {
       "identifier": "minecraft:purple_carpet",
       "metadata": 0,
       "block_name": "minecraft:purple_carpet",
       "block_state": {},
-      "block_visual": 20402
+      "block_visual": 22271
     },
     {
       "identifier": "minecraft:purple_concrete",
       "metadata": 0,
       "block_name": "minecraft:purple_concrete",
       "block_state": {},
-      "block_visual": 8436
+      "block_visual": 9736
     },
     {
       "identifier": "minecraft:purple_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:purple_concrete_powder",
       "block_state": {},
-      "block_visual": 16844
+      "block_visual": 18713
     },
     {
       "identifier": "minecraft:purple_concrete_slab",
@@ -8678,7 +9176,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8441
+      "block_visual": 9741
     },
     {
       "identifier": "minecraft:purple_concrete_stairs",
@@ -8710,14 +9208,14 @@
           "value": 2
         }
       },
-      "block_visual": 17896
+      "block_visual": 19765
     },
     {
       "identifier": "minecraft:purple_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:purple_shulker_box",
       "block_state": {},
-      "block_visual": 19405
+      "block_visual": 21274
     },
     {
       "identifier": "minecraft:purple_stained_glass",
@@ -8748,21 +9246,21 @@
           "value": 0
         }
       },
-      "block_visual": 11218
+      "block_visual": 12524
     },
     {
       "identifier": "minecraft:purple_terracotta",
       "metadata": 0,
       "block_name": "minecraft:purple_terracotta",
       "block_state": {},
-      "block_visual": 16547
+      "block_visual": 18412
     },
     {
       "identifier": "minecraft:purple_wool",
       "metadata": 0,
       "block_name": "minecraft:purple_wool",
       "block_state": {},
-      "block_visual": 22021
+      "block_visual": 23890
     },
     {
       "identifier": "minecraft:purple_wool_slab",
@@ -8794,7 +9292,7 @@
           "value": 3
         }
       },
-      "block_visual": 14904
+      "block_visual": 16273
     },
     {
       "identifier": "minecraft:purpur_block",
@@ -8806,7 +9304,7 @@
           "value": "y"
         }
       },
-      "block_visual": 20358
+      "block_visual": 22227
     },
     {
       "identifier": "minecraft:purpur_pillar",
@@ -8818,7 +9316,7 @@
           "value": "y"
         }
       },
-      "block_visual": 13367
+      "block_visual": 14736
     },
     {
       "identifier": "minecraft:purpur_slab",
@@ -8850,7 +9348,7 @@
           "value": 3
         }
       },
-      "block_visual": 20418
+      "block_visual": 22287
     },
     {
       "identifier": "minecraft:quartz_block",
@@ -8862,21 +9360,21 @@
           "value": "y"
         }
       },
-      "block_visual": 7066
+      "block_visual": 7086
     },
     {
       "identifier": "minecraft:quartz_bricks",
       "metadata": 0,
       "block_name": "minecraft:quartz_bricks",
       "block_state": {},
-      "block_visual": 16472
+      "block_visual": 18337
     },
     {
       "identifier": "minecraft:quartz_ore",
       "metadata": 0,
       "block_name": "minecraft:quartz_ore",
       "block_state": {},
-      "block_visual": 9454
+      "block_visual": 10760
     },
     {
       "identifier": "minecraft:quartz_pillar",
@@ -8888,7 +9386,7 @@
           "value": "y"
         }
       },
-      "block_visual": 7469
+      "block_visual": 8769
     },
     {
       "identifier": "minecraft:quartz_slab",
@@ -8900,7 +9398,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 17016
+      "block_visual": 18885
     },
     {
       "identifier": "minecraft:quartz_stairs",
@@ -8920,14 +9418,14 @@
           "value": 3
         }
       },
-      "block_visual": 10672
+      "block_visual": 11978
     },
     {
       "identifier": "minecraft:raw_copper_block",
       "metadata": 0,
       "block_name": "minecraft:raw_copper_block",
       "block_state": {},
-      "block_visual": 11919
+      "block_visual": 13225
     },
     {
       "identifier": "minecraft:raw_gold_block",
@@ -8941,7 +9439,7 @@
       "metadata": 0,
       "block_name": "minecraft:raw_iron_block",
       "block_state": {},
-      "block_visual": 22016
+      "block_visual": 23885
     },
     {
       "identifier": "minecraft:red_candle",
@@ -8957,28 +9455,28 @@
           "value": 0
         }
       },
-      "block_visual": 10473
+      "block_visual": 11779
     },
     {
       "identifier": "minecraft:red_carpet",
       "metadata": 0,
       "block_name": "minecraft:red_carpet",
       "block_state": {},
-      "block_visual": 19495
+      "block_visual": 21364
     },
     {
       "identifier": "minecraft:red_concrete",
       "metadata": 0,
       "block_name": "minecraft:red_concrete",
       "block_state": {},
-      "block_visual": 20306
+      "block_visual": 22175
     },
     {
       "identifier": "minecraft:red_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:red_concrete_powder",
       "block_state": {},
-      "block_visual": 18947
+      "block_visual": 20816
     },
     {
       "identifier": "minecraft:red_concrete_slab",
@@ -8990,7 +9488,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 11250
+      "block_visual": 12556
     },
     {
       "identifier": "minecraft:red_concrete_stairs",
@@ -9010,7 +9508,7 @@
           "value": 3
         }
       },
-      "block_visual": 13221
+      "block_visual": 14590
     },
     {
       "identifier": "minecraft:red_glazed_terracotta",
@@ -9022,7 +9520,7 @@
           "value": 2
         }
       },
-      "block_visual": 8385
+      "block_visual": 9685
     },
     {
       "identifier": "minecraft:red_nether_brick",
@@ -9041,7 +9539,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16885
+      "block_visual": 18754
     },
     {
       "identifier": "minecraft:red_nether_brick_stairs",
@@ -9061,7 +9559,7 @@
           "value": 3
         }
       },
-      "block_visual": 16909
+      "block_visual": 18778
     },
     {
       "identifier": "minecraft:red_nether_brick_wall",
@@ -9089,7 +9587,7 @@
           "value": 0
         }
       },
-      "block_visual": 19243
+      "block_visual": 21112
     },
     {
       "identifier": "minecraft:red_poplar_leaves",
@@ -9105,7 +9603,7 @@
           "value": 0
         }
       },
-      "block_visual": 20405
+      "block_visual": 22274
     },
     {
       "identifier": "minecraft:red_sand",
@@ -9119,7 +9617,7 @@
       "metadata": 0,
       "block_name": "minecraft:red_sandstone",
       "block_state": {},
-      "block_visual": 16884
+      "block_visual": 18753
     },
     {
       "identifier": "minecraft:red_sandstone_slab",
@@ -9151,7 +9649,7 @@
           "value": 3
         }
       },
-      "block_visual": 12049
+      "block_visual": 13355
     },
     {
       "identifier": "minecraft:red_sandstone_wall",
@@ -9186,21 +9684,21 @@
       "metadata": 0,
       "block_name": "minecraft:red_shrub",
       "block_state": {},
-      "block_visual": 12034
+      "block_visual": 13340
     },
     {
       "identifier": "minecraft:red_shulker_box",
       "metadata": 0,
       "block_name": "minecraft:red_shulker_box",
       "block_state": {},
-      "block_visual": 9346
+      "block_visual": 10652
     },
     {
       "identifier": "minecraft:red_stained_glass",
       "metadata": 0,
       "block_name": "minecraft:red_stained_glass",
       "block_state": {},
-      "block_visual": 11863
+      "block_visual": 13169
     },
     {
       "identifier": "minecraft:red_stained_glass_pane",
@@ -9224,7 +9722,7 @@
           "value": 0
         }
       },
-      "block_visual": 18176
+      "block_visual": 20045
     },
     {
       "identifier": "minecraft:red_terracotta",
@@ -9238,7 +9736,7 @@
       "metadata": 0,
       "block_name": "minecraft:red_tulip",
       "block_state": {},
-      "block_visual": 19637
+      "block_visual": 21506
     },
     {
       "identifier": "minecraft:red_wool",
@@ -9257,7 +9755,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 8875
+      "block_visual": 10175
     },
     {
       "identifier": "minecraft:red_wool_stairs",
@@ -9277,33 +9775,49 @@
           "value": 3
         }
       },
-      "block_visual": 7287
+      "block_visual": 7307
     },
     {
       "identifier": "minecraft:redstone",
       "metadata": 0,
       "block_name": "minecraft:redstone_wire",
       "block_state": {
+        "redstone_east": {
+          "type": "string",
+          "value": "none"
+        },
+        "redstone_north": {
+          "type": "string",
+          "value": "none"
+        },
         "redstone_signal": {
           "type": "int",
           "value": 0
+        },
+        "redstone_south": {
+          "type": "string",
+          "value": "none"
+        },
+        "redstone_west": {
+          "type": "string",
+          "value": "none"
         }
       },
-      "block_visual": 7453
+      "block_visual": 7473
     },
     {
       "identifier": "minecraft:redstone_block",
       "metadata": 0,
       "block_name": "minecraft:redstone_block",
       "block_state": {},
-      "block_visual": 7436
+      "block_visual": 7456
     },
     {
       "identifier": "minecraft:redstone_ore",
       "metadata": 0,
       "block_name": "minecraft:redstone_ore",
       "block_state": {},
-      "block_visual": 8631
+      "block_visual": 9931
     },
     {
       "identifier": "minecraft:redstone_torch",
@@ -9315,21 +9829,21 @@
           "value": "top"
         }
       },
-      "block_visual": 21804
+      "block_visual": 23673
     },
     {
       "identifier": "minecraft:reinforced_deepslate",
       "metadata": 0,
       "block_name": "minecraft:reinforced_deepslate",
       "block_state": {},
-      "block_visual": 14053
+      "block_visual": 15422
     },
     {
       "identifier": "minecraft:resin_block",
       "metadata": 0,
       "block_name": "minecraft:resin_block",
       "block_state": {},
-      "block_visual": 16694
+      "block_visual": 18559
     },
     {
       "identifier": "minecraft:resin_brick_slab",
@@ -9341,7 +9855,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 19069
+      "block_visual": 20938
     },
     {
       "identifier": "minecraft:resin_brick_stairs",
@@ -9361,7 +9875,7 @@
           "value": 3
         }
       },
-      "block_visual": 15860
+      "block_visual": 17725
     },
     {
       "identifier": "minecraft:resin_brick_wall",
@@ -9389,14 +9903,26 @@
           "value": 0
         }
       },
-      "block_visual": 21297
+      "block_visual": 23166
     },
     {
       "identifier": "minecraft:resin_bricks",
       "metadata": 0,
       "block_name": "minecraft:resin_bricks",
       "block_state": {},
-      "block_visual": 14817
+      "block_visual": 16186
+    },
+    {
+      "identifier": "minecraft:respawn_anchor",
+      "metadata": 0,
+      "block_name": "minecraft:respawn_anchor",
+      "block_state": {
+        "respawn_anchor_charge": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 3516
     },
     {
       "identifier": "minecraft:rose_bush",
@@ -9408,21 +9934,21 @@
           "value": 0
         }
       },
-      "block_visual": 12305
+      "block_visual": 13611
     },
     {
       "identifier": "minecraft:sand",
       "metadata": 0,
       "block_name": "minecraft:sand",
       "block_state": {},
-      "block_visual": 8507
+      "block_visual": 9807
     },
     {
       "identifier": "minecraft:sandstone",
       "metadata": 0,
       "block_name": "minecraft:sandstone",
       "block_state": {},
-      "block_visual": 6974
+      "block_visual": 6994
     },
     {
       "identifier": "minecraft:sandstone_slab",
@@ -9482,14 +10008,14 @@
           "value": 0
         }
       },
-      "block_visual": 21036
+      "block_visual": 22905
     },
     {
       "identifier": "minecraft:sea_lantern",
       "metadata": 0,
       "block_name": "minecraft:sea_lantern",
       "block_state": {},
-      "block_visual": 20037
+      "block_visual": 21906
     },
     {
       "identifier": "minecraft:sea_pickle",
@@ -9505,7 +10031,7 @@
           "value": 0
         }
       },
-      "block_visual": 14190
+      "block_visual": 15559
     },
     {
       "identifier": "minecraft:shelf_mushroom",
@@ -9521,21 +10047,21 @@
           "value": "north"
         }
       },
-      "block_visual": 13485
+      "block_visual": 14854
     },
     {
       "identifier": "minecraft:short_grass",
       "metadata": 0,
       "block_name": "minecraft:short_grass",
       "block_state": {},
-      "block_visual": 16851
+      "block_visual": 18720
     },
     {
       "identifier": "minecraft:shroomlight",
       "metadata": 0,
       "block_name": "minecraft:shroomlight",
       "block_state": {},
-      "block_visual": 11619
+      "block_visual": 12925
     },
     {
       "identifier": "minecraft:silver_glazed_terracotta",
@@ -9559,21 +10085,21 @@
           "value": 1
         }
       },
-      "block_visual": 12169
+      "block_visual": 13475
     },
     {
       "identifier": "minecraft:slime",
       "metadata": 0,
       "block_name": "minecraft:slime",
       "block_state": {},
-      "block_visual": 8544
+      "block_visual": 9844
     },
     {
       "identifier": "minecraft:smithing_table",
       "metadata": 0,
       "block_name": "minecraft:smithing_table",
       "block_state": {},
-      "block_visual": 7235
+      "block_visual": 7255
     },
     {
       "identifier": "minecraft:smoker",
@@ -9604,7 +10130,7 @@
           "value": "y"
         }
       },
-      "block_visual": 9483
+      "block_visual": 10789
     },
     {
       "identifier": "minecraft:smooth_quartz_slab",
@@ -9616,7 +10142,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 20085
+      "block_visual": 21954
     },
     {
       "identifier": "minecraft:smooth_quartz_stairs",
@@ -9636,14 +10162,14 @@
           "value": 3
         }
       },
-      "block_visual": 20311
+      "block_visual": 22180
     },
     {
       "identifier": "minecraft:smooth_red_sandstone",
       "metadata": 0,
       "block_name": "minecraft:smooth_red_sandstone",
       "block_state": {},
-      "block_visual": 20414
+      "block_visual": 22283
     },
     {
       "identifier": "minecraft:smooth_red_sandstone_slab",
@@ -9655,7 +10181,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16841
+      "block_visual": 18710
     },
     {
       "identifier": "minecraft:smooth_red_sandstone_stairs",
@@ -9675,7 +10201,7 @@
           "value": 3
         }
       },
-      "block_visual": 12990
+      "block_visual": 14359
     },
     {
       "identifier": "minecraft:smooth_sandstone",
@@ -9714,14 +10240,14 @@
           "value": 3
         }
       },
-      "block_visual": 6862
+      "block_visual": 6882
     },
     {
       "identifier": "minecraft:smooth_stone",
       "metadata": 0,
       "block_name": "minecraft:smooth_stone",
       "block_state": {},
-      "block_visual": 9769
+      "block_visual": 11075
     },
     {
       "identifier": "minecraft:smooth_stone_slab",
@@ -9733,14 +10259,14 @@
           "value": "bottom"
         }
       },
-      "block_visual": 20034
+      "block_visual": 21903
     },
     {
       "identifier": "minecraft:snow",
       "metadata": 0,
       "block_name": "minecraft:snow",
       "block_state": {},
-      "block_visual": 8506
+      "block_visual": 9806
     },
     {
       "identifier": "minecraft:soul_campfire",
@@ -9756,7 +10282,7 @@
           "value": "north"
         }
       },
-      "block_visual": 20997
+      "block_visual": 22866
     },
     {
       "identifier": "minecraft:soul_lantern",
@@ -9768,21 +10294,21 @@
           "value": 0
         }
       },
-      "block_visual": 13454
+      "block_visual": 14823
     },
     {
       "identifier": "minecraft:soul_sand",
       "metadata": 0,
       "block_name": "minecraft:soul_sand",
       "block_state": {},
-      "block_visual": 13505
+      "block_visual": 14874
     },
     {
       "identifier": "minecraft:soul_soil",
       "metadata": 0,
       "block_name": "minecraft:soul_soil",
       "block_state": {},
-      "block_visual": 13504
+      "block_visual": 14873
     },
     {
       "identifier": "minecraft:soul_torch",
@@ -9794,7 +10320,7 @@
           "value": "top"
         }
       },
-      "block_visual": 10405
+      "block_visual": 11711
     },
     {
       "identifier": "minecraft:sponge",
@@ -9808,7 +10334,23 @@
       "metadata": 0,
       "block_name": "minecraft:spore_blossom",
       "block_state": {},
-      "block_visual": 19095
+      "block_visual": 20964
+    },
+    {
+      "identifier": "minecraft:spruce_button",
+      "metadata": 0,
+      "block_name": "minecraft:spruce_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 10354
     },
     {
       "identifier": "minecraft:spruce_door",
@@ -9832,7 +10374,7 @@
           "value": 0
         }
       },
-      "block_visual": 10494
+      "block_visual": 11800
     },
     {
       "identifier": "minecraft:spruce_fence",
@@ -9876,7 +10418,7 @@
           "value": 0
         }
       },
-      "block_visual": 16890
+      "block_visual": 18759
     },
     {
       "identifier": "minecraft:spruce_leaves",
@@ -9892,7 +10434,7 @@
           "value": 0
         }
       },
-      "block_visual": 9309
+      "block_visual": 10615
     },
     {
       "identifier": "minecraft:spruce_log",
@@ -9904,14 +10446,26 @@
           "value": "y"
         }
       },
-      "block_visual": 8587
+      "block_visual": 9887
     },
     {
       "identifier": "minecraft:spruce_planks",
       "metadata": 0,
       "block_name": "minecraft:spruce_planks",
       "block_state": {},
-      "block_visual": 20739
+      "block_visual": 22608
+    },
+    {
+      "identifier": "minecraft:spruce_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:spruce_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 7438
     },
     {
       "identifier": "minecraft:spruce_sapling",
@@ -9923,7 +10477,7 @@
           "value": 0
         }
       },
-      "block_visual": 8503
+      "block_visual": 9803
     },
     {
       "identifier": "minecraft:spruce_sign",
@@ -9935,7 +10489,7 @@
           "value": 0
         }
       },
-      "block_visual": 18079
+      "block_visual": 19948
     },
     {
       "identifier": "minecraft:spruce_slab",
@@ -9947,7 +10501,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 17943
+      "block_visual": 19812
     },
     {
       "identifier": "minecraft:spruce_stairs",
@@ -9987,7 +10541,7 @@
           "value": 0
         }
       },
-      "block_visual": 16859
+      "block_visual": 18728
     },
     {
       "identifier": "minecraft:spruce_wood",
@@ -9999,7 +10553,7 @@
           "value": "y"
         }
       },
-      "block_visual": 20158
+      "block_visual": 22027
     },
     {
       "identifier": "minecraft:stone",
@@ -10018,7 +10572,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16283
+      "block_visual": 18148
     },
     {
       "identifier": "minecraft:stone_brick_stairs",
@@ -10066,14 +10620,42 @@
           "value": 0
         }
       },
-      "block_visual": 12825
+      "block_visual": 14194
     },
     {
       "identifier": "minecraft:stone_bricks",
       "metadata": 0,
       "block_name": "minecraft:stone_bricks",
       "block_state": {},
-      "block_visual": 8248
+      "block_visual": 9548
+    },
+    {
+      "identifier": "minecraft:stone_button",
+      "metadata": 0,
+      "block_name": "minecraft:stone_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 2790
+    },
+    {
+      "identifier": "minecraft:stone_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:stone_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 9288
     },
     {
       "identifier": "minecraft:stone_stairs",
@@ -10093,7 +10675,7 @@
           "value": 3
         }
       },
-      "block_visual": 7073
+      "block_visual": 7093
     },
     {
       "identifier": "minecraft:stonecutter_block",
@@ -10105,7 +10687,7 @@
           "value": "north"
         }
       },
-      "block_visual": 20077
+      "block_visual": 21946
     },
     {
       "identifier": "minecraft:straw_bed",
@@ -10125,7 +10707,7 @@
           "value": 0
         }
       },
-      "block_visual": 17005
+      "block_visual": 18874
     },
     {
       "identifier": "minecraft:string",
@@ -10165,7 +10747,7 @@
           "value": 0
         }
       },
-      "block_visual": 19639
+      "block_visual": 21508
     },
     {
       "identifier": "minecraft:stripped_acacia_log",
@@ -10177,7 +10759,7 @@
           "value": "y"
         }
       },
-      "block_visual": 14167
+      "block_visual": 15536
     },
     {
       "identifier": "minecraft:stripped_acacia_wood",
@@ -10201,7 +10783,7 @@
           "value": "y"
         }
       },
-      "block_visual": 6675
+      "block_visual": 6695
     },
     {
       "identifier": "minecraft:stripped_birch_log",
@@ -10213,7 +10795,7 @@
           "value": "y"
         }
       },
-      "block_visual": 15036
+      "block_visual": 16405
     },
     {
       "identifier": "minecraft:stripped_birch_wood",
@@ -10225,7 +10807,7 @@
           "value": "y"
         }
       },
-      "block_visual": 9716
+      "block_visual": 11022
     },
     {
       "identifier": "minecraft:stripped_cherry_log",
@@ -10237,7 +10819,7 @@
           "value": "y"
         }
       },
-      "block_visual": 9347
+      "block_visual": 10653
     },
     {
       "identifier": "minecraft:stripped_cherry_wood",
@@ -10249,7 +10831,7 @@
           "value": "y"
         }
       },
-      "block_visual": 11259
+      "block_visual": 12565
     },
     {
       "identifier": "minecraft:stripped_crimson_hyphae",
@@ -10261,7 +10843,7 @@
           "value": "y"
         }
       },
-      "block_visual": 16705
+      "block_visual": 18574
     },
     {
       "identifier": "minecraft:stripped_crimson_stem",
@@ -10273,7 +10855,7 @@
           "value": "y"
         }
       },
-      "block_visual": 17596
+      "block_visual": 19465
     },
     {
       "identifier": "minecraft:stripped_dark_oak_log",
@@ -10297,7 +10879,7 @@
           "value": "y"
         }
       },
-      "block_visual": 11206
+      "block_visual": 12512
     },
     {
       "identifier": "minecraft:stripped_jungle_log",
@@ -10333,7 +10915,7 @@
           "value": "y"
         }
       },
-      "block_visual": 22045
+      "block_visual": 23914
     },
     {
       "identifier": "minecraft:stripped_mangrove_wood",
@@ -10345,7 +10927,7 @@
           "value": "y"
         }
       },
-      "block_visual": 8540
+      "block_visual": 9840
     },
     {
       "identifier": "minecraft:stripped_oak_log",
@@ -10357,7 +10939,7 @@
           "value": "y"
         }
       },
-      "block_visual": 20031
+      "block_visual": 21900
     },
     {
       "identifier": "minecraft:stripped_oak_wood",
@@ -10369,7 +10951,7 @@
           "value": "y"
         }
       },
-      "block_visual": 10768
+      "block_visual": 12074
     },
     {
       "identifier": "minecraft:stripped_pale_oak_log",
@@ -10381,7 +10963,7 @@
           "value": "y"
         }
       },
-      "block_visual": 8867
+      "block_visual": 10167
     },
     {
       "identifier": "minecraft:stripped_pale_oak_wood",
@@ -10405,7 +10987,7 @@
           "value": "y"
         }
       },
-      "block_visual": 15995
+      "block_visual": 17860
     },
     {
       "identifier": "minecraft:stripped_poplar_wood",
@@ -10417,7 +10999,7 @@
           "value": "y"
         }
       },
-      "block_visual": 16035
+      "block_visual": 17900
     },
     {
       "identifier": "minecraft:stripped_spruce_log",
@@ -10429,7 +11011,7 @@
           "value": "y"
         }
       },
-      "block_visual": 16343
+      "block_visual": 18208
     },
     {
       "identifier": "minecraft:stripped_spruce_wood",
@@ -10453,7 +11035,7 @@
           "value": "y"
         }
       },
-      "block_visual": 13214
+      "block_visual": 14583
     },
     {
       "identifier": "minecraft:stripped_warped_stem",
@@ -10465,7 +11047,7 @@
           "value": "y"
         }
       },
-      "block_visual": 19470
+      "block_visual": 21339
     },
     {
       "identifier": "minecraft:sugar_cane",
@@ -10477,14 +11059,14 @@
           "value": 0
         }
       },
-      "block_visual": 15470
+      "block_visual": 16839
     },
     {
       "identifier": "minecraft:sulfur",
       "metadata": 0,
       "block_name": "minecraft:sulfur",
       "block_state": {},
-      "block_visual": 19065
+      "block_visual": 20934
     },
     {
       "identifier": "minecraft:sulfur_brick_slab",
@@ -10496,7 +11078,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 20087
+      "block_visual": 21956
     },
     {
       "identifier": "minecraft:sulfur_brick_stairs",
@@ -10516,7 +11098,7 @@
           "value": 3
         }
       },
-      "block_visual": 9679
+      "block_visual": 10985
     },
     {
       "identifier": "minecraft:sulfur_brick_wall",
@@ -10544,7 +11126,7 @@
           "value": 0
         }
       },
-      "block_visual": 17364
+      "block_visual": 19233
     },
     {
       "identifier": "minecraft:sulfur_bricks",
@@ -10563,7 +11145,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7324
+      "block_visual": 7344
     },
     {
       "identifier": "minecraft:sulfur_stairs",
@@ -10583,7 +11165,7 @@
           "value": 3
         }
       },
-      "block_visual": 8450
+      "block_visual": 9750
     },
     {
       "identifier": "minecraft:sulfur_wall",
@@ -10611,7 +11193,7 @@
           "value": 0
         }
       },
-      "block_visual": 9514
+      "block_visual": 10820
     },
     {
       "identifier": "minecraft:sunflower",
@@ -10623,7 +11205,7 @@
           "value": 0
         }
       },
-      "block_visual": 9975
+      "block_visual": 11281
     },
     {
       "identifier": "minecraft:tall_grass",
@@ -10635,14 +11217,14 @@
           "value": 0
         }
       },
-      "block_visual": 16647
+      "block_visual": 18512
     },
     {
       "identifier": "minecraft:tinted_glass",
       "metadata": 0,
       "block_name": "minecraft:tinted_glass",
       "block_state": {},
-      "block_visual": 15039
+      "block_visual": 16408
     },
     {
       "identifier": "minecraft:tnt",
@@ -10654,7 +11236,7 @@
           "value": 0
         }
       },
-      "block_visual": 17043
+      "block_visual": 18912
     },
     {
       "identifier": "minecraft:torch",
@@ -10689,18 +11271,50 @@
       "block_visual": 1565
     },
     {
+      "identifier": "minecraft:tripwire_hook",
+      "metadata": 0,
+      "block_name": "minecraft:tripwire_hook",
+      "block_state": {
+        "attached_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "direction": {
+          "type": "int",
+          "value": 2
+        },
+        "powered_bit": {
+          "type": "byte",
+          "value": 0
+        }
+      },
+      "block_visual": 16316
+    },
+    {
       "identifier": "minecraft:tube_coral",
       "metadata": 0,
       "block_name": "minecraft:tube_coral",
       "block_state": {},
-      "block_visual": 20455
+      "block_visual": 22324
     },
     {
       "identifier": "minecraft:tube_coral_block",
       "metadata": 0,
       "block_name": "minecraft:tube_coral_block",
       "block_state": {},
-      "block_visual": 19946
+      "block_visual": 21815
+    },
+    {
+      "identifier": "minecraft:tube_coral_fan",
+      "metadata": 0,
+      "block_name": "minecraft:tube_coral_fan",
+      "block_state": {
+        "coral_fan_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 1627
     },
     {
       "identifier": "minecraft:tuff",
@@ -10719,7 +11333,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7326
+      "block_visual": 7346
     },
     {
       "identifier": "minecraft:tuff_brick_stairs",
@@ -10739,7 +11353,7 @@
           "value": 3
         }
       },
-      "block_visual": 16224
+      "block_visual": 18089
     },
     {
       "identifier": "minecraft:tuff_brick_wall",
@@ -10774,7 +11388,7 @@
       "metadata": 0,
       "block_name": "minecraft:tuff_bricks",
       "block_state": {},
-      "block_visual": 16992
+      "block_visual": 18861
     },
     {
       "identifier": "minecraft:tuff_slab",
@@ -10806,7 +11420,7 @@
           "value": 3
         }
       },
-      "block_visual": 14829
+      "block_visual": 16198
     },
     {
       "identifier": "minecraft:tuff_wall",
@@ -10841,7 +11455,7 @@
       "metadata": 0,
       "block_name": "minecraft:undyed_shulker_box",
       "block_state": {},
-      "block_visual": 7039
+      "block_visual": 7059
     },
     {
       "identifier": "minecraft:verdant_froglight",
@@ -10853,7 +11467,7 @@
           "value": "y"
         }
       },
-      "block_visual": 16675
+      "block_visual": 18540
     },
     {
       "identifier": "minecraft:vine",
@@ -10866,6 +11480,22 @@
         }
       },
       "block_visual": 4046
+    },
+    {
+      "identifier": "minecraft:warped_button",
+      "metadata": 0,
+      "block_name": "minecraft:warped_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 20804
     },
     {
       "identifier": "minecraft:warped_door",
@@ -10913,7 +11543,7 @@
           "value": 0
         }
       },
-      "block_visual": 14173
+      "block_visual": 15542
     },
     {
       "identifier": "minecraft:warped_fence_gate",
@@ -10933,7 +11563,7 @@
           "value": 0
         }
       },
-      "block_visual": 12152
+      "block_visual": 13458
     },
     {
       "identifier": "minecraft:warped_hyphae",
@@ -10945,7 +11575,7 @@
           "value": "y"
         }
       },
-      "block_visual": 14756
+      "block_visual": 16125
     },
     {
       "identifier": "minecraft:warped_planks",
@@ -10953,6 +11583,18 @@
       "block_name": "minecraft:warped_planks",
       "block_state": {},
       "block_visual": 4126
+    },
+    {
+      "identifier": "minecraft:warped_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:warped_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 1835
     },
     {
       "identifier": "minecraft:warped_sign",
@@ -10964,7 +11606,7 @@
           "value": 0
         }
       },
-      "block_visual": 18822
+      "block_visual": 20691
     },
     {
       "identifier": "minecraft:warped_slab",
@@ -10976,7 +11618,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16695
+      "block_visual": 18560
     },
     {
       "identifier": "minecraft:warped_stairs",
@@ -10996,7 +11638,7 @@
           "value": 3
         }
       },
-      "block_visual": 7118
+      "block_visual": 7138
     },
     {
       "identifier": "minecraft:warped_stem",
@@ -11008,7 +11650,7 @@
           "value": "y"
         }
       },
-      "block_visual": 16697
+      "block_visual": 18562
     },
     {
       "identifier": "minecraft:warped_trapdoor",
@@ -11028,14 +11670,14 @@
           "value": 0
         }
       },
-      "block_visual": 10580
+      "block_visual": 11886
     },
     {
       "identifier": "minecraft:warped_wart_block",
       "metadata": 0,
       "block_name": "minecraft:warped_wart_block",
       "block_state": {},
-      "block_visual": 14799
+      "block_visual": 16168
     },
     {
       "identifier": "minecraft:waterlily",
@@ -11049,14 +11691,14 @@
       "metadata": 0,
       "block_name": "minecraft:waxed_chiseled_copper",
       "block_state": {},
-      "block_visual": 20753
+      "block_visual": 22622
     },
     {
       "identifier": "minecraft:waxed_copper",
       "metadata": 0,
       "block_name": "minecraft:waxed_copper",
       "block_state": {},
-      "block_visual": 20375
+      "block_visual": 22244
     },
     {
       "identifier": "minecraft:waxed_copper_bars",
@@ -11092,7 +11734,7 @@
           "value": "y"
         }
       },
-      "block_visual": 8641
+      "block_visual": 9941
     },
     {
       "identifier": "minecraft:waxed_copper_door",
@@ -11116,7 +11758,7 @@
           "value": 0
         }
       },
-      "block_visual": 20459
+      "block_visual": 22328
     },
     {
       "identifier": "minecraft:waxed_copper_golem_statue",
@@ -11128,14 +11770,14 @@
           "value": "north"
         }
       },
-      "block_visual": 20992
+      "block_visual": 22861
     },
     {
       "identifier": "minecraft:waxed_copper_grate",
       "metadata": 0,
       "block_name": "minecraft:waxed_copper_grate",
       "block_state": {},
-      "block_visual": 12114
+      "block_visual": 13420
     },
     {
       "identifier": "minecraft:waxed_copper_lantern",
@@ -11147,7 +11789,7 @@
           "value": 0
         }
       },
-      "block_visual": 20352
+      "block_visual": 22221
     },
     {
       "identifier": "minecraft:waxed_copper_trapdoor",
@@ -11174,7 +11816,7 @@
       "metadata": 0,
       "block_name": "minecraft:waxed_cut_copper",
       "block_state": {},
-      "block_visual": 19064
+      "block_visual": 20933
     },
     {
       "identifier": "minecraft:waxed_cut_copper_slab",
@@ -11186,7 +11828,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 20754
+      "block_visual": 22623
     },
     {
       "identifier": "minecraft:waxed_cut_copper_stairs",
@@ -11244,7 +11886,7 @@
           "value": 0
         }
       },
-      "block_visual": 8420
+      "block_visual": 9720
     },
     {
       "identifier": "minecraft:waxed_exposed_copper_chain",
@@ -11280,7 +11922,7 @@
           "value": 0
         }
       },
-      "block_visual": 12263
+      "block_visual": 13569
     },
     {
       "identifier": "minecraft:waxed_exposed_copper_golem_statue",
@@ -11292,7 +11934,7 @@
           "value": "north"
         }
       },
-      "block_visual": 8381
+      "block_visual": 9681
     },
     {
       "identifier": "minecraft:waxed_exposed_copper_grate",
@@ -11311,7 +11953,7 @@
           "value": 0
         }
       },
-      "block_visual": 19096
+      "block_visual": 20965
     },
     {
       "identifier": "minecraft:waxed_exposed_copper_trapdoor",
@@ -11331,14 +11973,14 @@
           "value": 0
         }
       },
-      "block_visual": 14641
+      "block_visual": 16010
     },
     {
       "identifier": "minecraft:waxed_exposed_cut_copper",
       "metadata": 0,
       "block_name": "minecraft:waxed_exposed_cut_copper",
       "block_state": {},
-      "block_visual": 7472
+      "block_visual": 8772
     },
     {
       "identifier": "minecraft:waxed_exposed_cut_copper_slab",
@@ -11370,7 +12012,7 @@
           "value": 3
         }
       },
-      "block_visual": 8007
+      "block_visual": 9307
     },
     {
       "identifier": "minecraft:waxed_oxidized_chiseled_copper",
@@ -11384,7 +12026,7 @@
       "metadata": 0,
       "block_name": "minecraft:waxed_oxidized_copper",
       "block_state": {},
-      "block_visual": 20029
+      "block_visual": 21898
     },
     {
       "identifier": "minecraft:waxed_oxidized_copper_bars",
@@ -11408,7 +12050,7 @@
           "value": 0
         }
       },
-      "block_visual": 16327
+      "block_visual": 18192
     },
     {
       "identifier": "minecraft:waxed_oxidized_copper_chain",
@@ -11420,7 +12062,7 @@
           "value": "y"
         }
       },
-      "block_visual": 8393
+      "block_visual": 9693
     },
     {
       "identifier": "minecraft:waxed_oxidized_copper_door",
@@ -11444,7 +12086,7 @@
           "value": 0
         }
       },
-      "block_visual": 14872
+      "block_visual": 16241
     },
     {
       "identifier": "minecraft:waxed_oxidized_copper_golem_statue",
@@ -11456,14 +12098,14 @@
           "value": "north"
         }
       },
-      "block_visual": 11288
+      "block_visual": 12594
     },
     {
       "identifier": "minecraft:waxed_oxidized_copper_grate",
       "metadata": 0,
       "block_name": "minecraft:waxed_oxidized_copper_grate",
       "block_state": {},
-      "block_visual": 21216
+      "block_visual": 23085
     },
     {
       "identifier": "minecraft:waxed_oxidized_copper_lantern",
@@ -11475,7 +12117,7 @@
           "value": 0
         }
       },
-      "block_visual": 9943
+      "block_visual": 11249
     },
     {
       "identifier": "minecraft:waxed_oxidized_copper_trapdoor",
@@ -11495,7 +12137,7 @@
           "value": 0
         }
       },
-      "block_visual": 11237
+      "block_visual": 12543
     },
     {
       "identifier": "minecraft:waxed_oxidized_cut_copper",
@@ -11534,14 +12176,14 @@
           "value": 3
         }
       },
-      "block_visual": 14074
+      "block_visual": 15443
     },
     {
       "identifier": "minecraft:waxed_weathered_chiseled_copper",
       "metadata": 0,
       "block_name": "minecraft:waxed_weathered_chiseled_copper",
       "block_state": {},
-      "block_visual": 7110
+      "block_visual": 7130
     },
     {
       "identifier": "minecraft:waxed_weathered_copper",
@@ -11572,7 +12214,7 @@
           "value": 0
         }
       },
-      "block_visual": 14121
+      "block_visual": 15490
     },
     {
       "identifier": "minecraft:waxed_weathered_copper_chain",
@@ -11608,7 +12250,7 @@
           "value": 0
         }
       },
-      "block_visual": 18147
+      "block_visual": 20016
     },
     {
       "identifier": "minecraft:waxed_weathered_copper_golem_statue",
@@ -11620,14 +12262,14 @@
           "value": "north"
         }
       },
-      "block_visual": 10486
+      "block_visual": 11792
     },
     {
       "identifier": "minecraft:waxed_weathered_copper_grate",
       "metadata": 0,
       "block_name": "minecraft:waxed_weathered_copper_grate",
       "block_state": {},
-      "block_visual": 9053
+      "block_visual": 10353
     },
     {
       "identifier": "minecraft:waxed_weathered_copper_lantern",
@@ -11639,7 +12281,7 @@
           "value": 0
         }
       },
-      "block_visual": 7879
+      "block_visual": 9179
     },
     {
       "identifier": "minecraft:waxed_weathered_copper_trapdoor",
@@ -11659,14 +12301,14 @@
           "value": 0
         }
       },
-      "block_visual": 10614
+      "block_visual": 11920
     },
     {
       "identifier": "minecraft:waxed_weathered_cut_copper",
       "metadata": 0,
       "block_name": "minecraft:waxed_weathered_cut_copper",
       "block_state": {},
-      "block_visual": 11209
+      "block_visual": 12515
     },
     {
       "identifier": "minecraft:waxed_weathered_cut_copper_slab",
@@ -11678,7 +12320,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 16852
+      "block_visual": 18721
     },
     {
       "identifier": "minecraft:waxed_weathered_cut_copper_stairs",
@@ -11698,7 +12340,7 @@
           "value": 3
         }
       },
-      "block_visual": 16042
+      "block_visual": 17907
     },
     {
       "identifier": "minecraft:weathered_chiseled_copper",
@@ -11712,7 +12354,7 @@
       "metadata": 0,
       "block_name": "minecraft:weathered_copper",
       "block_state": {},
-      "block_visual": 21636
+      "block_visual": 23505
     },
     {
       "identifier": "minecraft:weathered_copper_bars",
@@ -11736,7 +12378,7 @@
           "value": 0
         }
       },
-      "block_visual": 20052
+      "block_visual": 21921
     },
     {
       "identifier": "minecraft:weathered_copper_chain",
@@ -11748,7 +12390,7 @@
           "value": "y"
         }
       },
-      "block_visual": 13283
+      "block_visual": 14652
     },
     {
       "identifier": "minecraft:weathered_copper_door",
@@ -11772,7 +12414,7 @@
           "value": 0
         }
       },
-      "block_visual": 16603
+      "block_visual": 18468
     },
     {
       "identifier": "minecraft:weathered_copper_golem_statue",
@@ -11784,14 +12426,14 @@
           "value": "north"
         }
       },
-      "block_visual": 15489
+      "block_visual": 16858
     },
     {
       "identifier": "minecraft:weathered_copper_grate",
       "metadata": 0,
       "block_name": "minecraft:weathered_copper_grate",
       "block_state": {},
-      "block_visual": 7282
+      "block_visual": 7302
     },
     {
       "identifier": "minecraft:weathered_copper_lantern",
@@ -11803,7 +12445,7 @@
           "value": 0
         }
       },
-      "block_visual": 16649
+      "block_visual": 18514
     },
     {
       "identifier": "minecraft:weathered_copper_trapdoor",
@@ -11823,14 +12465,14 @@
           "value": 0
         }
       },
-      "block_visual": 16828
+      "block_visual": 18697
     },
     {
       "identifier": "minecraft:weathered_cut_copper",
       "metadata": 0,
       "block_name": "minecraft:weathered_cut_copper",
       "block_state": {},
-      "block_visual": 18821
+      "block_visual": 20690
     },
     {
       "identifier": "minecraft:weathered_cut_copper_slab",
@@ -11842,7 +12484,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 15565
+      "block_visual": 16934
     },
     {
       "identifier": "minecraft:weathered_cut_copper_stairs",
@@ -11862,14 +12504,14 @@
           "value": 3
         }
       },
-      "block_visual": 8967
+      "block_visual": 10267
     },
     {
       "identifier": "minecraft:web",
       "metadata": 0,
       "block_name": "minecraft:web",
       "block_state": {},
-      "block_visual": 17047
+      "block_visual": 18916
     },
     {
       "identifier": "minecraft:wet_sponge",
@@ -11888,7 +12530,7 @@
           "value": 0
         }
       },
-      "block_visual": 19056
+      "block_visual": 20925
     },
     {
       "identifier": "minecraft:white_candle",
@@ -11904,28 +12546,28 @@
           "value": 0
         }
       },
-      "block_visual": 11966
+      "block_visual": 13272
     },
     {
       "identifier": "minecraft:white_carpet",
       "metadata": 0,
       "block_name": "minecraft:white_carpet",
       "block_state": {},
-      "block_visual": 18996
+      "block_visual": 20865
     },
     {
       "identifier": "minecraft:white_concrete",
       "metadata": 0,
       "block_name": "minecraft:white_concrete",
       "block_state": {},
-      "block_visual": 21223
+      "block_visual": 23092
     },
     {
       "identifier": "minecraft:white_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:white_concrete_powder",
       "block_state": {},
-      "block_visual": 11156
+      "block_visual": 12462
     },
     {
       "identifier": "minecraft:white_concrete_slab",
@@ -11937,7 +12579,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 10011
+      "block_visual": 11317
     },
     {
       "identifier": "minecraft:white_concrete_stairs",
@@ -11957,7 +12599,7 @@
           "value": 3
         }
       },
-      "block_visual": 12184
+      "block_visual": 13490
     },
     {
       "identifier": "minecraft:white_glazed_terracotta",
@@ -11969,7 +12611,7 @@
           "value": 2
         }
       },
-      "block_visual": 13210
+      "block_visual": 14579
     },
     {
       "identifier": "minecraft:white_shulker_box",
@@ -11983,7 +12625,7 @@
       "metadata": 0,
       "block_name": "minecraft:white_stained_glass",
       "block_state": {},
-      "block_visual": 11210
+      "block_visual": 12516
     },
     {
       "identifier": "minecraft:white_stained_glass_pane",
@@ -12007,28 +12649,28 @@
           "value": 0
         }
       },
-      "block_visual": 9494
+      "block_visual": 10800
     },
     {
       "identifier": "minecraft:white_terracotta",
       "metadata": 0,
       "block_name": "minecraft:white_terracotta",
       "block_state": {},
-      "block_visual": 10767
+      "block_visual": 12073
     },
     {
       "identifier": "minecraft:white_tulip",
       "metadata": 0,
       "block_name": "minecraft:white_tulip",
       "block_state": {},
-      "block_visual": 9805
+      "block_visual": 11111
     },
     {
       "identifier": "minecraft:white_wool",
       "metadata": 0,
       "block_name": "minecraft:white_wool",
       "block_state": {},
-      "block_visual": 12149
+      "block_visual": 13455
     },
     {
       "identifier": "minecraft:white_wool_slab",
@@ -12060,14 +12702,14 @@
           "value": 3
         }
       },
-      "block_visual": 19992
+      "block_visual": 21861
     },
     {
       "identifier": "minecraft:wither_rose",
       "metadata": 0,
       "block_name": "minecraft:wither_rose",
       "block_state": {},
-      "block_visual": 16032
+      "block_visual": 17897
     },
     {
       "identifier": "minecraft:wither_skeleton_skull",
@@ -12079,7 +12721,23 @@
           "value": 1
         }
       },
-      "block_visual": 18877
+      "block_visual": 20746
+    },
+    {
+      "identifier": "minecraft:wooden_button",
+      "metadata": 0,
+      "block_name": "minecraft:wooden_button",
+      "block_state": {
+        "button_pressed_bit": {
+          "type": "byte",
+          "value": 0
+        },
+        "facing_direction": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 18414
     },
     {
       "identifier": "minecraft:wooden_door",
@@ -12103,7 +12761,19 @@
           "value": 0
         }
       },
-      "block_visual": 7383
+      "block_visual": 7403
+    },
+    {
+      "identifier": "minecraft:wooden_pressure_plate",
+      "metadata": 0,
+      "block_name": "minecraft:wooden_pressure_plate",
+      "block_state": {
+        "redstone_signal": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "block_visual": 22889
     },
     {
       "identifier": "minecraft:yellow_candle",
@@ -12119,28 +12789,28 @@
           "value": 0
         }
       },
-      "block_visual": 16082
+      "block_visual": 17947
     },
     {
       "identifier": "minecraft:yellow_carpet",
       "metadata": 0,
       "block_name": "minecraft:yellow_carpet",
       "block_state": {},
-      "block_visual": 14866
+      "block_visual": 16235
     },
     {
       "identifier": "minecraft:yellow_concrete",
       "metadata": 0,
       "block_name": "minecraft:yellow_concrete",
       "block_state": {},
-      "block_visual": 6791
+      "block_visual": 6811
     },
     {
       "identifier": "minecraft:yellow_concrete_powder",
       "metadata": 0,
       "block_name": "minecraft:yellow_concrete_powder",
       "block_state": {},
-      "block_visual": 20089
+      "block_visual": 21958
     },
     {
       "identifier": "minecraft:yellow_concrete_slab",
@@ -12172,7 +12842,7 @@
           "value": 3
         }
       },
-      "block_visual": 17906
+      "block_visual": 19775
     },
     {
       "identifier": "minecraft:yellow_glazed_terracotta",
@@ -12200,7 +12870,7 @@
           "value": 0
         }
       },
-      "block_visual": 20400
+      "block_visual": 22269
     },
     {
       "identifier": "minecraft:yellow_shulker_box",
@@ -12214,7 +12884,7 @@
       "metadata": 0,
       "block_name": "minecraft:yellow_stained_glass",
       "block_state": {},
-      "block_visual": 20111
+      "block_visual": 21980
     },
     {
       "identifier": "minecraft:yellow_stained_glass_pane",
@@ -12245,7 +12915,7 @@
       "metadata": 0,
       "block_name": "minecraft:yellow_terracotta",
       "block_state": {},
-      "block_visual": 8505
+      "block_visual": 9805
     },
     {
       "identifier": "minecraft:yellow_wool",
@@ -12264,7 +12934,7 @@
           "value": "bottom"
         }
       },
-      "block_visual": 7881
+      "block_visual": 9181
     },
     {
       "identifier": "minecraft:yellow_wool_stairs",
@@ -12284,7 +12954,7 @@
           "value": 3
         }
       },
-      "block_visual": 7158
+      "block_visual": 7178
     },
     {
       "identifier": "minecraft:zombie_head",

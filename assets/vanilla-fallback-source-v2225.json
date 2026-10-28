@@ -1,8 +1,8 @@
 {
   "schema": "cinnabar-vanilla-fallback-source-v1",
   "protocol": 2225,
-  "states": 2271,
-  "names": 335,
+  "states": 3550,
+  "names": 334,
   "zero_volume_envelopes": 5,
   "status": "provisional-vanilla-fallback",
   "inventory": {
@@ -10,7 +10,7 @@
     "schema": "CVFB1001",
     "version": 1,
     "entry_bytes": 25,
-    "sha256": "6f8af2cfe1b984c3c57b8ed7bb8d12032184ba02b469f168d86dbc18237f4a74"
+    "sha256": "76f300cd37fd36b3916e3e38ad3ac14d9aa013ad3eaf8cebc899949240330455"
   },
   "input_inventory": {
     "path": "crates/pack-compiler/data/vanilla-fallback-v1001.bin",
@@ -18,7 +18,7 @@
   },
   "registry": {
     "path": "crates/assets/data/block-registry-v2225.bin",
-    "sha256": "87f97e5a8d7c5fb0593df269bcfb4487dd010c26343a508a82091301f6d03795"
+    "sha256": "857441d4da34ac108cffae92468bc2115545740c1d637676f17c4da5526be266"
   },
   "legacy_registry": {
     "path": "crates/assets/data/block-registry-v1001.bin",

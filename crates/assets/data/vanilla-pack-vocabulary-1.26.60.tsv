@@ -44,6 +44,7 @@ actor	minecraft:fireworks_rocket
 actor	minecraft:fishing_hook
 actor	minecraft:fox
 actor	minecraft:frog
+actor	minecraft:frostbite
 actor	minecraft:ghast
 actor	minecraft:glow_squid
 actor	minecraft:goat
@@ -53,6 +54,7 @@ actor	minecraft:hoglin
 actor	minecraft:hopper_minecart
 actor	minecraft:horse
 actor	minecraft:husk
+actor	minecraft:ice_ball
 actor	minecraft:iron_golem
 actor	minecraft:lightning_bolt
 actor	minecraft:lingering_potion
@@ -529,6 +531,7 @@ block	minecraft:brick_double_slab
 block	minecraft:brick_slab
 block	minecraft:brick_stairs
 block	minecraft:brick_wall
+block	minecraft:brittle_ice
 block	minecraft:brown_candle
 block	minecraft:brown_candle_cake
 block	minecraft:brown_carpet
@@ -1063,6 +1066,8 @@ block	minecraft:horn_coral_block
 block	minecraft:horn_coral_fan
 block	minecraft:horn_coral_wall_fan
 block	minecraft:ice
+block	minecraft:ice_crystal
+block	minecraft:icicle
 block	minecraft:infested_chiseled_stone_bricks
 block	minecraft:infested_cobblestone
 block	minecraft:infested_cracked_stone_bricks
@@ -2024,6 +2029,7 @@ item	minecraft:brick_block
 item	minecraft:brick_slab
 item	minecraft:brick_stairs
 item	minecraft:brick_wall
+item	minecraft:brittle_ice
 item	minecraft:brown_bundle
 item	minecraft:brown_candle
 item	minecraft:brown_carpet
@@ -2412,6 +2418,7 @@ item	minecraft:frame
 item	minecraft:friend_pottery_sherd
 item	minecraft:frog_spawn
 item	minecraft:frog_spawn_egg
+item	minecraft:frostbite_spawn_egg
 item	minecraft:frosted_ice
 item	minecraft:furnace
 item	minecraft:ghast_spawn_egg
@@ -2523,6 +2530,9 @@ item	minecraft:host_armor_trim_smithing_template
 item	minecraft:howl_pottery_sherd
 item	minecraft:husk_spawn_egg
 item	minecraft:ice
+item	minecraft:ice_ball
+item	minecraft:ice_crystal
+item	minecraft:icicle
 item	minecraft:infested_chiseled_stone_bricks
 item	minecraft:infested_cobblestone
 item	minecraft:infested_cracked_stone_bricks
@@ -4451,6 +4461,7 @@ property	bite_counter
 property	block_light_level
 property	bloom
 property	books_stored
+property	bottom
 property	brewing_stand_slot_a_bit
 property	brewing_stand_slot_b_bit
 property	brewing_stand_slot_c_bit
@@ -4506,6 +4517,7 @@ property	kelp_age
 property	lever_direction
 property	liquid_depth
 property	lit
+property	locked
 property	minecraft:block_face
 property	minecraft:cardinal_direction
 property	minecraft:connection_down
@@ -4548,7 +4560,11 @@ property	prismarine_block_type
 property	propagule_stage
 property	rail_data_bit
 property	rail_direction
+property	redstone_east
+property	redstone_north
 property	redstone_signal
+property	redstone_south
+property	redstone_west
 property	rehydration_level
 property	repeater_delay
 property	respawn_anchor_charge

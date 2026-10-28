@@ -2254,3 +2254,38 @@ forbidden_dependencies = ["bevy", "wgpu"]
 path = "tools/mod-docs/src/types.rs"
 literal = "string"
 reason = "WIT primitive type vocabulary in the API documentation renderer."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/visuals.rs"
+literal = "bottom"
+reason = "A vertical-half property value, independent of pack asset identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/gameplay/src/placement_state.rs"
+literal = "bottom"
+reason = "A vertical-half property value used when joining slab states."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/native_boat.rs"
+literal = "bottom"
+reason = "An authored boat bone name, independent of pack asset identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/fire_admission.rs"
+literal = "bottom"
+reason = "A vertical-half property value used to resolve the lower block face."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks/states.rs"
+literal = "bottom"
+reason = "A built-in vertical-half trait value in the protocol state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/pbr/sources/names.rs"
+literal = "bottom"
+reason = "A door texture suffix in the existing provisional PBR name conversion."
+
+[[identifier_literal_exceptions]]
+path = "tools/jsonui-editor/src/figma/convert/button.rs"
+literal = "locked"
+reason = "A button state name in the editor conversion contract, independent of pack asset identifiers."

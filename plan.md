@@ -77,13 +77,14 @@ The generated codec and Go integrations target protocol 2225. New matchmaking,
 stonecutter selection, cursor dragging, block passengers and registered audio packets
 are decoded, counted and skipped until their client features are implemented.
 The target catalog includes fire and wire connection states with empty collision;
-selection and connection-rendering acceptance for those states remains incomplete.
+collision, selection and connection-rendering acceptance for those states remains incomplete.
 Chorus plants, disc presses, ice crystals and icicles remain reserved because their
 new state geometry is unverified. Their collision, selection and rendering acceptance
 remains incomplete. The official matching-protocol preview resource pack supplies
 property domains and HUD inputs; retail resource-pack and full-client acceptance
-remain incomplete. Frostbite and ice-ball targeting and use behavior remain
-unresolved until their native dispositions are verified.
+remain incomplete. Frostbite presentation, freezing potion facts and ice-ball targeting and use
+behavior remain unresolved until their native dispositions are verified. Aux-state
+item routing retains the legacy owner catalog and needs current-version acceptance.
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.

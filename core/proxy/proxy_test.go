@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 
 	"github.com/google/uuid"
@@ -1312,7 +1313,7 @@ func relayFixtureStartup() []packet.Packet {
 		&packet.StartGame{
 			WorldName: "Fixture", LevelID: "fixture-level", ServerID: "server-id", WorldID: "world-id",
 			ScenarioID: "scenario", OwnerID: "owner", EntityUniqueID: 42, EntityRuntimeID: 42,
-			BaseGameVersion: "1.26.60", GameVersion: "1.26.60", Trial: true, EducationFeaturesEnabled: true,
+			BaseGameVersion: bridgecontract.GameVersion, GameVersion: bridgecontract.GameVersion, Trial: true, EducationFeaturesEnabled: true,
 			TemplateContentIdentity: "template", EnchantmentSeed: 1234, MultiPlayerCorrelationID: "correlation",
 		},
 		&packet.ItemRegistry{Items: []protocol.ItemEntry{{Name: "minecraft:shield", RuntimeID: 355}}},

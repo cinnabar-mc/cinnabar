@@ -12,6 +12,7 @@ bite_counter
 block_light_level
 bloom
 books_stored
+bottom
 brewing_stand_slot_a_bit
 brewing_stand_slot_b_bit
 brewing_stand_slot_c_bit
@@ -67,6 +68,7 @@ kelp_age
 lever_direction
 liquid_depth
 lit
+locked
 minecraft:acacia_boat
 minecraft:acacia_button
 minecraft:acacia_chest_boat
@@ -284,6 +286,7 @@ minecraft:brick_double_slab
 minecraft:brick_slab
 minecraft:brick_stairs
 minecraft:brick_wall
+minecraft:brittle_ice
 minecraft:brown_bundle
 minecraft:brown_candle
 minecraft:brown_candle_cake
@@ -679,6 +682,7 @@ minecraft:diorite_wall
 minecraft:dirt
 minecraft:dirt_with_roots
 minecraft:disc_fragment_5
+minecraft:disc_press
 minecraft:dispenser
 minecraft:dolphin
 minecraft:dolphin_spawn_egg
@@ -921,6 +925,8 @@ minecraft:friend_pottery_sherd
 minecraft:frog
 minecraft:frog_spawn
 minecraft:frog_spawn_egg
+minecraft:frostbite
+minecraft:frostbite_spawn_egg
 minecraft:frosted_ice
 minecraft:frozen_ocean
 minecraft:frozen_peaks
@@ -1093,9 +1099,12 @@ minecraft:howl_pottery_sherd
 minecraft:husk
 minecraft:husk_spawn_egg
 minecraft:ice
+minecraft:ice_ball
+minecraft:ice_crystal
 minecraft:ice_mountains
 minecraft:ice_plains
 minecraft:ice_plains_spikes
+minecraft:icicle
 minecraft:infested_chiseled_stone_bricks
 minecraft:infested_cobblestone
 minecraft:infested_cracked_stone_bricks
@@ -2378,7 +2387,11 @@ prismarine_block_type
 propagule_stage
 rail_data_bit
 rail_direction
+redstone_east
+redstone_north
 redstone_signal
+redstone_south
+redstone_west
 rehydration_level
 repeater_delay
 respawn_anchor_charge

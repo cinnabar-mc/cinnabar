@@ -23,7 +23,7 @@ func TestSharedRegistrySchemaIsCurrent(t *testing.T) {
 }
 
 func TestRegistryEncoderMatchesCrossLanguageFixture(t *testing.T) {
-	metadata := RegistryMetadata{Protocol: 2225, CanonicalNames: 2, CanonicalStates: 2, ValentineNames: 2, ValentineStates: 2}
+	metadata := RegistryMetadata{Protocol: v2225BlockProtocol, CanonicalNames: 2, CanonicalStates: 2, ValentineNames: 2, ValentineStates: 2}
 	records := []Record{
 		{
 			BeaconTint: BeaconTintRed, SequentialID: 7, NetworkHash: 0x12345678, Flags: flagCubeGeometry | flagLeafModel,

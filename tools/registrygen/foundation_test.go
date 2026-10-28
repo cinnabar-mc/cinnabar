@@ -328,12 +328,16 @@ func TestRegistryFoundationFollowsTargetBlockPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	biome, err := targetpin.Hash("biome_registry")
+	if err != nil {
+		t.Fatal(err)
+	}
 	changed := strings.Repeat("a", 64)
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "assets"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	target, err := json.Marshal(map[string]any{"hashes": map[string]string{"block_registry": changed, "light_registry": light}})
+	target, err := json.Marshal(map[string]any{"hashes": map[string]string{"block_registry": changed, "light_registry": light, "biome_registry": biome}})
 	if err != nil {
 		t.Fatal(err)
 	}

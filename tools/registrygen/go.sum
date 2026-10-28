@@ -1,5 +1,7 @@
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
+github.com/cinnabar-mc/dragonfly v0.0.0-20261028135505-5e4c2e16fb50 h1:4+vp7OI3Aj49+KWyWqRmlbRGpMRSTZNBZ2vVzNlIGM4=
+github.com/cinnabar-mc/dragonfly v0.0.0-20261028135505-5e4c2e16fb50/go.mod h1:/ACkO7GUvuwDiFWjCsLdlBGww2yeQihvHBVjR+MjF1s=
 github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261028003444-2aaf70061542 h1:an79zcBnT7wSifwkreSFjfQbkUjuVE4ZPBzcQLdip/g=
 github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261028003444-2aaf70061542/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -32,8 +34,6 @@ github.com/google/go-cmp v0.4.0/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/
 github.com/google/go-cmp v0.5.5/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashimthearab/dragonfly v0.0.0-20261028011445-c57293740e76 h1:dlpYg9NfcCYQ9XObANZneHu4tSGUsIAjY5h7CCgSOHI=
-github.com/hashimthearab/dragonfly v0.0.0-20261028011445-c57293740e76/go.mod h1:7NUCy+DNparIGM4/jtCK8ctCsrOI6RJk6OfTJXpMFjs=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20261027215313-1d66110b3497 h1:0+M0CkWoQ2vQO5xEtGy5eGdMDtODTRpvTUf0cE2lKkg=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20261027215313-1d66110b3497/go.mod h1:U96CEWnV10+3zpEDNAONoExUcNqtLlKPdMA4BqTFv9A=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=

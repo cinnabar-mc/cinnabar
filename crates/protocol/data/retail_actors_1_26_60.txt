@@ -44,6 +44,7 @@ minecraft:fireworks_rocket
 minecraft:fishing_hook
 minecraft:fox
 minecraft:frog
+minecraft:frostbite
 minecraft:ghast
 minecraft:glow_squid
 minecraft:goat
@@ -53,6 +54,7 @@ minecraft:hoglin
 minecraft:hopper_minecart
 minecraft:horse
 minecraft:husk
+minecraft:ice_ball
 minecraft:iron_golem
 minecraft:lightning_bolt
 minecraft:lingering_potion

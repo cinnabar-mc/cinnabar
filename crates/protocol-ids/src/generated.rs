@@ -792,6 +792,6 @@ pub const SPRINT_SPEED_MODIFIER_ID: &str = "d208fc00-42aa-4aad-9276-d5446530de43
 pub const SPEED_EFFECT_MODIFIER_ID: &str = "91aeaa56-376b-4498-935b-2f7f68070635";
 
 /// Sequential air identity derived from the active block registry.
-pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 17025;
+pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 18894;
 /// Hashed air identity derived from the active block registry.
 pub const HASHED_AIR_NETWORK_ID: u32 = 3690217760;

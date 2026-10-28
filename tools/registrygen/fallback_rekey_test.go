@@ -88,15 +88,15 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The 16 trip wire states fan out to their 16 connection variants each.
-	if stats.InputEntries != 2_031 || stats.OutputEntries != 2_270 || stats.ReservedExcluded != 1 || stats.ConnectedVariants != 256 {
+	// Tripwire and redstone-wire states fan out to their connection variants; reserved chorus is excluded.
+	if stats.InputEntries != 2_031 || stats.OutputEntries != 3_550 || stats.ReservedExcluded != 1 || stats.ConnectedVariants != 1552 {
 		t.Fatalf("rekey counts = in %d out %d reserved-excluded %d connected %d", stats.InputEntries, stats.OutputEntries, stats.ReservedExcluded, stats.ConnectedVariants)
 	}
 	count, err := parseFallbackInventoryHeader(output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 2_270 {
+	if count != 3_550 {
 		t.Fatalf("output header count = %d", count)
 	}
 	currentByHash := make(map[uint32]Record, len(current))
@@ -142,8 +142,8 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 			t.Fatalf("payload identity %s preserved %d times, want %d", key, got, want)
 		}
 	}
-	if len(outputPayloads) != len(inputPayloads)-17 {
-		t.Fatalf("unchanged payload identities = %d, want %d", len(outputPayloads), len(inputPayloads)-17)
+	if len(outputPayloads) != len(inputPayloads)-33 {
+		t.Fatalf("unchanged payload identities = %d, want %d", len(outputPayloads), len(inputPayloads)-33)
 	}
 	if stats.DistinctNames != 334 || stats.ZeroVolume != 5 {
 		t.Fatalf("preserved-envelope counts = names %d zero-volume %d", stats.DistinctNames, stats.ZeroVolume)
@@ -241,7 +241,11 @@ func TestCheckedInV2225FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rekeyed, _, err := rekeyFallbackInventory(input, legacyRecords, currentRecords, nil)
+	source, err := v2225SourceRecords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rekeyed, _, err := rekeyFallbackInventory(input, legacyRecords, currentRecords, source)
 	if err != nil {
 		t.Fatal(err)
 	}

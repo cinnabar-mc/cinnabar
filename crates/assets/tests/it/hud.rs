@@ -1,11 +1,11 @@
 use assets::{
-    HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, RuntimeHudCatalog, encode_hud_catalog,
+    HudTexture, HudTextureRole, RuntimeHudCatalog, encode_hud_catalog, hud_source_manifest_sha256,
 };
 use sha2::{Digest, Sha256};
 
 #[test]
 fn hud_carrier_round_trips_all_required_survival_roles_with_provenance() {
-    let manifest = HUD_SOURCE_MANIFEST_SHA256;
+    let manifest = hud_source_manifest_sha256();
     let textures = HudTextureRole::ALL
         .into_iter()
         .map(|role| fixture_texture(role, role as u8))
@@ -27,7 +27,7 @@ fn hud_carrier_round_trips_all_required_survival_roles_with_provenance() {
 
 #[test]
 fn hud_carrier_rejects_corruption_missing_roles_and_wrong_dimensions() {
-    let manifest = HUD_SOURCE_MANIFEST_SHA256;
+    let manifest = hud_source_manifest_sha256();
     let textures = HudTextureRole::ALL
         .into_iter()
         .map(|role| fixture_texture(role, role as u8))

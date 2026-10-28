@@ -106,7 +106,7 @@ func TestSessionConnectFixtureDecodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if request.Protocol != 2225 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
-		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != "1.26.60" {
+		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != bridgecontract.GameVersion {
 		t.Fatalf("connect = %+v, client data = %+v", request, clientData)
 	}
 }

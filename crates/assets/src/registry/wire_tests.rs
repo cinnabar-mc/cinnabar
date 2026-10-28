@@ -31,7 +31,8 @@ fn fixture() -> Vec<u8> {
 
 #[test]
 fn reads_the_go_wire_contract_without_reinterpreting_fields() {
-    let records = read_registry_for_protocol(&fixture(), 2225).unwrap();
+    let records =
+        read_registry_for_protocol(&fixture(), crate::active_content_registry_protocol()).unwrap();
     assert_eq!(records.len(), 2);
     let leaf = &records[0];
     assert_eq!(leaf.sequential_id, 7);
@@ -216,7 +217,8 @@ fn historical_registry_restores_traits_and_survival_before_admission() {
 
 #[test]
 fn current_empty_traits_remain_explicit() {
-    let records = read_registry_for_protocol(&fixture(), 2225).unwrap();
+    let records =
+        read_registry_for_protocol(&fixture(), crate::active_content_registry_protocol()).unwrap();
     assert!(records[0].traits.is_empty());
 }
 
