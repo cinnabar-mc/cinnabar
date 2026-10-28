@@ -1168,7 +1168,9 @@ platforms. Missing source music/ambience requires lawful local input or the docu
 fallback; do not bundle game assets to fill gaps.
 Native audio follows changes to the system default output on its owner thread, retaining
 active and queued sounds across output replacement and retrying unavailable devices.
-Automated transport tests cover switching and recovery. The polling cadence is provisional;
+On Linux, an unavailable ALSA default falls back only to PipeWire/PulseAudio bridges,
+which retain the desktop sound server's output routing. Automated transport tests cover
+switching, recovery and bridge fallback. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound

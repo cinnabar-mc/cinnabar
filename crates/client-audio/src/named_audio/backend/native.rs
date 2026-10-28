@@ -12,6 +12,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "linux")]
+mod linux;
+
 /// Device checks and retries stay off the game thread.
 const DEVICE_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 type MixerSlot = Arc<Mutex<Option<CaptureMixer>>>;
@@ -121,13 +124,11 @@ pub(super) fn open_default_output()
     Some((route, controller))
 }
 
-/// Queries the OS default without enumerating or selecting an alternate output.
+/// Queries the OS default, using a sound-server bridge on Linux if ALSA's default fails.
 pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, OutputStream>) {
     let device = rodio::cpal::default_host().default_output_device();
-    route.refresh(
-        device,
-        same_device,
-        |device, source| match OutputStream::try_from_device(device) {
+    route.refresh(device, same_device, |device, source| {
+        match open_stream(device) {
             Ok((stream, handle)) => {
                 handle
                     .play_raw(super::priority::CallbackSource::new(source))
@@ -135,11 +136,21 @@ pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, OutputStream
                 Some(stream)
             }
             Err(error) => {
-                bevy::log::debug!(%error, "default audio output unavailable; will retry");
+                bevy::log::debug!(%error, "audio output unavailable; will retry");
                 None
             }
-        },
-    );
+        }
+    });
+}
+
+/// Opens the selected endpoint with the platform's transport fallback policy.
+fn open_stream(
+    device: &rodio::cpal::Device,
+) -> Result<(OutputStream, rodio::OutputStreamHandle), rodio::StreamError> {
+    #[cfg(target_os = "linux")]
+    return linux::open(device);
+    #[cfg(not(target_os = "linux"))]
+    OutputStream::try_from_device(device)
 }
 
 /// Compares endpoint identities on desktop hosts that expose them, including identical names.
