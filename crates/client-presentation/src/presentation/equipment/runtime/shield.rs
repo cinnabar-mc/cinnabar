@@ -14,6 +14,7 @@ struct Image {
     /// Keeps the pointer used by the key alive until its cached composition is retired.
     _source: Arc<[u8]>,
     raster: EquipmentRaster,
+    rig: Option<EntityRigId>,
     used: bool,
 }
 
@@ -30,17 +31,32 @@ impl EquipmentRuntime {
 
     /// Releases compositions no longer used by a visible hand or actor.
     pub(crate) fn finish_shield_frame(&mut self) {
-        self.shield_patterns.0.retain(|_, image| image.used);
+        let mut retired = Vec::new();
+        self.shield_patterns.0.retain(|_, image| {
+            if !image.used {
+                retired.extend(image.rig);
+            }
+            image.used
+        });
+        self.pending
+            .retain(|geometry| !retired.contains(&geometry.id));
+        self.free_meshes.extend(retired);
     }
 
-    /// Composes the admitted shield stack over the raster selected by its actual draw layer.
+    /// Releases shield artwork and its generated mesh slots when the pack changes.
+    pub(super) fn clear_shield_patterns(&mut self) {
+        self.begin_shield_frame();
+        self.finish_shield_frame();
+    }
+
+    /// Returns the selected shield's decorated raster and matching authored or sprite rig.
     pub(crate) fn shield_raster(
         &mut self,
         item: &WornItem,
         artwork: &ActorArtworkPages,
         location: ActorArtworkLocation,
         rig: EntityRigId,
-    ) -> Option<EquipmentRaster> {
+    ) -> Option<(EquipmentRaster, EntityRigId)> {
         if item.identifier.as_ref() != assets::gui_item::SHIELD_IDENTIFIER {
             return None;
         }
@@ -78,12 +94,14 @@ impl EquipmentRuntime {
             let bytes = usize::from(width) * usize::from(height) * 4;
             let start = usize::try_from(location.layer()).ok()?.checked_mul(bytes)?;
             let selected = pixels.get(start..start.checked_add(bytes)?)?;
-            let raster = if let Some(icon) = icon {
+            let (raster, rig) = if let Some(icon) = icon {
                 let sprite = self.decorated_shield_icon(
                     pattern,
                     usize::from(icon.width) * usize::from(icon.height),
                 )?;
                 let mut rgba8 = selected.to_vec();
+                let mut silhouette =
+                    Vec::with_capacity(usize::from(icon.width) * usize::from(icon.height) * 4);
                 for y in 0..usize::from(icon.height) {
                     for x in 0..usize::from(icon.width) {
                         let source = (y * usize::from(sprite.height) / usize::from(icon.height)
@@ -97,13 +115,26 @@ impl EquipmentRuntime {
                         rgba8
                             .get_mut(target..target + 4)?
                             .copy_from_slice(&sprite.rgba8[source..source + 4]);
+                        silhouette.extend_from_slice(&sprite.rgba8[source..source + 4]);
                     }
                 }
-                EquipmentRaster {
-                    width,
-                    height,
-                    rgba8: rgba8.into(),
-                }
+                let vertices = held_sprite_vertices(
+                    usize::from(icon.width),
+                    usize::from(icon.height),
+                    &silhouette,
+                    icon.uv_rect(),
+                )?;
+                let rig = self.build_item_mesh(|id| {
+                    ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()
+                })?;
+                (
+                    EquipmentRaster {
+                        width,
+                        height,
+                        rgba8: rgba8.into(),
+                    },
+                    Some(rig),
+                )
             } else {
                 let base = assets::EquipmentTexture {
                     identifier: item.identifier.as_ref().into(),
@@ -113,24 +144,28 @@ impl EquipmentRuntime {
                 };
                 let composed =
                     self.compose_shield(&base, pattern, usize::from(width) * usize::from(height))?;
-                EquipmentRaster {
-                    width: composed.width,
-                    height: composed.height,
-                    rgba8: composed.rgba8,
-                }
+                (
+                    EquipmentRaster {
+                        width: composed.width,
+                        height: composed.height,
+                        rgba8: composed.rgba8,
+                    },
+                    None,
+                )
             };
             self.shield_patterns.0.insert(
                 key.clone(),
                 Image {
                     _source: pixels,
                     raster,
+                    rig,
                     used: true,
                 },
             );
         }
         let image = self.shield_patterns.0.get_mut(&key)?;
         image.used = true;
-        Some(image.raster.clone())
+        Some((image.raster.clone(), image.rig.unwrap_or(rig)))
     }
 
     /// Bakes the ordinary shield GUI model before placing it in a held sprite's atlas cell.

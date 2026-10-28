@@ -40,7 +40,12 @@ pub struct ActorLayerCache {
     pages: Option<ActorArtworkPages>,
     poses: LayerPoseCache,
     extras: Vec<ActorRigSubmission>,
-    decorations: Vec<(usize, render_model::ActorRenderIdentity, EquipmentRaster)>,
+    decorations: Vec<(
+        usize,
+        render_model::ActorRenderIdentity,
+        EquipmentRaster,
+        render_model::EntityRigId,
+    )>,
 }
 
 /// Keys are valid while their corresponding retained raster owns the immutable allocation.
@@ -228,17 +233,18 @@ impl ActorLayerCache {
         mut decoration_of: impl FnMut(
             &ActorRigSubmission,
             Option<ActorArtworkLocation>,
-        ) -> Option<EquipmentRaster>,
+        ) -> Option<(EquipmentRaster, render_model::EntityRigId)>,
     ) -> Option<ActorArtworkPages> {
         self.desired.clear();
         self.decorations.clear();
         self.poses.begin_frame();
         for (index, draw) in batch.submissions.iter().enumerate() {
-            if let Some(raster) =
+            if let Some((raster, rig)) =
                 decoration_of(draw, batch.artwork.get(&draw.input.identity).copied())
             {
                 self.retain_image(raster.clone());
-                self.decorations.push((index, draw.input.identity, raster));
+                self.decorations
+                    .push((index, draw.input.identity, raster, rig));
             }
         }
         for body in &batch.submissions {
@@ -257,10 +263,11 @@ impl ActorLayerCache {
             }
         }
         let changed = self.update_pages(base);
-        for (index, identity, raster) in &self.decorations {
+        for (index, identity, raster, rig) in &self.decorations {
             if let Some(location) = self.image_location(raster) {
                 if let Some(draw) = batch.submissions.get_mut(*index) {
                     draw.texture_layer = location.layer();
+                    draw.input.rig = *rig;
                 }
                 batch.artwork.insert(*identity, location);
             }

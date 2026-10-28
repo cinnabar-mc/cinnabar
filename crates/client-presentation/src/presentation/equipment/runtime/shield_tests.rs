@@ -47,18 +47,18 @@ fn shield_decoration_follows_selected_artwork_and_recovers_after_pack_reload() {
         layers: Arc::from([]),
     }));
     runtime.begin_shield_frame();
-    let first = runtime
+    let (first, _) = runtime
         .shield_raster(&item, &pages, location, EntityRigId(99))
         .unwrap();
     assert_eq!(&first.rgba8[..3], assets::banner::color_rgb(15));
     assert_eq!(&first.rgba8[4..], &[40, 50, 60, 255]);
-    let reused = runtime
+    let (reused, _) = runtime
         .shield_raster(&item, &pages, location, EntityRigId(99))
         .unwrap();
     assert!(Arc::ptr_eq(&first.rgba8, &reused.rgba8));
     runtime.finish_shield_frame();
     runtime.begin_shield_frame();
-    let next = runtime
+    let (next, _) = runtime
         .shield_raster(&item, &pages, location, EntityRigId(99))
         .unwrap();
     assert!(Arc::ptr_eq(&first.rgba8, &next.rgba8));
@@ -68,7 +68,7 @@ fn shield_decoration_follows_selected_artwork_and_recovers_after_pack_reload() {
         Some(catalog([255, 0, 0, 255])),
         Vec::new(),
     )));
-    let changed = runtime
+    let (changed, _) = runtime
         .shield_raster(&item, &pages, location, EntityRigId(99))
         .unwrap();
     assert_eq!(
@@ -78,7 +78,7 @@ fn shield_decoration_follows_selected_artwork_and_recovers_after_pack_reload() {
     assert!(!Arc::ptr_eq(&first.rgba8, &changed.rgba8));
     runtime.begin_shield_frame();
     runtime.finish_shield_frame();
-    let recovered = runtime
+    let (recovered, _) = runtime
         .shield_raster(&item, &pages, location, EntityRigId(99))
         .unwrap();
     assert!(!Arc::ptr_eq(&changed.rgba8, &recovered.rgba8));
@@ -145,7 +145,9 @@ fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
     let (rig, location, _) = runtime.held_icon_mesh(&item).unwrap();
     let (_, placement, _) = runtime.session_sprite(&item.identifier, 0).unwrap();
     assert!(placement.x > 0);
-    let output = runtime.shield_raster(&item, &pages, location, rig).unwrap();
+    runtime.take_pending_geometries();
+    let (output, decorated_rig) = runtime.shield_raster(&item, &pages, location, rig).unwrap();
+    assert_ne!(decorated_rig, rig);
     assert_eq!(
         &output.rgba8[..4],
         &[40, 50, 60, 255],
@@ -157,6 +159,23 @@ fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
     let composed =
         assets::item::shield::compose(base, 1, [], 32 * 32, |path| catalog.texture(path)).unwrap();
     let expected = assets::item::shield::bake_icon(geometry, &composed).unwrap();
+    let expected_mesh = held_sprite_vertices(
+        usize::from(expected.width),
+        usize::from(expected.height),
+        &expected.rgba8,
+        placement.uv_rect(),
+    )
+    .unwrap();
+    let mesh = runtime
+        .take_pending_geometries()
+        .into_iter()
+        .find(|mesh| mesh.id == decorated_rig)
+        .expect("the decorated sprite must publish matching geometry");
+    assert_eq!(&*mesh.vertices, &*expected_mesh);
+    let (reused, reused_rig) = runtime.shield_raster(&item, &pages, location, rig).unwrap();
+    assert_eq!(reused_rig, decorated_rig);
+    assert!(Arc::ptr_eq(&output.rgba8, &reused.rgba8));
+    assert!(runtime.take_pending_geometries().is_empty());
     for y in 0..64usize {
         let start = ((usize::from(placement.y) + y) * usize::from(output.width)
             + usize::from(placement.x))
@@ -166,4 +185,16 @@ fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
             &expected.rgba8[y * 64 * 4..(y + 1) * 64 * 4]
         );
     }
+    runtime.begin_shield_frame();
+    runtime.finish_shield_frame();
+    let (recovered, recovered_rig) = runtime.shield_raster(&item, &pages, location, rig).unwrap();
+    assert_eq!(
+        recovered_rig, decorated_rig,
+        "an unused decoration must release its mesh slot"
+    );
+    assert_eq!(recovered.rgba8, output.rgba8);
+    assert!(!Arc::ptr_eq(&recovered.rgba8, &output.rgba8));
+    let meshes = runtime.take_pending_geometries();
+    assert_eq!(meshes.len(), 1);
+    assert_eq!(meshes[0].vertices, mesh.vertices);
 }

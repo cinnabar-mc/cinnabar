@@ -66,12 +66,13 @@ pub(super) fn decorated_item_atlas(
     layer: &mut FirstPersonItem,
     artwork: &render_model::ActorArtworkPages,
 ) -> Option<HandItemAtlas> {
-    if let Some(raster) = equipment.shield_raster(
+    if let Some((raster, rig)) = equipment.shield_raster(
         item,
         artwork,
         layer.presentation.location,
         layer.presentation.submission.input.rig,
     ) {
+        layer.presentation.submission.input.rig = rig;
         layer.presentation.location.layer = 0;
         layer.presentation.submission.texture_layer = 0;
         Some(HandItemAtlas {
