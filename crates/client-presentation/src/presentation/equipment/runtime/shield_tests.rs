@@ -114,7 +114,7 @@ fn sprite_sources() -> Vec<(Box<str>, Vec<u8>)> {
 }
 
 #[test]
-fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
+fn shield_sprite_fallback_caches_small_artwork_and_matching_geometry() {
     use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
     let (mut runtime, mut pages) =
         crate::presentation::equipment::tests::startup_runtime(sprite_sources());
@@ -124,15 +124,22 @@ fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
         base: 1,
         layers: Arc::from([]),
     }));
-    // The first icon forces the shield away from the atlas origin.
+    // An unrelated large icon makes atlas-layer copies expensive for this small shield.
     let icons = SessionIcons {
         icons: ["fixture:other", assets::gui_item::SHIELD_IDENTIFIER]
-            .map(|identifier| SessionIcon {
-                identifier: identifier.into(),
-                metadata: 0,
-                width: 64,
-                height: 64,
-                rgba8: [40, 50, 60, 255].repeat(64 * 64).into(),
+            .map(|identifier| {
+                let side = if identifier == "fixture:other" {
+                    2048
+                } else {
+                    64
+                };
+                SessionIcon {
+                    identifier: identifier.into(),
+                    metadata: 0,
+                    width: side,
+                    height: side,
+                    rgba8: [40, 50, 60, 255].repeat((side * side) as usize).into(),
+                }
             })
             .into_iter()
             .collect(),
@@ -143,15 +150,16 @@ fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
     pages = next;
     runtime.set_session_items(None, Some(staged), locations);
     let (rig, location, _) = runtime.held_icon_mesh(&item).unwrap();
-    let (_, placement, _) = runtime.session_sprite(&item.identifier, 0).unwrap();
-    assert!(placement.x > 0);
     runtime.take_pending_geometries();
+    runtime.next_mesh = MAX_ITEM_MESHES as u32;
     let (output, decorated_rig) = runtime.shield_raster(&item, &pages, location, rig).unwrap();
     assert_ne!(decorated_rig, rig);
-    assert_eq!(
-        &output.rgba8[..4],
-        &[40, 50, 60, 255],
-        "unrelated atlas icons retain their artwork"
+    assert!(output.rgba8.len() <= (assets::MAX_ICON_SIDE as usize).pow(2) * 4);
+    assert!(
+        output.rgba8.len()
+            < pages.pages()[usize::from(location.page()) - 1]
+                .pixels()
+                .len()
     );
     let catalog = runtime.catalog.as_ref().unwrap();
     let geometry = &runtime.assets.geometries()[0];
@@ -163,7 +171,7 @@ fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
         usize::from(expected.width),
         usize::from(expected.height),
         &expected.rgba8,
-        placement.uv_rect(),
+        [0.0, 0.0, 1.0, 1.0],
     )
     .unwrap();
     let mesh = runtime
@@ -172,29 +180,52 @@ fn shield_sprite_fallback_decorates_only_its_projected_icon_rectangle() {
         .find(|mesh| mesh.id == decorated_rig)
         .expect("the decorated sprite must publish matching geometry");
     assert_eq!(&*mesh.vertices, &*expected_mesh);
+    let planes = runtime.map_meshes();
+    assert!(
+        !planes.contains(&decorated_rig),
+        "map planes must not replace decorated shield geometry"
+    );
+    let mut builder = render_model::ActorRigFrameBuilder::new(vec![mesh.clone()]).unwrap();
+    for plane in runtime.take_pending_geometries() {
+        builder.insert_geometry(plane).unwrap();
+    }
+    assert_eq!(
+        builder.geometry(decorated_rig).unwrap().vertices,
+        mesh.vertices
+    );
     let (reused, reused_rig) = runtime.shield_raster(&item, &pages, location, rig).unwrap();
     assert_eq!(reused_rig, decorated_rig);
     assert!(Arc::ptr_eq(&output.rgba8, &reused.rgba8));
     assert!(runtime.take_pending_geometries().is_empty());
-    for y in 0..64usize {
-        let start = ((usize::from(placement.y) + y) * usize::from(output.width)
-            + usize::from(placement.x))
-            * 4;
+    assert_eq!(
+        [output.width, output.height],
+        [expected.width, expected.height]
+    );
+    assert_eq!(output.rgba8, expected.rgba8);
+    for base in 2..16 {
+        let mut other = item.clone();
+        other.shield_pattern = Some(Arc::new(render_api::ShieldPattern {
+            base,
+            layers: Arc::from([]),
+        }));
+        let (art, shared_rig) = runtime
+            .shield_raster(&other, &pages, location, rig)
+            .unwrap();
         assert_eq!(
-            &output.rgba8[start..start + 64 * 4],
-            &expected.rgba8[y * 64 * 4..(y + 1) * 64 * 4]
+            shared_rig, decorated_rig,
+            "cloth colors share one opaque shield outline"
         );
+        assert_eq!(art.rgba8.len(), output.rgba8.len());
     }
+    assert!(runtime.take_pending_geometries().is_empty());
     runtime.begin_shield_frame();
     runtime.finish_shield_frame();
     let (recovered, recovered_rig) = runtime.shield_raster(&item, &pages, location, rig).unwrap();
     assert_eq!(
         recovered_rig, decorated_rig,
-        "an unused decoration must release its mesh slot"
+        "retired artwork must reuse the shared outline"
     );
     assert_eq!(recovered.rgba8, output.rgba8);
     assert!(!Arc::ptr_eq(&recovered.rgba8, &output.rgba8));
-    let meshes = runtime.take_pending_geometries();
-    assert_eq!(meshes.len(), 1);
-    assert_eq!(meshes[0].vertices, mesh.vertices);
+    assert!(runtime.take_pending_geometries().is_empty());
 }

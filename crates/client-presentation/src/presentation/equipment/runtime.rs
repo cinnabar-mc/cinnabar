@@ -52,7 +52,9 @@ pub use types::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation,
     FirstPersonArms, FirstPersonItem, HeldKind, JavaGrip, WornItem,
 };
-use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
+use types::{
+    ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey, ReservedItemMesh,
+};
 
 use {
     super::{

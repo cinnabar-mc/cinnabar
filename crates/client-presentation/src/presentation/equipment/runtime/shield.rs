@@ -19,31 +19,25 @@ struct Image {
 }
 
 #[derive(Default)]
-pub(super) struct Patterns(BTreeMap<Key, Image>);
+pub(super) struct Patterns {
+    images: BTreeMap<Key, Image>,
+    sprite: Option<EntityRigId>,
+}
 
 impl EquipmentRuntime {
     /// Starts a frame's visible shield set without throwing away unchanged compositions.
     pub(crate) fn begin_shield_frame(&mut self) {
-        for image in self.shield_patterns.0.values_mut() {
+        for image in self.shield_patterns.images.values_mut() {
             image.used = false;
         }
     }
 
     /// Releases compositions no longer used by a visible hand or actor.
     pub(crate) fn finish_shield_frame(&mut self) {
-        let mut retired = Vec::new();
-        self.shield_patterns.0.retain(|_, image| {
-            if !image.used {
-                retired.extend(image.rig);
-            }
-            image.used
-        });
-        self.pending
-            .retain(|geometry| !retired.contains(&geometry.id));
-        self.free_meshes.extend(retired);
+        self.shield_patterns.images.retain(|_, image| image.used);
     }
 
-    /// Releases shield artwork and its generated mesh slots when the pack changes.
+    /// Releases shield artwork while retaining its pattern-independent sprite geometry.
     pub(super) fn clear_shield_patterns(&mut self) {
         self.begin_shield_frame();
         self.finish_shield_frame();
@@ -90,48 +84,34 @@ impl EquipmentRuntime {
             size: [width, height],
             icon: icon.map(|icon| [icon.x, icon.y, icon.width, icon.height]),
         };
-        if !self.shield_patterns.0.contains_key(&key) {
+        if !self.shield_patterns.images.contains_key(&key) {
             let bytes = usize::from(width) * usize::from(height) * 4;
             let start = usize::try_from(location.layer()).ok()?.checked_mul(bytes)?;
             let selected = pixels.get(start..start.checked_add(bytes)?)?;
-            let (raster, rig) = if let Some(icon) = icon {
-                let sprite = self.decorated_shield_icon(
-                    pattern,
-                    usize::from(icon.width) * usize::from(icon.height),
-                )?;
-                let mut rgba8 = selected.to_vec();
-                let mut silhouette =
-                    Vec::with_capacity(usize::from(icon.width) * usize::from(icon.height) * 4);
-                for y in 0..usize::from(icon.height) {
-                    for x in 0..usize::from(icon.width) {
-                        let source = (y * usize::from(sprite.height) / usize::from(icon.height)
-                            * usize::from(sprite.width)
-                            + x * usize::from(sprite.width) / usize::from(icon.width))
-                            * 4;
-                        let target = ((usize::from(icon.y) + y) * usize::from(width)
-                            + usize::from(icon.x)
-                            + x)
-                            * 4;
-                        rgba8
-                            .get_mut(target..target + 4)?
-                            .copy_from_slice(&sprite.rgba8[source..source + 4]);
-                        silhouette.extend_from_slice(&sprite.rgba8[source..source + 4]);
-                    }
-                }
-                let vertices = held_sprite_vertices(
-                    usize::from(icon.width),
-                    usize::from(icon.height),
-                    &silhouette,
-                    icon.uv_rect(),
-                )?;
-                let rig = self.build_item_mesh(|id| {
-                    ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()
-                })?;
+            let (raster, rig) = if icon.is_some() {
+                let sprite =
+                    self.decorated_shield_icon(pattern, (assets::MAX_ICON_SIDE as usize).pow(2))?;
+                let rig = if let Some(rig) = self.shield_patterns.sprite {
+                    rig
+                } else {
+                    // Composed sheets are opaque, so every pattern has the same static outline.
+                    let vertices = held_sprite_vertices(
+                        usize::from(sprite.width),
+                        usize::from(sprite.height),
+                        &sprite.rgba8,
+                        [0.0, 0.0, 1.0, 1.0],
+                    )?;
+                    let rig = ReservedItemMesh::ShieldSprite.rig();
+                    self.pending
+                        .push(ActorRigGeometry::new(rig, vertices, vec![[0.0; 3]]).ok()?);
+                    self.shield_patterns.sprite = Some(rig);
+                    rig
+                };
                 (
                     EquipmentRaster {
-                        width,
-                        height,
-                        rgba8: rgba8.into(),
+                        width: sprite.width,
+                        height: sprite.height,
+                        rgba8: sprite.rgba8,
                     },
                     Some(rig),
                 )
@@ -153,7 +133,7 @@ impl EquipmentRuntime {
                     None,
                 )
             };
-            self.shield_patterns.0.insert(
+            self.shield_patterns.images.insert(
                 key.clone(),
                 Image {
                     _source: pixels,
@@ -163,7 +143,7 @@ impl EquipmentRuntime {
                 },
             );
         }
-        let image = self.shield_patterns.0.get_mut(&key)?;
+        let image = self.shield_patterns.images.get_mut(&key)?;
         image.used = true;
         Some((image.raster.clone(), image.rig.unwrap_or(rig)))
     }

@@ -2,8 +2,27 @@
 
 use std::sync::Arc;
 
-use render_model::EntityRigId;
+use super::{MAX_ITEM_MESHES, session};
 use render_model::{ActorArtworkLocation, ActorRigSubmission};
+use render_model::{EntityRigId, item_mesh_rig_id};
+
+/// Static item meshes follow the startup and session mesh ranges in one shared order.
+#[derive(Clone, Copy)]
+pub(super) enum ReservedItemMesh {
+    MapPaper,
+    MapImage,
+    ShieldSprite,
+}
+
+impl ReservedItemMesh {
+    /// Returns this static mesh's non-overlapping ID below player skin rigs.
+    pub(super) const fn rig(self) -> EntityRigId {
+        let index = (MAX_ITEM_MESHES + session::MAX_SESSION_MESHES) as u32 + self as u32;
+        let rig = item_mesh_rig_id(index);
+        assert!(rig.0 < render_model::skin_rig_id(0).0);
+        rig
+    }
+}
 
 /// Geometry namespace and resolved artwork page/layer identify each texture-derived mesh.
 pub(super) type AttachableMeshKey = (bool, u32, (u16, u32));
