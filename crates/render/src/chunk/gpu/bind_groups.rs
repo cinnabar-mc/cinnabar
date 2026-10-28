@@ -5,7 +5,7 @@ use super::texture_upload::build_chunk_texture_assets;
 #[cfg(feature = "enhanced")]
 use super::{authored_upload, authored_upload::AuthoredUpload};
 #[cfg(feature = "enhanced")]
-use render_scene::EnhancedTextureAssets;
+use assets::texture::EnhancedTextureAssets;
 #[cfg(all(test, feature = "enhanced"))]
 mod carrier_tests;
 
