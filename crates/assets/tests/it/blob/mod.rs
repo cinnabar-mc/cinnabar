@@ -156,7 +156,7 @@ fn world_carrier_exact_bytes() {
     );
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "f73c5316e492df3317134041652ccaf240e2a4529db78af3717ef0c70c26002a",
+        "fa5725727ffbc7083dbe9a8c8f86e62ba95198651093bcddf706f624e9fd05a1",
         "the complete every-table fixture is the byte-exact world carrier golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);

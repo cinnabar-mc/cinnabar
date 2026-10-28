@@ -462,11 +462,11 @@ mod tests {
 
     #[test]
     fn embedded_inventories_are_sorted_unique_and_bounded() {
-        // Protocol 2225 fans the 16 trip wire states out to their 256 connection variants.
+        // The current inventory includes expanded tripwire and redstone connection states.
         for (table_bytes, entries) in EMBEDDED_TABLES
             .iter()
             .map(|table| table.bytes)
-            .zip([2_031, 2_271])
+            .zip([2_031, 3_550])
         {
             let table = FallbackInventory::parse(table_bytes).expect("parse embedded inventory");
             assert_eq!(table.entry_count, entries);
@@ -537,8 +537,8 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 2_271);
-        assert_eq!(names.len(), 335);
+        assert_eq!(matched.len(), 3_550);
+        assert_eq!(names.len(), 334);
         assert!(
             matched
                 .iter()

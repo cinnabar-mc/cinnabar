@@ -44,16 +44,12 @@ pub fn player(
             xbl_xuid: Default::default(),
             platform_online_id: Default::default(),
             build_platform: Default::default(),
-            serialized_skin: Box::new(bedrock_protocol_1_26_60::types::SerializedSkinRef {
-                resource_patch: skin_packet.serialized_skin.resource_patch,
-                geometry_data: skin_packet.serialized_skin.geometry_data,
-                image_data: bedrock_protocol_1_26_60::types::SkinImage {
-                    width: skin_packet.serialized_skin.image_data.width,
-                    height: skin_packet.serialized_skin.image_data.height,
-                    image_bytes: skin_packet.serialized_skin.image_data.image_bytes,
-                },
-                ..Default::default()
-            }),
+            serialized_skin: Box::new(
+                bedrock_protocol_1_26_60::types::SerializedSkinRef::decode_exact(
+                    &skin_packet.serialized_skin.encode_to_vec().unwrap(),
+                )
+                .expect("roster and skin-change payloads share their wire representation"),
+            ),
             is_teacher: false,
             is_host: false,
             is_sub_client: false,

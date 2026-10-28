@@ -384,7 +384,7 @@ mod tests {
             .iter()
             .map(|entry| entry["name"].as_str().unwrap())
             .collect();
-        let unresolved = ["minecraft:frostbite"];
+        let unresolved = ["minecraft:freezing"];
         for name in unresolved {
             assert!(effect_descriptor_by_identifier(name).is_none());
         }

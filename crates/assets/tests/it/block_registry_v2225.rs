@@ -54,7 +54,7 @@ fn checked_in_v2225_registry_pins_the_unique_canonical_air_identity() {
         "the checked-in v2225 registry must carry exactly one minecraft:air record"
     );
     let air = air[0];
-    assert_eq!(air.sequential_id, 17_025);
+    assert_eq!(air.sequential_id, protocol_ids::SEQUENTIAL_AIR_NETWORK_ID);
     assert_eq!(air.canonical_state.as_ref(), "{}");
     assert_eq!(air.model_family, ModelFamily::Air);
     assert_eq!(air.contributor_role, ContributorRole::Air);

@@ -629,7 +629,7 @@ fn pack_vocabulary_has_the_pinned_projection_fingerprint() {
                 "../../data/vanilla-pack-vocabulary-1.26.60.tsv"
             ))
         ),
-        "0ff03cd80e7098ffc11ee0a443a94c2162155c2026f9c37ced615d5111c14d30"
+        "c34c0992d44c3478925d5554c1190f1c59db64fb8a5416508b5ae32b1786f5cf"
     );
 }
 

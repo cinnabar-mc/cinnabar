@@ -246,6 +246,21 @@ fn paint(
             mob_effects::paint(canvas, &hud.effects, dest, alpha);
             return PaintKind::Other;
         }
+        "hotbar_slots_renderer" => {
+            let [width, height] = assets::HudTextureRole::Hotbar0
+                .expected_size()
+                .map(|side| side as f32 * canvas.px());
+            for (index, texture) in SLOT_ART.iter().enumerate() {
+                let left = dest[0] + index as f32 * width;
+                slot_texture(
+                    canvas,
+                    texture,
+                    [left, dest[1], left + width, dest[1] + height],
+                    alpha,
+                );
+            }
+            return PaintKind::Bottom;
+        }
         "hotbar_renderer" => {
             slot_art(canvas, data, dest, alpha);
             return PaintKind::Bottom;
@@ -413,8 +428,18 @@ fn slot_art(
         .get("#collection_index")
         .and_then(Value::as_f64)
         .map_or(0, |index| index.clamp(0.0, 8.0) as usize);
+    slot_texture(canvas, SLOT_ART[index], dest, alpha);
+}
+
+/// Paints one slot background with the control's inherited alpha and clip.
+fn slot_texture(
+    canvas: &mut Canvas<'_>,
+    texture: &str,
+    dest: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) {
     if let Some(visual) = canvas.sprite(
-        SLOT_ART[index],
+        texture,
         json_ui::UvRect::full(),
         alpha([255; 4]),
         Default::default(),

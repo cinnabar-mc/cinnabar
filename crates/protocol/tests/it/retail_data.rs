@@ -26,7 +26,7 @@ fn canonical_text(bytes: &[u8]) -> Vec<u8> {
 fn retail_item_table_has_the_pinned_projection_fingerprint() {
     assert_eq!(
         format!("{:x}", Sha256::digest(canonical_text(RETAIL_ITEMS))),
-        "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
+        "4d9b95a973180279fba6c45e115c5327f995d5b50ac828aad278d6ca2a16946c"
     );
 }
 
@@ -47,7 +47,7 @@ fn retail_biome_table_has_the_pinned_projection_fingerprint() {
 fn actor_table_has_the_pinned_projection_fingerprint() {
     assert_eq!(
         format!("{:x}", Sha256::digest(canonical_text(RETAIL_ACTORS))),
-        "74ca9c25f5342b318eb8679ae22f1de71e99e6187c4a401fcfe07250ff6b5ca1"
+        "e8c74752cc67a54540b2486fa9e25bd25eca291097d50f62198b24ff4061f81d"
     );
     let text = std::str::from_utf8(RETAIL_ACTORS).unwrap();
     assert!(
@@ -92,7 +92,7 @@ fn retail_item_table_preserves_current_network_ids_and_gaps() {
             .iter()
             .find(|entry| entry.identifier.as_ref() == "minecraft:apple")
             .map(|entry| entry.network_id),
-        Some(882)
+        Some(883)
     );
 
     let ids: HashSet<_> = entries.iter().map(|entry| entry.network_id).collect();

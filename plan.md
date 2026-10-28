@@ -81,10 +81,13 @@ collision, selection and connection-rendering acceptance for those states remain
 Chorus plants, disc presses, ice crystals and icicles remain reserved because their
 new state geometry is unverified. Their collision, selection and rendering acceptance
 remains incomplete. The official matching-protocol preview resource pack supplies
-property domains and HUD inputs; retail resource-pack and full-client acceptance
+property domains and HUD inputs, including the combined hotbar-slot renderer.
+Native acceptance of that renderer, retail resource-pack and full-client acceptance
 remain incomplete. Frostbite presentation, freezing potion facts and ice-ball targeting and use
 behavior remain unresolved until their native dispositions are verified. Aux-state
 item routing retains the legacy owner catalog and needs current-version acceptance.
+Brittle ice, chorus plants, ice balls, ice crystals and icicles retain missing-item
+presentation until their current pack routes are verified.
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.

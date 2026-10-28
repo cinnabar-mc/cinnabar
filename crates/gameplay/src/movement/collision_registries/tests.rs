@@ -335,11 +335,11 @@ fn remote_palette_omits_unsupplied_vanilla_definitions() {
         .begin_session_custom_blocks(&protocol::CustomBlocks::default())
         .unwrap();
     for (wire, name) in [
-        (15_844, "minecraft:air"),
+        (17_713, "minecraft:air"),
         (3_219, "minecraft:stone"),
-        (9_650, "minecraft:polished_blackstone_bricks"),
-        (19_595, "minecraft:brown_terracotta"),
-        (17_951, "minecraft:gray_concrete"),
+        (10_956, "minecraft:polished_blackstone_bricks"),
+        (21_464, "minecraft:brown_terracotta"),
+        (19_820, "minecraft:gray_concrete"),
     ] {
         let resolved = records
             .iter()
