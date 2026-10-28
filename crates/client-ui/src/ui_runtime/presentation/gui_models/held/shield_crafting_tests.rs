@@ -1,13 +1,8 @@
 //! Computed crafting results join the visible shield demand before icon addresses are retained.
 use super::*;
-use crate::ui_runtime::presentation::publish::{
-    item_icons::test_support::stack_icon, prepare_shield_art,
-};
+use crate::ui_runtime::inventory_ingress::CRAFTING_MATCH_CALLS;
 use protocol::test_support::recipes::multi_recipe_update;
 use sha2::Digest;
-use ui_screens::inventory_capture::cache::{
-    InventoryProjectionCache, ProjectedIcon, ProjectionInput, ProjectionRefresh,
-};
 
 /// Encodes an original shield with a cloth base and a valid retained item-data digest.
 fn stack(base: u8) -> protocol::NetworkItemStack {
@@ -227,33 +222,40 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
         ui.gui_models.shield_icons.pages().len(),
         render_model::MAX_UI_SHIELD_PAGES
     );
-    let capture = |ui: &UiPresentationRuntime, cache: &mut InventoryProjectionCache| {
-        cache
-            .capture(
-                ProjectionInput {
-                    ledger: runtime.inventory_ledger(&player),
-                    inventory_open: true,
-                    refresh: ProjectionRefresh {
-                        icons: true,
-                        ..Default::default()
-                    },
-                    animation: Default::default(),
-                },
-                || runtime.crafting_match(&player),
-                |stack, _| ProjectedIcon {
-                    icon: stack_icon(&runtime, ui, stack, resolve(stack).unwrap(), None),
-                    ..Default::default()
-                },
-                |_, _| None,
-                |_| None,
-            )
-            .contents
-            .unwrap()
+    let mut world = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(world.seed_item_registry(registry));
+    let capture = |runtime: &mut crate::ui_runtime::UiRuntime, ui: &mut UiPresentationRuntime| {
+        let authority = world.authority().inventory_ui();
+        ui.dress_player_preview(
+            &player,
+            runtime,
+            Some(authority),
+            Default::default(),
+            |stack| authority.canonical_item_stack(stack),
+        );
+        crate::ui_runtime::presentation::publish::capture_hud_frame(
+            &player,
+            runtime,
+            ui,
+            Some(authority),
+            semantic_input::PerspectiveMode::FirstPerson,
+            0,
+            Default::default(),
+        );
     };
-    let mut cache = InventoryProjectionCache::default();
-    prepare_shield_art(&player, &runtime, &mut ui, resolve);
-    let first = capture(&ui, &mut cache);
-    let (icon, displayed) = first.crafting.output.as_ref().unwrap();
+    let before = CRAFTING_MATCH_CALLS.with(std::cell::Cell::get);
+    capture(&mut runtime, &mut ui);
+    assert_eq!(CRAFTING_MATCH_CALLS.with(std::cell::Cell::get), before + 1);
+    let first = ui.hud_frame.crafting.clone();
+    let (icon, displayed) = first.output.as_ref().unwrap();
     assert_eq!(displayed.extra_data, output.extra_data);
     let icon = icon.unwrap();
     assert_ne!(
@@ -262,10 +264,14 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
         "computed decoration must survive atlas pressure"
     );
     assert_pattern_color(&ui, icon, 7);
-    prepare_shield_art(&player, &runtime, &mut ui, resolve);
-    let repeated = capture(&ui, &mut cache);
-    assert_eq!(first.crafting, repeated.crafting);
-    assert_eq!(first.inventory_icons, repeated.inventory_icons);
+    let calls = CRAFTING_MATCH_CALLS.with(std::cell::Cell::get);
+    capture(&mut runtime, &mut ui);
+    assert_eq!(first, ui.hud_frame.crafting);
+    assert_eq!(
+        CRAFTING_MATCH_CALLS.with(std::cell::Cell::get),
+        calls,
+        "an unchanged preview and HUD frame must reuse the projected crafting result"
+    );
 }
 
 #[test]

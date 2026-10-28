@@ -51,6 +51,14 @@ pub struct InventoryArtwork {
 }
 
 #[derive(Default)]
+struct PendingProjection {
+    first: bool,
+    cells_changed: bool,
+    open_changed: bool,
+    refresh: ProjectionRefresh,
+}
+
+#[derive(Default)]
 struct CellProjection {
     stack: Option<NetworkItemStack>,
     correction: Option<i32>,
@@ -66,9 +74,10 @@ struct CellProjection {
 impl CellProjection {
     /// Copies a changed cell, preserving memoized projections for equal inputs.
     fn read(&mut self, stack: Option<&NetworkItemStack>, correction: Option<i32>) {
-        self.stack_changed = self.stack.as_ref() != stack;
-        self.correction_changed = self.correction != correction;
-        if self.stack_changed {
+        let stack_changed = self.stack.as_ref() != stack;
+        self.stack_changed |= stack_changed;
+        self.correction_changed |= self.correction != correction;
+        if stack_changed {
             self.stack = stack.cloned();
         }
         self.correction = correction;
@@ -145,6 +154,8 @@ pub struct InventoryProjectionCache {
     storage: [CellProjection; protocol::MAX_GENERIC_STORAGE_SLOTS],
     ui: [CellProjection; protocol::UI_SLOT_COUNT],
     output: CellProjection,
+    output_is_ghost: bool,
+    pending: PendingProjection,
     contents: InventoryContents,
     durability: Durability,
     ui_icons: [Option<IconRef>; protocol::UI_SLOT_COUNT],
@@ -161,6 +172,8 @@ impl Default for InventoryProjectionCache {
             storage: std::array::from_fn(|_| CellProjection::default()),
             ui: std::array::from_fn(|_| CellProjection::default()),
             output: CellProjection::default(),
+            output_is_ghost: false,
+            pending: PendingProjection::default(),
             contents: Default::default(),
             durability: Default::default(),
             ui_icons: [None; protocol::UI_SLOT_COUNT],
@@ -169,6 +182,55 @@ impl Default for InventoryProjectionCache {
 }
 
 impl InventoryProjectionCache {
+    /// Retains changed cells and the crafting preview before artwork can move in its atlas.
+    pub fn prepare(
+        &mut self,
+        ledger: &PlayerInventoryLedger,
+        inventory_open: bool,
+        refresh: ProjectionRefresh,
+        crafting_match: impl FnOnce() -> inventory::CraftGridMatch,
+    ) {
+        let first = self.snapshot.is_none();
+        let cells_changed = self
+            .snapshot
+            .as_ref()
+            .is_none_or(|old| !old.matches(ledger));
+        let open_changed = self.inventory_open != inventory_open;
+        if cells_changed {
+            self.read_cells(ledger);
+            self.snapshot = Some(ledger.presentation_snapshot());
+        }
+        if inventory_open && (first || cells_changed || refresh.recipes || open_changed) {
+            let output = crafting_output(ledger, crafting_match());
+            self.output_is_ghost = output.as_ref().is_some_and(|(_, ghost)| *ghost);
+            self.output
+                .read(output.as_ref().map(|(stack, _)| stack), None);
+        }
+        self.pending.first |= first;
+        self.pending.cells_changed |= cells_changed;
+        self.pending.open_changed |= open_changed;
+        self.pending.refresh.icons |= refresh.icons;
+        self.pending.refresh.durability |= refresh.durability;
+        self.pending.refresh.names |= refresh.names;
+        self.pending.refresh.recipes |= refresh.recipes;
+        self.inventory_open = inventory_open;
+    }
+
+    /// Borrows the prepared artwork sources, including the visible crafting result.
+    pub fn stacks(&self) -> impl Iterator<Item = &NetworkItemStack> {
+        self.player
+            .iter()
+            .chain(&self.visual_storage)
+            .chain(&self.ui)
+            .chain(self.inventory_open.then_some(&self.output))
+            .filter_map(|cell| cell.stack.as_ref())
+    }
+
+    /// Refreshes artwork after an atlas repack while preserving the prepared crafting result.
+    pub fn invalidate_icons(&mut self) {
+        self.pending.refresh.icons = true;
+    }
+
     /// Captures the same display as the uncached projections without idle cell probes.
     pub fn capture(
         &mut self,
@@ -184,25 +246,19 @@ impl InventoryProjectionCache {
             refresh,
             animation,
         } = input;
-        let first = self.snapshot.is_none();
-        let cells_changed = self
-            .snapshot
-            .as_ref()
-            .is_none_or(|old| !old.matches(ledger));
-        let open_changed = self.inventory_open != inventory_open;
+        self.prepare(ledger, inventory_open, refresh, crafting_match);
+        let PendingProjection {
+            first,
+            cells_changed,
+            open_changed,
+            refresh,
+        } = std::mem::take(&mut self.pending);
         if !cells_changed
             && !open_changed
             && self.animation == animation
-            && !refresh.icons
-            && !refresh.durability
-            && !refresh.names
-            && !refresh.recipes
+            && refresh == ProjectionRefresh::default()
         {
             return ProjectionUpdate::default();
-        }
-        if cells_changed {
-            self.read_cells(ledger);
-            self.snapshot = Some(ledger.presentation_snapshot());
         }
         let icons = first || refresh.icons;
         let bars = first || refresh.durability;
@@ -235,13 +291,6 @@ impl InventoryProjectionCache {
             decorations_changed |= cell.icon(icons, None, animation.dials, &mut resolve_icon);
             decorations_changed |= cell.bar(bars, &mut fraction);
         }
-        let mut output_is_ghost = self.contents.crafting.output_is_ghost;
-        if inventory_open && (first || cells_changed || refresh.recipes || open_changed) {
-            let output = crafting_output(ledger, crafting_match());
-            output_is_ghost = output.as_ref().is_some_and(|(_, ghost)| *ghost);
-            self.output
-                .read(output.as_ref().map(|(stack, _)| stack), None);
-        }
         if inventory_open {
             self.output.icon(
                 icons || open_changed,
@@ -256,7 +305,7 @@ impl InventoryProjectionCache {
         }
         let crafting = if inventory_open {
             let mut crafting = CraftingFrame {
-                output_is_ghost,
+                output_is_ghost: self.output_is_ghost,
                 ..Default::default()
             };
             for (icon, slot) in crafting
@@ -320,7 +369,6 @@ impl InventoryProjectionCache {
         {
             cell.finish();
         }
-        self.inventory_open = inventory_open;
         self.animation = animation;
         ProjectionUpdate {
             contents: contents_changed.then(|| InventoryArtwork {

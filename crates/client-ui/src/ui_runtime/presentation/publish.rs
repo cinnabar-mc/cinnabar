@@ -35,7 +35,7 @@ pub fn capture_hud_frame(
         .gameplay_hud()
         .mount_unique_id()
         .and_then(|unique| world.and_then(|world| world.actor_health_by_unique(unique)));
-    prepare_shield_art(player_runtime, runtime, presentation, |stack| {
+    prepare_shield_art(player_runtime, runtime, presentation, world, |stack| {
         world?.canonical_item_stack(stack)
     });
     let mut inventory_cache = presentation
@@ -152,9 +152,22 @@ pub(super) fn prepare_shield_art(
     player: &player_state::PlayerState,
     runtime: &UiRuntime,
     presentation: &mut UiPresentationRuntime,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
 ) {
     use inventory::inventory_ledger::InventoryTarget;
+    let mut inventory_cache = presentation
+        .inventory_cache
+        .take()
+        .expect("inventory cache retained");
+    inventory_cache.prepare(
+        player,
+        &ItemResolver {
+            runtime,
+            presentation,
+            authority: world,
+        },
+    );
     let ledger = runtime.inventory_ledger(player);
     let mut appearances = Vec::new();
     let mut observe = |stack: &protocol::NetworkItemStack| {
@@ -162,25 +175,9 @@ pub(super) fn prepare_shield_art(
             appearances.push(pattern);
         }
     };
-    // Use the production inventory projections so their stack sources cannot drift from demand.
-    ui_screens::inventory_capture::capture_contents(
-        ledger,
-        runtime.inventory_open(),
-        || runtime.crafting_match(player),
-        |stack, _| {
-            observe(stack);
-            None
-        },
-        |_| None,
-    );
-    ui_screens::inventory_capture::capture_decorations(
-        ledger,
-        |_, _| None,
-        |stack| {
-            observe(stack);
-            None
-        },
-    );
+    for stack in inventory_cache.stacks() {
+        observe(stack);
+    }
     if runtime.inventory_open() {
         let creative =
             crate::ui_runtime::inventory_actions::visible_creative_entries(player, runtime);
@@ -205,6 +202,7 @@ pub(super) fn prepare_shield_art(
     {
         observe(stack);
     }
+    presentation.inventory_cache = Some(inventory_cache);
     presentation.prepare_shield_icons(appearances);
 }
 

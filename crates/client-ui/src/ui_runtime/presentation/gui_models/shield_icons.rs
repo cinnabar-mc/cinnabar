@@ -285,7 +285,9 @@ impl UiPresentationRuntime {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         if cache.wanted != appearances || !cache.hands.keys().eq(hands.keys()) {
-            self.inventory_cache = Some(Default::default());
+            if let Some(inventory_cache) = self.inventory_cache.as_mut() {
+                inventory_cache.invalidate_icons();
+            }
             let mut limit = render_model::UI_MODEL_ATLAS_SIDE;
             loop {
                 *cache = Cache {
