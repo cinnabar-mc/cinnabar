@@ -270,6 +270,19 @@ pub fn recipe_update_from_batch(batch: &'static [u8]) -> RecipeUpdate {
     decode_recipe_update(raw.body()).expect("fixture CraftingData decodes")
 }
 
+/// Admits one exact special-recipe identifier through the production wire decoder.
+pub fn multi_recipe_update(identifier: u128, network_id: u32) -> RecipeUpdate {
+    let packet = CraftingData {
+        clear_recipes: true,
+        multi_recipes: vec![bedrock_protocol_1_26_51::types::MultiRecipe {
+            multi_recipe_uuid: uuid::Uuid::from_u128(identifier),
+            net_id: RecipeNetID(network_id),
+        }],
+        ..Default::default()
+    };
+    decode_recipe_update(&packet.encode_to_vec().unwrap()).unwrap()
+}
+
 /// `packet` with its subclient header set, for comparing against captured wire.
 pub fn with_subclients(mut packet: Packet, from_subclient: u32, to_subclient: u32) -> Packet {
     packet.header.from_subclient = from_subclient;

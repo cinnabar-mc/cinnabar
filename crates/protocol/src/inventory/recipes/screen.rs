@@ -48,12 +48,19 @@ pub struct MultiRecipe {
 
 /// Exact identifier of the item-repair multi recipe.
 const REPAIR_MULTI_UUID: uuid::Uuid = uuid::Uuid::from_u128(1);
+/// Exact identifier of the banner-on-shield special recipe.
+const SHIELD_MULTI_UUID: uuid::Uuid = uuid::Uuid::from_u128(200);
 
 impl MultiRecipe {
     /// Decode the wire's little-endian UUID halves and match the exact repair identifier.
     #[must_use]
     pub fn is_repair(&self) -> bool {
         uuid::Uuid::decode_exact(&self.uuid).is_ok_and(|uuid| uuid == REPAIR_MULTI_UUID)
+    }
+
+    /// Matches the exact shield identifier after decoding the wire's UUID halves.
+    pub fn is_shield(&self) -> bool {
+        uuid::Uuid::decode_exact(&self.uuid).is_ok_and(|uuid| uuid == SHIELD_MULTI_UUID)
     }
 }
 

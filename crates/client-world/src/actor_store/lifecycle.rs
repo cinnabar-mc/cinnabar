@@ -66,26 +66,25 @@ impl ActorStore {
     pub(crate) fn new_with_entity_assets(
         session_id: u64,
         dimension: i32,
-        entity_assets: std::sync::Arc<assets::RuntimeEntityAssets>,
+        entity_assets: impl Into<actor_animation::ActorAnimationCatalog>,
     ) -> Self {
+        let catalog = entity_assets.into();
+        let entity_assets = std::sync::Arc::clone(catalog.assets());
         let mut store = Self::with_limits_and_animation(
             session_id,
             dimension,
             MAX_TRACKED_ACTORS,
             MAX_TRACKED_PLAYERS,
             MAX_TRACKED_PLAYER_SKIN_BYTES,
-            actor_animation::ActorAnimationStore::with_assets(std::sync::Arc::clone(
-                &entity_assets,
-            )),
-            crate::item::ItemStateStore::diagnostic(),
+            actor_animation::ActorAnimationStore::with_assets(catalog),
+            crate::item::ItemStateStore::with_assets(std::sync::Arc::clone(&entity_assets)),
         );
         store.entity_assets = Some(std::sync::Arc::clone(&entity_assets));
-        store.items =
-            crate::item::ItemStateStore::with_assets(std::sync::Arc::clone(&entity_assets));
         store.actions = crate::action::RemoteActionStore::with_assets(entity_assets);
         store
     }
-    fn with_limits_and_animation(
+    /// Starts fresh actor state around the caller's prepared evaluator and item storage.
+    pub(super) fn with_limits_and_animation(
         session_id: u64,
         dimension: i32,
         max_actors: usize,
@@ -169,6 +168,11 @@ impl ActorStore {
             particle_effects: Default::default(),
             synchronized_audio: Default::default(),
         }
+    }
+
+    /// Shares the base analysis for independent client-owned actor namespaces.
+    pub(crate) fn animation_catalog(&self) -> Option<actor_animation::ActorAnimationCatalog> {
+        self.animation.catalog()
     }
 
     /// Restarts client-owned displays without rebuilding their unchanged catalog or item registry.

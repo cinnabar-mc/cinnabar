@@ -16,7 +16,7 @@ mod unlocks;
 pub use brewing::{BrewingMix, BrewingMixItem};
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
-pub use crafting::{RecipeIngredientView, RecipeOutput};
+pub use crafting::{RecipeIngredientView, RecipeOutput, RecipeOutputData};
 pub use identity::{RecipeIdentity, RecipeIdentityHandle, RecipeUnlockingContext};
 pub use item_tags::vanilla_tag_contains;
 pub use model::{

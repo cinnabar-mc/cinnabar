@@ -259,3 +259,44 @@ fn all_well_formed_unavailable_families_are_traversed_without_activation() {
     assert!(catalog.recipe(1).is_none());
     assert!(catalog.recipe(2).is_none());
 }
+
+/// A plain shield result still has the shield's trailing blocking timestamp.
+#[test]
+fn shield_blocking_timestamp_does_not_remove_its_crafting_recipe() {
+    for tick in [0i64, 123, i64::MIN, i64::MAX] {
+        let mut shield = recipe(1);
+        shield.recipe_id = "minecraft:shield".into();
+        let mut data = vec![0; 10];
+        data.extend_from_slice(&tick.to_le_bytes());
+        shield.results[0].user_data_buffer = data.into();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update(vec![shield], true)));
+        let output = catalog.recipe(1).expect("shield recipe").output();
+        let mut expected = vec![0; 10];
+        expected.extend_from_slice(&tick.to_le_bytes());
+        assert_eq!(output.user_data.bytes().as_ref(), expected);
+    }
+}
+
+#[test]
+fn shield_recipe_data_requires_complete_unrestricted_plain_envelopes() {
+    for len in (1..=25).filter(|len| !matches!(len, 10 | 18)) {
+        let mut result = recipe(1);
+        result.results[0].user_data_buffer = vec![0; len].into();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update(vec![result], true)));
+        assert!(catalog.recipe(1).is_none(), "extra length {len}");
+    }
+    for index in 0..10 {
+        let mut result = recipe(1);
+        let mut extra = vec![0; 18];
+        extra[index] = 1;
+        result.results[0].user_data_buffer = extra.into();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update(vec![result], true)));
+        assert!(catalog.recipe(1).is_none(), "nonempty header byte {index}");
+    }
+}

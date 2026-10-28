@@ -257,7 +257,7 @@ fn consume_refuses_every_nonzero_typed_item_lock() {
                     aux: 0,
                     count: 1,
                     block_runtime_id: 0,
-                    empty_envelope: true,
+                    user_data: protocol::RecipeOutputData::Empty,
                 },
             });
         if lock == 0 {

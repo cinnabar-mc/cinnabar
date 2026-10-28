@@ -458,7 +458,7 @@ fn furnace_ghosts_are_artwork_only_and_expire_with_the_storage_generation() {
             aux: 0,
             count: 1,
             block_runtime_id: 0,
-            empty_envelope: true,
+            user_data: protocol::RecipeOutputData::Empty,
         }),
     };
     ledger.begin_furnace_recipe(&recipe).unwrap();

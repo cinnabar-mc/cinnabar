@@ -74,7 +74,7 @@ fn world_change_reuses_spawner_catalog_preparation() {
         let (pool, _, _) = fixture_with_scripts(serde_json::json!({
             "initialize": [initialize],
         }));
-        let source = Arc::clone(&pool.source);
+        let source = actor_animation::ActorAnimationCatalog::new(Arc::clone(&pool.source));
         let session = (pool.session.0 + 1, pool.session.1 + 1);
         let (_, allocations) =
             test_alloc::measure(|| Pool::replacement(Some(pool), source, session));
@@ -97,7 +97,7 @@ fn world_change_retires_display_lifetimes_and_pack_bindings() {
     let runtime = previous.actors.resolve(position, "custom:other").unwrap();
     previous.actors.advance(3);
     let old_session = previous.actors.session_id();
-    let source = Arc::clone(&previous.source);
+    let source = actor_animation::ActorAnimationCatalog::new(Arc::clone(&previous.source));
     let session = (previous.session.0 + 1, previous.session.1 + 1);
     let mut next = Pool::replacement(Some(previous), source, session);
     assert_ne!(next.actors.session_id(), old_session);
@@ -111,9 +111,32 @@ fn world_change_retires_display_lifetimes_and_pack_bindings() {
 fn world_change_uses_replacement_entity_assets() {
     let (previous, _, _) = fixture();
     let (other, _, _) = fixture_with_identifier(serde_json::json!({}), "1", "custom:other");
-    let source = Arc::clone(&other.source);
+    let source = actor_animation::ActorAnimationCatalog::new(Arc::clone(&other.source));
     let session = (previous.session.0 + 1, previous.session.1 + 1);
     let mut next = Pool::replacement(Some(previous), source, session);
     assert!(next.actors.resolve([0; 3], "custom:display").is_none());
     assert!(next.actors.resolve([0; 3], "custom:other").is_some());
+}
+
+/// Fresh and disconnected joins publish display state without repeating the worker's analysis.
+#[test]
+fn first_spawner_pool_reuses_join_catalog_preparation() {
+    for variables in [16, 2048] {
+        let initialize = (0..variables)
+            .map(|index| format!("variable.fixture_{index} = 0;"))
+            .collect::<String>();
+        let (previous, _, _) = fixture_with_scripts(serde_json::json!({
+            "initialize": [initialize],
+        }));
+        let catalog = actor_animation::ActorAnimationCatalog::new(Arc::clone(&previous.source));
+        let session = (previous.session.0 + 1, previous.session.1);
+        drop(previous);
+        let (mut pool, allocations) =
+            test_alloc::measure(|| Pool::replacement(None, catalog, session));
+        assert!(
+            allocations.calls <= 64 && allocations.bytes <= 64 * 1024,
+            "join repeated preparation for {variables} variables: {allocations:?}"
+        );
+        assert!(pool.actors.resolve([0; 3], "custom:display").is_some());
+    }
 }
