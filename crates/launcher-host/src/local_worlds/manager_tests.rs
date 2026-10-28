@@ -91,7 +91,7 @@ fn open_runs_the_world_and_close_stops_its_server() {
     let target = report.target.expect("running target");
     assert_eq!(
         (target.address.as_str(), target.transport),
-        ("127.0.0.1:1", Transport::RakNet)
+        ("127.0.0.1:1", Transport::NetherNet)
     );
     manager
         .open(&world.id, None)

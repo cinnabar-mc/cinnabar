@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use crate::local_worlds::test_support::scratch;
 #[cfg(unix)]
 use crate::local_worlds::test_support::write_script;
