@@ -163,8 +163,11 @@ fn late_screen_capture_resumes_after_loss_but_not_during_driven_control() {
 
 #[test]
 fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
-    use bevy::input::{ButtonState, InputPlugin, mouse::MouseButtonInput};
-    use client_ui::ui_runtime::flush_form_response;
+    use bevy::{
+        input::{ButtonState, InputPlugin, mouse::MouseButtonInput},
+        time::Real,
+    };
+    use client_ui::ui_runtime::{FORM_HANDOFF_GRACE_MILLIS, flush_form_response};
     use {
         crate::ui_runtime::drive_server_form_input,
         client_ui::test_support::{mini_engine_presentation, pack_harness},
@@ -190,6 +193,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     );
     let mut app = App::new();
     app.add_plugins(InputPlugin)
+        .init_resource::<Time<Real>>()
         .init_resource::<client_state::ScreenFocus>()
         .insert_resource(AutoFly::new(false))
         .insert_resource(player)
@@ -244,8 +248,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
         app.world()
             .resource::<UiRuntimeResource>()
             .server_forms()
-            .active()
-            .is_none()
+            .handoff_pending()
     );
     assert!(
         app.world()
@@ -260,6 +263,11 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
         |_| Ok(()),
     )
     .unwrap();
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(std::time::Duration::from_millis(
+            FORM_HANDOFF_GRACE_MILLIS + 1,
+        ));
     app.update();
     let cursor = app.world().get::<CursorOptions>(window).unwrap();
     assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
