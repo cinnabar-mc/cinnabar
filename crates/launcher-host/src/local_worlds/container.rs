@@ -276,7 +276,6 @@ impl BdsRunner {
                 Launch {
                     address: loopback(port),
                     timeout: self.start_timeout.unwrap_or(CONTAINER_START_TIMEOUT),
-                    can_pause: false,
                     ready: |line| line.contains(BDS_READY_MARKER),
                     label: format!("{label} {}", spec.world.id),
                     on_exit: None,

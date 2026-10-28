@@ -452,10 +452,8 @@ pub(crate) struct FakeRunner {
     pub console_fails: bool,
     /// Passed to each instance.
     pub unclean: bool,
-    pub discarded: std::sync::atomic::AtomicUsize,
     /// Set when a start ran while an earlier instance was still alive.
     pub overlapped: std::sync::atomic::AtomicBool,
-    pub prepared: std::sync::atomic::AtomicUsize,
 }
 
 impl FakeRunner {
@@ -548,16 +546,6 @@ impl Runner for FakeRunner {
 
     fn host_grant(&self) -> HostGrant {
         self.host_grant.unwrap_or(HostGrant::WhenReady)
-    }
-
-    fn prepare(&self) {
-        self.prepared
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    fn discard_standby(&self) {
-        self.discarded
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 

@@ -11,8 +11,4 @@ build_go_helpers() (
         -ldflags "$ldflags $(bash "$here/../common/core-ldflags.sh")" \
         -o "$libs/$(pin core_library)" ./core/cmd/bedrock-core
 
-    # The local server has its own module and dependency pins, outside go.work.
-    cd "$repo_root/tools/localserver"
-    GOWORK=off go build -buildmode=pie -trimpath -ldflags "$ldflags" \
-        -o "$libs/$(pin local_server_library)" .
 )

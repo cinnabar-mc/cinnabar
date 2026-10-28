@@ -50,7 +50,6 @@ pub enum Input {
     /// Raw text of a numeric option; a valid value also applies at once.
     SetOptionText(super::options::WorldOption, String),
     SetFlat(bool),
-    SetBackend(Backend),
     SubmitCreate,
     /// Opens the settings of the world at this list index.
     BeginEdit(usize),
@@ -98,8 +97,7 @@ pub enum Effect {
     Leave,
     /// Its outcome is never surfaced.
     SetPaused(bool),
-    /// Readies a server ahead of a likely open; its outcome is never surfaced.
-    Prepare,
+    /// Loads the local runtime status and saved preferences.
     LoadPrefs,
     /// Waits briefly, then reloads preferences; repeats while Docker is still being detected.
     PollPrefs,
@@ -216,7 +214,7 @@ impl WorldsView {
                 .as_ref()
                 .is_some_and(|world| world.backend == Backend::Bds && !world.options_unavailable)
         } else {
-            self.create.backend == Backend::Bds
+            true
         }
     }
 }
@@ -403,9 +401,7 @@ impl WorldsMenu {
     fn gate(&mut self, pending: Pending) -> Vec<Effect> {
         let blocking = match pending {
             Pending::Create => None,
-            Pending::SubmitCreate => {
-                (self.create.backend == Backend::Bds).then_some(PromptFor::CreateBds)
-            }
+            Pending::SubmitCreate => Some(PromptFor::CreateBds),
             Pending::Play => self
                 .selected()
                 .is_some_and(|w| w.backend == Backend::Bds)
@@ -481,13 +477,6 @@ impl WorldsMenu {
             return Vec::new();
         }
         match button {
-            PromptButton::UseDragonfly => match self.pending.take() {
-                Some(Pending::SubmitCreate) => {
-                    self.create.backend = Backend::Dragonfly;
-                    self.proceed(Pending::SubmitCreate)
-                }
-                _ => self.proceed(Pending::Create),
-            },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
             PromptButton::Retry => self.redetect(),
             PromptButton::Cancel => self.back(),
@@ -618,10 +607,6 @@ impl WorldsMenu {
                 } else {
                     Generator::Normal
                 };
-                Vec::new()
-            }
-            Input::SetBackend(backend) if self.screen == Screen::Create => {
-                self.create.backend = backend;
                 Vec::new()
             }
             Input::SubmitCreate if self.screen == Screen::Create => {

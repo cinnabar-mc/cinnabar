@@ -833,7 +833,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         game_mode: GameMode::Creative,
         generator: Generator::Flat,
         difficulty: Difficulty::Easy,
-        backend: Backend::Dragonfly,
+        backend: Backend::LegacyDragonfly,
         seed: 1,
         created_unix: 1,
         last_played_unix: 1,
@@ -893,7 +893,6 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     };
     menu.apply(Event::Prefs(Prefs::default(), no_docker.clone()));
     menu.update(Input::BeginCreate);
-    menu.update(Input::SetBackend(Backend::Bds));
     menu.update(Input::SubmitCreate);
     menu.apply(Event::Prefs(Prefs::default(), no_docker));
     let dialog = oreui_texts(&base(&menu));
@@ -901,7 +900,6 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         has(&dialog, &PromptButton::GetDocker.label()),
         "no-Docker dialog: {dialog:?}"
     );
-    assert!(!has(&dialog, &PromptButton::UseDragonfly.label()));
 }
 
 #[test]

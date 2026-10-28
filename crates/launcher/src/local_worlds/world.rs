@@ -13,19 +13,9 @@ pub enum Generator {
     Flat,
 }
 
-impl Generator {
-    /// Whether the backend can generate new terrain for this world type.
-    pub const fn supports_backend(self, backend: Backend) -> bool {
-        match backend {
-            Backend::Bds => true,
-            Backend::Dragonfly => matches!(self, Self::Flat),
-        }
-    }
-}
-
-/// Why natural terrain cannot run on the built-in local server.
-pub const NATURAL_TERRAIN_REQUIRES_BDS: &str =
-    "Dragonfly supports only flat terrain; use BDS for natural terrain";
+/// Explains why a saved Dragonfly world is preserved but cannot be opened.
+pub const LEGACY_WORLD_REQUIRES_CONVERSION: &str = "This world was created with Dragonfly and cannot open on BDS yet. Its files are unchanged. \
+     Export it from Storage before converting it with an external tool.";
 
 /// Difficulty of a local world.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -110,7 +100,7 @@ pub struct NewWorld {
     pub game_mode: GameMode,
     pub generator: Generator,
     pub difficulty: Difficulty,
-    /// `None` takes the default for this machine.
+    /// Older callers may send a host identity; only BDS is accepted.
     pub backend: Option<Backend>,
     pub seed: Option<i64>,
     pub options: super::options::WorldOptions,

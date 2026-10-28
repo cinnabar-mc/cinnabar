@@ -1,10 +1,9 @@
 use std::{
-    ffi::OsString,
     io::{self, BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{ChildStdin, Command, ExitStatus, Stdio},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -12,17 +11,15 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError};
-use launcher::local_worlds::world::{NATURAL_TERRAIN_REQUIRES_BDS, World};
+use launcher::local_worlds::world::World;
 
 use crate::lifecycle::children::{self, Spawned};
 
 use super::{
     Cancel, lock,
-    ports::{free_loopback_port, loopback},
-    world::{WorldError, failed, wire_name},
+    world::{WorldError, failed},
 };
 
-const DEFAULT_START_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a server may take to save and exit after its stop request; BDS saves the world
 /// before exiting. Exit sweeps wait this long before signalling a server.
 pub(crate) const SAVE_BUDGET: Duration = Duration::from_secs(30);
@@ -59,7 +56,11 @@ pub(crate) enum HostGrant {
 pub(crate) trait Instance: Send + Sync {
     /// The loopback game address.
     fn address(&self) -> &str;
-    fn set_paused(&self, paused: bool) -> io::Result<()>;
+    /// BDS keeps simulating while the client is paused.
+    fn set_paused(&self, _paused: bool) -> io::Result<()> {
+        Ok(())
+    }
+
     /// Asks the server to save and stop without waiting.
     fn request_stop(&self);
     /// Stops gracefully, killing the server once `timeout` passes, and joins backend cleanup
@@ -69,7 +70,7 @@ pub(crate) trait Instance: Send + Sync {
     fn exited(&self) -> Receiver<()>;
     /// False when [`Self::set_paused`] has no effect.
     fn can_pause(&self) -> bool {
-        true
+        false
     }
     /// The player limit, the host included, when the runner sets one.
     fn max_players(&self) -> Option<u32> {
@@ -98,135 +99,6 @@ pub(crate) trait Runner: Send + Sync {
     fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError>;
     /// When this runner's next start applies the host's operator grant.
     fn host_grant(&self) -> HostGrant;
-    /// Readies a server ahead of a likely open, so the open skips the process's startup work.
-    fn prepare(&self) {}
-    /// Ends a readied server at once, as the client exits; a lock held by the exiting thread
-    /// leaves it to the exit sweep.
-    fn discard_standby(&self) {}
-}
-
-/// Hosts each Dragonfly world in `bedrock-local-server`, which prints `ready` once listening and
-/// reads `pause`, `resume` and `stop` lines; stdin EOF also stops it, so it cannot outlive us.
-/// Started with `-standby`, it waits for a `start <JSON args>` line.
-pub(crate) struct ProcessRunner {
-    pub binary: PathBuf,
-    /// Added to the inherited environment.
-    pub env: Vec<(OsString, OsString)>,
-    pub start_timeout: Duration,
-    /// A standby server the next start takes over.
-    standby: Mutex<Option<Spawn>>,
-}
-
-impl ProcessRunner {
-    pub(crate) fn new(binary: PathBuf) -> Self {
-        Self {
-            binary,
-            env: Vec::new(),
-            start_timeout: DEFAULT_START_TIMEOUT,
-            standby: Mutex::new(None),
-        }
-    }
-
-    fn command(&self) -> Command {
-        let mut command = Command::new(&self.binary);
-        command.envs(self.env.iter().map(|(key, value)| (key, value)));
-        command
-    }
-
-    /// Hands `args` to a live standby server; `None` when there is none or it cannot take them.
-    fn take_standby(&self, args: &[OsString], address: &str) -> Option<Spawn> {
-        let standby = lock(&self.standby).take()?;
-        let args: Option<Vec<&str>> = args.iter().map(|arg| arg.to_str()).collect();
-        let line = serde_json::to_string(&args?).ok()?;
-        if standby.process.has_exited() || standby.process.send(&format!("start {line}")).is_err() {
-            standby.process.kill();
-            return None;
-        }
-        let _ = standby.process.address.set(address.to_owned());
-        Some(standby)
-    }
-}
-
-/// The line `bedrock-local-server` prints once it accepts connections.
-fn ready_line(line: &str) -> bool {
-    line.trim() == "ready"
-}
-
-impl Runner for ProcessRunner {
-    fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
-        let world = &spec.world;
-        if !world.generator.supports_backend(bridge::Backend::Dragonfly) {
-            return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
-        }
-        let address = loopback(free_loopback_port()?);
-        let mut args: Vec<OsString> = vec!["-dir".into(), spec.dir.clone().into()];
-        for (flag, value) in [
-            ("-addr", address.clone()),
-            ("-name", world.name.clone()),
-            ("-game-mode", wire_name(world.game_mode)),
-            ("-difficulty", wire_name(world.difficulty)),
-            ("-generator", wire_name(world.generator)),
-        ] {
-            args.extend([flag.into(), value.into()]);
-        }
-        let spawned = match self.take_standby(&args, &address) {
-            Some(standby) => standby,
-            None => {
-                let mut command = self.command();
-                command.args(&args);
-                spawn(
-                    command,
-                    Some(address),
-                    true,
-                    ready_line,
-                    format!("local-server {}", world.id),
-                    None,
-                )?
-            }
-        };
-        let process: Arc<dyn Instance> = await_ready(spawned, self.start_timeout, cancel)?;
-        Ok(process)
-    }
-
-    /// Dragonfly has no operator list for the host.
-    fn host_grant(&self) -> HostGrant {
-        HostGrant::None
-    }
-
-    fn prepare(&self) {
-        let mut standby = lock(&self.standby);
-        if standby
-            .as_ref()
-            .is_some_and(|standby| !standby.process.has_exited())
-        {
-            return;
-        }
-        let mut command = self.command();
-        command.arg("-standby");
-        match spawn(
-            command,
-            None,
-            true,
-            ready_line,
-            "local-server standby".to_owned(),
-            None,
-        ) {
-            Ok(spawned) => *standby = Some(spawned),
-            Err(error) => tracing::warn!("prepare a standby local server: {error}"),
-        }
-    }
-
-    fn discard_standby(&self) {
-        let standby = match self.standby.try_lock() {
-            Ok(mut standby) => standby.take(),
-            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner().take(),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        };
-        if let Some(standby) = standby {
-            // A standby holds no world, so nothing needs saving.
-            standby.process.kill();
-        }
-    }
 }
 
 /// How a launched child ended, as its [`ExitHook`] learns it.
@@ -251,8 +123,6 @@ pub(crate) type ExitHook = Box<dyn FnOnce(Ending) + Send>;
 pub(crate) struct Launch {
     pub address: String,
     pub timeout: Duration,
-    /// False when the server has no faithful pause; pausing is then a no-op.
-    pub can_pause: bool,
     pub ready: fn(&str) -> bool,
     /// Prefixes the server's log lines.
     pub label: String,
@@ -268,9 +138,7 @@ pub(crate) struct Process {
     /// Serializes acknowledged commands while output readers can independently deliver a reply.
     console: Mutex<()>,
     output_ack: Arc<OutputAck>,
-    /// Set at launch, or when a standby server is given its world.
-    address: OnceLock<String>,
-    can_pause: bool,
+    address: String,
     exited: Receiver<()>,
     status: Arc<Mutex<Option<ExitStatus>>>,
     stop_requested: AtomicBool,
@@ -306,14 +174,7 @@ pub(crate) fn launch(
     spec: Launch,
     cancel: &Cancel,
 ) -> Result<Arc<Process>, WorldError> {
-    let spawned = spawn(
-        command,
-        Some(spec.address),
-        spec.can_pause,
-        spec.ready,
-        spec.label,
-        spec.on_exit,
-    )?;
+    let spawned = spawn(command, spec.address, spec.ready, spec.label, spec.on_exit)?;
     await_ready(spawned, spec.timeout, cancel)
 }
 
@@ -327,8 +188,7 @@ struct Spawn {
 /// on every path, as [`ExitHook`] describes.
 fn spawn(
     mut command: Command,
-    address: Option<String>,
-    can_pause: bool,
+    address: String,
     is_ready: fn(&str) -> bool,
     label: String,
     on_exit: Option<ExitHook>,
@@ -407,8 +267,7 @@ fn spawn(
         stdin: Mutex::new(stdin),
         console: Mutex::new(()),
         output_ack,
-        address: address.map_or_else(OnceLock::new, OnceLock::from),
-        can_pause,
+        address,
         exited,
         status,
         stop_requested: AtomicBool::new(false),
@@ -556,14 +415,7 @@ impl Process {
 
 impl Instance for Process {
     fn address(&self) -> &str {
-        self.address.get().map_or("", String::as_str)
-    }
-
-    fn set_paused(&self, paused: bool) -> io::Result<()> {
-        if !self.can_pause {
-            return Ok(());
-        }
-        self.send(if paused { "pause" } else { "resume" })
+        &self.address
     }
 
     fn request_stop(&self) {
@@ -590,14 +442,14 @@ impl Instance for Process {
     }
 
     fn can_pause(&self) -> bool {
-        self.can_pause
+        false
     }
 
     fn exited_cleanly(&self) -> bool {
         self.has_exited() && lock(&self.status).is_some_and(|status| status.success())
     }
 
-    /// A Dragonfly server has no operator list to change.
+    /// The BDS wrapper owns operator reconciliation; a raw child cannot grant it.
     fn grant_host(&self, _xuid: Option<&str>, _cancel: &Cancel) -> Result<(), WorldError> {
         Err(failed("this local server grants no operator"))
     }

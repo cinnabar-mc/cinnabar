@@ -418,16 +418,16 @@ pub enum GameMode {
     Adventure,
 }
 
-/// Server backend a world runs on; fixed when the world is created.
+/// Local-world host identity, including the marker retained for older saved worlds.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Backend {
-    /// Bedrock Dedicated Server: vanilla terrain and mobs.
+    /// Bedrock Dedicated Server, the only supported local-world host.
+    #[default]
     #[serde(rename = "bds")]
     Bds,
-    /// Built-in Dragonfly server with flat or natural terrain.
-    #[default]
+    /// Saved-world marker only; conversion is required before opening on BDS.
     #[serde(rename = "dragonfly")]
-    Dragonfly,
+    LegacyDragonfly,
 }
 
 /// Lifecycle of the open local world.

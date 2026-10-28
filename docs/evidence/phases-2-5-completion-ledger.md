@@ -621,6 +621,11 @@ The standalone setup window belongs to `first-run`. Its preparation tests move w
 menu integration tests stay in `app`. Account, process and persistence tests belong to
 `launcher-host`. These ownership changes do not close the settings parity gate.
 
+Local-world creation and import use BDS exclusively. Legacy Dragonfly saves remain listed,
+editable and exportable, with opening blocked before any server starts. The checkout-only
+server remains available to mod authors. This updates host ownership and closes no existing
+settings, offline-play or platform acceptance gate; see `docs/local-worlds.md` and `plan.md`.
+
 ## Xbox presence follow-up
 
 The account core publishes menu, world-default, Realm and generic featured/Experience activity.

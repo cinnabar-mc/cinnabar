@@ -81,7 +81,7 @@ Built on these libraries:
 | [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
 | [go-xsapi](https://github.com/df-mc/go-xsapi) | Xbox Live identity, friends, presence and signaling. |
 | [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers). |
-| [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
+| [dragonfly](https://github.com/df-mc/dragonfly) | Checkout-only server and mod development tools in `tools/localserver`; player worlds use BDS. |
 
 Crate-by-crate layout: [docs/architecture/workspace.md](docs/architecture/workspace.md).
 Benchmarks: [docs/benchmarks.md](docs/benchmarks.md).

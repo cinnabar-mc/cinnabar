@@ -1123,10 +1123,13 @@ compatibility. Existing catalog content is owned by the API repository.
 
 ## Phase 7 — Local worlds
 
-Local worlds use the Go server integration. Qualify creation, offline play, reload,
-import, persistence and hosting/session teardown. The accepted local-world scope does
-not establish full vanilla world-generation parity. Dragonfly supports only flat terrain;
-natural terrain requires BDS.
+All player local worlds use BDS, including Infinite and Flat terrain. Creation and import
+refuse unsupported runtimes; there is no bundled Dragonfly fallback. Existing Dragonfly saves
+remain listed and exportable, with an explicit conversion-required error before opening and no
+automatic file changes. The checkout-only server, `cinnabarext`, Dragonfly extension example,
+Experience runtime and `cinnabar-cxb` remain developer tools. Qualify creation, offline play,
+reload, import, persistence and hosting/session teardown across supported platforms; the accepted
+local-world scope does not establish full vanilla world-generation parity.
 Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
 catalog and generated server properties and level data. Settings' in-game Game section saves
 changes and sends supported live changes through the BDS console. Metadata save failures restore
@@ -1251,9 +1254,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   is from one report.
   Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
   remain incomplete across physical devices.
-  Android packages the Dragonfly local-world server and resolves it from the APK's native-library
-  directory. APKs include a translator and pinned, cached guest runtime, with BDS the default
-  for new worlds. An Android-adapted GNU runtime starts BDS, creates
+  Android packages a translator and pinned, cached guest runtime for BDS, the only
+  player-facing local-world host. An Android-adapted GNU runtime starts BDS, creates
   and saves a world, shuts down cleanly and reopens it in a target-SDK-35 test app on an
   Android 15 VM with SELinux enforcing.
   Production protocol login and spawn also pass with an extended diagnostic deadline, including
@@ -1274,7 +1276,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   temporary world before reporting Ready. The first saved-world open uses that prepared code;
   the same server and runtime reuse it across worlds, and updates invalidate it. Missing game
   assets and cancellation still block client startup. Local-world preparation failures are logged
-  and allow the client to start for remote play or Dragonfly; BDS opens can run uncached without
+  and allow the client to start for remote play; BDS opens can run uncached without
   another scratch preparation. Cache writes are skipped before creating a file if
   they would exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone timing, shutdown, storage
   and executable-cache acceptance remain incomplete.

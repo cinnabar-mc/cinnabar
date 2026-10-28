@@ -130,7 +130,6 @@ impl Runner for BdsRunner {
                 Launch {
                     address: loopback(port),
                     timeout: self.start_timeout.unwrap_or(BDS_START_TIMEOUT),
-                    can_pause: false,
                     ready: |line| line.contains(BDS_READY_MARKER),
                     label: format!("{label} {}", spec.world.id),
                     // Records the ending before the exit is reported, so a stopped create run's

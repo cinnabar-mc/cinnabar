@@ -187,11 +187,11 @@
     },
     {
       "rust_name": "Backend",
-      "doc": "Server backend a world runs on; fixed when the world is created.",
+      "doc": "Local-world host identity, including the marker retained for older saved worlds.",
       "derive": ["Clone", "Copy", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
       "variants": [
-        {"rust_name": "Bds", "go_name": "BackendBds", "value": "bds", "doc": "Bedrock Dedicated Server: vanilla terrain and mobs."},
-        {"rust_name": "Dragonfly", "go_name": "BackendDragonfly", "value": "dragonfly", "doc": "Built-in Dragonfly server with flat or natural terrain.", "default": true}
+        {"rust_name": "Bds", "go_name": "BackendBds", "value": "bds", "doc": "Bedrock Dedicated Server, the only supported local-world host.", "default": true},
+        {"rust_name": "LegacyDragonfly", "go_name": "BackendLegacyDragonfly", "value": "dragonfly", "doc": "Saved-world marker only; conversion is required before opening on BDS."}
       ]
     },
     {

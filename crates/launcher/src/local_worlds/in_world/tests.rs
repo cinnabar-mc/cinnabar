@@ -51,7 +51,7 @@ fn unchanged_and_locked_settings_make_no_update() {
     assert_eq!(update(&bds, Action::Option(O::RespawnRadius, -1)), None);
     assert_eq!(update(&bds, Action::OptionField(O::RespawnRadius)), None);
     assert_eq!(
-        update(&world(Backend::Dragonfly), Action::Option(O::Pvp, 0)),
+        update(&world(Backend::LegacyDragonfly), Action::Option(O::Pvp, 0)),
         None,
         "worlds without options change none"
     );

@@ -29,7 +29,7 @@ fn create_applies_defaults_and_persists() {
             GameMode::Survival,
             Generator::Normal,
             Difficulty::Normal,
-            Backend::Dragonfly
+            Backend::Bds
         )
     );
     assert_eq!(store.get(&world.id).expect("reload"), world);
@@ -138,52 +138,50 @@ fn update_touch_and_delete() {
 fn edits_from_play_and_back_round_trip_on_the_next_load() {
     use launcher::local_worlds::{Effect, Event, Input, Screen, WorldsMenu};
 
-    for backend in [Backend::Dragonfly, Backend::Bds] {
-        for exit in [Input::PlayFromEdit, Input::Back] {
-            let dir = scratch();
-            let store = store(&dir);
-            let original = store
-                .create(&NewWorld {
-                    backend: Some(backend),
-                    ..new_world("Original")
-                })
-                .expect("create");
-            let mut menu = WorldsMenu::default();
-            menu.apply(Event::Listed(vec![original.clone()]));
-            menu.update(Input::BeginEdit(0));
-            menu.update(Input::SetEditName(" Edited ".to_owned()));
-            menu.update(Input::SetGameMode(GameMode::Creative));
-            menu.update(Input::SetDifficulty(Difficulty::Hard));
+    for exit in [Input::PlayFromEdit, Input::Back] {
+        let dir = scratch();
+        let store = store(&dir);
+        let original = store
+            .create(&NewWorld {
+                backend: Some(Backend::Bds),
+                ..new_world("Original")
+            })
+            .expect("create");
+        let mut menu = WorldsMenu::default();
+        menu.apply(Event::Listed(vec![original.clone()]));
+        menu.update(Input::BeginEdit(0));
+        menu.update(Input::SetEditName(" Edited ".to_owned()));
+        menu.update(Input::SetGameMode(GameMode::Creative));
+        menu.update(Input::SetDifficulty(Difficulty::Hard));
 
-            let effects = menu.update(exit.clone());
-            let [Effect::Update { id, update }] = effects.as_slice() else {
-                panic!("{exit:?} must save before leaving: {effects:?}");
-            };
-            assert_eq!(menu.screen(), Screen::Edit);
-            let saved = store.update(id, update).expect("save edit");
-            let effects = menu.apply(Event::Updated(saved.clone()));
-            if exit == Input::PlayFromEdit {
-                assert_eq!(effects, vec![Effect::Open(original.id.clone())]);
-            } else {
-                assert!(effects.is_empty());
-                assert_eq!(menu.screen(), Screen::List);
-            }
-
-            let reopened = Store::open(store.root.clone()).expect("reopen store");
-            let loaded = reopened.get(&original.id).expect("reload edit");
-            assert_eq!(loaded, saved);
-            assert_eq!(
-                (loaded.name.as_str(), loaded.game_mode, loaded.difficulty),
-                ("Edited", GameMode::Creative, Difficulty::Hard)
-            );
-            let mut menu = WorldsMenu::default();
-            menu.apply(Event::Listed(reopened.list().expect("reload list")));
-            menu.update(Input::BeginEdit(0));
-            assert_eq!(
-                menu.edit_form(),
-                Some(&launcher::local_worlds::form::EditForm::of(&loaded))
-            );
+        let effects = menu.update(exit.clone());
+        let [Effect::Update { id, update }] = effects.as_slice() else {
+            panic!("{exit:?} must save before leaving: {effects:?}");
+        };
+        assert_eq!(menu.screen(), Screen::Edit);
+        let saved = store.update(id, update).expect("save edit");
+        let effects = menu.apply(Event::Updated(saved.clone()));
+        if exit == Input::PlayFromEdit {
+            assert_eq!(effects, vec![Effect::Open(original.id.clone())]);
+        } else {
+            assert!(effects.is_empty());
+            assert_eq!(menu.screen(), Screen::List);
         }
+
+        let reopened = Store::open(store.root.clone()).expect("reopen store");
+        let loaded = reopened.get(&original.id).expect("reload edit");
+        assert_eq!(loaded, saved);
+        assert_eq!(
+            (loaded.name.as_str(), loaded.game_mode, loaded.difficulty),
+            ("Edited", GameMode::Creative, Difficulty::Hard)
+        );
+        let mut menu = WorldsMenu::default();
+        menu.apply(Event::Listed(reopened.list().expect("reload list")));
+        menu.update(Input::BeginEdit(0));
+        assert_eq!(
+            menu.edit_form(),
+            Some(&launcher::local_worlds::form::EditForm::of(&loaded))
+        );
     }
 }
 
@@ -221,34 +219,36 @@ fn list_reports_world_size() {
 }
 
 #[test]
-fn backend_and_generator_are_saved_independently() {
+fn both_generators_are_saved_on_bds() {
     let dir = scratch();
     let store = store(&dir);
-    for backend in [Backend::Dragonfly, Backend::Bds] {
-        for generator in [Generator::Normal, Generator::Flat] {
-            let world = store
-                .create(&NewWorld {
-                    name: "Independent".into(),
-                    backend: Some(backend),
-                    generator,
-                    ..NewWorld::default()
-                })
-                .expect("create");
-            let saved = store.get(&world.id).expect("get");
-            assert_eq!((saved.backend, saved.generator), (backend, generator));
-        }
+    for generator in [Generator::Normal, Generator::Flat] {
+        let world = store
+            .create(&NewWorld {
+                name: "Independent".into(),
+                backend: Some(Backend::Bds),
+                generator,
+                ..NewWorld::default()
+            })
+            .expect("create");
+        let saved = store.get(&world.id).expect("get");
+        assert_eq!((saved.backend, saved.generator), (Backend::Bds, generator));
     }
 }
 
-/// Worlds saved before backends and generators existed must still list and open.
+/// Older worlds remain listed with their original host marker.
 #[test]
 fn legacy_worlds_get_their_backend_defaults() {
     let dir = scratch();
     let store = store(&dir);
     for (backend, generator, expected) in [
-        ("", None, (Backend::Dragonfly, Generator::Flat)),
+        ("", None, (Backend::LegacyDragonfly, Generator::Flat)),
         ("bds", None, (Backend::Bds, Generator::Normal)),
-        ("", Some("normal"), (Backend::Dragonfly, Generator::Normal)),
+        (
+            "",
+            Some("normal"),
+            (Backend::LegacyDragonfly, Generator::Normal),
+        ),
     ] {
         let world = store.create(&new_world("legacy")).expect("create");
         let mut raw = serde_json::json!({"id": world.id, "name": "legacy", "backend": backend});

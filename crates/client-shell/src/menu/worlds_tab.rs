@@ -153,8 +153,7 @@ impl MenuRuntime {
                         prompt.buttons().contains(&button)
                             && matches!(
                                 (button, prompt.blocking),
-                                (PromptButton::UseDragonfly, PromptFor::CreateBds)
-                                    | (PromptButton::Retry, PromptFor::Play | PromptFor::CreateBds)
+                                (PromptButton::Retry, PromptFor::Play | PromptFor::CreateBds)
                             )
                     })
                 }
@@ -169,9 +168,7 @@ impl MenuRuntime {
         self.sync_storage_worlds(worlds);
         self.push_local_text(worlds);
         let on_worlds = self.showing_worlds();
-        if on_worlds && !self.local_ui.prepared {
-            worlds.prepare();
-        }
+        if on_worlds && !self.local_ui.prepared {}
         self.local_ui.prepared = on_worlds;
         for action in std::mem::take(&mut self.local_ui.actions) {
             if let Some(input) = action.input() {
@@ -604,7 +601,6 @@ mod tests {
         ] {
             menu.local_ui.view.prompt = Some(Prompt { kind, blocking });
             for button in [
-                PromptButton::UseDragonfly,
                 PromptButton::Retry,
                 PromptButton::GetDocker,
                 PromptButton::Cancel,
@@ -621,7 +617,7 @@ mod tests {
         }
         menu.local_ui.view.prompt = None;
         menu.local_ui.actions.clear();
-        menu.queue_local_action(LocalWorldAction::Prompt(PromptButton::UseDragonfly));
+        menu.queue_local_action(LocalWorldAction::Prompt(PromptButton::Retry));
         assert!(!menu.gameplay_return_pending());
     }
 

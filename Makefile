@@ -76,7 +76,7 @@ help:
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make physics-assets  - Compile block movement and selection geometry
-	@echo make local-server    - Build the dragonfly local-world server and experience-runtime beside the core binary
+	@echo make local-server    - Build the checkout-only Dragonfly development server and Experience tools
 	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
@@ -131,7 +131,7 @@ local-server:
 	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
 	$(CARGO) build -p experience-runtime -p cinnabar-cxb --release --locked
 
-# Full game from the launcher menu: refresh assets, build the core and local server beside the client
+# Full game from the launcher menu: refresh assets and build the core beside the client
 # (plus the pinned DX12 shader compiler on Windows), run it.
 play-build: assets
 ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
@@ -139,7 +139,6 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin cinnabar-media-helper --features media --locked
 endif
 	$(GO) build -tags joinprofile -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
-	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 ifeq ($(OS),Windows_NT)
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/fetch-dxc.ps1 -Out "target/$(PROFILE_DIR)"
@@ -150,7 +149,7 @@ endif
 DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
 # The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
 DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
-DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(ASSET_COMPILER_BINARY)
+DEV_APP_BINARIES = cinnabar bedrock-core mod-host cinnabar-media-helper $(ASSET_COMPILER_BINARY)
 play: play-build
 ifneq ($(findstring Darwin,$(shell uname -s)),)
 	@mkdir -p "$(DEV_APP)/Contents/MacOS"
@@ -188,7 +187,6 @@ PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, 
 package-binaries:
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin $(ASSET_COMPILER_BINARY)
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
-	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
 package-macos: package-binaries $(FONT_SOURCE)
 	bash packaging/macos/build-app.sh

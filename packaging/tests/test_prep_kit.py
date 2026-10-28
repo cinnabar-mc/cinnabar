@@ -93,14 +93,12 @@ class PrepKitTests(unittest.TestCase):
         )
         self.assertEqual(files_below(kit), sorted(["bin/assetc.exe", *LISTED]))
 
-    def test_runtime_staging_keeps_the_server_and_verifier_together(self):
-        """The packaged server can execute its verifier without a system-installed CLI."""
+    def test_runtime_staging_requires_the_verifier_and_omits_the_developer_server(self):
+        """Player packages include the verifier without a checkout-only server."""
         binaries = self.temp / "release"
         binaries.mkdir()
         for name in BINARIES:
             (binaries / name).write_text(f"synthetic {name}")
-        server = binaries / "bedrock-local-server"
-        server.write_text('#!/bin/sh\nexec "$(dirname "$0")/cinnabar-cxb" verify --stdin\n')
         verifier = binaries / "cinnabar-cxb"
         verifier.write_text('#!/bin/sh\n[ "$1 $2" = "verify --stdin" ] || exit 1\necho verified\n')
         for platform, destination in [("linux", "usr/bin"), ("macos", "Cinnabar.app/Contents/MacOS")]:
@@ -109,9 +107,7 @@ class PrepKitTests(unittest.TestCase):
                 result = bash('stage_runtime_binaries "$1"', str(staged), env={"BINARIES": str(binaries)})
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(files_below(staged), sorted(BINARIES))
-                result = subprocess.run([str(staged / server.name)], capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout.strip(), "verified")
+                self.assertFalse((staged / "bedrock-local-server").exists())
         verifier.unlink()
         result = bash('stage_runtime_binaries "$1"', str(self.temp / "incomplete"), env={"BINARIES": str(binaries)})
         self.assertNotEqual(result.returncode, 0)

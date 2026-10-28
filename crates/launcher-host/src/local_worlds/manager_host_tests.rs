@@ -258,29 +258,6 @@ fn a_failed_grant_stops_the_server_and_fails_the_world() {
     assert!(manager.core_report().target.is_none());
 }
 
-/// Dragonfly grants no operator, so its starts never wait on a loading host.
-#[test]
-fn dragonfly_starts_do_not_wait_for_the_host() {
-    let runner = Arc::new(FakeRunner::default());
-    let runner_dyn: Arc<dyn Runner> = runner.clone();
-    let fixture = fixture(|parts, _| {
-        parts.runners.dragonfly = Some(runner_dyn);
-        parts.host_wait = Duration::from_secs(3600);
-    });
-    let manager = &fixture.manager;
-    let world = manager
-        .create(&NewWorld {
-            backend: Some(Backend::Dragonfly),
-            ..flat("w")
-        })
-        .expect("create");
-    manager.set_host(Host::Loading);
-    manager.open(&world.id, None).expect("open");
-    wait_for(manager, WorldState::Running);
-    assert_eq!(*lock(&runner.hosts), [None]);
-    assert!(lock(&runner.last().grants).is_empty());
-}
-
 /// Waits until a start is blocked on a [`Host::Loading`] host.
 #[track_caller]
 fn waiting_on_host(manager: &Manager) {
@@ -299,7 +276,7 @@ fn a_host_that_never_loads_starts_without_an_operator() {
     let runner = Arc::new(FakeRunner::default());
     let runner_dyn: Arc<dyn Runner> = runner.clone();
     let fixture = fixture(|parts, dir| {
-        parts.runners.bds = Some(runner_dyn);
+        parts.runner = Some(runner_dyn);
         parts.setup = Some(provisioner(dir, LINUX));
         parts.host_wait = Duration::ZERO;
     });
