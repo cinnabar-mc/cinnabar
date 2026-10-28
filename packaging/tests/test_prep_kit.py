@@ -113,6 +113,16 @@ class PrepKitTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cinnabar-cxb", result.stderr)
 
+    def test_runtime_siblings_follow_the_core_without_the_removed_server_override(self):
+        """A stale developer-server setting cannot redirect player runtime lookup."""
+        core = self.temp / "player/bedrock-core"
+        old_server = self.temp / "developer/bedrock-local-server"
+        result = bash('runtime_binary_source cinnabar-cxb CXB', env={
+            "CORE": str(core), "LOCAL_SERVER": str(old_server), "BINARIES": "", "CXB": "",
+        })
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(core.with_name("cinnabar-cxb")))
+
     def payload(self, platform, compiler_script):
         root = self.temp / platform
         if platform == "linux":
