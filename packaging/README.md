@@ -1,7 +1,7 @@
 # Packaging
 
-Release installers ship the client, the Go core, the `cinnabar-cxb` verifier, the
-Experience runtime, the Cinnangles Sans font and a prep kit, never Mojang-derived
+Release installers ship the client, the Go core, the `cinnabar-cxb` verifier,
+the Cinnangles Sans font and a prep kit, never Mojang-derived
 carriers. A packaged launch whose carriers are missing or stale runs
 `crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
 window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
