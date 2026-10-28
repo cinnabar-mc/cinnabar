@@ -2,11 +2,15 @@ package proxy
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
+
+// errUndecodableSessionPacket marks a selected session packet that could not be decoded and stays raw.
+var errUndecodableSessionPacket = errors.New("proxy: undecodable session packet")
 
 // rawSessionPackets reads packet IDs, decoding the packets decode selects; an undecodable one stays raw.
 func rawSessionPackets(packets [][]byte, decode func(uint32) bool, pool packet.Pool, shieldID int32) ([]minecraft.RawPacket, error) {
@@ -20,6 +24,8 @@ func rawSessionPackets(packets [][]byte, decode func(uint32) bool, pool packet.P
 		if decode != nil && decode(id) {
 			if value := decodeSessionPacket(pool, data, shieldID, true); value != nil {
 				raws[index].Decoded = []packet.Packet{value}
+			} else {
+				raws[index].DecodeErr = errUndecodableSessionPacket
 			}
 		}
 	}
