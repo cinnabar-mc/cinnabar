@@ -382,7 +382,10 @@ fn current_chat_bindings_follow_visibility_and_keep_the_authored_origin() {
                 {"binding_name":"#editor_chat_layout_active","binding_name_override":"#layout_active"}
             ])),
         ].into(),
-        ..ResolvedControl::default()
+        base: None,
+        unresolved_base: None,
+        children: Vec::new(),
+        factory: None,
     });
     for visible in [true, false] {
         let data = hud_data_source(&HudModel {
