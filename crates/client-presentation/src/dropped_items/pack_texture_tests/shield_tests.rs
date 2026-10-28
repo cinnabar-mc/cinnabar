@@ -257,82 +257,121 @@ fn dropped_and_framed_shields_keep_the_authored_model() {
 }
 
 #[test]
-fn refused_world_shield_uses_available_icon_artwork() {
-    let (mut icons, stream) = shield_fixture();
-    icons.set_preview_pack_equipment(Some(Arc::new(
-        assets::RuntimeEquipmentCatalog::from_parts(
-            [3; 32],
-            vec![],
-            vec![assets::EquipmentTexture {
-                identifier: "textures/fixture_shield".into(),
-                width: 2048,
-                height: 2048,
-                rgba8: [255; 4].repeat(2048 * 2048).into(),
-            }],
-        )
-        .unwrap(),
-    )));
-    let mut views = Vec::new();
-    stream.authority().dropped_items_into(0.0, &mut views);
-    let mut cache = ModelCache::default();
-    cache.begin_frame();
-    cache.finish_demand();
-    for page in 0..4 {
-        cache
-            .model(
-                ModelKey::icon(
-                    ui::IconRef {
-                        page,
-                        uv: [0, 0, 16, 16],
-                        glint: false,
-                        color_mask: None,
-                    },
-                    false,
-                ),
-                || render_model::dropped_item::ItemModelCost::new(16, 1, 1024, 36),
-                || {
-                    Some(DroppedItemModel::Sprite(render_model::DroppedItemSprite {
-                        width: 16,
-                        height: 16,
-                        rgba8: vec![255; 1024].into(),
-                    }))
-                },
+fn refused_world_shield_retains_patterns_and_plain_icon_fallbacks() {
+    for base in [None, Some(1), Some(4)] {
+        let (mut icons, stream) = shield_fixture();
+        icons.set_preview_pack_equipment(Some(Arc::new(
+            assets::RuntimeEquipmentCatalog::from_parts(
+                [3; 32],
+                vec![],
+                vec![assets::EquipmentTexture {
+                    identifier: "textures/fixture_shield".into(),
+                    width: 2048,
+                    height: 2048,
+                    rgba8: [255; 4].repeat(2048 * 2048).into(),
+                }],
             )
-            .unwrap();
-    }
-    let preparation = DropPreparation {
-        view: &views[0],
-        native_origin: views[0].position,
-        camera: None,
-        frustum: None,
-    };
-    let prepared =
-        DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, None, &preparation)
-            .expect("refused shield must retain its fallback");
-    let mut instances = Vec::new();
-    prepared.append(&views[0], &mut instances, |_| (15, 15));
-    assert!(matches!(
-        &cache.models[instances[0].model as usize],
-        DroppedItemModel::NativeSprite(_) | DroppedItemModel::Sprite(_)
-    ));
-    let placement = render_model::StaticItemPlacement {
-        identifier: assets::gui_item::SHIELD_IDENTIFIER.into(),
-        metadata: 0,
-        shield_pattern: None,
-        potted_block: None,
-        carried_block: None,
-        allow_block_models: true,
-        world_from_item: render_model::item_frame_item_transform([0; 3], 2, 0.0),
-        light: None,
-    };
-    assert!(
-        DroppedItemPublisher::placement_model(
+            .unwrap(),
+        )));
+        let mut views = Vec::new();
+        stream.authority().dropped_items_into(0.0, &mut views);
+        views[0].item.shield_pattern = base.map(|base| {
+            Arc::new(render_api::ShieldPattern {
+                base,
+                layers: Arc::from([]),
+            })
+        });
+        let mut cache = ModelCache::default();
+        cache.begin_frame();
+        cache.finish_demand();
+        for page in 0..4 {
+            cache
+                .model(
+                    ModelKey::icon(
+                        ui::IconRef {
+                            page,
+                            uv: [0, 0, 16, 16],
+                            glint: false,
+                            color_mask: None,
+                        },
+                        false,
+                    ),
+                    || render_model::dropped_item::ItemModelCost::new(16, 1, 1024, 36),
+                    || {
+                        Some(DroppedItemModel::Sprite(render_model::DroppedItemSprite {
+                            width: 16,
+                            height: 16,
+                            rgba8: vec![255; 1024].into(),
+                        }))
+                    },
+                )
+                .unwrap();
+        }
+        let preparation = DropPreparation {
+            view: &views[0],
+            native_origin: views[0].position,
+            camera: None,
+            frustum: None,
+        };
+        let prepared =
+            DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, None, &preparation)
+                .expect("refused shield must retain its fallback");
+        let mut instances = Vec::new();
+        prepared.append(&views[0], &mut instances, |_| (15, 15));
+        let dropped = instances[0].model;
+        match (&cache.models[dropped as usize], base) {
+            (DroppedItemModel::Block(model), Some(base)) => {
+                assert_eq!(instances.len(), 1);
+                assert_eq!(model.quads.len(), 6);
+                let texture = &model.materials[0].0;
+                assert!(texture.width < 2048 && texture.height < 2048);
+                let rgb = assets::banner::color_rgb(i64::from(base));
+                assert!(
+                    texture
+                        .rgba8
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .all(|pixel| *pixel == [rgb[0], rgb[1], rgb[2], 255])
+                );
+                let reduced = icons
+                    .world_shield_artwork(views[0].item.shield_pattern.as_ref())
+                    .unwrap()
+                    .reduced()
+                    .unwrap();
+                assert_eq!(
+                    reduced.cost(),
+                    render_model::dropped_item::ItemModelCost::from_model(
+                        &cache.models[dropped as usize]
+                    )
+                );
+            }
+            (DroppedItemModel::NativeSprite(_) | DroppedItemModel::Sprite(_), None) => {}
+            _ => panic!("refused decorated shields must retain their pattern and authored shape"),
+        }
+        let placement = render_model::StaticItemPlacement {
+            identifier: assets::gui_item::SHIELD_IDENTIFIER.into(),
+            metadata: 0,
+            shield_pattern: views[0].item.shield_pattern.clone(),
+            potted_block: None,
+            carried_block: None,
+            allow_block_models: true,
+            world_from_item: render_model::item_frame_item_transform([0; 3], 2, 0.0),
+            light: None,
+        };
+        let framed = DroppedItemPublisher::placement_model(
             &mut cache,
             &icons,
             None,
             &placement,
-            icons.startup_item_icon(&placement.identifier, 0)
+            icons.startup_item_icon(&placement.identifier, 0),
         )
-        .is_some()
-    );
+        .expect("framed shields must also recover from full-sheet refusal");
+        if base.is_some() {
+            assert_eq!(
+                framed, dropped,
+                "both world routes must share the recovered decorated model"
+            );
+        }
+    }
 }

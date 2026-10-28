@@ -2,6 +2,24 @@
 use super::*;
 
 impl ModelCache {
+    /// Retries decorated shields at smaller sheet sizes before considering unrelated item art.
+    pub(in crate::dropped_items) fn shield_model(
+        &mut self,
+        mut artwork: client_ui::ui_runtime::presentation::gui_models::WorldShieldArtwork,
+    ) -> Option<(ModelKey, u32)> {
+        let refusals = self.budget_refusals;
+        loop {
+            let key = ModelKey::Shield(artwork.clone());
+            if let Some(model) = self.model(key.clone(), || artwork.cost(), || artwork.model()) {
+                if self.budget_refusals != refusals {
+                    self.budget_fallbacks = self.budget_fallbacks.saturating_add(1);
+                }
+                return Some((key, model));
+            }
+            artwork = artwork.reduced()?;
+        }
+    }
+
     /// Tracks successful and refused shield sources through every model resolution route.
     pub(super) fn observe_shield(&mut self, key: &ModelKey) {
         if matches!(key, ModelKey::Shield(_)) {

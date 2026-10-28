@@ -203,9 +203,9 @@ impl UiPresentationRuntime {
             let sprite = hand
                 .shield_pattern
                 .as_deref()
-                .filter(|_| base.is_none_or(HeldModel::is_sprite))
                 .and_then(|pattern| self.shield_preview_sprite(pattern));
             let model = if !pack_model_suppressed
+                && sprite.is_none()
                 && let Some((source, vertices)) =
                     self.session_icons.held_block(identifier, metadata)
             {
@@ -215,12 +215,13 @@ impl UiPresentationRuntime {
                     hand_pivots: self.gui_models.sources.hand_pivots?,
                     placements: [player_preview::PreviewHeldPlacement::Block; 2],
                 }
-            } else if base.is_none_or(HeldModel::is_sprite)
-                && (sprite.is_some() || self.session_item_icon(identifier, metadata).is_some())
+            } else if sprite.is_some()
+                || (base.is_none_or(HeldModel::is_sprite)
+                    && self.session_item_icon(identifier, metadata).is_some())
             {
                 let (source, vertices) =
                     sprite.or_else(|| self.session_icons.held_sprite(identifier, metadata))?;
-                match base {
+                match base.filter(|base| base.is_sprite()) {
                     Some(base) => base.with_sprite(source, vertices),
                     None => player_preview::PreviewHeldModel {
                         source,

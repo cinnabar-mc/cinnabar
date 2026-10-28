@@ -447,13 +447,8 @@ impl DroppedItemPublisher<'_, '_> {
             && placement.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER
             && let Some(artwork) = icons.world_shield_artwork(placement.shield_pattern.as_ref())
         {
-            let model = cache.model(
-                ModelKey::Shield(artwork.clone()),
-                || artwork.cost(),
-                || artwork.model(),
-            );
-            if model.is_some() {
-                return cache.count_item(model);
+            if let Some((_, model)) = cache.shield_model(artwork) {
+                return cache.count_item(Some(model));
             }
         }
         cache.artwork(|cache, source| match source {
@@ -509,11 +504,9 @@ impl DroppedItemPublisher<'_, '_> {
         if identifier == assets::gui_item::SHIELD_IDENTIFIER
             && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
         {
-            let key = ModelKey::Shield(artwork.clone());
-            let prepared = preparation.model(cache, &key, DroppedItemShape::Shield, |cache| {
-                cache.model(key.clone(), || artwork.cost(), || artwork.model())
-            });
-            if prepared.is_some() {
+            if let Some((key, model)) = cache.shield_model(artwork) {
+                let prepared =
+                    preparation.model(cache, &key, DroppedItemShape::Shield, |_| Some(model));
                 return cache.count_item(prepared);
             }
         }

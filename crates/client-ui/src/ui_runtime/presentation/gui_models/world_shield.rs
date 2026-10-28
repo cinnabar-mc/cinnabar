@@ -10,6 +10,7 @@ pub struct WorldShieldArtwork {
     startup: Arc<assets::RuntimeEquipmentCatalog>,
     active: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     appearance: Option<Arc<render_api::ShieldPattern>>,
+    max_pixels: usize,
 }
 
 impl PartialEq for WorldShieldArtwork {
@@ -19,6 +20,7 @@ impl PartialEq for WorldShieldArtwork {
             && Arc::ptr_eq(&self.startup, &other.startup)
             && self.active.as_ref().map(Arc::as_ptr) == other.active.as_ref().map(Arc::as_ptr)
             && self.appearance == other.appearance
+            && self.max_pixels == other.max_pixels
     }
 }
 impl Eq for WorldShieldArtwork {}
@@ -29,6 +31,7 @@ impl Hash for WorldShieldArtwork {
         Arc::as_ptr(&self.startup).hash(state);
         self.active.as_ref().map(Arc::as_ptr).hash(state);
         self.appearance.hash(state);
+        self.max_pixels.hash(state);
     }
 }
 
@@ -45,9 +48,9 @@ impl WorldShieldArtwork {
         self.texture(&self.source.texture.identifier)
             .unwrap_or(&self.source.texture)
     }
-    /// Measures original geometry and all source pixels before cache admission.
-    pub fn cost(&self) -> Option<ItemModelCost> {
-        let [width, height] = if let Some(appearance) = &self.appearance {
+    /// Measures the same normalized composition extent used when constructing the model.
+    fn dimensions(&self) -> Option<[u16; 2]> {
+        let [mut width, mut height] = if let Some(appearance) = &self.appearance {
             assets::item::shield::composition_size(
                 self.base(),
                 appearance.base,
@@ -60,12 +63,35 @@ impl WorldShieldArtwork {
         } else {
             [self.base().width, self.base().height]
         };
+        if self.appearance.is_some() {
+            while usize::from(width) * usize::from(height) > self.max_pixels {
+                width = (width / 2).max(1);
+                height = (height / 2).max(1);
+            }
+        }
+        Some([width, height])
+    }
+    /// Measures original geometry and admitted source pixels before cache allocation.
+    pub fn cost(&self) -> Option<ItemModelCost> {
+        let [width, height] = self.dimensions()?;
         ItemModelCost::new(
             u32::from(width.max(height)),
             1,
             usize::from(width) * usize::from(height) * 4,
             render_model::equipment::shield::vertex_count(&self.source.geometry)?,
         )
+    }
+    /// Keeps decorated geometry while reducing its sheet for another bounded admission attempt.
+    pub fn reduced(&self) -> Option<Self> {
+        self.appearance.as_ref()?;
+        let [width, height] = self.dimensions()?;
+        if width == 1 && height == 1 {
+            return None;
+        }
+        Some(Self {
+            max_pixels: usize::from((width / 2).max(1)) * usize::from((height / 2).max(1)),
+            ..self.clone()
+        })
     }
     /// Composes a decorated sheet only after the bounded model cache admits this source.
     pub fn model(&self) -> Option<DroppedItemModel> {
@@ -77,7 +103,7 @@ impl WorldShieldArtwork {
                     .layers
                     .iter()
                     .map(|layer| (layer.pattern.as_ref(), layer.color)),
-                assets::texture::policy::MAX_SUBSCRIBER_BYTES / 4,
+                self.max_pixels,
                 |path| self.texture(path),
             )?
         } else {
@@ -99,6 +125,7 @@ impl UiPresentationRuntime {
             startup: Arc::clone(self.equipment_catalog.as_ref()?),
             active: self.gui_models.pack_equipment.source.clone(),
             appearance: appearance.cloned(),
+            max_pixels: assets::texture::policy::MAX_SUBSCRIBER_BYTES / 4,
         })
     }
 }

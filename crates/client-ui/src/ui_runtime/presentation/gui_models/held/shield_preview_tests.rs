@@ -3,17 +3,14 @@ use super::*;
 use crate::ui_runtime::presentation::{SessionIcon, SessionIcons, session_icons};
 
 /// Builds original shield artwork with optional authored poses and a session sprite override.
-fn presentation(authored: bool, session: bool) -> UiPresentationRuntime {
+fn presentation(
+    startup_authored: bool,
+    pack_authored: bool,
+    session: bool,
+) -> UiPresentationRuntime {
     let item = assets::gui_item::SHIELD_IDENTIFIER;
     let pack = fixture(item, "fixture:other_shield");
     let source = pack.equipment.as_ref().unwrap();
-    let mut bindings = source.bindings().to_vec();
-    if !authored {
-        for binding in &mut bindings {
-            binding.third_person = assets::EquipmentTransform::NeedsMeasurement;
-            binding.poses = Box::new([]);
-        }
-    }
     let mut textures = source.textures().to_vec();
     for code in ["", "sc"] {
         textures.push(assets::EquipmentTexture {
@@ -23,8 +20,16 @@ fn presentation(authored: bool, session: bool) -> UiPresentationRuntime {
             rgba8: [255; 4].repeat(32 * 32).into(),
         });
     }
-    let catalog =
-        Arc::new(RuntimeEquipmentCatalog::from_parts([12; 32], bindings, textures).unwrap());
+    let catalog = |authored: bool| {
+        let mut bindings = source.bindings().to_vec();
+        if !authored {
+            for binding in &mut bindings {
+                binding.third_person = assets::EquipmentTransform::NeedsMeasurement;
+                binding.poses = Box::new([]);
+            }
+        }
+        Arc::new(RuntimeEquipmentCatalog::from_parts([12; 32], bindings, textures.clone()).unwrap())
+    };
     let icons = Arc::new(
         RuntimeIconCatalog::decode(
             &assets::encode_icon_catalog(
@@ -50,12 +55,15 @@ fn presentation(authored: bool, session: bool) -> UiPresentationRuntime {
         icons,
     )
     .unwrap();
-    ui.set_equipment_catalog(Some(Arc::clone(&catalog)));
+    ui.set_equipment_catalog(Some(catalog(startup_authored)));
     ui.set_gui_models(&assets::RuntimeAssets::diagnostic(), &pack.assets)
         .unwrap();
     ui.set_player_preview_skin(Some(&[255; 64 * 64 * 4]), Default::default());
-    ui.set_preview_equipment_assets(Some(Arc::clone(&pack.assets)), Some(pack.assets));
-    ui.set_preview_pack_equipment(Some(catalog));
+    ui.set_preview_equipment_assets(
+        Some(Arc::clone(&pack.assets)),
+        Some(Arc::clone(&pack.assets)),
+    );
+    ui.set_preview_pack_equipment(Some(catalog(pack_authored)));
     if session {
         session_icons::observe(
             &mut ui,
@@ -78,8 +86,13 @@ fn presentation(authored: bool, session: bool) -> UiPresentationRuntime {
 fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges() {
     let item = assets::gui_item::SHIELD_IDENTIFIER;
     for session in [false, true] {
-        for (authored, custom_models) in [(true, false), (false, false), (false, true)] {
-            let mut ui = presentation(authored, session);
+        for (startup_authored, pack_authored, custom_models) in [
+            (true, true, false),
+            (false, false, false),
+            (false, false, true),
+            (true, false, true),
+        ] {
+            let mut ui = presentation(startup_authored, pack_authored, session);
             ui.set_player_preview_custom_item_models(custom_models);
             let patterns = [1, 4].map(|color| {
                 Arc::new(render_api::ShieldPattern {
@@ -137,7 +150,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                     .iter()
                     .all(|selected| selected.is_some())
             );
-            if authored {
+            if pack_authored {
                 assert!(
                     ui.gui_models
                         .selected_held
@@ -190,14 +203,21 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
             dress(&mut ui, false);
             assert_ne!(first, ui.player_preview_gear.held.clone().unwrap());
             let plain = ui.preview_held_models([true; 2]);
-            if !authored || session {
+            if !pack_authored || session {
                 assert!(plain.iter().all(Option::is_some));
             }
             for model in plain.into_iter().flatten() {
-                assert_eq!(
-                    model.source,
-                    ui.item_icon(item, 0).unwrap().with_glint(true)
-                );
+                assert!(model.source.glint);
+                if model
+                    .placements
+                    .iter()
+                    .all(|placement| matches!(placement, PreviewHeldPlacement::Sprite { .. }))
+                {
+                    assert_eq!(
+                        model.source,
+                        ui.item_icon(item, 0).unwrap().with_glint(true)
+                    );
+                }
             }
         }
     }
