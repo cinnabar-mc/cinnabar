@@ -12,9 +12,9 @@ use sha2::{Digest, Sha256};
 
 use super::invalid;
 
-pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.50.json";
+pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.60.json";
 pub(super) const SOURCE_BYTES: &[u8] =
-    include_bytes!("../../../../assets/data/default-sprite-bindings-1.26.50.json");
+    include_bytes!("../../../../assets/data/default-sprite-bindings-1.26.60.json");
 
 const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
 const ATLAS_SHA256: &str = "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a";

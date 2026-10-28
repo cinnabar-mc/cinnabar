@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     BossBarColor, BossBarOverlay, BossEventUpdateType, PlayStatusType, SoftEnumUpdateType,
     TextPacketType,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     BossEvent as BossEventPacket, CommandOutput, CommandRequest, LevelEvent, PlayStatus,
     RemoveObjective, SetDisplayObjective, SetHealth, SetScore, Text, ToastRequest, UpdateSoftEnum,
 };
-use bedrock_protocol_1_26_51::types::{CommandOriginData, SetScoreInfoItem, TextData};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::{CommandOriginData, SetScoreInfoItem, TextData};
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 mod commands;
@@ -527,20 +527,20 @@ pub(crate) fn normalize_health(packet: SetHealth) -> UiEvent {
 pub(crate) fn normalize_player_status(packet: PlayStatus) -> Result<UiEvent, UiPacketError> {
     // Map the reserved edition-mismatch statuses to one neutral local state.
     let status = match packet.status {
-        PlayStatusType::Loginsuccess => PlayerStatus::LoginSuccess,
-        PlayStatusType::LoginfailedClientold => PlayerStatus::FailedClient,
-        PlayStatusType::LoginfailedServerold => PlayerStatus::FailedSpawn,
-        PlayStatusType::Playerspawn => PlayerStatus::PlayerSpawn,
-        PlayStatusType::LoginfailedInvalidtenant
-        | PlayStatusType::LoginfailedEditionmismatchedutovanilla
-        | PlayStatusType::LoginfailedEditionmismatchvanillatoedu => {
+        PlayStatusType::LoginSuccess => PlayerStatus::LoginSuccess,
+        PlayStatusType::LoginFailedClientOld => PlayerStatus::FailedClient,
+        PlayStatusType::LoginFailedServerOld => PlayerStatus::FailedSpawn,
+        PlayStatusType::PlayerSpawn => PlayerStatus::PlayerSpawn,
+        PlayStatusType::LoginFailedInvalidTenant
+        | PlayStatusType::LoginFailedEditionMismatchEduToVanilla
+        | PlayStatusType::LoginFailedEditionMismatchVanillaToEdu => {
             PlayerStatus::UnsupportedEdition
         }
-        PlayStatusType::LoginfailedServerfullsubclient => PlayerStatus::FailedServerFull,
-        PlayStatusType::LoginfailedEditormismatcheditortovanilla => {
+        PlayStatusType::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
+        PlayStatusType::LoginFailedEditorMismatchEditorToVanilla => {
             PlayerStatus::FailedEditorVanillaMismatch
         }
-        PlayStatusType::LoginfailedEditormismatchvanillatoeditor => {
+        PlayStatusType::LoginFailedEditorMismatchVanillaToEditor => {
             PlayerStatus::FailedVanillaEditorMismatch
         }
         PlayStatusType::Unknown(value) => {
@@ -692,9 +692,9 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
     // is value 7, the one gophertunnel calls `BossEventTexture`.
     let action = match packet.event_type {
         BossEventUpdateType::Add => BossAction::Show,
-        BossEventUpdateType::Playeradded => BossAction::RegisterPlayer,
+        BossEventUpdateType::PlayerAdded => BossAction::RegisterPlayer,
         BossEventUpdateType::Remove => BossAction::Hide,
-        BossEventUpdateType::Playerremoved => BossAction::UnregisterPlayer,
+        BossEventUpdateType::PlayerRemoved => BossAction::UnregisterPlayer,
         BossEventUpdateType::UpdatePercent => BossAction::SetProgress,
         BossEventUpdateType::UpdateName => BossAction::SetTitle,
         BossEventUpdateType::UpdateProperties => BossAction::UpdateProperties,

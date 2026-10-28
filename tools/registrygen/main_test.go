@@ -86,8 +86,8 @@ func TestCheckedInV1001BlockItemRoutesStayFrozen(t *testing.T) {
 	}
 }
 
-func TestCheckedInV2193BlockItemRoutesMatchPinnedGenerator(t *testing.T) {
-	assertCheckedInBlockItemRoutesMatchPinnedGenerator(t, v2193BlockProtocol)
+func TestCheckedInV2225BlockItemRoutesMatchPinnedGenerator(t *testing.T) {
+	assertCheckedInBlockItemRoutesMatchPinnedGenerator(t, v2225BlockProtocol)
 }
 
 // assertCheckedInBlockItemRoutesMatchPinnedGenerator verifies that a checked-in
@@ -102,7 +102,7 @@ func assertCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T, protocol u
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, protocol, protocol == v2193BlockProtocol)
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, protocol, protocol == v2225BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -834,8 +834,8 @@ func TestCollectRegisteredDragonflyBiomesUsesStableNetworkIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect registered biomes: %v", err)
 	}
-	if len(records) != v2193RetailBiomeCount {
-		t.Fatalf("biome record count = %d, want %d", len(records), v2193RetailBiomeCount)
+	if len(records) != v2225RetailBiomeCount {
+		t.Fatalf("biome record count = %d, want %d", len(records), v2225RetailBiomeCount)
 	}
 	for _, want := range []BiomeRecord{
 		{ID: 195, Name: "minecraft:dappled_forest"},
@@ -1153,8 +1153,8 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect registry: %v", err)
 	}
-	if len(records) != v2193BlockStateCount {
-		t.Fatalf("registry record count = %d, want %d", len(records), v2193BlockStateCount)
+	if len(records) != v2225BlockStateCount {
+		t.Fatalf("registry record count = %d, want %d", len(records), v2225BlockStateCount)
 	}
 	air := findByName(t, records, "minecraft:air")
 	if air.Flags != flagAir {

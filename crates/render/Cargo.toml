@@ -12,7 +12,7 @@ reads = [
     "crates/shaderpack/tests/fixtures/geometry",
     "assets/bedrock-target.json",
     "crates/assets/data/block-registry-v1001.bin",
-    "crates/assets/data/block-registry-v2193.bin",
+    "crates/assets/data/block-registry-v2225.bin",
     "packaging/windows/dxc.json",
 ]
 

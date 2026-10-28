@@ -10,8 +10,8 @@ import (
 
 // validateSharedBiomeTarget binds numeric IDs to this carrier's release and source lock.
 func validateSharedBiomeTarget() error {
-	if shared.MinecraftVersion != v2193GameVersion || shared.ProtocolVersion != v2193BlockProtocol {
-		return fmt.Errorf("shared biome catalog target %s/%d does not match carrier %s/%d", shared.MinecraftVersion, shared.ProtocolVersion, v2193GameVersion, v2193BlockProtocol)
+	if shared.MinecraftVersion != v2225GameVersion || shared.ProtocolVersion != v2225BlockProtocol {
+		return fmt.Errorf("shared biome catalog target %s/%d does not match carrier %s/%d", shared.MinecraftVersion, shared.ProtocolVersion, v2225GameVersion, v2225BlockProtocol)
 	}
 	if shared.SourceLockSHA256 != shared.SemanticSourceLockSHA256 {
 		return errors.New("shared biome catalog and release have different source locks")

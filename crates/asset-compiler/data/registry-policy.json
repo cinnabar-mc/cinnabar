@@ -477,7 +477,12 @@
       "item": "minecraft:yellow_wool_stairs"
     }
   },
-  "unresolved_retail": [],
+  "unresolved_retail": [
+    "minecraft:chorus_plant",
+    "minecraft:disc_press",
+    "minecraft:ice_crystal",
+    "minecraft:icicle"
+  ],
   "movement": [
     {
       "name": "minecraft:bed",
@@ -581,7 +586,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "bb2494c4bb0fe40dc1e95ded7afddf5450dfafd10c2ad83ed4530ac6ab5c1308",
+    "identifiers_sha256": "d9dccba6808174a462af3be8b9c9a2a625675fe946891431667cc61368f4546d",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -5183,6 +5188,7 @@
     "minecraft:shield"
   ],
   "entity_rules": [
+    {"id": "unresolved-1-26-60-actors", "status": "provisional", "members": ["minecraft:frostbite", "minecraft:ice_ball"], "facts": {"native_class": "Unresolved", "interactions": "Unresolved", "actor_use_resolver": "Unresolved"}},
     {
       "id": "pick-radius-shulker",
       "status": "verified",

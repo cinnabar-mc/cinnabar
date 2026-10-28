@@ -2,8 +2,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use bedrock_protocol_1_26_51::enums::CreativeItemCategory as Category;
-use bedrock_protocol_1_26_51::packets::CreativeContent;
+use bedrock_protocol_1_26_60::enums::CreativeItemCategory as Category;
+use bedrock_protocol_1_26_60::packets::CreativeContent;
 
 use super::{InventoryEvent, InventoryPacketError, make_stack, validate_item_user_data};
 use crate::item::NetworkItemStack;
@@ -94,7 +94,7 @@ pub fn normalize_creative_content(
                 Category::Nature => CreativeCategory::Nature,
                 Category::Equipment => CreativeCategory::Equipment,
                 Category::Items => CreativeCategory::Items,
-                Category::Itemcommandonly => CreativeCategory::CommandOnly,
+                Category::ItemCommandOnly => CreativeCategory::CommandOnly,
                 Category::Unknown(code) => CreativeCategory::Unknown(code),
             },
             name: Arc::from(group.name.to_string_lossy()),
@@ -167,11 +167,11 @@ pub fn normalize_creative_content(
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::types::{
+    use bedrock_protocol_1_26_60::types::{
         CreativeGroupInfo, CreativeItemEntry, CreativeItemNetID,
         NetworkItemInstanceDescriptorSerializedData,
     };
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::wire;
 
     use super::*;
 

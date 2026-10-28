@@ -1,4 +1,4 @@
-//! Focused regressions for 1.26.50.26 vanilla liquid movement and its constants.
+//! Focused regressions for 1.26.60.26 vanilla liquid movement and its constants.
 //! These use a synthetic fully wet world;
 //! they do not claim captured vanilla trajectories or live server acceptance.
 

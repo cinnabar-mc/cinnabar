@@ -1,6 +1,6 @@
 //! Finite vanilla cloud sampling window, rather than nine full texture periods.
 //!
-//! 1.26.50.26 rebuilds clouds after fifteen blocks of
+//! 1.26.60.26 rebuilds clouds after fifteen blocks of
 //! sampling-space movement. Its task centres a 64*grid window on
 //! floor(samplePosition)>>4, and the tessellator emits unit caps
 //! and occupied→empty side edges. Alpha bytes greater than one are occupied.

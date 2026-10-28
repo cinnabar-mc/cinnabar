@@ -1,7 +1,7 @@
 use super::*;
 use crate::raw_packet::decode_packet_raw;
-use bedrock_protocol_1_26_51::packets::UpdateBlockSynced;
-use bedrock_protocol_1_26_51::types::BlockPos;
+use bedrock_protocol_1_26_60::packets::UpdateBlockSynced;
+use bedrock_protocol_1_26_60::types::BlockPos;
 use bytes::Buf;
 
 #[test]

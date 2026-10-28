@@ -13,7 +13,7 @@ fn door_render_fixture() -> &'static DoorRenderFixture {
             serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
                 .unwrap();
         let registry = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
             target["wire_protocol"].as_u64().unwrap() as u32,
         )
         .expect("decode door registry");

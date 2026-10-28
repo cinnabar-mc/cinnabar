@@ -86,19 +86,19 @@ python3 "$project_root/scripts/tests/copy_workspace.py" "$project_root" "$protoc
 assert_protocol_dependency_provenance "$protocol_fixture"
 
 cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"
-cp -R "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51" "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51-decoy"
+cp -R "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-60" "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-60-decoy"
 python3 - "$protocol_fixture/crates/protocol/Cargo.toml" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
 text = text.replace(
-    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
-    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }',
+    'bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }',
+    '"bedrock-protocol-1-26-60" = { path = "vendor/bedrock-protocol-1-26-60-decoy" }',
     1,
 )
 decoys = '''description = """
 [dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
@@ -112,7 +112,7 @@ cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/proto
 cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
 
 [target.'cfg(unix)'.dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }
 EOF
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
     echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
@@ -125,7 +125,7 @@ python3 - "$protocol_fixture/Cargo.lock" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-needle = 'name = "bedrock-protocol-1-26-51"\nversion = "0.1.0"'
+needle = 'name = "bedrock-protocol-1-26-60"\nversion = "0.1.0"'
 replacement = needle + '\n   checksum = "' + ('2' * 64) + '"'
 if needle not in text:
     raise SystemExit('Bash checksum fixture did not find the codec lock package')

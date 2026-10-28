@@ -27,7 +27,7 @@ pub(in crate::compiler) enum CompileRuleResult {
 /// Wire identity of the one record that resolves as canonical air for a
 /// compiled registry. Derived from registry content at compile time instead
 /// of pinning one legacy protocol's sequential ID and network hash, so a
-/// protocol-2193 triple whose air sits at different identities compiles the
+/// protocol-2225 triple whose air sits at different identities compiles the
 /// same exact Invisible route.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::compiler) struct CanonicalAirIdentity {

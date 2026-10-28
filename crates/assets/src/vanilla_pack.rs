@@ -37,7 +37,7 @@ pub struct UnpackLimits {
 }
 
 impl UnpackLimits {
-    /// Headroom over the pinned v1.26.50.4 pack: 22,859 entries, 319,437,100 bytes expanded,
+    /// Headroom over the pinned v1.26.60.4 pack: 22,859 entries, 319,437,100 bytes expanded,
     /// largest file 3,746,670 bytes, worst entry ratio about 120.5, aggregate 1.95. Raise a bound
     /// only after re-measuring a newer pin.
     pub const PINNED: Self = Self {

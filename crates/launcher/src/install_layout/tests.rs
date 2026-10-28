@@ -163,7 +163,7 @@ fn resolves_development_layout_from_target_ancestor() {
     .unwrap();
     assert_eq!(
         layout.world_assets(),
-        PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2193.mcbea")
+        PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2225.mcbea")
     );
     assert_eq!(
         layout.physics_registry,

@@ -1,6 +1,6 @@
 use super::*;
-use bedrock_protocol_1_26_51::packets::UpdateBlockSynced;
-use bedrock_protocol_1_26_51::wire::{Decode, Encode};
+use bedrock_protocol_1_26_60::packets::UpdateBlockSynced;
+use bedrock_protocol_1_26_60::wire::{Decode, Encode};
 use protocol::{ActorBlockSyncMessage, BlockUpdateEvent, SyncedBlockUpdateEvent};
 
 #[test]

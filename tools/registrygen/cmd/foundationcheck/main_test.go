@@ -9,7 +9,7 @@ import (
 )
 
 func TestReadyFoundationFollowsTargetBlockPin(t *testing.T) {
-	payload, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "assets", "registry-foundation-v2193.json"))
+	payload, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "assets", "registry-foundation-v2225.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

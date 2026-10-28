@@ -419,7 +419,7 @@ mod tests {
 
     /// Writes a nonnegative list length through the production network-NBT codec.
     fn list_length(out: &mut Vec<u8>, count: usize) {
-        bedrock_protocol_1_26_51::wire::Writer::new(out)
+        bedrock_protocol_1_26_60::wire::Writer::new(out)
             .write_zigzag_i32(i32::try_from(count).unwrap())
             .unwrap();
     }

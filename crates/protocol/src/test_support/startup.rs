@@ -1,6 +1,6 @@
 //! Original startup fixtures normalized through the wire codec and login projection.
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     packets::{ItemRegistry, StartGame},
     types::ServerBlockProperty,
     wire::{self, Decode, Encode},

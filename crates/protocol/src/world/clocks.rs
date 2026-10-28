@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::types::SyncWorldClocksData;
+use bedrock_protocol_1_26_60::types::SyncWorldClocksData;
 
 /// The vanilla clock behind the level time and the atmosphere renderer.
 ///

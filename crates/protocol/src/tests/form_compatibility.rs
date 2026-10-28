@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::ModalFormRequest;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::ModalFormRequest;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{ServerFormModel, UiEvent, WorldEvent, into_world_event};
 use serde_json::json;
 
@@ -124,7 +124,7 @@ fn custom_display_fields_accept_structured_text_without_changing_input_defaults(
 
 #[test]
 fn multiselect_response_is_an_index_array_in_the_custom_response_slot() {
-    use bedrock_protocol_1_26_51::packets;
+    use bedrock_protocol_1_26_60::packets;
     let packet = protocol::custom_form_submit_response(
         7,
         &[

@@ -25,7 +25,7 @@
     },
     {
       "reference": {
-        "file": "block-item-routes-v2193.json",
+        "file": "block-item-routes-v2225.json",
         "location": {
           "pointer": "/routes/12/identifier"
         },
@@ -36,7 +36,7 @@
     },
     {
       "reference": {
-        "file": "block-item-routes-v2193.json",
+        "file": "block-item-routes-v2225.json",
         "location": {
           "pointer": "/routes/397/identifier"
         },
@@ -1294,7 +1294,7 @@
     },
     {
       "reference": {
-        "file": "default-sprite-bindings-1.26.50.json",
+        "file": "default-sprite-bindings-1.26.60.json",
         "location": {
           "pointer": "/routes/17/identifier"
         },

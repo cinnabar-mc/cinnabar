@@ -584,7 +584,7 @@ mod tests {
         packages.push(
             Package::new("pack-entity-compiler", "crates/pack-compiler/entity", &[]).with_reads(
                 vec![
-                    "crates/protocol/data/retail_items_1_26_50.tsv".into(),
+                    "crates/protocol/data/retail_items_1_26_60.tsv".into(),
                     "crates/meshing/fixtures/*".into(),
                 ],
             ),
@@ -592,7 +592,7 @@ mod tests {
         packages.push(Package::new("protocol", "crates/protocol", &[]));
         assert_eq!(
             select_packages(
-                &["crates/protocol/data/retail_items_1_26_50.tsv"],
+                &["crates/protocol/data/retail_items_1_26_60.tsv"],
                 &packages
             ),
             Selection::Packages(vec!["pack-entity-compiler".into(), "protocol".into()])

@@ -3,15 +3,15 @@ use std::{
     sync::Arc,
 };
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     AnimateAction as AnimatePacketAction, ItemVersion as ItemDataItemVersion,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     Animate as AnimatePacket, AnimateEntity as AnimateEntityPacket,
     ItemRegistry as ItemRegistryPacket, MobEquipment as MobEquipmentPacket,
 };
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -60,16 +60,16 @@ pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
 /// descriptor whose trailing user data is an opaque length-prefixed buffer, so
 /// the shield ID is no longer needed to decode an item.
 type ItemStackDescriptor =
-    bedrock_protocol_1_26_51::types::NetworkItemStackDescriptorSerializedData;
+    bedrock_protocol_1_26_60::types::NetworkItemStackDescriptorSerializedData;
 
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
 
 /// Packs a held-use particle event from the negotiated item ID and signed auxiliary value.
 pub fn item_use_progress_packet(runtime_id: u64, item_id: i16, auxiliary: i16) -> crate::Packet {
-    crate::Packet::new(bedrock_protocol_1_26_51::packets::ActorEvent {
+    crate::Packet::new(bedrock_protocol_1_26_60::packets::ActorEvent {
         target_runtime_id: ActorRuntimeID(runtime_id),
-        event_id: bedrock_protocol_1_26_51::enums::ActorEventType::Feed,
+        event_id: bedrock_protocol_1_26_60::enums::ActorEventType::Feed,
         data: wire::ZigZag32((i32::from(item_id as u16) << 16) | i32::from(auxiliary)),
         fire_at_position: None,
     })
@@ -448,7 +448,7 @@ pub struct ItemRegistryEntry {
 /// omitted entries remain unsupported gaps and are never renumbered.
 #[must_use]
 pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
-    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_50.tsv");
+    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_60.tsv");
 
     let mut entries = Vec::with_capacity(RETAIL_ITEMS.lines().count());
     for line in RETAIL_ITEMS.lines() {
@@ -745,7 +745,7 @@ pub(crate) fn normalize_item_registry(
         let component_bytes = encode_extra(&item.item_component_data)?;
         let version = match item.item_version {
             ItemDataItemVersion::Legacy => ItemRegistryVersion::Legacy,
-            ItemDataItemVersion::Datadriven => ItemRegistryVersion::DataDriven,
+            ItemDataItemVersion::DataDriven => ItemRegistryVersion::DataDriven,
             ItemDataItemVersion::None => ItemRegistryVersion::None,
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
@@ -878,12 +878,12 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
     }
     let kind = match packet.action {
         AnimatePacketAction::Swing => ActorActionKind::SwingArm,
-        AnimatePacketAction::Wakeup => ActorActionKind::Wake,
-        AnimatePacketAction::Criticalhit => ActorActionKind::CriticalHit,
-        AnimatePacketAction::Magiccriticalhit => ActorActionKind::MagicCriticalHit,
+        AnimatePacketAction::WakeUp => ActorActionKind::Wake,
+        AnimatePacketAction::CriticalHit => ActorActionKind::CriticalHit,
+        AnimatePacketAction::MagicCriticalHit => ActorActionKind::MagicCriticalHit,
         AnimatePacketAction::Unknown(128u8) => ActorActionKind::RowRight,
         AnimatePacketAction::Unknown(129u8) => ActorActionKind::RowLeft,
-        AnimatePacketAction::Noaction => ActorActionKind::Ignored { action_id: 0 },
+        AnimatePacketAction::NoAction => ActorActionKind::Ignored { action_id: 0 },
         AnimatePacketAction::Unknown(action_id) => ActorActionKind::Ignored { action_id },
     };
     Ok(ItemActorEvent::Action(ActorActionEvent {

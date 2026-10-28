@@ -221,7 +221,7 @@ mod tests {
     fn ui_vocabulary_has_the_pinned_projection_fingerprint() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let bytes =
-            fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt")).unwrap();
+            fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.60.txt")).unwrap();
         assert_eq!(
             format!("{:x}", Sha256::digest(bytes)),
             "f0074eb0250feed93d9d1f4697e20478c5bcb3a97bb8abdef98818c187408ab1"
@@ -256,7 +256,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             generate(&isolated.cache).unwrap(),
-            fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt")).unwrap()
+            fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.60.txt")).unwrap()
         );
     }
 

@@ -190,7 +190,7 @@ pub fn blocks(
     report: &Path,
 ) -> Result<()> {
     let mut manifest: manifest::BlockManifest =
-        serde_json::from_slice(&read(&root.join("assets/block-projection-v2193.json"))?)?;
+        serde_json::from_slice(&read(&root.join("assets/block-projection-v2225.json"))?)?;
     validate(facts, &manifest)?;
     let allow = read(allowlist)?;
     check(
@@ -228,13 +228,13 @@ pub fn blocks(
     manifest::write_blob(out, &encoded, true)?;
     manifest::write_blob(light_out, &light_bytes, true)?;
     let data = out.parent().ok_or("block output has no parent")?;
-    manifest::write(&data.join("facts-expansion-v2193.tsv"), &expansion)?;
+    manifest::write(&data.join("facts-expansion-v2225.tsv"), &expansion)?;
     manifest::write(
-        &data.join("block-placement-v2193.tsv"),
+        &data.join("block-placement-v2225.tsv"),
         &placement::compile(&facts.blocks, &records, &policy)?,
     )?;
     manifest::write(
-        &data.join("vocabulary-v2193.txt"),
+        &data.join("vocabulary-v2225.txt"),
         &block_rules::vocabulary(root, &facts.blocks)?,
     )?;
     manifest::write_json(report, &manifest)
@@ -250,7 +250,7 @@ pub fn physics(
     report: Option<&Path>,
 ) -> Result<()> {
     let template: manifest::BlockManifest =
-        serde_json::from_slice(&read(&root.join("assets/block-projection-v2193.json"))?)?;
+        serde_json::from_slice(&read(&root.join("assets/block-projection-v2225.json"))?)?;
     validate(facts, &template)?;
     let bytes = read(breg)?;
     let target: serde_json::Value =
@@ -266,7 +266,7 @@ pub fn physics(
     };
     check(
         expected == digest(&bytes),
-        "pinned protocol-2193 block registry SHA-256 does not match",
+        "pinned protocol-2225 block registry SHA-256 does not match",
     )?;
     if let Some(path) = report {
         let report: manifest::BlockManifest = serde_json::from_slice(&read(path)?)?;

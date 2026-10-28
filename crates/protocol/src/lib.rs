@@ -1,4 +1,4 @@
-//! Bedrock 1.26.50 (protocol 2193) packets, coded by the generated contract crate.
+//! Bedrock 1.26.60 (protocol 2225) packets, coded by the generated contract crate.
 
 mod actor;
 mod audio;

@@ -1,6 +1,6 @@
 //! Original remote-player packets admitted through wire decoding and world normalization.
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     packets::{self, AddPlayer, MobArmorEquipment, MobEquipment, PlayerList, RemoveActor},
     types::{
         ActorRuntimeID, ActorUniqueID, NetworkItemStackDescriptorSerializedData, PlayerListData,
@@ -36,6 +36,7 @@ pub fn player(
     };
     let roster = event(PlayerList {
         entries: vec![PlayerListData::AddEntry {
+            play_fab_id: Default::default(),
             action: Default::default(),
             uuid: uuid::Uuid::from_bytes(uuid),
             actor_unique_id: ActorUniqueID(list_id),
@@ -43,7 +44,16 @@ pub fn player(
             xbl_xuid: Default::default(),
             platform_online_id: Default::default(),
             build_platform: Default::default(),
-            serialized_skin: Box::new(skin_packet.serialized_skin),
+            serialized_skin: Box::new(bedrock_protocol_1_26_60::types::SerializedSkinRef {
+                resource_patch: skin_packet.serialized_skin.resource_patch,
+                geometry_data: skin_packet.serialized_skin.geometry_data,
+                image_data: bedrock_protocol_1_26_60::types::SkinImage {
+                    width: skin_packet.serialized_skin.image_data.width,
+                    height: skin_packet.serialized_skin.image_data.height,
+                    image_bytes: skin_packet.serialized_skin.image_data.image_bytes,
+                },
+                ..Default::default()
+            }),
             is_teacher: false,
             is_host: false,
             is_sub_client: false,

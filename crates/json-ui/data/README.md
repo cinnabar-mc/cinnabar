@@ -1,6 +1,6 @@
 # Vanilla JSON-UI vocabulary
 
-`vanilla-ui-vocabulary-1.26.50.txt` contains sorted, unique category/name pairs
+`vanilla-ui-vocabulary-1.26.60.txt` contains sorted, unique category/name pairs
 from the sample archive pinned by `assets/vanilla-source.json`. It includes UI
 references, bindings, buttons, variables, controls, collections (including names
 assigned through variables), factory names, renderer names, and English text keys. It contains no control trees or text values.
@@ -11,11 +11,11 @@ Regenerate it with the verified local sample archive:
 
 ```sh
 cargo run --locked -p asset-compiler --bin assetc -- vocabulary \
-  --archive .local/assets/downloads/bedrock-samples-v1.26.50.4-full.zip \
+  --archive .local/assets/downloads/bedrock-samples-v1.26.60.4-full.zip \
   --source-manifest assets/vanilla-source.json \
-  --out crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv \
-  --actors-out crates/protocol/data/retail_actors_1_26_50.txt \
-  --ui-out crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt
+  --out crates/assets/data/vanilla-pack-vocabulary-1.26.60.tsv \
+  --actors-out crates/protocol/data/retail_actors_1_26_60.txt \
+  --ui-out crates/json-ui/data/vanilla-ui-vocabulary-1.26.60.txt
 ```
 
 The `json_ui::vanilla` tests check every declared name in its own category.

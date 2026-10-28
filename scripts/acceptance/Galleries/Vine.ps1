@@ -17,8 +17,8 @@ function Get-VineCoverageEvidence {
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
-        if ($registryProtocol -ne 2193 -or $recordCount -ne 22091) {
-            throw "vine registry target changed: protocol=$registryProtocol records=$recordCount (expected 2193/22091)"
+        if ($registryProtocol -ne 2225 -or $recordCount -ne 22091) {
+            throw "vine registry target changed: protocol=$registryProtocol records=$recordCount (expected 2225/22091)"
         }
         $entries = [Collections.Generic.List[object]]::new()
         for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {

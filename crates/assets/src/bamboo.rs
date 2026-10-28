@@ -126,7 +126,7 @@ mod tests {
         let target: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../../assets/bedrock-target.json")).unwrap();
         crate::read_registry_for_protocol(
-            include_bytes!("../data/block-registry-v2193.bin"),
+            include_bytes!("../data/block-registry-v2225.bin"),
             target["wire_protocol"].as_u64().unwrap() as u32,
         )
         .unwrap()

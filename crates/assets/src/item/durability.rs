@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
-pub const ITEM_DURABILITY_SOURCE_PATH: &str = "registry/item-durability-v2193.json";
+pub const ITEM_DURABILITY_SOURCE_PATH: &str = "registry/item-durability-v2225.json";
 pub const ITEM_DURABILITY_SOURCE_BYTES: &[u8] =
-    include_bytes!("../../data/item-durability-v2193.json");
+    include_bytes!("../../data/item-durability-v2225.json");
 
 /// Effective item durability; missing evidence is distinct from a nondamageable item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn durability_positive_inventory_is_admitted_and_unknowns_are_explicit() {
-        let inventory = include_str!("../../../protocol/data/retail_items_1_26_50.tsv");
+        let inventory = include_str!("../../../protocol/data/retail_items_1_26_60.tsv");
         let identifiers = inventory
             .lines()
             .map(|line| line.split_once('\t').unwrap().1)

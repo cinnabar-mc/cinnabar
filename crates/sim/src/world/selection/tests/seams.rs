@@ -227,7 +227,7 @@ fn compiled_fixture() -> (Box<[assets::RegistryRecord]>, assets::PhysicsRegistry
     let protocol = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
     let registry = assets::read_physics_registry_for_protocol(
-        include_bytes!("../../../../../assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../../../assets/data/block-physics-v2225.bin"),
         breg,
         &records,
         protocol,

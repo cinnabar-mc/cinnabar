@@ -2,10 +2,10 @@
 
 use render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION;
 
-use bedrock_protocol_1_26_51::enums::PersonaArmSizeType;
-use bedrock_protocol_1_26_51::packets::{self, PlayerSkin};
-use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::SkinArmSize;
+use bedrock_protocol_1_26_60::packets::{self, PlayerSkin};
+use bedrock_protocol_1_26_60::types::{SerializedSkin, SerializedSkinImage};
+use bedrock_protocol_1_26_60::wire;
 use sha2::{Digest, Sha256};
 
 /// The built-in classic skin pack used by custom wide and slim models.
@@ -82,17 +82,19 @@ pub fn player_skin_packet(
     let cape_id = cape.map_or_else(String::new, cape_content_id);
     crate::Packet::new(PlayerSkin {
         uuid: uuid::Uuid::from_bytes(uuid),
-        serialized_skin: SerializedSkinRef {
+        serialized_skin: SerializedSkin {
             id: id.into(),
             full_id: if cape_id.is_empty() {
                 id.into()
             } else {
                 format!("{id}_{cape_id}").into()
             },
-            cape_image_data: cape.map_or_else(SkinImage::default, |cape| SkinImage {
-                width: wire::U32LE(cape.width),
-                height: wire::U32LE(cape.height),
-                image_bytes: cape.rgba8.to_vec().into(),
+            cape_image_data: cape.map_or_else(SerializedSkinImage::default, |cape| {
+                SerializedSkinImage {
+                    width: wire::U32LE(cape.width),
+                    height: wire::U32LE(cape.height),
+                    image_bytes: cape.rgba8.to_vec().into(),
+                }
             }),
             cape_id: cape_id.into(),
             resource_patch: geometry
@@ -101,7 +103,7 @@ pub fn player_skin_packet(
                     |source| source.resource_patch.to_string(),
                 )
                 .into(),
-            image_data: SkinImage {
+            image_data: SerializedSkinImage {
                 width: wire::U32LE(skin.width),
                 height: wire::U32LE(skin.height),
                 image_bytes: skin.rgba8.to_vec().into(),
@@ -111,9 +113,9 @@ pub fn player_skin_packet(
                 .into(),
             geometry_data_min_engine_version: DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             arm_size: if arm_size == "slim" {
-                PersonaArmSizeType::Slim
+                SkinArmSize::Slim
             } else {
-                PersonaArmSizeType::Wide
+                SkinArmSize::Wide
             },
             is_primary_user: true,
             ..Default::default()
@@ -166,7 +168,7 @@ mod tests {
             wire.serialized_skin.image_data.image_bytes,
             skin.rgba8.as_ref()
         );
-        assert_eq!(wire.serialized_skin.arm_size, PersonaArmSizeType::Slim);
+        assert_eq!(wire.serialized_skin.arm_size, SkinArmSize::Slim);
         assert_eq!(
             wire.serialized_skin.geometry_data,
             &*skin.geometry.as_ref().unwrap().geometry_data

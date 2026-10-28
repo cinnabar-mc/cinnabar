@@ -23,15 +23,15 @@ func TestCrossFamilyRoutesCoverEveryMatchingPaletteState(t *testing.T) {
 	for _, name := range catalog.CrossedPlanes {
 		wanted[name] = false
 	}
-	palette, err := v2193SourceRecords()
+	palette, err := v2225SourceRecords()
 	if err != nil {
 		t.Fatal(err)
 	}
-	carrier, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2193.bin"))
+	carrier, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2225.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, records, err := decodeBREGRecords(carrier, v2193BlockProtocol)
+	_, records, err := decodeBREGRecords(carrier, v2225BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}

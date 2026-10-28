@@ -40,7 +40,7 @@ pub struct GrindstoneOutcome {
 }
 
 fn is_curse(id: i16) -> bool {
-    [Enchantment::Curseofbinding, Enchantment::Curseofvanishing]
+    [Enchantment::CurseOfBinding, Enchantment::CurseOfVanishing]
         .iter()
         .any(|curse| i16::from(curse.wire_value()) == id)
 }

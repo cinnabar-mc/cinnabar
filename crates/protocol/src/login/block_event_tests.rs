@@ -3,8 +3,8 @@
 use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
 
-use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
-use bedrock_protocol_1_26_51::types::{ActorUniqueID, BlockPos};
+use bedrock_protocol_1_26_60::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
+use bedrock_protocol_1_26_60::types::{ActorUniqueID, BlockPos};
 
 use super::*;
 use crate::{BlockEventEvent, MapDataEvent, OpenSignEvent, WorldEvent};

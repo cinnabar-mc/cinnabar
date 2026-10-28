@@ -129,7 +129,7 @@ fn chalkboard_block_entity_route_owns_only_its_declared_backing_states() {
 
 #[test]
 fn block_entity_facts_reject_stale_registry_bindings_and_duplicate_states() {
-    let bytes = include_bytes!("../../data/block-entities-v2193.json");
+    let bytes = include_bytes!("../../data/block-entities-v2225.json");
     let mut payload: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     payload["registry_sha256"] = "00".repeat(32).into();
     assert!(

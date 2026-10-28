@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::types;
+use bedrock_protocol_1_26_60::types;
 
 use super::*;
 
@@ -408,7 +408,7 @@ fn retained_cached_subchunk_emits_admission_before_reconstruction() {
                 Some(payload.to_vec()),
                 Some(hash),
             ),
-            sub_chunk_entry(1, 2, 0, SubChunkRequestResult::Successallair, None, None),
+            sub_chunk_entry(1, 2, 0, SubChunkRequestResult::SuccessAllAir, None, None),
         ],
     });
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());

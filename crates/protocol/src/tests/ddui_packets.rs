@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     self, ClientboundDataDrivenUICloseScreen, ClientboundDataDrivenUIReload,
     ClientboundDataDrivenUIShowScreen, ClientboundDataStore, ServerboundDataDrivenScreenClosed,
     ServerboundDataStore,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     BedrockDDUI, BedrockDDUIDataStoreUpdate, BedrockDDUIDataStoreUpdateData, DynamicValue,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::ddui::{
     DataDrivenScreenCloseReason, DataDrivenUiEvent, DataPrimitive, DataStores, DataValue,
     ShowDataDrivenScreen, StoreApply, data_driven_screen_closed_packet, data_store_update_packet,

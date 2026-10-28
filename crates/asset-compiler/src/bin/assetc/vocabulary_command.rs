@@ -62,17 +62,17 @@ mod tests {
         fs::write(&manifest, assets::VANILLA_SOURCE_MANIFEST).unwrap();
         fs::write(
             &out,
-            include_bytes!("../../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv"),
+            include_bytes!("../../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv"),
         )
         .unwrap();
         fs::write(
             &actors,
-            include_bytes!("../../../../protocol/data/retail_actors_1_26_50.txt"),
+            include_bytes!("../../../../protocol/data/retail_actors_1_26_60.txt"),
         )
         .unwrap();
         fs::write(
             &ui,
-            include_bytes!("../../../../json-ui/data/vanilla-ui-vocabulary-1.26.50.txt"),
+            include_bytes!("../../../../json-ui/data/vanilla-ui-vocabulary-1.26.60.txt"),
         )
         .unwrap();
         let before = (

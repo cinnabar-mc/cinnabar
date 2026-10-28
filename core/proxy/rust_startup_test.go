@@ -72,7 +72,7 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimed := device.New(protocol.DeviceAndroid)
+	claimed := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	server := &sessionServer{listener: listener, prepared: connections, transfers: new(TransferState), logger: slog.New(slog.DiscardHandler), device: &claimed}
 	server.start(ctx)
 	defer connections.finishShutdown()

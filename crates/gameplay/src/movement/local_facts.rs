@@ -129,11 +129,11 @@ pub fn read(
         elytra_ready,
         instabuild: player.facts.instabuild().unwrap_or(false),
         can_stand_on_snow,
-        depth_strider: boots_level(i16::from(Enchantment::Depthstrider.wire_value())),
-        soul_speed: boots_level(i16::from(Enchantment::Soulspeed.wire_value())),
+        depth_strider: boots_level(i16::from(Enchantment::DepthStrider.wire_value())),
+        soul_speed: boots_level(i16::from(Enchantment::SoulSpeed.wire_value())),
         swift_sneak: protocol::item_enchantment_level(
             &leggings.extra_data,
-            i16::from(Enchantment::Swiftsneak.wire_value()),
+            i16::from(Enchantment::SwiftSneak.wire_value()),
         )
         .unwrap_or(0),
         swim_hunger_blocked: !hunger_exempt && hunger_below_floor.unwrap_or(true),

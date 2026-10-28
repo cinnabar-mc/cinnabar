@@ -19,12 +19,12 @@ impl Fixture {
     /// Creates a stream and scene with embedded fixtures and no book readers.
     fn new() -> Self {
         let breg = assets::pinned_block_registry_bytes();
-        let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
+        let records = assets::read_registry_for_protocol(breg, 2225).unwrap();
         let collisions = PhysicsCollisionRegistries::from_assets(
             breg,
             &records,
-            include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin"),
-            2193,
+            include_bytes!("../../../../crates/assets/data/block-physics-v2225.bin"),
+            2225,
         )
         .unwrap();
         let atlas = assets::encode_block_entity_catalog(

@@ -1,6 +1,6 @@
 use super::{HOTBAR_SLOT_COUNT, NetworkItemStack};
 use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     packets::MobEquipment as MobEquipmentPacket, types::ActorRuntimeID, wire,
 };
 

@@ -50,11 +50,11 @@ HUD_PACK_DIR ?= $(PACK_DIR)
 FONT_SOURCE_MANIFEST ?= assets/cinnangles-sans-source.json
 FONT_SOURCE ?= assets/fonts/CinnanglesSans.ttf
 BEDROCK_TARGET_MANIFEST ?= assets/bedrock-target.json
-REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json
-HUD_SOURCE_MANIFEST ?= assets/hud-source-v2193.json
+REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2225.json
+HUD_SOURCE_MANIFEST ?= assets/hud-source-v2225.json
 # Development-only outputs of explicitly selected local packs; the carrier table owns the rest.
 LOCAL_ASSET_DIR ?= .local/assets/compiled
-PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2193.bin
+PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2225.bin
 CINNABAR_CLOUDS_PNG ?=
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
 ASSET_COMPILER_BINARY = assetc
@@ -69,7 +69,7 @@ LOCAL_HUD_ASSET_COMPILE = $(ASSETC) hud-assets --pack "$(HUD_PACK_DIR)" --source
 .PHONY: registry-foundation-check jsonui-editor figma-plugin
 
 help:
-	@echo make registry-foundation-check - Validate the exact protocol-2193 registry foundation
+	@echo make registry-foundation-check - Validate the exact protocol-2225 registry foundation
 	@echo make vanilla-assets  - Acquire the pinned official Mojang sample resource pack
 	@echo make assets          - Build every stale carrier in one parallel pass, fetching the pack if needed
 	@echo make NAME-assets     - Build one carrier and what it reads, e.g. hud-assets or audio-bank-assets

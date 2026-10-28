@@ -1,6 +1,6 @@
 //! Borrowed network-NBT fields and lossless item-tag conversion for trade offers.
 
-use bedrock_protocol_1_26_51::wire::{NbtVariant, Reader};
+use bedrock_protocol_1_26_60::wire::{NbtVariant, Reader};
 
 #[derive(Clone, Copy)]
 pub(super) struct Value<'a> {

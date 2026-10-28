@@ -51,18 +51,18 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
-path = "crates/assets/data/entity-facts-v2193.bin"
+path = "crates/assets/data/entity-facts-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
 [[owned_artifacts]]
-path = "crates/assets/data/item-facts-v2193.bin"
+path = "crates/assets/data/item-facts-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
 [[owned_artifacts]]
-path = "crates/assets/data/java-mapping-v2193.bin"
+path = "crates/assets/data/java-mapping-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
-# The vendored contract codec (`bedrock-protocol-1-26-51`) is a dependency of `protocol` only.
+# The vendored contract codec (`bedrock-protocol-1-26-60`) is a dependency of `protocol` only.
 [[vendored]]
 path = "crates/protocol/vendor/"
 ownership_record = "crates/protocol/vendor/UPSTREAM.md"
@@ -1421,13 +1421,13 @@ owners = [
     "crates/json-ui/src/vanilla.rs",
 ]
 vocabularies = [
-    { path = "crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv", column = 1 },
-    { path = "crates/protocol/data/retail_items_1_26_50.tsv", column = 1 },
-    { path = "crates/protocol/data/retail_actors_1_26_50.txt", column = 0 },
-    { path = "crates/protocol/data/retail_biomes_1_26_50.txt", column = 0 },
+    { path = "crates/assets/data/vanilla-pack-vocabulary-1.26.60.tsv", column = 1 },
+    { path = "crates/protocol/data/retail_items_1_26_60.tsv", column = 1 },
+    { path = "crates/protocol/data/retail_actors_1_26_60.txt", column = 0 },
+    { path = "crates/protocol/data/retail_biomes_1_26_60.txt", column = 0 },
     { path = "crates/protocol/data/item_tags_native.tsv", column = 0 },
 ]
-block_registries = ["crates/assets/data/block-registry-v2193.bin"]
+block_registries = ["crates/assets/data/block-registry-v2225.bin"]
 # The provisional PBR texture-name table stays: the pinned Java/Bedrock mapping has no texture
 # names, so it waits for a model-derived source (plan.md).
 baselines = [

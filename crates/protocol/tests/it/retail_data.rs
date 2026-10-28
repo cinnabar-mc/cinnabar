@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use protocol::vanilla_item_registry;
 use sha2::{Digest, Sha256};
 
-const RETAIL_ITEMS: &[u8] = include_bytes!("../../data/retail_items_1_26_50.tsv");
-const RETAIL_BIOMES: &[u8] = include_bytes!("../../data/retail_biomes_1_26_50.txt");
-const RETAIL_ACTORS: &[u8] = include_bytes!("../../data/retail_actors_1_26_50.txt");
+const RETAIL_ITEMS: &[u8] = include_bytes!("../../data/retail_items_1_26_60.tsv");
+const RETAIL_BIOMES: &[u8] = include_bytes!("../../data/retail_biomes_1_26_60.txt");
+const RETAIL_ACTORS: &[u8] = include_bytes!("../../data/retail_actors_1_26_60.txt");
 
 fn canonical_text(bytes: &[u8]) -> Vec<u8> {
     let mut normalized = Vec::with_capacity(bytes.len());

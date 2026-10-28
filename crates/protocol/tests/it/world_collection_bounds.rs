@@ -4,14 +4,14 @@
 //! before allocating. Declared-but-absent elements therefore fail as
 //! truncated wire, without imposing a global element ceiling.
 
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::{
     DimensionData, LevelChunk, NetworkChunkPublisherUpdate, SubChunk, UpdateSubChunkBlocks,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ChunkPos, DimensionDefinition, SubChunkData, SubChunkMetadata, UpdateSubChunkNetworkBlockInfo,
 };
-use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 
 const MAX_SUB_CHUNK_ENTRIES: usize = 256;
 const MAX_WORLD_BLOCK_UPDATES: usize = 4096;

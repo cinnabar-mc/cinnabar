@@ -1,11 +1,15 @@
 //! Real raw ingress for BDS's targeted game-mode confirmation packet.
 
-use bedrock_protocol_1_26_51::enums::GameType;
-use bedrock_protocol_1_26_51::packets::{PacketId, UpdatePlayerGameType};
-use bedrock_protocol_1_26_51::types::{ActorUniqueID, PlayerInputTick};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::LevelGameType;
+use bedrock_protocol_1_26_60::packets::{PacketId, UpdatePlayerGameType};
+use bedrock_protocol_1_26_60::types::{ActorUniqueID, PlayerInputTick};
+use bedrock_protocol_1_26_60::wire;
 
-fn raw_packet(mode: GameType, actor_unique_id: i64, tick: u64) -> crate::raw_packet::RawPacket {
+fn raw_packet(
+    mode: LevelGameType,
+    actor_unique_id: i64,
+    tick: u64,
+) -> crate::raw_packet::RawPacket {
     let packet: crate::Packet = crate::Packet::new(UpdatePlayerGameType {
         player_game_type: mode,
         target_player: ActorUniqueID(actor_unique_id),
@@ -20,23 +24,26 @@ fn raw_packet(mode: GameType, actor_unique_id: i64, tick: u64) -> crate::raw_pac
 fn update_player_game_type_enters_raw_ingress_with_unique_id_and_tick() {
     for (wire, expected) in [
         (
-            GameType::Survival,
+            LevelGameType::Survival,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Survival),
         ),
         (
-            GameType::Creative,
+            LevelGameType::Creative,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Creative),
         ),
         (
-            GameType::Adventure,
+            LevelGameType::Adventure,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Adventure),
         ),
         (
-            GameType::Spectator,
+            LevelGameType::Spectator,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Spectator),
         ),
-        (GameType::Default, crate::GameModeUpdate::WorldDefault),
-        (GameType::Unknown(77), crate::GameModeUpdate::Unknown(77)),
+        (LevelGameType::Default, crate::GameModeUpdate::WorldDefault),
+        (
+            LevelGameType::Unknown(77),
+            crate::GameModeUpdate::Unknown(77),
+        ),
     ] {
         let raw = raw_packet(wire, -55, u64::MAX);
         assert_eq!(raw.id, PacketId::UpdatePlayerGameType);
@@ -54,7 +61,7 @@ fn update_player_game_type_enters_raw_ingress_with_unique_id_and_tick() {
 
 #[test]
 fn truncated_targeted_game_mode_is_a_fatal_wire_fault_not_an_ignored_packet() {
-    let packet = raw_packet(GameType::Creative, 42, 1);
+    let packet = raw_packet(LevelGameType::Creative, 42, 1);
     let mut payload = Vec::new();
     wire::Writer::new(&mut payload)
         .write_var_u32(PacketId::UpdatePlayerGameType as u32)

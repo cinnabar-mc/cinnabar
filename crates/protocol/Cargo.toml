@@ -11,7 +11,7 @@ autotests = false
 platform-specific = ["windows"]
 reads = [
     "assets/bedrock-target.json",
-    "assets/block-projection-v2193.json",
+    "assets/block-projection-v2225.json",
     "crates/protocol-ids/data/protocol-ids.json",
     "crates/protocol-ids/data/actor-data-extensions.json",
     "crates/protocol-ids/data/movement-contract.json",
@@ -48,7 +48,7 @@ tracing.workspace = true
 web-time.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { workspace = true, features = ["js"] }

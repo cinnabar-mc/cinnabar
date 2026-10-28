@@ -357,8 +357,8 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
 #[test]
 fn every_current_registry_button_uses_the_family_route() {
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
-        2193,
+        include_bytes!("../../../assets/data/block-registry-v2225.bin"),
+        2225,
     )
     .unwrap();
     let unsupported = records
@@ -372,7 +372,7 @@ fn every_current_registry_button_uses_the_family_route() {
 
 #[test]
 fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
-    let bytes = include_bytes!("../../../assets/data/block-registry-v2193.bin");
+    let bytes = include_bytes!("../../../assets/data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(bytes).unwrap();
     let records = assets::read_registry_for_protocol(bytes, protocol).unwrap();
     let fallback = super::visuals::fallback::inventory(protocol).unwrap();
@@ -398,15 +398,15 @@ fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
     }
 }
 
-/// The v2193 fallback inventory carries cube envelopes for these blocks; they must not win.
+/// The v2225 fallback inventory carries cube envelopes for these blocks; they must not win.
 #[test]
 fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
-        2193,
+        include_bytes!("../../../assets/data/block-registry-v2225.bin"),
+        2225,
     )
     .unwrap();
-    let fallback = super::visuals::fallback::inventory(2193).expect("v2193 fallback inventory");
+    let fallback = super::visuals::fallback::inventory(2225).expect("v2225 fallback inventory");
     let (visuals, _, _, _) = super::visuals::dispatcher::compile_visuals(
         &records,
         &empty_pack_sources(),
@@ -415,7 +415,7 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
         fallback,
         no_exact_admissions(),
     )
-    .expect("compile the pinned v2193 registry");
+    .expect("compile the pinned v2225 registry");
     let invisible = records
         .iter()
         .filter(|record| super::visuals::literal::is_default_invisible(&record.name))

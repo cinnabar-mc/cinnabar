@@ -5,10 +5,10 @@ use protocol::CustomStateValue;
 #[test]
 fn native_mining_states_are_available_in_both_id_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -44,10 +44,10 @@ fn native_mining_states_are_available_in_both_id_spaces() {
 #[test]
 fn custom_mining_states_and_complete_tags_retire_in_both_id_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -100,10 +100,10 @@ fn custom_mining_states_and_complete_tags_retire_in_both_id_spaces() {
 #[test]
 fn incomplete_custom_tags_remain_incomplete_in_both_id_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();

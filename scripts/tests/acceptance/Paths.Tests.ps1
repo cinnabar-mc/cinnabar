@@ -421,7 +421,7 @@
         'live BDS source-world behavior is not manifested for every acceptance run'
     Assert-True ($source.Contains("'19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'")) `
         'acceptance does not pin the exact BDS executable identity'
-    Assert-True ($source.Contains("'1.26.52.3'")) 'acceptance does not pin the exact BDS startup release'
+    Assert-True ($source.Contains("'1.26.60.6'")) 'acceptance does not pin the exact BDS startup release'
     Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
     Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
     Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'

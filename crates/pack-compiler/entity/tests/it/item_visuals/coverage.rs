@@ -24,7 +24,7 @@ fn presentation_pack() -> TempDir {
     let pack = item_pack(false);
     let mut variants = BTreeMap::<&str, usize>::new();
     for row in
-        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv").lines()
+        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv").lines()
     {
         let Some(("item_texture", key)) = row.split_once('\t') else {
             continue;
@@ -58,7 +58,7 @@ fn presentation_pack() -> TempDir {
     );
     // Egg routes belong to client entities. Their actor identities come from the pinned vocabulary.
     for (index, row) in
-        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv")
+        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv")
             .lines()
             .enumerate()
     {

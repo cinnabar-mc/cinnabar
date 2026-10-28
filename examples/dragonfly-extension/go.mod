@@ -5,7 +5,6 @@ go 1.26.1
 require (
 	github.com/cinnabar-mc/cinnabar/tools/localserver v0.0.0
 	github.com/df-mc/dragonfly v0.11.5
-	github.com/go-gl/mathgl v1.2.0
 	github.com/google/uuid v1.6.0
 )
 
@@ -13,14 +12,16 @@ require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261027214049-fda175e5b247 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/df-mc/go-nethernet v1.0.25-0.20260928201420-215e46422b58 // indirect
+	github.com/df-mc/go-nethernet v1.0.26 // indirect
 	github.com/df-mc/go-playfab/v2 v2.0.3 // indirect
 	github.com/df-mc/go-xsapi/v2 v2.0.4-0.20261012072832-90ce120e31cd // indirect
 	github.com/df-mc/goleveldb v1.1.9 // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
 	github.com/df-mc/worldupgrader v1.0.22 // indirect
+	github.com/go-gl/mathgl v1.2.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
@@ -55,3 +56,7 @@ require (
 )
 
 replace github.com/cinnabar-mc/cinnabar/tools/localserver => ../../tools/localserver
+
+replace github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20261028011445-c57293740e76
+
+replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261027215313-1d66110b3497

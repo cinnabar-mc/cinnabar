@@ -42,7 +42,7 @@ mod tests {
         let error = require_item_facts(&world).unwrap_err().to_string();
         assert!(error.contains(&item.display().to_string()));
         assert!(error.contains("make assets"));
-        let pinned = include_bytes!("../../../data/item-facts-v2193.bin");
+        let pinned = include_bytes!("../../../data/item-facts-v2225.bin");
         std::fs::write(&item, pinned).unwrap();
         assert!(require_item_facts(&world).is_ok());
         let mut corrupted = pinned.to_vec();

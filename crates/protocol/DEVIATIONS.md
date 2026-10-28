@@ -1,3 +1,9 @@
+## Current target
+
+The active generated contract and fixtures target Minecraft 1.26.60 (protocol 2225).
+The upstream crate is copied without local patches. The entries below retain the
+version in which each earlier correction was established.
+
 # Protocol deviations
 
 The protocol crate now decodes and encodes through protocolgen's generated contract crate (see

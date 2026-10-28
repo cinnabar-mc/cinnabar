@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-const TABLE: &str = include_str!("../../data/server-defined-blocks-v2193.tsv");
+const TABLE: &str = include_str!("../../data/server-defined-blocks-v2225.tsv");
 
 /// Canonical states admitted to a remote palette only by server block definitions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

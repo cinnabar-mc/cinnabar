@@ -61,7 +61,7 @@ fn fixture(
     }
     set_block(&mut store, [0; 3], id);
     let mut registry = CollisionRegistry::with_identity(CollisionRegistryIdentity {
-        protocol: 2193,
+        protocol: 2225,
         id_space: space,
         preg_sha256: [5; 32],
     });

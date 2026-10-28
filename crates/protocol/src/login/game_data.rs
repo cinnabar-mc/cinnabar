@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{ItemRegistry, StartGame};
+use bedrock_protocol_1_26_60::packets::{ItemRegistry, StartGame};
 
 use crate::{
     CustomBlocks, DeathRules, GameModeUpdate, HudRules, InventoryAuthority, ItemComponents,
@@ -163,8 +163,8 @@ impl StartupItems {
 mod tests {
     use super::*;
     use crate::{ItemPacketError, WorldWireError};
-    use bedrock_protocol_1_26_51::types::ItemData;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::types::ItemData;
+    use bedrock_protocol_1_26_60::wire;
 
     fn registry(items: &[(&str, i16)]) -> ItemRegistry {
         ItemRegistry {

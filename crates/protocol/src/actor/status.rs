@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::ActorEventType;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::ActorEventType;
+use bedrock_protocol_1_26_60::packets::{
     ActorEvent as ActorEventPacket, AddItemActor as AddItemActorPacket,
     TakeItemActor as TakeItemActorPacket,
 };
@@ -153,7 +153,7 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+    use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 
     fn packet(event_id: ActorEventType) -> ActorEventPacket {
         let mut packet = ActorEventPacket::default();

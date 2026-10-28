@@ -73,6 +73,17 @@ The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
+The generated codec and Go integrations target protocol 2225. New matchmaking,
+stonecutter selection, cursor dragging, block passengers and registered audio packets
+are decoded, counted and skipped until their client features are implemented.
+The target catalog includes fire and wire connection states with empty collision;
+selection and connection-rendering acceptance for those states remains incomplete.
+Chorus plants, disc presses, ice crystals and icicles remain reserved because their
+new state geometry is unverified. Their collision, selection and rendering acceptance
+remains incomplete. The official matching-protocol preview resource pack supplies
+property domains and HUD inputs; retail resource-pack and full-client acceptance
+remain incomplete. Frostbite and ice-ball targeting and use behavior remain
+unresolved until their native dispositions are verified.
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.
@@ -1684,7 +1695,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   water, whose final depth can hide those layers; complete Iris type checking and
   target-dependent return overloads; constant folding for half-float packing and bit casts.
   Java sky and fog time curves and sunrise colours remain provisional.
-- `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
+- `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2225.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.
   States Geyser never produces take the closest same-block state and are flagged approximate;

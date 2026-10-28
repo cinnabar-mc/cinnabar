@@ -270,7 +270,7 @@ fn pinned_tool_traits_and_tiers_classify() {
 
 #[test]
 fn table_header_identifies_shared_catalog() {
-    let catalog = include_str!("../../../../assets/block-projection-v2193.json");
+    let catalog = include_str!("../../../../assets/block-projection-v2225.json");
     let headers = DESTROY_TABLE
         .lines()
         .take_while(|line| line.starts_with('#'))

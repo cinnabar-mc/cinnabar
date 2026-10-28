@@ -98,14 +98,22 @@ pub struct HeldItems<'a> {
 /// Resolves a filter's snake-case enchantment name, such as `fire_aspect`, to its wire id.
 #[must_use]
 pub fn enchantment_id(name: &str) -> Option<u8> {
-    let mut letters = name.strip_prefix("minecraft:").unwrap_or(name).chars();
-    let first = letters.next()?.to_ascii_uppercase();
-    let variant: String = std::iter::once(first)
-        .chain(letters.filter(|letter| *letter != '_'))
+    let variant: String = name
+        .strip_prefix("minecraft:")
+        .unwrap_or(name)
+        .split('_')
+        .flat_map(|word| {
+            let mut letters = word.chars();
+            letters
+                .next()
+                .map(|first| first.to_ascii_uppercase())
+                .into_iter()
+                .chain(letters)
+        })
         .collect();
     protocol_ids::Enchantment::from_name(&variant)
         .map(protocol_ids::Enchantment::wire_value)
-        .filter(|id| *id < protocol_ids::Enchantment::Numenchantments.wire_value())
+        .filter(|id| *id < protocol_ids::Enchantment::NumEnchantments.wire_value())
 }
 
 impl HandItem<'_> {
@@ -251,7 +259,7 @@ fn condition_valid(condition: &UseCondition) -> bool {
         }
         UseCondition::Not(condition) => condition_valid(condition),
         UseCondition::EquipmentEnchantment { enchantment } => {
-            *enchantment < protocol_ids::Enchantment::Numenchantments.wire_value()
+            *enchantment < protocol_ids::Enchantment::NumEnchantments.wire_value()
         }
         _ => true,
     }

@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{LevelChunk, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{LevelChunk, SetTime};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use super::*;
@@ -104,10 +104,10 @@ fn deferred_packets_are_detached_and_bounded() {
 mod session {
     use std::future::Future;
 
-    use bedrock_protocol_1_26_51::packets::{
+    use bedrock_protocol_1_26_60::packets::{
         ChunkRadiusUpdated, NetworkChunkPublisherUpdate, PlayStatus, Transfer,
     };
-    use bedrock_protocol_1_26_51::types::ItemData;
+    use bedrock_protocol_1_26_60::types::ItemData;
 
     use super::*;
     use crate::raw_packet::MAX_RAW_BATCH_PACKETS;
@@ -141,7 +141,7 @@ mod session {
 
     fn player_spawn() -> Packet {
         Packet::new(PlayStatus {
-            status: PlayStatusType::Playerspawn,
+            status: PlayStatusType::PlayerSpawn,
         })
     }
 
@@ -562,7 +562,7 @@ mod session {
                     Ok(_) => panic!("a startup disconnect spawned"),
                     Err(error) => error.server_disconnect().expect("a server disconnect"),
                 };
-            assert_eq!(disconnect.reason, "Serverfull");
+            assert_eq!(disconnect.reason, "ServerFull");
             let expected = (!hide_screen).then_some("full");
             assert_eq!(disconnect.message.as_deref(), expected);
         }

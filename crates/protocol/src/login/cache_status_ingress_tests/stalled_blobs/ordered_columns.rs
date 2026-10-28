@@ -1,6 +1,6 @@
 use super::*;
-use bedrock_protocol_1_26_51::packets::BlockActorData;
-use bedrock_protocol_1_26_51::types::BlockPos;
+use bedrock_protocol_1_26_60::packets::BlockActorData;
+use bedrock_protocol_1_26_60::types::BlockPos;
 
 /// Builds a full cached column with an inline tail that must survive until both bodies arrive.
 fn full_column(x: i32, body: &[u8], biome: &[u8]) -> Packet {
@@ -204,7 +204,7 @@ fn cached_column_recovery_waits_for_ordinary_event_capacity() {
         time: wire::ZigZag32(42),
     }));
     packets.push(Packet::new(
-        bedrock_protocol_1_26_51::packets::ChangeDimension::default(),
+        bedrock_protocol_1_26_60::packets::ChangeDimension::default(),
     ));
     let (mut session, _send, _expires) = session(&packets, 0);
     assert!(matches!(
@@ -250,7 +250,7 @@ fn assert_dimension_boundary_progress(updates: usize) {
         let mut packets = vec![full_column(4, b"body", b"biome")];
         packets.extend((0..updates as i32).map(|y| block_entity_update(4, y)));
         packets.push(Packet::new(
-            bedrock_protocol_1_26_51::packets::ChangeDimension::default(),
+            bedrock_protocol_1_26_60::packets::ChangeDimension::default(),
         ));
         if late_bodies {
             packets.extend([body_response(b"body"), body_response(b"biome")]);
@@ -321,7 +321,7 @@ fn cached_column_recovery_preserves_input_at_ordinary_byte_capacity() {
     send_packets(
         &send,
         &[Packet::new(
-            bedrock_protocol_1_26_51::packets::ChangeDimension::default(),
+            bedrock_protocol_1_26_60::packets::ChangeDimension::default(),
         )],
     );
     assert!(matches!(

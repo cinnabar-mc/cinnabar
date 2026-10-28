@@ -15,7 +15,7 @@ const MAX_TOTAL_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PROVENANCE_SOURCES: usize = 128;
 // The classic icons sheet is 256x256; every other reviewed source is smaller.
 const MAX_SOURCE_IMAGE_SIDE: u32 = 256;
-const PINNED_PROTOCOL: u32 = 2193;
+const PINNED_PROTOCOL: u32 = 2225;
 const PINNED_PACK_RELATIVE_PATH: &str = "resource_pack";
 const PINNED_ARTIFACT_POLICY: &str = "official-mojang-download-local-only";
 
@@ -66,7 +66,7 @@ struct SourceRecord {
 pub enum HudCompileError {
     #[error("HUD source manifest exceeds the {maximum}-byte bound")]
     SourceManifestTooLarge { maximum: usize },
-    #[error("HUD source manifest is not the reviewed protocol-2193 identity: {detail}")]
+    #[error("HUD source manifest is not the reviewed protocol-2225 identity: {detail}")]
     SourceManifestIdentity { detail: Box<str> },
     #[error("reviewed HUD source {path} could not be read: {source}")]
     SourceRead {
@@ -97,7 +97,7 @@ pub fn compile_hud_assets(
     let source_manifest_sha256: [u8; 32] = Sha256::digest(&canonical_manifest).into();
     if source_manifest_sha256 != HUD_SOURCE_MANIFEST_SHA256 {
         return Err(HudCompileError::SourceManifestIdentity {
-            detail: "manifest bytes differ from assets/hud-source-v2193.json".into(),
+            detail: "manifest bytes differ from assets/hud-source-v2225.json".into(),
         });
     }
     let manifest =

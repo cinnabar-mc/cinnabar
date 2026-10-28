@@ -1,4 +1,4 @@
-//! Dropped items as 1.26.50.26 renders them. Item-local
+//! Dropped items as 1.26.60.26 renders them. Item-local
 //! geometry already contains the default display correction; copies translate before actor scale.
 
 use super::dropped_item_transform;

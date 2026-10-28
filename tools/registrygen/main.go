@@ -178,17 +178,17 @@ func main() {
 	physicsOut := flag.String("physics-out", "", "optional path to write the BREG-bound block physics registry")
 	physicsSHAOut := flag.String("physics-sha-out", "", "optional path to write the physics registry SHA-256")
 	physicsBREG := flag.String("physics-breg", "", "existing reviewed BREG1003 whose exact bytes the physics registry binds")
-	physicsV2193Out := flag.String("physics-v2193-out", "", "path to write the projected protocol-2193 block physics registry")
-	physicsV2193SHAOut := flag.String("physics-v2193-sha-out", "", "optional path to write the v2193 physics registry SHA-256")
-	physicsV2193BREG := flag.String("physics-v2193-breg", "", "checked-in protocol-2193 BREG1003 whose exact bytes the physics projection binds")
-	physicsV2193Manifest := flag.String("physics-v2193-manifest", "", "reviewed v2193 block-projection manifest cross-checked against the projection")
+	physicsV2225Out := flag.String("physics-v2225-out", "", "path to write the projected protocol-2225 block physics registry")
+	physicsV2225SHAOut := flag.String("physics-v2225-sha-out", "", "optional path to write the v2225 physics registry SHA-256")
+	physicsV2225BREG := flag.String("physics-v2225-breg", "", "checked-in protocol-2225 BREG1003 whose exact bytes the physics projection binds")
+	physicsV2225Manifest := flag.String("physics-v2225-manifest", "", "reviewed v2225 block-projection manifest cross-checked against the projection")
 	biomeOut := flag.String("biome-out", "", "optional path to write the biome registry")
 	biomeCoverage := flag.String("biome-coverage", "", "reviewed numeric biome coverage manifest")
-	biomeV2193Allowlist := flag.String("biome-v2193-allowlist", "", "reviewed retail biome allowlist")
-	biomeV2193Manifest := flag.String("biome-v2193-manifest", "", "path to write the v2193 projection manifest")
-	blockV2193LegacyBREG := flag.String("block-v2193-legacy-breg", "", "reviewed protocol-1001 BREG used for conservative projection")
-	blockV2193Allowlist := flag.String("block-v2193-allowlist", "", "reviewed retail item allowlist")
-	blockV2193Manifest := flag.String("block-v2193-manifest", "", "path to write the v2193 block projection manifest")
+	biomeV2225Allowlist := flag.String("biome-v2225-allowlist", "", "reviewed retail biome allowlist")
+	biomeV2225Manifest := flag.String("biome-v2225-manifest", "", "path to write the v2225 projection manifest")
+	blockV2225LegacyBREG := flag.String("block-v2225-legacy-breg", "", "reviewed protocol-1001 BREG used for conservative projection")
+	blockV2225Allowlist := flag.String("block-v2225-allowlist", "", "reviewed retail item allowlist")
+	blockV2225Manifest := flag.String("block-v2225-manifest", "", "path to write the v2225 block projection manifest")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
 	coverageManifest := flag.String("coverage", "", "reviewed numeric canonical-state coverage manifest")
@@ -199,7 +199,7 @@ func main() {
 	fallbackBREG := flag.String("fallback-breg", "", "projected BREG1003 used to select fallback exclusions")
 	fallbackRekeyIn := flag.String("fallback-rekey-in", "", "existing protocol-1001-keyed CVFB1001 inventory to rekey")
 	rekeyLegacyBREG := flag.String("legacy-breg", "", "checked-in protocol-1001 BREG1003 naming the rekey input identities")
-	rekeyNewBREG := flag.String("new-breg", "", "checked-in protocol-2193 BREG1003 supplying the rekeyed network hashes")
+	rekeyNewBREG := flag.String("new-breg", "", "checked-in protocol-2225 BREG1003 supplying the rekeyed network hashes")
 	fallbackRekeyOut := flag.String("fallback-rekey-out", "", "path to write the rekeyed CVFB1001 inventory")
 	fallbackRekeyManifest := flag.String("fallback-rekey-manifest", "", "optional path to write the rekeyed source manifest")
 	refreshBindings := flag.Bool("refresh-bindings", false, "bind derived registries to the newly generated BREG")
@@ -215,16 +215,16 @@ func main() {
 		if *fallbackRekeyIn == "" || *rekeyLegacyBREG == "" || *rekeyNewBREG == "" || *fallbackRekeyOut == "" ||
 			*out != "" || *lightOut != "" || *lightBREG != "" ||
 			*physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" ||
-			*physicsV2193Out != "" || *physicsV2193SHAOut != "" || *physicsV2193BREG != "" || *physicsV2193Manifest != "" ||
+			*physicsV2225Out != "" || *physicsV2225SHAOut != "" || *physicsV2225BREG != "" || *physicsV2225Manifest != "" ||
 			*biomeOut != "" || *biomeCoverage != "" ||
-			*biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
+			*biomeV2225Allowlist != "" || *biomeV2225Manifest != "" ||
 			*pmmpRoot != "" || *prismarineRoot != "" || *coverageManifest != "" ||
 			*blockItemOut != "" || *blockItemBREG != "" ||
-			*blockV2193LegacyBREG != "" ||
-			*blockV2193Allowlist != "" || *blockV2193Manifest != "" ||
+			*blockV2225LegacyBREG != "" ||
+			*blockV2225Allowlist != "" || *blockV2225Manifest != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
 			fmt.Fprintln(os.Stderr, "registrygen: fallback rekey mode requires only -fallback-rekey-in, -legacy-breg, -new-breg, and -fallback-rekey-out")
-			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -fallback-rekey-in crates/pack-compiler/data/vanilla-fallback-v1001.bin -legacy-breg crates/assets/data/block-registry-v1001.bin -new-breg crates/assets/data/block-registry-v2193.bin -fallback-rekey-out crates/assets/data/vanilla-fallback-v2193.bin [-fallback-rekey-manifest assets/vanilla-fallback-source-v2193.json]\n")
+			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -fallback-rekey-in crates/pack-compiler/data/vanilla-fallback-v1001.bin -legacy-breg crates/assets/data/block-registry-v1001.bin -new-breg crates/assets/data/block-registry-v2225.bin -fallback-rekey-out crates/assets/data/vanilla-fallback-v2225.bin [-fallback-rekey-manifest assets/vanilla-fallback-source-v2225.json]\n")
 			os.Exit(2)
 		}
 		stats, err := writeRekeyedFallback(*fallbackRekeyIn, *rekeyLegacyBREG, *rekeyNewBREG, *fallbackRekeyOut, *fallbackRekeyManifest)
@@ -247,51 +247,51 @@ func main() {
 		}
 		return
 	}
-	if *physicsV2193Out != "" || *physicsV2193BREG != "" || *physicsV2193SHAOut != "" || *physicsV2193Manifest != "" {
-		if *physicsV2193Out == "" || *physicsV2193BREG == "" || *pmmpRoot != "" || *prismarineRoot != "" ||
+	if *physicsV2225Out != "" || *physicsV2225BREG != "" || *physicsV2225SHAOut != "" || *physicsV2225Manifest != "" {
+		if *physicsV2225Out == "" || *physicsV2225BREG == "" || *pmmpRoot != "" || *prismarineRoot != "" ||
 			*out != "" || *lightOut != "" || *lightBREG != "" || *biomeOut != "" || *biomeCoverage != "" ||
-			*biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
+			*biomeV2225Allowlist != "" || *biomeV2225Manifest != "" ||
 			*coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings ||
 			*physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" ||
-			*blockV2193LegacyBREG != "" ||
-			*blockV2193Allowlist != "" || *blockV2193Manifest != "" {
-			fmt.Fprintln(os.Stderr, "registrygen: v2193 physics mode requires only -physics-v2193-out and -physics-v2193-breg")
-			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -physics-v2193-out %s -physics-v2193-breg %s [-physics-v2193-sha-out <path>] [-physics-v2193-manifest assets/block-projection-v2193.json]\n", v2193PhysicsOutputPath, v2193PhysicsBREGInputPath)
+			*blockV2225LegacyBREG != "" ||
+			*blockV2225Allowlist != "" || *blockV2225Manifest != "" {
+			fmt.Fprintln(os.Stderr, "registrygen: v2225 physics mode requires only -physics-v2225-out and -physics-v2225-breg")
+			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -physics-v2225-out %s -physics-v2225-breg %s [-physics-v2225-sha-out <path>] [-physics-v2225-manifest assets/block-projection-v2225.json]\n", v2225PhysicsOutputPath, v2225PhysicsBREGInputPath)
 			os.Exit(2)
 		}
-		if err := writeV2193PhysicsProjection(*physicsV2193BREG, *physicsV2193Out, *physicsV2193SHAOut, *physicsV2193Manifest); err != nil {
+		if err := writeV2225PhysicsProjection(*physicsV2225BREG, *physicsV2225Out, *physicsV2225SHAOut, *physicsV2225Manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
-	if *blockV2193LegacyBREG != "" || *blockV2193Allowlist != "" || *blockV2193Manifest != "" {
-		if *out == "" || *blockV2193LegacyBREG == "" ||
-			*blockV2193Allowlist == "" || *blockV2193Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||
-			*biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
+	if *blockV2225LegacyBREG != "" || *blockV2225Allowlist != "" || *blockV2225Manifest != "" {
+		if *out == "" || *blockV2225LegacyBREG == "" ||
+			*blockV2225Allowlist == "" || *blockV2225Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||
+			*biomeV2225Allowlist != "" || *biomeV2225Manifest != "" ||
 			*lightBREG != "" || *physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" ||
 			*prismarineRoot != "" || *coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
-			fmt.Fprintln(os.Stderr, "registrygen: v2193 block mode requires its legacy render registry, retail allowlist, output, and manifest flags")
+			fmt.Fprintln(os.Stderr, "registrygen: v2225 block mode requires its legacy render registry, retail allowlist, output, and manifest flags")
 			os.Exit(2)
 		}
-		if err := writeV2193BlockProjection(*blockV2193LegacyBREG, *blockV2193Allowlist, *out, *lightOut, *blockV2193Manifest); err != nil {
+		if err := writeV2225BlockProjection(*blockV2225LegacyBREG, *blockV2225Allowlist, *out, *lightOut, *blockV2225Manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
-	if *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" {
-		if *biomeOut == "" || *biomeV2193Allowlist == "" || *biomeV2193Manifest == "" ||
+	if *biomeV2225Allowlist != "" || *biomeV2225Manifest != "" {
+		if *biomeOut == "" || *biomeV2225Allowlist == "" || *biomeV2225Manifest == "" ||
 			*biomeCoverage != "" || *out != "" || *lightOut != "" || *lightBREG != "" || *physicsOut != "" ||
 			*physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" || *prismarineRoot != "" ||
 			*coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" || *fallbackIn != "" ||
 			*fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
-			fmt.Fprintln(os.Stderr, "registrygen: v2193 biome mode requires only its allowlist, output, and manifest flags")
+			fmt.Fprintln(os.Stderr, "registrygen: v2225 biome mode requires only its allowlist, output, and manifest flags")
 			os.Exit(2)
 		}
-		if err := writeV2193BiomeProjection(*biomeV2193Allowlist, *biomeOut, *biomeV2193Manifest); err != nil {
+		if err := writeV2225BiomeProjection(*biomeV2225Allowlist, *biomeOut, *biomeV2225Manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}

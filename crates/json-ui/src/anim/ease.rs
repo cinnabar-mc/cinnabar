@@ -1,4 +1,4 @@
-//! The 32 easing curves of 1.26.50's easing table, in the
+//! The 32 easing curves of 1.26.60's easing table, in the
 //! client's single-precision arithmetic and 65536-entry sine table.
 
 use std::sync::OnceLock;

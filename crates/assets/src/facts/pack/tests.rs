@@ -94,7 +94,7 @@ fn pack_rules_preserve_legacy_selector_membership_and_indices() {
             "{name}"
         );
     }
-    for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+    for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.60.tsv").lines() {
         let (domain, key) = row.split_once('\t').unwrap();
         if domain != "terrain_texture" {
             continue;
@@ -139,7 +139,7 @@ fn pack_rules_preserve_legacy_selector_membership_and_indices() {
 
 #[test]
 fn pack_rules_preserve_alpha_and_leather_sprite_membership() {
-    for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+    for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.60.tsv").lines() {
         let (domain, key) = row.split_once('\t').unwrap();
         if domain == "terrain_texture" {
             assert_eq!(
@@ -254,7 +254,7 @@ fn pack_rules_reject_a_listed_provisional_material() {
 #[test]
 fn pack_rules_preserve_material_alias_states_and_rasters() {
     let mut names = BTreeSet::new();
-    for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+    for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.60.tsv").lines() {
         let (domain, name) = row.split_once('\t').unwrap();
         if domain == "material" {
             names.insert(name);
@@ -290,7 +290,7 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
 
 #[test]
 fn pack_rules_preserve_actor_egg_renames_and_item_precedence() {
-    for actor in include_str!("../../../../protocol/data/retail_actors_1_26_50.txt").lines() {
+    for actor in include_str!("../../../../protocol/data/retail_actors_1_26_60.txt").lines() {
         let old = match actor {
             "minecraft:evocation_illager" => "minecraft:evoker",
             "minecraft:tropicalfish" => "minecraft:tropical_fish",

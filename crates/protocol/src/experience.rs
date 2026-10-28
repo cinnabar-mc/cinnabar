@@ -1,6 +1,6 @@
 //! The optional Cinnabar carrier uses the existing ScriptMessage packet.
 
-use bedrock_protocol_1_26_51::packets::{self, ScriptMessage};
+use bedrock_protocol_1_26_60::packets::{self, ScriptMessage};
 
 mod control;
 use control::ExperienceControl;

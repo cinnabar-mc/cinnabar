@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::inventory::recipes::decode::decode_with_credits;
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     packets::CraftingData,
     types::{
         NetworkItemInstanceDescriptorSerializedData, RecipeIngredientSerializedData, RecipeNetID,

@@ -2,9 +2,9 @@
 
 use std::fmt;
 
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
 
-/// One complete Bedrock 1.26.50 (protocol 2193) game packet, including its subclient header.
+/// One complete Bedrock 1.26.60 (protocol 2225) game packet, including its subclient header.
 ///
 /// The generated payload is boxed, so queues of packets move a pointer, not the largest variant.
 #[derive(Clone, Debug, PartialEq)]

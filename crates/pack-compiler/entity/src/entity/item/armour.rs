@@ -24,7 +24,7 @@ struct ArmourEntry {
 pub(super) fn reviewed() -> Result<BTreeMap<Box<str>, ItemArmour>, AssetError> {
     let table: ArmourTable = serde_json::from_slice(assets::item::armour::ITEM_ARMOUR_SOURCE_BYTES)
         .map_err(|source| AssetError::Json {
-            path: "crates/assets/data/item-armour-v2193.json".into(),
+            path: "crates/assets/data/item-armour-v2225.json".into(),
             source,
         })?;
     if table.schema != 1 || table.protocol != super::ROUTE_PROTOCOL {

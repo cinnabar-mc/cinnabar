@@ -20,10 +20,10 @@ pub const OREUI_ICONS_MANIFEST: &str = "assets/oreui-icons-source.json";
 
 mod fonts;
 pub use fonts::{AsciiBearing, FontFace};
-const HUD_MANIFEST: &str = "assets/hud-source-v2193.json";
-const BLOCK_REGISTRY: &str = "crates/assets/data/block-registry-v2193.bin";
-const LIGHT_REGISTRY: &str = "crates/assets/data/block-light-registry-v2193.bin";
-const BIOME_REGISTRY: &str = "crates/assets/data/biome-registry-v2193.bin";
+const HUD_MANIFEST: &str = "assets/hud-source-v2225.json";
+const BLOCK_REGISTRY: &str = "crates/assets/data/block-registry-v2225.bin";
+const LIGHT_REGISTRY: &str = "crates/assets/data/block-light-registry-v2225.bin";
+const BIOME_REGISTRY: &str = "crates/assets/data/biome-registry-v2225.bin";
 
 /// The physics carrier filename shared by packaged and development installs.
 #[must_use]
@@ -132,7 +132,7 @@ pub const WORLD: Carrier = Carrier {
         "world",
         "Compiling world assets",
         Recipe::World,
-        "vanilla-v2193.mcbea",
+        "vanilla-v2225.mcbea",
         None,
         true,
     )
@@ -164,13 +164,13 @@ const fn item_facts_inputs() -> [Input; crate::facts::ITEM_FACTS_INPUTS.len()] {
 pub const BLOCK_PHYSICS: Carrier = Carrier {
     inputs: &[
         Input::File(BLOCK_REGISTRY),
-        Input::File("crates/assets/data/block-physics-seed-v2193.bin"),
+        Input::File("crates/assets/data/block-physics-seed-v2225.bin"),
     ],
     ..carrier(
         "physics",
         "Compiling block geometry",
         Recipe::BlockPhysics,
-        "block-physics-v2193.bin",
+        "block-physics-v2225.bin",
         None,
         true,
     )
@@ -703,12 +703,12 @@ mod tests {
         for (input, parts) in [
             (
                 BLOCK_REGISTRY,
-                &["crates", "assets", "data", "block-registry-v2193.bin"][..],
+                &["crates", "assets", "data", "block-registry-v2225.bin"][..],
             ),
             (VANILLA_MANIFEST, &["assets", "vanilla-source.json"][..]),
             (
                 crate::item::retail::INPUT_PATH,
-                &["crates", "protocol", "data", "retail_items_1_26_50.tsv"][..],
+                &["crates", "protocol", "data", "retail_items_1_26_60.tsv"][..],
             ),
         ] {
             // Byte equality: `Path` equality would accept mixed separators on Windows.

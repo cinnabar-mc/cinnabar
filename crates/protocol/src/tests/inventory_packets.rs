@@ -1,20 +1,20 @@
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     ContainerEnumName as FullContainerNameContainerName,
     ItemStackNetResult as ItemStackResponseInfoResult,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     self, ContainerClose as ContainerClosePacket, ContainerOpen as ContainerOpenPacket,
     ContainerSetData as ContainerSetDataPacket, InventoryContent as InventoryContentPacket,
     InventorySlot as InventorySlotPacket, ItemStackResponse as ItemStackResponsePacket,
     PlayerHotbar as PlayerHotbarPacket,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorUniqueID, BedrockSafetyRedactableString, BlockPos, FullContainerName, ItemStackNetID,
     ItemStackRequestID, ItemStackResponseContainerInfo, ItemStackResponseInfo,
     ItemStackResponseSlotInfo, NetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     StructureEditorData,
 };
-use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 use bytes::Bytes;
 use protocol::inventory::{
     normalize_container_close, normalize_container_data, normalize_container_open,
@@ -310,7 +310,7 @@ fn structure_editor_name_uses_two_bounded_adjacent_strings() {
     assert!(matches!(
         StructureEditorData::decode(&mut wire::Reader::new(&[0, 5, b'x'])),
         Err(wire::DecodeError::LengthNotRepresentable {
-            field: bedrock_protocol_1_26_51::fields::STRUCTURE_EDITOR_DATA_FILTERED_STRUCTURE_NAME,
+            field: bedrock_protocol_1_26_60::fields::STRUCTURE_EDITOR_DATA_FILTERED_STRUCTURE_NAME,
             needed: 5,
             remaining: 1
         })
@@ -338,7 +338,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             item(6, 3, 12, item_user_data(&["minecraft:dirt"])),
         ],
         full_container_name: full_container(
-            FullContainerNameContainerName::Combinedhotbarandinventorycontainer,
+            FullContainerNameContainerName::CombinedHotbarAndInventoryContainer,
             Some(7),
         ),
         storage_item: ItemStackDescriptor::default(),
@@ -359,7 +359,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
         container_id: wire::U8(INVENTORY_CONTAINER),
         slot: wire::VarUInt(8),
         full_container_name: Some(full_container(
-            FullContainerNameContainerName::Inventorycontainer,
+            FullContainerNameContainerName::InventoryContainer,
             None,
         )),
         storage_item: None,
@@ -388,7 +388,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             44,
             vec![ItemStackResponseContainerInfo {
                 full_container_name: full_container(
-                    FullContainerNameContainerName::Hotbarcontainer,
+                    FullContainerNameContainerName::HotbarContainer,
                     Some(9),
                 ),
                 slots: vec![response_slot(2, 5, 13, "named", "filtered", -3)],
@@ -577,7 +577,7 @@ fn legacy_windows_ignore_their_container_name_and_windowless_defaults_stay_unrou
     }
 
     for name in [
-        FullContainerNameContainerName::Craftinginputcontainer,
+        FullContainerNameContainerName::CraftingInputContainer,
         FullContainerNameContainerName::Unknown(211),
     ] {
         let event = normalize_content(InventoryContentPacket {
@@ -600,7 +600,7 @@ fn legacy_windows_ignore_their_container_name_and_windowless_defaults_stay_unrou
     let cursor = normalize_content(InventoryContentPacket {
         container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
         slots: vec![ItemStackDescriptor::default()],
-        full_container_name: full_container(FullContainerNameContainerName::Cursorcontainer, None),
+        full_container_name: full_container(FullContainerNameContainerName::CursorContainer, None),
         storage_item: ItemStackDescriptor::default(),
     })
     .unwrap();
@@ -754,7 +754,7 @@ fn accepted_response_preserves_zero_stack_id_for_a_newly_empty_slot() {
         2,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::Hotbarcontainer,
+                FullContainerNameContainerName::HotbarContainer,
                 None,
             ),
             slots: vec![response_slot(3, 0, 0, "", "", 0)],
@@ -777,7 +777,7 @@ fn accepted_response_retains_odd_stack_ids_for_lenient_sparse_validation() {
         3,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::Hotbarcontainer,
+                FullContainerNameContainerName::HotbarContainer,
                 None,
             ),
             slots: vec![ItemStackResponseSlotInfo {

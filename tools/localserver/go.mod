@@ -3,7 +3,7 @@ module github.com/cinnabar-mc/cinnabar/tools/localserver
 go 1.26.1
 
 require (
-	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59
+	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261027214049-fda175e5b247
 	github.com/df-mc/dragonfly v0.11.5
 	github.com/df-mc/goleveldb v1.1.9
 	github.com/go-gl/mathgl v1.2.0
@@ -17,7 +17,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/df-mc/go-nethernet v1.0.25-0.20260928201420-215e46422b58 // indirect
+	github.com/df-mc/go-nethernet v1.0.26 // indirect
 	github.com/df-mc/go-playfab/v2 v2.0.3 // indirect
 	github.com/df-mc/go-xsapi/v2 v2.0.4-0.20261012072832-90ce120e31cd // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
@@ -43,7 +43,6 @@ require (
 	github.com/pion/webrtc/v4 v4.2.21-0.20260920133716-91bfc6c2039f // indirect
 	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6 // indirect
 	github.com/segmentio/fasthash v1.0.3 // indirect
-	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
@@ -56,7 +55,7 @@ require (
 )
 
 replace (
-	github.com/df-mc/dragonfly => github.com/cinnabar-mc/dragonfly v0.0.0-20261025190048-0c4a44a35111
+	github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20261028011445-c57293740e76
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261022024750-27a649aeb9f9
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261027215313-1d66110b3497
 )

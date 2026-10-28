@@ -115,7 +115,7 @@ pub fn block_render_fact(identifier: &str) -> BlockRenderFact {
     static KINDS: OnceLock<BTreeMap<&'static str, BlockRenderFact>> = OnceLock::new();
     KINDS
         .get_or_init(|| {
-            let mut rows = include_str!("../../data/facts-expansion-v2193.tsv").lines();
+            let mut rows = include_str!("../../data/facts-expansion-v2225.tsv").lines();
             assert_eq!(
                 rows.next(),
                 Some("identifier\ttraits\trules\tprovisional\trender")

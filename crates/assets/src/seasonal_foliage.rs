@@ -1,6 +1,6 @@
 //! Native seasonal foliage palette, independent of GPU colour packing.
 //!
-//! 1.26.50.26 seasonal palette generation creates covered evergreen/birch/default columns, then their exposed
+//! 1.26.60.26 seasonal palette generation creates covered evergreen/birch/default columns, then their exposed
 //! counterparts. Snow blending precedes the half-intensity RGBA8 storage;
 //! the world material doubles stored RGB without clipping before multiplying
 //! the texture. The CPU particle consumer instead clamps it.

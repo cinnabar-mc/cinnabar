@@ -80,7 +80,7 @@ func TestNewUpstreamDialerDeclinesResourcePackAcquisitionWithoutBudget(t *testin
 	}
 }
 
-func TestProtocol2193RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
+func TestProtocol2225RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
 	// Body bytes are shared with crates/protocol/tests/chat_send.rs. Decoding
 	// them here prevents a self-round-trip from hiding a Rust/Go bridge
 	// disagreement in CommandOrigin or UUID byte order.
@@ -1312,7 +1312,7 @@ func relayFixtureStartup() []packet.Packet {
 		&packet.StartGame{
 			WorldName: "Fixture", LevelID: "fixture-level", ServerID: "server-id", WorldID: "world-id",
 			ScenarioID: "scenario", OwnerID: "owner", EntityUniqueID: 42, EntityRuntimeID: 42,
-			BaseGameVersion: "1.26.50", GameVersion: "1.26.50", Trial: true, EducationFeaturesEnabled: true,
+			BaseGameVersion: "1.26.60", GameVersion: "1.26.60", Trial: true, EducationFeaturesEnabled: true,
 			TemplateContentIdentity: "template", EnchantmentSeed: 1234, MultiPlayerCorrelationID: "correlation",
 		},
 		&packet.ItemRegistry{Items: []protocol.ItemEntry{{Name: "minecraft:shield", RuntimeID: 355}}},

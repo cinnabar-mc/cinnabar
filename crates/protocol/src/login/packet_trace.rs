@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 
 pub(super) const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
 pub(super) const PACKET_ID_TRACE_DURATION: std::time::Duration = std::time::Duration::from_secs(30);
