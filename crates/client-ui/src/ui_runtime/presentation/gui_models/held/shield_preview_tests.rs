@@ -3,7 +3,7 @@ use super::*;
 use crate::ui_runtime::presentation::{SessionIcon, SessionIcons, session_icons};
 
 /// Builds original shield artwork with optional authored poses and a session sprite override.
-fn presentation(
+pub(super) fn presentation(
     startup_authored: bool,
     pack_authored: bool,
     session: bool,

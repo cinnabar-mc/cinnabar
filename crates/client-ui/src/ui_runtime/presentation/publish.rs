@@ -163,6 +163,12 @@ pub(super) fn prepare_shield_art(
     let creative = runtime
         .inventory_open()
         .then(|| crate::ui_runtime::inventory_actions::visible_creative_entries(player, runtime));
+    let crafting_output = runtime
+        .inventory_open()
+        .then(|| {
+            ui_screens::inventory_capture::crafting_output(ledger, runtime.crafting_match(player))
+        })
+        .flatten();
     if runtime.inventory_open() {
         stacks.extend(
             (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
@@ -183,6 +189,7 @@ pub(super) fn prepare_shield_art(
                 .map(|item| &item.stack),
         );
         stacks.extend(ledger.created_output_stack());
+        stacks.extend(crafting_output.as_ref().map(|(stack, _)| stack));
         stacks.extend((0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))));
     }
     stacks.extend(ledger.cursor_stack());

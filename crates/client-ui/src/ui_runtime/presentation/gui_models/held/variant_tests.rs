@@ -385,6 +385,9 @@ mod shield_pressure;
 #[path = "shield_preview_tests.rs"]
 mod shield_preview;
 
+#[path = "shield_crafting_tests.rs"]
+mod shield_crafting;
+
 #[test]
 fn shield_stack_patterns_select_distinct_inventory_artwork() {
     use crate::ui_runtime::presentation::publish::item_icons::test_support::stack_icon;
