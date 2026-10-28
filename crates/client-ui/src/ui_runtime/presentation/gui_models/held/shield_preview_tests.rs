@@ -206,17 +206,25 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
             assert_ne!(first, ui.player_preview_gear.held.clone().unwrap());
             let plain = ui.preview_held_models([true; 2]);
             for model in plain {
-                let model = model.expect("plain shields retain their ordinary sprite fallback");
-                assert_eq!(
-                    model.source,
-                    ui.item_icon(item, 0).unwrap().with_glint(true)
-                );
-                assert!(model.placements.iter().all(|placement| matches!(
-                    placement,
-                    PreviewHeldPlacement::Sprite {
-                        hand_equipped: true
-                    }
-                )));
+                let model = model.expect("plain shields retain their ordinary fallback");
+                assert!(model.source.glint);
+                if startup_authored && custom_models {
+                    assert!(model.placements.iter().all(|placement| matches!(
+                        placement,
+                        PreviewHeldPlacement::Authored { .. }
+                    )));
+                } else {
+                    assert_eq!(
+                        model.source,
+                        ui.item_icon(item, 0).unwrap().with_glint(true)
+                    );
+                    assert!(model.placements.iter().all(|placement| matches!(
+                        placement,
+                        PreviewHeldPlacement::Sprite {
+                            hand_equipped: true
+                        }
+                    )));
+                }
             }
         }
     }
@@ -225,6 +233,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
 #[test]
 fn plain_shield_previews_choose_authored_models_or_cached_sprite_fallbacks() {
     let item = assets::gui_item::SHIELD_IDENTIFIER;
+    let pack = fixture(item, "fixture:other_shield");
     for startup_authored in [false, true] {
         for pack_authored in [false, true] {
             for custom_models in [false, true] {
@@ -240,19 +249,12 @@ fn plain_shield_previews_choose_authored_models_or_cached_sprite_fallbacks() {
                             panic!("plain hand {hand}: startup={startup_authored}, pack={pack_authored}, custom={custom_models}, session={session}")
                         });
                         assert!(model.source.glint);
-                        if pack_authored && custom_models {
-                            let expected = ui.gui_models.selected_held[hand]
-                                .as_ref()
-                                .unwrap()
-                                .model
-                                .as_ref()
-                                .unwrap();
+                        if (pack_authored || startup_authored) && custom_models {
+                            assert_model(&ui, &pack, hand, "ordinary");
                             assert!(model.placements.iter().all(|placement| matches!(
                                 placement,
                                 PreviewHeldPlacement::Authored { .. }
                             )));
-                            assert_eq!(model.source, expected.source.with_glint(true));
-                            assert_eq!(model.vertices, expected.vertices);
                         } else {
                             let icon = ui.item_icon(item, 0).unwrap();
                             assert_eq!(model.source, icon.with_glint(true));
