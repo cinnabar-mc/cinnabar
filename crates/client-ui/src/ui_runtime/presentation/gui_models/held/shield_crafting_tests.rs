@@ -26,8 +26,8 @@ fn stack(base: u8) -> protocol::NetworkItemStack {
     }
 }
 
-#[test]
-fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
+/// Installs original shield sheets large enough to exhaust the full-resolution atlas.
+fn presentation() -> UiPresentationRuntime {
     let item = assets::gui_item::SHIELD_IDENTIFIER;
     let pack = fixture(item, "fixture:other_shield");
     let mut ui = shield_preview::presentation(false, false, false);
@@ -51,9 +51,14 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
     )));
     ui.set_gui_models(&assets::RuntimeAssets::diagnostic(), &pack.assets)
         .unwrap();
-    let mut player = player_state::PlayerState::new(1);
+    ui
+}
+
+/// Binds the shield and banner fixture identities through the negotiated registry.
+fn registry() -> protocol::ItemRegistryEvent {
+    let item = assets::gui_item::SHIELD_IDENTIFIER;
     let entries = protocol::vanilla_item_registry();
-    let registry = protocol::ItemRegistryEvent {
+    protocol::ItemRegistryEvent {
         entries: [item, assets::facts::BANNER_IDENTIFIER]
             .into_iter()
             .enumerate()
@@ -68,7 +73,12 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
             })
             .collect::<Vec<_>>()
             .into(),
-    };
+    }
+}
+
+/// Seeds the four inventory patterns and the authorities needed by preview resolution.
+fn player(registry: &protocol::ItemRegistryEvent) -> player_state::PlayerState {
+    let mut player = player_state::PlayerState::new(1);
     player.inventory.publish_bootstrap_inventory(
         Some(registry.clone()),
         protocol::InventoryEvent::Authority(protocol::InventoryAuthority::Server),
@@ -88,6 +98,40 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
                 storage_item: Default::default(),
             },
         ));
+    player
+}
+
+/// Checks the nonempty projected cutout against the fixture's full-sheet cloth color.
+fn assert_pattern_color(ui: &UiPresentationRuntime, icon: ui::IconRef, base: u8) {
+    let pixels = ui
+        .resolved_item_sprite(icon, assets::MAX_ICON_SIDE)
+        .unwrap();
+    let expected = assets::banner::color_rgb(i64::from(base));
+    assert!(
+        pixels
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0)
+    );
+    assert!(
+        pixels
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[3] != 0)
+            .all(|pixel| pixel[..3] == expected)
+    );
+}
+
+#[test]
+fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
+    let item = assets::gui_item::SHIELD_IDENTIFIER;
+    let mut ui = presentation();
+    let registry = registry();
+    let mut player = player(&registry);
     player
         .inventory
         .ledger_mut()
@@ -217,29 +261,96 @@ fn computed_shield_crafting_output_reduces_with_the_visible_atlas_demand() {
         ui.item_icon(item, 0).unwrap(),
         "computed decoration must survive atlas pressure"
     );
-    let pixels = ui
-        .resolved_item_sprite(icon, assets::MAX_ICON_SIDE)
-        .unwrap();
-    let expected = assets::banner::color_rgb(7);
-    assert!(
-        pixels
-            .rgba8
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .any(|pixel| pixel[3] != 0)
-    );
-    assert!(
-        pixels
-            .rgba8
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .filter(|pixel| pixel[3] != 0)
-            .all(|pixel| pixel[..3] == expected)
-    );
+    assert_pattern_color(&ui, icon, 7);
     prepare_shield_art(&player, &runtime, &mut ui, resolve);
     let repeated = capture(&ui, &mut cache);
     assert_eq!(first.crafting, repeated.crafting);
     assert_eq!(first.inventory_icons, repeated.inventory_icons);
+}
+
+#[test]
+fn trading_shield_previews_reduce_with_the_visible_atlas_demand() {
+    let item = assets::gui_item::SHIELD_IDENTIFIER;
+    let mut ui = presentation();
+    let registry = registry();
+    let mut player = player(&registry);
+    let trade_item = |base| {
+        let stack = stack(base);
+        protocol::TradeItem {
+            identifier: item.into(),
+            metadata: 0,
+            count: 1,
+            block_descriptor: None,
+            extra_data: Arc::from(&stack.extra_data[..stack.extra_data.len() - 8]),
+        }
+    };
+    let mut input = trade_item(7);
+    input.metadata = u32::from(protocol::RECIPE_ANY_AUX);
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Trade(protocol::TradeEvent {
+            container: protocol::ContainerIdentity::window(7),
+            actor_unique_id: 90,
+            title: "Fixture trader".into(),
+            modern: true,
+            tier: 0,
+            offers: Arc::from([protocol::TradeOffer {
+                network_id: 91,
+                inputs: [Some(input), None],
+                output: trade_item(8),
+                tier: 0,
+                uses: 0,
+                max_uses: 16,
+            }]),
+        }));
+    let mut world = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(world.seed_item_registry(registry));
+    let mut runtime = crate::ui_runtime::UiRuntime::new(1);
+    runtime.session.inventory_open = true;
+    ui.prepare_shield_icons(
+        (0..4)
+            .map(|base| Arc::new(protocol::item_shield_pattern(&stack(base).extra_data).unwrap())),
+    );
+    assert_eq!(
+        ui.gui_models.shield_icons.pages().len(),
+        render_model::MAX_UI_SHIELD_PAGES
+    );
+    let capture = |runtime: &mut crate::ui_runtime::UiRuntime, ui: &mut UiPresentationRuntime| {
+        crate::ui_runtime::presentation::publish::capture_hud_frame(
+            &player,
+            runtime,
+            ui,
+            Some(world.authority().inventory_ui()),
+            semantic_input::PerspectiveMode::FirstPerson,
+            0,
+            Default::default(),
+        );
+    };
+    capture(&mut runtime, &mut ui);
+    let first = ui.hud_frame.window_icons.recipe.clone();
+    assert!(
+        first[1].is_none(),
+        "the absent second input keeps its offer position"
+    );
+    for (index, base) in [(0, 7), (2, 8)] {
+        let icon = first[index].unwrap();
+        assert_ne!(
+            icon,
+            ui.item_icon(item, 0).unwrap(),
+            "trading decoration must survive atlas pressure"
+        );
+        assert_pattern_color(&ui, icon, base);
+    }
+    assert_ne!(first[0], first[2]);
+    capture(&mut runtime, &mut ui);
+    assert_eq!(first, ui.hud_frame.window_icons.recipe);
 }

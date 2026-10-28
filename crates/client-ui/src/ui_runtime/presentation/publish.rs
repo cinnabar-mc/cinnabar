@@ -156,49 +156,56 @@ pub(super) fn prepare_shield_art(
 ) {
     use inventory::inventory_ledger::InventoryTarget;
     let ledger = runtime.inventory_ledger(player);
-    let mut stacks = Vec::new();
-    stacks.extend(
-        (0..protocol::PLAYER_INVENTORY_SLOTS).filter_map(|slot| ledger.displayed_stack(slot)),
+    let mut appearances = Vec::new();
+    let mut observe = |stack: &protocol::NetworkItemStack| {
+        if let Some(pattern) = resolve(stack).and_then(|item| item.shield_pattern) {
+            appearances.push(pattern);
+        }
+    };
+    // Use the production inventory projections so their stack sources cannot drift from demand.
+    ui_screens::inventory_capture::capture_contents(
+        ledger,
+        runtime.inventory_open(),
+        || runtime.crafting_match(player),
+        |stack, _| {
+            observe(stack);
+            None
+        },
+        |_| None,
     );
-    let creative = runtime
-        .inventory_open()
-        .then(|| crate::ui_runtime::inventory_actions::visible_creative_entries(player, runtime));
-    let crafting_output = runtime
-        .inventory_open()
-        .then(|| {
-            ui_screens::inventory_capture::crafting_output(ledger, runtime.crafting_match(player))
-        })
-        .flatten();
+    ui_screens::inventory_capture::capture_decorations(
+        ledger,
+        |_, _| None,
+        |stack| {
+            observe(stack);
+            None
+        },
+    );
     if runtime.inventory_open() {
-        stacks.extend(
-            (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
-                .filter_map(|slot| ledger.storage_stack(slot as u8)),
-        );
-        stacks.extend(
-            ledger
-                .crafting_grid()
-                .slots()
-                .filter_map(|slot| ledger.target_stack(InventoryTarget::Craft(slot))),
-        );
-        stacks.extend(
-            creative
-                .iter()
-                .flat_map(|creative| creative.iter())
-                .skip(runtime.screen_state().creative_row * screens::GRID_COLUMNS)
-                .take(screens::GRID_CELLS)
-                .map(|item| &item.stack),
-        );
-        stacks.extend(ledger.created_output_stack());
-        stacks.extend(crafting_output.as_ref().map(|(stack, _)| stack));
-        stacks.extend((0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))));
+        let creative =
+            crate::ui_runtime::inventory_actions::visible_creative_entries(player, runtime);
+        for item in creative
+            .iter()
+            .skip(runtime.screen_state().creative_row * screens::GRID_COLUMNS)
+            .take(screens::GRID_CELLS)
+        {
+            observe(&item.stack);
+        }
+        for stack in recipes::screen_previews(player, runtime).stacks() {
+            observe(stack);
+        }
+        for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
+            observe(stack);
+        }
     }
-    stacks.extend(ledger.cursor_stack());
-    stacks.extend(runtime.local_offhand_stack(player));
-    presentation.prepare_shield_icons(
-        stacks
-            .into_iter()
-            .filter_map(|stack| resolve(stack)?.shield_pattern),
-    );
+    for stack in ledger
+        .cursor_stack()
+        .into_iter()
+        .chain(runtime.local_offhand_stack(player))
+    {
+        observe(stack);
+    }
+    presentation.prepare_shield_icons(appearances);
 }
 
 /// The hovered container cell's stack and its custom name: what the tooltip shows, and what a
