@@ -15,6 +15,7 @@ reads = [
     "assets/cinnangles-seven-source.json",
     "assets/cinnangles-ten-source.json",
     "assets/geyser-mappings-source.json",
+    "assets/hud-source-v2225.json",
     "assets/oreui-icons-source.json",
     "assets/vanilla-source.json",
     "assets/touch-controls.json",
