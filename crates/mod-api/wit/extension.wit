@@ -851,6 +851,22 @@ interface terrain {
     find-blocks: func(identifiers: list<string>, range: f32, limit: u32) -> result<list<position>, read-error>;
 }
 
+/// Bounded observations from the automatically managed local server.
+interface local-terrain {
+    use terrain.{position};
+    /// A managed local server observation; cells are ordered x, z, y. Missing cells are 65535.
+    record query { dimension: s32, min: position, size: tuple<u8, u8, u8>, load: bool }
+    record block-state { name: string, states: string }
+    record stamp { session: u64, revision: u64 }
+    record region { stamp: stamp, palette: list<block-state>, cells: list<u16> }
+    variant read-result { pending, unchanged(stamp), changed(region) }
+    enum read-error { denied, unavailable, invalid-query, budget-exhausted }
+    /// Requires local-terrain authority. `load` additionally requires local-terrain-load,
+    /// permitting bounded temporary chunk loading and simulation. No remote server access.
+    /// Extents and quotas are mod-api::local_terrain's constants. Scans can span server ticks.
+    read-region: func(query: query, after: option<stamp>) -> result<read-result, read-error>;
+}
+
 /// Mod-owned on-screen buttons drawn in the built-in touch control style while touch controls
 /// are shown. Players move them in the touch layout editor. Requires controls authority.
 /// Grants: `controls`.
@@ -888,6 +904,7 @@ world extension {
     import cinnabar:world-draw/masks@0.2.0;
     import cinnabar:world-draw/assets@0.2.0;
     import terrain;
+    import local-terrain;
     import player-state;
     import item-use;
     import camera;

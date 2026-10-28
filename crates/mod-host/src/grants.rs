@@ -73,6 +73,12 @@ grants! {
     /// Allows bounded read-only regions and resolved block properties.
     #[permission("Terrain", false)]
     pub terrain: bool,
+    /// Installs a read-only companion on opened native BDS worlds for bounded block observations.
+    #[permission("Local server terrain", false)]
+    pub local_terrain: bool,
+    /// Allows observation requests to load and tick bounded local destination chunks.
+    #[permission("Local chunk simulation", true)]
+    pub local_terrain_load: bool,
     /// Allows read-only current-session local inventory and status effect snapshots.
     #[permission("Player status", false)]
     pub player_state: bool,

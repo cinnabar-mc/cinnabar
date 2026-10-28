@@ -62,6 +62,7 @@
 - [Terrain reads](appendix/terrain.md)
 - [World drawing helpers](appendix/drawing-helpers.md)
 - [Block geometry and mesh clipping](appendix/block-geometry.md)
+- [Managed local terrain observations](appendix/local-terrain.md)
 - [Drawing materials](appendix/drawing-materials.md)
 - [Entity masks](appendix/entity-masks.md)
 - [Native packet frames](appendix/native-frame.md)

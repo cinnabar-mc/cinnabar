@@ -1381,6 +1381,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   errors reach personal mods and helper client parts. The example exercises a three-by-three
   chunk view with lava and has headless acceptance captures. Hardware frame-cost qualification
   remains incomplete.
+  Personal local-terrain observations have a separate grant-gated contract and a
+  bounded native BDS Script API bridge. Companion installation is opt-in through mod
+  consent; optional loading additionally permits temporary destination simulation.
+  Responses use named typed states and preserve unavailable cells. Portal association
+  policy remains in the guest. Isolated BDS probes passed world-local pack discovery,
+  cheat-disabled console transport and block reads. Integrated bridge, client/GPU and
+  performance acceptance remain incomplete; this does not close a visual parity gate.
   Atmosphere and shader packs share time-override precedence:
   capture pin, personal mod, client part, then authoritative server time. Headless planet /
   star-cube rendering and F9 teardown are captured; hardware performance qualification

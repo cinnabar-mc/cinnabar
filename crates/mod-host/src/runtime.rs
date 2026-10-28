@@ -58,6 +58,7 @@ mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
 mod loading;
+mod local_terrain_host;
 #[path = "masks.rs"]
 mod masks;
 pub(crate) mod player_mod;
@@ -83,6 +84,7 @@ pub(crate) struct Declared {
 pub(crate) struct State {
     exclusive: crate::exclusive::Exclusive,
     terrain: crate::terrain::TerrainState,
+    local_terrain: Option<Arc<dyn mod_api::local_terrain::Source>>,
     limits: StoreLimits,
     pressed: bool,
     label: Option<String>,
@@ -148,6 +150,7 @@ impl State {
                 .trap_on_grow_failure(true)
                 .build(),
             terrain: Default::default(),
+            local_terrain: None,
             pressed: false,
             label: None,
             exclusive: Default::default(),

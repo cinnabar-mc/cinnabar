@@ -21,7 +21,9 @@ use super::{
     docker::DOCKER,
     junction::create_world_link,
     ports::{LOCAL_SERVER_HOST, bds_udp_mapping, free_bds_port, lan_address, loopback},
-    process::{ExitHook, HostGrant, Instance, Launch, Process, Runner, StartSpec, launch},
+    process::{
+        ExitHook, HostGrant, Instance, Launch, Process, Runner, StartSpec, launch_with_terrain,
+    },
     provision::{Provisioner, RuntimeKind, install_dir},
     store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
@@ -112,7 +114,7 @@ impl Runner for BdsRunner {
             unlink_world(&link);
             return Err(error);
         }
-        let run = |label: &str| {
+        let run = |label: &str, terrain| {
             let (mut command, code_cache) = match &self.translation {
                 Some(translation) => {
                     let (command, used) =
@@ -125,7 +127,7 @@ impl Runner for BdsRunner {
                 .current_dir(install)
                 .env("LD_LIBRARY_PATH", ".")
                 .envs(self.env.iter().map(|(key, value)| (key, value)));
-            launch(
+            launch_with_terrain(
                 command,
                 Launch {
                     address: loopback(port),
@@ -139,12 +141,13 @@ impl Runner for BdsRunner {
                         .map(|used| Box::new(move |ending| used.finish(ending)) as ExitHook),
                 },
                 cancel,
+                terrain,
             )
         };
         let id = &spec.world.id;
         let created = timed_create(id, || {
             create_world(&world_dir, || {
-                let process = run("bds create")?;
+                let process = run("bds create", None)?;
                 Ok(move || process.stop(super::process::SAVE_BUDGET))
             })
         });
@@ -157,7 +160,19 @@ impl Runner for BdsRunner {
             unlink_world(&link);
             return Err(error);
         }
-        let launched = timed("bds final run", id, || run("bds"));
+        let terrain =
+            if spec.local_terrain && runtime == RuntimeKind::Native && self.translation.is_none() {
+                match super::local_terrain::install(&world_dir) {
+                    Ok(terrain) => Some(terrain),
+                    Err(error) => {
+                        tracing::warn!("local terrain companion unavailable: {error}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+        let launched = timed("bds final run", id, || run("bds", terrain));
         let process = match launched {
             Ok(process) => process,
             Err(error) => {
@@ -241,6 +256,9 @@ impl BdsInstance {
 }
 
 impl Instance for BdsInstance {
+    fn local_terrain_source(&self) -> Option<Arc<dyn mod_api::local_terrain::Source>> {
+        self.process.local_terrain_source()
+    }
     fn address(&self) -> &str {
         self.process.address()
     }
@@ -377,6 +395,10 @@ pub(crate) fn server_properties(
         ("enable-lan-visibility", lan_visible.to_string()),
         ("texturepack-required", "false".to_owned()),
         ("content-log-file-enabled", "false".to_owned()),
+        (
+            "content-log-console-output-enabled",
+            spec.local_terrain.to_string(),
+        ),
     ] {
         let _ = writeln!(properties, "{key}={value}");
     }
