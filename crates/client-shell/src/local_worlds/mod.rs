@@ -1,10 +1,9 @@
-//! Local single-player worlds on BDS or the built-in Dragonfly server, run by the launcher.
+//! Local single-player worlds on BDS, run by the launcher.
 //!
 //! [`WorldsMenu`] is a pure screen model; [`LocalWorlds`] wires it to the world manager and tells
 //! the attached core where the open world is. The menu module embeds it by calling `attach`,
 //! `input`, `menu` and `take_ready`.
 
-use launcher::menu::settings_options::SettingId;
 mod client;
 
 use launcher::local_worlds::model;
@@ -17,7 +16,7 @@ use launcher::install_layout::InstallLayout;
 use launcher_host::local_worlds::{Host, Manager};
 
 use bevy::{
-    prelude::{App, MessageReader, Plugin, Res, ResMut, Resource, Update},
+    prelude::{App, Plugin, ResMut, Resource, Update},
     window::WindowFocused,
 };
 
@@ -36,12 +35,6 @@ pub struct LocalWorlds {
     /// Opened on the first attach and kept across core restarts.
     manager: Option<Manager>,
     client: Option<WorldsClient>,
-    playing: bool,
-    focused: bool,
-    pause_menu: bool,
-    pause_on_unfocus: bool,
-    /// The pause last sent to the world.
-    paused: bool,
     /// Saved worlds' menu thumbnails by id, read as the list arrives.
     thumbnails: HashMap<String, WorldThumbnail>,
     /// The signed-in account, kept for a manager attached later.
@@ -54,11 +47,6 @@ impl Default for LocalWorlds {
             menu: WorldsMenu::default(),
             manager: None,
             client: None,
-            playing: false,
-            focused: true,
-            pause_menu: false,
-            pause_on_unfocus: true,
-            paused: false,
             thumbnails: HashMap::new(),
             host: Host::SignedOut,
         }
@@ -97,7 +85,6 @@ impl LocalWorlds {
 
     /// Resets the attached menu and requests its initial data from the worker.
     fn attachment_effects(&mut self) -> Vec<Effect> {
-        self.playing = false;
         self.menu = WorldsMenu::default();
         let mut effects = self.menu.update(Input::Refresh);
         effects.push(Effect::LoadPrefs);
@@ -111,7 +98,6 @@ impl LocalWorlds {
             client.revoke();
         }
         self.end_import();
-        self.playing = false;
         if let Some(manager) = &self.manager {
             manager.close();
         }
@@ -187,40 +173,11 @@ impl LocalWorlds {
         self.menu.take_ready()
     }
 
-    /// Records whether the player is in the local world; only then does the world pause.
-    pub fn set_playing(&mut self, playing: bool) {
-        self.playing = playing;
-        self.sync_pause();
-    }
-
     /// Leaves the local world and asks its server to save and stop.
     pub fn leave_world(&mut self) {
-        self.playing = false;
-        self.paused = false;
         self.dispatch(vec![Effect::Leave]);
         if self.client.is_some() {
             self.input(Input::Refresh);
-        }
-    }
-
-    /// The pause menu is open over the world; single-player pauses the game behind it.
-    pub fn set_pause_menu(&mut self, open: bool) {
-        self.pause_menu = open;
-        self.sync_pause();
-    }
-
-    /// Pauses the world when the window loses focus and resumes it on regain.
-    pub fn focus_changed(&mut self, focused: bool) {
-        self.focused = focused;
-        self.sync_pause();
-    }
-
-    /// Sends a pause change when playing and the wanted state moved; BDS ignores it.
-    fn sync_pause(&mut self) {
-        let wanted = self.playing && (self.pause_menu || (self.pause_on_unfocus && !self.focused));
-        if wanted != self.paused {
-            self.paused = wanted;
-            self.dispatch(vec![Effect::SetPaused(wanted)]);
         }
     }
 
@@ -239,32 +196,6 @@ fn pump_local_worlds(mut worlds: ResMut<LocalWorlds>) {
     worlds.pump();
 }
 
-/// Applies the desktop focus preference before forwarding focus changes to the local world.
-fn pause_on_focus(
-    mut focus: MessageReader<WindowFocused>,
-    mut worlds: ResMut<LocalWorlds>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
-    desktop_focus: Option<Res<client_state::CursorFocus>>,
-    driven: Option<Res<client_state::DrivenInput>>,
-) {
-    if let Some(menu) = menu {
-        worlds.pause_on_unfocus = menu
-            .settings_snapshot()
-            .0
-            .value(SettingId::PauseMenuOnFocusLost)
-            != 0;
-        worlds.sync_pause();
-    }
-    if let Some(desktop_focus) = desktop_focus {
-        focus.clear();
-        worlds.focus_changed(driven.is_some() || desktop_focus.available());
-    } else {
-        for message in focus.read() {
-            worlds.focus_changed(message.focused);
-        }
-    }
-}
-
 /// Registers [`LocalWorlds`] (inert until attached) and its per-frame systems.
 pub struct LocalWorldsPlugin;
 
@@ -272,7 +203,7 @@ impl Plugin for LocalWorldsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<WindowFocused>()
             .init_resource::<LocalWorlds>()
-            .add_systems(Update, (pump_local_worlds, pause_on_focus));
+            .add_systems(Update, pump_local_worlds);
     }
 }
 

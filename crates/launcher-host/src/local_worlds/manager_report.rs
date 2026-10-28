@@ -15,11 +15,8 @@ impl Manager {
                 state: life.state,
                 world_id: life.world.as_ref().map(|world| world.id.clone()),
                 backend: life.world.as_ref().map(|world| world.backend),
-                paused: life.paused,
-                pause_supported: life
-                    .instance
-                    .as_ref()
-                    .is_none_or(|instance| instance.can_pause()),
+                paused: false,
+                pause_supported: false,
                 error: life.failure.clone(),
                 setup: None,
                 backend_unavailable_reason: None,

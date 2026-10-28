@@ -101,7 +101,6 @@ struct Life {
     state: WorldState,
     world: Option<World>,
     instance: Option<Arc<dyn Instance>>,
-    paused: bool,
     failure: Option<String>,
     /// Cancels the start in progress when dropped.
     cancel_start: Option<CancelHandle>,
@@ -385,7 +384,6 @@ impl Manager {
         life.world = Some(world.clone());
         life.instance = None;
         life.failure = None;
-        life.paused = false;
         life.cancel_start = Some(handle);
         life.start_done = Some(start_done);
         self.set_state(&mut life, WorldState::Starting);
@@ -488,16 +486,11 @@ impl Manager {
             life.world = Some(world);
         }
         life.instance = Some(Arc::clone(&instance));
-        let paused = life.paused && instance.can_pause();
-        life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
         drop(host_guard);
         drop(life);
         if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
-        }
-        if paused {
-            let _ = instance.set_paused(true);
         }
         let watched = Arc::clone(&instance);
         if !self.background(move |manager| manager.watch(&watched)) {
@@ -678,34 +671,6 @@ impl Manager {
                 .wait_while(running, |running| *running > 0)
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
-    }
-
-    /// Freezes or resumes the running world; a request while starting applies once it runs.
-    pub fn set_paused(&self, paused: bool) -> Result<(), WorldError> {
-        let mut life = lock(&self.inner.life);
-        let state = life.state;
-        match state {
-            WorldState::Starting => {
-                life.paused = paused;
-                Ok(())
-            }
-            WorldState::Running => {
-                let Some(instance) = life.instance.clone() else {
-                    return Err(WorldError::NotOpen);
-                };
-                if !instance.can_pause() {
-                    return Ok(());
-                }
-                life.paused = paused;
-                drop(life);
-                instance
-                    .set_paused(paused)
-                    .map_err(|error| WorldError::Failed(error.to_string()))
-            }
-            WorldState::Idle | WorldState::Stopping | WorldState::Failed => {
-                Err(WorldError::NotOpen)
-            }
-        }
     }
 
     /// A receiver that wakes after lifecycle changes and updates to the active world report.

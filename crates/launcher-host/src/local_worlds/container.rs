@@ -465,10 +465,6 @@ impl Instance for ContainerInstance {
         self.process.address()
     }
 
-    fn set_paused(&self, _paused: bool) -> std::io::Result<()> {
-        Ok(())
-    }
-
     /// Starts `docker stop` at once, untracked, so it still stops the container when the client
     /// exits right after.
     fn request_stop(&self) {
@@ -490,11 +486,6 @@ impl Instance for ContainerInstance {
 
     fn exited(&self) -> Receiver<()> {
         self.process.exited()
-    }
-
-    /// False for the same reasons as the native server.
-    fn can_pause(&self) -> bool {
-        false
     }
 
     fn max_players(&self) -> Option<u32> {

@@ -56,10 +56,6 @@ pub(crate) enum HostGrant {
 pub(crate) trait Instance: Send + Sync {
     /// The loopback game address.
     fn address(&self) -> &str;
-    /// BDS keeps simulating while the client is paused.
-    fn set_paused(&self, _paused: bool) -> io::Result<()> {
-        Ok(())
-    }
 
     /// Asks the server to save and stop without waiting.
     fn request_stop(&self);
@@ -68,10 +64,6 @@ pub(crate) trait Instance: Send + Sync {
     fn stop(&self, timeout: Duration) -> Result<(), String>;
     /// Disconnects once the server has exited.
     fn exited(&self) -> Receiver<()>;
-    /// False when [`Self::set_paused`] has no effect.
-    fn can_pause(&self) -> bool {
-        false
-    }
     /// The player limit, the host included, when the runner sets one.
     fn max_players(&self) -> Option<u32> {
         None
@@ -439,10 +431,6 @@ impl Instance for Process {
 
     fn exited(&self) -> Receiver<()> {
         self.exited.clone()
-    }
-
-    fn can_pause(&self) -> bool {
-        false
     }
 
     fn exited_cleanly(&self) -> bool {

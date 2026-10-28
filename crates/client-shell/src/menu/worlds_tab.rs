@@ -213,9 +213,7 @@ impl MenuRuntime {
         self.sync_world_settings(worlds, active && in_session);
         if active != self.local_world_active {
             self.local_world_active = active;
-            if active {
-                worlds.set_playing(true);
-            } else {
+            if !active {
                 // The core saves and stops the world once its session is over.
                 worlds.leave_world();
                 self.local_world_joined = false;
@@ -224,9 +222,6 @@ impl MenuRuntime {
                 self.local_ui.max_players = None;
             }
         }
-        // The invite screen opens over the pause screen, which stays up beneath it.
-        let paused = matches!(self.screen, MenuScreen::Pause | MenuScreen::Invite);
-        worlds.set_pause_menu(active && self.visible && paused);
     }
 
     /// Sends Settings' Game section presses and typed numbers to the played world, then mirrors it.

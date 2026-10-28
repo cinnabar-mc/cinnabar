@@ -487,25 +487,6 @@ fn the_core_report_follows_the_start() {
 }
 
 #[test]
-fn a_pause_applies_while_running_and_queues_while_starting() {
-    let (runner, release) = FakeRunner::gated();
-    let runner = Arc::new(runner);
-    let fixture = with_runner(&runner);
-    let manager = &fixture.manager;
-    let world = manager.create(&flat("w")).expect("create");
-    assert!(matches!(manager.set_paused(true), Err(WorldError::NotOpen)));
-    manager.open(&world.id, None).expect("open");
-    manager.set_paused(true).expect("queued pause");
-    drop(release);
-    wait_for(manager, WorldState::Running);
-    let instance = runner.last();
-    test_time::eventually("the queued pause", || !lock(&instance.paused).is_empty());
-    manager.set_paused(false).expect("resume");
-    assert_eq!(*lock(&instance.paused), [true, false]);
-    assert!(!manager.status().paused);
-}
-
-#[test]
 fn an_unexpected_exit_fails_the_world() {
     let runner = Arc::new(FakeRunner::default());
     let fixture = with_runner(&runner);
@@ -588,19 +569,20 @@ fn the_exit_sweep_cancels_a_start_in_progress() {
     );
 }
 
+/// BDS never reports simulation pause, including while its process starts.
 #[test]
-fn a_server_that_cannot_pause_is_never_marked_paused() {
-    let runner = Arc::new(FakeRunner {
-        can_pause: Some(false),
-        ..FakeRunner::default()
-    });
+fn bds_status_never_claims_simulation_pause() {
+    let (runner, release) = FakeRunner::gated();
+    let runner = Arc::new(runner);
     let fixture = with_runner(&runner);
     let manager = &fixture.manager;
     let world = manager.create(&flat("w")).expect("create");
     manager.open(&world.id, None).expect("open");
-    assert!(!wait_for(manager, WorldState::Running).pause_supported);
-    manager.set_paused(true).expect("pause");
-    assert!(!manager.status().paused);
+    let starting = manager.status();
+    assert!(!starting.pause_supported && !starting.paused);
+    drop(release);
+    let running = wait_for(manager, WorldState::Running);
+    assert!(!running.pause_supported && !running.paused);
 }
 
 #[test]
@@ -685,9 +667,9 @@ fn a_missing_runner_cannot_host_its_backend() {
 #[test]
 fn bds_targets_use_lan_discovery_when_the_server_advertises() {
     let world = crate::local_worlds::test_support::world();
-    let plain = FakeInstance::new(false);
+    let plain = FakeInstance::new();
     assert_eq!(target_for(&world, &plain).transport, Transport::NetherNet);
-    let mut lan = FakeInstance::new(false);
+    let mut lan = FakeInstance::new();
     lan.lan = Some("127.0.0.1:7552".into());
     let target = target_for(&world, &lan);
     assert_eq!(

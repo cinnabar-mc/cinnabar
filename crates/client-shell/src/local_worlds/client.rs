@@ -268,10 +268,6 @@ fn execute(
             manager.leave();
             return None;
         }
-        Effect::SetPaused(paused) => {
-            let _ = manager.set_paused(paused);
-            return None;
-        }
         Effect::OpenUrl(_) => return None,
     })
 }

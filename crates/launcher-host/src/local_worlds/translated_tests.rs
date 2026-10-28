@@ -285,7 +285,6 @@ trap '[ "$BOX64_DYNACACHE" != 1 ] || printf code > "$BOX64_DYNACACHE_FOLDER/bedr
         fs::read(guest_dir.join("libguest.so")).unwrap(),
         b"original guest library fixture"
     );
-    assert!(!instance.can_pause());
     instance.stop(test_time::DEFAULT_TIMEOUT).unwrap();
     let install = install_dir(&server).unwrap();
     assert_eq!(fs::read(install.join("saved")).unwrap(), b"saved");

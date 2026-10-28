@@ -244,10 +244,6 @@ impl Instance for BdsInstance {
         self.process.address()
     }
 
-    fn set_paused(&self, _paused: bool) -> io::Result<()> {
-        Ok(())
-    }
-
     fn request_stop(&self) {
         self.process.request_stop();
     }
@@ -260,12 +256,6 @@ impl Instance for BdsInstance {
 
     fn exited(&self) -> Receiver<()> {
         self.process.exited()
-    }
-
-    /// BDS registers no sim-time pause (`/globalpause`), gamerules leave mobs and redstone running,
-    /// and suspending the process would also freeze the connection.
-    fn can_pause(&self) -> bool {
-        false
     }
 
     fn max_players(&self) -> Option<u32> {

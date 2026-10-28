@@ -95,8 +95,6 @@ pub enum Effect {
     Close,
     /// Saves and stops the open world; its outcome is never surfaced.
     Leave,
-    /// Its outcome is never surfaced.
-    SetPaused(bool),
     /// Loads the local runtime status and saved preferences.
     LoadPrefs,
     /// Waits briefly, then reloads preferences; repeats while Docker is still being detected.
