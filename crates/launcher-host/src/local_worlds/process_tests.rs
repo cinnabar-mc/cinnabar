@@ -95,6 +95,10 @@ done
 const FAKE_SERVER: &[u8] =
     b"#!/bin/sh\necho ready\nwhile IFS= read -r line; do\n  [ \"$line\" = stop ] && exit 0\ndone\n";
 
+/// Completion history from the shared process lifecycle.
+#[cfg(unix)]
+type RecordedEndings = Arc<Mutex<Vec<Ending>>>;
+
 /// Launches `binary` with a hook that records how it ended.
 #[cfg(unix)]
 fn launch_recorded(

@@ -40,7 +40,6 @@ pub(super) struct LocalWorldsUi {
     /// The open world's player limit, as its server reported it.
     max_players: Option<u32>,
     /// The worlds screen was showing last frame, so a server was already readied for it.
-    prepared: bool,
     /// Numeric options focused since the last sync, whose text still goes to the module after
     /// focus leaves.
     editing: std::collections::BTreeSet<launcher::local_worlds::options::WorldOption>,
@@ -110,7 +109,6 @@ impl Default for LocalWorldsUi {
             world_id: None,
             hosted: false,
             max_players: None,
-            prepared: false,
             editing: Default::default(),
             in_world: None,
             in_world_actions: Vec::new(),
@@ -167,9 +165,6 @@ impl MenuRuntime {
         worlds.set_host(self.local_world_host());
         self.sync_storage_worlds(worlds);
         self.push_local_text(worlds);
-        let on_worlds = self.showing_worlds();
-        if on_worlds && !self.local_ui.prepared {}
-        self.local_ui.prepared = on_worlds;
         for action in std::mem::take(&mut self.local_ui.actions) {
             if let Some(input) = action.input() {
                 worlds.input(input);
