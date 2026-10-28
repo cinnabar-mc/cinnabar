@@ -257,6 +257,13 @@ impl UiPresentationRuntime {
             Some(preview)
         });
         let held = hands[0].as_ref().and_then(|(hand, _)| {
+            if let Some(texture) = hand
+                .shield_pattern
+                .as_deref()
+                .and_then(|pattern| self.shield_preview_texture(pattern))
+            {
+                return Some(texture);
+            }
             let identifier = hand.identifier.as_ref();
             let metadata = hand.metadata;
             if let Some(sprite) = self.session_icons.sprite(identifier, metadata) {

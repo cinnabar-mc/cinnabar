@@ -116,6 +116,7 @@ impl UiPresentationRuntime {
                 let source = hand
                     .shield_pattern
                     .as_deref()
+                    .filter(|_| model.is_some())
                     .and_then(|pattern| self.shield_texture(pattern, texture))
                     .or(source);
                 let ready = source.is_some();
@@ -149,5 +150,91 @@ impl UiPresentationRuntime {
                 })
             })();
         }
+    }
+
+    /// Resolves cached source geometry without projecting or allocating UI vertices.
+    pub(in crate::ui_runtime::presentation::gui_models) fn preview_held_models(
+        &self,
+        include_held: [bool; 2],
+    ) -> [Option<player_preview::PreviewHeldModel>; 2] {
+        std::array::from_fn(|index| {
+            let hand = &self.player_preview_gear.hands[index];
+            if !include_held[index] {
+                return None;
+            }
+            let hand = hand.as_ref()?;
+            let pack_model_suppressed = !self.player_preview_gear.show_custom_item_models
+                && self
+                    .gui_models
+                    .pack_equipment
+                    .source
+                    .as_ref()
+                    .is_some_and(|pack| {
+                        self.gui_models.selected_held[index]
+                            .as_ref()
+                            .is_some_and(|selected| Arc::ptr_eq(&selected.artwork, pack))
+                    });
+            if let Some(selected) = self.gui_models.selected_held[index]
+                .as_ref()
+                .filter(|_| !pack_model_suppressed)
+                && selected.ready
+                && selected.item.identifier.as_ref() == hand.identifier.as_ref()
+                && selected.item.metadata == hand.metadata
+            {
+                return Some(
+                    selected
+                        .model
+                        .as_ref()?
+                        .with_grip(hand.grip)
+                        .with_glint(hand.glint),
+                );
+            }
+            let (identifier, metadata) = Self::item_icon_key(
+                &hand.identifier,
+                hand.metadata,
+                hand.use_animation,
+                hand.charged_projectile,
+                None,
+            );
+            let held = |metadata| self.gui_models.sources.held.get(identifier)?.get(&metadata);
+            let base = (!pack_model_suppressed)
+                .then(|| held(metadata).or_else(|| held(0)))
+                .flatten();
+            let sprite = hand
+                .shield_pattern
+                .as_deref()
+                .filter(|_| base.is_none_or(HeldModel::is_sprite))
+                .and_then(|pattern| self.shield_preview_sprite(pattern));
+            let model = if !pack_model_suppressed
+                && let Some((source, vertices)) =
+                    self.session_icons.held_block(identifier, metadata)
+            {
+                player_preview::PreviewHeldModel {
+                    source,
+                    vertices,
+                    hand_pivots: self.gui_models.sources.hand_pivots?,
+                    placements: [player_preview::PreviewHeldPlacement::Block; 2],
+                }
+            } else if base.is_none_or(HeldModel::is_sprite)
+                && (sprite.is_some() || self.session_item_icon(identifier, metadata).is_some())
+            {
+                let (source, vertices) =
+                    sprite.or_else(|| self.session_icons.held_sprite(identifier, metadata))?;
+                match base {
+                    Some(base) => base.with_sprite(source, vertices),
+                    None => player_preview::PreviewHeldModel {
+                        source,
+                        vertices,
+                        hand_pivots: self.gui_models.sources.hand_pivots?,
+                        placements: [player_preview::PreviewHeldPlacement::Sprite {
+                            hand_equipped: false,
+                        }; 2],
+                    },
+                }
+            } else {
+                base?.model(self.icon_catalog.as_deref()?)?
+            };
+            Some(model.with_grip(hand.grip).with_glint(hand.glint))
+        })
     }
 }

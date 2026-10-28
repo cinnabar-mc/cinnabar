@@ -1,6 +1,6 @@
 //! Stack-specific shield artwork shares the startup model and active pack pattern textures.
 use super::*;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 /// The ownerless GUI shield definition admitted during source preparation.
 pub(in crate::ui_runtime::presentation) struct Source {
@@ -47,8 +47,14 @@ impl Key {
 struct Image {
     icon: IconRef,
     texture: IconRef,
+    sprite: Arc<Sprite>,
     /// Keeps the source pointer used by the key alive until this atlas is retired.
     _source: Arc<[u8]>,
+}
+
+struct Sprite {
+    pixels: assets::IconSprite,
+    vertices: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
 }
 
 impl Cache {
@@ -114,6 +120,10 @@ impl Cache {
         let result = Image {
             icon,
             texture: image,
+            sprite: Arc::new(Sprite {
+                pixels: thumbnail,
+                vertices: OnceLock::new(),
+            }),
             _source: Arc::clone(&base.rgba8),
         };
         self.icons.insert(key, result.clone());
@@ -129,6 +139,44 @@ impl UiPresentationRuntime {
         appearance: &render_api::ShieldPattern,
     ) -> Option<IconRef> {
         self.shield_image(appearance, None).map(|image| image.icon)
+    }
+
+    /// Shares the decorated inventory sprite and its lazily extruded alpha edges with previews.
+    pub(super) fn shield_preview_sprite(
+        &self,
+        appearance: &render_api::ShieldPattern,
+    ) -> Option<(IconRef, Arc<[render_model::ActorRigVertex]>)> {
+        let image = self.shield_image(appearance, None)?;
+        let vertices = image
+            .sprite
+            .vertices
+            .get_or_init(|| {
+                let pixels = &image.sprite.pixels;
+                render_model::held_sprite_vertices(
+                    usize::from(pixels.width),
+                    usize::from(pixels.height),
+                    &pixels.rgba8,
+                    [0.0, 0.0, 1.0, 1.0],
+                )
+                .map(Into::into)
+            })
+            .clone()?;
+        Some((image.icon, vertices))
+    }
+
+    /// Retains the same decorated pixels for the compatibility preview's held-item raster.
+    pub(in crate::ui_runtime::presentation) fn shield_preview_texture(
+        &self,
+        appearance: &render_api::ShieldPattern,
+    ) -> Option<player_preview::PreviewTexture> {
+        let image = self.shield_image(appearance, None)?;
+        let pixels = &image.sprite.pixels;
+        Some(player_preview::PreviewTexture {
+            rgba: Arc::clone(&pixels.rgba8),
+            width: pixels.width,
+            height: pixels.height,
+            tint: None,
+        })
     }
 
     /// Uses the selected hand model's base sheet while sharing its banner overlays.
