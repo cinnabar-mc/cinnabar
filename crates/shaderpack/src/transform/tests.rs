@@ -44,6 +44,10 @@ fn draft(
         normalize_legacy: true,
         geometry: file.starts_with("gbuffers_"),
         vertex_clip: true,
+        bound_core_inputs: crate::translate::bound_core_inputs(
+            file.rsplit_once('.').map_or(file, |(stem, _)| stem),
+            &pp,
+        ),
     };
     let draft = transform(&pp, stage, iface, &names).expect("transforms");
     (draft, pp.map)

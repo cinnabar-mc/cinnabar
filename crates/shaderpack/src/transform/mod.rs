@@ -93,6 +93,10 @@ pub(crate) struct ResourceNames<'a> {
     pub geometry: bool,
     /// Convert a raster vertex to wgpu clip space; emulated vertex pre-passes retain GL coordinates.
     pub vertex_clip: bool,
+    /// Declared core-profile vertex inputs (`vaPosition`, …) read vertex data, as Iris's
+    /// core-profile transformer binds them. Its compatibility-profile transformers leave them
+    /// unbound.
+    pub bound_core_inputs: bool,
 }
 
 /// Transforms one preprocessed stage.
@@ -103,7 +107,14 @@ pub(crate) fn transform(
     names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
     items::validate_delimiters(&pp.tokens)?;
-    let lg = stage_tokens(&pp.tokens, stage, pp.version, names.software_fused_dot)?;
+    let unbound_core_inputs = stage == StageKind::Vertex && !names.bound_core_inputs;
+    let lg = stage_tokens(
+        &pp.tokens,
+        stage,
+        pp.version,
+        names.software_fused_dot,
+        unbound_core_inputs,
+    )?;
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
     for it in split_items(&lg.toks) {
@@ -261,16 +272,23 @@ pub(crate) fn transform(
 }
 
 /// Applies the type, expression and legacy-name rewrites shared by stage compilation and repair.
+/// `unbound_core_inputs`: declared core-profile vertex inputs read GL's unbound default.
 fn stage_tokens(
     tokens: &[Tok],
     stage: StageKind,
     version: u32,
     software_fused_dot: bool,
+    unbound_core_inputs: bool,
 ) -> Result<legacy::Legacy, TransformError> {
     let wide = narrow::lower(tokens);
     let wide = wide.as_deref().unwrap_or(tokens);
     let fused = dot::order(wide, software_fused_dot);
-    legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, version)
+    legacy::rewrite(
+        fused.as_deref().unwrap_or(wide),
+        stage,
+        version,
+        unbound_core_inputs,
+    )
 }
 
 #[cfg(test)]
