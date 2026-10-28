@@ -184,6 +184,9 @@ pub(crate) fn support_requirement(
             None => SupportRequirement::Unsupported,
         };
     }
+    if identifier == "minecraft:frog_spawn" {
+        return SupportRequirement::Face(0);
+    }
     if is_carpet(identifier) {
         return SupportRequirement::Face(0);
     }
@@ -236,6 +239,13 @@ pub(crate) fn support_acceptance(
             | "minecraft:flowing_water"
             | "minecraft:lava"
             | "minecraft:flowing_lava" => Some(false),
+            _ => None,
+        };
+    }
+    if identifier == "minecraft:frog_spawn" {
+        return match support_identifier {
+            "minecraft:water" => Some(true),
+            "minecraft:air" | "minecraft:flowing_water" => Some(false),
             _ => None,
         };
     }

@@ -187,6 +187,41 @@ fn cobweb_prediction_keeps_independent_support_in_both_identity_modes() {
 }
 
 #[test]
+fn frogspawn_prediction_places_above_a_water_source_only() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let mut store = store(mode);
+        store
+            .update_block(
+                SubChunkKey::new(0, 0, 0, 0),
+                BlockUpdate::new(8, 8, 8, 0, id(record("minecraft:water", &[]), mode)),
+                id(record("minecraft:air", &[]), mode),
+            )
+            .unwrap();
+        let mut around = surroundings();
+        around.clicked = block_fact("minecraft:water");
+        around.held = block_fact("minecraft:frog_spawn");
+        let result = predict("minecraft:frog_spawn", &store, mode, &context(&around))
+            .expect("frogspawn should be placeable on a water source");
+        assert_eq!(result.position, [8, 9, 8]);
+        assert_eq!(
+            fixtures().1.block_identifier(mode, result.block),
+            Some("minecraft:frog_spawn")
+        );
+
+        let mut flowing = store;
+        flowing
+            .update_block(
+                SubChunkKey::new(0, 0, 0, 0),
+                BlockUpdate::new(8, 8, 8, 0, id(record("minecraft:flowing_water", &[]), mode)),
+                id(record("minecraft:air", &[]), mode),
+            )
+            .unwrap();
+        around.clicked = block_fact("minecraft:flowing_water");
+        assert!(predict("minecraft:frog_spawn", &flowing, mode, &context(&around)).is_none());
+    }
+}
+
+#[test]
 fn carpet_prediction_accepts_materialized_custom_support_in_both_identity_modes() {
     let (records, _) = fixtures();
     let protocol = active_content_registry_protocol();

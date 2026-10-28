@@ -1,7 +1,7 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P, ItemTraits},
+    facts::{BlockFact, BlockProperty as P, ItemTraits, PlacementRule as R},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
@@ -103,11 +103,15 @@ pub(crate) fn overlaps(
 
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
-/// Empty vanilla buckets may pick liquid sources without making liquids selectable for mining.
+/// Items that place onto liquid sources use the liquid-aware interaction ray.
 pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
-    !item.is_empty()
-        && item.metadata() == 0
-        && identifier == Some(assets::facts::EMPTY_BUCKET_IDENTIFIER)
+    if item.is_empty() || item.metadata() != 0 {
+        return false;
+    }
+    identifier.is_some_and(|identifier| {
+        identifier == assets::facts::EMPTY_BUCKET_IDENTIFIER
+            || identifier == assets::facts::FROG_SPAWN_IDENTIFIER
+    })
 }
 
 /// World facts one local use depends on.
@@ -145,6 +149,15 @@ impl UseSurroundings {
     /// The cell a placement fills: the clicked block when it is replaceable,
     /// otherwise the neighbor across the clicked face.
     pub fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
+        // Water is replaceable for ordinary blocks, but frogspawn is placed on
+        // the air cell above a water source rather than replacing the source.
+        if self.held.placement == R::FrogSpawn && self.clicked.traits.contains(T::WATER) {
+            if face == 1 {
+                let cell = placement_cell(clicked, face);
+                return (cell, self.neighbor.traits.contains(T::REPLACEABLE));
+            }
+            return (clicked, false);
+        }
         if self.clicked.traits.contains(T::REPLACEABLE) {
             (clicked, true)
         } else {

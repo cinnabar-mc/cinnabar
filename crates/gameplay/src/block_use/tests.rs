@@ -135,6 +135,17 @@ fn placement_targets_the_clicked_face_neighbor() {
     );
 }
 
+#[test]
+fn frogspawn_uses_the_liquid_aware_pick() {
+    let item = verified(network_item(2, 77));
+    assert!(super::uses_liquid_pick(
+        &item,
+        Some(assets::facts::FROG_SPAWN_IDENTIFIER)
+    ));
+    assert!(!super::uses_liquid_pick(&item, Some("minecraft:stone")));
+    assert!(!super::uses_liquid_pick(&item, None));
+}
+
 fn surroundings(clicked: &str, neighbor: &str) -> UseSurroundings {
     UseSurroundings {
         clicked: block_fact(clicked),

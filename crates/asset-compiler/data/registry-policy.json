@@ -5155,6 +5155,14 @@
   ],
   "placement_rules": [
     {
+      "id": "placement-frog-spawn",
+      "fact": "placement:FrogSpawn",
+      "status": "verified",
+      "members": [
+        "minecraft:frog_spawn"
+      ]
+    },
+    {
       "id": "placement-loom",
       "fact": "placement:Loom",
       "status": "provisional",

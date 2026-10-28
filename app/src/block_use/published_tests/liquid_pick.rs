@@ -1,7 +1,29 @@
 //! Bucket targets through the production interaction producer and negotiated item registry.
 
 use super::*;
-use assets::facts::EMPTY_BUCKET_IDENTIFIER;
+use assets::facts::{EMPTY_BUCKET_IDENTIFIER, FROG_SPAWN_IDENTIFIER};
+
+/// Replays the server's block runtime id on the held block item descriptor.
+fn set_held_block_runtime_id(world: &mut World, block_runtime_id: u32) {
+    world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        let mut stack = player.selected_stack().unwrap().clone();
+        stack.block_runtime_id = i32::try_from(block_runtime_id).unwrap();
+        ui.inventory_ledger_mut(&mut player)
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity {
+                        window_id: Some(0),
+                        slot_type: None,
+                        dynamic_id: None,
+                    },
+                    slot: 0,
+                },
+                stack,
+                storage_item: None,
+            }));
+    });
+}
 
 /// Replaces the chest with a liquid and puts an ordinary block behind it.
 fn liquid_fixture(
@@ -54,6 +76,16 @@ fn liquid_fixture(
         .find(|record| record.name.as_ref() == "minecraft:stone")
         .unwrap()
         .sequential_id;
+    if identifier == FROG_SPAWN_IDENTIFIER {
+        set_held_block_runtime_id(
+            &mut world,
+            records
+                .iter()
+                .find(|record| record.name.as_ref() == FROG_SPAWN_IDENTIFIER)
+                .unwrap()
+                .sequential_id,
+        );
+    }
     let mut updates = vec![
         protocol::BlockUpdateEvent {
             dimension: 0,
@@ -110,6 +142,45 @@ fn empty_bucket_clicks_the_liquid_source_instead_of_the_block_behind_it() {
         assert_eq!(player.selected_stack().unwrap().metadata, 0);
         assert_eq!(player.selected_stack().unwrap().count, 1);
     }
+}
+
+#[test]
+fn frogspawn_uses_the_liquid_aware_pick_for_water_sources() {
+    let (mut world, mut captured) =
+        liquid_fixture(FROG_SPAWN_IDENTIFIER, 0, "minecraft:water", 0, false);
+    let eye = Vec3::new(4.5, 4.0, 8.5);
+    let rotation = Quat::from_rotation_x(-0.42);
+    let origin = frame_origin(&world, eye, rotation);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    retain_pick(&mut world, &origin);
+    world.insert_resource(origin);
+    world.insert_resource(LocalViewPose::new(eye, rotation));
+    let pick = world
+        .resource::<BlockUseRuntime>()
+        .pick(world.resource::<MovementTicker>())
+        .expect("frogspawn should retain a frame pick");
+    assert!(matches!(
+        pick.hits.liquid,
+        Some(gameplay::block_use::PickResult::Block(hit)) if hit.position == [4, 2, 6]
+    ));
+    world.run_system_cached(produce_block_use).unwrap();
+    let uses = captured
+        .drain()
+        .iter()
+        .filter_map(item_use)
+        .collect::<Vec<_>>();
+    assert_eq!(uses.len(), 1);
+    assert!(uses[0].predicted_success);
+    // The transaction keeps the clicked water position; the placement
+    // destination sent in the preceding start-use packet is the cell above.
+    assert_eq!(uses[0].position, [4, 2, 6]);
+    assert_eq!(uses[0].face, 1);
+    assert_eq!(
+        world
+            .resource::<BlockUseRuntime>()
+            .last_success_destination(),
+        Some([4, 3, 6])
+    );
 }
 
 #[test]

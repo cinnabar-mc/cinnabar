@@ -449,7 +449,7 @@ minecraft:flowering_azalea	Identity	Vanilla	-
 minecraft:flowing_lava	Unresolved	Lava	-
 minecraft:flowing_water	Unresolved	Water	-
 minecraft:frame	Unresolved	Vanilla	-
-minecraft:frog_spawn	Identity	Vanilla	-
+minecraft:frog_spawn	FrogSpawn	Vanilla	-
 minecraft:frosted_ice	Unresolved	Vanilla	-
 minecraft:furnace	Unresolved	Vanilla	-
 minecraft:gilded_blackstone	Identity	Vanilla	-
@@ -1182,7 +1182,7 @@ minecraft:warped_stem	Axis	Vanilla	-
 minecraft:warped_trapdoor	Trapdoor	Vanilla	-
 minecraft:warped_wall_sign	WallSign	Vanilla	minecraft:warped_standing_sign
 minecraft:warped_wart_block	Identity	Vanilla	-
-minecraft:water	Unresolved	Water	-
+minecraft:water	Unresolved	WaterSource	-
 minecraft:waterlily	Identity	Vanilla	-
 minecraft:waxed_chiseled_copper	Identity	Vanilla	-
 minecraft:waxed_copper	Identity	Vanilla	-
