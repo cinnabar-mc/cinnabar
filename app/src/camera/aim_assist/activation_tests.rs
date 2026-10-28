@@ -52,7 +52,7 @@ fn encoded_cycle(activation: &mut AimActivation, camera: &ServerCameraView) -> V
     let mut packets = Vec::new();
     for perspective in CYCLE {
         activation.publish(camera, perspective, &state, Some((1, 0)), |packet| {
-            packets.push(protocol::encode(&packet).unwrap());
+            packets.push(protocol::encode(&packet).unwrap().to_vec());
             true
         });
     }
@@ -125,6 +125,7 @@ fn aim_activation_reports_both_third_person_views_without_repeating_steady_frame
             "", allow, true,
         ))
         .unwrap()
+        .to_vec()
     });
     assert_eq!(encoded_cycle(&mut activation, &camera), expected);
 }
