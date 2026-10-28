@@ -863,7 +863,9 @@ impl Canvas<'_> {
             || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
-            || (!floats && (dest[2] <= dest[0] || dest[3] <= dest[1]))
+            // Custom renderers can use a point or line as their painting origin.
+            || (!matches!(&node.draw, Draw::Custom { .. })
+                && (dest[2] <= dest[0] || dest[3] <= dest[1]))
             || opacity <= 0.0
         {
             return Ok(());
