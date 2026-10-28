@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/coder/websocket v1.8.14
-	github.com/df-mc/go-nethernet v1.0.25
+	github.com/df-mc/go-nethernet v1.0.26
 	github.com/df-mc/go-playfab/v2 v2.0.3
 	github.com/df-mc/go-xsapi/v2 v2.0.4-0.20261012072832-90ce120e31cd
 	github.com/go-gl/mathgl v1.2.0
@@ -57,5 +57,5 @@ require (
 
 replace (
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261027215313-1d66110b3497
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261028154110-5f6e839b63c8
 )

@@ -26,4 +26,4 @@ require (
 
 replace github.com/df-mc/dragonfly => github.com/cinnabar-mc/dragonfly v0.0.0-20261028135505-5e4c2e16fb50
 
-replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261027215313-1d66110b3497
+replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261028154110-5f6e839b63c8
