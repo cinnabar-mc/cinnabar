@@ -82,6 +82,48 @@ fn presentation(
     ui
 }
 
+/// Dresses both hands with distinct metadata, optional decoration, upright grips and glint.
+fn dress(ui: &mut UiPresentationRuntime, patterns: Option<&[Arc<render_api::ShieldPattern>; 2]>) {
+    let item = assets::gui_item::SHIELD_IDENTIFIER;
+    let mut player = player_state::PlayerState::new(1);
+    player.inventory.set_local_selected_slot(0);
+    for (metadata, window) in [
+        protocol::PLAYER_INVENTORY_WINDOW_ID,
+        protocol::OFFHAND_WINDOW_ID,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        player
+            .inventory
+            .ledger_mut()
+            .apply(&protocol::InventoryEvent::Content(
+                protocol::InventoryContentEvent {
+                    container: protocol::ContainerIdentity::window(window),
+                    slots: Arc::from([protocol::NetworkItemStack {
+                        network_id: 1,
+                        count: 1,
+                        metadata: metadata as u32,
+                        ..Default::default()
+                    }]),
+                    storage_item: Default::default(),
+                },
+            ));
+    }
+    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    ui.dress_player_preview(&player, &runtime, None, Default::default(), |stack| {
+        Some(client_world::CanonicalItemStack {
+            shield_pattern: patterns.map(|patterns| Arc::clone(&patterns[stack.metadata as usize])),
+            grip: assets::item::grip::ItemGrip::Session {
+                upright: true,
+                mirrored_art: false,
+            },
+            glint: assets::item::glint::ItemGlint::Session { enabled: true },
+            ..crate::test_support::fixture_item(item)
+        })
+    });
+}
+
 #[test]
 fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges() {
     let item = assets::gui_item::SHIELD_IDENTIFIER;
@@ -103,47 +145,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                     }]),
                 })
             });
-            let mut player = player_state::PlayerState::new(1);
-            player.inventory.set_local_selected_slot(0);
-            for (metadata, window) in [
-                protocol::PLAYER_INVENTORY_WINDOW_ID,
-                protocol::OFFHAND_WINDOW_ID,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                player
-                    .inventory
-                    .ledger_mut()
-                    .apply(&protocol::InventoryEvent::Content(
-                        protocol::InventoryContentEvent {
-                            container: protocol::ContainerIdentity::window(window),
-                            slots: Arc::from([protocol::NetworkItemStack {
-                                network_id: 1,
-                                count: 1,
-                                metadata: metadata as u32,
-                                ..Default::default()
-                            }]),
-                            storage_item: Default::default(),
-                        },
-                    ));
-            }
-            let runtime = crate::ui_runtime::UiRuntime::new(1);
-            let dress = |ui: &mut UiPresentationRuntime, decorated: bool| {
-                ui.dress_player_preview(&player, &runtime, None, Default::default(), |stack| {
-                    Some(client_world::CanonicalItemStack {
-                        shield_pattern: decorated
-                            .then(|| patterns[stack.metadata as usize].clone()),
-                        grip: assets::item::grip::ItemGrip::Session {
-                            upright: true,
-                            mirrored_art: false,
-                        },
-                        glint: assets::item::glint::ItemGlint::Session { enabled: true },
-                        ..crate::test_support::fixture_item(item)
-                    })
-                });
-            };
-            dress(&mut ui, true);
+            dress(&mut ui, Some(&patterns));
             assert!(
                 ui.gui_models
                     .selected_held
@@ -200,23 +202,83 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                 models[1].as_ref().unwrap().source
             );
             let first = ui.player_preview_gear.held.clone().unwrap();
-            dress(&mut ui, false);
+            dress(&mut ui, None);
             assert_ne!(first, ui.player_preview_gear.held.clone().unwrap());
             let plain = ui.preview_held_models([true; 2]);
-            if !pack_authored || session {
-                assert!(plain.iter().all(Option::is_some));
+            for model in plain {
+                let model = model.expect("plain shields retain their ordinary sprite fallback");
+                assert_eq!(
+                    model.source,
+                    ui.item_icon(item, 0).unwrap().with_glint(true)
+                );
+                assert!(model.placements.iter().all(|placement| matches!(
+                    placement,
+                    PreviewHeldPlacement::Sprite {
+                        hand_equipped: true
+                    }
+                )));
             }
-            for model in plain.into_iter().flatten() {
-                assert!(model.source.glint);
-                if model
-                    .placements
-                    .iter()
-                    .all(|placement| matches!(placement, PreviewHeldPlacement::Sprite { .. }))
-                {
-                    assert_eq!(
-                        model.source,
-                        ui.item_icon(item, 0).unwrap().with_glint(true)
-                    );
+        }
+    }
+}
+
+#[test]
+fn plain_shield_previews_choose_authored_models_or_cached_sprite_fallbacks() {
+    let item = assets::gui_item::SHIELD_IDENTIFIER;
+    for startup_authored in [false, true] {
+        for pack_authored in [false, true] {
+            for custom_models in [false, true] {
+                for session in [false, true] {
+                    let mut ui = presentation(startup_authored, pack_authored, session);
+                    ui.set_player_preview_custom_item_models(custom_models);
+                    dress(&mut ui, None);
+                    let models = ui.preview_held_models([true; 2]);
+                    dress(&mut ui, None);
+                    let repeated = ui.preview_held_models([true; 2]);
+                    for hand in 0..2 {
+                        let model = models[hand].as_ref().unwrap_or_else(|| {
+                            panic!("plain hand {hand}: startup={startup_authored}, pack={pack_authored}, custom={custom_models}, session={session}")
+                        });
+                        assert!(model.source.glint);
+                        if pack_authored && custom_models {
+                            let expected = ui.gui_models.selected_held[hand]
+                                .as_ref()
+                                .unwrap()
+                                .model
+                                .as_ref()
+                                .unwrap();
+                            assert!(model.placements.iter().all(|placement| matches!(
+                                placement,
+                                PreviewHeldPlacement::Authored { .. }
+                            )));
+                            assert_eq!(model.source, expected.source.with_glint(true));
+                            assert_eq!(model.vertices, expected.vertices);
+                        } else {
+                            let icon = ui.item_icon(item, 0).unwrap();
+                            assert_eq!(model.source, icon.with_glint(true));
+                            assert!(model.placements.iter().all(|placement| matches!(
+                                placement,
+                                PreviewHeldPlacement::Sprite {
+                                    hand_equipped: true
+                                }
+                            )));
+                            let pixels = ui
+                                .resolved_item_sprite(icon, assets::MAX_ICON_SIDE)
+                                .unwrap();
+                            let expected = held_sprite_vertices(
+                                pixels.width as usize,
+                                pixels.height as usize,
+                                &pixels.rgba8,
+                                [0.0, 0.0, 1.0, 1.0],
+                            )
+                            .unwrap();
+                            assert_eq!(&*model.vertices, &*expected);
+                        }
+                        assert!(Arc::ptr_eq(
+                            &model.vertices,
+                            &repeated[hand].as_ref().unwrap().vertices
+                        ));
+                    }
                 }
             }
         }

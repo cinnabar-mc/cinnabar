@@ -197,9 +197,7 @@ impl UiPresentationRuntime {
                 None,
             );
             let held = |metadata| self.gui_models.sources.held.get(identifier)?.get(&metadata);
-            let base = (!pack_model_suppressed)
-                .then(|| held(metadata).or_else(|| held(0)))
-                .flatten();
+            let base = held(metadata).or_else(|| held(0));
             let sprite = hand
                 .shield_pattern
                 .as_deref()
@@ -216,7 +214,7 @@ impl UiPresentationRuntime {
                     placements: [player_preview::PreviewHeldPlacement::Block; 2],
                 }
             } else if sprite.is_some()
-                || (base.is_none_or(HeldModel::is_sprite)
+                || ((pack_model_suppressed || base.is_none_or(HeldModel::is_sprite))
                     && self.session_item_icon(identifier, metadata).is_some())
             {
                 let (source, vertices) =
@@ -233,7 +231,12 @@ impl UiPresentationRuntime {
                     },
                 }
             } else {
-                base?.model(self.icon_catalog.as_deref()?)?
+                let icons = self.icon_catalog.as_deref()?;
+                if pack_model_suppressed {
+                    base?.sprite_model(icons)?
+                } else {
+                    base?.model(icons)?
+                }
             };
             Some(model.with_grip(hand.grip).with_glint(hand.glint))
         })
