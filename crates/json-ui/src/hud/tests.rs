@@ -395,7 +395,8 @@ fn current_chat_bindings_follow_visibility_and_keep_the_authored_origin() {
         let (bound, notes) = bind_stateful(&root, &data, &EmptyLibrary, &mut BindState::new());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(bound.properties.get("visible"), Some(&json!(visible)));
-        assert_eq!(bound.properties.get("offset"), Some(&json!([0, 0])));
+        let offset = &bound.properties["offset"];
+        assert_eq!([offset[0].as_f64(), offset[1].as_f64()], [Some(0.0); 2]);
         assert_eq!(
             bound.properties["property_bag"]["#layout_active"],
             json!(false)
