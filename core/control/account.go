@@ -337,17 +337,21 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		return reply.ok(peopleResult(list))
 	case methodLANWorlds:
 		lan, supported := services.(LANServices)
-		if len(raw) != 0 {
+		params, valid := decodeLANWorldsParams(raw)
+		if !valid {
 			return reply.invalid()
 		}
 		if !supported {
 			return reply.fail(codeServicesDisabled, "Launcher services unavailable")
 		}
-		worlds, err := lan.LANWorlds(ctx)
+		page, current, err := server.lanListings.page(ctx, lan, params)
 		if err != nil {
 			return failService(err)
 		}
-		return reply.ok(lanWorldsResult(worlds))
+		if !current {
+			return reply.invalid()
+		}
+		return reply.ok(page)
 	case methodConnect:
 		var params struct {
 			Kind  *string `json:"kind"`

@@ -58,6 +58,7 @@ type Server struct {
 	presence         func(xboxpresence.State)
 	cinnabar         CinnabarAPI // nil answers lookups as unavailable; guarded by mu
 	packetDelay      PacketDelay // nil disables packet_delay.v1; guarded by mu
+	lanListings      lanListings // pages of lan_worlds.v1
 	done             chan struct{}
 	once             sync.Once
 	mu               sync.Mutex
