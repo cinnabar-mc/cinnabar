@@ -440,6 +440,10 @@ impl MenuRuntime {
         std::mem::take(&mut self.intents.disconnect)
     }
 
+    pub fn exit_requested(&self) -> bool {
+        self.intents.exit
+    }
+
     pub fn take_exit_request(&mut self) -> bool {
         std::mem::take(&mut self.intents.exit)
     }

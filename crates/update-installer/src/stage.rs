@@ -291,13 +291,23 @@ pub fn verify(
     check: Check<'_>,
     now: OffsetDateTime,
 ) -> Result<Selection> {
+    let selected = verify_envelope(directory, keys, check, now)?;
+    verify_file(&directory.join(ARTIFACT_FILE), &selected.artifact)?;
+    Ok(selected)
+}
+
+/// Authenticates the staged release without hashing its payload.
+pub fn verify_envelope(
+    directory: &Path,
+    keys: &TrustedKeys,
+    check: Check<'_>,
+    now: OffsetDateTime,
+) -> Result<Selection> {
     let mut bytes = Vec::new();
     File::open(directory.join(ENVELOPE_FILE))?
         .take(update_manifest::MAX_ENVELOPE_BYTES as u64 + 1)
         .read_to_end(&mut bytes)?;
-    let selected = Selection::verify(&bytes, keys, check, now)?;
-    verify_file(&directory.join(ARTIFACT_FILE), &selected.artifact)?;
-    Ok(selected)
+    Selection::verify(&bytes, keys, check, now)
 }
 
 /// Checks regular files with bounded memory and refuses any size change during hashing.

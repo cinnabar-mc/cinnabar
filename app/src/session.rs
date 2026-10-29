@@ -4,8 +4,10 @@
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
-    ecs::system::SystemParam,
-    prelude::{AppExit, Commands, MessageWriter, Res, ResMut, Resource},
+    ecs::system::{NonSendMarker, SystemParam},
+    prelude::{AppExit, Commands, Entity, MessageWriter, Query, Res, ResMut, Resource, With},
+    window::PrimaryWindow,
+    winit::WINIT_WINDOWS,
 };
 use bridge::CORE_START_TIMEOUT;
 use client_runtime::network::NetworkHandle;
@@ -667,6 +669,26 @@ fn start_network(
     );
     commands.insert_resource(replacement);
     Ok(())
+}
+
+/// Hides the window before an exit's blocking teardown, so a quit or update restart
+/// never shows a frozen frame.
+pub(crate) fn hide_window_before_exit(
+    menu: Res<MenuRuntime>,
+    windows: Query<Entity, With<PrimaryWindow>>,
+    _main_thread: NonSendMarker,
+) {
+    if !menu.exit_requested() {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    WINIT_WINDOWS.with_borrow(|windows| {
+        if let Some(window) = windows.get_window(window) {
+            window.set_visible(false);
+        }
+    });
 }
 
 /// Acts on the menu's session intents and advances the pending join.
