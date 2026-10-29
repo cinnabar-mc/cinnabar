@@ -307,6 +307,7 @@ impl GameplayContext<'_> {
                 || grants.item_use
                 || grants.movement
                 || grants.interaction
+                || grants.inventory
                 || grants.entities
                 || !grants.commands.is_empty())
             || self
