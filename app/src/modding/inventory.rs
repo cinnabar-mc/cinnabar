@@ -18,6 +18,12 @@ pub(super) fn apply_inventory_requests(
     for index in 0..extension.hosts.host_count() {
         for request in extension.hosts.host_mut(index).take_inventory_requests() {
             let result = match &request {
+                InventoryRequest::SwapOffhand { session, slot } => {
+                    if *session != player_runtime.facts.session_id() {
+                        continue;
+                    }
+                    ui.mod_swap_offhand(&mut player_runtime, *slot)
+                }
                 InventoryRequest::CreativeTake {
                     identifier,
                     aux,

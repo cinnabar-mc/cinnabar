@@ -108,6 +108,8 @@ pub struct InteractionOutput {
 /// the vanilla screen it stands for would, and the server checks it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InventoryRequest {
+    /// Exchanges a player cell with the offhand within the observed session.
+    SwapOffhand { session: u64, slot: u8 },
     /// A creative catalog take of `count` of the item `identifier` with `aux`.
     CreativeTake {
         identifier: String,

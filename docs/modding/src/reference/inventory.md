@@ -16,6 +16,19 @@ Imported type `item-key`: [`item-key`](session-items.md#type-item-key).
 
 ## Functions
 
+<a id="swap-offhand"></a>
+
+### `swap-offhand`
+
+```wit
+swap-offhand: func(slot: u8) -> result<_, string>;
+```
+
+Exchanges player inventory cell `slot` (0..35, hotbar first) with the offhand.
+Requires focused gameplay and inventory authority; occupied equipment must admit the
+incoming item. The cursor is untouched. Committed after a successful callback and
+resolved against the current inventory ledger; server validation still applies.
+
 <a id="creative-take"></a>
 
 ### `creative-take`

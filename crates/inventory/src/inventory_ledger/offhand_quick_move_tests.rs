@@ -493,3 +493,69 @@ fn explicit_armor_slot_precedes_offhand_and_caps_equipment_to_one() {
     assert_eq!(ledger.displayed_stack(20).unwrap().count, 1);
     assert!(ledger.target_stack(InventoryTarget::Offhand).is_none());
 }
+
+/// Mod requests work with no personal window, use standard wire containers and roll back.
+#[test]
+fn windowless_offhand_swap_preserves_items_and_rejection_restores_them() {
+    for occupied in [false, true] {
+        let previous = if occupied {
+            totem(101)
+        } else {
+            NetworkItemStack::default()
+        };
+        let mut ledger = ledger(20, previous.clone());
+        ledger.request_personal_close();
+        ledger.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
+            container: ContainerIdentity::window(2),
+            window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+            server_initiated: true,
+        }));
+        let request = ledger.begin_windowless_offhand_swap(20).unwrap();
+        let expected = if occupied { 2 } else { 1 };
+        assert_eq!(count(&ledger), expected);
+        assert!(ledger.cursor_stack().is_none());
+        assert_eq!(
+            ledger
+                .target_stack(InventoryTarget::Offhand)
+                .unwrap()
+                .network_id,
+            6
+        );
+        assert!(matches!(ledger.newest_action(),
+            Some(StackRequestAction::Place { destination, .. } | StackRequestAction::Swap { destination, .. })
+                if destination.container == StackRequestContainer::Offhand && destination.slot == 1));
+        assert!(ledger.mark_transport_enqueued(10));
+        ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+            responses: Arc::from([StackResponse {
+                status: StackResponseStatus::Rejected,
+                request_id: request,
+                containers: Arc::from([]),
+            }]),
+        }));
+        assert_eq!(ledger.displayed_stack(20), Some(&totem(100)));
+        assert_eq!(count(&ledger), expected);
+        assert_eq!(
+            ledger.target_stack(InventoryTarget::Offhand),
+            occupied.then_some(&previous)
+        );
+    }
+}
+
+/// Unknown offhand authority, invalid source cells and foreign equipment fail before queuing.
+#[test]
+fn windowless_offhand_swap_refuses_unknown_and_ineligible_cells() {
+    let mut ledger = ledger(20, NetworkItemStack::default());
+    assert!(ledger.begin_windowless_offhand_swap(36).is_err());
+    ledger.offhand_known = false;
+    assert!(ledger.begin_windowless_offhand_swap(20).is_err());
+    ledger.offhand_known = true;
+    ledger.apply_registry(&protocol::test_support::items::component_item_registry(
+        "minecraft:apple",
+        6,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    ));
+    assert!(ledger.begin_windowless_offhand_swap(20).is_err());
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert_eq!(ledger.displayed_stack(20), Some(&totem(100)));
+}

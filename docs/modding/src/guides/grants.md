@@ -54,7 +54,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `items` | Items | Reading the session's items (`player-mod` packages) |
 | `recipes` | Recipes | Reading the session's recipes (`player-mod` packages) |
 | `keys` | Keys | Delivering a package's declared keys |
-| `inventory` | Inventory requests | Creative takes and recipe fills the vanilla screens can make |
+| `inventory` | Inventory requests | Offhand exchanges, creative takes and recipe fills |
 | `block_highlights` | Block highlights | A packet mod's full-block highlights in its render frame |
 | `packets` | Session packets | A packet mod relaying every session packet |
 | `wasi` | WASI runtime | WASI clocks, randomness and captured output for a packet mod; never files or network |

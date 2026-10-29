@@ -45,6 +45,25 @@ impl State {
 }
 
 impl inventory::Host for State {
+    fn swap_offhand(&mut self, slot: u8) -> Result<Result<(), String>> {
+        if usize::from(slot) >= mod_api::PLAYER_STATE_INVENTORY_SLOTS {
+            self.charge()?;
+            return Ok(Err("invalid player slot".into()));
+        }
+        let Some(frame) = self.snapshot.as_ref().filter(|_| {
+            self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        }) else {
+            self.charge()?;
+            return Ok(Err("offhand swap requires focused gameplay".into()));
+        };
+        self.stage_inventory(InventoryRequest::SwapOffhand {
+            session: frame.session,
+            slot,
+        })
+    }
+
     fn creative_take(&mut self, key: items::ItemKey, count: u8) -> Result<Result<(), String>> {
         if key.identifier.is_empty() || key.identifier.len() > MAX_ITEM_IDENTIFIER_BYTES {
             self.charge()?;
@@ -145,5 +164,70 @@ mod tests {
         );
         granted.inventory.commit();
         assert_eq!(granted.inventory.committed.len(), MAX_INVENTORY_REQUESTS);
+    }
+    /// Swap requests require focused gameplay, a valid source, and a successful callback.
+    #[test]
+    fn offhand_swaps_are_granted_bounded_and_transactional() {
+        use crate::GameplaySnapshot;
+        let mut state = state(true);
+        assert!(
+            inventory::Host::swap_offhand(&mut state, 0)
+                .unwrap()
+                .is_err()
+        );
+        state.snapshot = Some(GameplaySnapshot {
+            session: 7,
+            dimension: 0,
+            eye: crate::GameplayVector3 {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            yaw: 0.,
+            pitch: 0.,
+            attack_held: false,
+            frame_seconds: 0.01,
+            players: Vec::new(),
+        });
+        state.controls.frame.focused = true;
+        state.controls.frame.gameplay = true;
+        assert!(
+            inventory::Host::swap_offhand(&mut state, 36)
+                .unwrap()
+                .is_err()
+        );
+        state.controls.frame.panel_open = true;
+        assert!(
+            inventory::Host::swap_offhand(&mut state, 0)
+                .unwrap()
+                .is_err()
+        );
+        state.controls.frame.panel_open = false;
+        state.grants.inventory = false;
+        assert!(
+            inventory::Host::swap_offhand(&mut state, 0)
+                .unwrap()
+                .is_err()
+        );
+        state.grants.inventory = true;
+        inventory::Host::swap_offhand(&mut state, 20)
+            .unwrap()
+            .unwrap();
+        state.inventory.begin();
+        state.inventory.commit();
+        assert!(state.inventory.committed.is_empty());
+        inventory::Host::swap_offhand(&mut state, 20)
+            .unwrap()
+            .unwrap();
+        state.inventory.commit();
+        assert_eq!(
+            state.inventory.committed,
+            [InventoryRequest::SwapOffhand {
+                session: 7,
+                slot: 20
+            }]
+        );
+        state.inventory.revoke();
+        assert!(state.inventory.committed.is_empty());
     }
 }

@@ -723,6 +723,12 @@ interface screen {
 interface inventory {
     use cinnabar:session/items@0.1.0.{item-key};
 
+    /// Exchanges player inventory cell `slot` (0..35, hotbar first) with the offhand.
+    /// Requires focused gameplay and inventory authority; occupied equipment must admit the
+    /// incoming item. The cursor is untouched. Committed after a successful callback and
+    /// resolved against the current inventory ledger; server validation still applies.
+    swap-offhand: func(slot: u8) -> result<_, string>;
+
     /// Takes `count` of creative item `key` into the first free inventory slot, else the
     /// cursor, as a click on the creative catalog does. Errs outside Creative or when the
     /// item is not in the creative content.
@@ -889,6 +895,7 @@ world extension {
     import cinnabar:world-draw/assets@0.2.0;
     import terrain;
     import player-state;
+    import inventory;
     import item-use;
     import camera;
     import hud;
@@ -958,7 +965,6 @@ interface action-filter {
 world player-mod {
     include extension;
     import screen;
-    import inventory;
     import cinnabar:session/items@0.1.0;
     import cinnabar:session/recipes@0.1.0;
 
