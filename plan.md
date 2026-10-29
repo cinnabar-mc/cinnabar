@@ -1229,10 +1229,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Mali and PowerVR adapters cull terrain on the CPU without compiling the cull kernels.
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
   tombstone shows a driver shader compiler abort. Mali Vulkan devices create one pipeline at a
-  time because a Mali-G57 tombstone shows the driver compiler faulting while two threads compile
-  pipelines. The driver faults are not isolated, so these vendor workarounds and target-device
-  visual acceptance stay incomplete. Terrain has a four-storage-buffer layout for constrained
-  devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
+  time because a Mali-G57 tombstone showed the driver compiler faulting while two threads compile
+  pipelines. Later Mali-G57 tombstones fault the same way with only one thread compiling. Arm's
+  r51p0 offline compiler faults on the model and transparent terrain vertex programs because
+  bool struct members merge across returns. Those flags are now `u32`, and a test keeps
+  terrain structs free of bools. Mali phones have not confirmed the fix, so these vendor
+  workarounds and target-device visual acceptance stay incomplete. Terrain has a
+  four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
