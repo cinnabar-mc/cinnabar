@@ -8,6 +8,24 @@ mod tests;
 
 /// Intel's PCI vendor identifier, used to decode its Windows Vulkan driver versions.
 pub const INTEL_PCI_VENDOR: u32 = 0x8086;
+
+/// Explains why a previously failed saved API is skipped until its setting changes.
+pub const PREVIOUS_FAILURE_REASON: &str = "it failed during an earlier launch";
+
+/// Explains which API replaced a saved choice and where the player can change it.
+pub fn fallback_notice(
+    requested: Backend,
+    chosen: Backend,
+    platform: Platform,
+    reason: &str,
+) -> String {
+    format!(
+        "{} could not start, so this launch uses {}. Update your graphics driver or choose another Graphics API in Video settings. Reason: {}",
+        requested.label(platform),
+        chosen.label(platform),
+        reason
+    )
+}
 // Keep the enum, names and complete registry together so a new API cannot be omitted.
 macro_rules! backends {
     ($($variant:ident => ($name:literal, $label:literal)),+ $(,)?) => {

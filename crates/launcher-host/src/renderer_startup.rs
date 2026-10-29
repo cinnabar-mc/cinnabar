@@ -1,4 +1,4 @@
-//! Durable renderer startup attempts and bounded recovery after a failed launch.
+//! Durable renderer attempts and bounded recovery after startup or device loss.
 
 use std::{
     fs,
@@ -15,6 +15,7 @@ use launcher::graphics_backend::{Adapter, Backend};
 
 mod owner;
 mod recovery;
+mod runtime;
 pub(crate) mod termination;
 
 use owner::Owner;
@@ -55,7 +56,7 @@ pub struct Recovery {
     version: String,
     #[serde(default)]
     graphics_api_revision: u64,
-    /// An explicit API that stopped a startup; a saved Video choice of it falls back until changed.
+    /// An explicit API that failed; a saved Video choice of it falls back until changed.
     #[serde(default)]
     crashed_choice: Option<Backend>,
 }
@@ -68,6 +69,7 @@ pub struct StartupGuard {
     pub recovery: Recovery,
     pub interrupted: Option<Attempt>,
     pending: Option<Attempt>,
+    completed: Option<Attempt>,
     retried: bool,
 }
 
@@ -81,19 +83,7 @@ impl StartupGuard {
     fn open_version(root: &Path, version: &str) -> Result<Self> {
         let mut active = termination::active()?;
         fs::create_dir_all(root)?;
-        let lock = fs::File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(root.join(LOCK_FILE))?;
-        lock.try_lock().map_err(|error| match error {
-            fs::TryLockError::WouldBlock => std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "another client is starting its renderer; retry after its first frame",
-            ),
-            fs::TryLockError::Error(error) => error,
-        })?;
+        let lock = lease(root)?;
         let owner = Owner::current()?;
         let mut interrupted =
             load::<Sentinel>(&root.join(SENTINEL_FILE))?.map(|sentinel| sentinel.attempt);
@@ -110,7 +100,6 @@ impl StartupGuard {
         if root.join(SENTINEL_FILE).exists() {
             fs::remove_file(root.join(SENTINEL_FILE))?;
         }
-        let lock = Arc::new(termination::Lease(lock));
         active.register(root, &lock);
         Ok(Self {
             root: root.to_owned(),
@@ -119,6 +108,7 @@ impl StartupGuard {
             recovery,
             interrupted,
             pending: None,
+            completed: None,
             retried: false,
         })
     }
@@ -189,6 +179,7 @@ impl StartupGuard {
             self.failed()?;
             self.lock = None;
         }
+        self.completed = None;
         Ok(())
     }
 
@@ -204,6 +195,7 @@ impl StartupGuard {
         fs::remove_file(self.root.join(SENTINEL_FILE))
             .context("clear renderer startup sentinel")?;
         crash_state::set_renderer(&self.root, self.recovery.working.as_ref());
+        self.completed = self.recovery.working.clone();
         self.pending = None;
         self.lock = None;
         Ok(())
@@ -222,6 +214,24 @@ const SENTINEL_FILE: &str = "renderer-startup.json";
 const LOCK_FILE: &str = "renderer-startup.lock";
 const CHOICE_FILE: &str = "renderer-choice.json";
 const MAX_FILE_BYTES: u64 = 64 * 1024;
+
+/// Acquires mutation rights without waiting on another client's native graphics calls.
+fn lease(root: &Path) -> Result<Arc<termination::Lease>> {
+    let lock = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.join(LOCK_FILE))?;
+    lock.try_lock().map_err(|error| match error {
+        fs::TryLockError::WouldBlock => std::io::Error::new(
+            std::io::ErrorKind::WouldBlock,
+            "another client is starting its renderer; retry after its first frame",
+        ),
+        fs::TryLockError::Error(error) => error,
+    })?;
+    Ok(Arc::new(termination::Lease(lock)))
+}
 
 /// Reads a bounded local state file, treating an absent file as a fresh install.
 fn load<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {

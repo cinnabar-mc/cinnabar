@@ -1219,7 +1219,11 @@ script-managed AppDir, after revalidating its signed manifest and image. End-to-
 desktop acceptance of this recovery path remains incomplete.
 
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
-launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
+launches. Confirmed renderer device loss persists the failed API for the next launch's
+existing fallback policy, including failures after the first completed frame. Memory exhaustion
+and ordinary exits do not exclude an API; settings changes and exhausted-candidate retries
+retain their existing recovery behavior. Native Windows startup, update and crash-restart
+acceptance, including device-loss recovery on affected hardware, remains incomplete.
 
 ## Experimental hosts and extensions
 

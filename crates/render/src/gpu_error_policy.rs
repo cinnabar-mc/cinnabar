@@ -11,17 +11,22 @@ pub fn install_error_policy(app: &mut bevy::app::App) {
 
 /// The first terminal GPU failure; the app stops and shows the driver's report.
 #[derive(bevy::prelude::Resource, Default)]
-pub struct GpuFailure(Option<String>);
+pub struct GpuFailure(Option<(ErrorType, String)>);
 
 impl GpuFailure {
     /// The driver's description once rendering cannot safely continue.
     pub fn message(&self) -> Option<&str> {
-        self.0.as_deref()
+        self.0.as_ref().map(|(_, description)| description.as_str())
+    }
+
+    /// Whether the first failure was device loss, rather than memory exhaustion.
+    pub fn is_device_lost(&self) -> bool {
+        matches!(self.0, Some((ErrorType::DeviceLost, _)))
     }
 
     /// Keeps the first failure; Bevy repeats a stopped renderer's error every frame.
-    pub fn record(&mut self, description: &str) {
-        self.0.get_or_insert_with(|| description.to_owned());
+    pub fn record(&mut self, kind: ErrorType, description: &str) {
+        self.0.get_or_insert_with(|| (kind, description.to_owned()));
     }
 }
 
@@ -43,7 +48,7 @@ fn error_policy(
             };
             main_world
                 .get_resource_or_init::<GpuFailure>()
-                .record(description);
+                .record(error.ty, description);
             RenderErrorPolicy::StopRendering
         }
         _ => (RenderErrorHandler::default().0)(error, main_world, render_world),
@@ -78,7 +83,21 @@ mod tests {
                 main_world.resource::<GpuFailure>().message(),
                 Some("first driver report")
             );
+            assert_eq!(
+                main_world.resource::<GpuFailure>().is_device_lost(),
+                matches!(ty, ErrorType::DeviceLost)
+            );
         }
+    }
+
+    /// A later device-loss callback must not turn memory exhaustion into an API exclusion.
+    #[test]
+    fn failure_classification_keeps_the_first_error() {
+        let mut failure = GpuFailure::default();
+        failure.record(ErrorType::OutOfMemory, "memory exhausted");
+        failure.record(ErrorType::DeviceLost, "lost after exhaustion");
+        assert!(!failure.is_device_lost());
+        assert_eq!(failure.message(), Some("memory exhausted"));
     }
 
     /// Unhandled GPU errors retain Bevy's default error exit.

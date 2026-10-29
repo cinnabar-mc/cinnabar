@@ -87,6 +87,118 @@ fn unfinished_startup_without_an_exit_message_remains_recoverable() {
     assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
 }
 
+/// Delivers a renderer error through the installed policy and the application's exit systems.
+fn restart_after_render_error(
+    kind: bevy::render::error_handler::ErrorType,
+    presented: bool,
+    explicit: bool,
+) -> launcher_host::renderer_startup::Recovery {
+    use bevy::render::error_handler::{RenderError, RenderErrorHandler};
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard
+        .begin(Attempt {
+            explicit,
+            ..pending_attempt(Backend::Dx12)
+        })
+        .unwrap();
+    if presented {
+        guard.presented().unwrap();
+    }
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>();
+    render::install_error_policy(&mut app);
+    install_guard(&mut app, guard);
+    crate::runtime::shutdown::TerminalCause::install(&mut app);
+    app.add_systems(Update, crate::runtime::shutdown::exit_on_gpu_failure);
+    let handler = app.world().resource::<RenderErrorHandler>().0;
+    handler(
+        &RenderError {
+            ty: kind,
+            description: "driver failure".into(),
+            source: None,
+        },
+        app.world_mut(),
+        &mut bevy::ecs::world::World::new(),
+    );
+    app.update();
+    assert!(app.should_exit().is_some_and(|exit| exit.is_error()));
+    drop(app);
+
+    StartupGuard::open(dir.path()).unwrap().recovery
+}
+
+/// A completed first frame must not make a later lost device look like a healthy renderer.
+#[test]
+fn device_loss_after_presentation_uses_another_api_on_restart() {
+    let recovery = restart_after_render_error(
+        bevy::render::error_handler::ErrorType::DeviceLost,
+        true,
+        false,
+    );
+    assert_eq!(recovery.failed_backends(), [Backend::Dx12]);
+    assert!(recovery.working.is_none());
+    assert_eq!(
+        candidates(
+            Platform::Windows.backends(),
+            Platform::Windows.backends(),
+            None,
+            None,
+            recovery.failed_backends(),
+        ),
+        [Backend::Vulkan]
+    );
+}
+
+#[test]
+fn device_loss_before_presentation_survives_orderly_shutdown() {
+    let recovery = restart_after_render_error(
+        bevy::render::error_handler::ErrorType::DeviceLost,
+        false,
+        false,
+    );
+    assert_eq!(recovery.failed_backends(), [Backend::Dx12]);
+    assert!(recovery.working.is_none());
+}
+
+#[test]
+fn device_loss_under_a_saved_api_uses_the_existing_video_fallback() {
+    let recovery = restart_after_render_error(
+        bevy::render::error_handler::ErrorType::DeviceLost,
+        true,
+        true,
+    );
+    assert!(recovery.working.is_none());
+    let (chosen, fallback) = with_video_fallback(
+        false,
+        Some(Backend::Dx12),
+        recovery.crashed_choice(),
+        Platform::Windows.backends(),
+        |video, excluded| {
+            assert_eq!(video, None);
+            assert_eq!(excluded, [Backend::Dx12]);
+            Ok(Backend::Vulkan)
+        },
+    )
+    .unwrap();
+    assert_eq!(chosen, Backend::Vulkan);
+    assert_eq!(fallback.unwrap().requested, Backend::Dx12);
+}
+
+#[test]
+fn out_of_memory_does_not_exclude_a_graphics_api_on_restart() {
+    for presented in [false, true] {
+        let recovery = restart_after_render_error(
+            bevy::render::error_handler::ErrorType::OutOfMemory,
+            presented,
+            false,
+        );
+        assert!(recovery.failed_backends().is_empty());
+        assert_eq!(recovery.crashed_choice(), None);
+    }
+}
+
 #[test]
 fn backend_mask_uses_the_policy_order() {
     assert_eq!(

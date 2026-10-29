@@ -4,6 +4,7 @@ mod chat;
 mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
+mod graphics_recovery;
 mod hud_hotbar;
 pub(crate) mod hud_surface;
 mod local_identity;
@@ -928,6 +929,7 @@ pub fn states() -> impl Iterator<Item = &'static State> {
     STATES
         .iter()
         .chain(out_of_game::WORLD_FORM_STATES)
+        .chain(graphics_recovery::STATES)
         .chain(updates::STATES)
         .chain(shader_pack::STATES)
         .chain(social_settings::STATES)

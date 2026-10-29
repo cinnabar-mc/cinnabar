@@ -253,9 +253,10 @@ mod tests {
         app.update();
         assert!(app.should_exit().is_none());
 
-        app.world_mut()
-            .resource_mut::<render::GpuFailure>()
-            .record("DXGI_ERROR_DEVICE_REMOVED");
+        app.world_mut().resource_mut::<render::GpuFailure>().record(
+            bevy::render::error_handler::ErrorType::DeviceLost,
+            "DXGI_ERROR_DEVICE_REMOVED",
+        );
         assert!(app.run().is_error());
         let message = terminal.exit_message();
         assert!(

@@ -90,7 +90,7 @@ pub(super) fn render_plugin(
                 let failed = guard.recovery.failed_backends();
                 let order = candidates(&allowed, &allowed, environment.as_deref(), video, failed);
                 log(format_args!(
-                    "Renderer trying {order:?} (allowed {allowed:?}; excluded after interrupted startups: {failed:?})"
+                    "Renderer trying {order:?} (allowed {allowed:?}; excluded after renderer failures: {failed:?})"
                 ));
                 let mut adapters = Vec::new();
                 let mut failures = Vec::new();
@@ -200,11 +200,11 @@ struct FallbackNotice(String);
 
 /// Tells the player which API replaced their saved choice and why.
 fn notice(fallback: &VideoFallback, chosen: Backend, platform: Platform) -> String {
-    format!(
-        "{} could not start, so this launch uses {}. Update your graphics driver or choose another Graphics API in Video settings. Reason: {}",
-        fallback.requested.label(platform),
-        chosen.label(platform),
-        fallback.reason
+    launcher::graphics_backend::fallback_notice(
+        fallback.requested,
+        chosen,
+        platform,
+        &fallback.reason,
     )
 }
 
@@ -228,11 +228,28 @@ fn show_fallback_notice(
     }
 }
 
-/// Tracks presentation and cancels startup on a controlled exit before window teardown.
+/// Tracks presentation and device loss before cancelling controlled exits during teardown.
 fn install_guard(app: &mut App, guard: StartupGuard) {
     app.insert_resource(RendererGuard(guard))
-        .add_systems(Update, mark_presented)
+        .add_systems(Update, (mark_presented, record_device_loss).chain())
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
+}
+
+/// Persists confirmed device loss before orderly shutdown clears a pending startup.
+fn record_device_loss(
+    failure: Option<Res<render::GpuFailure>>,
+    mut guard: ResMut<RendererGuard>,
+    mut recorded: Local<bool>,
+) {
+    if *recorded || !failure.is_some_and(|failure| failure.is_device_lost()) {
+        return;
+    }
+    *recorded = true;
+    if let Err(error) = guard.0.device_lost() {
+        log(format_args!(
+            "Renderer could not save device-loss recovery: {error:#}"
+        ));
+    }
 }
 
 /// Cancels this app's pending presentation marker after an orderly pre-loop failure.
