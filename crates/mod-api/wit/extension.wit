@@ -332,6 +332,18 @@ interface player-state {
     /// Tokens advance on observed changes and never repeat within an instance, including reconnects.
     /// These three reads share read-snapshot's grant, bounds, and callback read allowance.
     read-revisions: func() -> result<option<revisions>, string>;
+    /// Compact exact-identifier equipment query, without copying unrelated item strings.
+    record equipment-matches {
+        revisions: revisions,
+        /// Known matching player cells in ascending order, hotbar first.
+        inventory: list<u8>,
+        /// None for an unknown offhand cell or unresolved item identifier; false for empty
+        /// or a known different item, true for a matching item.
+        offhand: option<bool>,
+    }
+    /// Requires player-state authority and shares its read budget. None outside a session.
+    /// Identifier must contain 1..MAX_ITEM_IDENTIFIER_BYTES bytes.
+    read-equipment-matches: func(identifier: string) -> result<option<equipment-matches>, string>;
     /// Reads only equipment under the snapshot grant and shared read allowance.
     read-equipment: func() -> result<option<equipment>, string>;
     /// Reads only effects under the snapshot grant and shared read allowance.

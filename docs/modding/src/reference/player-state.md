@@ -527,6 +527,28 @@ record revisions {
 | `equipment` | `u64` |  |
 | `effects` | `u64` |  |
 
+<a id="type-equipment-matches"></a>
+
+### `equipment-matches`
+
+Compact exact-identifier equipment query, without copying unrelated item strings.
+
+```wit
+record equipment-matches {
+    revisions: revisions,
+    inventory: list<u8>,
+    offhand: option<bool>,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `revisions` | `revisions` |  |
+| `inventory` | `list<u8>` | Known matching player cells in ascending order, hotbar first. |
+| `offhand` | `option<bool>` | None for an unknown offhand cell or unresolved item identifier; false for empty<br>or a known different item, true for a matching item. |
+
+Types: [`revisions`](player-state.md#type-revisions).
+
 ## Functions
 
 <a id="read-motion"></a>
@@ -728,6 +750,19 @@ Tokens advance on observed changes and never repeat within an instance, includin
 These three reads share read-snapshot's grant, bounds, and callback read allowance.
 
 Types: [`revisions`](player-state.md#type-revisions).
+
+<a id="read-equipment-matches"></a>
+
+### `read-equipment-matches`
+
+```wit
+read-equipment-matches: func(identifier: string) -> result<option<equipment-matches>, string>;
+```
+
+Requires player-state authority and shares its read budget. None outside a session.
+Identifier must contain 1..MAX_ITEM_IDENTIFIER_BYTES bytes.
+
+Types: [`equipment-matches`](player-state.md#type-equipment-matches).
 
 <a id="read-equipment"></a>
 
