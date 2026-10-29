@@ -479,10 +479,11 @@ pub(crate) struct GeometryStage {
     pub layouts: [Option<wgpu::BindGroupLayout>; 4],
 }
 
-/// Builds every resolved draw's pipeline. Terrain draws read a [`TerrainLayout::compact`]
-/// vertex holding what any terrain program reads. Draws whose program cannot bind terrain
-/// vertices, or whose pipeline the device rejects, are dropped (logged); without a solid
-/// terrain draw none remain, so the Vanilla scene copy stays in place.
+/// Builds every resolved draw's pipeline, calling `step` with what it builds before each.
+/// Terrain draws read a [`TerrainLayout::compact`] vertex holding what any terrain program
+/// reads. Draws whose program cannot bind terrain vertices, or whose pipeline the device
+/// rejects, are dropped (logged); without a solid terrain draw none remain, so the Vanilla
+/// scene copy stays in place.
 #[allow(
     clippy::too_many_arguments,
     reason = "the pack-wide plan pieces a draw pipeline draws on"
@@ -498,6 +499,7 @@ pub(crate) fn geometry_draws(
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
     shadow: &ShadowSlots,
     failures: &mut Vec<String>,
+    step: &mut dyn FnMut(&str),
 ) -> Vec<GeometryDraw> {
     let terrain_layout = TerrainLayout::compact(
         selected
@@ -516,6 +518,7 @@ pub(crate) fn geometry_draws(
     for (kind, selected) in selected {
         let stage = &stages[*selected];
         let program = &programs[stage.program];
+        step(&format!("building {} for {kind:?}", program.name));
         let target_format = |buffer: u32| -> Option<TextureFormat> {
             if kind.shadow() {
                 shadow

@@ -1,7 +1,13 @@
 //! Checks shader-pack camera admission and native queue replacement.
 
+use super::super::load_driver::{Job, loader_key};
+use super::super::loader::load;
+use super::super::pipelines::GpuContext;
 use super::*;
+use bevy::render::renderer::RenderAdapter;
 use bevy::render::view::Msaa;
+use std::path::PathBuf;
+use std::sync::mpsc;
 
 #[test]
 fn shaderpack_render_schedule_initializes_without_a_selected_pack() {
@@ -249,6 +255,7 @@ fn four_buffer_pack_request_reports_failure_and_keeps_native_rendering() {
     world.init_resource::<ShaderPackSettledRevision>();
     world.init_resource::<ShaderPackLoadProgress>();
     world.init_resource::<Loader>();
+    world.init_resource::<Time<Real>>();
     world.insert_resource(RenderDevice::from(gpu.device));
     world.insert_resource(RenderQueue::new(gpu.queue));
     world.insert_resource(RenderAdapter::new(gpu.adapter));
@@ -281,10 +288,11 @@ fn superseded_loads_retire_before_another_worker_can_start() {
     let first = progress.start();
     world.insert_resource(progress);
     world.insert_resource(ShaderPackStatus::Loading(first_path.clone()));
+    world.init_resource::<Time<Real>>();
     let (send, receive) = mpsc::channel();
     world.insert_resource(Loader {
         key: Some((first_path.clone(), None, 0, 0)),
-        job: Some(Mutex::new(receive)),
+        job: Some(Job::new(receive, Arc::clone(&first))),
         ..default()
     });
     world.run_system_once(drive_loader).unwrap();

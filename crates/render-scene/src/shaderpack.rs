@@ -111,21 +111,69 @@ impl ShaderPackLoadProgress {
     pub fn programs(&self) -> Option<(u32, u32)> {
         self.counter.as_deref().and_then(LoadProgress::programs)
     }
+
+    /// `(built, pipelines)` of the active load once its GPU build has started.
+    #[must_use]
+    pub fn pipelines(&self) -> Option<(u32, u32)> {
+        self.counter.as_deref().and_then(LoadProgress::pipelines)
+    }
 }
 
-/// Programs translated out of the total, written by a load worker.
+/// How far a load worker has come, and what it is doing, written as it works.
 #[derive(Debug, Default)]
 pub struct LoadProgress {
     programs: AtomicU64,
+    pipelines: AtomicU64,
+    /// Bumped by every record, so the host can tell a slow load from one that stopped.
+    steps: AtomicU64,
+    step: std::sync::Mutex<String>,
     cancelled: AtomicBool,
 }
 
+/// Packs `done` of `total` into one word; both saturate at `u32::MAX`.
+fn pack_counts(done: usize, total: usize) -> u64 {
+    let clamp = |count: usize| u64::from(u32::try_from(count).unwrap_or(u32::MAX));
+    clamp(done) << 32 | clamp(total)
+}
+
+/// The packed `(done, total)`, or `None` while the total is unknown.
+fn unpack_counts(packed: u64) -> Option<(u32, u32)> {
+    let total = packed as u32;
+    (total > 0).then_some(((packed >> 32) as u32, total))
+}
+
 impl LoadProgress {
-    /// Records `translated` of `programs` done; both saturate at `u32::MAX`.
+    /// Records `translated` of `programs` done.
     pub fn record(&self, translated: usize, programs: usize) {
-        let clamp = |count: usize| u64::from(u32::try_from(count).unwrap_or(u32::MAX));
         self.programs
-            .store(clamp(translated) << 32 | clamp(programs), Ordering::Relaxed);
+            .store(pack_counts(translated, programs), Ordering::Relaxed);
+        self.steps.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records that the worker starts `step`, such as `building composite`, after finishing
+    /// `built` of `pipelines` GPU build steps.
+    pub fn record_built(&self, built: usize, pipelines: usize, step: &str) {
+        self.pipelines
+            .store(pack_counts(built, pipelines), Ordering::Relaxed);
+        self.begin(step);
+    }
+
+    /// Records that the worker starts `step`; a stall report names the last one begun.
+    pub fn begin(&self, step: &str) {
+        step.clone_into(&mut self.step.lock().unwrap_or_else(|e| e.into_inner()));
+        self.steps.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// How many records the worker has made; unchanged while it is stuck in one step.
+    #[must_use]
+    pub fn steps(&self) -> u64 {
+        self.steps.load(Ordering::Relaxed)
+    }
+
+    /// The step last begun, empty before the first.
+    #[must_use]
+    pub fn step(&self) -> String {
+        self.step.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Whether the host has completed or replaced this load and the worker should stop.
@@ -137,9 +185,13 @@ impl LoadProgress {
     /// `(translated, programs)`, or `None` before the program count is known.
     #[must_use]
     pub fn programs(&self) -> Option<(u32, u32)> {
-        let packed = self.programs.load(Ordering::Relaxed);
-        let programs = packed as u32;
-        (programs > 0).then_some(((packed >> 32) as u32, programs))
+        unpack_counts(self.programs.load(Ordering::Relaxed))
+    }
+
+    /// `(built, pipelines)`, or `None` before the GPU build starts.
+    #[must_use]
+    pub fn pipelines(&self) -> Option<(u32, u32)> {
+        unpack_counts(self.pipelines.load(Ordering::Relaxed))
     }
 }
 
@@ -462,5 +514,20 @@ mod tests {
         second.record(7, 7);
         assert!(!progress.is_loading());
         assert_eq!(progress.programs(), None);
+    }
+
+    #[test]
+    fn every_record_counts_as_progress_and_names_its_step() {
+        let mut progress = ShaderPackLoadProgress::default();
+        let load = progress.start();
+        assert_eq!((load.steps(), load.step()), (0, String::new()));
+        load.record(3, 9);
+        load.record_built(0, 4, "building composite");
+        assert_eq!(progress.pipelines(), Some((0, 4)));
+        load.record_built(1, 4, "building final");
+        assert_eq!(load.steps(), 3);
+        assert_eq!(load.step(), "building final");
+        assert_eq!(progress.programs(), Some((3, 9)));
+        assert_eq!(progress.pipelines(), Some((1, 4)));
     }
 }

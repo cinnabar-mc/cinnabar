@@ -4,8 +4,9 @@ use super::{
     atlas::AtlasBuild,
     geometry::{ShaderpackGeometry, ShaderpackGeometrySettings},
     kernels::Kernels,
+    load_driver::Loader,
     load_failures::ViewFailures,
-    plugin::{LoadedShaderPack, Loader},
+    plugin::LoadedShaderPack,
 };
 use bevy::{
     app::SubApp,

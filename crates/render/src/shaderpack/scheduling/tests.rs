@@ -70,9 +70,13 @@ fn off_retires_a_load_then_returns_to_zero_systems() {
     app.world_mut().resource_mut::<ShaderPackRequest>().pack = Some(path.clone());
     assert!(executions(app.world_mut(), Update) > 0);
     let (send, receive) = std::sync::mpsc::channel();
+    let worker = app
+        .world_mut()
+        .resource_mut::<render_scene::shaderpack::ShaderPackLoadProgress>()
+        .start();
     let loader = &mut *app.world_mut().resource_mut::<Loader>();
     loader.key = Some((path, None, 0, 0));
-    loader.job = Some(std::sync::Mutex::new(receive));
+    loader.job = Some(crate::shaderpack::load_driver::Job::new(receive, worker));
     app.world_mut().resource_mut::<ShaderPackRequest>().pack = None;
     assert!(executions(app.world_mut(), Update) > 0);
     assert!(app.world().resource::<Loader>().job.is_some());

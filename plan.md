@@ -1605,8 +1605,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Pipelines the device rejects, including backend compiler failures such as FXC limits on
   DX12, fail the pack load (or drop that geometry draw) instead of stopping the client.
   DX12 and software adapters use integer-backed fused dot accumulation to preserve the
-  reference hash rounding; other hardware backends retain native fused instructions.
-  Hardware DX12 pack acceptance remains incomplete.
+  reference hash rounding unless a load-time probe shows the device's own `fma` rounds once;
+  other hardware backends retain native fused instructions. The integer steps multiply
+  pipeline compile time for dot-heavy packs, so devices the probe rejects load slowly.
+  Hardware DX12 pack acceptance, including the probe's verdict on each vendor, remains incomplete.
+  The loading toast counts built pipelines. A load that records no progress for three minutes
+  fails with the step it stopped in, and its worker no longer holds up the next selection.
   Retired loads cancel between GPU batches; rapid selections share one load worker. Atlas
   builds cancel between source, pixel and upload stages, and one cancelled build retires before its
   replacement starts. Trusted helper shaders and their pipeline cache are created only when requested,

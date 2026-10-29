@@ -35,6 +35,7 @@ mod draw_pipelines;
 mod draws;
 pub(crate) mod effects;
 mod frame_geometry;
+mod fused_fma;
 pub(crate) mod geometry;
 mod geometry_shader;
 #[cfg(test)]
@@ -43,6 +44,7 @@ mod host_pipelines;
 mod ids;
 mod kernels;
 mod lightmap;
+mod load_driver;
 mod load_failures;
 mod loader;
 mod native_passes;
