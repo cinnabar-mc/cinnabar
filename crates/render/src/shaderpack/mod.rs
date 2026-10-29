@@ -43,6 +43,7 @@ mod host_pipelines;
 mod ids;
 mod kernels;
 mod lightmap;
+mod load_driver;
 mod load_failures;
 mod loader;
 mod native_passes;

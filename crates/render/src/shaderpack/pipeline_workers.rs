@@ -14,8 +14,9 @@ fn workers(items: usize) -> usize {
 
 /// Runs `build` on every item across worker threads and returns the results in item order.
 /// Each worker takes the next unbuilt item and captures the out-of-memory errors its device
-/// calls raise, which the loader's own scope only sees on its thread. Workers stop taking
-/// items once `progress` is cancelled; a build already started finishes first.
+/// calls raise, which the loader's own scope only sees on its thread. Each finished item counts
+/// as built in `progress`. Workers stop taking items once `progress` is cancelled; a build
+/// already started finishes first.
 pub(super) fn build_all<T: Sync, R: Send>(
     device: &wgpu::Device,
     items: &[T],
@@ -32,6 +33,7 @@ pub(super) fn build_all<T: Sync, R: Send>(
                 break;
             };
             built.push((index, build(item)));
+            progress.add_built();
         }
         (built, bevy::tasks::block_on(memory.pop()).is_some())
     };
@@ -91,6 +93,16 @@ mod tests {
         .unwrap();
         assert_eq!(results, items.iter().map(|i| i * 2).collect::<Vec<_>>());
         assert_eq!(built.load(Ordering::Relaxed), items.len());
+    }
+
+    /// The loading toast's count reaches every pipeline however the workers share them.
+    #[test]
+    fn each_built_pipeline_counts_once_toward_the_toast() {
+        let progress = LoadProgress::default();
+        let items: Vec<u32> = (0..40).collect();
+        progress.record_built(3, 3 + items.len() + 1);
+        build_all(&device(), &items, &progress, |_| ()).unwrap();
+        assert_eq!(progress.pipelines(), Some((43, 44)));
     }
 
     /// A slow compile does not hold back the next pipeline: the first build only returns once

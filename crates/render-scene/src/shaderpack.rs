@@ -111,21 +111,50 @@ impl ShaderPackLoadProgress {
     pub fn programs(&self) -> Option<(u32, u32)> {
         self.counter.as_deref().and_then(LoadProgress::programs)
     }
+
+    /// `(built, pipelines)` of the active load once its GPU build has started.
+    #[must_use]
+    pub fn pipelines(&self) -> Option<(u32, u32)> {
+        self.counter.as_deref().and_then(LoadProgress::pipelines)
+    }
 }
 
-/// Programs translated out of the total, written by a load worker.
+/// How far a load worker has come, written as it works.
 #[derive(Debug, Default)]
 pub struct LoadProgress {
     programs: AtomicU64,
+    pipelines: AtomicU64,
     cancelled: AtomicBool,
 }
 
+/// Packs `done` of `total` into one word; both saturate at `u32::MAX`.
+fn pack_counts(done: usize, total: usize) -> u64 {
+    let clamp = |count: usize| u64::from(u32::try_from(count).unwrap_or(u32::MAX));
+    clamp(done) << 32 | clamp(total)
+}
+
+/// The packed `(done, total)`, or `None` while the total is unknown.
+fn unpack_counts(packed: u64) -> Option<(u32, u32)> {
+    let total = packed as u32;
+    (total > 0).then_some(((packed >> 32) as u32, total))
+}
+
 impl LoadProgress {
-    /// Records `translated` of `programs` done; both saturate at `u32::MAX`.
+    /// Records `translated` of `programs` done.
     pub fn record(&self, translated: usize, programs: usize) {
-        let clamp = |count: usize| u64::from(u32::try_from(count).unwrap_or(u32::MAX));
         self.programs
-            .store(clamp(translated) << 32 | clamp(programs), Ordering::Relaxed);
+            .store(pack_counts(translated, programs), Ordering::Relaxed);
+    }
+
+    /// Records `built` of `pipelines` GPU build steps done.
+    pub fn record_built(&self, built: usize, pipelines: usize) {
+        self.pipelines
+            .store(pack_counts(built, pipelines), Ordering::Relaxed);
+    }
+
+    /// Counts one more build step done, from any of the threads building the pack's pipelines.
+    pub fn add_built(&self) {
+        self.pipelines.fetch_add(1 << 32, Ordering::Relaxed);
     }
 
     /// Whether the host has completed or replaced this load and the worker should stop.
@@ -137,9 +166,13 @@ impl LoadProgress {
     /// `(translated, programs)`, or `None` before the program count is known.
     #[must_use]
     pub fn programs(&self) -> Option<(u32, u32)> {
-        let packed = self.programs.load(Ordering::Relaxed);
-        let programs = packed as u32;
-        (programs > 0).then_some(((packed >> 32) as u32, programs))
+        unpack_counts(self.programs.load(Ordering::Relaxed))
+    }
+
+    /// `(built, pipelines)`, or `None` before the GPU build starts.
+    #[must_use]
+    pub fn pipelines(&self) -> Option<(u32, u32)> {
+        unpack_counts(self.pipelines.load(Ordering::Relaxed))
     }
 }
 
@@ -462,5 +495,21 @@ mod tests {
         second.record(7, 7);
         assert!(!progress.is_loading());
         assert_eq!(progress.programs(), None);
+    }
+
+    #[test]
+    fn built_pipelines_count_from_every_building_thread() {
+        let mut progress = ShaderPackLoadProgress::default();
+        let load = progress.start();
+        load.record(3, 9);
+        load.record_built(1, 40);
+        assert_eq!(progress.pipelines(), Some((1, 40)));
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| (0..8).for_each(|_| load.add_built()));
+            }
+        });
+        assert_eq!(progress.pipelines(), Some((33, 40)));
+        assert_eq!(progress.programs(), Some((3, 9)));
     }
 }
