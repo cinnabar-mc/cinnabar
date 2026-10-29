@@ -93,8 +93,10 @@ presentation until their current pack routes are verified.
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.
-Login device claims report the native core's OS and detected hardware model, keeping a stable
-install ID and migrating old fabricated profiles. Browser sessions use the browser-reported
+Login device claims report a compatible platform and detected hardware model, keeping a stable
+install ID and migrating old profiles. Linux uses the Windows desktop login platform to avoid
+Lifeboat rejecting its Linux device claim. Live Linux authentication through StartGame is verified;
+full-client rendering and acceptance on other servers remain incomplete. Browser sessions use the browser-reported
 OS through the framed control handshake, omit unavailable hardware models and keep their
 device ID through account changes, including when HTTP transport headers are absent. Xbox sign-in still uses the Android OAuth
 registration; native Windows device authentication and other platform registrations remain
