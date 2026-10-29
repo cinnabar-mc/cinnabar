@@ -3,7 +3,10 @@ package proxy
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-nethernet/discovery"
@@ -117,4 +120,22 @@ func TestLANHostOfflineLoginStaysOnTheHost(t *testing.T) {
 	if hop := localHopDialer(target, "play.example.net:19132", minecraft.Dialer{}, tokens); hop.TokenSource == nil {
 		t.Fatal("a transfer from the LAN host kept the offline login")
 	}
+}
+
+// A silent RakNet LAN host fails the signed-out join within the RakNet connection budget.
+func TestRakNetLANJoinToASilentHostKeepsTheBudget(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		target, err := resolveLANTarget(t.Context(), "lan/raknet/192.168.1.4:19132", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		network := target.network.(sessionRakNet)
+		network.UpstreamDialer = stalledUpstreamDialer{}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, err = network.DialContext(ctx, target.address)
+		if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "did not accept") {
+			t.Fatalf("dial err = %v, caller err = %v", err, ctx.Err())
+		}
+	})
 }
