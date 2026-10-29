@@ -70,22 +70,37 @@ fn override_or_pack_faces(
 }
 
 /// Decodes PNG or JPEG faces `0..6` at one native size; any missing or odd face drops them all.
-/// Faces are appended to one buffer as they decode, so at most one decoded face is held besides it.
-pub fn decode_faces<B: AsRef<[u8]>>(
-    mut read: impl FnMut(usize) -> Option<B>,
+/// The faces decode concurrently, since the menu's first frame waits for them.
+pub fn decode_faces<B: AsRef<[u8]> + Sync>(
+    read: impl FnMut(usize) -> Option<B>,
 ) -> Option<PanoramaFaces> {
+    let encoded = (0..6).map(read).collect::<Option<Vec<B>>>()?;
+    let decoded: Vec<_> = std::thread::scope(|scope| {
+        let workers: Vec<_> = encoded
+            .iter()
+            .map(|bytes| scope.spawn(move || decode_image(bytes.as_ref())))
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| {
+                worker
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    });
     let mut side = None;
     let mut pixels = Vec::new();
-    for face in 0..6 {
-        let (width, height, decoded) = decode_image(read(face)?.as_ref())?;
+    for face in decoded {
+        let (width, height, face) = face?;
         if width != height || side.is_some_and(|side| side != width) {
             return None;
         }
         if side.is_none() {
-            pixels.reserve_exact(decoded.len() * 6);
+            pixels.reserve_exact(face.len() * 6);
         }
         side = Some(width);
-        pixels.extend_from_slice(&decoded);
+        pixels.extend_from_slice(&face);
     }
     PanoramaFaces::from_layer_major(side?, pixels)
 }

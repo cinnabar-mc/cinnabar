@@ -87,6 +87,32 @@ fn unfinished_startup_without_an_exit_message_remains_recoverable() {
     assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
 }
 
+/// An exit right after presentation waits for the off-frame save instead of cancelling it.
+#[test]
+fn exit_right_after_presentation_keeps_the_working_renderer() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>();
+    install_guard(&mut app, guard);
+    app.world()
+        .resource::<StartupPresentation>()
+        .record_completed_frame();
+    app.update();
+    app.world_mut().write_message(AppExit::Success);
+    app.update();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+    assert_eq!(
+        next.recovery.working.map(|working| working.backend),
+        Some(Backend::Vulkan)
+    );
+}
+
 #[test]
 fn backend_mask_uses_the_policy_order() {
     assert_eq!(
