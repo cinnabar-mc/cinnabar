@@ -71,8 +71,9 @@ fn probe(gpu: &GpuContext) -> Option<Vec<[u32; 4]>> {
         })
     };
     let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
-    // Out-of-memory errors fall outside the rejection scope; failed objects are never used.
-    let (pipeline, buffer, readback) =
+    // Out-of-memory errors fall outside the rejection scope, so the whole submission sits in
+    // an allocation check; a failed probe never reads its results.
+    let (readback, submission) =
         crate::gpu_allocation::checked(&render_device, "shader pack fma probe", 2 * size, || {
             let module = gpu
                 .device
@@ -90,36 +91,36 @@ fn probe(gpu: &GpuContext) -> Option<Vec<[u32; 4]>> {
                     compilation_options: Default::default(),
                     cache: None,
                 });
-            let usage = wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC;
-            (
-                pipeline,
-                create("shader pack fma probe", usage),
-                create(
-                    "shader pack fma probe readback",
-                    wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                ),
-            )
+            let buffer = create(
+                "shader pack fma probe",
+                wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+            );
+            let readback = create(
+                "shader pack fma probe readback",
+                wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            );
+            gpu.queue.write_buffer(&buffer, 0, bytes);
+            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("shader pack fma probe"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            {
+                let mut pass = encoder.begin_compute_pass(&Default::default());
+                pass.set_pipeline(&pipeline);
+                pass.set_bind_group(0, &group, &[]);
+                pass.dispatch_workgroups((samples.len() as u32).div_ceil(64), 1, 1);
+            }
+            encoder.copy_buffer_to_buffer(&buffer, 0, &readback, 0, size);
+            let submission = gpu.queue.submit([encoder.finish()]);
+            (readback, submission)
         })?;
-    gpu.queue.write_buffer(&buffer, 0, bytes);
-    let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("shader pack fma probe"),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: buffer.as_entire_binding(),
-        }],
-    });
-    let mut encoder = gpu.device.create_command_encoder(&Default::default());
-    {
-        let mut pass = encoder.begin_compute_pass(&Default::default());
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &group, &[]);
-        pass.dispatch_workgroups((samples.len() as u32).div_ceil(64), 1, 1);
-    }
-    encoder.copy_buffer_to_buffer(&buffer, 0, &readback, 0, buffer.size());
-    let submission = gpu.queue.submit([encoder.finish()]);
     if scope.pop().is_some() {
         return None;
     }
