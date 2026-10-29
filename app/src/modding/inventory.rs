@@ -7,12 +7,13 @@ use inventory::inventory_ledger::InventoryGestureError;
 use mod_host::InventoryRequest;
 
 use super::ModRuntime;
+use crate::runtime::world::ClientWorld;
 
 pub(super) fn apply_inventory_requests(
     extension: Option<ResMut<ModRuntime>>,
     mut player_runtime: ResMut<client_state::PlayerRuntime>,
     mut ui: ResMut<UiRuntimeResource>,
-    world: Option<Res<client_state::ClientWorld>>,
+    world: Option<Res<ClientWorld>>,
 ) {
     let Some(mut extension) = extension else {
         return;
