@@ -94,8 +94,8 @@ func TestResolveLANTargetJoinsRakNetDirectly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveLANTarget() error = %v", err)
 	}
-	if _, ok := target.network.(minecraft.RakNet); !ok || target.address != "192.168.1.4:19132" {
-		t.Fatalf("target = %T %q, want RakNet at the world's address", target.network, target.address)
+	if _, ok := target.network.(sessionRakNet); !ok || !minecraft.IsRakNet(target.network) || target.address != "192.168.1.4:19132" {
+		t.Fatalf("target = %T %q, want budgeted RakNet at the world's address", target.network, target.address)
 	}
 }
 

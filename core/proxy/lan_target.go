@@ -46,8 +46,9 @@ func resolveLANTarget(ctx context.Context, address string, lan LANWorlds, accoun
 		return nil, fmt.Errorf("invalid LAN world target %q", address)
 	}
 	if hostPort != "" {
-		// A RakNet LAN world is joined directly, without the NetherNet probe of servers added by address.
-		return &resolvedUpstreamTarget{address: hostPort, network: remoteRakNet()}, nil
+		// A RakNet LAN world is joined directly, without the NetherNet probe of servers added by
+		// address, and within the RakNet connection budget even when signed out.
+		return &resolvedUpstreamTarget{address: hostPort, network: sessionRakNet{remoteRakNet()}}, nil
 	}
 	if lan == nil {
 		return nil, fmt.Errorf("LAN worlds are unavailable")
