@@ -10,6 +10,7 @@ mod control_locked;
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
+mod crosshair_coverage;
 #[cfg(feature = "test-support")]
 mod data_driven;
 mod edit_selection;
@@ -125,6 +126,9 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    if let Fixture::CrosshairCoverage { fixed } = &fixture {
+        return crosshair_coverage::png(state.size, *fixed, resource_pack);
+    }
     if let Fixture::MaskRegression = &fixture {
         return saturation_overlap::regression_png(state.size);
     }
@@ -188,6 +192,7 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::SpriteOutline { .. }
@@ -248,6 +253,7 @@ fn png_fixture(
             backup_font::paint(&engine, &mut frame)?;
         }
         Fixture::SpriteOutline { .. }
+        | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::TiledImage { .. } => {

@@ -478,6 +478,7 @@ fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend
                     CROSSHAIR_SIDE,
                 )
             });
+    let from_icons = standalone.is_none();
     let (sprite, gui_side) = standalone
         .or_else(|| {
             let (page, [x, y, width, height]) = canvas.textures().sprite(role.source_path())?;
@@ -509,10 +510,18 @@ fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend
             uv: sprite.uv,
         },
         ui::UiBlendMode::Alpha | ui::UiBlendMode::Backdrop | ui::UiBlendMode::Filter => {
-            UiVisual::Sprite {
-                texture_page: sprite.page,
-                uv: sprite.uv,
-                color: [255; 4],
+            if from_icons {
+                UiVisual::RgbCoverageSprite {
+                    texture_page: sprite.page,
+                    uv: sprite.uv,
+                    color: [255; 4],
+                }
+            } else {
+                UiVisual::Sprite {
+                    texture_page: sprite.page,
+                    uv: sprite.uv,
+                    color: [255; 4],
+                }
             }
         }
     };

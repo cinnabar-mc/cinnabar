@@ -77,3 +77,6 @@ pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 
 /// Selects a retained model vertex whose position and normal use a GPU bone palette.
 pub const UI_STYLE_MODEL_VERTEX: u32 = 1 << 17;
+
+/// Uses the brightest sampled RGB channel as coverage, multiplied by texture alpha.
+pub const UI_STYLE_RGB_COVERAGE: u32 = 1 << 18;

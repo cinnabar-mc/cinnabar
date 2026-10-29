@@ -219,3 +219,23 @@ fn world_tab_snapshots_cover_the_shared_category_catalog() {
         assert_eq!(view.local.tab, tab);
     }
 }
+
+#[test]
+fn non_inverted_cursor_capture_leaves_opaque_black_texels_uncovered() {
+    for (name, fixed) in [
+        ("crosshair-coverage-before", false),
+        ("crosshair-coverage", true),
+    ] {
+        let state = fixtures::states().find(|state| state.name == name).unwrap();
+        let bytes = render::png(state, std::path::Path::new("unused")).unwrap();
+        let image = image::load_from_memory(&bytes).unwrap().to_rgba8();
+        for x in [106, 320, 533] {
+            assert_eq!(image.get_pixel(x, 120).0, [255; 4]);
+            let background = image.get_pixel(x, 0).0;
+            assert_eq!(
+                image.get_pixel(x - 40, 80).0,
+                if fixed { background } else { [0, 0, 0, 255] }
+            );
+        }
+    }
+}

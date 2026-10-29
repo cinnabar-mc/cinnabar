@@ -42,6 +42,10 @@ pub struct State {
 pub enum Fixture {
     /// Unequal mask edges and high-resolution sprite minification.
     MaskRegression,
+    /// Opaque black-backed cursor art on contrasting backgrounds.
+    CrosshairCoverage {
+        fixed: bool,
+    },
     /// Original sprite samples before and after alpha-only outline shading.
     SpriteOutline {
         outline: bool,
@@ -157,6 +161,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
+    asset_free("crosshair-coverage-before", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: false }
+    }),
+    asset_free("crosshair-coverage", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: true }
+    }),
     asset_free("sprite-outline-before", [800, 240], || {
         Fixture::SpriteOutline { outline: false }
     }),

@@ -176,6 +176,11 @@ fn emit_untransformed(
             uv,
             color,
         }
+        | UiVisual::RgbCoverageSprite {
+            texture_page,
+            uv,
+            color,
+        }
         | UiVisual::GlintSprite {
             texture_page,
             uv,
@@ -189,6 +194,7 @@ fn emit_untransformed(
             } else {
                 0
             };
+            let start = vertices.len();
             emit_quad(
                 bounds,
                 [
@@ -205,7 +211,13 @@ fn emit_untransformed(
                 vertices,
                 indices,
                 batches,
-            )
+            )?;
+            if matches!(visual, UiVisual::RgbCoverageSprite { .. }) {
+                for vertex in &mut vertices[start..] {
+                    vertex.style_flags |= render_api::UI_STYLE_RGB_COVERAGE;
+                }
+            }
+            Ok(())
         }
         UiVisual::Gradient {
             texture_page,

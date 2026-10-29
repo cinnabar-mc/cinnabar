@@ -328,15 +328,24 @@ fn native_crosshair_stays_on_physical_pixels_after_pack_swaps() {
                     .find(|node| {
                         matches!(
                             node.visual(),
-                            UiVisual::Sprite { .. } | UiVisual::InvertedSprite { .. }
+                            UiVisual::Sprite { .. }
+                                | UiVisual::RgbCoverageSprite { .. }
+                                | UiVisual::InvertedSprite { .. }
                         )
                     })
                     .unwrap();
+                assert_eq!(
+                    matches!(node.visual(), UiVisual::RgbCoverageSprite { .. }),
+                    side.is_none() && blend == UiBlendMode::Alpha
+                );
                 let bounds = node.bounds();
                 assert!(matches!(
                     (blend, node.visual()),
                     (UiBlendMode::Invert, UiVisual::InvertedSprite { .. })
-                        | (UiBlendMode::Alpha, UiVisual::Sprite { .. })
+                        | (
+                            UiBlendMode::Alpha,
+                            UiVisual::Sprite { .. } | UiVisual::RgbCoverageSprite { .. }
+                        )
                 ));
                 let edges = [
                     bounds.min().x(),
