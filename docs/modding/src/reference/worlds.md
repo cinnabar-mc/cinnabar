@@ -34,6 +34,7 @@ Experimental developer contract; no WASI or ambient operating-system access.
 - [cinnabar:extension/events@0.1.0](events.md)
 - [cinnabar:extension/settings@0.1.0](settings.md)
 - [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
 
 ### Exports
 
@@ -92,6 +93,7 @@ Existing player-mod components remain supported and do not claim filter ownershi
 - [cinnabar:extension/events@0.1.0](events.md)
 - [cinnabar:extension/settings@0.1.0](settings.md)
 - [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
 - [cinnabar:extension/action-filter@0.1.0](action-filter.md)
 <a id="filtered-player-mod-type-data-source"></a>
 
@@ -355,6 +357,7 @@ a built component keeps working. `init` and `frame` stay required.
 - [cinnabar:extension/events@0.1.0](events.md)
 - [cinnabar:extension/settings@0.1.0](settings.md)
 - [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
 <a id="player-mod-type-data-source"></a>
 
 ### `data-source`

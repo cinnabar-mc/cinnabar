@@ -18,6 +18,7 @@ The pages below come from the WIT contract. Grants authorize calls; importing an
 - [Item use](item-use.md)
 - [Packet relay](packet-relay.md)
 - [Panel](panel.md)
+- [Permissions](permissions.md)
 - [Player state](player-state.md)
 - [Presentation](presentation.md)
 - [Render](render.md)

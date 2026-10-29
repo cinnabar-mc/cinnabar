@@ -36,6 +36,7 @@
 - [Item use](reference/item-use.md)
 - [Packet relay](reference/packet-relay.md)
 - [Panel](reference/panel.md)
+- [Permissions](reference/permissions.md)
 - [Player state](reference/player-state.md)
 - [Presentation](reference/presentation.md)
 - [Render](reference/render.md)
