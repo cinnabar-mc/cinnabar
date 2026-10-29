@@ -38,7 +38,9 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    VSync-off cadence still needs hardware qualification.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
-   Startup reports the first presented menu frame and its CPU stages. Menu launches
+   Startup reports the first presented menu frame, its CPU stages, critical-path milestones
+   that partition the launch, per-pipeline readiness and texture uploads by call site;
+   `devtool startup` covers warm and cold driver caches and carriers. Menu launches
    defer world carriers, collision binding and static GUI item geometry until the
    first completed menu frame; joins wait for the prepared bundle. World pipeline
    warmup also waits for that boundary, and terrain compute owners prepare on workers.
