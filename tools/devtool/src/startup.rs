@@ -125,7 +125,8 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
             }
             "--carrier-dir" => options.carrier_dir = Some(value.into()),
             "--carrier-reset" => options.carrier_reset = Some(value.into()),
-            "--profile" => options.profile = Some(value.into()),
+            // The client rejects a relative user root.
+            "--profile" => options.profile = Some(std::path::absolute(value).map_err(error)?),
             "--budget-ms" => options.budget_ms = positive(value)?,
             "--cold-budget-ms" => options.cold_budget_ms = positive(value)?,
             "--endpoint" => {
@@ -690,6 +691,13 @@ mod tests {
             cold[1].clone(),
         ];
         assert!(parse(&profiled).is_err());
+        assert!(
+            parse(&["--profile".to_owned(), "installed".to_owned()])
+                .unwrap()
+                .profile
+                .unwrap()
+                .is_absolute()
+        );
         let mut profiled_reset = profiled.to_vec();
         profiled_reset.extend(["--cold-reset".to_owned(), "reset-fixture".to_owned()]);
         assert!(parse(&profiled_reset).is_ok());
