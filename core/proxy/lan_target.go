@@ -69,6 +69,7 @@ func resolveLANTarget(ctx context.Context, address string, lan LANWorlds, accoun
 	}
 	return &resolvedUpstreamTarget{
 		address: strconv.FormatUint(id, 10), local: releaseCloser(release), offline: offline,
+		hostOffline: offline && account != nil,
 		// LAN hosts answer without an SDP identity.
 		network:    minecraft.NetherNet{Signaling: signaling, Dialer: nethernet.Dialer{API: localNetherNetAPI(), AllowIdentitylessServer: true}},
 		clientData: func(client *login.ClientData) { client.Nonce = data.Nonce },

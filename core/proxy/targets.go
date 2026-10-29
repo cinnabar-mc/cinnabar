@@ -124,6 +124,7 @@ type resolvedUpstreamTarget struct {
 	local           interface{ Close() error }
 	offline         bool // explicit own-world offline login, never an authentication fallback
 	keylessFallback bool // own loopback BDS may admit an offline login when it has no service keys
+	hostOffline     bool // offline only because this host accepts no online login; transfers log in online
 	realm           bool // vanilla words a failed Realm join as its own
 }
 

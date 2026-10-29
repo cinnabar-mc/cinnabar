@@ -98,3 +98,23 @@ func TestResolveLANTargetJoinsRakNetDirectly(t *testing.T) {
 		t.Fatalf("target = %T %q, want RakNet at the world's address", target.network, target.address)
 	}
 }
+
+// A signed-in player logs into a self-signed-only LAN host offline, but a transfer from it logs in online.
+func TestLANHostOfflineLoginStaysOnTheHost(t *testing.T) {
+	account := authcache.NewAccount(t.Context(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil)
+	lan := &fakeLANWorlds{world: minecraft.LANWorld{NetherNet: true, NetworkID: 42, ServerData: discovery.ServerData{AcceptsSelfSignedAuth: true}}}
+	target, err := resolveLANTarget(t.Context(), "lan/42", lan, account)
+	if err != nil {
+		t.Fatalf("resolveLANTarget() error = %v", err)
+	}
+	if !target.offline {
+		t.Fatal("a self-signed-only host got an online login")
+	}
+	tokens := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "account"})
+	if hop := localHopDialer(target, target.address, minecraft.Dialer{}, tokens); hop.TokenSource != nil {
+		t.Fatal("the LAN host itself got an online login")
+	}
+	if hop := localHopDialer(target, "play.example.net:19132", minecraft.Dialer{}, tokens); hop.TokenSource == nil {
+		t.Fatal("a transfer from the LAN host kept the offline login")
+	}
+}
