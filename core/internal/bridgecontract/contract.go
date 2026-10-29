@@ -95,6 +95,8 @@ const (
 	RealmCodePrefix = "realm/"
 	// FriendTargetPrefix: Prefix for a friend world target.
 	FriendTargetPrefix = "friend_xuid/"
+	// LANTargetPrefix: Prefix for a LAN world target, followed by its NetherNet network ID or `raknet/` and its host:port.
+	LANTargetPrefix = "lan/"
 	// GatheringTargetPrefix: Prefix for an experience target.
 	GatheringTargetPrefix = "gathering/"
 	// NetherNetTargetPrefix: Prefix for a NetherNet signaling target.
@@ -147,6 +149,8 @@ const (
 	MethodLocalWorld = "local_world.v1"
 	// MethodWorldInvite: Control method for world invite.
 	MethodWorldInvite = "world_invite.v1"
+	// MethodLANWorlds: Control method for LAN worlds.
+	MethodLANWorlds = "lan_worlds.v1"
 	// RPCParseError: Control error code for parse error.
 	RPCParseError = -32700
 	// RPCInvalidRequest: Control error code for invalid request.
@@ -337,6 +341,8 @@ const (
 	TargetFriend = "friend"
 	// TargetGathering: Where the next client connection goes. Gathering.
 	TargetGathering = "gathering"
+	// TargetLAN: Where the next client connection goes. Lan.
+	TargetLAN = "lan"
 	// AuthOffline: Sign-in state of the core. Offline.
 	AuthOffline = "offline"
 	// AuthSignedOut: Sign-in state of the core. SignedOut.
@@ -429,6 +435,28 @@ type CinnabarPlayerUpdates struct {
 	OwnershipXUID string `json:"ownership_xuid"`
 	// OwnedCosmetics: Paid grants supplied by the account API database.
 	OwnedCosmetics []string `json:"owned_cosmetics"`
+}
+
+// LANWorld: One world found on the local network, as the Worlds tab lists it.
+type LANWorld struct {
+	// Address: Menu address that joins it: `lan/<network id>` over NetherNet, `lan/raknet/<host:port>` over RakNet.
+	Address string `json:"address"`
+	// Transport: `nethernet` or `raknet`, the transport that found it.
+	Transport string `json:"transport"`
+	// LevelName: World name.
+	LevelName string `json:"level_name"`
+	// ServerName: Host's name, usually its player name.
+	ServerName string `json:"server_name"`
+	// GameMode: Advertised game mode, such as Survival.
+	GameMode string `json:"game_mode"`
+	// Hardcore: Whether the world is hardcore.
+	Hardcore bool `json:"hardcore"`
+	// Players: Players in the world.
+	Players uint32 `json:"players"`
+	// MaxPlayers: Player limit.
+	MaxPlayers uint32 `json:"max_players"`
+	// Version: Game version the host advertises.
+	Version string `json:"version"`
 }
 
 // InboxCategories: Inbox category names in display order.

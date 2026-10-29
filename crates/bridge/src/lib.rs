@@ -20,9 +20,9 @@ pub use cinnabar_api::{
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub mod contract;
 pub use contract::{
-    AuthState, Backend, CinnabarRelease, ConnectStage, ConnectTarget, GameMode, Lifecycle,
-    MAX_FRAME_LEN, PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer, Transport,
-    WorldState,
+    AuthState, Backend, CinnabarRelease, ConnectStage, ConnectTarget, GameMode, LanWorld,
+    Lifecycle, MAX_FRAME_LEN, PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer,
+    Transport, WorldState,
 };
 #[cfg(not(target_arch = "wasm32"))]
 mod endpoint;
@@ -58,8 +58,8 @@ pub use account::{
     Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
     MessageImage, Profile, Realm, RealmMembership, ServerDisconnect, ServerPing, ServerTrustPrompt,
     account_status, answer_server_trust, connect_target, home, list_featured_servers,
-    list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
-    poll_events, profile, realm_membership, report_message_event, sign_out,
+    list_featured_servers_with_counts, list_friends, list_lan_worlds, list_people, list_realms,
+    ping_servers, poll_events, profile, realm_membership, report_message_event, sign_out,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use endpoint::listener::SessionListener;

@@ -44,6 +44,7 @@ const (
 	TargetRealm     = bridgecontract.TargetRealm
 	TargetFriend    = bridgecontract.TargetFriend
 	TargetGathering = bridgecontract.TargetGathering // an experience ID, joined when the connect is selected
+	TargetLAN       = bridgecontract.TargetLAN       // a listed NetherNet LAN world's network ID
 )
 
 var (
@@ -155,7 +156,7 @@ type emptyResultV1 struct {
 
 func isServiceMethod(method string) bool {
 	switch method {
-	case methodRealmMembership, methodRealmsList, methodFriendsList, methodFriendsPeople, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
+	case methodRealmMembership, methodRealmsList, methodFriendsList, methodFriendsPeople, methodLANWorlds, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
 		return true
 	}
 	return isScreenMethod(method)
@@ -334,6 +335,19 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			return failService(err)
 		}
 		return reply.ok(peopleResult(list))
+	case methodLANWorlds:
+		lan, supported := services.(LANServices)
+		if len(raw) != 0 {
+			return reply.invalid()
+		}
+		if !supported {
+			return reply.fail(codeServicesDisabled, "Launcher services unavailable")
+		}
+		worlds, err := lan.LANWorlds(ctx)
+		if err != nil {
+			return failService(err)
+		}
+		return reply.ok(lanWorldsResult(worlds))
 	case methodConnect:
 		var params struct {
 			Kind  *string `json:"kind"`
@@ -346,7 +360,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		switch *params.Kind {
-		case TargetRakNet, TargetRealm, TargetFriend, TargetGathering:
+		case TargetRakNet, TargetRealm, TargetFriend, TargetGathering, TargetLAN:
 		default:
 			return reply.fail(codeInvalidTarget, "Invalid target")
 		}

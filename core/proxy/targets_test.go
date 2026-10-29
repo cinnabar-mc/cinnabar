@@ -147,8 +147,8 @@ func dialIdentityListener(t *testing.T, dial func(scopedNetherNetNetwork, contex
 	var seen atomic.Value
 	listener, err := nethernet.ListenConfig{
 		Log: slog.New(slog.DiscardHandler),
-		VerifyClientToken: func(_ context.Context, token string) (*ecdsa.PublicKey, error) {
-			seen.Store(token)
+		VerifyClientIdentity: func(_ context.Context, identity *nethernet.RemoteIdentity) (*ecdsa.PublicKey, error) {
+			seen.Store(identity.Assertion.Token)
 			return nil, nil
 		},
 	}.Listen(server)

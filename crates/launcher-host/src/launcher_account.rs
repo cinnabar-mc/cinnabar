@@ -24,7 +24,7 @@ use launcher::menu::view::{
 };
 use launcher::menu::{
     auth::AuthState,
-    view::{MenuFriendCard, MenuRealmCard, MenuServerCard},
+    view::{MenuFriendCard, MenuLanCard, MenuRealmCard, MenuServerCard},
 };
 
 #[cfg(test)]
@@ -36,6 +36,7 @@ mod feeds;
 mod shared_players;
 use feeds::{CoreFeeds, catalog_round};
 mod invites;
+mod lan_worlds;
 mod message_reports;
 pub mod profile_worker;
 mod realm_membership;
@@ -91,6 +92,12 @@ struct Snapshot {
     profile: Option<Result<Profile, ()>>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
+    /// The Worlds tab shows, so the LAN worker lists the local network.
+    lan_visible: bool,
+    /// Wakes the LAN worker when the tab appears.
+    lan_wake: Option<Sender<()>>,
+    /// Delivered once per listing.
+    lan_worlds: Option<Vec<bridge::LanWorld>>,
     home: Option<Home>,
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
@@ -168,7 +175,9 @@ impl LauncherAccount {
         let (feed_wake, feed_changes) = bounded(1);
         let (home_wake, home_changes) = bounded(1);
         let (profile_refresh, profile_requests) = bounded(1);
+        let (lan_wake, lan_changes) = bounded(1);
         let snapshot = Arc::new(Mutex::new(Snapshot {
+            lan_wake: Some(lan_wake),
             catalog_wake: Some(catalog_wake),
             feed_wake: Some(feed_wake.clone()),
             home_wake: Some(home_wake.clone()),
@@ -200,6 +209,8 @@ impl LauncherAccount {
         let (art, wake) = (artwork.clone(), home_wake.clone());
         thread::spawn(move || feeds::poll_home(&dir, &art, wake, &shared, &until, &home_changes));
         let _ = shared_players::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
+        let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
+        thread::spawn(move || lan_worlds::poll(&dir, &shared, &until, &lan_changes));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || {
             profile_worker::poll(&dir, &artwork, &shared, &stop, &profile_requests)
@@ -768,6 +779,24 @@ impl AccountControl for LauncherAccount {
                 .as_ref()
                 .map(|friends| friends.iter().map(friend_card).collect())
         })
+    }
+
+    fn set_lan_worlds_visible(&mut self, visible: bool) {
+        self.with(|snapshot| {
+            if snapshot.lan_visible == visible {
+                return;
+            }
+            snapshot.lan_visible = visible;
+            snapshot.lan_worlds = None;
+            if let (true, Some(wake)) = (visible, &snapshot.lan_wake) {
+                let _ = wake.try_send(());
+            }
+        });
+    }
+
+    fn lan_worlds(&mut self) -> Option<Vec<MenuLanCard>> {
+        let worlds = self.with(|snapshot| snapshot.lan_worlds.take())?;
+        Some(worlds.iter().map(lan_worlds::lan_card).collect())
     }
 
     fn sign_out(&mut self) -> bool {

@@ -369,6 +369,11 @@ struct FriendsBody {
 }
 
 #[derive(Deserialize)]
+struct LanWorldsBody {
+    worlds: Vec<crate::contract::LanWorld>,
+}
+
+#[derive(Deserialize)]
 struct PeopleBody {
     friends: Vec<Person>,
 }
@@ -444,6 +449,15 @@ pub async fn list_friends(socket_dir: &Path) -> Result<Vec<Friend>, BridgeError>
     let body: FriendsBody =
         call::<_, ()>(socket_dir, crate::contract::METHOD_FRIENDS_LIST, None).await?;
     Ok(body.friends)
+}
+
+/// Lists the worlds found on the local network; it needs no account.
+pub async fn list_lan_worlds(
+    socket_dir: &Path,
+) -> Result<Vec<crate::contract::LanWorld>, BridgeError> {
+    let body: LanWorldsBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_LAN_WORLDS, None).await?;
+    Ok(body.worlds)
 }
 
 /// Lists the account's Xbox friends, online first.
@@ -612,6 +626,31 @@ mod tests {
             gathering.expect("encode"),
             serde_json::json!({"kind":"gathering","value":"e"})
         );
+        let lan = serde_json::to_value(ConnectTarget::Lan("12345".into()));
+        assert_eq!(
+            lan.expect("encode"),
+            serde_json::json!({"kind":"lan","value":"12345"})
+        );
+    }
+
+    /// The core's `lan_worlds.v1` rows decode from the fixture its Go test encodes.
+    #[test]
+    fn lan_worlds_decode_the_shared_fixture() {
+        let body: LanWorldsBody =
+            serde_json::from_str(include_str!("../data/lan-worlds.json")).expect("decode fixture");
+        assert_eq!(body.worlds.len(), 2);
+        let (nethernet, raknet) = (&body.worlds[0], &body.worlds[1]);
+        assert_eq!(nethernet.address, "lan/12345");
+        assert_eq!(nethernet.transport, "nethernet");
+        assert_eq!(nethernet.level_name, "LAN World");
+        assert_eq!(nethernet.server_name, "Host");
+        assert_eq!(nethernet.game_mode, "Creative");
+        assert_eq!((nethernet.players, nethernet.max_players), (1, 8));
+        assert!(!nethernet.hardcore);
+        assert_eq!(raknet.address, "lan/raknet/192.168.1.20:19132");
+        assert_eq!(raknet.transport, "raknet");
+        assert!(raknet.hardcore);
+        assert_eq!(raknet.version, "1.26.60");
     }
 
     #[test]

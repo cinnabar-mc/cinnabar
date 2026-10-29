@@ -56,6 +56,8 @@ func TestConnectMapsTargetsToProxySyntax(t *testing.T) {
 		{control.TargetRakNet, "[::1]:19132", "[::1]:19132"},
 		{control.TargetRealm, "12345", "realm_id/12345"},
 		{control.TargetFriend, "2535428000000000", "friend_xuid/2535428000000000"},
+		{control.TargetLAN, "12345", "lan/12345"},
+		{control.TargetLAN, "raknet/192.168.1.4:19132", "lan/raknet/192.168.1.4:19132"},
 	} {
 		if err := f.service.Connect(context.Background(), test.kind, test.value); err != nil {
 			t.Fatalf("Connect(%s, %q) = %v", test.kind, test.value, err)
@@ -72,7 +74,8 @@ func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
 	for _, test := range []struct{ kind, value string }{
 		{control.TargetRakNet, "no-port"}, {control.TargetRakNet, "host:0"}, {control.TargetRakNet, "host:99999"},
 		{control.TargetRakNet, "a b:1"}, {control.TargetRakNet, ":19132"}, {control.TargetRealm, "0"},
-		{control.TargetRealm, "abc"}, {control.TargetFriend, "gamertag"}, {"other", "x"},
+		{control.TargetRealm, "abc"}, {control.TargetFriend, "gamertag"}, {control.TargetLAN, "0"},
+		{control.TargetLAN, "host:19132"}, {"other", "x"},
 	} {
 		if err := f.service.Connect(context.Background(), test.kind, test.value); !errors.Is(err, control.ErrInvalidTarget) {
 			t.Fatalf("Connect(%s, %q) = %v, want invalid target", test.kind, test.value, err)
@@ -80,6 +83,17 @@ func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
 	}
 	if got, _ := f.selector.Target(); got != "keep.example:1" {
 		t.Fatalf("selection changed to %q", got)
+	}
+}
+
+// A LAN world joins without a Microsoft account, as RakNet servers do.
+func TestConnectSelectsLANWorldsSignedOut(t *testing.T) {
+	f := newFixture(t, nil)
+	if err := f.service.Connect(context.Background(), control.TargetLAN, "12345"); err != nil {
+		t.Fatalf("Connect(lan) signed out = %v", err)
+	}
+	if got, _ := f.selector.Target(); got != "lan/12345" {
+		t.Fatalf("selected %q, want lan/12345", got)
 	}
 }
 

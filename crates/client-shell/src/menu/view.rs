@@ -74,6 +74,7 @@ impl MenuRuntime {
             featured: self.featured.clone(),
             realms: self.realms.clone(),
             friends: self.friends.clone(),
+            lan_worlds: self.lan_worlds.clone(),
             featured_icon: None,
             realm_icon: None,
             friend_icon: None,

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "worlds": [
+    {"address": "lan/12345", "transport": "nethernet", "level_name": "LAN World", "server_name": "Host", "game_mode": "Creative", "hardcore": false, "players": 1, "max_players": 8, "version": "1.26.60"},
+    {"address": "lan/raknet/192.168.1.20:19132", "transport": "raknet", "level_name": "LAN World", "server_name": "Host", "game_mode": "Survival", "hardcore": true, "players": 0, "max_players": 10, "version": "1.26.60"}
+  ]
+}

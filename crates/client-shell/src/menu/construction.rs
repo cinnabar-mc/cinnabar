@@ -160,6 +160,7 @@ impl MenuRuntime {
             featured: initial.featured,
             realms: initial.realms,
             friends: initial.friends,
+            lan_worlds: Default::default(),
             catalog_message: initial.catalog_message,
             catalog_started: false,
             catalog: launcher_host::catalog::Catalog::new(layout.catalog_file(std::process::id())),

@@ -26,6 +26,7 @@ mod invite;
 mod join_requests;
 mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
+mod lan_worlds;
 pub mod launcher_account;
 mod launcher_core;
 mod minecraft_import;
@@ -65,7 +66,8 @@ pub use input::{HOTKEY_OPTIONS, drive_menu_input, drive_window_ime};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
-    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
+    JoinKind, LocalWorldCard, MenuFriendCard, MenuLanCard, MenuRealmCard, MenuServerCard,
+    SavedServer,
 };
 
 pub use account::SignInStatus;
@@ -161,6 +163,7 @@ pub struct MenuRuntime {
     featured: MenuList<MenuServerCard>,
     realms: MenuList<MenuRealmCard>,
     friends: MenuList<MenuFriendCard>,
+    lan_worlds: MenuList<MenuLanCard>,
     catalog_message: Option<String>,
     catalog_started: bool,
     catalog: launcher_host::catalog::Catalog,
@@ -489,7 +492,7 @@ impl MenuRuntime {
         if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
             return;
         }
-        if self.external_action(action) {
+        if self.external_action(action) || self.lan_action(action) {
             return;
         }
         if self.account_change_pending()
@@ -669,6 +672,7 @@ impl MenuRuntime {
                 }
                 self.dialog = None;
             }
+            MenuAction::PlayLan(_) => {} // `lan_action` joins it before this match.
             MenuAction::PlayFriend(index) => {
                 if let Some(friend) = self.friends.get(index) {
                     if friend.xuid.is_empty() {
