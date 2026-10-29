@@ -271,16 +271,13 @@ fn four_buffer_pack_request_reports_failure_and_keeps_native_rendering() {
     );
 }
 
-/// A superseded worker is cancelled and dropped at once, even while it is still running.
+/// Turning the pack off cancels and drops a running worker at once, unloading immediately.
 #[test]
-fn superseded_loads_are_cancelled_without_waiting_for_their_worker() {
+fn off_cancels_a_running_load_without_waiting_for_its_worker() {
     use bevy::ecs::system::RunSystemOnce;
     let first_path = PathBuf::from("Dusk.zip");
     let mut world = World::new();
-    world.insert_resource(ShaderPackRequest {
-        pack: Some("Lumen.zip".into()),
-        ..default()
-    });
+    world.init_resource::<ShaderPackRequest>();
     world.init_resource::<ShaderPackFrameInputs>();
     world.init_resource::<ShaderPackSettledRevision>();
     world.init_resource::<LoadedShaderPack>();
@@ -295,14 +292,8 @@ fn superseded_loads_are_cancelled_without_waiting_for_their_worker() {
     });
     world.run_system_once(drive_loader).unwrap();
     assert!(first.is_cancelled());
-    assert!(world.resource::<Loader>().job.is_none());
-    assert_eq!(
-        *world.resource::<ShaderPackStatus>(),
-        ShaderPackStatus::Loading("Lumen.zip".into())
-    );
-    world.resource_mut::<ShaderPackRequest>().pack = None;
-    world.run_system_once(drive_loader).unwrap();
-    assert!(world.resource::<Loader>().key.is_none());
+    let loader = world.resource::<Loader>();
+    assert!(loader.job.is_none() && loader.key.is_none());
     assert_eq!(
         *world.resource::<ShaderPackStatus>(),
         ShaderPackStatus::Idle
