@@ -1531,7 +1531,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   vanilla crosshair, effects, sidebar and hunger. With crosshair inversion disabled,
   icons-sheet artwork uses RGB-weighted coverage so opaque black backgrounds remain invisible;
   standalone cursor textures retain authored alpha. Offline captures cover contrasting backdrops;
-  in-world acceptance of this optional presentation override remains pending. Offline paint,
+  Linux Vulkan in-world captures verify both inversion modes with a resource-pack cursor.
+  Other platforms remain unverified for this optional presentation override. Offline paint,
   cache and benchmark regressions and ui-snapshot fixtures cover them; displayed-frame
   pacing and populated-world acceptance remain pending. Packet extensions now
   negotiate bounded detached-view and passive camera effects through the shared
