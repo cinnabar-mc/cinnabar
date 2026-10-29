@@ -160,3 +160,27 @@ fn fallback_notice_waits_for_an_open_dialog_to_close() {
     assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
     assert_eq!(view.message.as_deref(), Some("DX12 could not start"));
 }
+
+/// An exit written in `Last` before the exit systems, like the startup benchmark's, still cancels
+/// the pending presentation in that update, so the next launch does not exclude its backend.
+#[test]
+fn exit_written_before_the_exit_systems_cancels_in_the_same_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>();
+    install_guard(&mut app, guard);
+    app.add_systems(
+        Last,
+        (|mut exit: bevy::prelude::MessageWriter<AppExit>| {
+            exit.write(AppExit::Success);
+        })
+        .before(OnAppExitSystems),
+    );
+    app.update();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+}

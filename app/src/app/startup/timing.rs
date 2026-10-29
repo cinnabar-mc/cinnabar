@@ -30,7 +30,9 @@ pub(crate) fn install_first_frame_log(app: &mut App) {
                 log_first_frame,
                 log_presented_menu.run_if(report_pending),
             )
-                .chain(),
+                .chain()
+                // The benchmark exit must reach the exit systems that clear renderer recovery.
+                .before(bevy::app::OnAppExitSystems),
         );
 }
 
