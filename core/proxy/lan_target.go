@@ -2,9 +2,12 @@ package proxy
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -71,8 +74,26 @@ func resolveLANTarget(ctx context.Context, address string, lan LANWorlds, accoun
 	return &resolvedUpstreamTarget{
 		address: strconv.FormatUint(id, 10), local: releaseCloser(release), offline: offline,
 		hostOffline: offline && account != nil,
+		lanFallback: !offline && data.AcceptsSelfSignedAuth,
 		// LAN hosts answer without an SDP identity.
 		network:    minecraft.NetherNet{Signaling: signaling, Dialer: nethernet.Dialer{API: localNetherNetAPI(), AllowIdentitylessServer: true}},
 		clientData: func(client *login.ClientData) { client.Nonce = data.Nonce },
 	}, nil
+}
+
+// lanAuthNetwork records when an online LAN login has reached the transport, so a failure
+// before it is known to be the account's rather than the host's.
+type lanAuthNetwork struct {
+	minecraft.NetherNet
+	started atomic.Bool
+}
+
+func (n *lanAuthNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
+	n.started.Store(true)
+	return n.NetherNet.DialContext(ctx, address)
+}
+
+func (n *lanAuthNetwork) DialContextIdentityProvider(ctx context.Context, address, token string, key *ecdsa.PrivateKey, provider string) (net.Conn, error) {
+	n.started.Store(true)
+	return n.NetherNet.DialContextIdentityProvider(ctx, address, token, key, provider)
 }

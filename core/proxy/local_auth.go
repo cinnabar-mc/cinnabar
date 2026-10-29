@@ -50,7 +50,7 @@ func (n *localBDSAuthNetwork) DialContextIdentityProvider(ctx context.Context, a
 
 // localHopDialer confines a local retry's or a LAN host's offline identity to its original address.
 func localHopDialer(target *resolvedUpstreamTarget, address string, dialer minecraft.Dialer, account oauth2.TokenSource) minecraft.Dialer {
-	if (target.keylessFallback || target.hostOffline) && !strings.EqualFold(address, target.address) && dialer.TokenSource == nil && account != nil {
+	if (target.keylessFallback || target.hostOffline || target.lanFallback) && !strings.EqualFold(address, target.address) && dialer.TokenSource == nil && account != nil {
 		dialer.TokenSource = account
 		dialer.IdentityData = login.IdentityData{}
 	}

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -138,4 +139,45 @@ func TestRakNetLANJoinToASilentHostKeepsTheBudget(t *testing.T) {
 			t.Fatalf("dial err = %v, caller err = %v", err, ctx.Err())
 		}
 	})
+}
+
+// A signed-in join to a LAN host that also admits self-signed login retries self-signed when the
+// account cannot log in before the transport starts, and only then.
+func TestLANOnlineLoginFallsBackSelfSignedWhenAccountServicesFail(t *testing.T) {
+	account := authcache.NewAccount(t.Context(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil)
+	defer account.Close()
+	for _, tt := range []struct {
+		name         string
+		failure      error
+		wantAttempts int
+	}{
+		{name: "account services fail", failure: &localBDSLoginError{err: errors.New("no token"), beforeTransport: true}, wantAttempts: 2},
+		{name: "host refuses", failure: &localBDSLoginError{err: errors.New("refused"), beforeTransport: false}, wantAttempts: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			connections := newPreparedConnections("unused.invalid:19132", account, slog.New(slog.DiscardHandler))
+			defer connections.shutdown()
+			lan := &fakeLANWorlds{world: minecraft.LANWorld{NetherNet: true, NetworkID: 42, ServerData: discovery.ServerData{
+				AcceptsOnlineAuth: true, AcceptsSelfSignedAuth: true,
+			}}}
+			connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+				return resolveLANTarget(ctx, "lan/42", lan, account)
+			}
+			var online []bool
+			connections.dialTarget = func(_ context.Context, _ *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+				online = append(online, dialer.TokenSource != nil)
+				if len(online) == 1 {
+					return nil, tt.failure
+				}
+				return nil, errors.New("stop")
+			}
+			_, _ = connections.connect(t.Context(), dialerTestDownstream{
+				protocol: minecraft.DefaultProtocol,
+				identity: login.IdentityData{DisplayName: "Player", Identity: "player"},
+			})
+			if len(online) != tt.wantAttempts || !online[0] || (len(online) == 2 && online[1]) {
+				t.Fatalf("attempts online = %v, want %d attempts, online first", online, tt.wantAttempts)
+			}
+		})
+	}
 }
