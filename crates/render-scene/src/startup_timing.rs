@@ -267,6 +267,16 @@ pub fn current() -> Option<&'static StartupTiming> {
 
 /// Times one startup boundary for Tracy; on the launch thread its end is also a milestone.
 pub fn measure<T>(name: &'static str, work: impl FnOnce() -> T) -> T {
+    timed(name, true, work)
+}
+
+/// Totals repeated work under one stage name without making any occurrence a milestone.
+pub fn measure_repeated<T>(name: &'static str, work: impl FnOnce() -> T) -> T {
+    timed(name, false, work)
+}
+
+/// Records `work` under `name`, marking its end only for boundaries on the launch thread.
+fn timed<T>(name: &'static str, boundary: bool, work: impl FnOnce() -> T) -> T {
     let Some(timing) = current().filter(|timing| timing.is_recording()) else {
         return work();
     };
@@ -274,7 +284,7 @@ pub fn measure<T>(name: &'static str, work: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let result = work();
     timing.record(name, started.elapsed());
-    if std::thread::current().id() == timing.0.main_thread {
+    if boundary && std::thread::current().id() == timing.0.main_thread {
         timing.mark(name);
     }
     result

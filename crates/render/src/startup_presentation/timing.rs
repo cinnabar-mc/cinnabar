@@ -3,7 +3,8 @@
 use bevy::{
     prelude::*,
     render::{
-        Render, RenderApp, RenderSystems, render_resource::PipelineCache, renderer::render_system,
+        ExtractSchedule, Render, RenderApp, RenderSystems, render_resource::PipelineCache,
+        renderer::render_system,
     },
 };
 use render_scene::startup_timing::{self, RenderFrame};
@@ -21,7 +22,10 @@ pub(crate) fn install(app: &mut App) {
     let Some(render) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
-    render.init_resource::<FrameTiming>().add_systems(
+    render
+        .init_resource::<FrameTiming>()
+        .add_systems(ExtractSchedule, mark_extract.run_if(recording));
+    render.add_systems(
         Render,
         (
             begin.before(RenderSystems::ExtractCommands),
@@ -38,6 +42,13 @@ pub(crate) fn install(app: &mut App) {
         )
             .run_if(recording),
     );
+}
+
+/// The first extraction follows `RenderStartup`, so it bounds the render world's setup.
+fn mark_extract() {
+    if let Some(startup) = startup_timing::current() {
+        startup.mark("first_extract");
+    }
 }
 
 /// Starts the initial frame before asset preparation and view setup.

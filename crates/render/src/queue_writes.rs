@@ -85,7 +85,7 @@ impl ProfiledQueue for wgpu::Queue {
         layout: wgpu::TexelCopyBufferLayout,
         size: wgpu::Extent3d,
     ) {
-        render_scene::startup_timing::measure("texture_upload", || {
+        render_scene::startup_timing::measure_repeated("texture_upload", || {
             self.write_texture(texture, data, layout, size)
         });
         if let Some(timing) = render_scene::startup_timing::current()
