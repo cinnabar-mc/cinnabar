@@ -479,7 +479,8 @@ pub(crate) struct GeometryStage {
     pub layouts: [Option<wgpu::BindGroupLayout>; 4],
 }
 
-/// Builds every resolved draw's pipeline, calling `step` with what it builds before each.
+/// Builds every resolved draw's pipeline, calling `step` with what it builds before each and
+/// stopping with its error, such as a cancelled load.
 /// Terrain draws read a [`TerrainLayout::compact`] vertex holding what any terrain program
 /// reads. Draws whose program cannot bind terrain vertices, or whose pipeline the device
 /// rejects, are dropped (logged); without a solid terrain draw none remain, so the Vanilla
@@ -499,8 +500,8 @@ pub(crate) fn geometry_draws(
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
     shadow: &ShadowSlots,
     failures: &mut Vec<String>,
-    step: &mut dyn FnMut(&str),
-) -> Vec<GeometryDraw> {
+    step: &mut dyn FnMut(&str) -> Result<(), String>,
+) -> Result<Vec<GeometryDraw>, String> {
     let terrain_layout = TerrainLayout::compact(
         selected
             .iter()
@@ -518,7 +519,7 @@ pub(crate) fn geometry_draws(
     for (kind, selected) in selected {
         let stage = &stages[*selected];
         let program = &programs[stage.program];
-        step(&format!("building {} for {kind:?}", program.name));
+        step(&format!("building {} for {kind:?}", program.name))?;
         let target_format = |buffer: u32| -> Option<TextureFormat> {
             if kind.shadow() {
                 shadow
@@ -593,7 +594,7 @@ pub(crate) fn geometry_draws(
     if !complete_world(|kind| draws.iter().any(|draw| draw.kind == kind)) {
         draws.clear();
     }
-    draws
+    Ok(draws)
 }
 
 #[cfg(test)]

@@ -558,16 +558,18 @@ fn build_translation(
         let mut programs = Vec::with_capacity(all.len());
         // Per geometry program: its pipeline layout, vertex module and fragment stage.
         let mut geometry_stages = vec![];
-        // Programs, geometry draws, then host pipelines: each driver compile records a step.
+        // Programs, geometry draws, then host pipelines: each driver compile records a step,
+        // and a cancelled load stops before starting another.
         let steps = all.len() + selected_draws.len() + 1;
         let mut built = 0;
         let mut step = |label: &str| {
+            check_cancelled(progress)?;
             progress.record_built(built, steps, label);
             built += 1;
+            Ok(())
         };
         for (program, reflection) in all.iter().zip(&reflections) {
-            check_cancelled(progress)?;
-            step(&format!("building {}", program.program.name));
+            step(&format!("building {}", program.program.name))?;
             let bindings = resolve_bindings(
                 &mut constants,
                 program.program.group,
@@ -792,7 +794,7 @@ fn build_translation(
             &shadow_slots,
             &mut geometry_failures,
             &mut step,
-        );
+        )?;
         // `shadowtex0` can be the attachment itself unless a shadow program samples it while
         // the pass draws.
         let shadowtex0 = shadow_slots.depth[0]
@@ -841,7 +843,7 @@ fn build_translation(
                 .map(|program| (program.group, program.fullscreen_uniforms())),
             &custom_uniforms,
         );
-        step("building the host pipelines");
+        step("building the host pipelines")?;
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,

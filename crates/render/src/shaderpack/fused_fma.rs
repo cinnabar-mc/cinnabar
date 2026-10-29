@@ -3,7 +3,6 @@
 
 use super::pipelines::{GpuContext, RejectionScope};
 use std::{sync::mpsc, time::Duration};
-use wgpu::util::DeviceExt;
 
 /// Longest wait for each of the probe's GPU steps; a slower device keeps the software path.
 const PROBE_WAIT: Duration = Duration::from_secs(5);
@@ -57,39 +56,53 @@ pub(super) fn rounds_once(gpu: &GpuContext) -> bool {
 }
 
 /// Each probe operand with the device's `fma` result in its last word, or `None` when the
-/// device rejects the probe or does not answer in time.
+/// device rejects the probe, cannot allocate it or does not answer in time.
 fn probe(gpu: &GpuContext) -> Option<Vec<[u32; 4]>> {
     let samples = samples();
     let scope = RejectionScope::push(&gpu.device);
-    let module = gpu
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shader pack fma probe"),
-            source: wgpu::ShaderSource::Wgsl(PROBE.into()),
-        });
-    let pipeline = gpu
-        .device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("shader pack fma probe"),
-            layout: None,
-            module: &module,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
-    let buffer = gpu
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("shader pack fma probe"),
-            contents: bytemuck::cast_slice(&samples),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        });
-    let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("shader pack fma probe readback"),
-        size: buffer.size(),
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    let bytes: &[u8] = bytemuck::cast_slice(&samples);
+    let size = bytes.len() as u64;
+    let create = |label, usage| {
+        gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size,
+            usage,
+            mapped_at_creation: false,
+        })
+    };
+    let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
+    // Out-of-memory errors fall outside the rejection scope; failed objects are never used.
+    let (pipeline, buffer, readback) =
+        crate::gpu_allocation::checked(&render_device, "shader pack fma probe", 2 * size, || {
+            let module = gpu
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("shader pack fma probe"),
+                    source: wgpu::ShaderSource::Wgsl(PROBE.into()),
+                });
+            let pipeline = gpu
+                .device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("shader pack fma probe"),
+                    layout: None,
+                    module: &module,
+                    entry_point: Some("main"),
+                    compilation_options: Default::default(),
+                    cache: None,
+                });
+            let usage = wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC;
+            (
+                pipeline,
+                create("shader pack fma probe", usage),
+                create(
+                    "shader pack fma probe readback",
+                    wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                ),
+            )
+        })?;
+    gpu.queue.write_buffer(&buffer, 0, bytes);
     let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("shader pack fma probe"),
         layout: &pipeline.get_bind_group_layout(0),
@@ -168,8 +181,8 @@ mod tests {
         assert_eq!(rounds_once(&gpu), fused[0]);
     }
 
-    #[test]
-    fn a_device_that_cannot_answer_keeps_the_software_path() {
+    /// A context on the no-op backend, which runs no shader work.
+    fn noop_gpu() -> GpuContext {
         let (device, queue) = wgpu::Device::noop(&Default::default());
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::NOOP,
@@ -183,10 +196,23 @@ mod tests {
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
-        assert!(!rounds_once(&GpuContext {
+        GpuContext {
             device,
             queue,
             adapter,
-        }));
+        }
+    }
+
+    #[test]
+    fn a_device_that_cannot_answer_keeps_the_software_path() {
+        assert!(!rounds_once(&noop_gpu()));
+    }
+
+    #[test]
+    fn a_probe_without_memory_keeps_the_software_path() {
+        let _failing = crate::gpu_allocation::inject(|label, _| label == "shader pack fma probe");
+        let gpu = noop_gpu();
+        assert!(probe(&gpu).is_none());
+        assert!(!rounds_once(&gpu));
     }
 }
