@@ -15,6 +15,8 @@ pub struct Capability {
 }
 
 trait GrantValue {
+    /// Adds all authority from another value.
+    fn include(&mut self, other: &Self);
     /// Whether this field grants any authority.
     fn enabled(&self) -> bool;
     /// Whether this value includes all authority named by the request.
@@ -23,6 +25,9 @@ trait GrantValue {
     fn set(&mut self, enabled: bool, requested: Option<&Self>);
 }
 impl GrantValue for bool {
+    fn include(&mut self, other: &Self) {
+        *self |= *other;
+    }
     fn enabled(&self) -> bool {
         *self
     }
@@ -35,6 +40,9 @@ impl GrantValue for bool {
     }
 }
 impl GrantValue for Vec<String> {
+    fn include(&mut self, other: &Self) {
+        self.extend(other.iter().cloned());
+    }
     fn enabled(&self) -> bool {
         !self.is_empty()
     }
@@ -58,6 +66,10 @@ macro_rules! grants {
         #[serde(default, deny_unknown_fields)]
         pub struct ModGrants { $(#[doc = $doc] pub $field: $ty,)* }
         impl ModGrants {
+            /// Unions every declared capability for shared observations without changing host grants.
+            pub fn include(&mut self, other: &Self) {
+                $(GrantValue::include(&mut self.$field, &other.$field);)*
+            }
             /// Every optional capability, generated from the same fields as serialization.
             pub const CAPABILITIES: &'static [Capability] = &[$(Capability {
                 name: stringify!($field), description: $doc, label: $label, sensitive: $sensitive,
@@ -169,6 +181,19 @@ grants! {
 }
 
 impl ModGrants {
+    /// Whether current input-owned gameplay is needed to serve any granted capability.
+    pub fn needs_gameplay(&self) -> bool {
+        self.terrain
+            || self.players
+            || self.camera
+            || self.item_use
+            || self.movement
+            || self.interaction
+            || self.inventory
+            || self.entities
+            || !self.commands.is_empty()
+    }
+
     /// Keeps chunk bodies inline when any active mod has authority to read session packets.
     pub fn enables_upstream_client_cache<'a>(active: impl IntoIterator<Item = &'a Self>) -> bool {
         !active.into_iter().any(|grants| grants.packets)

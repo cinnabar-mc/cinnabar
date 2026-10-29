@@ -1001,3 +1001,64 @@ fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
         "unloading the last mode owner restores the player's settings"
     );
 }
+
+/// Dispatch retains inventory authority in both the shared sample and each guest's eligibility.
+#[test]
+fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let path = directory.path().join("inventory.wat");
+    std::fs::write(
+        &path,
+        include_str!("inventory_probe.wat")
+            .replace("$INVENTORY", &format!("{name}/inventory@{version}")),
+    )
+    .unwrap();
+    let mut runtime = load_set(vec![(
+        path,
+        ModGrants {
+            inventory: true,
+            ..Default::default()
+        },
+    )]);
+    let controls = ControlFrame {
+        focused: true,
+        ..mod_host::empty_controls()
+    };
+    runtime.begin_frame();
+    run_frame_callbacks(
+        &mut runtime,
+        FrameInput {
+            modules: None,
+            pressed: false,
+            controls: &controls,
+            previous_cues: &[],
+            player_state: None,
+            world_observation: None,
+            fps: None,
+            sidebar: None,
+            chat: &[],
+            chat_events: &[],
+            gameplay_facts: Default::default(),
+        },
+        |grants| {
+            assert!(grants.inventory);
+            assert!(grants.needs_gameplay());
+            (Some(snapshot()), Vec::new(), None)
+        },
+        |index, error| panic!("mod {index} failed: {error}"),
+    );
+    assert_eq!(
+        runtime.host_mut(0).take_inventory_requests(),
+        [mod_host::InventoryRequest::SwapOffhand {
+            session: snapshot().session,
+            slot: 20
+        }]
+    );
+}

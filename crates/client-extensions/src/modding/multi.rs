@@ -589,14 +589,7 @@ pub fn run_frame_callbacks(
         }
         active = true;
         let grants = host.grants();
-        union.terrain |= grants.terrain;
-        union.players |= grants.players;
-        union.camera |= grants.camera;
-        union.item_use |= grants.item_use;
-        union.movement |= grants.movement;
-        union.interaction |= grants.interaction;
-        union.entities |= grants.entities;
-        union.commands.extend(grants.commands.iter().cloned());
+        union.include(grants);
     }
     let (snapshot, mobs, movement) = if active {
         world(&union)
@@ -614,7 +607,7 @@ pub fn run_frame_callbacks(
         let grants = host.grants();
         let snapshot = snapshot
             .as_ref()
-            .filter(|_| needs_gameplay(grants))
+            .filter(|_| grants.needs_gameplay())
             .map(|frame| GameplaySnapshot {
                 players: if grants.players {
                     frame.players.clone()
@@ -688,18 +681,6 @@ pub fn collect_frame_outputs(runtime: &mut ModHosts) -> Merged {
         merged.absorb(host);
     }
     merged
-}
-
-/// Whether the host may receive the common gameplay pose and input snapshot.
-fn needs_gameplay(grants: &ModGrants) -> bool {
-    grants.terrain
-        || grants.players
-        || grants.camera
-        || grants.item_use
-        || grants.movement
-        || grants.interaction
-        || grants.entities
-        || !grants.commands.is_empty()
 }
 
 /// One frame's combined output; for single-valued outputs the earliest mod wins.
