@@ -49,6 +49,7 @@ mod native_passes;
 mod overlay_depth;
 mod passes;
 mod pipeline_cache;
+mod pipeline_workers;
 mod pipelines;
 mod plan;
 pub(crate) mod plugin;

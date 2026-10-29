@@ -764,7 +764,6 @@ fn build_translation(
             });
         }
         let shadow_slots = constants.shadow_slots();
-        check_cancelled(progress)?;
         let mut geometry_failures = vec![];
         let draws = geometry_draws(
             gpu,
@@ -776,8 +775,9 @@ fn build_translation(
             &effects,
             &buffer_formats,
             &shadow_slots,
+            progress,
             &mut geometry_failures,
-        );
+        )?;
         // `shadowtex0` can be the attachment itself unless a shadow program samples it while
         // the pass draws.
         let shadowtex0 = shadow_slots.depth[0]
