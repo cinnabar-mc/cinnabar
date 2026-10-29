@@ -60,6 +60,7 @@ mod item_use;
 mod loading;
 #[path = "masks.rs"]
 mod masks;
+mod permissions;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;

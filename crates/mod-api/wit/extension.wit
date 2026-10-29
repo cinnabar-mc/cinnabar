@@ -383,6 +383,15 @@ interface panel {
     read-layout: func() -> option<panel-layout>;
 }
 
+/// Read-only introspection of this instance's explicitly granted capabilities.
+/// Grants: None; querying does not change authority.
+interface permissions {
+    /// One named capability on this instance; granted does not describe command-name scope.
+    record permission { name: string, label: string, granted: bool }
+    /// Reads this instance's permission status, including denied capabilities, without a grant.
+    read: func() -> list<permission>;
+}
+
 /// Introspection of the running callback's own execution allowance. It reads no game state
 /// and grants no game capability, so it needs no grant.
 /// Grants: None; only the current callback allowance is exposed.
@@ -923,6 +932,7 @@ world extension {
     import settings;
     import render;
     import budget;
+    import permissions;
     import cinnabar:world-draw/drawing@0.2.0;
     /// Creates the initial retained UI state.
     export init: func();
