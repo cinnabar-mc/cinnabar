@@ -239,3 +239,27 @@ fn non_inverted_cursor_capture_leaves_opaque_black_texels_uncovered() {
         }
     }
 }
+
+#[test]
+fn named_cursor_capture_uses_the_requested_resource_pack() {
+    let pack = tempfile::tempdir().unwrap();
+    let path = pack
+        .path()
+        .join(assets::HudTextureRole::Crosshair.source_path());
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let [width, height] = assets::HUD_ICONS_SHEET_SIZE;
+    image::RgbaImage::from_pixel(width, height, image::Rgba([255u8; 4]))
+        .save(path)
+        .unwrap();
+    let state = fixtures::states()
+        .find(|s| s.name == "crosshair-coverage")
+        .unwrap();
+    let bytes =
+        render::png_at(state, std::path::Path::new("unused"), 1., Some(pack.path())).unwrap();
+    let image = image::load_from_memory(&bytes).unwrap().to_rgba8();
+    assert_eq!(
+        image.get_pixel(66, 80).0,
+        [255; 4],
+        "the pack's solid cursor replaces the built-in plus"
+    );
+}
