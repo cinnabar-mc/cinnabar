@@ -42,6 +42,9 @@ pub(crate) fn install(app: &mut App) {
 
 /// Starts the initial frame before asset preparation and view setup.
 fn begin(mut timing: ResMut<FrameTiming>) {
+    if let Some(startup) = startup_timing::current() {
+        startup.mark("first_render_start");
+    }
     timing.started = Some(Instant::now());
     timing.frame = RenderFrame::default();
 }
@@ -58,7 +61,14 @@ fn compile(mut timing: ResMut<FrameTiming>, mut cache: ResMut<PipelineCache>) {
     timing.frame.pipeline_and_shader_ms = start.elapsed().as_secs_f64() * 1000.0;
     timing.frame.pipelines = cache.pipelines().count();
     timing.frame.pending_pipelines = cache.waiting_pipelines().count();
-    for pipeline in cache.pipelines() {
+    let startup = startup_timing::current();
+    if let Some(startup) = startup
+        && timing.frame.pipelines > 0
+        && timing.frame.pending_pipelines == 0
+    {
+        startup.mark("pipelines_ready");
+    }
+    for (index, pipeline) in cache.pipelines().enumerate() {
         let label = match &pipeline.descriptor {
             bevy::render::render_resource::PipelineDescriptor::RenderPipelineDescriptor(
                 descriptor,
@@ -71,6 +81,13 @@ fn compile(mut timing: ResMut<FrameTiming>, mut cache: ResMut<PipelineCache>) {
             ) => descriptor.label.as_deref(),
         }
         .unwrap_or("unlabeled");
+        if let Some(startup) = startup {
+            let ready = matches!(
+                pipeline.state,
+                bevy::render::render_resource::CachedPipelineState::Ok(_)
+            );
+            startup.observe_pipeline(index, label, ready);
+        }
         *timing
             .frame
             .pipeline_labels
@@ -95,6 +112,7 @@ fn finish(mut timing: ResMut<FrameTiming>) {
         .take()
         .map_or(0.0, |start| start.elapsed().as_secs_f64() * 1000.0);
     if let Some(startup) = startup_timing::current() {
+        startup.mark("first_render_end");
         startup.frame(std::mem::take(&mut timing.frame));
     }
 }

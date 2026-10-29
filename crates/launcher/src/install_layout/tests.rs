@@ -132,7 +132,7 @@ fn isolated_user_root_rejects_relative_and_empty_paths() {
             assert!(matches!(
                 InstallLayout::resolve(platform, &env),
                 Err(LayoutError::InvalidUserRoot {
-                    variable: "CINNABAR_USER_ROOT",
+                    variable: render_api::USER_ROOT_ENV,
                     ..
                 })
             ));
