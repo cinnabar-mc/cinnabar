@@ -37,6 +37,7 @@ struct Options {
     carriers: Vec<&'static str>,
     carrier_dir: Option<PathBuf>,
     carrier_reset: Option<PathBuf>,
+    profile: Option<PathBuf>,
     args: Vec<String>,
     offscreen: bool,
 }
@@ -90,6 +91,7 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
         carriers: vec![WARM_CACHE],
         carrier_dir: None,
         carrier_reset: None,
+        profile: None,
         args: Vec::new(),
         offscreen: false,
     };
@@ -123,6 +125,7 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
             }
             "--carrier-dir" => options.carrier_dir = Some(value.into()),
             "--carrier-reset" => options.carrier_reset = Some(value.into()),
+            "--profile" => options.profile = Some(value.into()),
             "--budget-ms" => options.budget_ms = positive(value)?,
             "--cold-budget-ms" => options.cold_budget_ms = positive(value)?,
             "--endpoint" => {
@@ -156,6 +159,14 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
             "cold cache runs require --cold-reset on this platform",
         ));
     }
+    if options.profile.is_some()
+        && options.modes.contains(&COLD_CACHE)
+        && options.cold_reset.is_none()
+    {
+        return Err(error(
+            "cold cache runs with --profile require --cold-reset to clear that profile's caches",
+        ));
+    }
     if options.carriers.contains(&COLD_CACHE)
         && options.carrier_reset.is_none()
         && (!cfg!(target_os = "linux") || options.carrier_dir.is_none())
@@ -185,7 +196,11 @@ fn error(message: impl std::fmt::Display) -> DevtoolError {
 /// Launches one owned process and waits for its structured report and orderly exit.
 fn launch(options: &Options, cache: &Path) -> Result<Value, DevtoolError> {
     let mut command = Command::new(&options.client);
-    let profile = cache.join("profile");
+    // An installed client keeps its prepared carriers in its profile, so it names one to reuse.
+    let profile = options
+        .profile
+        .clone()
+        .unwrap_or_else(|| cache.join("profile"));
     std::fs::create_dir_all(&profile).map_err(error)?;
     command
         .args(&options.args)
@@ -668,6 +683,16 @@ mod tests {
         let mut carrier_reset = carriers.to_vec();
         carrier_reset.extend(["--carrier-reset".to_owned(), "reset-fixture".to_owned()]);
         assert!(parse(&carrier_reset).is_ok());
+        let profiled = [
+            "--profile".to_owned(),
+            "installed".to_owned(),
+            cold[0].clone(),
+            cold[1].clone(),
+        ];
+        assert!(parse(&profiled).is_err());
+        let mut profiled_reset = profiled.to_vec();
+        profiled_reset.extend(["--cold-reset".to_owned(), "reset-fixture".to_owned()]);
+        assert!(parse(&profiled_reset).is_ok());
         let mut carrier_dir = carriers.to_vec();
         carrier_dir.extend(["--carrier-dir".to_owned(), "assets".to_owned()]);
         assert_eq!(parse(&carrier_dir).is_ok(), cfg!(target_os = "linux"));
@@ -755,6 +780,32 @@ mod process_tests {
                 assert_eq!(result.unwrap()["menu_ms"], 7);
             }
         }
+    }
+
+    #[test]
+    fn a_named_profile_replaces_the_isolated_one() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("release-client-fixture");
+        let installed = directory.path().join("installed");
+        let report = serde_json::json!({"debug_assertions": false, "offscreen": false, "menu_ms": 7, "stages_ms": {}});
+        std::fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\ntouch \"${}/seen\"\nprintf '%s\\n' '{} {report}' >&2\n",
+                render_api::USER_ROOT_ENV,
+                render_api::STARTUP_TIMING_MARKER
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let options = Options {
+            client: executable,
+            profile: Some(installed.clone()),
+            ..parse(&[]).unwrap()
+        };
+        launch(&options, &directory.path().join("cache")).unwrap();
+        assert!(installed.join("seen").is_file());
+        assert!(!directory.path().join("cache/profile").exists());
     }
 }
 
