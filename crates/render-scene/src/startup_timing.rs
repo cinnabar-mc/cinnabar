@@ -80,6 +80,11 @@ impl StartupTiming {
         LAUNCH.get_or_init(|| Self::new(launched)).clone()
     }
 
+    /// An independent timeline that is not the process recorder, for render-world tests.
+    pub fn detached(launched: Instant) -> Self {
+        Self::new(launched)
+    }
+
     /// Creates an independent timeline so tests never change the process recorder.
     fn new(launched: Instant) -> Self {
         Self(Arc::new(Shared {

@@ -3,7 +3,7 @@
 #[path = "startup_presentation/engine.rs"]
 mod engine;
 #[path = "startup_presentation/timing.rs"]
-mod timing;
+pub(crate) mod timing;
 
 use bevy::{
     prelude::{
