@@ -569,6 +569,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             launch(&options, &warm)?;
         }
         for &carriers in &options.carriers {
+            if cache == COLD_CACHE && carriers == WARM_CACHE {
+                // Read the carriers once, unmeasured, in a directory no sample uses: cold runs
+                // otherwise start with whatever an earlier cold-carrier mode evicted.
+                launch(
+                    &options,
+                    &caches.path().join(format!("carrier-warmup-{cache}")),
+                )?;
+            }
             let mut samples = Vec::with_capacity(options.runs);
             for index in 0..options.runs {
                 let directory = if cache == WARM_CACHE {
@@ -788,6 +796,57 @@ mod process_tests {
                 assert_eq!(result.unwrap()["menu_ms"], 7);
             }
         }
+    }
+
+    #[test]
+    fn cold_cache_runs_with_warm_carriers_warm_them_outside_the_measured_caches() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("release-client-fixture");
+        let log = directory.path().join("launches.log");
+        let report = serde_json::json!({"debug_assertions": false, "offscreen": false, "menu_ms": 7, "stages_ms": {}});
+        std::fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$MESA_SHADER_CACHE_DIR\" >> '{}'\nprintf '%s\\n' '{} {report}' >&2\n",
+                log.display(),
+                render_api::STARTUP_TIMING_MARKER
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let out = directory.path().join("summary.json");
+        let args: Vec<String> = [
+            "--client",
+            executable.to_str().unwrap(),
+            "--cache",
+            COLD_CACHE,
+            "--runs",
+            "2",
+            "--cold-reset",
+            "/usr/bin/true",
+            "--cold-budget-ms",
+            "1000000",
+            "--out",
+            out.to_str().unwrap(),
+        ]
+        .map(String::from)
+        .into();
+        run(&args).unwrap();
+        let launches: Vec<String> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(String::from)
+            .collect();
+        assert_eq!(launches.len(), 3, "{launches:?}");
+        assert!(launches[0].contains("carrier-warmup"), "{launches:?}");
+        assert!(
+            launches[1..]
+                .iter()
+                .all(|dir| !dir.contains("carrier-warmup"))
+        );
+        assert_ne!(launches[1], launches[2]);
+        let summary: Summary = serde_json::from_slice(&std::fs::read(out).unwrap()).unwrap();
+        assert_eq!(summary.modes[0].samples.len(), 2);
     }
 
     #[test]
