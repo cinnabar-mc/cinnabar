@@ -305,9 +305,11 @@ pub(crate) fn load(
         software_fused_dot,
         purpose: shaderpack::worker::Purpose::Render,
     };
+    // The compiler's time limit covers only its own work, not the probe before it.
+    let compiling = std::time::Instant::now();
     let mut worker = shaderpack::worker::Running::start(compiler, &request)?;
     let compiled = loop {
-        if let Some(result) = worker.poll(started.elapsed(), progress.is_cancelled()) {
+        if let Some(result) = worker.poll(compiling.elapsed(), progress.is_cancelled()) {
             break result?.into_translation()?;
         }
         std::thread::park_timeout(std::time::Duration::from_millis(10));
