@@ -237,7 +237,8 @@ jobs:
       && (needs.changes.outputs.full == 'true'
         || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Cold builds compile workspace lints and native test binaries in the same job.
+    timeout-minutes: 90
     env:
       FULL: ${{ needs.changes.outputs.full }}
       AFFECTED: ${{ needs.preflight.outputs.names }}
