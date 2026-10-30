@@ -196,3 +196,85 @@ fn loop_shadowing_preserves_a_valid_shader() {
     );
     assert!(result.is_ok(), "{result:?}\n{glsl}");
 }
+
+/// Transforms one fragment stage and compiles it through naga.
+fn compile_fragment(text: &str) -> crate::compile::CompiledStage {
+    let mut iface = ProgramInterface::default();
+    let (stage, lines) = draft("composite.fsh", text, StageKind::Fragment, &mut iface);
+    let uniforms = merge_uniforms([&stage]).unwrap();
+    let (glsl, origins) = assemble(&stage, &uniforms, &iface.location_defines().unwrap());
+    let result = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    );
+    result.unwrap_or_else(|errors| panic!("{errors:?}\n{glsl}"))
+}
+
+#[test]
+fn words_reserved_after_the_source_version_stay_identifiers() {
+    // Eclipse's `#version 330 compatibility` composite1 names an SSAO sample vector `sample`.
+    for header in [
+        "#version 330 compatibility",
+        "#version 330 core",
+        "#version 330",
+    ] {
+        compile_fragment(&format!(
+            "{header}
+uniform float readonly;
+float buffer(float value) {{ return value * readonly; }}
+void main() {{
+    vec3 sample = vec3(0.5) * buffer(2.0);
+    gl_FragData[0] = vec4(sample + sample.x, 1.0);
+}}
+"
+        ));
+    }
+    // A program without `#version` is GLSL 1.10, where every word in the table is a name.
+    compile_fragment(
+        "float sample = 0.5;
+void main() { float shared = sample; gl_FragData[0] = vec4(shared); }
+",
+    );
+    const VERSIONS: [u32; 12] = [110, 120, 130, 140, 150, 330, 400, 410, 420, 430, 440, 450];
+    for &(word, since) in legacy::RESERVED_SINCE {
+        let version = VERSIONS
+            .iter()
+            .rev()
+            .find(|version| **version < since)
+            .unwrap();
+        compile_fragment(&format!(
+            "#version {version}
+void main() {{ float {word}[2] = float[2](0.25, 0.5); gl_FragData[0] = vec4({word}[1]); }}
+"
+        ));
+    }
+}
+
+#[test]
+fn a_sample_qualifier_stays_a_qualifier() {
+    // From GLSL 4.00, or with GL_ARB_gpu_shader5 before it, `sample` qualifies an input.
+    for header in [
+        "#version 400 compatibility",
+        "#version 330 compatibility\n#extension GL_ARB_gpu_shader5 : enable",
+    ] {
+        let compiled = compile_fragment(&format!(
+            "{header}
+sample in vec2 uv;
+void main() {{ gl_FragData[0] = vec4(uv, 0.0, 1.0); }}
+"
+        ));
+        let entry = &compiled.module.entry_points[0];
+        assert!(
+            entry
+                .function
+                .arguments
+                .iter()
+                .any(|argument| matches!(argument.binding, Some(naga::Binding::Location { .. }))),
+            "{header}: `uv` is not a stage input"
+        );
+    }
+}
