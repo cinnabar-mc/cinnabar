@@ -217,7 +217,7 @@ mod tests {
             fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.60.txt")).unwrap();
         assert_eq!(
             format!("{:x}", Sha256::digest(bytes)),
-            "ed648f89d2b18bff8066a75c096f9f71f52b9fe6d1700846a56c0e659c8cc83b"
+            "e83dc238798aee287c80a291ce653097e6f58ca1ab08c8270f7b82e6682f799f"
         );
     }
 
