@@ -180,6 +180,26 @@
           "z": -7
         },
         "power": 15
+      },
+      {
+        "type": "set_velocity",
+        "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+        "velocity": {
+          "x": 0.25,
+          "y": 0.5,
+          "z": -0.25
+        }
+      },
+      {
+        "type": "knock_back",
+        "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+        "source": {
+          "x": 11.5,
+          "y": 64.0,
+          "z": -7.5
+        },
+        "force": 0.4,
+        "height": 0.375
       }
     ]
   }

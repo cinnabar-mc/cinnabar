@@ -141,6 +141,9 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
         38 => tell(&contract::redstone(ctx, p)),
         // Server WIT 0.12: the actor's game mode.
         39 => tell(&contract::game_mode(ctx)),
+        // Server WIT 0.12: the actor's velocity, then a knockback away from the block.
+        41 => tell(&contract::set_velocity(ctx, player)),
+        42 => tell(&contract::knock_back(ctx, player, p)),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())
