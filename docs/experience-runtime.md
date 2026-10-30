@@ -223,6 +223,16 @@ allows rather than its type: `spectator` without collision, `creative` with the 
 inventory, `adventure` without world editing, and `survival` otherwise, so the local server's
 `/fly`, which lets a mode fly, reads as the mode it wraps.
 
+Server WIT 0.12's `callback.damage` deals damage, in health points, to the actor once the result
+commits, as vanilla damage applies: reduced by armour when the Experience asks, and always by the
+resistance effect, taken from absorption first, prevented by a held totem when lethal, skipped in
+game modes that take no damage, and within the hurt invulnerability window counting only what
+exceeds the last damage. Only the actor can be damaged (`denied` for another player,
+`player-unavailable` without an actor), the amount must be finite and at least zero
+(`out-of-bounds`), and a result holds at most one damage: a later call replaces the earlier. The
+adapter deals it as an `ExperienceDamageSource` naming the Experience, and rejects a result that
+damages anyone else, damages twice or carries an amount out of bounds as invalid.
+
 Server WIT 0.12 adds the `content-rules` export, which runs once after `register`:
 
 | Rule | Contract |
