@@ -560,6 +560,17 @@ interface gameplay {
     cancel-jump: func() -> result<_, string>;
     /// True holds the control as if its binding were held; false adds nothing to physical input.
     record movement-intents { sprint: bool, sneak: bool }
+    /// A resolved local control vector: right and forward axes are finite and bounded to -1..1.
+    /// Buttons add holds to physical controls; axes replace walking input for this frame.
+    record movement-input { right: f32, forward: f32, jump: bool, sneak: bool, sprint: bool }
+    /// Reads admitted controls before any mod output is applied. Requires movement authority.
+    /// None means focused gameplay does not own input.
+    read-movement-input: func() -> result<option<movement-input>, string>;
+    /// Replaces walking axes and supplies resolved button holds for one successful frame.
+    /// Requires movement authority and focused gameplay. Renew every frame; none restores input.
+    /// Sprint applies to the supplied direction; hunger, item use, collision, input locks and
+    /// server authority still apply. A complete vector belongs to the earliest supplying mod.
+    set-movement-input: func(input: option<movement-input>) -> result<_, string>;
     /// Renew every focused gameplay frame; omission releases both intents. Requires movement
     /// authority; server movement, hunger and item-use restrictions still apply.
     set-movement-intents: func(intents: option<movement-intents>) -> result<_, string>;

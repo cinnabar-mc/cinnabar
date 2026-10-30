@@ -6,6 +6,7 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         active: true,
         input_authority_released: false,
         resolved_movement: false,
+        movement_override: false,
         movement: [0.0, 1.0],
         raw_movement: [0.0, 1.0],
         analogue_movement: [0.0, 1.0],
@@ -554,4 +555,54 @@ fn a_held_sprint_into_a_wall_keeps_walk_speed_between_ticks() {
         }
     }
     assert!(ended_at_wall, "the wall never ended the held sprint");
+}
+
+/// Opt-in sprint changes admission and speed while preserving the player's movement lanes.
+#[test]
+fn movement_override_preserves_direction_and_releases_with_the_override() {
+    for direction in [[1.0, 0.0], [-1.0, 0.0], [0.0, -1.0], [0.8, -0.8], [0.0, 0.0]] {
+        let (mut physics, mut ticker) = walked_physics(0);
+        let mut locals = super::LocomotionState::default();
+        let mut speed = super::LocalMovementSpeedAuthority::default();
+        speed.begin_session(7, 0);
+        let walk_speed = 0.12_f32;
+        assert!(speed.apply(7, 1, 0, attribute(f64::from(walk_speed), walk_speed, None)));
+        let mut effects = super::LocalMovementEffectTimeline::default();
+        for enabled in [false, true, true, false] {
+            let mut frame = speed_frame(semantic_input::ActionPhase { held: true, ..Default::default() });
+            frame.resolved_movement = true;
+            frame.movement_override = enabled;
+            frame.movement = direction;
+            frame.raw_movement = direction;
+            frame.analogue_movement = direction;
+            assert!(locals.advance(frame, &mut physics, &mut ticker, &mut effects, &mut speed, &VersionedFloor(1)));
+            let sample = physics.sample_at(ticker.completed_tick()).unwrap();
+            assert_eq!(sample.processed.sprinting, enabled && direction != [0.0; 2], "{direction:?}, enabled={enabled}");
+            let expected_speed = if sample.processed.sprinting {
+                walk_speed * sim::SPRINT_SPEED_MULTIPLIER as f32
+            } else { walk_speed };
+            assert_eq!(speed.current(), Some(f64::from(expected_speed)));
+            assert_eq!(sample.move_vector[0].partial_cmp(&0.0), direction[0].partial_cmp(&0.0));
+            assert_eq!(sample.move_vector[1].partial_cmp(&0.0), direction[1].partial_cmp(&0.0));
+        }
+    }
+}
+
+/// Externally supplied controls retain hunger and item-use start restrictions.
+#[test]
+fn movement_override_keeps_ordinary_admission_restrictions() {
+    for item_use in [false, true] {
+        let (mut physics, mut ticker) = walked_physics(0);
+        let mut locals = super::LocomotionState::default();
+        let mut speed = super::LocalMovementSpeedAuthority::default();
+        let mut effects = super::LocalMovementEffectTimeline::default();
+        let mut frame = speed_frame(semantic_input::ActionPhase { held: true, ..Default::default() });
+        frame.resolved_movement = true;
+        frame.movement_override = true;
+        frame.movement = [0.0, -1.0];
+        frame.facts.sprint_blocked = !item_use;
+        frame.facts.sprint_start_blocked = item_use;
+        assert!(locals.advance(frame, &mut physics, &mut ticker, &mut effects, &mut speed, &VersionedFloor(1)));
+        assert!(!physics.sample_at(ticker.completed_tick()).unwrap().processed.sprinting);
+    }
 }

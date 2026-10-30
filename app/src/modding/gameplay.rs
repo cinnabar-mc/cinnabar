@@ -15,6 +15,7 @@ use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
     pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
+    pub(super) movement_override: Option<ResMut<'w, super::ModMovementInputActive>>,
     pub(super) control_modes: Option<ResMut<'w, super::ModControlModes>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
@@ -387,6 +388,22 @@ impl GameplayContext<'_> {
             })
         });
         mod_host::GameplayFacts {
+            movement_input: self
+                .input
+                .as_ref()
+                .filter(|_| input_owned)
+                .and_then(|input| {
+                    input
+                        .snapshot()
+                        .filter(|snapshot| !snapshot.authority_released)
+                        .map(|_| mod_host::GameplayMovementInput {
+                            right: input.movement()[0],
+                            forward: input.movement()[1],
+                            jump: input.phase(semantic_input::Action::Jump).held,
+                            sneak: input.phase(semantic_input::Action::Sneak).held,
+                            sprint: input.phase(semantic_input::Action::Sprint).held,
+                        })
+                }),
             camera,
             damage_shake: damage_shake
                 .map(|shake| mod_host::DamageShake {

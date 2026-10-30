@@ -121,6 +121,8 @@ pub(super) fn link(
                 })?;
             };
         }
+        forward!("read-movement-input", read_movement_input);
+        forward!("set-movement-input", set_movement_input, input: Option<gameplay::MovementInput>);
         forward!("cancel-jump", cancel_jump);
         forward!("pulse-jump", pulse_jump);
         forward!("set-movement-intents", set_movement_intents, intents: Option<gameplay::MovementIntents>);

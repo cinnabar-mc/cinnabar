@@ -899,6 +899,15 @@ impl Instance {
         self.last_fuel
     }
 
+    /// Returns the current successful callback's granted complete movement input.
+    pub(super) fn movement_input(&self) -> Option<crate::GameplayMovementInput> {
+        self.store
+            .data()
+            .world
+            .movement_input
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
+    }
+
     /// Returns only the movement intents committed by the current successful frame.
     pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
         self.store.data().world.movement_intents

@@ -166,6 +166,7 @@ pub(super) fn drive_mod(
         clear_touch_buttons(&mut presentation);
         gameplay.apply_movement_intents(None, false);
         gameplay.apply_control_modes(None);
+        gameplay.apply_movement_input(None, false, &ui);
         return;
     };
     if extension.suspended {
@@ -179,6 +180,7 @@ pub(super) fn drive_mod(
         gameplay.apply_native_input(None, &ui);
         gameplay.apply_movement_intents(None, false);
         gameplay.apply_control_modes(None);
+        gameplay.apply_movement_input(None, false, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
             if let Some(scene) = render_scene.as_deref_mut() {
@@ -481,6 +483,7 @@ pub(super) fn drive_mod(
     );
     gameplay.apply_movement_intents(merged.movement_intents, captured && !absorbed);
     gameplay.apply_control_modes(merged.control_modes);
+    gameplay.apply_movement_input(merged.movement_input, captured && !absorbed, &ui);
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
     if let Some(mut cues) = cues {
         cues.0 = merged.cues;

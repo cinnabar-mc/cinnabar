@@ -16,6 +16,9 @@ use mod_api::{
 /// Mob input, the retained rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
+    /// Complete movement input committed for one successful callback.
+    pub movement_input: Option<crate::GameplayMovementInput>,
+    pending_movement_input: Option<crate::GameplayMovementInput>,
     /// Sprint and sneak held for the current frame only.
     pub movement_intents: Option<GameplayMovementIntents>,
     pending_movement_intents: Option<GameplayMovementIntents>,
@@ -39,6 +42,8 @@ pub(super) struct WorldState {
 impl WorldState {
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
+        self.movement_input = None;
+        self.pending_movement_input = None;
         self.movement_intents = None;
         self.pending_movement_intents = None;
         self.control_modes = None;
@@ -62,6 +67,7 @@ impl WorldState {
     }
 
     pub fn commit(&mut self) {
+        self.movement_input = self.pending_movement_input.take();
         self.movement_intents = self.pending_movement_intents.take();
         self.control_modes = self.pending_control_modes.take();
         if let Some(rig) = self.pending_rig.take() {
@@ -199,6 +205,10 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
 /// Rejects non-finite client facts before any guest can read them.
 pub(super) fn validate_facts(facts: &GameplayFacts) -> Result<()> {
     ensure!(
+        facts.movement_input.is_none_or(valid_movement_input),
+        "invalid movement input axes"
+    );
+    ensure!(
         facts.camera.is_none_or(|camera| finite(&camera.position)
             && camera.yaw.is_finite()
             && camera.pitch.is_finite())
@@ -231,6 +241,42 @@ pub(super) fn validate_movement(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    /// Reads only the admitted input captured before mod output is applied.
+    fn read_movement_input(
+        &mut self,
+    ) -> Result<Result<Option<crate::GameplayMovementInput>, String>> {
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        let owned = self.controls.frame.focused
+            && self.controls.frame.gameplay
+            && !self.controls.frame.panel_open;
+        Ok(Ok(self.gameplay_facts.movement_input.filter(|_| owned)))
+    }
+
+    /// Stages a complete, bounded control vector; omission restores ordinary input.
+    fn set_movement_input(
+        &mut self,
+        input: Option<crate::GameplayMovementInput>,
+    ) -> Result<Result<(), String>> {
+        self.motion.write()?;
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if input.is_some()
+            && !(self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open)
+        {
+            return Ok(Err("movement input requires focused gameplay".into()));
+        }
+        if input.is_some_and(|input| !valid_movement_input(input)) {
+            return Ok(Err("movement axes must be finite and within -1..1".into()));
+        }
+        self.world.pending_movement_input = input;
+        Ok(Ok(()))
+    }
+
     /// Stages sprint and sneak holds for this focused gameplay frame; none releases both.
     fn set_movement_intents(
         &mut self,
@@ -477,3 +523,10 @@ pub(super) fn read_movement(
 #[cfg(test)]
 #[path = "gameplay_tests.rs"]
 mod tests;
+
+/// Accepts only bounded finite control lanes, including neutral and diagonal input.
+fn valid_movement_input(input: crate::GameplayMovementInput) -> bool {
+    [input.right, input.forward]
+        .iter()
+        .all(|axis| axis.is_finite() && (-1.0..=1.0).contains(axis))
+}

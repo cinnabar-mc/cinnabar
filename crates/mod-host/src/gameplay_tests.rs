@@ -84,6 +84,7 @@ fn camera_and_relayed_position_reads_follow_their_grants() {
         pitch: -0.25,
     };
     let facts = GameplayFacts {
+        movement_input: None,
         camera: Some(camera),
         damage_shake: None,
         relayed_position: Some(vector(4.0, 64.0, 6.0)),
@@ -537,4 +538,68 @@ fn movement_snapshot_rejects_nonfinite_or_foreign_authority() {
     ] {
         assert!(validate_movement(Some(&snapshot()), Some(&bad)).is_err());
     }
+}
+
+/// Complete control vectors are bounded, granted, staged atomically and renewed each frame.
+#[test]
+fn movement_input_is_bounded_granted_and_frame_scoped() {
+    let input = crate::GameplayMovementInput {
+        right: -0.5,
+        forward: 0.75,
+        jump: true,
+        sneak: false,
+        sprint: false,
+    };
+    let mut denied = state(ModGrants::default());
+    denied.controls.frame.focused = true;
+    denied.controls.frame.gameplay = true;
+    assert!(denied.set_movement_input(Some(input)).unwrap().is_err());
+    assert!(denied.read_movement_input().unwrap().is_err());
+    let mut state = state(ModGrants {
+        movement: true,
+        ..Default::default()
+    });
+    state.gameplay_facts.movement_input = Some(input);
+    assert!(state.set_movement_input(Some(input)).unwrap().is_err());
+    assert!(state.read_movement_input().unwrap().unwrap().is_none());
+    assert!(state.set_movement_input(None).unwrap().is_ok());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.controls.frame.panel_open = true;
+    assert!(state.set_movement_input(Some(input)).unwrap().is_err());
+    assert!(state.read_movement_input().unwrap().unwrap().is_none());
+    state.controls.frame.panel_open = false;
+    assert_eq!(state.read_movement_input().unwrap().unwrap(), Some(input));
+    for axis in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.01, 1.01] {
+        state.motion.begin_frame();
+        assert!(
+            state
+                .set_movement_input(Some(crate::GameplayMovementInput {
+                    right: axis,
+                    ..input
+                }))
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            state
+                .set_movement_input(Some(crate::GameplayMovementInput {
+                    forward: axis,
+                    ..input
+                }))
+                .unwrap()
+                .is_err()
+        );
+    }
+    state.set_movement_input(Some(input)).unwrap().unwrap();
+    assert!(state.world.movement_input.is_none());
+    state.world.commit();
+    assert_eq!(state.world.movement_input, Some(input));
+    state.world.begin_frame();
+    state.world.commit();
+    assert!(state.world.movement_input.is_none());
+    state.set_movement_input(Some(input)).unwrap().unwrap();
+    state.set_movement_input(None).unwrap().unwrap();
+    state.world.commit();
+    assert!(state.world.movement_input.is_none());
 }

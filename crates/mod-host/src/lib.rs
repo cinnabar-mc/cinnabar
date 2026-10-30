@@ -54,8 +54,8 @@ pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens}
 pub use runtime::cinnabar::extension::gameplay::{
     CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig,
     ControlModes as GameplayControlModes, Mob as GameplayMob,
-    MovementIntents as GameplayMovementIntents, Player as GameplayPlayer,
-    Vector3 as GameplayVector3,
+    MovementInput as GameplayMovementInput, MovementIntents as GameplayMovementIntents,
+    Player as GameplayPlayer, Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, ActorLife, Bounds as ActorObservationBounds,
@@ -87,6 +87,8 @@ pub use terrain::{
 /// import still checks its own grant and gameplay frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct GameplayFacts {
+    /// Admitted controls before any mod outputs, only while gameplay owns input.
+    pub movement_input: Option<GameplayMovementInput>,
     /// The presented camera pose, including third-person and rig offsets.
     pub camera: Option<GameplayCameraPose>,
     /// The full-strength native damage shake of the last presented view, in a connected world.

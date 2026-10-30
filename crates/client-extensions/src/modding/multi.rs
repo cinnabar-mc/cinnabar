@@ -686,6 +686,8 @@ pub fn collect_frame_outputs(runtime: &mut ModHosts) -> Merged {
 /// One frame's combined output; for single-valued outputs the earliest mod wins.
 #[derive(Default)]
 pub struct Merged {
+    /// The earliest active, granted mod supplies the complete control vector.
+    pub movement_input: Option<mod_host::GameplayMovementInput>,
     pub rig: Option<GameplayCameraRig>,
     pub preserve_teleport_rotation: bool,
     pub view_scale: Option<[f32; 2]>,
@@ -708,6 +710,7 @@ pub struct Merged {
 impl Merged {
     /// Consumes `host`'s committed output, in load order.
     pub fn absorb(&mut self, host: &mut ModHost) {
+        self.movement_input = self.movement_input.or(host.movement_input());
         self.jump_pulse |= host.take_jump_pulse();
         self.jump_cancel |= host.take_jump_cancel();
         if let Some(intents) = host.movement_intents() {

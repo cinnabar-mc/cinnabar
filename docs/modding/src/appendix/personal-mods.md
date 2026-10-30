@@ -285,3 +285,17 @@ Native-frame guests must be rebuilt with the current SDK, including guests using
 only the legacy `frame` callback. The version-one JSON payload now includes look,
 movement and elapsed-time fields; older strict decoders reject these added fields
 even though the version number is unchanged.
+
+### Movement input
+
+With the `movement` grant, `read_movement_input` returns admitted walking axes and
+jump, sneak and sprint holds before mod output is applied. `set_movement_input`
+accepts a complete replacement walking vector with additive button holds for
+input remapping and assisted controls. Both axes must be finite and within -1..1.
+The earliest active mod supplying a vector owns it for that frame.
+
+The host preserves camera direction and applies sprint to the supplied movement
+direction. Hunger, item-use, collision, input locks and server authority remain
+in force. The override only operates while focused gameplay owns walking input;
+passing `None`, omitting renewal or unloading restores ordinary controls. Older
+hosts cannot load components importing these operations.
