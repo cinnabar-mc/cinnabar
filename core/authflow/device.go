@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -60,11 +59,18 @@ func (e *deviceFailure) Error() string { return errDeviceAuthorization.Error() +
 
 func (e *deviceFailure) Is(target error) bool { return target == errDeviceAuthorization }
 
-// plainErrorCode matches the OAuth error codes providers send, which carry no account material.
-var plainErrorCode = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
+// standardErrorCodes are the OAuth token errors of RFC 6749 section 5.2, RFC 8628 section 3.5 and
+// OpenID Connect that may be logged; any other provider-controlled value is reduced to a marker.
+var standardErrorCodes = map[string]struct{}{
+	"access_denied": {}, "account_selection_required": {}, "authorization_pending": {},
+	"consent_required": {}, "expired_token": {}, "interaction_required": {}, "invalid_client": {},
+	"invalid_grant": {}, "invalid_request": {}, "invalid_scope": {}, "login_required": {},
+	"server_error": {}, "slow_down": {}, "temporarily_unavailable": {}, "unauthorized_client": {},
+	"unsupported_grant_type": {},
+}
 
 // failureReason classifies a device-flow request failure without keeping any provider text:
-// only the HTTP status, a plain OAuth error code and the kind of connection failure survive.
+// only the HTTP status, a standard OAuth error code and the kind of connection failure survive.
 func failureReason(err error) string {
 	var provider *oauth2.RetrieveError
 	var certificate *tls.CertificateVerificationError
@@ -86,20 +92,19 @@ func failureReason(err error) string {
 	}
 }
 
-// providerReason names a provider's answer by its status and, when plain, its OAuth error code.
+// providerReason names a provider's answer by its status and, when standard, its OAuth error code.
 func providerReason(provider *oauth2.RetrieveError) string {
 	reason := "http_unknown"
 	if provider.Response != nil {
 		reason = fmt.Sprintf("http_%d", provider.Response.StatusCode)
 	}
-	switch {
-	case provider.ErrorCode == "":
+	if provider.ErrorCode == "" {
 		return reason
-	case plainErrorCode.MatchString(provider.ErrorCode):
-		return reason + ":" + provider.ErrorCode
-	default:
-		return reason + ":unrecognized_code"
 	}
+	if _, standard := standardErrorCodes[provider.ErrorCode]; standard {
+		return reason + ":" + provider.ErrorCode
+	}
+	return reason + ":unrecognized_code"
 }
 
 // deviceCodeExpired distinguishes device expiry from unrelated caller timeouts without retaining provider details.
